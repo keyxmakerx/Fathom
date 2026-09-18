@@ -1,11 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
+import type { CatalogueModel } from '../../api/catalogue';
+import { placeChassis, createRack } from '../../document/commands';
+import { emptyDocument, formatNodeId, type Document } from '../../document/model';
+import { newUlid } from '../../document/ulid';
+import { viewOf } from '../../document/view';
 import type { ChassisView, ClosetView, PortView } from './contract';
 import { groupPortals } from './portals';
-import { isPanel, litPathFor, pairedPort } from './paths';
+import { isPanel, litPathFor, pairedPort, pairedPortFor } from './paths';
+
+const NOW = 1_700_000_000_000;
 
 function port(overrides: Partial<PortView> & Pick<PortView, 'id' | 'label'>): PortView {
-  return { connector: 'rj45', row: 0, column: 0, uplink: false, role: null, cable: null, face: 'front', ...overrides };
+  return {
+    connector: 'rj45',
+    row: 0,
+    column: 0,
+    uplink: false,
+    role: null,
+    cable: null,
+    face: 'front',
+    passThroughId: null,
+    ...overrides,
+  };
 }
 
 function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id'>): ChassisView {
@@ -30,6 +47,7 @@ function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id'>): Cha
         uplink: false,
         cable: null,
         face: 'front',
+        passThroughId: null,
         slot: 'PSU 0',
         role: null,
         serial: null,
@@ -43,6 +61,8 @@ function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id'>): Cha
     singleFed: false,
     oneFitted: false,
     ports: [],
+    placement: { kind: 'rack', rackId: 'rack-1', positionU: 1, face: 'front' },
+    sketch: false,
     ...overrides,
   };
 }
@@ -90,6 +110,99 @@ describe('pairedPort', () => {
   });
 });
 
+describe('pairedPortFor: ADR-0051 §1 — passThroughId first, the label/row guess only as a fallback', () => {
+  it('reads the real PassThrough edge view-wide when passThroughId is set', () => {
+    // `document/view.ts` sets the SAME edge id on both ports a `PassThrough`
+    // joins (it is symmetric) — never one port's own id, so both ports here
+    // carry the identical `passThroughId`, matching what `viewOf` emits.
+    const p = panel({
+      id: 'panel-1',
+      ports: [
+        port({ id: 'front-7', label: '7', row: 0, passThroughId: 'pass-through:1' }),
+        port({ id: 'rear-9', label: '9', row: 1, passThroughId: 'pass-through:1' }),
+      ],
+    });
+    const view: ClosetView = {
+      premisesId: 'closet-1',
+      rows: [],
+      surfaces: [],
+      cables: [],
+      racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [p] }],
+    };
+    expect(pairedPortFor(view, p, p.ports[0])?.id).toBe('rear-9');
+  });
+
+  it('falls back to the label/row guess only when passThroughId is null', () => {
+    const p = panel({
+      id: 'panel-1',
+      ports: [port({ id: 'front-7', label: '7', row: 0 }), port({ id: 'rear-7', label: '7', row: 1 })],
+    });
+    const view: ClosetView = {
+      premisesId: 'closet-1',
+      rows: [],
+      surfaces: [],
+      cables: [],
+      racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [p] }],
+    };
+    expect(pairedPortFor(view, p, p.ports[0])?.id).toBe('rear-7');
+  });
+
+  it('a passThroughId this view cannot locate stops the walk rather than guessing past it', () => {
+    const p = panel({
+      id: 'panel-1',
+      ports: [
+        port({ id: 'front-7', label: '7', row: 0, passThroughId: 'pass-through:nowhere' }),
+        port({ id: 'rear-7', label: '7', row: 1 }),
+      ],
+    });
+    const view: ClosetView = {
+      premisesId: 'closet-1',
+      rows: [],
+      surfaces: [],
+      cables: [],
+      racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [p] }],
+    };
+    expect(pairedPortFor(view, p, p.ports[0])).toBeUndefined();
+  });
+
+  it('resolves against what viewOf actually emits for a real PassThrough edge, not a hand-built id', () => {
+    // Drives the real document side (`document/commands.ts`'s `placeChassis`,
+    // `document/view.ts`'s `viewOf`) rather than a hand-built `ClosetView`,
+    // so this locks in the actual shape `passThroughId` carries — a
+    // `PassThrough` EDGE id shared by both ports, not either port's own id.
+    const premisesId = formatNodeId('Premises', newUlid(NOW));
+    const withPremises: Document = { ...emptyDocument(), nodes: [{ id: premisesId, existence: newUlid(NOW), fields: {} }] };
+    const withRack = createRack(withPremises, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const panelModel: CatalogueModel = {
+      vendor: 'vendor',
+      model: 'patch-panel',
+      rackUnits: 1,
+      reviewedBy: 'reviewer',
+      source: { cite: 'cite', readOn: '2026-09-14' },
+      psuSlots: [],
+      faceplates: [
+        { face: 'front', portCount: 1, ports: [{ kind: 'RJ45', number: 7, uplink: false, row: 'single', column: 0, groupGapBefore: false }] },
+        { face: 'rear', portCount: 1, ports: [{ kind: 'RJ45', number: 12, uplink: false, row: 'single', column: 0, groupGapBefore: false }] },
+      ],
+    };
+    const withChassis = placeChassis(withRack, rackId, { ...panelModel, form: 'panel' } as CatalogueModel & { form: string }, 10, 'front', { now: NOW });
+
+    const closet = viewOf(withChassis, [panelModel]);
+    const rack = closet.racks.find((r) => r.id === rackId)!;
+    const panel = rack.chassis[0];
+    const front = panel.ports.find((p) => p.face === 'front')!;
+    const rear = panel.ports.find((p) => p.face === 'rear')!;
+
+    // The producer's actual contract: an edge id, identical on both ports.
+    expect(front.passThroughId).not.toBeNull();
+    expect(front.passThroughId).toBe(rear.passThroughId);
+
+    expect(pairedPortFor(closet, panel, front)?.id).toBe(rear.id);
+    expect(pairedPortFor(closet, panel, rear)?.id).toBe(front.id);
+  });
+});
+
 /** Two hops: acc-01 -> patch-01 (front p7) | (rear p7) -> dist-01. */
 function twoHopView(): ClosetView {
   const accToPanel = 'cable-1';
@@ -112,7 +225,8 @@ function twoHopView(): ClosetView {
   return {
     premisesId: 'closet-1',
     rows: [],
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patch, dist] }],
+    surfaces: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch, dist] }],
     cables: [
       { id: accToPanel, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'panel-front-7', chassisId: 'patch-01', rackId: 'rack-1' }] },
       { id: panelToDist, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'panel-rear-7', chassisId: 'patch-01', rackId: 'rack-1' }, { portId: 'dist-port', chassisId: 'dist-01', rackId: 'rack-1' }] },
@@ -161,7 +275,8 @@ function threeHopView(): ClosetView {
   return {
     premisesId: 'closet-1',
     rows: [],
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patchA, patchB, core] }],
+    surfaces: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patchA, patchB, core] }],
     cables: [
       { id: c1, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'a-front-7', chassisId: 'patch-a', rackId: 'rack-1' }] },
       { id: c2, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'a-rear-7', chassisId: 'patch-a', rackId: 'rack-1' }, { portId: 'b-front-3', chassisId: 'patch-b', rackId: 'rack-1' }] },
@@ -199,7 +314,8 @@ function panelToPortalView(): { view: ClosetView; trayKey: string } {
   const view: ClosetView = {
     premisesId: 'closet-1',
     rows: [],
-    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, chassis: [acc, patch] }],
+    surfaces: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch] }],
     cables: [
       { id: c1, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'front-7', chassisId: 'patch-01', rackId: 'rack-1' }] },
       { id: c2, kind: 'fibre', media: 'om4', sheath: 'aqua', label: null, ends: [{ portId: 'rear-7', chassisId: 'patch-01', rackId: 'rack-1' }, { outside: true, label: 'up the riser → MDF A-01' }] },
@@ -222,5 +338,132 @@ describe('litPathFor: a panel hop that ends at a portal', () => {
     const path = litPathFor(view, 'cable-2', groupPortals(view));
     expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
     expect(path.trayKeys).toEqual([trayKey]);
+  });
+});
+
+/** ADR-0051 §1: two hops through an OUTLET BOX, paired by `passThroughId`
+ * rather than label/row — a wall outlet's own front (room-facing) jack
+ * PassThrough's its rear (cable-side) termination, exactly the "outlet"
+ * half of "a panel's or outlet's pairing is written as the schema's
+ * `PassThrough` edge at placement." `PassThrough` is `symmetric: true`
+ * (`schema/schema.yaml`), so `document/view.ts` sets the SAME edge id as
+ * `passThroughId` on BOTH ports (never each other's port id) — the fixture
+ * below does the same, so a walk started from either cable finds its way.
+ * The outlet box itself has empty `psuInlets` (`isPanel` true, same as a
+ * patch panel — it draws unpowered), but the walk no longer depends on
+ * that: `front-jack.passThroughId` and `rear-term.passThroughId` both name
+ * the same `PassThrough` edge, and `portByPassThroughId` finds the other
+ * port that carries it. desk-01 -> outlet-01 (front|rear, passThroughId) ->
+ * idf-sw-01. */
+function outletBoxView(): ClosetView {
+  const deskToOutlet = 'cable-1';
+  const outletToSwitch = 'cable-2';
+  const desk = chassis({
+    id: 'desk-01',
+    ports: [port({ id: 'desk-port', label: '1', cable: { cableId: deskToOutlet, farPortId: 'front-jack', farChassisId: 'outlet-01', outsideCloset: false } })],
+  });
+  const idfSwitch = chassis({
+    id: 'idf-sw-01',
+    ports: [port({ id: 'sw-port', label: '1', cable: { cableId: outletToSwitch, farPortId: 'rear-term', farChassisId: 'outlet-01', outsideCloset: false } })],
+  });
+  const outlet = panel({
+    id: 'outlet-01',
+    ports: [
+      port({
+        id: 'front-jack',
+        label: 'A',
+        row: 0,
+        passThroughId: 'pass-through:outlet-01',
+        cable: { cableId: deskToOutlet, farPortId: 'desk-port', farChassisId: 'desk-01', outsideCloset: false },
+      }),
+      port({
+        id: 'rear-term',
+        label: 'A-run',
+        row: 1,
+        passThroughId: 'pass-through:outlet-01',
+        cable: { cableId: outletToSwitch, farPortId: 'sw-port', farChassisId: 'idf-sw-01', outsideCloset: false },
+      }),
+    ],
+  });
+  return {
+    premisesId: 'closet-1',
+    rows: [],
+    surfaces: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [desk, outlet, idfSwitch] }],
+    cables: [
+      { id: deskToOutlet, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'desk-port', chassisId: 'desk-01', rackId: 'rack-1' }, { portId: 'front-jack', chassisId: 'outlet-01', rackId: 'rack-1' }] },
+      { id: outletToSwitch, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'rear-term', chassisId: 'outlet-01', rackId: 'rack-1' }, { portId: 'sw-port', chassisId: 'idf-sw-01', rackId: 'rack-1' }] },
+    ],
+  };
+}
+
+describe('litPathFor: two hops through an outlet box (passThroughId)', () => {
+  it('hovering the near cable lights both cables, in order', () => {
+    const path = litPathFor(outletBoxView(), 'cable-1', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
+  });
+
+  it('hovering the far cable lights the same path', () => {
+    const path = litPathFor(outletBoxView(), 'cable-2', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
+  });
+});
+
+/** ADR-0051 §1: two hops through a PANEL, paired by `passThroughId` — the
+ * same `twoHopView` shape as the label/row test above, but the panel's two
+ * ports now carry the real edge instead of matching by label, and their
+ * labels deliberately differ (`7` / `12`) so a pass would fail if the walk
+ * silently fell back to the old label guess. */
+function panelViaPassThroughView(): ClosetView {
+  const accToPanel = 'cable-1';
+  const panelToDist = 'cable-2';
+  const acc = chassis({
+    id: 'acc-01',
+    ports: [port({ id: 'acc-port', label: '1', cable: { cableId: accToPanel, farPortId: 'panel-front-7', farChassisId: 'patch-01', outsideCloset: false } })],
+  });
+  const dist = chassis({
+    id: 'dist-01',
+    ports: [port({ id: 'dist-port', label: '1', cable: { cableId: panelToDist, farPortId: 'panel-rear-12', farChassisId: 'patch-01', outsideCloset: false } })],
+  });
+  const patch = panel({
+    id: 'patch-01',
+    ports: [
+      port({
+        id: 'panel-front-7',
+        label: '7',
+        row: 0,
+        passThroughId: 'pass-through:patch-01',
+        cable: { cableId: accToPanel, farPortId: 'acc-port', farChassisId: 'acc-01', outsideCloset: false },
+      }),
+      port({
+        id: 'panel-rear-12',
+        label: '12',
+        row: 1,
+        passThroughId: 'pass-through:patch-01',
+        cable: { cableId: panelToDist, farPortId: 'dist-port', farChassisId: 'dist-01', outsideCloset: false },
+      }),
+    ],
+  });
+  return {
+    premisesId: 'closet-1',
+    rows: [],
+    surfaces: [],
+    racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch, dist] }],
+    cables: [
+      { id: accToPanel, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'acc-port', chassisId: 'acc-01', rackId: 'rack-1' }, { portId: 'panel-front-7', chassisId: 'patch-01', rackId: 'rack-1' }] },
+      { id: panelToDist, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'panel-rear-12', chassisId: 'patch-01', rackId: 'rack-1' }, { portId: 'dist-port', chassisId: 'dist-01', rackId: 'rack-1' }] },
+    ],
+  };
+}
+
+describe('litPathFor: two hops through a panel (passThroughId, differing labels)', () => {
+  it('hovering the near cable lights both cables, in order — the label pairing would have failed here', () => {
+    const path = litPathFor(panelViaPassThroughView(), 'cable-1', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
+  });
+
+  it('hovering the far cable lights the same path', () => {
+    const path = litPathFor(panelViaPassThroughView(), 'cable-2', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
   });
 });

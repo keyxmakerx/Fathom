@@ -1,0 +1,279 @@
+/* The shelf plate — `docs/decisions/adr-0051-shelves-surfaces-the-room-and-blueprints.md`
+   §1/§2, `docs/UI-SPEC.md` "Places · Shelf", `design/places/renders/Shelf.png`.
+   Every colour and rule below is a token from `design/tokens.css`, kept
+   deliberately parallel to `drawing.css`'s own `.drawing-chassis*`/
+   `.drawing-rack__free` rules (same hairline, same hatch, zero radius, no
+   shadows, per "Look") rather than inventing a second visual language for
+   one more box in the same rack. Structural pixel sizes (16px per U) are
+   `components/drawing/geometry.ts`'s `U_PX`, not a token, same reason
+   `drawing.css`'s own header gives. */
+
+.drawing-shelf {
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  display: flex;
+  flex-direction: column;
+  /* Unlike `.drawing-chassis`, this is NOT `overflow: hidden` — the
+     faceplate-stop inset (`.drawing-shelf__inset`) opens BESIDE the plate,
+     outside its own box, and must not be clipped by it. Only the compact
+     occupant strip (`.drawing-shelf__occupants`) clips its own content. */
+  overflow: visible;
+  position: relative;
+  font-family: var(--sans);
+  color: var(--ink);
+  user-select: none;
+  cursor: pointer;
+}
+
+.drawing-shelf--selected {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-inset);
+}
+
+.drawing-shelf__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s1);
+  padding: 0 4px;
+  min-height: 9px;
+  overflow: hidden;
+}
+
+.drawing-shelf__label {
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* UI-SPEC "Places · Shelf": "labelled with the shelf's label and 'SHELF
+   <height>U'" — the second half, muted like every other plate's own model
+   text (`.drawing-chassis__model`). */
+.drawing-shelf__height {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.drawing-shelf__occupants {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 1px;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--hairline);
+}
+
+/* One occupant, left to right by slot — UI-SPEC "Places · Shelf": "its
+   occupants as named boxes left to right by slot." Equal division of the
+   plate's own width, exactly the "one column per slot" the board draws;
+   `ChassisNode.tsx`'s own per-U pixel math has no analogue here since a
+   slot is not a fixed physical unit the way a U is. */
+.drawing-shelf__occupant {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 1px 3px;
+  border: none;
+  border-right: 1px solid var(--hairline);
+  background: var(--page);
+  appearance: none;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+}
+
+.drawing-shelf__occupant:last-child {
+  border-right: none;
+}
+
+.drawing-shelf__occupant--selected {
+  background: var(--surface);
+}
+
+.drawing-shelf__occupant:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -1px;
+}
+
+/* UI-SPEC "Places · Shelf": "Empty slots draw as hatched gaps the way free
+   units do" — the same hatch `.drawing-rack__free` uses. */
+.drawing-shelf__gap {
+  flex: 1 1 0;
+  min-width: 0;
+  background-image: var(--hatch);
+  border-right: 1px solid var(--hairline);
+}
+
+.drawing-shelf__gap:last-child {
+  border-right: none;
+}
+
+.drawing-shelf__occupant-header {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.drawing-shelf__occupant-label {
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-shelf__occupant-model {
+  font-size: var(--t-micro);
+  line-height: 1.2;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* UI-SPEC "Places · Shelf": "a dotted TYPED mark on a sketch." Provenance,
+   not risk — UI-SPEC "Look" reserves colour to error/warning/recommendation/
+   confirmation, so this is ink on a dotted hairline, never a wash, never a
+   risk colour. */
+.drawing-shelf__typed {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border: var(--rule-hair) dashed var(--muted);
+  padding: 0 3px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.drawing-shelf__glyph-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.drawing-shelf__port {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  cursor: pointer;
+}
+
+.drawing-shelf__port:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 1px;
+}
+
+/* Same three-classes-deep outranking trick `drawing.css`'s own
+   `.drawing-chassis__port--cabled` uses, so a shelf occupant's cabled port
+   takes its sheath colour regardless of stylesheet load order. */
+.drawing-shelf__port--cabled .port--cabled .port__body {
+  fill: var(--port-sheath, var(--ink));
+}
+
+.drawing-shelf__port-handle {
+  position: absolute !important;
+  inset: 0;
+  transform: none !important;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
+}
+
+.drawing-shelf__port-label {
+  font-size: var(--t-micro);
+  line-height: 1.2;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: var(--num-tabular);
+}
+
+/* The faceplate-stop inset — UI-SPEC "Places · Shelf": "an occupant opens
+   beside the shelf" / "Motion" #10. Positioned outside the plate's own box,
+   to its right, at the same `--surface-2` + hairline language `ColourPicker.tsx`'s
+   own popover uses (`drawing.css`'s own note on why: "deliberately parallel
+   to `shell.css`'s `.shell-popover*`") — a distinct box, never a floating
+   tooltip. Flow-space, not `position: fixed`: it scales and pans with the
+   same camera as the rest of the drawing (UI-SPEC "Motion" #10's own
+   point), never a second layer. */
+.drawing-shelf__inset {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  margin-left: 12px;
+  min-width: 160px;
+  max-width: 260px;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+  padding: var(--s1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  z-index: 20;
+}
+
+.drawing-shelf__inset--sketch {
+  border-style: dashed;
+}
+
+.drawing-shelf__inset-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s1);
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 2px;
+}
+
+.drawing-shelf__inset-label {
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-shelf__inset-model {
+  font-size: var(--t-micro);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-shelf__bundle-handle {
+  position: absolute !important;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

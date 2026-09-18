@@ -2,15 +2,38 @@ import { useEffect, useState, type CSSProperties, type KeyboardEvent, type React
 
 import '../../styles/drawing.css';
 import { DEVICE_ROLES } from '../../document/edit';
-import { ABSENT, UNNAMED_HOSTNAME, type ClosetView, type EditorActions, type Selection } from './contract';
+import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
+// `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
+// (frozen this session — that file's header: "the view re-exports stay"),
+// but they are `document/view.ts`'s own read-side shapes, the same ones
+// `ChassisView.placement` and `SurfaceView.fixtures` already carry
+// structurally; named here so the "PLACED ON" control (ADR-0051 §1, this
+// session's brief item 1) can walk a board's nested fixtures and build the
+// right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
+// this file still never reads or writes a `Document`.
+import type { FixtureView, Placement } from '../../document/view';
+import {
+  ABSENT,
+  UNNAMED_HOSTNAME,
+  type ClosetView,
+  type EditorActions,
+  type EditorChange,
+  type PaletteItem,
+  type PortView,
+  type Selection,
+} from './contract';
 import { findChassis, findPort, findRack } from './lookup';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
-// rule 3, "role's values are the enum, never a free string"). Nothing else
-// is imported from `document/`: this file never reads or writes a
-// `Document`, it only raises `EditorActions.onEdit` and waits for a new
-// `view` prop, the same contract `DrawingActions` already keeps.
+// rule 3, "role's values are the enum, never a free string"); `PORT_CONNECTOR_VALUES`/
+// `PORT_SERVICE_VALUES` (`document/compat.ts`) and `FixtureView`/`Placement`
+// (`document/view.ts`, type-only) are the same kind of import, added for
+// ADR-0051 §1's sketch-port and "PLACED ON" controls. Every one of these is
+// a vocabulary or a read-side shape, never a live `Document`: this file
+// still never reads or writes one, it only raises `EditorActions.onEdit`
+// and waits for a new `view` prop, the same contract `DrawingActions`
+// already keeps.
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -222,6 +245,500 @@ function TypedNote({ shown, extra }: { shown: boolean; extra?: string }) {
 const MANAGEMENT_ADDRESS_NOTE =
   'Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.';
 
+// ===========================================================================
+// ADR-0051 §1 — the "PLACED ON" control, a sketch's typed ports, and a
+// rack's "+ add a shelf" (this session's brief items 1–3). Each raises one
+// `EditorChange` (`contract.ts`) through `EditorActions.onEdit`, the same
+// `{ refused: string } | void` contract every existing action already uses
+// — a refusal shows beside the control with `CAUTION_STYLE`, the same wash
+// `EditableValue`/`SupplyAction` show theirs with. The literal-building part
+// of each is pulled out as its own pure function (`moveToRackChange` and
+// its siblings below) so the SHAPE of what gets raised is testable without
+// rendering or simulating a click — this project's tests have no DOM
+// environment to drive one (`Editor.render.test.ts`'s own header).
+
+/** ADR-0051 §1 — the "PLACED ON" control's own segmented-button look: a flat
+ * hairline box, the current choice filled ink, per UI-SPEC "zero radius, no
+ * shadows" — applied inline for the same reason `SELECTED_STYLE` above is
+ * (this file does not touch `drawing.css`). */
+const SEGMENT_ACTIVE_STYLE: CSSProperties = {
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  border: 'var(--rule-hair) solid var(--ink)',
+  padding: 'var(--s1) var(--s2)',
+  fontSize: 'var(--t-micro)',
+  cursor: 'default',
+};
+
+const SEGMENT_STYLE: CSSProperties = {
+  ...SEGMENT_ACTIVE_STYLE,
+  background: 'var(--surface)',
+  color: 'var(--ink)',
+  cursor: 'pointer',
+};
+
+/** The compact "TYPED" mark the Shelf board's editor prints beside every
+ * hand-typed port (`design/places/renders/Shelf.png`) — muted, bordered,
+ * never a risk colour (it names provenance, not a caution). */
+const TYPED_BADGE_STYLE: CSSProperties = {
+  display: 'inline-block',
+  fontSize: 'var(--t-micro)',
+  letterSpacing: 'var(--track-label)',
+  textTransform: 'uppercase',
+  color: 'var(--muted)',
+  border: 'var(--rule-hair) solid var(--muted)',
+  padding: '0 3px',
+  lineHeight: 1.4,
+};
+
+export function moveToRackChange(itemId: string, rackId: string, positionU: number, face: 'front' | 'rear' = 'front'): EditorChange {
+  return { kind: 'move-placement', itemId, placement: { kind: 'rack', rackId, positionU, face } };
+}
+
+export function moveToShelfChange(itemId: string, shelfId: string, slot: number): EditorChange {
+  return { kind: 'move-placement', itemId, placement: { kind: 'shelf', shelfId, slot } };
+}
+
+/** `target.kind` tells a board (`FixedTo` another `PassiveNode`) from a
+ * surface (`FixedTo` a `Surface`) — `view.ts`'s own `placementOf` reads the
+ * same distinction back off which kind of node `FixedTo.to` names. */
+export function moveToSurfaceChange(
+  itemId: string,
+  target: { id: string; kind: 'surface' | 'board' },
+  xMm: number | null,
+  yMm: number | null,
+): EditorChange {
+  return {
+    kind: 'move-placement',
+    itemId,
+    placement:
+      target.kind === 'board' ? { kind: 'board', boardId: target.id, xMm, yMm } : { kind: 'surface', surfaceId: target.id, xMm, yMm },
+  };
+}
+
+export function addSketchPortChange(
+  chassisId: string,
+  label: string,
+  connector: string,
+  service: string | null,
+  face: 'front' | 'rear',
+): EditorChange {
+  return { kind: 'add-sketch-port', chassisId, label, connector, service, face };
+}
+
+export function removeSketchPortChange(chassisId: string, portId: string): EditorChange {
+  return { kind: 'remove-sketch-port', chassisId, portId };
+}
+
+export function createShelfChange(rackId: string, positionU: number, model: { vendor: string; model: string } | null): EditorChange {
+  return { kind: 'create-shelf', rackId, positionU, model };
+}
+
+export function createSurfaceChange(premisesId: string, label: string, form: string): EditorChange {
+  return { kind: 'create-surface', premisesId, label, form };
+}
+
+/** Every shelf across every rack this view carries, each labelled with its
+ * own rack too — a shelf's id alone does not say where it is. */
+function shelfOptions(view: ClosetView): Array<{ id: string; label: string }> {
+  const out: Array<{ id: string; label: string }> = [];
+  for (const rack of view.racks) {
+    for (const shelf of rack.shelves) {
+      out.push({ id: shelf.id, label: `${shelf.label || shelf.id} · ${rack.label}` });
+    }
+  }
+  return out;
+}
+
+/** Every board nested under `fixtures`, at any depth — a board is itself a
+ * `FixtureView` (`PassiveNode.form === 'board'`) that carries its own nested
+ * `fixtures` (`view.ts`'s own doc on `FixtureView.fixtures`). */
+function collectBoards(fixtures: readonly FixtureView[], out: Array<{ id: string; label: string }>): void {
+  for (const f of fixtures) {
+    if (f.form === 'board') out.push({ id: f.id, label: f.label || f.id });
+    collectBoards(f.fixtures, out);
+  }
+}
+
+/** Every surface, and every board fixed to one, this view carries — the two
+ * kinds `movePlacement`'s own `'surface'`/`'board'` `Placement` distinguish
+ * (`moveToSurfaceChange` above), offered together because item 1's own
+ * contract asks for "a surface or board" as one choice. */
+function surfaceOptions(view: ClosetView): Array<{ id: string; label: string; kind: 'surface' | 'board' }> {
+  const out: Array<{ id: string; label: string; kind: 'surface' | 'board' }> = [];
+  for (const surface of view.surfaces) {
+    out.push({ id: surface.id, label: surface.label || surface.id, kind: 'surface' });
+    const boards: Array<{ id: string; label: string }> = [];
+    collectBoards(surface.fixtures, boards);
+    for (const b of boards) out.push({ id: b.id, label: `${b.label} (board)`, kind: 'board' });
+  }
+  return out;
+}
+
+interface PlacedOnControlProps {
+  itemId: string;
+  placement: Placement;
+  view: ClosetView;
+  actions: EditorActions;
+}
+
+/** ADR-0051 §1, this session's brief item 1 — "PLACED ON" as three choices,
+ * the current one marked; choosing another asks for what that place needs
+ * (a rack and a unit; a shelf and a slot; a surface or board and optional
+ * millimetres, per `design/places/renders/Shelf.png`'s own editor) and
+ * raises `moveToRackChange`/`moveToShelfChange`/`moveToSurfaceChange`
+ * through `actions.onEdit`. A refusal (an occupied slot, an unknown target,
+ * a range that does not fit) shows beside the control exactly as
+ * `EditableValue`'s does. */
+function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlProps) {
+  const [asking, setAsking] = useState<'rack' | 'shelf' | 'surface' | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [rackId, setRackId] = useState('');
+  const [positionU, setPositionU] = useState('1');
+  const [shelfId, setShelfId] = useState('');
+  const [slot, setSlot] = useState('0');
+  const [surfaceKey, setSurfaceKey] = useState('');
+  const [xMm, setXMm] = useState('');
+  const [yMm, setYMm] = useState('');
+
+  // The authoritative placement moved under us (a move applied elsewhere,
+  // or this is a fresh selection) — the same reset `EditableValue`'s own
+  // `useEffect` gives a stale refusal.
+  useEffect(() => {
+    setAsking(null);
+    setRefusal(null);
+  }, [itemId, placement.kind]);
+
+  const racks = view.racks;
+  const shelves = shelfOptions(view);
+  const surfaces = surfaceOptions(view);
+
+  function open(kind: 'rack' | 'shelf' | 'surface') {
+    setRefusal(null);
+    setAsking(kind);
+    if (kind === 'rack') {
+      setRackId(placement.kind === 'rack' ? placement.rackId : (racks[0]?.id ?? ''));
+      setPositionU(placement.kind === 'rack' ? String(placement.positionU) : '1');
+    } else if (kind === 'shelf') {
+      setShelfId(placement.kind === 'shelf' ? placement.shelfId : (shelves[0]?.id ?? ''));
+      setSlot(placement.kind === 'shelf' ? String(placement.slot) : '0');
+    } else {
+      const currentId = placement.kind === 'surface' ? placement.surfaceId : placement.kind === 'board' ? placement.boardId : undefined;
+      const current = surfaces.find((s) => s.id === currentId);
+      setSurfaceKey(current ? `${current.kind}:${current.id}` : (surfaces[0] ? `${surfaces[0].kind}:${surfaces[0].id}` : ''));
+      setXMm(placement.kind === 'surface' || placement.kind === 'board' ? (placement.xMm != null ? String(placement.xMm) : '') : '');
+      setYMm(placement.kind === 'surface' || placement.kind === 'board' ? (placement.yMm != null ? String(placement.yMm) : '') : '');
+    }
+  }
+
+  function commit(change: EditorChange) {
+    const result = actions.onEdit(change);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setAsking(null);
+  }
+
+  function commitRack() {
+    const u = Number(positionU);
+    if (!Number.isInteger(u) || u < 1) {
+      setRefusal('unit must be a whole number, 1 or more');
+      return;
+    }
+    if (rackId === '') {
+      setRefusal('choose a rack');
+      return;
+    }
+    commit(moveToRackChange(itemId, rackId, u));
+  }
+
+  function commitShelf() {
+    const s = Number(slot);
+    if (!Number.isInteger(s) || s < 0) {
+      setRefusal('slot must be a whole number, 0 or more');
+      return;
+    }
+    if (shelfId === '') {
+      setRefusal('choose a shelf');
+      return;
+    }
+    commit(moveToShelfChange(itemId, shelfId, s));
+  }
+
+  function commitSurface() {
+    if (surfaceKey === '') {
+      setRefusal('choose a surface or board');
+      return;
+    }
+    // `surfaceKey` is `${kind}:${id}` and `id` itself is `<kebab-kind>:<ulid>`
+    // (`document/model.ts`'s own `formatNodeId`) — split on the FIRST colon
+    // only, never `String.split(':')`, which would cut the id apart too.
+    const sep = surfaceKey.indexOf(':');
+    const kind = surfaceKey.slice(0, sep) as 'surface' | 'board';
+    const id = surfaceKey.slice(sep + 1);
+    const x = xMm.trim().length > 0 ? Number(xMm) : null;
+    const y = yMm.trim().length > 0 ? Number(yMm) : null;
+    // `FixedTo.x_mm`/`.y_mm` are schema `u32` (`document/commands.ts`'s
+    // `movePlacement`: `uint(placement.xMm, 32)`) — a non-integer or a
+    // negative value reaches `uint` and throws a bare `RangeError` there,
+    // which used to close this form as if the move had succeeded
+    // (`refusalFor` did not name it). Caught here instead, the same "whole
+    // number, 0 or more" shape `commitRack`'s unit and `commitShelf`'s slot
+    // already check.
+    const UINT32_MAX = 2 ** 32 - 1;
+    const inRange = (n: number) => Number.isInteger(n) && n >= 0 && n <= UINT32_MAX;
+    if ((x != null && !inRange(x)) || (y != null && !inRange(y))) {
+      setRefusal(`position must be a whole number, 0 to ${UINT32_MAX}, or left blank`);
+      return;
+    }
+    commit(moveToSurfaceChange(itemId, { id, kind }, x, y));
+  }
+
+  const CHOICES: ReadonlyArray<'rack' | 'shelf' | 'surface'> = ['rack', 'shelf', 'surface'];
+  const currentKind: 'rack' | 'shelf' | 'surface' | null =
+    placement.kind === 'rack' || placement.kind === 'shelf' ? placement.kind : placement.kind === 'surface' || placement.kind === 'board' ? 'surface' : null;
+
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Placed on</div>
+      <div style={{ display: 'flex', gap: 0 }}>
+        {CHOICES.map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            style={choice === currentKind ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE}
+            disabled={choice === currentKind}
+            onClick={() => open(choice)}
+          >
+            {choice === 'rack' ? 'Rack' : choice === 'shelf' ? 'Shelf' : 'Surface'}
+          </button>
+        ))}
+      </div>
+
+      {placement.kind === 'none' ? <Field label="Placed" value={ABSENT} /> : null}
+      {placement.kind === 'rack' ? <Field label="Unit" value={`U${placement.positionU}`} /> : null}
+      {placement.kind === 'shelf' ? <Field label="Slot" value={String(placement.slot)} /> : null}
+      {placement.kind === 'surface' || placement.kind === 'board' ? (
+        <Field
+          label="Position"
+          value={placement.xMm != null && placement.yMm != null ? `${placement.xMm}mm, ${placement.yMm}mm` : ABSENT}
+        />
+      ) : null}
+
+      {asking === 'rack' ? (
+        <div className="drawing-editor__field">
+          <select value={rackId} onChange={(e) => setRackId(e.target.value)}>
+            {racks.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <input placeholder="unit" value={positionU} onChange={(e) => setPositionU(e.target.value)} />
+          <button type="button" onClick={commitRack}>
+            move
+          </button>
+          <button type="button" onClick={() => setAsking(null)}>
+            cancel
+          </button>
+        </div>
+      ) : null}
+
+      {asking === 'shelf' ? (
+        <div className="drawing-editor__field">
+          <select value={shelfId} onChange={(e) => setShelfId(e.target.value)}>
+            {shelves.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <input placeholder="slot" value={slot} onChange={(e) => setSlot(e.target.value)} />
+          <button type="button" onClick={commitShelf}>
+            move
+          </button>
+          <button type="button" onClick={() => setAsking(null)}>
+            cancel
+          </button>
+        </div>
+      ) : null}
+
+      {asking === 'surface' ? (
+        <div className="drawing-editor__field">
+          <select value={surfaceKey} onChange={(e) => setSurfaceKey(e.target.value)}>
+            {surfaces.map((s) => (
+              <option key={`${s.kind}:${s.id}`} value={`${s.kind}:${s.id}`}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <input placeholder="x mm (optional)" value={xMm} onChange={(e) => setXMm(e.target.value)} />
+          <input placeholder="y mm (optional)" value={yMm} onChange={(e) => setYMm(e.target.value)} />
+          <button type="button" onClick={commitSurface}>
+            move
+          </button>
+          <button type="button" onClick={() => setAsking(null)}>
+            cancel
+          </button>
+        </div>
+      ) : null}
+
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
+/** ADR-0051 §1, brief item 2 — "+ add a port" on a sketch: label, connector
+ * (the schema's own `PhysicalPort.connector` enum, `document/compat.ts`'s
+ * `PORT_CONNECTOR_VALUES` — the same vocabulary `commands.ts`'s
+ * `addSketchPort` itself refuses outside of), service (its optional
+ * `PhysicalPort.service`, `PORT_SERVICE_VALUES`, blank means unset) and face. */
+function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions: EditorActions }) {
+  const [open, setIsOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [connector, setConnector] = useState<string>(PORT_CONNECTOR_VALUES[0]);
+  const [service, setService] = useState('');
+  const [face, setFace] = useState<'front' | 'rear'>('front');
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setIsOpen(true)}>
+        + add a port
+      </button>
+    );
+  }
+
+  function commit() {
+    const result = actions.onEdit(addSketchPortChange(chassisId, label, connector, service.length > 0 ? service : null, face));
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setIsOpen(false);
+    setLabel('');
+    setService('');
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <input placeholder="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <select value={connector} onChange={(e) => setConnector(e.target.value)}>
+        {PORT_CONNECTOR_VALUES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+      <select value={service} onChange={(e) => setService(e.target.value)}>
+        <option value="">{ABSENT}</option>
+        {PORT_SERVICE_VALUES.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+      <select value={face} onChange={(e) => setFace(e.target.value as 'front' | 'rear')}>
+        <option value="front">front</option>
+        <option value="rear">rear</option>
+      </select>
+      <button type="button" onClick={commit}>
+        add
+      </button>
+      <button type="button" onClick={() => setIsOpen(false)}>
+        cancel
+      </button>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
+/** ADR-0051 §1, brief item 2 — a sketch's own ports, each marked TYPED
+ * (`TYPED_BADGE_STYLE`) with a remove action, plus "+ add a port". A
+ * chassis WITH a catalogue model shows its ports read-only "as today" (the
+ * brief's own words) — this section is never rendered for one. */
+function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; ports: PortView[]; actions: EditorActions }) {
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Ports · typed by hand</div>
+      {ports.map((port) => (
+        <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
+          <span>{port.label || ABSENT}</span>
+          <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
+          <span style={TYPED_BADGE_STYLE}>typed</span>
+          <SupplyAction label="remove" onCommit={() => actions.onEdit(removeSketchPortChange(chassisId, port.id))} />
+        </div>
+      ))}
+      <AddSketchPortForm chassisId={chassisId} actions={actions} />
+    </div>
+  );
+}
+
+/** ADR-0051 §1, brief item 3 — a rack's own "+ add a shelf": a unit and an
+ * optional catalogue model drawn from the same list the palette itself
+ * offers (`racks/palette.ts`'s `paletteFromCatalogue`) — never a hard-coded
+ * list (BRIEF's own "no sample data in component source"). */
+function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catalogue: readonly PaletteItem[]; actions: EditorActions }) {
+  const [open, setIsOpen] = useState(false);
+  const [positionU, setPositionU] = useState('1');
+  const [modelKey, setModelKey] = useState('');
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setIsOpen(true)}>
+        + add a shelf
+      </button>
+    );
+  }
+
+  function commit() {
+    const u = Number(positionU);
+    if (!Number.isInteger(u) || u < 1) {
+      setRefusal('unit must be a whole number, 1 or more');
+      return;
+    }
+    let model: { vendor: string; model: string } | null = null;
+    if (modelKey !== '') {
+      const [vendor, ...rest] = modelKey.split('|');
+      model = { vendor, model: rest.join('|') };
+    }
+    const result = actions.onEdit(createShelfChange(rackId, u, model));
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setIsOpen(false);
+    setPositionU('1');
+    setModelKey('');
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <input placeholder="unit" value={positionU} onChange={(e) => setPositionU(e.target.value)} />
+      <select value={modelKey} onChange={(e) => setModelKey(e.target.value)}>
+        <option value="">no catalogue model</option>
+        {catalogue.map((item) => (
+          <option key={`${item.vendor}/${item.model}`} value={`${item.vendor}|${item.model}`}>
+            {item.vendor} {item.model} ({item.rackUnits}U)
+          </option>
+        ))}
+      </select>
+      <button type="button" onClick={commit}>
+        add
+      </button>
+      <button type="button" onClick={() => setIsOpen(false)}>
+        cancel
+      </button>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
 /**
  * The selected thing's fields, exactly as the shell's `editor` prop wants
  * them (`Shell.tsx`'s `editor: ReactNode | null`). The same function serves
@@ -229,7 +746,12 @@ const MANAGEMENT_ADDRESS_NOTE =
  * page — this file draws the fields and raises `actions.onEdit`; it never
  * reads or writes a `Document` itself.
  */
-export function EditorFor(selection: Selection | null, view: ClosetView, actions: EditorActions): ReactNode {
+export function EditorFor(
+  selection: Selection | null,
+  view: ClosetView,
+  actions: EditorActions,
+  catalogue: readonly PaletteItem[] = [],
+): ReactNode {
   if (selection == null) return null;
 
   if (selection.kind === 'rack') {
@@ -243,6 +765,7 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
         <Field label="Numbering" value={rack.unitNumbering} />
         <Field label="Used" value={`${usedU} of ${rack.heightU}U`} />
         <Field label="Devices" value={String(rack.chassis.length)} />
+        <Field label="Shelves" value={String(rack.shelves.length)} />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Row</div>
@@ -265,6 +788,10 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
           />
         </div>
         <TypedNote shown={rack.bay != null} />
+
+        {/* ADR-0051 §1, brief item 3 — "a rack's editor gains '+ add a
+            shelf'". */}
+        <AddShelfControl rackId={rack.id} catalogue={catalogue} actions={actions} />
       </div>
     );
   }
@@ -289,6 +816,14 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
         <TypedNote shown={chassis.hostname.length > 0} />
 
         <Field label="Model" value={chassis.model || ABSENT} />
+        {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
+            from ports typed by hand and says so." */}
+        {chassis.sketch ? (
+          <div style={TYPED_NOTE_STYLE}>
+            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
+            hand.
+          </div>
+        ) : null}
         <Field label="Vendor" value={chassis.vendor || ABSENT} />
         <Field label="Rack" value={`${rack.label} · ${uRange}`} />
         <Field label="Face" value={chassis.face} />
@@ -370,6 +905,15 @@ export function EditorFor(selection: Selection | null, view: ClosetView, actions
             {chassis.oneFitted ? <div style={CAUTION_STYLE}>One fitted: a slot is empty.</div> : null}
           </div>
         ) : null}
+
+        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+            each marked TYPED, with add/remove. A catalogued chassis keeps
+            its read-only "Ports" count above, unchanged. */}
+        {chassis.sketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
+
+        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+            current one marked. */}
+        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
       </div>
     );
   }

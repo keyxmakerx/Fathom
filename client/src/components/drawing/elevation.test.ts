@@ -1,11 +1,45 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, InletView, PortView } from './contract';
-import { faceplateItem, faceplateItems, powerLeadHandle, visibleFaceOf } from './elevation';
+import type { OccupantView, ShelfView } from '../../document/view';
+import {
+  faceplateItem,
+  faceplateItems,
+  powerLeadHandle,
+  shelfOccupantFaceplateItem,
+  shelfOccupantFaceplateItems,
+  visibleFaceOf,
+} from './elevation';
 import type { CameraStop } from './geometry';
 
 function port(overrides: Partial<PortView> & Pick<PortView, 'id' | 'face'>): PortView {
-  return { label: overrides.id, connector: 'rj45', row: 0, column: 0, uplink: false, role: null, cable: null, ...overrides };
+  return {
+    label: overrides.id,
+    connector: 'rj45',
+    row: 0,
+    column: 0,
+    uplink: false,
+    role: null,
+    cable: null,
+    passThroughId: null,
+    ...overrides,
+  };
+}
+
+function occupant(overrides: Partial<OccupantView> & Pick<OccupantView, 'id'>): OccupantView {
+  return {
+    kind: 'chassis',
+    label: overrides.id,
+    model: null,
+    slot: 1,
+    ports: [],
+    sketch: false,
+    ...overrides,
+  };
+}
+
+function shelf(overrides: Partial<ShelfView> & Pick<ShelfView, 'id'>): ShelfView {
+  return { label: overrides.id, positionU: 20, heightU: 2, occupants: [], ...overrides };
 }
 
 function inlet(overrides: Partial<InletView> & Pick<InletView, 'id' | 'face'>): InletView {
@@ -19,6 +53,7 @@ function inlet(overrides: Partial<InletView> & Pick<InletView, 'id' | 'face'>): 
     column: 0,
     uplink: false,
     cable: null,
+    passThroughId: null,
     slot: 'PSU 0',
     hotSwap: true,
     fitted: true,
@@ -43,6 +78,8 @@ function chassis(overrides: Partial<ChassisView> & Pick<ChassisView, 'id' | 'fac
     singleFed: false,
     oneFitted: false,
     ports: [],
+    placement: { kind: 'rack', rackId: 'rack-1', positionU: 1, face: 'front' },
+    sketch: false,
     ...overrides,
   };
 }
@@ -146,5 +183,47 @@ describe('powerLeadHandle: where a PSU inlet lead ends — s6f #1', () => {
         expect(['rail', 'anchor', 'inlet']).toContain(powerLeadHandle(elevation, stop));
       }
     }
+  });
+});
+
+describe('shelfOccupantFaceplateItem: a shelf occupant shows front and rear by the same rule as a chassis', () => {
+  it('keeps only the ports tagged with the visible face — front elevation', () => {
+    const o = occupant({
+      id: 'nuc-01',
+      ports: [port({ id: 'eth0', face: 'front' }), port({ id: 'psu', face: 'rear' })],
+    });
+    const item = shelfOccupantFaceplateItem(o, 'front');
+    expect(item.visibleFace).toBe('front');
+    expect(item.ports.map((p) => p.id)).toEqual(['eth0']);
+  });
+
+  it('keeps only the ports tagged with the visible face — rear elevation', () => {
+    const o = occupant({
+      id: 'nuc-01',
+      ports: [port({ id: 'eth0', face: 'front' }), port({ id: 'psu', face: 'rear' })],
+    });
+    const item = shelfOccupantFaceplateItem(o, 'rear');
+    expect(item.visibleFace).toBe('rear');
+    expect(item.ports.map((p) => p.id)).toEqual(['psu']);
+  });
+
+  it('an occupant with nothing on the visible face draws with an empty ports list, never a guess', () => {
+    const o = occupant({ id: 'ont-01', ports: [port({ id: 'lc', face: 'front' })] });
+    expect(shelfOccupantFaceplateItem(o, 'rear').ports).toEqual([]);
+  });
+});
+
+describe('shelfOccupantFaceplateItems: every occupant on the shelf, resolved for one elevation', () => {
+  it('resolves every occupant, in the shelf\'s own (slot) order', () => {
+    const s = shelf({
+      id: 'shelf-a01',
+      occupants: [
+        occupant({ id: 'nuc-01', slot: 1, ports: [port({ id: 'eth0', face: 'front' })] }),
+        occupant({ id: 'sw-desk-01', slot: 2, ports: [port({ id: 'p1', face: 'front' })] }),
+      ],
+    });
+    const items = shelfOccupantFaceplateItems(s, 'front');
+    expect(items.map((i) => i.occupant.id)).toEqual(['nuc-01', 'sw-desk-01']);
+    expect(items.every((i) => i.visibleFace === 'front')).toBe(true);
   });
 });

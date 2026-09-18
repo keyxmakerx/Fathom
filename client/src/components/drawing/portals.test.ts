@@ -7,6 +7,7 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
   return {
     premisesId: 'closet-1',
     rows: [],
+    surfaces: [],
     racks: [
       {
         id: 'rack-1',
@@ -16,6 +17,7 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
         freeRuns: [],
         row: null,
         bay: null,
+        shelves: [],
         chassis: [
           {
             id: 'chassis-top',
@@ -33,6 +35,8 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
             singleFed: false,
             oneFitted: false,
             ports: [],
+            placement: { kind: 'rack', rackId: 'rack-1', positionU: 40, face: 'front' },
+            sketch: false,
           },
           {
             id: 'chassis-bottom',
@@ -50,6 +54,8 @@ function view(overrides: Partial<ClosetView> = {}): ClosetView {
             singleFed: false,
             oneFitted: false,
             ports: [],
+            placement: { kind: 'rack', rackId: 'rack-1', positionU: 3, face: 'front' },
+            sketch: false,
           },
         ],
       },

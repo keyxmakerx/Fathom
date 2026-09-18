@@ -1,7 +1,17 @@
 // The contract the drawing renders: a `Document` (plus the catalogue, for
 // the facts the graph itself does not carry — a chassis's height in units
 // and its faceplate layout) reduced to one premises's racks, each rack's
-// mounted chassis, and each chassis's ports.
+// mounted chassis and shelves, each shelf's occupants, each surface's
+// fixtures, and every port's cabling.
+//
+// ADR-0051 §1 (schema 0.8) widens this from "racks of chassis" to "places":
+// a shelf takes U and seats occupants by slot (`SitsOn`); a surface (wall,
+// floor, desk, ceiling) holds fixtures at a measured or unmeasured position
+// (`FixedTo`); a board is itself a fixture that carries its own nested
+// fixtures. `Placement` below is the one union every placeable item (a
+// Chassis or a PassiveNode) reduces to, read off whichever of `MountedIn` /
+// `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
+// this module's write-side mirror: exactly one of the three survives.
 
 import { connectorTokenOf } from './compat';
 import type {
@@ -21,16 +31,35 @@ import {
   parseNodeId,
   readChassisFields,
   readDeviceFields,
+  readFixedToFields,
   readMountedInFields,
+  readPassiveNodeFields,
   readPhysicalPortFields,
   readPowerSupplyFields,
   readRackFields,
+  readSitsOnFields,
+  readSurfaceFields,
   type Document,
   type GraphEdge,
   type GraphNode,
 } from './model';
 
 export type { CableKind, Sheath };
+
+/** Where one placeable item (a Chassis or a PassiveNode) actually is,
+ * reduced from whichever of `MountedIn` / `SitsOn` / `FixedTo` is live for it
+ * (ADR-0051 §1). `'board'` is its own kind rather than folded into
+ * `'surface'`: a board is itself a `FixtureView` (nested under its own
+ * surface), so a thing `FixedTo` a board measures from the BOARD's edges,
+ * not the wall's (`FixedTo`'s own schema doc) — the drawing needs to tell
+ * the two apart to know which coordinate space `xMm`/`yMm` are in.
+ * `commands.ts`'s `movePlacement` takes this same type on the write side. */
+export type Placement =
+  | { kind: 'rack'; rackId: string; positionU: number; face: 'front' | 'rear' }
+  | { kind: 'shelf'; shelfId: string; slot: number }
+  | { kind: 'surface'; surfaceId: string; xMm: number | null; yMm: number | null }
+  | { kind: 'board'; boardId: string; xMm: number | null; yMm: number | null }
+  | { kind: 'none' };
 
 /** The far end of the cable filling a port, or `null` when the port is
  * free. `farPortId`/`farChassisId` are `null` when the far end is an
@@ -52,7 +81,14 @@ export interface CableEndView {
  * still says `face: 'front'` here; it is the rack elevation, not this port
  * grouping, that decides which faceplate a viewer is looking at at any given
  * moment (ADR-0050 §1: "the rear faceplate of a front-mounted chassis, the
- * front faceplate of a rear-mounted one"). */
+ * front faceplate of a rear-mounted one").
+ *
+ * ADR-0051 §1: `face` now reads `PhysicalPort.face` FIRST when the document
+ * itself asserts one (`commands.ts`'s `placeChassis` and `addSketchPort`
+ * both write it), falls back to the catalogue faceplate's own face when a
+ * match is found (the rule this session's predecessor used exclusively),
+ * and defaults to `'front'` when neither is available — never the chassis's
+ * own mounting face, which is a fact about the RACK, not the port. */
 export interface PortView {
   id: string;
   label: string;
@@ -67,13 +103,19 @@ export interface PortView {
    * (`role === 'uplink'`), the catalogue's own `uplink` bit otherwise. */
   role: 'access' | 'uplink' | 'management' | 'console' | null;
   face: 'front' | 'rear';
+  /** ADR-0051 §1 — the id of the live `PassThrough` edge this port carries
+   * ("these two holes are the same hole", `schema/schema.yaml`'s own doc),
+   * `null` when this port passes nothing through. Degree above one (a
+   * fan-out) is a real shape the schema allows; this is simply the first
+   * live one found — the drawing's own rendering rule, not this view's. */
+  passThroughId: string | null;
   cable: CableEndView | null;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
- * entry with whatever this document has fitted there. `position`/`hotSwap`/
- * `face` are the catalogue's, never guessed: a chassis with no matching
- * catalogue model draws no `InletView`s at all rather than invent them
+ * entry with whatever this document has fitted there. `position`/`hotSwap`
+ * are the catalogue's, never guessed: a chassis with no matching catalogue
+ * model draws no `InletView`s at all rather than invent them
  * (`psuInletsOf` below). */
 export interface InletView extends PortView {
   slot: string;
@@ -128,6 +170,19 @@ export interface ChassisView {
   /** ADR-0050 §4: true when this chassis has two or more PSU slots and at
    * least one of them is empty (no live supply fitted). */
   oneFitted: boolean;
+  /** ADR-0051 §1 — where this chassis actually is: mounted in a rack, sat on
+   * a shelf, fixed to a surface or a board, or `{ kind: 'none' }` when
+   * nothing has placed it yet. A chassis reached through `RackView.chassis`
+   * always has `kind: 'rack'`; one reached through `ShelfView.occupants` or
+   * `SurfaceView.fixtures`/`FixtureView.fixtures` carries the matching
+   * `'shelf'` / `'surface'` / `'board'` kind — this field is what lets the
+   * editor draw the SAME chassis inspector regardless of which of the three
+   * it opened it from. */
+  placement: Placement;
+  /** ADR-0051 §1 — true when this chassis has no catalogue model
+   * (`Chassis.model` absent) and at least one port: its ports were typed by
+   * hand (`commands.ts`'s `addSketchPort`), not read off a faceplate. */
+  sketch: boolean;
 }
 
 export interface RackView {
@@ -136,12 +191,82 @@ export interface RackView {
   heightU: number;
   unitNumbering: string;
   chassis: ChassisView[];
+  /** ADR-0051 §1 — every shelf `MountedIn` this rack, each with its own
+   * occupants. A shelf is NOT also counted in `chassis` above (`rackView`
+   * below splits `MountedIn`'s occupants by the mounted node's own kind). */
+  shelves: ShelfView[];
   freeRuns: Array<{ fromU: number; toU: number }>;
   /** ADR-0050 §2 — `Rack.row`/`Rack.bay`, `null` when unset (a rack recorded
    * before its closet stop existed, or one whose row/bay nobody has typed
    * yet). */
   row: string | null;
   bay: number | null;
+}
+
+/** ADR-0051 §1 — one item `SitsOn` a shelf: a mini PC, a desktop switch, an
+ * ONT, any `Chassis` or `PassiveNode`. */
+export interface OccupantView {
+  id: string;
+  kind: 'chassis' | 'passive';
+  label: string;
+  model: string | null;
+  slot: number;
+  ports: PortView[];
+  /** True when this occupant has no catalogue model and at least one port
+   * (the same rule `ChassisView.sketch` uses, generalised to a passive
+   * occupant too — a splitter or panel someone has drawn by hand). */
+  sketch: boolean;
+}
+
+/** ADR-0051 §1 — a passive that takes U in place of a device's own; what
+ * sits on it takes a slot rather than a unit (`SitsOn.slot`'s own schema
+ * doc). */
+export interface ShelfView {
+  id: string;
+  label: string;
+  positionU: number;
+  heightU: number;
+  /** Sorted by `slot` ascending — left to right, the same order the shelf's
+   * own render reads them (`design/places/renders/Shelf.png`). */
+  occupants: OccupantView[];
+}
+
+/** ADR-0051 §1 — one item `FixedTo` a surface or a board: a floor-standing
+ * UPS, an ONT screwed to a wall, an outlet block, a backboard itself (which
+ * then carries its own nested `fixtures`). */
+export interface FixtureView {
+  id: string;
+  kind: 'chassis' | 'passive';
+  label: string;
+  model: string | null;
+  /** `PassiveNode.form` (e.g. `'outlet'`, `'board'`) for a passive fixture;
+   * `null` for a chassis fixture — `Chassis` carries no `form` field. */
+  form: string | null;
+  /** `FixedTo.x_mm`/`.y_mm` — `null` when the position has not been
+   * measured yet (`schema/schema.yaml`'s own doc on why both are `0..1`), a
+   * true fact rather than a missing one. */
+  xMm: number | null;
+  yMm: number | null;
+  ports: PortView[];
+  /** A fixture's own power inlets and cables, drawn exactly like a rack
+   * chassis's own (ADR-0050 §3/§4) — a floor-standing UPS needs this as much
+   * as a rack-mounted one does. Empty for a passive fixture (a splitter, an
+   * outlet block) — PSU slots are a chassis concept. */
+  psuInlets: InletView[];
+  /** A board's own occupants (`FixedTo` the board rather than the wall) —
+   * empty for anything that is not itself a board. */
+  fixtures: FixtureView[];
+}
+
+/** ADR-0051 §1 — a wall, floor, desk or ceiling a device or passive can be
+ * `FixedTo`, drawn like a rack's elevation: flat, no rear, no flip. */
+export interface SurfaceView {
+  id: string;
+  label: string;
+  form: 'wall' | 'floor' | 'desk' | 'ceiling';
+  widthMm: number | null;
+  heightMm: number | null;
+  fixtures: FixtureView[];
 }
 
 /** One row of the closet, as seen from the front (ADR-0050 §2): racks by
@@ -175,6 +300,8 @@ export interface ClosetView {
   cables: CableView[];
   /** `racks` grouped into rows (ADR-0050 §2) — see `RowView`'s own doc. */
   rows: RowView[];
+  /** ADR-0051 §1 — every surface `HasSurface` this closet's premises. */
+  surfaces: SurfaceView[];
 }
 
 function rowNumber(row: 'top' | 'bottom' | 'single'): number {
@@ -185,6 +312,10 @@ function rowNumber(row: 'top' | 'bottom' | 'single'): number {
 
 function isLiveNode(n: GraphNode): boolean {
   return n.absentSince === undefined;
+}
+
+function isLiveEdge(e: GraphEdge): boolean {
+  return e.absentSince === undefined;
 }
 
 function catalogueMatch(catalogue: readonly CatalogueModel[], model: string): CatalogueModel | undefined {
@@ -228,6 +359,16 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
   return { cableId, farPortId, farChassisId, outsideCloset };
 }
 
+/** ADR-0051 §1 — the id of the live `PassThrough` edge carrying this port
+ * through, in either direction (`PassThrough` is symmetric — `schema/schema.yaml`'s
+ * own doc), or `null` when this port passes nothing through. */
+function passThroughIdOf(doc: Document, portId: string): string | null {
+  const edge = doc.edges.find(
+    (e) => (e.from === portId || e.to === portId) && isLiveEdge(e) && parseEdgeId(e.id).kind === 'PassThrough',
+  );
+  return edge?.id ?? null;
+}
+
 /** A `CataloguePort`'s own label: the silkscreen number, or the vendor's own
  * word for a named port (ADR-0050 §5; `commands.ts`'s `placeChassis` writes
  * the same choice to `PhysicalPort.label`) — a port carries exactly one of
@@ -249,14 +390,19 @@ function roleAndUplinkOf(match: CataloguePort): { role: PortView['role']; uplink
   return { role: null, uplink: match.uplink };
 }
 
+function explicitFaceOf(face: string | undefined): 'front' | 'rear' | undefined {
+  return face === 'front' || face === 'rear' ? face : undefined;
+}
+
 /** One port, matched against EVERY faceplate the catalogue model declares
  * (ADR-0050 §1: the rear elevation needs a chassis's rear faceplate ports
  * exactly as the front elevation needs its front ones, regardless of which
  * way the chassis is mounted) — tried in the model's own faceplate order,
- * first match wins. A port whose (label, connector) matches no faceplate at
- * all is not drawn here — `undefined` — unless there is no catalogue model
- * to consult, in which case the port is shown undecorated on `fallbackFace`
- * (the chassis's own mounting face, the only face this layer can guess at)
+ * first match wins. `face` follows ADR-0051 §1's rule (`PortView.face`'s own
+ * doc): `PhysicalPort.face` when the document asserts one, else the matched
+ * faceplate's face, else `'front'`. A port whose (label, connector) matches
+ * no faceplate at all is not drawn here — `undefined` — unless there is no
+ * catalogue model to consult, in which case the port is shown undecorated
  * rather than silently dropped: a real node this document holds is never
  * hidden for want of a catalogue lookup. */
 function portView(
@@ -264,7 +410,6 @@ function portView(
   portId: string,
   faceplates: readonly CatalogueFaceplate[],
   catalogueModelKnown: boolean,
-  fallbackFace: 'front' | 'rear',
   closetRackIds: ReadonlySet<string>,
 ): PortView | undefined {
   const node = findNode(doc, portId);
@@ -272,6 +417,8 @@ function portView(
   const label = fields.label ?? '';
   const connector = fields.connector ?? '';
   const cable = portCableView(doc, portId, closetRackIds);
+  const passThroughId = passThroughIdOf(doc, portId);
+  const explicit = explicitFaceOf(fields.face);
   for (const faceplate of faceplates) {
     const match = faceplatePortMatch(faceplate, label, connector);
     if (match) {
@@ -284,20 +431,30 @@ function portView(
         column: match.column,
         uplink,
         role,
-        face: faceplate.face,
+        face: explicit ?? faceplate.face,
+        passThroughId,
         cable,
       };
     }
   }
   if (catalogueModelKnown) return undefined;
-  return { id: portId, label, connector, row: 0, column: 0, uplink: false, role: null, face: fallbackFace, cable };
+  return {
+    id: portId,
+    label,
+    connector,
+    row: 0,
+    column: 0,
+    uplink: false,
+    role: null,
+    face: explicit ?? 'front',
+    passThroughId,
+    cable,
+  };
 }
 
 /** Every LIVE `FittedIn` this chassis has, whichever slot each is in. */
 function fittedSupplies(doc: Document, chassisId: string): GraphEdge[] {
-  return doc.edges.filter(
-    (e) => e.from === chassisId && e.absentSince === undefined && parseEdgeId(e.id).kind === 'FittedIn',
-  );
+  return doc.edges.filter((e) => e.from === chassisId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FittedIn');
 }
 
 /** One `InletView` for a FIXED slot (`hotSwap: false`) — its `c14` inlet is
@@ -329,7 +486,8 @@ function fixedInletView(
     column: slot.position.column,
     uplink: false,
     role: null,
-    face: slot.face,
+    face: explicitFaceOf(fields.face) ?? slot.face,
+    passThroughId: edge ? passThroughIdOf(doc, edge.to) : null,
     cable: edge ? portCableView(doc, edge.to, closetRackIds) : null,
     slot: slot.name,
     hotSwap: false,
@@ -361,7 +519,6 @@ function hotSwapInletView(
     column: slot.position.column,
     uplink: false,
     role: null,
-    face: slot.face,
     slot: slot.name,
     hotSwap: true as const,
     position: slot.position,
@@ -372,6 +529,8 @@ function hotSwapInletView(
       id: `slot:${chassisId}:${slot.name}`,
       label: slot.name,
       connector: 'c14',
+      face: slot.face,
+      passThroughId: null,
       cable: null,
       fitted: false,
       supplyId: null,
@@ -390,6 +549,8 @@ function hotSwapInletView(
     id: inletEdge?.to ?? `slot:${chassisId}:${slot.name}`,
     label: portFields.label ?? slot.name,
     connector: portFields.connector ?? 'c14',
+    face: explicitFaceOf(portFields.face) ?? slot.face,
+    passThroughId: inletEdge ? passThroughIdOf(doc, inletEdge.to) : null,
     cable: inletEdge ? portCableView(doc, inletEdge.to, closetRackIds) : null,
     fitted: true,
     supplyId,
@@ -417,6 +578,36 @@ function psuInletsOf(
       ? hotSwapInletView(doc, chassisId, fitted, slot, closetRackIds)
       : fixedInletView(doc, chassisId, hasPorts, slot, closetRackIds),
   );
+}
+
+/** ADR-0051 §1 — where `itemId` (a Chassis or PassiveNode) actually is,
+ * read off whichever of `MountedIn` / `SitsOn` / `FixedTo` is live for it —
+ * `commands.ts`'s `movePlacement` doc: "exactly one … survives". A `FixedTo`
+ * target that is itself a `PassiveNode` is a board (`'board'`); any other
+ * live target is a `Surface` (`'surface'`) — `FixedTo.to` names no other
+ * kind (`schema/schema.yaml`). */
+function placementOf(doc: Document, itemId: string): Placement {
+  const mounted = edgesOut(doc, itemId, 'MountedIn')[0];
+  if (mounted) {
+    const f = readMountedInFields(mounted);
+    return { kind: 'rack', rackId: mounted.to, positionU: f.positionU ?? 1, face: f.face === 'rear' ? 'rear' : 'front' };
+  }
+  const sitsOn = edgesOut(doc, itemId, 'SitsOn')[0];
+  if (sitsOn) {
+    const f = readSitsOnFields(sitsOn);
+    return { kind: 'shelf', shelfId: sitsOn.to, slot: f.slot ?? 0 };
+  }
+  const fixedTo = edgesOut(doc, itemId, 'FixedTo')[0];
+  if (fixedTo) {
+    const f = readFixedToFields(fixedTo);
+    const xMm = f.xMm ?? null;
+    const yMm = f.yMm ?? null;
+    if (parseNodeId(fixedTo.to).kind === 'PassiveNode') {
+      return { kind: 'board', boardId: fixedTo.to, xMm, yMm };
+    }
+    return { kind: 'surface', surfaceId: fixedTo.to, xMm, yMm };
+  }
+  return { kind: 'none' };
 }
 
 function chassisView(
@@ -461,7 +652,7 @@ function chassisView(
   });
 
   const ports = otherEdges
-    .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, face, closetRackIds))
+    .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
     .filter((p): p is PortView => p !== undefined);
 
   const psuInlets = psuInletsOf(doc, chassisId, catalogueModel, closetRackIds);
@@ -486,20 +677,196 @@ function chassisView(
     psuInlets,
     singleFed,
     oneFitted,
+    placement: placementOf(doc, chassisId),
+    sketch: chassisFields.model === undefined && hasPorts.length > 0,
   };
 }
 
-function freeRuns(rackHeightU: number, chassis: readonly ChassisView[]): Array<{ fromU: number; toU: number }> {
-  const occupied = new Array<boolean>(rackHeightU + 1).fill(false); // 1-indexed
-  for (const c of chassis) {
+/** ADR-0051 §1 — one item `SitsOn` a shelf, chassis or passive alike. */
+function occupantView(
+  doc: Document,
+  sitsOnEdge: GraphEdge,
+  catalogue: readonly CatalogueModel[],
+  closetRackIds: ReadonlySet<string>,
+): OccupantView | undefined {
+  const itemId = sitsOnEdge.from;
+  const node = findNode(doc, itemId);
+  if (!node || !isLiveNode(node)) return undefined;
+  const slot = readSitsOnFields(sitsOnEdge).slot ?? 0;
+  const hasPorts = edgesOut(doc, itemId, 'HasPort');
+
+  if (parseNodeId(itemId).kind === 'Chassis') {
+    const hasChassis = edgesIn(doc, itemId, 'HasChassis')[0];
+    const deviceId = hasChassis?.from ?? '';
+    const deviceNode = deviceId ? findNode(doc, deviceId) : undefined;
+    const label = deviceNode ? (readDeviceFields(deviceNode).hostname ?? '') : '';
+    const chassisFields = readChassisFields(node);
+    const model = chassisFields.model ?? null;
+    const catalogueModel = chassisFields.model ? catalogueMatch(catalogue, chassisFields.model) : undefined;
+    const otherEdges = hasPorts.filter((e) => {
+      const portNode = findNode(doc, e.to);
+      return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
+    });
+    const ports = otherEdges
+      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+      .filter((p): p is PortView => p !== undefined);
+    return {
+      id: itemId,
+      kind: 'chassis',
+      label,
+      model,
+      slot,
+      ports,
+      sketch: chassisFields.model === undefined && hasPorts.length > 0,
+    };
+  }
+
+  const passiveFields = readPassiveNodeFields(node);
+  const model = passiveFields.model ?? null;
+  const catalogueModel = passiveFields.model ? catalogueMatch(catalogue, passiveFields.model) : undefined;
+  const ports = hasPorts
+    .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+    .filter((p): p is PortView => p !== undefined);
+  return {
+    id: itemId,
+    kind: 'passive',
+    label: passiveFields.label ?? '',
+    model,
+    slot,
+    ports,
+    sketch: passiveFields.model === undefined && hasPorts.length > 0,
+  };
+}
+
+function shelfView(
+  doc: Document,
+  mountedEdge: GraphEdge,
+  catalogue: readonly CatalogueModel[],
+  closetRackIds: ReadonlySet<string>,
+): ShelfView | undefined {
+  const shelfId = mountedEdge.from;
+  const node = findNode(doc, shelfId);
+  if (!node || !isLiveNode(node)) return undefined;
+  const passiveFields = readPassiveNodeFields(node);
+  const mountedFields = readMountedInFields(mountedEdge);
+  const catalogueModel = passiveFields.model ? catalogueMatch(catalogue, passiveFields.model) : undefined;
+  const heightU = catalogueModel?.rackUnits ?? mountedFields.heightU ?? 1;
+  const occupants = edgesIn(doc, shelfId, 'SitsOn')
+    .map((e) => occupantView(doc, e, catalogue, closetRackIds))
+    .filter((o): o is OccupantView => o !== undefined)
+    .sort((a, b) => a.slot - b.slot);
+  return {
+    id: shelfId,
+    label: passiveFields.label ?? '',
+    positionU: mountedFields.positionU ?? 1,
+    heightU,
+    occupants,
+  };
+}
+
+/** ADR-0051 §1 — one item `FixedTo` `targetId` (a surface or a board),
+ * recursing into its own nested `fixtures` when `itemId` is itself a board
+ * (`PassiveNode` form `board`) other things are `FixedTo`. */
+function fixtureView(
+  doc: Document,
+  itemId: string,
+  xMm: number | null,
+  yMm: number | null,
+  catalogue: readonly CatalogueModel[],
+  closetRackIds: ReadonlySet<string>,
+): FixtureView | undefined {
+  const node = findNode(doc, itemId);
+  if (!node || !isLiveNode(node)) return undefined;
+
+  let label: string;
+  let model: string | null;
+  let form: string | null;
+  let ports: PortView[];
+  let psuInlets: InletView[];
+  const kind: FixtureView['kind'] = parseNodeId(itemId).kind === 'Chassis' ? 'chassis' : 'passive';
+
+  if (kind === 'chassis') {
+    const hasChassis = edgesIn(doc, itemId, 'HasChassis')[0];
+    const deviceId = hasChassis?.from ?? '';
+    const deviceNode = deviceId ? findNode(doc, deviceId) : undefined;
+    label = deviceNode ? (readDeviceFields(deviceNode).hostname ?? '') : '';
+    const chassisFields = readChassisFields(node);
+    model = chassisFields.model ?? null;
+    form = null;
+    const catalogueModel = chassisFields.model ? catalogueMatch(catalogue, chassisFields.model) : undefined;
+    const hasPorts = edgesOut(doc, itemId, 'HasPort');
+    const otherEdges = hasPorts.filter((e) => {
+      const portNode = findNode(doc, e.to);
+      return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
+    });
+    ports = otherEdges
+      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+      .filter((p): p is PortView => p !== undefined);
+    psuInlets = psuInletsOf(doc, itemId, catalogueModel, closetRackIds);
+  } else {
+    const passiveFields = readPassiveNodeFields(node);
+    label = passiveFields.label ?? '';
+    model = passiveFields.model ?? null;
+    form = passiveFields.form ?? null;
+    const catalogueModel = passiveFields.model ? catalogueMatch(catalogue, passiveFields.model) : undefined;
+    ports = edgesOut(doc, itemId, 'HasPort')
+      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+      .filter((p): p is PortView => p !== undefined);
+    psuInlets = [];
+  }
+
+  const nestedEdges = doc.edges.filter((e) => e.to === itemId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FixedTo');
+  const fixtures = nestedEdges
+    .map((e) => {
+      const f = readFixedToFields(e);
+      return fixtureView(doc, e.from, f.xMm ?? null, f.yMm ?? null, catalogue, closetRackIds);
+    })
+    .filter((f): f is FixtureView => f !== undefined);
+
+  return { id: itemId, kind, label, model, form, xMm, yMm, ports, psuInlets, fixtures };
+}
+
+function surfaceView(
+  doc: Document,
+  surfaceId: string,
+  catalogue: readonly CatalogueModel[],
+  closetRackIds: ReadonlySet<string>,
+): SurfaceView | undefined {
+  const node = findNode(doc, surfaceId);
+  if (!node || !isLiveNode(node)) return undefined;
+  const fields = readSurfaceFields(node);
+  const fixedEdges = doc.edges.filter((e) => e.to === surfaceId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FixedTo');
+  const fixtures = fixedEdges
+    .map((e) => {
+      const f = readFixedToFields(e);
+      return fixtureView(doc, e.from, f.xMm ?? null, f.yMm ?? null, catalogue, closetRackIds);
+    })
+    .filter((f): f is FixtureView => f !== undefined);
+  const form =
+    fields.form === 'wall' || fields.form === 'floor' || fields.form === 'desk' || fields.form === 'ceiling'
+      ? fields.form
+      : 'wall';
+  return {
+    id: surfaceId,
+    label: fields.label ?? '',
+    form,
+    widthMm: fields.widthMm ?? null,
+    heightMm: fields.heightMm ?? null,
+    fixtures,
+  };
+}
+
+function freeRuns(rackHeightU: number, occupied: readonly { positionU: number; heightU: number }[]): Array<{ fromU: number; toU: number }> {
+  const taken = new Array<boolean>(rackHeightU + 1).fill(false); // 1-indexed
+  for (const c of occupied) {
     for (let u = c.positionU; u < c.positionU + c.heightU && u <= rackHeightU; u += 1) {
-      if (u >= 1) occupied[u] = true;
+      if (u >= 1) taken[u] = true;
     }
   }
   const runs: Array<{ fromU: number; toU: number }> = [];
   let runStart: number | undefined;
   for (let u = 1; u <= rackHeightU; u += 1) {
-    if (!occupied[u]) {
+    if (!taken[u]) {
       if (runStart === undefined) runStart = u;
     } else if (runStart !== undefined) {
       runs.push({ fromU: runStart, toU: u - 1 });
@@ -520,16 +887,35 @@ function rackView(
   if (!node || !isLiveNode(node)) return undefined;
   const fields = readRackFields(node);
   const heightU = fields.heightU ?? 0;
-  const chassis = edgesIn(doc, rackId, 'MountedIn')
+
+  // ADR-0051 §1 widens `MountedIn.from` to `[Chassis, PassiveNode]` — a
+  // shelf occupies rack units exactly as a chassis does. Split the live
+  // `MountedIn` edges by the mounted node's own kind so a shelf is drawn as
+  // a `ShelfView`, never also counted in `chassis` below.
+  const mountedEdges = edgesIn(doc, rackId, 'MountedIn');
+  const chassisEdges = mountedEdges.filter((e) => parseNodeId(e.from).kind === 'Chassis');
+  const shelfEdges = mountedEdges.filter((e) => parseNodeId(e.from).kind === 'PassiveNode');
+
+  const chassis = chassisEdges
     .map((e) => chassisView(doc, e.id, catalogue, closetRackIds))
     .filter((c): c is ChassisView => c !== undefined);
+  const shelves = shelfEdges
+    .map((e) => shelfView(doc, e, catalogue, closetRackIds))
+    .filter((s): s is ShelfView => s !== undefined);
+
+  const occupied = [
+    ...chassis.map((c) => ({ positionU: c.positionU, heightU: c.heightU })),
+    ...shelves.map((s) => ({ positionU: s.positionU, heightU: s.heightU })),
+  ];
+
   return {
     id: rackId,
     label: fields.label ?? '',
     heightU,
     unitNumbering: fields.unitNumbering ?? '',
     chassis,
-    freeRuns: freeRuns(heightU, chassis),
+    shelves,
+    freeRuns: freeRuns(heightU, occupied),
     row: fields.row ?? null,
     bay: fields.bay ?? null,
   };
@@ -627,14 +1013,15 @@ function cableView(doc: Document, node: GraphNode): CableView {
 }
 
 /** The first live `Premises` this document carries, and every live `Rack`
- * `HasRack` hangs off it. A document with none is an empty closet, not a
- * refusal — nothing has been drawn yet. `cables` is every live `Cable` this
- * document holds, regardless of premises: `Cable` is root-level
- * (`cables.ts`'s module doc — `HasCable`'s `from: [root]` is not a
- * containment edge this document ever writes), found the same way `premises`
- * above is, by scanning `doc.nodes` for the kind rather than following an
- * edge — "a cable spans two premises and cannot be contained by one"
- * (`schema/schema.yaml`'s own doc on `HasCable`). */
+ * `HasRack` hangs off it, and every live `Surface` `HasSurface` hangs off it
+ * (ADR-0051 §1). A document with none is an empty closet, not a refusal —
+ * nothing has been drawn yet. `cables` is every live `Cable` this document
+ * holds, regardless of premises: `Cable` is root-level (`cables.ts`'s module
+ * doc — `HasCable`'s `from: [root]` is not a containment edge this document
+ * ever writes), found the same way `premises` above is, by scanning
+ * `doc.nodes` for the kind rather than following an edge — "a cable spans
+ * two premises and cannot be contained by one" (`schema/schema.yaml`'s own
+ * doc on `HasCable`). */
 export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
   const premises = doc.nodes.find(
     (n) => isLiveNode(n) && parseNodeId(n.id).kind === 'Premises',
@@ -643,12 +1030,16 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
     .filter((n) => isLiveNode(n) && parseNodeId(n.id).kind === 'Cable')
     .map((n) => cableView(doc, n));
   if (!premises) {
-    return { premisesId: '', racks: [], cables, rows: [] };
+    return { premisesId: '', racks: [], cables, rows: [], surfaces: [] };
   }
   const rackEdges = edgesOut(doc, premises.id, 'HasRack');
   const closetRackIds = new Set(rackEdges.map((e) => e.to));
   const racks = rackEdges
     .map((e) => rackView(doc, e.to, catalogue, closetRackIds))
     .filter((r): r is RackView => r !== undefined);
-  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks) };
+  const surfaceEdges = edgesOut(doc, premises.id, 'HasSurface');
+  const surfaces = surfaceEdges
+    .map((e) => surfaceView(doc, e.to, catalogue, closetRackIds))
+    .filter((s): s is SurfaceView => s !== undefined);
+  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces };
 }

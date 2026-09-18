@@ -768,3 +768,320 @@
   font-size: var(--t-micro);
   color: var(--muted);
 }
+
+/* ---- surfaces ----------------------------------------------------------
+   ADR-0051 §1, UI-SPEC "Places · Surfaces", `design/places/renders/Surfaces.png`.
+   `SurfaceNode.tsx`'s own box: a wall/desk/ceiling elevation or a floor
+   band, kept deliberately parallel to this file's own `.drawing-chassis*`/
+   `.drawing-rack__free` rules (same hairline, same hatch-free flat panel,
+   zero radius, no shadows, per "Look") rather than a fourth visual
+   language for one more box in this drawing. Every colour and rule below
+   is a token from `design/tokens.css`; `SurfaceNode.tsx`'s own pixel sizes
+   (the rail gutter, a fixture's plain footprint) are session constants,
+   same reason this file's own header gives for `U_PX`. */
+
+.drawing-surface {
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  position: relative;
+  overflow: visible;
+  font-family: var(--sans);
+  color: var(--ink);
+  user-select: none;
+}
+
+.drawing-surface__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s1);
+  height: 16px;
+  padding: 0 4px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.drawing-surface__label {
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* UI-SPEC "Places · Surfaces": labelled with the surface's own form — the
+   same muted, uppercase, tracked treatment `.drawing-shelf__height` already
+   gives a shelf's own "SHELF <height>U". */
+.drawing-surface__form {
+  flex-shrink: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The elevation body — everything below the header, the millimetre rail's
+   own coordinate space (0 at the bottom, the floor). */
+.drawing-surface__elevation {
+  position: relative;
+  overflow: hidden;
+}
+
+/* UI-SPEC "Places · Surfaces": "a millimetre rail at its left" —
+   `design/places/renders/Surfaces.png`'s own `1800/1500/.../0` ticks,
+   `rows.ts`'s `mmRailTicks`. */
+.drawing-surface__rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-right: 1px solid var(--hairline);
+}
+
+.drawing-surface__rail-tick {
+  position: absolute;
+  left: 2px;
+  transform: translateY(50%);
+  font-size: var(--t-micro);
+  line-height: 1;
+  color: var(--muted);
+  font-variant-numeric: var(--num-tabular);
+  white-space: nowrap;
+}
+
+/* The stage — where positioned fixtures actually sit, `left`/`bottom`
+   coordinates set inline per fixture (`SurfaceNode.tsx`'s own `mmToPx`),
+   `bottom: 0` here matching the rail's own "0 is the floor". */
+.drawing-surface__stage {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.drawing-surface__fixture-anchor {
+  position: absolute;
+  bottom: 0;
+}
+
+/* UI-SPEC "Places · Surfaces": "no rear and no flip" — named on the plate
+   itself, the same muted micro-caption `.drawing-shelf__height` already
+   uses for a fact rather than a control. */
+.drawing-surface__no-rear {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* UI-SPEC "Places · Surfaces": "a fixture with no position sits in a 'not
+   measured' strip at the panel's foot with its name." A hairline-topped
+   strip, the same weight as every other divider in this drawing, never a
+   risk colour — provenance, not risk (UI-SPEC "Look" reserves colour to
+   error/warning/recommendation/confirmation). */
+.drawing-surface__unmeasured {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: 2px 4px;
+  border-top: 1px dashed var(--hairline);
+  font-size: var(--t-micro);
+}
+
+.drawing-surface__unmeasured--board {
+  border-top-style: solid;
+}
+
+.drawing-surface__unmeasured-label {
+  flex-shrink: 0;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawing-surface__unmeasured-name {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* A fixture measured on only one axis — `SurfaceNode.tsx`'s
+   `isPartiallyMeasured` — still stands at its one known coordinate, but
+   says which axis was invented as a zero rather than reading as fully
+   measured. Provenance, not risk: no colour, same muted micro-caption the
+   plate's own "no rear" note uses. */
+.drawing-surface__fixture-partial {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  white-space: nowrap;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- the floor band ---------------------------------------------------- */
+
+.drawing-surface--floor {
+  overflow: visible;
+}
+
+.drawing-surface__floor-stage {
+  position: relative;
+  height: calc(100% - 16px);
+}
+
+.drawing-surface__floor-anchor {
+  position: absolute;
+  bottom: 0;
+}
+
+/* ---- a board — ADR-0051 §1: "a board draws as a labelled rectangle on
+   the wall carrying its own fixtures, positions from the board's edges." */
+.drawing-surface__board {
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  position: relative;
+  overflow: visible;
+}
+
+.drawing-surface__board-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s1);
+  padding: 0 3px;
+  border-bottom: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.drawing-surface__board-stage {
+  position: relative;
+  height: 100%;
+}
+
+/* ---- one fixture — "a fixture draws like a chassis plate" -------------- */
+
+.drawing-surface__fixture {
+  box-sizing: border-box;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 1px 3px;
+  cursor: default;
+}
+
+/* UI-SPEC "Places · Surfaces": "fixtures on it (a UPS) stand as upright
+   boxes" — the floor band's own reading of the same fixture box, taller
+   than wide rather than the panel's wider-than-tall footprint. */
+.drawing-surface__fixture--upright {
+  justify-content: flex-end;
+}
+
+.drawing-surface__fixture-header {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+
+.drawing-surface__fixture-label {
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawing-surface__fixture-model {
+  font-size: var(--t-micro);
+  line-height: 1.2;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* UI-SPEC "Places · Surfaces": a sketch fixture's own "no catalogue entry"
+   mark — the same dotted-hairline provenance mark `.drawing-shelf__typed`
+   already gives a sketch shelf occupant, never a risk colour. */
+.drawing-surface__typed {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border: var(--rule-hair) dashed var(--muted);
+  padding: 0 3px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.drawing-surface__port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.drawing-surface__port-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.drawing-surface__port-group--uplink {
+  margin-left: auto;
+}
+
+.drawing-surface__port {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  cursor: pointer;
+}
+
+.drawing-surface__port:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 1px;
+}
+
+/* Same three-classes-deep outranking trick this file's own
+   `.drawing-chassis__port--cabled` rule uses, so a fixture's cabled port
+   takes its sheath colour regardless of stylesheet load order. */
+.drawing-surface__port--cabled .port--cabled .port__body {
+  fill: var(--port-sheath, var(--ink));
+}
+
+.drawing-surface__port-handle {
+  position: absolute !important;
+  inset: 0;
+  transform: none !important;
+  background: transparent !important;
+  border: none;
+  border-radius: 0;
+}
+
+.drawing-surface__bundle-handle {
+  position: absolute !important;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

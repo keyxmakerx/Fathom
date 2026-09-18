@@ -10,6 +10,14 @@
 
 import type { CameraStop } from './geometry';
 import type { ChassisView, InletView, PortView } from './contract';
+// `ShelfView`/`OccupantView` are this session's own new shapes (ADR-0051 §1,
+// the brief's own CONTRACT block) — not yet in `./contract`'s re-export list
+// (that file is off limits this session; the lead widens it once the shelf
+// track lands for good, the same "switches back to a plain re-export" note
+// `./contract`'s own file header already carries for a prior seam). Read
+// straight off `document/view.ts`, the one place they are declared, exactly
+// as `./contract.ts` itself does for every type it re-exports.
+import type { OccupantView, ShelfView } from '../../document/view';
 
 export type Facing = 'front' | 'rear';
 
@@ -73,4 +81,44 @@ export function faceplateItems(chassis: readonly ChassisView[], elevation: Facin
 export function powerLeadHandle(elevation: Facing, cameraStop: CameraStop): 'rail' | 'anchor' | 'inlet' {
   if (elevation === 'front') return 'rail';
   return cameraStop === 'faceplate' ? 'inlet' : 'anchor';
+}
+
+/** One occupant sitting on a shelf, resolved for an elevation — UI-SPEC
+ * "Places · Shelf": "a shelf's occupants show in both elevations, front and
+ * rear faces per occupant by the same rule as a chassis." `OccupantView`
+ * (this session's own CONTRACT) carries no mounting face of its own the way
+ * `ChassisView.face` does: a shelf does not flip independently of the rack
+ * it is mounted in (there is no separate `SitsOn`-side "front | rear"
+ * control anywhere in ADR-0051 §1 or the Shelf board), so the plainest
+ * reading — and the one this function takes — is that an occupant sits with
+ * its own front always facing the rack's own front, i.e. `visibleFaceOf`'s
+ * `mountingFace` fixed at `'front'`, which collapses to "the visible face
+ * IS the elevation." Named here, not silently assumed, for the lead to
+ * confirm or correct — the same caveat this file's sibling `paths.ts`
+ * carries for its own inferred rules. */
+export interface ShelfOccupantFaceplateItem {
+  occupant: OccupantView;
+  visibleFace: Facing;
+  /** `occupant.ports` already carries an occupant's PSU inlet alongside its
+   * ordinary ports (this session's CONTRACT: `OccupantView` has one `ports`
+   * list, unlike `ChassisView`'s separate `ports`/`psuInlets` — a sketch
+   * device's inlet is typed by hand exactly like its data ports, UI-SPEC
+   * "Places · Shelf"'s own `nuc-01` example, C14 inlet included under one
+   * "PORTS" heading). So, unlike `FaceplateItem` above, there is no second
+   * `inlets` field here to filter — this is the whole faceplate. */
+  ports: PortView[];
+}
+
+export function shelfOccupantFaceplateItem(occupant: OccupantView, elevation: Facing): ShelfOccupantFaceplateItem {
+  const visibleFace = visibleFaceOf('front', elevation);
+  return { occupant, visibleFace, ports: occupant.ports.filter((p) => p.face === visibleFace) };
+}
+
+/** Every occupant on one shelf, resolved for one elevation — `ShelfPlate.tsx`'s
+ * own analogue of `faceplateItems` above. */
+export function shelfOccupantFaceplateItems(
+  shelf: Pick<ShelfView, 'occupants'>,
+  elevation: Facing,
+): ShelfOccupantFaceplateItem[] {
+  return shelf.occupants.map((o) => shelfOccupantFaceplateItem(o, elevation));
 }

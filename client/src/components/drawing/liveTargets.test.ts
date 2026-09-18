@@ -6,6 +6,7 @@ import { liveTargetPortIds } from './liveTargets';
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
   rows: [],
+  surfaces: [],
   racks: [
     {
       id: 'rack-1',
@@ -15,6 +16,7 @@ const VIEW: ClosetView = {
       freeRuns: [],
       row: null,
       bay: null,
+      shelves: [],
       chassis: [
         {
           id: 'chassis-1',
@@ -31,12 +33,14 @@ const VIEW: ClosetView = {
           psuInlets: [],
           singleFed: false,
           oneFitted: false,
+          placement: { kind: 'rack', rackId: 'rack-1', positionU: 38, face: 'front' },
+          sketch: false,
           ports: [
-            { id: 'rj45-free', label: '1', connector: 'rj45', row: 0, column: 0, role: null, uplink: false, cable: null, face: 'front' },
-            { id: 'rj45-free-2', label: '2', connector: 'RJ45', row: 0, column: 1, role: null, uplink: false, cable: null, face: 'front' },
-            { id: 'rj45-cabled', label: '3', connector: 'rj45', row: 0, column: 2, role: null, uplink: false, cable: { cableId: 'cable-1', farPortId: 'far', farChassisId: 'far-c', outsideCloset: false }, face: 'front' },
-            { id: 'sfp-free', label: 'xe-0', connector: 'sfp_plus', row: 1, column: 0, role: null, uplink: true, cable: null, face: 'front' },
-            { id: 'lc-free', label: 'lc-1', connector: 'lc', row: 1, column: 1, role: null, uplink: false, cable: null, face: 'front' },
+            { id: 'rj45-free', label: '1', connector: 'rj45', row: 0, column: 0, role: null, uplink: false, cable: null, face: 'front', passThroughId: null },
+            { id: 'rj45-free-2', label: '2', connector: 'RJ45', row: 0, column: 1, role: null, uplink: false, cable: null, face: 'front', passThroughId: null },
+            { id: 'rj45-cabled', label: '3', connector: 'rj45', row: 0, column: 2, role: null, uplink: false, cable: { cableId: 'cable-1', farPortId: 'far', farChassisId: 'far-c', outsideCloset: false }, face: 'front', passThroughId: null },
+            { id: 'sfp-free', label: 'xe-0', connector: 'sfp_plus', row: 1, column: 0, role: null, uplink: true, cable: null, face: 'front', passThroughId: null },
+            { id: 'lc-free', label: 'lc-1', connector: 'lc', row: 1, column: 1, role: null, uplink: false, cable: null, face: 'front', passThroughId: null },
           ],
         },
       ],

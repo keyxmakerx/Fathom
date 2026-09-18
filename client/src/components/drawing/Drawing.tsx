@@ -44,17 +44,24 @@ import { ColourPicker } from './ColourPicker';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
 import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNodeType } from './RowLabelNode';
-import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, trayNodeId } from './nodeId';
-import { findAnyPort, findPort } from './lookup';
+import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
+import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { findAnyPort, locatePort } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
 import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
 import { faceplateItems, powerLeadHandle, type Facing } from './elevation';
-import { layoutRow, mirroredRackX, rowKey, type RowLayout } from './rows';
+import { layoutRow, layoutSurfaces, mirroredRackX, rowKey, type RowLayout } from './rows';
 
-const NODE_TYPES = { rack: RackNode, chassis: ChassisNode, tray: PortalTrayNode, rowLabel: RowLabelNode };
+const NODE_TYPES = {
+  rack: RackNode,
+  chassis: ChassisNode,
+  tray: PortalTrayNode,
+  rowLabel: RowLabelNode,
+  surface: SurfaceNode,
+};
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
 
 /** Vertical gap between one row's band and the next — session's own choice,
@@ -137,7 +144,7 @@ export interface DrawingProps extends DrawingActions {
 type AnyRackNode = RackNodeType;
 type AnyChassisNode = ChassisNodeType;
 type AnyTrayNode = PortalTrayNodeType;
-type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode | RowLabelNodeType;
+type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode | RowLabelNodeType | SurfaceNodeType;
 
 type RackPositions = Record<string, { x: number; y: number }>;
 type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
@@ -501,6 +508,57 @@ function DrawingInner({
     }
   });
 
+  // ADR-0051 §1/§2, `design/places/renders/Surfaces.png`: the closet layout
+  // places surfaces after the rows, walls to the right of their premises'
+  // rows and the floor beneath. `rows.ts`'s own `layoutSurfaces` is pure pixel
+  // arithmetic over the row block's own total footprint — never over which
+  // order the racks within a row currently draw in — so a row's own flip
+  // (`rowLayouts`, above) never moves a surface: "positions stable across
+  // flips," `rows.ts`'s own file header on why.
+  //
+  // The row block's own width is the widest row's own rack count at the
+  // rack layout's own pitch (`RACK_NODE_WIDTH + RACK_GAP_PX`, one gap
+  // narrower than the count since there is no trailing gap); its height is
+  // every row band stacked, `rowBandY`'s own sum carried one row past the
+  // last. `panelHeightPx` — drawn at the height of a rack
+  // (`design/places/renders/Surfaces.png`, ADR-0051 §1/§2) — reads the
+  // TALLEST rack this closet actually holds (42U, this
+  // drawing's own reference height per `geometry.ts`'s file header, when
+  // there is none to read), so a wall lines up with whichever rack stands
+  // tallest beside it rather than an arbitrary one.
+  const rowsWidthPx = Math.max(
+    0,
+    ...rowLayouts.map((layout) => (layout.racks.length > 0 ? layout.racks.length * (RACK_NODE_WIDTH + RACK_GAP_PX) - RACK_GAP_PX : 0)),
+  );
+  const rowsHeightPx = rowBandY(rowLayouts, rowLayouts.length);
+  const tallestRackHeightU = Math.max(42, ...view.racks.map((r) => r.heightU));
+  const panelHeightPx = rackNodeHeight({ heightU: tallestRackHeightU });
+  const surfacesLayout = useMemo(
+    () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX),
+    [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
+  );
+
+  for (const placement of [...surfacesLayout.panels, ...(surfacesLayout.floor ? [surfacesLayout.floor] : [])]) {
+    const surfaceData: SurfaceNodeData = {
+      placement,
+      uPx: U_PX,
+      onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
+      liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
+      portSheath,
+      litCableId,
+      portOpacity: portOpacityAt(zoomPercent),
+    };
+    nodes.push({
+      id: surfaceNodeId(placement.surface.id),
+      type: 'surface',
+      position: { x: placement.x, y: placement.y },
+      draggable: false,
+      selectable: false,
+      style: { width: placement.widthPx, height: placement.heightPx },
+      data: surfaceData,
+    } satisfies SurfaceNodeType);
+  }
+
   // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
   // `portals.ts` does the grouping; this only lays the resulting boxes out
   // above or below their rack, stacking more than one on the same side.
@@ -568,18 +626,30 @@ function DrawingInner({
   // own conditional mount.
   function resolveEnd(end: { portId: string; chassisId: string; rackId: string }): { nodeId: string; handleId: string } | null {
     const found = findAnyPort(view, end.portId);
-    if (!found) return null;
-    if (found.isPsuInlet) {
-      const via = powerLeadHandle(elevationFor(found.rack.id), cameraStop);
-      if (via === 'rail') return { nodeId: rackNodeId(found.rack.id), handleId: end.portId };
-      if (via === 'inlet') return { nodeId: chassisNodeId(found.chassis.id), handleId: end.portId };
-      return { nodeId: chassisNodeId(found.chassis.id), handleId: INLET_ANCHOR_HANDLE_ID };
+    if (found) {
+      if (found.isPsuInlet) {
+        const via = powerLeadHandle(elevationFor(found.rack.id), cameraStop);
+        if (via === 'rail') return { nodeId: rackNodeId(found.rack.id), handleId: end.portId };
+        if (via === 'inlet') return { nodeId: chassisNodeId(found.chassis.id), handleId: end.portId };
+        return { nodeId: chassisNodeId(found.chassis.id), handleId: INLET_ANCHOR_HANDLE_ID };
+      }
+      return { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
     }
-    return { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
+    // ADR-0051 §1: a `CableEnd` this drawing does not carry a rack chassis
+    // for — a shelf occupant's own port or a surface fixture's — resolved
+    // the same way `lookup.ts`'s own file header names: "as it does chassis
+    // ports." A shelf occupant has no React Flow node of its own yet (no
+    // `ShelfPlate` is mounted by this component), so that place resolves to
+    // nothing there is a real node for; a fixture's own port routes straight
+    // to its surface's one node (`surfaceNodeId`), under the SAME port id
+    // `SurfaceNode.tsx` renders a real `Handle` for.
+    const location = locatePort(view, end.portId);
+    if (location?.place === 'fixture') return { nodeId: surfaceNodeId(location.surface.id), handleId: end.portId };
+    return null;
   }
 
   function portLabel(portId: string): string {
-    return findPort(view, portId)?.port.label || portId;
+    return locatePort(view, portId)?.port.label || portId;
   }
 
   // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
@@ -778,8 +848,11 @@ function DrawingInner({
       const fromId = edgeOrConnection.sourceHandle;
       const toId = edgeOrConnection.targetHandle;
       if (!fromId || !toId || fromId === toId) return false;
-      const from = findPort(view, fromId);
-      const to = findPort(view, toId);
+      // ADR-0051 §1: `locatePort`, not `findPort` — a live drag may start or
+      // end on a shelf occupant's port or a surface fixture's own (both draw
+      // real `Handle`s now, `SurfaceNode.tsx`), not only a rack chassis's.
+      const from = locatePort(view, fromId);
+      const to = locatePort(view, toId);
       if (!from || !to) return false;
       if ((from.port.cable ?? null) != null) return false;
       if ((to.port.cable ?? null) != null) return false;
@@ -807,8 +880,8 @@ function DrawingInner({
       const fromHandleId = connectionState.fromHandle?.id;
       const toHandleId = connectionState.toHandle?.id;
       if (!fromHandleId || !toHandleId) return;
-      const from = findPort(view, fromHandleId);
-      const to = findPort(view, toHandleId);
+      const from = locatePort(view, fromHandleId);
+      const to = locatePort(view, toHandleId);
       if (!from || !to) return;
       const result = compatible(from.port.connector, to.port.connector);
       if (!result.ok) return;

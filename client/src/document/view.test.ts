@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, placeChassis } from './commands';
+import { addSketchPort, createRack, createShelf, createSurface, fixTo, movePlacement, placeChassis, placeOnShelf } from './commands';
 import { setRackField } from './edit';
-import { emptyDocument, formatNodeId, type Document } from './model';
+import { edgesIn, edgesOut, emptyDocument, formatEdgeId, formatNodeId, type Document } from './model';
 import { fitSupply, removeSupply } from './supplies';
 import { newUlid } from './ulid';
 import { viewOf } from './view';
@@ -64,7 +64,7 @@ function premisesDoc(): { doc: Document; premisesId: string } {
 
 describe('viewOf', () => {
   it('is empty for a document with no Premises', () => {
-    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [] });
+    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [], surfaces: [] });
   });
 
   it('draws a rack with no chassis and one free run', () => {
@@ -232,5 +232,175 @@ describe('viewOf', () => {
       expect(view.rows[1].racks.map((r) => r.id)).toEqual([bBay1Id]);
       expect(view.rows[2]).toEqual({ label: null, racks: [expect.objectContaining({ id: unrowedId })] });
     });
+  });
+});
+
+// ===========================================================================
+// ADR-0051 §1 — shelves, surfaces, the sketch.
+
+function bareChassis(doc: Document): { doc: Document; chassisId: string } {
+  const deviceId = formatNodeId('Device', newUlid(NOW));
+  const chassisId = formatNodeId('Chassis', newUlid(NOW));
+  const next: Document = {
+    ...doc,
+    nodes: [
+      ...doc.nodes,
+      { id: deviceId, existence: newUlid(NOW), fields: {} },
+      { id: chassisId, existence: newUlid(NOW), fields: {} },
+    ],
+    edges: [
+      ...doc.edges,
+      { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceId, to: chassisId, prov: newUlid(NOW), fields: {} },
+    ],
+  };
+  return { doc: next, chassisId };
+}
+
+describe('shelves (ADR-0051 §1)', () => {
+  it('draws separately from chassis[], occupants sorted by slot', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+
+    const { doc: withItem1, chassisId: item1 } = bareChassis(withShelf);
+    const onShelf1 = placeOnShelf(withItem1, item1, shelfId, 2, { now: NOW });
+    const { doc: withItem2, chassisId: item2 } = bareChassis(onShelf1);
+    const onShelf2 = placeOnShelf(withItem2, item2, shelfId, 1, { now: NOW });
+
+    const view = viewOf(onShelf2, []);
+    const rack = view.racks[0];
+    expect(rack.chassis).toHaveLength(0); // a shelf is never also in chassis[]
+    expect(rack.shelves).toHaveLength(1);
+    const shelf = rack.shelves[0];
+    expect(shelf.id).toBe(shelfId);
+    expect(shelf.positionU).toBe(20);
+    expect(shelf.heightU).toBe(1);
+    expect(shelf.occupants.map((o) => o.slot)).toEqual([1, 2]);
+    expect(shelf.occupants.map((o) => o.id)).toEqual([item2, item1]);
+    expect(shelf.occupants.every((o) => o.kind === 'chassis')).toBe(true);
+  });
+
+  it('a shelf occupant with no model and at least one port is sketch: true', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+    const { doc: withItem, chassisId } = bareChassis(withShelf);
+    const withPort = addSketchPort(withItem, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
+    const onShelf = placeOnShelf(withPort, chassisId, shelfId, 1, { now: NOW });
+
+    const view = viewOf(onShelf, []);
+    const occupant = view.racks[0].shelves[0].occupants[0];
+    expect(occupant.sketch).toBe(true);
+    expect(occupant.ports).toHaveLength(1);
+    expect(occupant.ports[0]).toMatchObject({ label: 'eth0', connector: 'rj45', face: 'front', passThroughId: null });
+  });
+
+  it('a catalogue chassis is never sketch', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const placed = placeChassis(withRack, rackId, MODEL, 3, 'front', { now: NOW });
+    const view = viewOf(placed, [MODEL]);
+    expect(view.racks[0].chassis[0].sketch).toBe(false);
+  });
+});
+
+describe('ChassisView.placement (ADR-0051 §1)', () => {
+  it('reflects the live MountedIn edge, then the live FixedTo after a move', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const placed = placeChassis(withRack, rackId, MODEL, 3, 'front', { now: NOW });
+    const view1 = viewOf(placed, [MODEL]);
+    expect(view1.racks[0].chassis[0].placement).toEqual({ kind: 'rack', rackId, positionU: 3, face: 'front' });
+
+    const chassisId = view1.racks[0].chassis[0].id;
+    const withSurface = createSurface(placed, premisesId, { label: 'Floor', form: 'floor', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const moved = movePlacement(withSurface, chassisId, { kind: 'surface', surfaceId, xMm: 10, yMm: null }, { now: NOW });
+
+    const view2 = viewOf(moved, [MODEL]);
+    expect(view2.racks[0].chassis).toHaveLength(0);
+    const fixture = view2.surfaces.find((s) => s.id === surfaceId)!.fixtures[0];
+    expect(fixture.xMm).toBe(10);
+    expect(fixture.yMm).toBeNull();
+  });
+});
+
+describe('ClosetView.surfaces (ADR-0051 §1)', () => {
+  it('is empty when there is a premises but no surfaces', () => {
+    const { doc } = premisesDoc();
+    expect(viewOf(doc, []).surfaces).toEqual([]);
+  });
+
+  it('draws a wall, a board fixed to it, and an outlet fixed to the board — nested fixtures', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withSurface = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', widthMm: 2400, now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+
+    const boardId = formatNodeId('PassiveNode', newUlid(NOW));
+    let working: Document = {
+      ...withSurface,
+      nodes: [
+        ...withSurface.nodes,
+        {
+          id: boardId,
+          existence: newUlid(NOW),
+          fields: {
+            'PassiveNode.form': { presence: 'set', prov: newUlid(NOW), value: 'board' },
+            'PassiveNode.label': { presence: 'set', prov: newUlid(NOW), value: 'Backboard' },
+          },
+        },
+      ],
+    };
+    working = fixTo(working, boardId, surfaceId, {}, { now: NOW });
+
+    const outletId = formatNodeId('PassiveNode', newUlid(NOW));
+    working = {
+      ...working,
+      nodes: [
+        ...working.nodes,
+        {
+          id: outletId,
+          existence: newUlid(NOW),
+          fields: {
+            'PassiveNode.form': { presence: 'set', prov: newUlid(NOW), value: 'outlet' },
+            'PassiveNode.label': { presence: 'set', prov: newUlid(NOW), value: 'outlet-w1' },
+          },
+        },
+      ],
+    };
+    working = fixTo(working, outletId, boardId, { xMm: 100, yMm: 200 }, { now: NOW });
+
+    const view = viewOf(working, []);
+    expect(view.surfaces).toHaveLength(1);
+    const surface = view.surfaces[0];
+    expect(surface).toMatchObject({ id: surfaceId, label: 'North wall', form: 'wall', widthMm: 2400, heightMm: null });
+    expect(surface.fixtures).toHaveLength(1);
+    const board = surface.fixtures[0];
+    expect(board).toMatchObject({ id: boardId, kind: 'passive', form: 'board', xMm: null, yMm: null });
+    expect(board.fixtures).toHaveLength(1);
+    const outlet = board.fixtures[0];
+    expect(outlet).toMatchObject({ id: outletId, kind: 'passive', form: 'outlet', xMm: 100, yMm: 200 });
+  });
+
+  it('a floor-standing UPS draws as a fixture with its own psuInlets, cabled like a chassis', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const placed = placeChassis(withRack, rackId, MODEL_WITH_PSU, 3, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
+    const withFloor = createSurface(placed, premisesId, { label: 'Floor', form: 'floor', now: NOW });
+    const floorId = edgesOut(withFloor, premisesId, 'HasSurface')[0].to;
+    const moved = movePlacement(withFloor, chassisId, { kind: 'surface', surfaceId: floorId, xMm: null, yMm: null }, { now: NOW });
+
+    const view = viewOf(moved, [MODEL_WITH_PSU]);
+    const fixture = view.surfaces[0].fixtures[0];
+    expect(fixture.kind).toBe('chassis');
+    expect(fixture.psuInlets).toHaveLength(2);
   });
 });

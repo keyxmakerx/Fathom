@@ -3,7 +3,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { openDesign, saveDesign } from '../../api/payload';
 import { ApiRefusal } from '../../api/errors';
-import { moveChassis, placeChassis } from '../../document/commands';
+import {
+  AlreadyPlacedError,
+  InvalidFixedToTargetError,
+  NotAShelfError,
+  RackOverlapError,
+  RackRangeError,
+  SketchOnCatalogueChassisError,
+  SlotTakenError,
+  SURFACE_FORMS,
+  addSketchPort,
+  createShelf,
+  createSurface,
+  isSurfaceForm,
+  moveChassis,
+  movePlacement,
+  placeChassis,
+  removeSketchPort,
+} from '../../document/commands';
 import { FieldValueError, setChassisField, setDeviceField, setRackField } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
@@ -37,6 +54,7 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
   heightU: 42,
   unitNumbering: 'ascending',
   chassis: [],
+  shelves: [],
   freeRuns: [{ fromU: 1, toU: 42 }],
   row: null,
   bay: null,
@@ -54,6 +72,74 @@ function describeError(error: unknown): string {
   }
   if (error instanceof Error) return error.message;
   return 'That request did not complete.';
+}
+
+/**
+ * ADR-0051 §1, this session's brief item 3 — "+ add a surface". There is no
+ * premises editor (`EditorFor`'s own `Selection` has no `'premises'` kind
+ * yet) and no separate page header for the Racks place
+ * (`shell/types.ts`'s `ShellProps` has no header slot); the rail — this
+ * place's one persistent control surface, today just `Palette` — is the
+ * nearest thing that exists, so this sits above it. Disabled until a
+ * premises exists: `createSurface` needs a real `premisesId`
+ * (`document/commands.ts`'s own doc), and there is no standalone "make a
+ * premises" command to reach for the way `handlePlace`'s
+ * `ensureRackToPlaceInto` mints one alongside a rack.
+ */
+function AddSurfaceControl({
+  premisesId,
+  onAdd,
+}: {
+  premisesId: string;
+  onAdd: (label: string, form: string) => { refused: string } | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [form, setForm] = useState<string>(SURFACE_FORMS[0]);
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  if (premisesId === '') {
+    return null;
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        + add a surface
+      </button>
+    );
+  }
+
+  function commit() {
+    const result = onAdd(label, form);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setOpen(false);
+    setLabel('');
+  }
+
+  return (
+    <div>
+      <input placeholder="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <select value={form} onChange={(e) => setForm(e.target.value)}>
+        {SURFACE_FORMS.map((f) => (
+          <option key={f} value={f}>
+            {f}
+          </option>
+        ))}
+      </select>
+      <button type="button" onClick={commit}>
+        add
+      </button>
+      <button type="button" onClick={() => setOpen(false)}>
+        cancel
+      </button>
+      {refusal != null ? <div className="racks-place__refusal">{refusal}</div> : null}
+    </div>
+  );
 }
 
 /** What `handleEdit` turns a caught `document/edit.ts` failure into for
@@ -74,6 +160,35 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
   if (error instanceof UnknownSlotError || error instanceof SlotAlreadyFittedError || error instanceof FixedSlotError) {
     return { refused: error.message };
   }
+  // `document/commands.ts`'s own ADR-0051 §1 refusals — the "PLACED ON"
+  // control's `movePlacement`, a shelf's `createShelf`, a sketch's
+  // `addSketchPort`: an occupied slot, a target that is not a shelf/board/
+  // surface, an item already placed elsewhere, a catalogued chassis refusing
+  // a hand-typed port. Shown beside the control the same way as above.
+  if (
+    error instanceof NotAShelfError ||
+    error instanceof SlotTakenError ||
+    error instanceof AlreadyPlacedError ||
+    error instanceof InvalidFixedToTargetError ||
+    error instanceof SketchOnCatalogueChassisError
+  ) {
+    return { refused: error.message };
+  }
+  // `movePlacement`'s `'rack'` branch reuses the same `RackRangeError`/
+  // `RackOverlapError` a rack drop-place already refuses with — the "PLACED
+  // ON" control asks for a unit the same way the drawing's own drop does,
+  // and needs the same two refusals shown beside it rather than treated as
+  // a stale view (`AlreadyPlacedError`'s neighbours above).
+  if (error instanceof RackRangeError || error instanceof RackOverlapError) {
+    return { refused: error.message };
+  }
+  // `document/model.ts`'s `uint`/`identifier` throw a bare `RangeError` for
+  // a value out of the schema's own numeric range (e.g. `FixedTo.x_mm`
+  // beyond u32, or negative) that the editor's own input check did not
+  // already catch. Shown generically rather than silently treated as
+  // success (this file's own `handleEdit` doc: "a refused VALUE is the
+  // editor's to show beside the field it came from, not to drop silently").
+  if (error instanceof RangeError) return { refused: error.message };
   return undefined;
 }
 
@@ -155,7 +270,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   const realView = useMemo<ClosetView>(
-    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [] }),
+    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [], surfaces: [] }),
     [doc, catalogue],
   );
 
@@ -173,6 +288,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             racks: [PENDING_RACK_VIEW],
             cables: realView.cables,
             rows: [{ label: null, racks: [PENDING_RACK_VIEW] }],
+            surfaces: realView.surfaces,
           },
     [realView],
   );
@@ -252,8 +368,35 @@ export function RacksPlace(props: RacksPlaceProps) {
           next = setSupplyField(doc, change.id, change.field, change.value);
         } else if (change.kind === 'supply-remove') {
           next = removeSupply(doc, change.id);
-        } else {
+        } else if (change.kind === 'supply-fit') {
           next = fitSupply(doc, change.chassisId, change.slot);
+        } else if (change.kind === 'move-placement') {
+          next = movePlacement(doc, change.itemId, change.placement);
+        } else if (change.kind === 'add-sketch-port') {
+          next = addSketchPort(doc, change.chassisId, {
+            label: change.label,
+            connector: change.connector,
+            service: change.service ?? undefined,
+            face: change.face,
+          });
+        } else if (change.kind === 'remove-sketch-port') {
+          next = removeSketchPort(doc, change.chassisId, change.portId);
+        } else if (change.kind === 'create-shelf') {
+          const model = change.model
+            ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
+            : undefined;
+          next = createShelf(doc, change.rackId, { positionU: change.positionU, model });
+        } else {
+          // change.kind === 'create-surface' — `EditorChange`'s own doc
+          // (`drawing/contract.ts`): the control only ever holds raw text,
+          // so `form` is validated against `SURFACE_FORMS` here, before
+          // `createSurface` gets a chance to refuse it as a schema value
+          // (the same "parse before the write-side sees it" shape `'rack'`'s
+          // `bay` above already follows).
+          if (!isSurfaceForm(change.form)) {
+            throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
+          }
+          next = createSurface(doc, change.premisesId, { label: change.label, form: change.form });
         }
         applyDocChange(next);
       } catch (e) {
@@ -272,10 +415,18 @@ export function RacksPlace(props: RacksPlaceProps) {
     saveRefusal != null ? (
       <div className="racks-place__refusal">{saveRefusal}</div>
     ) : doc != null ? (
-      EditorFor(selection, displayView, { onEdit: handleEdit })
+      EditorFor(selection, displayView, { onEdit: handleEdit }, paletteFromCatalogue(catalogue))
     ) : null;
 
-  const rail = <Palette palette={paletteFromCatalogue(catalogue)} />;
+  const rail = (
+    <>
+      <AddSurfaceControl
+        premisesId={realView.premisesId}
+        onAdd={(label, form) => handleEdit({ kind: 'create-surface', premisesId: realView.premisesId, label, form })}
+      />
+      <Palette palette={paletteFromCatalogue(catalogue)} />
+    </>
+  );
 
   return (
     <Shell {...shellProps} editor={editor} rail={rail}>

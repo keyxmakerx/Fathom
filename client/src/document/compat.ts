@@ -62,7 +62,10 @@ function normaliseConnector(c: string): string {
   return SCHEMA_CONNECTORS.has(lower) ? lower : connectorTokenOf(c.trim().toUpperCase());
 }
 
-const SCHEMA_CONNECTORS = new Set([
+/** `PhysicalPort.connector` (`schema/schema.yaml`), verbatim — exported so
+ * `commands.ts`'s `addSketchPort` (ADR-0051 §1) validates a typed-by-hand
+ * connector against the same one vocabulary this table itself reads. */
+export const PORT_CONNECTOR_VALUES = [
   'rj45',
   'sfp',
   'sfp_plus',
@@ -79,7 +82,15 @@ const SCHEMA_CONNECTORS = new Set([
   'nema515r',
   'nema515p',
   'other',
-]);
+] as const;
+export type PortConnector = (typeof PORT_CONNECTOR_VALUES)[number];
+
+/** `PhysicalPort.service` (`schema/schema.yaml`), verbatim — the same reuse
+ * reason `PORT_CONNECTOR_VALUES` above has. */
+export const PORT_SERVICE_VALUES = ['ethernet', 'pon', 'rf', 'serial', 'console', 'management', 'power', 'other'] as const;
+export type PortService = (typeof PORT_SERVICE_VALUES)[number];
+
+const SCHEMA_CONNECTORS = new Set<string>(PORT_CONNECTOR_VALUES);
 
 export function compatible(fromConnectorRaw: string, toConnectorRaw: string): CompatResult {
   const fromConnector = normaliseConnector(fromConnectorRaw);

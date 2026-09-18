@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, placeChassis } from './commands';
+import { connectPorts } from './cables';
+import { addSketchPort, createRack, createShelf, createSurface, fixTo, movePlacement, placeChassis, placeOnShelf } from './commands';
 import { PlainError, PLAIN_WARNING, readPlain, writePlain } from './plain';
-import { emptyDocument, formatNodeId, type Document } from './model';
+import { edgesIn, edgesOut, emptyDocument, formatEdgeId, formatNodeId, type Document } from './model';
 import { removeSupply } from './supplies';
 import { newUlid } from './ulid';
 
@@ -125,6 +126,155 @@ describe('writePlain / readPlain own round trip', () => {
     // Sanity: one PowerSupply node is now tombstoned, the other is live.
     expect(doc.nodes.filter((n) => n.id.startsWith('power-supply:'))).toHaveLength(2);
     expect(doc.nodes.find((n) => n.id === supplyId)!.absentSince).toBe(now);
+
+    const bytes = writePlain(doc);
+    const reloaded = readPlain(bytes);
+    expect(reloaded).toEqual(doc);
+    expect(writePlain(reloaded)).toEqual(bytes);
+  });
+});
+
+describe('a places round trip (ADR-0051 §1, item 8)', () => {
+  it('writes and reads back equal: a shelf and two occupants, a wall board carrying an outlet, a floor UPS, a sketched mini PC, and a cable from the sketch to the outlet\'s front', () => {
+    const now = 1_700_000_000_000;
+    const premisesId = formatNodeId('Premises', newUlid(now));
+    let doc: Document = {
+      ...emptyDocument(),
+      nodes: [
+        {
+          id: premisesId,
+          existence: newUlid(now),
+          fields: { 'Premises.label': { presence: 'set', prov: newUlid(now), value: 'Riverside CO' } },
+        },
+      ],
+    };
+
+    doc = createRack(doc, premisesId, { label: 'A-01', heightU: 42, unitNumbering: 'ascending', now });
+    const rackId = doc.nodes.find((n) => n.id !== premisesId)!.id;
+
+    // A shelf, U20, and two occupants: a catalogue-sourced desktop switch
+    // (placed in the rack, then moved to the shelf — `movePlacement`) and a
+    // sketched mini PC (no catalogue model, one port typed by hand).
+    doc = createShelf(doc, rackId, { positionU: 20, now });
+    const shelfMounted = edgesIn(doc, rackId, 'MountedIn')[0];
+    const shelfId = shelfMounted.from;
+
+    const SWITCH: CatalogueModel = {
+      vendor: 'ubiquiti',
+      model: 'USW-8',
+      rackUnits: 1,
+      reviewedBy: 'reviewer',
+      source: { cite: 'cite', readOn: '2026-09-18' },
+      psuSlots: [],
+      faceplates: [
+        { face: 'front', portCount: 1, ports: [{ kind: 'RJ45', number: 0, uplink: false, row: 'single', column: 0, groupGapBefore: false }] },
+      ],
+    };
+    doc = placeChassis(doc, rackId, SWITCH, 1, 'front', { now });
+    const switchChassisId = edgesIn(doc, rackId, 'MountedIn').find((e) => e.id !== shelfMounted.id)!.from;
+    doc = movePlacement(doc, switchChassisId, { kind: 'shelf', shelfId, slot: 1 }, { now });
+
+    const sketchDeviceId = formatNodeId('Device', newUlid(now));
+    const sketchChassisId = formatNodeId('Chassis', newUlid(now));
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        { id: sketchDeviceId, existence: newUlid(now), fields: {} },
+        { id: sketchChassisId, existence: newUlid(now), fields: {} },
+      ],
+      edges: [
+        ...doc.edges,
+        { id: formatEdgeId('HasChassis', newUlid(now)), from: sketchDeviceId, to: sketchChassisId, prov: newUlid(now), fields: {} },
+      ],
+    };
+    doc = addSketchPort(doc, sketchChassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now });
+    doc = placeOnShelf(doc, sketchChassisId, shelfId, 2, { now });
+
+    // A wall, a board fixed to it, and an outlet fixed to the board — a
+    // backboard's own occupants measure from the board's edges, not the
+    // wall's (`FixedTo`'s own schema doc).
+    doc = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', now });
+    const wallId = edgesOut(doc, premisesId, 'HasSurface')[0].to;
+
+    const boardId = formatNodeId('PassiveNode', newUlid(now));
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          id: boardId,
+          existence: newUlid(now),
+          fields: {
+            'PassiveNode.form': { presence: 'set', prov: newUlid(now), value: 'board' },
+            'PassiveNode.label': { presence: 'set', prov: newUlid(now), value: 'Backboard' },
+          },
+        },
+      ],
+    };
+    doc = fixTo(doc, boardId, wallId, {}, { now });
+
+    const outletId = formatNodeId('PassiveNode', newUlid(now));
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          id: outletId,
+          existence: newUlid(now),
+          fields: {
+            'PassiveNode.form': { presence: 'set', prov: newUlid(now), value: 'outlet' },
+            'PassiveNode.label': { presence: 'set', prov: newUlid(now), value: 'outlet-w1' },
+          },
+        },
+      ],
+    };
+    doc = fixTo(doc, outletId, boardId, { xMm: 100, yMm: 200 }, { now });
+
+    const outletPortId = formatNodeId('PhysicalPort', newUlid(now));
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          id: outletPortId,
+          existence: newUlid(now),
+          fields: {
+            'PhysicalPort.label': { presence: 'set', prov: newUlid(now), value: '1' },
+            'PhysicalPort.connector': { presence: 'set', prov: newUlid(now), value: 'rj45' },
+            'PhysicalPort.face': { presence: 'set', prov: newUlid(now), value: 'front' },
+          },
+        },
+      ],
+      edges: [
+        ...doc.edges,
+        { id: formatEdgeId('HasPort', newUlid(now)), from: outletId, to: outletPortId, prov: newUlid(now), fields: {} },
+      ],
+    };
+
+    // A floor, and a floor-standing UPS — placed in the rack (so
+    // `placeChassis` builds its ports/inlets), then moved to the floor.
+    doc = createSurface(doc, premisesId, { label: 'Riser closet floor', form: 'floor', now });
+    const floorId = edgesOut(doc, premisesId, 'HasSurface').find((e) => e.to !== wallId)!.to;
+
+    const UPS: CatalogueModel = {
+      vendor: 'apc',
+      model: 'SMT1500',
+      rackUnits: 2,
+      reviewedBy: 'reviewer',
+      source: { cite: 'cite', readOn: '2026-09-18' },
+      psuSlots: [],
+      faceplates: [
+        { face: 'rear', portCount: 1, ports: [{ kind: 'NEMA5-15R', number: 0, uplink: false, row: 'single', column: 0, groupGapBefore: false }] },
+      ],
+    };
+    doc = placeChassis(doc, rackId, UPS, 30, 'front', { now });
+    const upsChassisId = edgesIn(doc, rackId, 'MountedIn').find((e) => e.id !== shelfMounted.id)!.from;
+    doc = movePlacement(doc, upsChassisId, { kind: 'surface', surfaceId: floorId, xMm: null, yMm: null }, { now });
+
+    // A cable from the sketch's port to the outlet's front.
+    const sketchPortId = edgesOut(doc, sketchChassisId, 'HasPort')[0].to;
+    doc = connectPorts(doc, sketchPortId, outletPortId, {}, { now });
 
     const bytes = writePlain(doc);
     const reloaded = readPlain(bytes);

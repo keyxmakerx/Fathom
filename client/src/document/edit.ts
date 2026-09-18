@@ -14,9 +14,9 @@
 // here): `Device.hostname`, `Device.role`, `Device.management_address`,
 // `Chassis.serial`.
 
-import { UnknownReferenceError } from './commands';
 import {
   LOCAL_ACTOR,
+  UnknownReferenceError,
   assertHand,
   findNode,
   identifier,

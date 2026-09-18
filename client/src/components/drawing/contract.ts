@@ -38,7 +38,7 @@
 // re-exported here so the drawing's callers import from one place; the
 // seam that once redeclared them locally was collapsed on 2026-09-16 once
 // the document carried cables.
-import type { Sheath } from '../../document/view';
+import type { Placement, Sheath } from '../../document/view';
 
 export type {
   CableEndView,
@@ -86,7 +86,30 @@ export type EditorChange =
   | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
   | { kind: 'supply'; id: string; field: 'serial' | 'model'; value: string | null }
   | { kind: 'supply-remove'; id: string }
-  | { kind: 'supply-fit'; chassisId: string; slot: string };
+  | { kind: 'supply-fit'; chassisId: string; slot: string }
+  /** ADR-0051 §1 — the "PLACED ON" control (Rack | Shelf | Surface): moves a
+   * Chassis or PassiveNode to a new `Placement` (`document/view.ts`'s own
+   * union — the read side; `document/commands.ts`'s `movePlacement` is its
+   * write-side mirror, taking the same shape, so this change is passed
+   * straight through unchanged). */
+  | { kind: 'move-placement'; itemId: string; placement: Placement }
+  /** ADR-0051 §1 — a sketch's own typed-by-hand port (`commands.ts`'s
+   * `addSketchPort`). `service` is the schema's own optional field on
+   * `PhysicalPort`, `null` when left blank — never an empty string standing
+   * in for unset (UI-SPEC "Absent is drawn as absent"). */
+  | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: 'front' | 'rear' }
+  /** ADR-0051 §1 — the reverse: `commands.ts`'s `removeSketchPort`. */
+  | { kind: 'remove-sketch-port'; chassisId: string; portId: string }
+  /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
+   * `model` names a catalogue entry from the palette's own list, `null` for
+   * an unmodelled shelf (1U, per that function's own default). */
+  | { kind: 'create-shelf'; rackId: string; positionU: number; model: { vendor: string; model: string } | null }
+  /** ADR-0051 §1 — "+ add a surface" (`commands.ts`'s `createSurface`).
+   * `form` is the raw text the control holds — the caller
+   * (`racks/RacksPlace.tsx`'s `handleEdit`) validates it against
+   * `SURFACE_FORMS` before calling, the same way `'rack'`'s `bay` is parsed
+   * before `setRackField` gets a chance to refuse it. */
+  | { kind: 'create-surface'; premisesId: string; label: string; form: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

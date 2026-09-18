@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../../api/catalogue';
-import { createRack, placeChassis, UnknownReferenceError } from '../../document/commands';
+import {
+  AlreadyPlacedError,
+  InvalidFixedToTargetError,
+  NotAShelfError,
+  SketchOnCatalogueChassisError,
+  SlotTakenError,
+  createRack,
+  placeChassis,
+  UnknownReferenceError,
+} from '../../document/commands';
 import { setDeviceField } from '../../document/edit';
 import { edgesIn, emptyDocument, formatNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
@@ -86,5 +95,42 @@ describe('refusalFor', () => {
   it('drops anything that is not an Error at all', () => {
     expect(refusalFor('not an error')).toBeUndefined();
     expect(refusalFor(undefined)).toBeUndefined();
+  });
+
+  // ADR-0051 §1 — the "PLACED ON" control's `movePlacement`, a rack's
+  // `createShelf`, a sketch's `addSketchPort`: `document/commands.ts`'s own
+  // typed refusals, constructed directly (their own throw sites are already
+  // exercised by `document/commands.test.ts`) so this file tests only what
+  // it owns — that `refusalFor` shows each one beside its control, the same
+  // way it already shows `UnknownSlotError` and friends.
+
+  it('names an occupied shelf slot beside the "PLACED ON" control', () => {
+    expect(refusalFor(new SlotTakenError('passive-node:01ARZ3NDEKTSV4RRFFQ69G5FAV', 2))).toEqual({
+      refused: 'shelf "passive-node:01ARZ3NDEKTSV4RRFFQ69G5FAV" slot 2 is already occupied',
+    });
+  });
+
+  it('names a target that is not a shelf beside the "PLACED ON" control', () => {
+    expect(refusalFor(new NotAShelfError('rack:01ARZ3NDEKTSV4RRFFQ69G5FAV'))).toEqual({
+      refused: '"rack:01ARZ3NDEKTSV4RRFFQ69G5FAV" is not a PassiveNode of form shelf',
+    });
+  });
+
+  it('names an item already placed elsewhere beside the "PLACED ON" control', () => {
+    expect(refusalFor(new AlreadyPlacedError('chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV'))).toEqual({
+      refused: '"chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV" already has a placement — use movePlacement to change it',
+    });
+  });
+
+  it('names an invalid FixedTo target beside the "PLACED ON" control', () => {
+    expect(refusalFor(new InvalidFixedToTargetError('rack:01ARZ3NDEKTSV4RRFFQ69G5FAV'))).toEqual({
+      refused: '"rack:01ARZ3NDEKTSV4RRFFQ69G5FAV" is not a Surface or a PassiveNode of form board',
+    });
+  });
+
+  it('names a catalogued chassis refusing a hand-typed port beside "+ add a port"', () => {
+    expect(refusalFor(new SketchOnCatalogueChassisError('chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV'))).toEqual({
+      refused: 'chassis "chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV" has a catalogue model — its ports are not typed by hand',
+    });
   });
 });

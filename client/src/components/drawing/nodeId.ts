@@ -10,6 +10,16 @@ export function chassisNodeId(id: string): string {
   return `chassis:${id}`;
 }
 
+/** ADR-0051 §1 — one `SurfaceView`'s own React Flow node id (`SurfaceNode.tsx`),
+ * the closet stop's third kind of box beside a rack and a chassis. A board
+ * fixture and its own nested fixtures are NOT separate node ids — they draw
+ * as ordinary content inside their surface's one node (`SurfaceNode.tsx`'s
+ * own file header), the same way a shelf occupant is content inside its
+ * shelf's one node rather than a node of its own. */
+export function surfaceNodeId(id: string): string {
+  return `surface:${id}`;
+}
+
 /** A portal tray node's id — `key` is `portals.ts`'s own `PortalGroup.key`
  * (already unique per rack/side/far-label), so this just tags it with the
  * node-id namespace the other two prefixes use. Never parsed back by

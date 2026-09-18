@@ -117,6 +117,25 @@ function insertSorted<T>(arr: readonly T[], item: T, compare: (a: T, b: T) => nu
 // field that exists, and every call site below is checked by it rather than
 // trusted to have typed the string correctly.
 
+/** Refused: an id this document has no live node/edge for. Lives here
+ * (rather than in `commands.ts`, where it was born) so `edit.ts` can throw
+ * it without importing `commands.ts` — `commands.ts` itself now imports
+ * `edit.ts`'s `FieldValueError` (ADR-0051 §1's `createSurface`/
+ * `addSketchPort`), and a two-way import between those two modules would be
+ * a real cycle, not just an inconvenience. `commands.ts` re-exports this
+ * class so every existing `import { UnknownReferenceError } from './commands'`
+ * (`cables.ts`, `supplies.ts`, the test files) keeps working unchanged. */
+export class UnknownReferenceError extends Error {
+  readonly id: string;
+  readonly wanted: string;
+  constructor(id: string, wanted: string) {
+    super(`${wanted} "${id}" is not in this document`);
+    this.name = 'UnknownReferenceError';
+    this.id = id;
+    this.wanted = wanted;
+  }
+}
+
 export function requireFieldName(name: string): string {
   if (!(name in FIELD_KEYS)) {
     throw new Error(`field "${name}" is not in the schema's field registry`);
@@ -409,12 +428,76 @@ export function readChassisFields(node: GraphNode): ChassisFields {
 export interface PhysicalPortFields {
   label?: string;
   connector?: string;
+  /** ADR-0051 §1 — the faceplate this port sits on. Absent means: fall back
+   * to the catalogue's own faceplate, or `'front'` — `view.ts`'s own rule. */
+  face?: string;
+  service?: string;
 }
 
 export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
   return {
     label: asString(fieldValue(node.fields, 'PhysicalPort.label')),
     connector: asString(fieldValue(node.fields, 'PhysicalPort.connector')),
+    face: asString(fieldValue(node.fields, 'PhysicalPort.face')),
+    service: asString(fieldValue(node.fields, 'PhysicalPort.service')),
+  };
+}
+
+/** ADR-0051 §1 — a splitter, ODF, patch panel, shelf, outlet, board or other
+ * passive (`PassiveNode.form`'s own enum). */
+export interface PassiveNodeFields {
+  label?: string;
+  form?: string;
+  model?: string;
+  serial?: string;
+}
+
+export function readPassiveNodeFields(node: GraphNode): PassiveNodeFields {
+  return {
+    label: asString(fieldValue(node.fields, 'PassiveNode.label')),
+    form: asString(fieldValue(node.fields, 'PassiveNode.form')),
+    model: asString(fieldValue(node.fields, 'PassiveNode.model')),
+    serial: asString(fieldValue(node.fields, 'PassiveNode.serial')),
+  };
+}
+
+/** ADR-0051 §1 — a wall, floor, desk or ceiling. */
+export interface SurfaceFields {
+  label?: string;
+  form?: string;
+  widthMm?: number;
+  heightMm?: number;
+}
+
+export function readSurfaceFields(node: GraphNode): SurfaceFields {
+  return {
+    label: asString(fieldValue(node.fields, 'Surface.label')),
+    form: asString(fieldValue(node.fields, 'Surface.form')),
+    widthMm: asNumber(fieldValue(node.fields, 'Surface.width_mm')),
+    heightMm: asNumber(fieldValue(node.fields, 'Surface.height_mm')),
+  };
+}
+
+/** ADR-0051 §1 — `SitsOn.slot`: the place on a shelf, left to right, 1 first. */
+export interface SitsOnFields {
+  slot?: number;
+}
+
+export function readSitsOnFields(edge: GraphEdge): SitsOnFields {
+  return { slot: asNumber(fieldValue(edge.fields, 'SitsOn.slot')) };
+}
+
+/** ADR-0051 §1 — `FixedTo.x_mm`/`.y_mm`, both `0..1` (absent means fixed with
+ * the position not yet measured — `schema/schema.yaml`'s own doc on why). */
+export interface FixedToFields {
+  xMm?: number;
+  yMm?: number;
+}
+
+export function readFixedToFields(edge: GraphEdge): FixedToFields {
+  return {
+    xMm: asNumber(fieldValue(edge.fields, 'FixedTo.x_mm')),
+    yMm: asNumber(fieldValue(edge.fields, 'FixedTo.y_mm')),
   };
 }
 

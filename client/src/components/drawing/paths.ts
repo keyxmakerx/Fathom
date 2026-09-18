@@ -25,17 +25,30 @@
  *    every powered device around them has both). A device the catalogue
  *    simply has no PSU data for would misread as a panel under this rule;
  *    flagged for the lead rather than guessed past.
- * 2. **How a panel's ports pair.** A panel port carries at most one cable
- *    (`PhysicalPort` — one cable per port, `liveTargets.ts`'s own doc), so
- *    "the cable on the panel's paired port" needs a second port on the same
- *    chassis to be *this* port's continuation. This session reads that as
- *    the other port on the same chassis with the same `label` but a
- *    different `row` — a two-row faceplate (the catalogue's `top`/`bottom`
- *    rows, already used for a stacked layout elsewhere) numbered identically
- *    on both rows, front bank paired to a rear/continuation bank by number.
- *    No board or schema field states this; it is the plainest reading that
- *    needs nothing the catalogue does not already carry, and is named here
- *    for the lead to confirm or correct.
+ * 2. **How a panel's ports pair — SUPERSEDED by ADR-0051 §1.** A panel port
+ *    carries at most one cable (`PhysicalPort` — one cable per port,
+ *    `liveTargets.ts`'s own doc), so "the cable on the panel's paired port"
+ *    needs a second port to be *this* port's continuation. ADR-0051 §1: "A
+ *    panel's or outlet's pairing is written as the schema's `PassThrough`
+ *    edge at placement" — a real edge now exists for exactly this, and
+ *    `PortView.passThroughId` (`document/view.ts`'s own doc on the field) is
+ *    the id of the live `PassThrough` EDGE, not a port id — `PassThrough` is
+ *    symmetric, so `document/view.ts` resolves the SAME edge, and so the
+ *    SAME id, from either port it joins. The far port is therefore "whatever
+ *    other port in this view carries that same `passThroughId`," found by
+ *    `portByPassThroughId` below rather than by treating the edge id as if
+ *    it named a port directly (`findPort(view, port.passThroughId)` would
+ *    look up an edge id in a table of port ids and never match). The walk
+ *    below (`pairedPortFor`) reads that field FIRST, view-wide (a
+ *    `PassThrough`'s far port need not sit on the same chassis — an outlet
+ *    box's own front/rear, or a splitter's several legs, are not guaranteed
+ *    to be). The OLD same-chassis, same-label, different-row guess
+ *    (`pairedPort`, kept below unchanged) now only fires when
+ *    `passThroughId` is `null` — a document written, or a faceplate
+ *    matched, before this session's placement command started setting it.
+ *    Nothing here reads a panel's paired port off the mere ABSENCE of a
+ *    `passThroughId` value as if that absence were itself a fact about the
+ *    panel; a `null` is read as "not yet known," never as "not paired."
  */
 
 import type { CableView, ChassisView, ClosetView, PortView } from './contract';
@@ -62,13 +75,55 @@ export function isPanel(chassis: Pick<ChassisView, 'psuInlets'>): boolean {
   return chassis.psuInlets.length === 0;
 }
 
-/** See the file header, assumption 2. `undefined` when there is no such
- * second port (an ordinary single-row faceplate, or nothing else cabled). */
+/** See the file header, assumption 2 — the FALLBACK reading, same-chassis,
+ * same label, different row. `undefined` when there is no such second port
+ * (an ordinary single-row faceplate, or nothing else cabled). Never called
+ * directly by `extend` below any more; `pairedPortFor` calls it only once
+ * `port.passThroughId` has already been read and found `null`. */
 export function pairedPort(
   chassis: Pick<ChassisView, 'ports'>,
   port: Pick<PortView, 'id' | 'label' | 'row'>,
 ): PortView | undefined {
   return chassis.ports.find((p) => p.id !== port.id && p.label === port.label && p.label !== '' && p.row !== port.row);
+}
+
+/** `port.passThroughId`'s own EDGE id, resolved to the other port carrying
+ * that same id — `document/view.ts`'s `passThroughIdOf` reads a symmetric
+ * `PassThrough` edge from either of the two ports it joins, so both come
+ * back with the identical edge id, never each other's port id. Searched
+ * VIEW-WIDE (every rack's every chassis, not just `chassis.ports`), since a
+ * `PassThrough`'s far port need not sit on the near port's own chassis. A
+ * `passThroughId` this view cannot match to any other port — a lookup gap,
+ * or a document whose own far port this `ClosetView` does not carry —
+ * resolves to `undefined` rather than guessed past. */
+function portByPassThroughId(view: ClosetView, passThroughId: string, exceptPortId: string): PortView | undefined {
+  for (const rack of view.racks) {
+    for (const chassis of rack.chassis) {
+      const found = chassis.ports.find((p) => p.id !== exceptPortId && p.passThroughId === passThroughId);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/** ADR-0051 §1: the real pairing, `PortView.passThroughId` first — resolved
+ * VIEW-WIDE (`portByPassThroughId`, not `chassis.ports`), since a
+ * `PassThrough` edge's far port need not sit on the near port's own
+ * chassis. Falls back to the old same-chassis label/row guess (`pairedPort`
+ * above) only when `passThroughId` is `null`. A `passThroughId` naming an
+ * edge this view cannot find a second port for resolves to `undefined` and
+ * the walk simply stops there, rather than silently falling through to the
+ * label guess: `passThroughId` set is a real, asserted fact, and a lookup
+ * gap is a reason to fix the lookup, not a reason to guess past it. */
+export function pairedPortFor(
+  view: ClosetView,
+  chassis: Pick<ChassisView, 'ports'>,
+  port: Pick<PortView, 'id' | 'label' | 'row' | 'passThroughId'>,
+): PortView | undefined {
+  if (port.passThroughId != null) {
+    return portByPassThroughId(view, port.passThroughId, port.id);
+  }
+  return pairedPort(chassis, port);
 }
 
 export interface LitPath {
@@ -87,14 +142,22 @@ interface Extension {
 
 /** Walks outward from `end` (a real end of some cable already on the path,
  * away from that cable's other end): stops immediately unless `end` lands
- * on a panel port with a paired port
- * that itself carries a cable, in which case that cable joins the path and
- * the walk continues from its own far end. `visited` guards a cable graph
- * that loops back on itself (a real document should never form one, but a
- * pure function does not get to assume the document it is handed is one).
- * `trayKeyOf` resolves a cable that ends outside the closet to the portal
- * tray it belongs to — `portals.ts`'s own grouping, supplied by the caller
- * rather than recomputed here. */
+ * on a port with a paired port that itself carries a cable, in which case
+ * that cable joins the path and the walk continues from its own far end.
+ * `visited` guards a cable graph that loops back on itself (a real document
+ * should never form one, but a pure function does not get to assume the
+ * document it is handed is one). `trayKeyOf` resolves a cable that ends
+ * outside the closet to the portal tray it belongs to — `portals.ts`'s own
+ * grouping, supplied by the caller rather than recomputed here.
+ *
+ * ADR-0051 §1: a port whose `passThroughId` names another port is a real,
+ * schema-asserted continuation — "these two holes are the same hole" — and
+ * the walk trusts it regardless of `isPanel` (an outlet box or a splitter is
+ * not read as unpowered/"a panel" the way a patch panel is, but a
+ * `PassThrough` on it is exactly as real). `isPanel` still gates the OLD
+ * label/row guess (`pairedPort`, via `pairedPortFor`'s own fallback) — that
+ * heuristic was only ever a stand-in for a panel's own pairing, and stays
+ * scoped to what it was built for. */
 function extend(
   view: ClosetView,
   end: RealEnd,
@@ -102,9 +165,10 @@ function extend(
   trayKeyOf: (cableId: string) => string | undefined,
 ): Extension {
   const found = findPort(view, end.portId);
-  if (!found || !isPanel(found.chassis)) return { cableIds: [] };
+  if (!found) return { cableIds: [] };
+  if (found.port.passThroughId == null && !isPanel(found.chassis)) return { cableIds: [] };
 
-  const paired = pairedPort(found.chassis, found.port);
+  const paired = pairedPortFor(view, found.chassis, found.port);
   const nextEnd = paired?.cable;
   if (!paired || !nextEnd || visited.has(nextEnd.cableId)) return { cableIds: [] };
 
