@@ -208,6 +208,14 @@ outruns the data. If it moves, it must be true now.
 Nothing else changed: zero radius, no shadows, 1px hairlines, small type ramp, tabular numerals. The
 three risk colours stay reserved — and are now kept apart from the sheath palette by form, above.
 
+**Colour is "look here" — the owner, 2026-09-18.** The interface is black and white. Colour
+appears only where the eye should go, and subtly: a hairline ring around a button, a bordered wash
+with words, a notice in the top right of the canvas. Four uses and no others: an **error**, a
+**warning**, a **recommendation** (a suggested room, a suggested wall, a suggested fix) and a
+**confirmation** (a thing just accepted or saved, pulsing once and settling per "Motion"). A cable's
+sheath is not one of these: it is the colour of the object, as on the bench. Nothing is coloured to
+look alive, and nothing decorative is coloured at all.
+
 ---
 
 ## Screens — 2026-09-15
