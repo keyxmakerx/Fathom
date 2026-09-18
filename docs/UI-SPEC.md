@@ -213,8 +213,11 @@ appears only where the eye should go, and subtly: a hairline ring around a butto
 with words, a notice in the top right of the canvas. Four uses and no others: an **error**, a
 **warning**, a **recommendation** (a suggested room, a suggested wall, a suggested fix) and a
 **confirmation** (a thing just accepted or saved, pulsing once and settling per "Motion"). A cable's
-sheath is not one of these: it is the colour of the object, as on the bench. Nothing is coloured to
-look alive, and nothing decorative is coloured at all.
+sheath is the one exception and has its own switch: under the **Cables** lens, the default at the
+rack and faceplate stops, a cable draws in its true sheath colour so the lead on the screen can be
+matched to the lead in the hand; under every other lens cables draw in ink and colour comes only
+from that lens's meaning. The lens row is the on and off. Nothing is coloured to look alive, and
+nothing decorative is coloured at all.
 
 ---
 
