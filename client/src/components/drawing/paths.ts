@@ -52,10 +52,15 @@
  */
 
 import type { CableView, ChassisView, ClosetView, PortView } from './contract';
-import { findPort } from './lookup';
+// `FixtureView` is ADR-0051 §1/§2's own new shape — read straight off
+// `document/view.ts`, the one place it is declared, for the same reason
+// `lookup.ts`'s own file header gives: `./contract.ts` (off limits this
+// session) has not widened its re-export list to carry it yet.
+import type { FixtureView } from '../../document/view';
+import { locatePort } from './lookup';
 import type { PortalGroup } from './portals';
 
-type RealEnd = { portId: string; chassisId: string; rackId: string };
+type RealEnd = { portId: string; chassisId: string; rackId: string | null };
 
 function isRealEnd(end: CableView['ends'][number]): end is RealEnd {
   return 'portId' in end;
@@ -87,12 +92,33 @@ export function pairedPort(
   return chassis.ports.find((p) => p.id !== port.id && p.label === port.label && p.label !== '' && p.row !== port.row);
 }
 
+/** `portByPassThroughId`'s own walk over a surface's fixtures, a board's own
+ * nested fixtures included — ADR-0051 §2: an outlet box is a fixture, not a
+ * chassis, and both of ITS own ports (front and rear) live in one
+ * `FixtureView.ports` list, so the far half of a `PassThrough` pair can be
+ * found here without ever reaching `findPort`/`findAnyPort` (chassis-only). */
+function fixturePortByPassThroughId(
+  fixtures: readonly FixtureView[],
+  passThroughId: string,
+  exceptPortId: string,
+): PortView | undefined {
+  for (const fixture of fixtures) {
+    const found = fixture.ports.find((p) => p.id !== exceptPortId && p.passThroughId === passThroughId);
+    if (found) return found;
+    const nested = fixturePortByPassThroughId(fixture.fixtures, passThroughId, exceptPortId);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 /** `port.passThroughId`'s own EDGE id, resolved to the other port carrying
  * that same id — `document/view.ts`'s `passThroughIdOf` reads a symmetric
  * `PassThrough` edge from either of the two ports it joins, so both come
  * back with the identical edge id, never each other's port id. Searched
- * VIEW-WIDE (every rack's every chassis, not just `chassis.ports`), since a
- * `PassThrough`'s far port need not sit on the near port's own chassis. A
+ * VIEW-WIDE (every rack's every chassis, plus every surface's own fixtures —
+ * `fixturePortByPassThroughId` above — not just `chassis.ports`), since a
+ * `PassThrough`'s far port need not sit on the near port's own chassis (or
+ * even be a chassis's port at all — ADR-0051 §2's own outlet box). A
  * `passThroughId` this view cannot match to any other port — a lookup gap,
  * or a document whose own far port this `ClosetView` does not carry —
  * resolves to `undefined` rather than guessed past. */
@@ -102,6 +128,10 @@ function portByPassThroughId(view: ClosetView, passThroughId: string, exceptPort
       const found = chassis.ports.find((p) => p.id !== exceptPortId && p.passThroughId === passThroughId);
       if (found) return found;
     }
+  }
+  for (const surface of view.surfaces ?? []) {
+    const found = fixturePortByPassThroughId(surface.fixtures, passThroughId, exceptPortId);
+    if (found) return found;
   }
   return undefined;
 }
@@ -157,18 +187,30 @@ interface Extension {
  * `PassThrough` on it is exactly as real). `isPanel` still gates the OLD
  * label/row guess (`pairedPort`, via `pairedPortFor`'s own fallback) — that
  * heuristic was only ever a stand-in for a panel's own pairing, and stays
- * scoped to what it was built for. */
+ * scoped to what it was built for.
+ *
+ * ADR-0051 §2: `locatePort`, not `findPort` — the walk's own `end` may land
+ * on a surface fixture's port (an outlet box's rear jack, `Surfaces.png`'s
+ * own `outlet-w1`) as readily as a rack chassis's. `isPanel`/`pairedPortFor`
+ * both read only `.ports`/`.psuInlets`, a shape `FixtureView` carries too
+ * (`document/view.ts`), so `container` below is passed through unchanged
+ * regardless of which of the two it is — a shelf occupant's own port
+ * (`OccupantView`, no `psuInlets` of its own — ADR-0051 §1's contract, folded
+ * into its one `ports` list instead) is the one place this walk does not
+ * continue past, since neither a panel-style pairing nor a `PassThrough` is
+ * a shape ADR-0051 names for a shelf occupant. */
 function extend(
   view: ClosetView,
   end: RealEnd,
   visited: Set<string>,
   trayKeyOf: (cableId: string) => string | undefined,
 ): Extension {
-  const found = findPort(view, end.portId);
-  if (!found) return { cableIds: [] };
-  if (found.port.passThroughId == null && !isPanel(found.chassis)) return { cableIds: [] };
+  const location = locatePort(view, end.portId);
+  const container = location?.place === 'chassis' ? location.chassis : location?.place === 'fixture' ? location.fixture : undefined;
+  if (!location || !container) return { cableIds: [] };
+  if (location.port.passThroughId == null && !isPanel(container)) return { cableIds: [] };
 
-  const paired = pairedPortFor(view, found.chassis, found.port);
+  const paired = pairedPortFor(view, container, location.port);
   const nextEnd = paired?.cable;
   if (!paired || !nextEnd || visited.has(nextEnd.cableId)) return { cableIds: [] };
 

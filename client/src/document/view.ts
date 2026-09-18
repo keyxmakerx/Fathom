@@ -66,8 +66,10 @@ export type Placement =
  * `ExternalPeer` (`connectToOutside`, `cables.ts`) rather than a
  * `PhysicalPort` — the modelling horizon (11 §6.3), same reading `outside`
  * gives `CableView.ends` below. `outsideCloset` is true whenever the far end
- * is not a port mounted in a rack this `ClosetView` itself carries (an
- * ExternalPeer, or a chassis racked at a different Premises). */
+ * is not placed (ADR-0051 §1: `MountedIn` a rack, or `SitsOn` a shelf itself
+ * `MountedIn` a rack) in a rack this `ClosetView` itself carries (an
+ * ExternalPeer, a chassis racked at a different Premises, or — until a
+ * surface/board reader needs the same distinction — a surface fixture). */
 export interface CableEndView {
   cableId: string;
   farPortId: string | null;
@@ -282,8 +284,12 @@ export interface RowView {
 }
 
 /** One end of a `Cable` (`view.ts`'s own reduction of `Terminates`): a port
- * this document can locate a rack for, or the outside world. */
-export type CableEnd = { portId: string; chassisId: string; rackId: string } | { outside: true; label: string };
+ * this document can place somewhere (ADR-0051 §1: `MountedIn` a rack,
+ * `SitsOn` a shelf, or `FixedTo` a surface/board), or the outside world.
+ * `rackId` is the owning rack when there is one — the port's own rack, or,
+ * for a shelf occupant, the shelf's rack — and `null` for a surface/board
+ * fixture, which has none. */
+export type CableEnd = { portId: string; chassisId: string; rackId: string | null } | { outside: true; label: string };
 
 export interface CableView {
   id: string;
@@ -338,7 +344,12 @@ function fieldString(node: GraphNode | undefined, key: string): string | null {
  * a read, so it simply takes the first if that invariant were ever
  * violated by a document from elsewhere), reduced to the far end.
  * `closetRackIds` is the set of rack ids the `ClosetView` being built
- * itself carries — a far port mounted in none of them is `outsideCloset`. */
+ * itself carries — a far port whose owning rack (`rackIdOfPlacement`
+ * above — a shelf occupant's own shelf's rack, for one) is not one of them
+ * is `outsideCloset`. A surface/board fixture has no owning rack at all and
+ * reads `outsideCloset: true` here the same way it always has — ADR-0051
+ * §1/§2 gave it a place to draw, not yet a reader of this bit that needs to
+ * tell it apart from a rack in a different closet. */
 function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet<string>): CableEndView | null {
   const near = edgesIn(doc, portId, 'Terminates')[0];
   if (!near) return null;
@@ -354,8 +365,8 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
   const farPortId = far.to;
   const farHasPort = edgesIn(doc, farPortId, 'HasPort')[0];
   const farChassisId = farHasPort?.from ?? null;
-  const farMounted = farChassisId ? edgesOut(doc, farChassisId, 'MountedIn')[0] : undefined;
-  const outsideCloset = !farMounted || !closetRackIds.has(farMounted.to);
+  const farRackId = farChassisId ? rackIdOfPlacement(doc, placementOf(doc, farChassisId)) : null;
+  const outsideCloset = !farRackId || !closetRackIds.has(farRackId);
   return { cableId, farPortId, farChassisId, outsideCloset };
 }
 
@@ -703,11 +714,16 @@ function occupantView(
     const chassisFields = readChassisFields(node);
     const model = chassisFields.model ?? null;
     const catalogueModel = chassisFields.model ? catalogueMatch(catalogue, chassisFields.model) : undefined;
-    const otherEdges = hasPorts.filter((e) => {
-      const portNode = findNode(doc, e.to);
-      return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
-    });
-    const ports = otherEdges
+    // ADR-0051 §1: unlike `chassisView`'s own `otherEdges` (which keeps a
+    // fixed-slot c14 inlet out of `ports` so `psuInletsOf` can draw it once,
+    // in `ChassisView.psuInlets`), `OccupantView` has no `psuInlets` field of
+    // its own to route a c14 port to instead — its one `ports` list is the
+    // occupant's WHOLE faceplate, inlet included (`elevation.ts`'s own
+    // `ShelfOccupantFaceplateItem` doc). Filtering c14 out here the same way
+    // would simply drop the port from the view entirely, never drawn
+    // anywhere — `design/places/renders/Shelf.png`'s own `nuc-01` shows its
+    // C14 inlet listed under one PORTS heading, not a separate strip.
+    const ports = hasPorts
       .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
       .filter((p): p is PortView => p !== undefined);
     return {
@@ -965,13 +981,29 @@ function cableKindOfMedia(media: string): CableKind {
   return 'copper';
 }
 
+/** The rack that owns `placement`, for `cableEnd`/`portCableView` below —
+ * the placement's own rack when it is `MountedIn` one directly, or, for a
+ * shelf occupant, the shelf's own rack (a shelf is itself `MountedIn` a
+ * rack — `shelfView`'s own doc); `null` for a surface/board fixture or an
+ * unplaced item, neither of which has one. */
+function rackIdOfPlacement(doc: Document, placement: Placement): string | null {
+  if (placement.kind === 'rack') return placement.rackId;
+  if (placement.kind === 'shelf') {
+    const mounted = edgesOut(doc, placement.shelfId, 'MountedIn')[0];
+    return mounted ? mounted.to : null;
+  }
+  return null;
+}
+
 /** One `Terminates` edge off a `Cable`, resolved: a live `PhysicalPort`
- * mounted somewhere becomes `{portId, chassisId, rackId}`; a live
- * `ExternalPeer` becomes `{outside: true, label}` (`ExternalPeer.label`,
+ * placed somewhere (ADR-0051 §1: `MountedIn` a rack, `SitsOn` a shelf, or
+ * `FixedTo` a surface/board — `placementOf`'s own three) becomes
+ * `{portId, chassisId, rackId}`, `rackId` from `rackIdOfPlacement` above; a
+ * live `ExternalPeer` becomes `{outside: true, label}` (`ExternalPeer.label`,
  * `schema/schema.yaml`, card "1" — `''` only if that invariant is somehow
  * violated). Anything this document cannot resolve (a dangling `to`, or a
- * port not currently mounted) is left out of `CableView.ends` rather than
- * guessed. */
+ * port whose owner is not placed anywhere at all) is left out of
+ * `CableView.ends` rather than guessed. */
 function cableEnd(doc: Document, edge: GraphEdge): CableEnd | undefined {
   const kind = parseNodeId(edge.to).kind;
   if (kind === 'ExternalPeer') {
@@ -985,9 +1017,9 @@ function cableEnd(doc: Document, edge: GraphEdge): CableEnd | undefined {
   const hasPort = edgesIn(doc, portId, 'HasPort')[0];
   if (!hasPort) return undefined;
   const chassisId = hasPort.from;
-  const mounted = edgesOut(doc, chassisId, 'MountedIn')[0];
-  if (!mounted) return undefined;
-  return { portId, chassisId, rackId: mounted.to };
+  const placement = placementOf(doc, chassisId);
+  if (placement.kind === 'none') return undefined;
+  return { portId, chassisId, rackId: rackIdOfPlacement(doc, placement) };
 }
 
 /** One `Cable` node, reduced for the drawing — `kind` from `media`,

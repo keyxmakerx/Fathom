@@ -83,9 +83,10 @@ export function powerLeadHandle(elevation: Facing, cameraStop: CameraStop): 'rai
   return cameraStop === 'faceplate' ? 'inlet' : 'anchor';
 }
 
-/** One occupant sitting on a shelf, resolved for an elevation — UI-SPEC
- * "Places · Shelf": "a shelf's occupants show in both elevations, front and
- * rear faces per occupant by the same rule as a chassis." `OccupantView`
+/** One occupant sitting on a shelf, resolved for an elevation. The rule,
+ * from ADR-0051 §1 and the Shelf board (`design/places/renders/Shelf.png`):
+ * a shelf's occupants show in both elevations, front and rear faces per
+ * occupant by the same rule as a chassis. `OccupantView`
  * (this session's own CONTRACT) carries no mounting face of its own the way
  * `ChassisView.face` does: a shelf does not flip independently of the rack
  * it is mounted in (there is no separate `SitsOn`-side "front | rear"
@@ -103,7 +104,7 @@ export interface ShelfOccupantFaceplateItem {
    * ordinary ports (this session's CONTRACT: `OccupantView` has one `ports`
    * list, unlike `ChassisView`'s separate `ports`/`psuInlets` — a sketch
    * device's inlet is typed by hand exactly like its data ports, UI-SPEC
-   * "Places · Shelf"'s own `nuc-01` example, C14 inlet included under one
+   * "Places"'s own `nuc-01` example, C14 inlet included under one
    * "PORTS" heading). So, unlike `FaceplateItem` above, there is no second
    * `inlets` field here to filter — this is the whole faceplate. */
   ports: PortView[];

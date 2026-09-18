@@ -7,8 +7,13 @@
  */
 
 import { compatible } from '../../document/compat';
-import type { ClosetView } from './contract';
-import { findPort } from './lookup';
+import type { ClosetView, PortView } from './contract';
+// `FixtureView` is ADR-0051 §1's own new shape — read straight off
+// `document/view.ts`, the one place it is declared, for the same reason
+// `lookup.ts`'s own file header gives: `./contract.ts` (off limits this
+// session) has not widened its re-export list to carry it yet.
+import type { FixtureView } from '../../document/view';
+import { locatePort } from './lookup';
 
 /**
  * Every port in `view` that a drag started from `fromPortId` may legally
@@ -16,20 +21,39 @@ import { findPort } from './lookup';
  * the origin's own connector. Empty if `fromPortId` names nothing in this
  * view or is itself already cabled — starting a second cable from a full
  * port is not this session's feature (UI-SPEC "One cable per port").
+ *
+ * ADR-0051 §1/§2 — searched everywhere a port can actually be: a rack
+ * chassis's own faceplate, a shelf occupant's, and a surface fixture's
+ * (a board's own nested fixtures included) — `locatePort`, not `findPort`,
+ * for the origin lookup, and every one of the three places walked below, so
+ * a drag started on a shelf occupant or a surface fixture lights its own
+ * compatible targets exactly as one started on a rack chassis already does.
  */
 export function liveTargetPortIds(view: ClosetView, fromPortId: string): Set<string> {
-  const from = findPort(view, fromPortId);
+  const from = locatePort(view, fromPortId);
   const live = new Set<string>();
   if (!from || (from.port.cable ?? null) != null) return live;
 
-  for (const rack of view.racks) {
-    for (const chassis of rack.chassis) {
-      for (const port of chassis.ports) {
-        if (port.id === fromPortId) continue;
-        if ((port.cable ?? null) != null) continue;
-        if (compatible(from.port.connector, port.connector).ok) live.add(port.id);
-      }
+  function consider(port: PortView): void {
+    if (port.id === fromPortId) return;
+    if ((port.cable ?? null) != null) return;
+    if (compatible(from!.port.connector, port.connector).ok) live.add(port.id);
+  }
+
+  function walkFixtures(fixtures: readonly FixtureView[]): void {
+    for (const fixture of fixtures) {
+      fixture.ports.forEach(consider);
+      walkFixtures(fixture.fixtures);
     }
   }
+
+  for (const rack of view.racks) {
+    for (const chassis of rack.chassis) chassis.ports.forEach(consider);
+    for (const shelf of rack.shelves ?? []) {
+      for (const occupant of shelf.occupants) occupant.ports.forEach(consider);
+    }
+  }
+  for (const surface of view.surfaces ?? []) walkFixtures(surface.fixtures);
+
   return live;
 }

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { OccupantView, ShelfView } from '../../document/view';
 import type { PortView } from './contract';
-import { ShelfPlate, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
+import { ShelfPlate, shelfPlateMode, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
 
 // Render-to-string smoke tests only, per `ColourPicker.render.test.ts`'s own
 // precedent — no DOM testing library is installed, so a click that opens the
@@ -182,5 +182,48 @@ describe('ShelfPlate (render-to-string)', () => {
     const s = shelf({ id: 'shelf-a01' });
     const markup = renderShelf(baseData({ shelf: s, selected: true }));
     expect(markup).toContain('drawing-shelf--selected');
+  });
+});
+
+// gap 4: a 1U shelf at the rack stop shares its one 16px row between the
+// shelf's own name and its occupants — `shelfPlateMode`'s own pure rule.
+describe('shelfPlateMode — the 1U layout rule', () => {
+  it('a 1U shelf draws compact', () => {
+    expect(shelfPlateMode(1)).toBe('compact');
+  });
+
+  it('a taller shelf draws full', () => {
+    expect(shelfPlateMode(2)).toBe('full');
+    expect(shelfPlateMode(4)).toBe('full');
+  });
+});
+
+describe('ShelfPlate — the 1U compact layout (render-to-string, zoom defaults to the rack stop)', () => {
+  it('a 1U shelf draws its name and its occupants as small named boxes in one row, never the SHELF nU tag', () => {
+    const s = shelf({
+      id: 'shelf-a01',
+      heightU: 1,
+      occupants: [occupant({ id: 'nuc-01', slot: 1 }), occupant({ id: 'ont-01', slot: 2 })],
+    });
+    const markup = renderShelf(baseData({ shelf: s }));
+    expect(markup).toContain('drawing-shelf--compact');
+    expect(markup).toContain('drawing-shelf__compact-occupant');
+    expect(markup).toContain('nuc-01');
+    expect(markup).toContain('ont-01');
+    expect(markup).not.toContain('SHELF 1U');
+  });
+
+  it('a 1U shelf with no occupants still draws its own name — never an empty plate', () => {
+    const s = shelf({ id: 'shelf-a01', heightU: 1, occupants: [] });
+    const markup = renderShelf(baseData({ shelf: s }));
+    expect(markup).toContain('drawing-shelf--compact');
+    expect(markup).toContain('shelf-a01');
+  });
+
+  it('a taller shelf keeps the ordinary two-row layout, not the compact row', () => {
+    const s = shelf({ id: 'shelf-a01', heightU: 2, occupants: [occupant({ id: 'nuc-01', slot: 1 })] });
+    const markup = renderShelf(baseData({ shelf: s }));
+    expect(markup).not.toContain('drawing-shelf--compact');
+    expect(markup).toContain('SHELF 2U');
   });
 });

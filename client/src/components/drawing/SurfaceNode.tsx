@@ -20,7 +20,7 @@ import { SHEATH_VAR } from './sheath';
 
 /**
  * A closet surface — `docs/decisions/adr-0051-shelves-surfaces-the-room-and-blueprints.md`
- * §1/§2, `docs/UI-SPEC.md` "Places · Surfaces", `design/places/renders/Surfaces.png`.
+ * §1/§2, `docs/UI-SPEC.md` "Places", `design/places/renders/Surfaces.png`.
  * A wall/desk/ceiling draws as a flat elevation beside the rack rows, the
  * same faceplate machinery a rack elevation already uses (name, model,
  * ports, PSU inlets, single-fed/one-fitted washes) but at ONE face — UI-SPEC
@@ -49,6 +49,12 @@ export interface SurfaceNodeData extends Record<string, unknown> {
   /** `geometry.ts`'s `U_PX` — see the file header's "the scale rule." */
   uPx: number;
   onSelectPort: (portId: string) => void;
+  /** ADR-0051 §1/§2 — clicking a fixture's own box (its header, for a board)
+   * selects it, `contract.ts`'s `Selection` `'fixture'` kind. A click on one
+   * of the fixture's own ports (`PortGlyphs`/`InletStrip` below) already
+   * stops the event there and calls `onSelectPort` instead, so the two never
+   * fire for the same click. */
+  onSelectFixture: (fixtureId: string) => void;
   liveDrag: { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
   portSheath: ReadonlyMap<string, Sheath>;
   litCableId: string | null;
@@ -228,6 +234,7 @@ interface FixtureBoxProps {
   fixture: FixtureView;
   uPx: number;
   onSelectPort: (portId: string) => void;
+  onSelectFixture: (fixtureId: string) => void;
   liveDrag: SurfaceNodeData['liveDrag'];
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
@@ -277,6 +284,7 @@ function FixtureBox({
   fixture,
   uPx,
   onSelectPort,
+  onSelectFixture,
   liveDrag,
   portSheath,
   litCableId,
@@ -291,7 +299,14 @@ function FixtureBox({
     const unmeasuredChildren = fixture.fixtures.filter((f) => !isPositioned(f));
     return (
       <div className="drawing-surface__board" style={{ width: widthPx, height: heightPx }}>
-        <div className="drawing-surface__board-header" style={{ fontSize: labelFontPx }}>
+        <div
+          className="drawing-surface__board-header nodrag"
+          style={{ fontSize: labelFontPx, cursor: 'pointer' }}
+          onClick={(event: MouseEvent) => {
+            event.stopPropagation();
+            onSelectFixture(fixture.id);
+          }}
+        >
           <span className="drawing-surface__fixture-label">{fixture.label}</span>
           {fixture.model && <span className="drawing-surface__fixture-model">{fixture.model}</span>}
         </div>
@@ -321,6 +336,7 @@ function FixtureBox({
                 fixture={child}
                 uPx={uPx}
                 onSelectPort={onSelectPort}
+                onSelectFixture={onSelectFixture}
                 liveDrag={liveDrag}
                 portSheath={portSheath}
                 litCableId={litCableId}
@@ -352,8 +368,20 @@ function FixtureBox({
 
   return (
     <div
-      className={upright ? 'drawing-surface__fixture drawing-surface__fixture--upright' : 'drawing-surface__fixture'}
-      style={{ width: upright ? FLOOR_FIXTURE_WIDTH_PX : FIXTURE_WIDTH_PX, minHeight: upright ? FLOOR_FIXTURE_HEIGHT_PX : FIXTURE_MIN_HEIGHT_PX }}
+      className={
+        upright
+          ? 'drawing-surface__fixture drawing-surface__fixture--upright nodrag'
+          : 'drawing-surface__fixture nodrag'
+      }
+      style={{
+        width: upright ? FLOOR_FIXTURE_WIDTH_PX : FIXTURE_WIDTH_PX,
+        minHeight: upright ? FLOOR_FIXTURE_HEIGHT_PX : FIXTURE_MIN_HEIGHT_PX,
+        cursor: 'pointer',
+      }}
+      onClick={(event: MouseEvent) => {
+        event.stopPropagation();
+        onSelectFixture(fixture.id);
+      }}
     >
       <div className="drawing-surface__fixture-header" style={{ fontSize: labelFontPx }}>
         <span className="drawing-surface__fixture-label">{fixture.label}</span>
@@ -394,10 +422,11 @@ function FixtureBox({
  * itself draws (`mmRailTicks`, `rows.ts`). A fixture with no position
  * (`isPositioned` false) never guesses one — it sits instead in the "not
  * measured" strip at the panel's own foot, named, nothing invented. */
-function Panel({ placement, uPx, onSelectPort, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
+function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
   placement: SurfacePlacement;
   uPx: number;
   onSelectPort: (portId: string) => void;
+  onSelectFixture: (fixtureId: string) => void;
   liveDrag: SurfaceNodeData['liveDrag'];
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
@@ -438,6 +467,7 @@ function Panel({ placement, uPx, onSelectPort, liveDrag, portSheath, litCableId,
                   fixture={fixture}
                   uPx={uPx}
                   onSelectPort={onSelectPort}
+                  onSelectFixture={onSelectFixture}
                   liveDrag={liveDrag}
                   portSheath={portSheath}
                   litCableId={litCableId}
@@ -480,10 +510,11 @@ function Panel({ placement, uPx, onSelectPort, liveDrag, portSheath, litCableId,
  * at the band's foot, the same strip `Panel` above gives a wall fixture with
  * neither coordinate — never spaced out at a distinct guessed offset, which
  * would read as a real, asserted position nobody gave it. */
-function FloorBand({ placement, uPx, onSelectPort, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
+function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
   placement: SurfacePlacement;
   uPx: number;
   onSelectPort: (portId: string) => void;
+  onSelectFixture: (fixtureId: string) => void;
   liveDrag: SurfaceNodeData['liveDrag'];
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
@@ -509,6 +540,7 @@ function FloorBand({ placement, uPx, onSelectPort, liveDrag, portSheath, litCabl
                 fixture={fixture}
                 uPx={uPx}
                 onSelectPort={onSelectPort}
+                onSelectFixture={onSelectFixture}
                 liveDrag={liveDrag}
                 portSheath={portSheath}
                 litCableId={litCableId}
@@ -544,7 +576,7 @@ function FloorBand({ placement, uPx, onSelectPort, liveDrag, portSheath, litCabl
  * `'floor'` draws as `FloorBand` — the two shapes `design/places/renders/Surfaces.png`
  * (ADR-0051 §1/§2) shows. */
 export function SurfaceNode({ data }: NodeProps<SurfaceNodeType>) {
-  const { placement, uPx, onSelectPort, liveDrag, portSheath, litCableId, portOpacity } = data;
+  const { placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity } = data;
   const { zoom } = useViewport();
   const labelFontPx = counterScaledFontPx(LABEL_BASE_PX, zoom);
   // Port glyphs draw at true size, the same `1/zoom` reading every other
@@ -557,7 +589,7 @@ export function SurfaceNode({ data }: NodeProps<SurfaceNodeType>) {
   // which module owns which number).
   const glyphScale = zoom > 0 ? 1 / zoom : 1;
 
-  const shared = { uPx, onSelectPort, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx };
+  const shared = { uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx };
 
   if (placement.surface.form === 'floor') {
     return <FloorBand placement={placement} {...shared} />;

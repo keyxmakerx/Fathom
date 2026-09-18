@@ -1,5 +1,5 @@
 /* The shelf plate — `docs/decisions/adr-0051-shelves-surfaces-the-room-and-blueprints.md`
-   §1/§2, `docs/UI-SPEC.md` "Places · Shelf", `design/places/renders/Shelf.png`.
+   §1/§2, `docs/UI-SPEC.md` "Places", `design/places/renders/Shelf.png`.
    Every colour and rule below is a token from `design/tokens.css`, kept
    deliberately parallel to `drawing.css`'s own `.drawing-chassis*`/
    `.drawing-rack__free` rules (same hairline, same hatch, zero radius, no
@@ -31,6 +31,67 @@
   outline-offset: var(--focus-offset-inset);
 }
 
+/* `ShelfPlate.tsx`'s own `shelfPlateMode`: a 1U shelf at the rack/closet
+   stops shares its one 16px row between the shelf's own name and its
+   occupants, the way a 1U `.drawing-chassis` shares its row between a
+   header and a port row — a single flex row rather than this file's own
+   ordinary header-above-occupants column. */
+.drawing-shelf--compact {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.drawing-shelf__compact-row {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s1);
+  padding: 0 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drawing-shelf__compact-occupants {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drawing-shelf__compact-occupant {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 72px;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 3px;
+  line-height: 1.4;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.drawing-shelf__compact-occupant--selected {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.drawing-shelf__compact-occupant:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 1px;
+}
+
 .drawing-shelf__header {
   flex: 0 0 auto;
   display: flex;
@@ -50,9 +111,9 @@
   text-overflow: ellipsis;
 }
 
-/* UI-SPEC "Places · Shelf": "labelled with the shelf's label and 'SHELF
-   <height>U'" — the second half, muted like every other plate's own model
-   text (`.drawing-chassis__model`). */
+/* `design/places/renders/Shelf.png`: labelled with the shelf's label and
+   "SHELF <height>U" — the second half, muted like every other plate's own
+   model text (`.drawing-chassis__model`). */
 .drawing-shelf__height {
   flex-shrink: 0;
   font-size: var(--t-micro);
@@ -73,9 +134,9 @@
   border-top: 1px solid var(--hairline);
 }
 
-/* One occupant, left to right by slot — UI-SPEC "Places · Shelf": "its
-   occupants as named boxes left to right by slot." Equal division of the
-   plate's own width, exactly the "one column per slot" the board draws;
+/* One occupant, left to right by slot — `design/places/renders/Shelf.png`:
+   named boxes left to right by slot. Equal division of the plate's own
+   width, exactly the "one column per slot" the board draws;
    `ChassisNode.tsx`'s own per-U pixel math has no analogue here since a
    slot is not a fixed physical unit the way a U is. */
 .drawing-shelf__occupant {
@@ -109,8 +170,8 @@
   outline-offset: -1px;
 }
 
-/* UI-SPEC "Places · Shelf": "Empty slots draw as hatched gaps the way free
-   units do" — the same hatch `.drawing-rack__free` uses. */
+/* `design/places/renders/Shelf.png`: empty slots draw as hatched gaps the
+   way free units do — the same hatch `.drawing-rack__free` uses. */
 .drawing-shelf__gap {
   flex: 1 1 0;
   min-width: 0;
@@ -148,10 +209,10 @@
   text-overflow: ellipsis;
 }
 
-/* UI-SPEC "Places · Shelf": "a dotted TYPED mark on a sketch." Provenance,
-   not risk — UI-SPEC "Look" reserves colour to error/warning/recommendation/
-   confirmation, so this is ink on a dotted hairline, never a wash, never a
-   risk colour. */
+/* `design/places/renders/Shelf.png`: a dotted TYPED mark on a sketch.
+   Provenance, not risk — UI-SPEC "Look" reserves colour to error/warning/
+   recommendation/confirmation, so this is ink on a dotted hairline, never a
+   wash, never a risk colour. */
 .drawing-shelf__typed {
   flex-shrink: 0;
   font-size: var(--t-micro);
@@ -215,8 +276,8 @@
   font-variant-numeric: var(--num-tabular);
 }
 
-/* The faceplate-stop inset — UI-SPEC "Places · Shelf": "an occupant opens
-   beside the shelf" / "Motion" #10. Positioned outside the plate's own box,
+/* The faceplate-stop inset — `design/places/renders/Shelf.png`: an occupant
+   opens beside the shelf (Motion #10). Positioned outside the plate's own box,
    to its right, at the same `--surface-2` + hairline language `ColourPicker.tsx`'s
    own popover uses (`drawing.css`'s own note on why: "deliberately parallel
    to `shell.css`'s `.shell-popover*`") — a distinct box, never a floating
@@ -271,6 +332,22 @@
 .drawing-shelf__bundle-handle {
   position: absolute !important;
   left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The compact row's own occupant chip has no room for a visible port glyph
+   (the whole plate is one `U_PX` row) — an invisible anchor per port, same
+   trick as `.drawing-shelf__bundle-handle` above, so a cable ending on a
+   compact-mode occupant's port still has a real `Handle` this drawing's own
+   `resolveEnd` (`Drawing.tsx`) can reach, instead of the edge being dropped
+   for want of one. */
+.drawing-shelf__compact-port-handle {
+  position: absolute !important;
+  left: 50%;
   top: 50%;
   width: 1px;
   height: 1px;

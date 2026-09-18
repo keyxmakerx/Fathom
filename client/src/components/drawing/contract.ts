@@ -138,7 +138,13 @@ export type Selection =
   | { kind: 'rack'; id: string }
   | { kind: 'chassis'; id: string }
   | { kind: 'port'; id: string }
-  | { kind: 'cable'; id: string };
+  | { kind: 'cable'; id: string }
+  /** ADR-0051 §1/§2 — a shelf occupant (`OccupantView`), selected by
+   * clicking its own box on the plate. */
+  | { kind: 'occupant'; id: string }
+  /** ADR-0051 §1/§2 — a surface fixture (`FixtureView`, a board included —
+   * a board is itself a fixture), selected by clicking it on its surface. */
+  | { kind: 'fixture'; id: string };
 
 /** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
  * an omitted row. Shared by `ChassisNode` (the box) and `Editor` (the

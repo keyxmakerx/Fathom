@@ -44,9 +44,10 @@ import { ColourPicker } from './ColourPicker';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
 import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNodeType } from './RowLabelNode';
+import { ShelfPlate, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
 import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
-import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, surfaceNodeId, trayNodeId } from './nodeId';
-import { findAnyPort, locatePort } from './lookup';
+import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { findAnyPort, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
@@ -61,6 +62,7 @@ const NODE_TYPES = {
   tray: PortalTrayNode,
   rowLabel: RowLabelNode,
   surface: SurfaceNode,
+  shelf: ShelfPlate,
 };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
 
@@ -144,7 +146,7 @@ export interface DrawingProps extends DrawingActions {
 type AnyRackNode = RackNodeType;
 type AnyChassisNode = ChassisNodeType;
 type AnyTrayNode = PortalTrayNodeType;
-type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode | RowLabelNodeType | SurfaceNodeType;
+type FlowNode = AnyRackNode | AnyChassisNode | AnyTrayNode | RowLabelNodeType | SurfaceNodeType | ShelfPlateNodeType;
 
 type RackPositions = Record<string, { x: number; y: number }>;
 type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
@@ -505,6 +507,61 @@ function DrawingInner({
           data: chassisData,
         } satisfies AnyChassisNode);
       }
+
+      // ADR-0051 §1/§2: a shelf takes rack units exactly as a chassis does —
+      // one sibling React Flow node per `ShelfView`, positioned at its own
+      // `positionU`/`.heightU` the same way `basePosition` above lays out a
+      // chassis, never listed among `rack.chassis` (`document/view.ts`'s own
+      // `rackView` keeps the two apart).
+      for (const shelf of rack.shelves) {
+        const shelfPosition = {
+          x: pos.x + RAIL_PX,
+          y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, shelf.positionU, shelf.heightU),
+        };
+        const shelfData: ShelfPlateNodeData = {
+          shelf,
+          elevation,
+          // No `Selection` kind names a shelf itself (only its occupants,
+          // `contract.ts`'s `'occupant'`) — the plate's own selected outline
+          // is left off rather than reused for a fact this contract does not
+          // carry.
+          selected: false,
+          // `api/catalogue.ts` carries no shelf slot-capacity field yet —
+          // `ShelfPlateNodeData.slotCount`'s own doc on why `null` (occupants
+          // only, no gap invented) is the honest reading until it does.
+          slotCount: null,
+          selectedOccupantId: selected?.kind === 'occupant' ? selected.id : null,
+          onSelectShelf: () => {},
+          onSelectOccupant: (occupantId: string) => {
+            onSelect({ kind: 'occupant', id: occupantId });
+            // Motion #10: "A box on a shelf opens at the faceplate stop by
+            // the same camera as everything else" — one continuous
+            // `setCenter`, the same camera every other zoom change in this
+            // drawing already moves, never a second, independent jump.
+            const centreX = shelfPosition.x + RACK_INNER_PX / 2;
+            const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
+            void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
+          },
+          onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
+          liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
+          portSheath,
+          litCableId,
+        };
+        nodes.push({
+          id: shelfNodeId(shelf.id),
+          type: 'shelf',
+          position: shelfPosition,
+          // Selection/opening is handled inside `ShelfPlate.tsx` itself
+          // (its own `onClick`, stopped before it reaches React Flow) —
+          // the same `draggable: false, selectable: false` choice this
+          // component already makes for a `SurfaceNode`, above.
+          draggable: false,
+          selectable: false,
+          zIndex: 10,
+          style: { width: RACK_INNER_PX, height: shelf.heightU * U_PX },
+          data: shelfData,
+        } satisfies ShelfPlateNodeType);
+      }
     }
   });
 
@@ -543,6 +600,9 @@ function DrawingInner({
       placement,
       uPx: U_PX,
       onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
+      // ADR-0051 §1/§2, this session's brief item 3 — "clicking a fixture on
+      // a surface selects it."
+      onSelectFixture: (fixtureId: string) => onSelect({ kind: 'fixture', id: fixtureId }),
       liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
       portSheath,
       litCableId,
@@ -624,7 +684,7 @@ function DrawingInner({
   // (the same side the strip sits on)" — always present whenever the
   // chassis itself draws in the rear elevation, never gated on the strip's
   // own conditional mount.
-  function resolveEnd(end: { portId: string; chassisId: string; rackId: string }): { nodeId: string; handleId: string } | null {
+  function resolveEnd(end: { portId: string; chassisId: string; rackId: string | null }): { nodeId: string; handleId: string } | null {
     const found = findAnyPort(view, end.portId);
     if (found) {
       if (found.isPsuInlet) {
@@ -635,17 +695,17 @@ function DrawingInner({
       }
       return { nodeId: chassisNodeId(end.chassisId), handleId: end.portId };
     }
-    // ADR-0051 §1: a `CableEnd` this drawing does not carry a rack chassis
-    // for — a shelf occupant's own port or a surface fixture's — resolved
-    // the same way `lookup.ts`'s own file header names: "as it does chassis
-    // ports." A shelf occupant has no React Flow node of its own yet (no
-    // `ShelfPlate` is mounted by this component), so that place resolves to
-    // nothing there is a real node for; a fixture's own port routes straight
-    // to its surface's one node (`surfaceNodeId`), under the SAME port id
-    // `SurfaceNode.tsx` renders a real `Handle` for.
-    const location = locatePort(view, end.portId);
-    if (location?.place === 'fixture') return { nodeId: surfaceNodeId(location.surface.id), handleId: end.portId };
-    return null;
+    // ADR-0051 §1/§2: a `CableEnd` this drawing does not carry a rack
+    // chassis for — a shelf occupant's own port or a surface fixture's —
+    // resolved by `lookup.ts`'s own `resolvePlaceNode`, pure and shared with
+    // its own tests: a shelf occupant's port routes to its shelf's one node
+    // (`shelfNodeId`, now mounted above), a fixture's to its surface's one
+    // node (`surfaceNodeId`), however deep it nests under a board — under
+    // the SAME port id `ShelfPlate.tsx`/`SurfaceNode.tsx` render a `Handle`
+    // for, `SurfaceNode.tsx` always, `ShelfPlate.tsx`'s own compact row
+    // (`shelf.css`'s `.drawing-shelf__compact-port-handle`) with an
+    // invisible one where there is no room to show the glyph.
+    return resolvePlaceNode(view, end.portId) ?? null;
   }
 
   function portLabel(portId: string): string {
@@ -657,7 +717,7 @@ function DrawingInner({
   const bundles = useMemo(() => groupBundles(view.cables ?? []), [view.cables]);
 
   function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
-    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
     const outside = cable.ends.find((e): e is { outside: true; label: string } => 'outside' in e && e.outside);
 
     let target: { nodeId: string; handleId: string } | null = null;
@@ -722,7 +782,7 @@ function DrawingInner({
 
     if (fanned) {
       for (const member of bundle.members) {
-        const real = member.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+        const real = member.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
         const label = real.length === 2 ? `${portLabel(real[0].portId)} ↔ ${portLabel(real[1].portId)}` : undefined;
         const built = buildCableEdge(member, label);
         if (built) edges.push(built);

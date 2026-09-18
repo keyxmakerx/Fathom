@@ -84,6 +84,7 @@ function baseData(overrides: Partial<SurfaceNodeData> & Pick<SurfaceNodeData, 'p
   return {
     uPx: U_PX,
     onSelectPort: noop,
+    onSelectFixture: noop,
     liveDrag: null,
     portSheath: new Map(),
     litCableId: null,

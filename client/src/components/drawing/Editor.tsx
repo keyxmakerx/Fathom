@@ -22,7 +22,7 @@ import {
   type PortView,
   type Selection,
 } from './contract';
-import { findChassis, findPort, findRack } from './lookup';
+import { findChassis, findFixture, findOccupant, findRack, locatePort } from './lookup';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -918,16 +918,162 @@ export function EditorFor(
     );
   }
 
-  const found = findPort(view, selection.id);
-  if (found == null) return null;
-  const { rack, chassis, port } = found;
+  // ADR-0051 §1/§2, this session's brief item 3 — a shelf occupant, shown
+  // with what `OccupantView` carries: its label, model or sketch mark, the
+  // shelf/slot it sits on, and its ports (typed by hand or read off the
+  // catalogue) — the same "typed by hand" add/remove `SketchPortsSection`
+  // already gives a rack chassis, since an occupant's own id is the SAME
+  // `Chassis` node id `addSketchPort`/`removeSketchPort` already take
+  // (`commands.ts`'s own doc). `OccupantView` carries no separate
+  // `psuInlets` of its own (`elevation.ts`'s file header on why) — a C14
+  // inlet, typed or catalogued, is simply one more row of `occupant.ports`.
+  if (selection.kind === 'occupant') {
+    const found = findOccupant(view, selection.id);
+    if (found == null) return null;
+    const { rack, shelf, occupant } = found;
+    const placement: Placement = { kind: 'shelf', shelfId: shelf.id, slot: occupant.slot };
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">{occupant.label || ABSENT}</div>
+        <Field label="Kind" value={occupant.kind} />
+        <Field label="Model" value={occupant.model ?? ABSENT} />
+        {occupant.sketch ? (
+          <div style={TYPED_NOTE_STYLE}>
+            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
+            hand.
+          </div>
+        ) : null}
+        <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
+        <Field label="Slot" value={String(occupant.slot)} />
+        <Field label="Ports" value={`${ABSENT} of ${occupant.ports.length} cabled`} />
+
+        {occupant.kind === 'chassis' && occupant.sketch ? (
+          <SketchPortsSection chassisId={occupant.id} ports={occupant.ports} actions={actions} />
+        ) : occupant.ports.length > 0 ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">Ports</div>
+            {occupant.ports.map((port) => (
+              <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
+                <span>{port.label || ABSENT}</span>
+                <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <PlacedOnControl itemId={occupant.id} placement={placement} view={view} actions={actions} />
+      </div>
+    );
+  }
+
+  // ADR-0051 §1/§2, this session's brief item 3 — a surface fixture (a
+  // board included, since a board is itself a `FixtureView`), shown the same
+  // way: label, model or sketch, its position on the surface, its ports and
+  // its own `psuInlets` (a `FixtureView`, unlike `OccupantView`, carries
+  // these separately — `document/view.ts`'s own contract, mirroring
+  // `ChassisView`).
+  if (selection.kind === 'fixture') {
+    const found = findFixture(view, selection.id);
+    if (found == null) return null;
+    const { surface, parent, fixture } = found;
+    const placement: Placement =
+      parent == null
+        ? { kind: 'surface', surfaceId: surface.id, xMm: fixture.xMm, yMm: fixture.yMm }
+        : { kind: 'board', boardId: parent.id, xMm: fixture.xMm, yMm: fixture.yMm };
+    const sketch = fixture.kind === 'chassis' && fixture.model == null;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">{fixture.label || ABSENT}</div>
+        <Field label="Kind" value={fixture.kind} />
+        <Field label="Model" value={fixture.model ?? ABSENT} />
+        {fixture.form ? <Field label="Form" value={fixture.form} /> : null}
+        {sketch ? (
+          <div style={TYPED_NOTE_STYLE}>
+            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
+            hand.
+          </div>
+        ) : null}
+        <Field label="Surface" value={surface.label || surface.id} />
+        <Field
+          label="Position"
+          value={fixture.xMm != null && fixture.yMm != null ? `${fixture.xMm}mm, ${fixture.yMm}mm` : ABSENT}
+        />
+        <Field label="Ports" value={`${ABSENT} of ${fixture.ports.length} cabled`} />
+
+        {fixture.kind === 'chassis' && sketch ? (
+          <SketchPortsSection chassisId={fixture.id} ports={fixture.ports} actions={actions} />
+        ) : fixture.ports.length > 0 ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">Ports</div>
+            {fixture.ports.map((port) => (
+              <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
+                <span>{port.label || ABSENT}</span>
+                <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {fixture.psuInlets.length > 0 ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">Power</div>
+            {fixture.psuInlets.map((inlet) => (
+              <div key={inlet.id} className="drawing-editor__field">
+                <div className="drawing-editor__field-label">{inlet.slot}</div>
+                <div className="drawing-editor__field-value">
+                  {inlet.fitted ? (inlet.cable != null ? 'fed' : 'fitted') : 'not fitted'}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <PlacedOnControl itemId={fixture.id} placement={placement} view={view} actions={actions} />
+      </div>
+    );
+  }
+
+  // `selection.kind === 'port'` — `locatePort`, not a chassis-only lookup:
+  // ADR-0051 §1/§2 widen where a port can be to a shelf occupant's own and a
+  // surface fixture's, alongside a rack chassis's (`lookup.ts`'s own file
+  // header on the one entry point this mirrors).
+  const located = locatePort(view, selection.id);
+  if (located == null) return null;
+  const { port } = located;
+  if (located.place === 'chassis') {
+    const { rack, chassis } = located;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">{port.label || ABSENT}</div>
+        <Field label="Connector" value={port.connector} />
+        <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
+        <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
+        <Field label="Rack" value={rack.label} />
+        <Field label="Cabled" value={ABSENT} />
+      </div>
+    );
+  }
+  if (located.place === 'shelf') {
+    const { rack, shelf, occupant } = located;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">{port.label || ABSENT}</div>
+        <Field label="Connector" value={port.connector} />
+        <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
+        <Field label="Occupant" value={occupant.label || ABSENT} />
+        <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
+        <Field label="Cabled" value={ABSENT} />
+      </div>
+    );
+  }
+  const { surface, fixture } = located;
   return (
     <div className="drawing-editor__panel">
       <div className="drawing-editor__title">{port.label || ABSENT}</div>
       <Field label="Connector" value={port.connector} />
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
-      <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
-      <Field label="Rack" value={rack.label} />
+      <Field label="Fixture" value={fixture.label || ABSENT} />
+      <Field label="Surface" value={surface.label || surface.id} />
       <Field label="Cabled" value={ABSENT} />
     </div>
   );

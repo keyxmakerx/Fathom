@@ -32,7 +32,7 @@ export interface Bundle {
 }
 
 function realChassisEnds(cable: CableView): [string, string] | null {
-  const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+  const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
   if (real.length !== 2) return null;
   return [real[0].chassisId, real[1].chassisId];
 }
@@ -46,7 +46,7 @@ function realChassisEnds(cable: CableView): [string, string] | null {
  */
 export function fanOrder(members: readonly CableView[]): CableView[] {
   const portKeyOf = (cable: CableView): string => {
-    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
+    const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
     return real.map((e) => e.portId).sort().join('|');
   };
   return [...members].sort((a, b) => portKeyOf(a).localeCompare(portKeyOf(b)) || a.id.localeCompare(b.id));

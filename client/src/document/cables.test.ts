@@ -16,13 +16,14 @@ import {
   setCableField,
 } from './cables';
 import { compatible } from './compat';
-import { UnknownReferenceError, createRack, placeChassis } from './commands';
+import { UnknownReferenceError, addSketchPort, createRack, createShelf, createSurface, fixTo, placeChassis, placeOnShelf } from './commands';
 import { FieldValueError } from './edit';
 import {
   edgesIn,
   edgesOut,
   emptyDocument,
   findNode,
+  formatEdgeId,
   formatNodeId,
   readPhysicalPortFields,
   type Document,
@@ -104,6 +105,23 @@ function twoChassis(): { doc: Document; premisesId: string; rackId: string; chas
   const withB = placeChassis(withA, rackId, PORT_MODEL, 2, 'front', { now: NOW });
   const chassisB = edgesIn(withB, rackId, 'MountedIn').find((e) => e.from !== chassisA)!.from;
   return { doc: withB, premisesId, rackId, chassisA, chassisB };
+}
+
+/** A `Chassis` with one sketch `rj45` port, `HasChassis`'d off a fresh
+ * `Device` but placed nowhere yet — `placeChassis`/`createShelf` both write
+ * a placement edge as part of creation, but ADR-0051 §1's `placeOnShelf`/
+ * `fixTo` take an already-live item and place IT, so the fixture needs one
+ * with no placement of its own to hand them. */
+function bareChassis(doc: Document): { doc: Document; chassisId: string } {
+  const deviceId = formatNodeId('Device', newUlid(NOW));
+  const chassisId = formatNodeId('Chassis', newUlid(NOW));
+  const withNodes: Document = {
+    ...doc,
+    nodes: [...doc.nodes, { id: deviceId, existence: newUlid(NOW), fields: {} }, { id: chassisId, existence: newUlid(NOW), fields: {} }],
+    edges: [...doc.edges, { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceId, to: chassisId, prov: newUlid(NOW), fields: {} }],
+  };
+  const withPort = addSketchPort(withNodes, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
+  return { doc: withPort, chassisId };
 }
 
 describe('compat.ok', () => {
@@ -387,6 +405,59 @@ describe('view: PortView.cable and ClosetView.cables', () => {
     const view = viewOf(doc, [PORT_MODEL]);
     const chassisAView = view.racks[0].chassis.find((c) => c.id === chassisA)!;
     expect(chassisAView.ports.every((p) => p.cable === null)).toBe(true);
+  });
+
+  // ADR-0051 §1/§2: the seam `document → viewOf → CableView.ends` has to
+  // cross for a shelf occupant's or a surface fixture's own port exactly as
+  // it already does for a rack chassis's — neither placement carries a
+  // `MountedIn` edge of its own, so `cableEnd` has to walk `placementOf`
+  // rather than read `MountedIn` straight off the chassis.
+  it('resolves a shelf occupant\'s cable end, rackId from the shelf\'s own rack', () => {
+    const { doc, rackId } = rackOf(42);
+    const withShelf = createShelf(doc, rackId, { positionU: 20, now: NOW });
+    const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+    const occ = bareChassis(withShelf);
+    const withOccupant = placeOnShelf(occ.doc, occ.chassisId, shelfId, 1, { now: NOW });
+
+    const before = viewOf(withOccupant, [PORT_MODEL]);
+    const occupantPortId = before.racks[0].shelves[0].occupants[0].ports[0].id;
+
+    const withChassis = placeChassis(withOccupant, rackId, PORT_MODEL, 1, 'front', { now: NOW });
+    const chassisId = edgesIn(withChassis, rackId, 'MountedIn').find((e) => e.from !== shelfId)!.from;
+    const chassisPortId = portByConnector(withChassis, chassisId, 'rj45');
+
+    const connected = connectPorts(withChassis, occupantPortId, chassisPortId, {}, { now: NOW });
+    const view = viewOf(connected, [PORT_MODEL]);
+
+    expect(view.cables).toHaveLength(1);
+    expect(view.cables[0].ends).toHaveLength(2);
+    expect(view.cables[0].ends).toContainEqual({ portId: occupantPortId, chassisId: occ.chassisId, rackId });
+    expect(view.cables[0].ends).toContainEqual({ portId: chassisPortId, chassisId, rackId });
+
+    const occupantPortView = view.racks[0].shelves[0].occupants[0].ports[0];
+    expect(occupantPortView.cable!.outsideCloset).toBe(false);
+  });
+
+  it('resolves a surface fixture\'s cable end, rackId null — no rack owns it', () => {
+    const { doc, premisesId, rackId } = rackOf(42);
+    const withChassis = placeChassis(doc, rackId, PORT_MODEL, 1, 'front', { now: NOW });
+    const chassisId = edgesIn(withChassis, rackId, 'MountedIn')[0].from;
+    const withSurface = createSurface(withChassis, premisesId, { label: 'West Wall', form: 'wall', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const fixture = bareChassis(withSurface);
+    const withFixture = fixTo(fixture.doc, fixture.chassisId, surfaceId, { xMm: 100, yMm: 200 }, { now: NOW });
+
+    const before = viewOf(withFixture, [PORT_MODEL]);
+    const fixturePortId = before.surfaces[0].fixtures[0].ports[0].id;
+    const chassisPortId = portByConnector(withFixture, chassisId, 'rj45');
+
+    const connected = connectPorts(withFixture, fixturePortId, chassisPortId, {}, { now: NOW });
+    const view = viewOf(connected, [PORT_MODEL]);
+
+    expect(view.cables).toHaveLength(1);
+    expect(view.cables[0].ends).toHaveLength(2);
+    expect(view.cables[0].ends).toContainEqual({ portId: fixturePortId, chassisId: fixture.chassisId, rackId: null });
+    expect(view.cables[0].ends).toContainEqual({ portId: chassisPortId, chassisId, rackId });
   });
 });
 

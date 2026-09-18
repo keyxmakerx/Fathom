@@ -4,11 +4,14 @@ import type { ClosetView } from './contract';
 import type { FixtureView, OccupantView, ShelfView, SurfaceView } from '../../document/view';
 import {
   findChassis,
+  findFixture,
+  findOccupant,
   findPort,
   findRack,
   findShelfOccupantPort,
   findSurfaceFixturePort,
   locatePort,
+  resolvePlaceNode,
 } from './lookup';
 
 const SHELF_OCCUPANT: OccupantView = {
@@ -340,5 +343,68 @@ describe('locatePort — one entry point for a port anywhere this closet draws o
 
   it('returns undefined for an id this view does not carry anywhere', () => {
     expect(locatePort(VIEW, 'nope')).toBeUndefined();
+  });
+});
+
+// `resolveEnd` for the three places (`Drawing.tsx`) — the chassis case stays
+// that component's own concern (PSU-inlet elevation routing needs state a
+// pure function does not have); `resolvePlaceNode` is the shelf/fixture half
+// of it, pure and testable on its own.
+describe('resolvePlaceNode — resolveEnd for the shelf/fixture places (ADR-0051 §1/§2)', () => {
+  it('resolves a shelf occupant port to its shelf\'s one node, under the port\'s own id', () => {
+    expect(resolvePlaceNode(VIEW, 'occupant-port-1')).toEqual({ nodeId: 'shelf:shelf-1', handleId: 'occupant-port-1' });
+  });
+
+  it('resolves a surface fixture port to its surface\'s one node', () => {
+    expect(resolvePlaceNode(VIEW, 'outlet-port-1')).toEqual({ nodeId: 'surface:wall-west', handleId: 'outlet-port-1' });
+  });
+
+  it('resolves a fixture nested under a board to the SAME surface node, not a node of its own', () => {
+    expect(resolvePlaceNode(VIEW, 'nid-port-1')).toEqual({ nodeId: 'surface:wall-west', handleId: 'nid-port-1' });
+  });
+
+  it('does not resolve a rack chassis port — that stays findAnyPort\'s own job', () => {
+    expect(resolvePlaceNode(VIEW, 'port-1')).toBeUndefined();
+  });
+
+  it('returns undefined for an id this view does not carry anywhere', () => {
+    expect(resolvePlaceNode(VIEW, 'nope')).toBeUndefined();
+  });
+});
+
+describe('findOccupant — ADR-0051 §1', () => {
+  it('finds an occupant by its own id, and the shelf/rack it sits on', () => {
+    const found = findOccupant(VIEW, 'occupant-1');
+    expect(found?.rack.id).toBe('rack-1');
+    expect(found?.shelf.id).toBe('shelf-1');
+    expect(found?.occupant.label).toBe('nuc-01');
+  });
+
+  it('returns undefined for an id this view does not carry', () => {
+    expect(findOccupant(VIEW, 'nope')).toBeUndefined();
+  });
+});
+
+describe('findFixture — ADR-0051 §1', () => {
+  it('finds a fixture fixed straight to a surface — parent is null', () => {
+    const found = findFixture(VIEW, 'outlet-w1');
+    expect(found?.surface.id).toBe('wall-west');
+    expect(found?.parent).toBeNull();
+  });
+
+  it('finds a fixture nested under a board — parent is the board', () => {
+    const found = findFixture(VIEW, 'nid-01');
+    expect(found?.surface.id).toBe('wall-west');
+    expect(found?.parent?.id).toBe('board-w1');
+  });
+
+  it('finds the board itself, straight on the surface', () => {
+    const found = findFixture(VIEW, 'board-w1');
+    expect(found?.surface.id).toBe('wall-west');
+    expect(found?.parent).toBeNull();
+  });
+
+  it('returns undefined for an id this view does not carry', () => {
+    expect(findFixture(VIEW, 'nope')).toBeUndefined();
   });
 });

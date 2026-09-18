@@ -299,6 +299,23 @@ describe('shelves (ADR-0051 §1)', () => {
     expect(occupant.ports[0]).toMatchObject({ label: 'eth0', connector: 'rj45', face: 'front', passThroughId: null });
   });
 
+  it('a shelf occupant\'s own C14 port is drawn in ports — OccupantView has no separate psuInlets to route it to (ADR-0051 §1)', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const withShelf = createShelf(withRack, rackId, { positionU: 20, now: NOW });
+    const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+    const { doc: withItem, chassisId } = bareChassis(withShelf);
+    const withEth = addSketchPort(withItem, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
+    const withInlet = addSketchPort(withEth, chassisId, { label: 'inlet', connector: 'c14', face: 'rear' }, { now: NOW });
+    const onShelf = placeOnShelf(withInlet, chassisId, shelfId, 1, { now: NOW });
+
+    const view = viewOf(onShelf, []);
+    const occupant = view.racks[0].shelves[0].occupants[0];
+    expect(occupant.ports.map((p) => p.connector)).toEqual(expect.arrayContaining(['rj45', 'c14']));
+    expect(occupant.ports.find((p) => p.connector === 'c14')).toMatchObject({ label: 'inlet', face: 'rear' });
+  });
+
   it('a catalogue chassis is never sketch', () => {
     const { doc, premisesId } = premisesDoc();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });

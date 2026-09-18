@@ -10,6 +10,19 @@ export function chassisNodeId(id: string): string {
   return `chassis:${id}`;
 }
 
+/** ADR-0051 §1/§2 — one `ShelfView`'s own React Flow node id (`ShelfPlate.tsx`),
+ * a sibling of `chassisNodeId` positioned at its own rack units exactly as a
+ * chassis is (`Drawing.tsx`). An occupant sitting on the shelf is NOT a
+ * separate node id — it draws as ordinary content inside its shelf's one
+ * node, the same "one node, many boxes inside it" shape `surfaceNodeId`
+ * below already gives a surface's own fixtures. Never parsed back by
+ * `parseNodeId` (a shelf click is handled inside `ShelfPlate.tsx` itself,
+ * which stops the click reaching React Flow's own node-click handler before
+ * it would need parsing). */
+export function shelfNodeId(id: string): string {
+  return `shelf:${id}`;
+}
+
 /** ADR-0051 §1 — one `SurfaceView`'s own React Flow node id (`SurfaceNode.tsx`),
  * the closet stop's third kind of box beside a rack and a chassis. A board
  * fixture and its own nested fixtures are NOT separate node ids — they draw

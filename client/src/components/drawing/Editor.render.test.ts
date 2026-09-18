@@ -169,6 +169,101 @@ const SKETCH_VIEW: ClosetView = {
   ],
 };
 
+// ADR-0051 §1/§2, this session's brief item 3 — a shelf occupant and a
+// surface fixture (a board included), each with its own port, so
+// `EditorFor`'s new `'occupant'`/`'fixture'` selection kinds — and a port
+// selected on either place — have something real to render.
+const PLACES_VIEW: ClosetView = {
+  premisesId: 'closet-1',
+  cables: [],
+  rows: [],
+  surfaces: [
+    {
+      id: 'surface-1',
+      label: 'West wall',
+      form: 'wall',
+      widthMm: 3000,
+      heightMm: 2400,
+      fixtures: [
+        {
+          id: 'outlet-1',
+          kind: 'passive',
+          label: 'outlet-w1',
+          model: null,
+          form: 'outlet',
+          xMm: 300,
+          yMm: 1200,
+          ports: [
+            { id: 'outlet-port-1', label: '1', connector: 'rj45', row: 0, column: 0, uplink: false, role: null, face: 'front', passThroughId: null, cable: null },
+          ],
+          psuInlets: [],
+          fixtures: [],
+        },
+        {
+          id: 'board-1',
+          kind: 'passive',
+          label: 'BOARD-W1',
+          model: 'plywood 1200x900',
+          form: 'board',
+          xMm: 150,
+          yMm: 900,
+          ports: [],
+          psuInlets: [],
+          fixtures: [
+            {
+              id: 'nid-1',
+              kind: 'passive',
+              label: 'nid-01',
+              model: 'carrier demarc',
+              form: null,
+              xMm: 100,
+              yMm: 50,
+              ports: [
+                { id: 'nid-port-1', label: 'demarc', connector: 'lc', row: 0, column: 0, uplink: false, role: null, face: 'front', passThroughId: null, cable: null },
+              ],
+              psuInlets: [],
+              fixtures: [],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  racks: [
+    {
+      id: 'rack-1',
+      label: 'A-01',
+      heightU: 42,
+      unitNumbering: 'bottom-up',
+      row: null,
+      bay: null,
+      freeRuns: [{ fromU: 1, toU: 42 }],
+      shelves: [
+        {
+          id: 'shelf-1',
+          label: 'shelf-a01',
+          positionU: 20,
+          heightU: 2,
+          occupants: [
+            {
+              id: 'nuc-1',
+              kind: 'chassis',
+              label: 'nuc-01',
+              model: null,
+              slot: 1,
+              sketch: true,
+              ports: [
+                { id: 'nuc-port-1', label: 'eth0', connector: 'rj45', row: 0, column: 0, uplink: false, role: null, face: 'front', passThroughId: null, cable: null },
+              ],
+            },
+          ],
+        },
+      ],
+      chassis: [],
+    },
+  ],
+};
+
 describe('EditorFor', () => {
   it('returns null for no selection', () => {
     expect(EditorFor(null, VIEW, NOOP_ACTIONS)).toBeNull();
@@ -253,6 +348,58 @@ describe('EditorFor', () => {
     const catalogued = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
     expect(catalogued).not.toContain('No catalogue entry.');
     expect(catalogued).not.toContain('+ add a port');
+  });
+
+  // ADR-0051 §1/§2, this session's brief item 3 — occupant and fixture
+  // selection kinds.
+
+  it('returns null for an occupant/fixture id this view does not carry', () => {
+    expect(EditorFor({ kind: 'occupant', id: 'nope' }, PLACES_VIEW, NOOP_ACTIONS)).toBeNull();
+    expect(EditorFor({ kind: 'fixture', id: 'nope' }, PLACES_VIEW, NOOP_ACTIONS)).toBeNull();
+  });
+
+  it('renders a shelf occupant: label, sketch mark, shelf/slot, typed ports and "+ add a port", and PLACED ON', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('nuc-01');
+    expect(markup).toContain('No catalogue entry.');
+    expect(markup).toContain('shelf-a01');
+    expect(markup).toContain('A-01');
+    expect(markup).toContain('eth0');
+    expect(markup).toContain('+ add a port');
+    expect(markup).toContain('Placed on');
+    expect(markup).toContain('Shelf');
+  });
+
+  it('renders a surface fixture straight on the wall: label, position, ports, and PLACED ON', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'fixture', id: 'outlet-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('outlet-w1');
+    expect(markup).toContain('West wall');
+    expect(markup).toContain('300mm, 1200mm');
+    expect(markup).toContain('Placed on');
+    expect(markup).toContain('Surface');
+  });
+
+  it('renders a fixture nested under a board, and the board fixture itself', () => {
+    const nested = renderToStaticMarkup(EditorFor({ kind: 'fixture', id: 'nid-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(nested).toContain('nid-01');
+    expect(nested).toContain('carrier demarc');
+
+    const board = renderToStaticMarkup(EditorFor({ kind: 'fixture', id: 'board-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(board).toContain('BOARD-W1');
+    expect(board).toContain('board');
+  });
+
+  it('renders a port on a shelf occupant', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'port', id: 'nuc-port-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('eth0');
+    expect(markup).toContain('nuc-01');
+    expect(markup).toContain('shelf-a01');
+  });
+
+  it('renders a port on a surface fixture', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'port', id: 'outlet-port-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('outlet-w1');
+    expect(markup).toContain('West wall');
   });
 });
 

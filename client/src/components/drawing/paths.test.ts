@@ -467,3 +467,90 @@ describe('litPathFor: two hops through a panel (passThroughId, differing labels)
     expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
   });
 });
+
+/** ADR-0051 §2: the outlet box this time is a real surface fixture (a wall
+ * `FixedTo`, `design/places/renders/Surfaces.png`'s own `outlet-w1`), not a
+ * rack chassis the way `outletBoxView` above stands in for one — the walk
+ * has to reach it through `locatePort`'s `'fixture'` place, not
+ * `findAnyPort`, for the path to continue from the desk, through the
+ * outlet's own `PassThrough` pair, to the panel racked in the closet. */
+function fixtureOutletView(): ClosetView {
+  const deskToOutlet = 'cable-1';
+  const outletToPanel = 'cable-2';
+  const desk = chassis({
+    id: 'desk-01',
+    ports: [
+      port({
+        id: 'desk-port',
+        label: '1',
+        cable: { cableId: deskToOutlet, farPortId: 'outlet-front', farChassisId: 'outlet-w1', outsideCloset: false },
+      }),
+    ],
+  });
+  const panelChassis = panel({
+    id: 'patch-01',
+    ports: [
+      port({
+        id: 'panel-port',
+        label: '13',
+        cable: { cableId: outletToPanel, farPortId: 'outlet-rear', farChassisId: 'outlet-w1', outsideCloset: false },
+      }),
+    ],
+  });
+  const outletFixture = {
+    id: 'outlet-w1',
+    kind: 'passive' as const,
+    label: 'outlet-w1',
+    model: null,
+    form: 'outlet',
+    xMm: 300,
+    yMm: 1200,
+    psuInlets: [],
+    fixtures: [],
+    ports: [
+      port({
+        id: 'outlet-front',
+        label: 'A',
+        passThroughId: 'pass-through:outlet-w1',
+        cable: { cableId: deskToOutlet, farPortId: 'desk-port', farChassisId: 'desk-01', outsideCloset: false },
+      }),
+      port({
+        id: 'outlet-rear',
+        label: 'A-run',
+        passThroughId: 'pass-through:outlet-w1',
+        cable: { cableId: outletToPanel, farPortId: 'panel-port', farChassisId: 'patch-01', outsideCloset: false },
+      }),
+    ],
+  };
+  return {
+    premisesId: 'closet-1',
+    rows: [],
+    surfaces: [
+      { id: 'wall-west', label: 'west wall', form: 'wall', widthMm: null, heightMm: null, fixtures: [outletFixture] },
+    ],
+    racks: [
+      { id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [desk, panelChassis] },
+    ],
+    // `outlet-w1` is `FixedTo` the wall, never `MountedIn` a rack —
+    // `rackId: null` on its own ends is what `document/view.ts`'s own
+    // `cableEnd` actually produces for a surface fixture (`placementOf`'s
+    // `'surface'` case has no rack); a rack id here would be a shape this
+    // seam never emits.
+    cables: [
+      { id: deskToOutlet, kind: 'copper', media: 'cat6', sheath: 'grey', label: null, ends: [{ portId: 'desk-port', chassisId: 'desk-01', rackId: 'rack-1' }, { portId: 'outlet-front', chassisId: 'outlet-w1', rackId: null }] },
+      { id: outletToPanel, kind: 'copper', media: 'cat6', sheath: 'blue', label: null, ends: [{ portId: 'outlet-rear', chassisId: 'outlet-w1', rackId: null }, { portId: 'panel-port', chassisId: 'patch-01', rackId: 'rack-1' }] },
+    ],
+  };
+}
+
+describe('litPathFor: through an outlet box that is a surface fixture, not a chassis (ADR-0051 §2)', () => {
+  it('hovering the desk-to-outlet cable lights through the outlet\'s own pass-through to the panel', () => {
+    const path = litPathFor(fixtureOutletView(), 'cable-1', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
+  });
+
+  it('hovering the outlet-to-panel cable lights the same path', () => {
+    const path = litPathFor(fixtureOutletView(), 'cable-2', []);
+    expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
+  });
+});

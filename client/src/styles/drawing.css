@@ -770,7 +770,7 @@
 }
 
 /* ---- surfaces ----------------------------------------------------------
-   ADR-0051 §1, UI-SPEC "Places · Surfaces", `design/places/renders/Surfaces.png`.
+   ADR-0051 §1, UI-SPEC "Places", `design/places/renders/Surfaces.png`.
    `SurfaceNode.tsx`'s own box: a wall/desk/ceiling elevation or a floor
    band, kept deliberately parallel to this file's own `.drawing-chassis*`/
    `.drawing-rack__free` rules (same hairline, same hatch-free flat panel,
@@ -810,9 +810,9 @@
   text-overflow: ellipsis;
 }
 
-/* UI-SPEC "Places · Surfaces": labelled with the surface's own form — the
-   same muted, uppercase, tracked treatment `.drawing-shelf__height` already
-   gives a shelf's own "SHELF <height>U". */
+/* `design/places/renders/Surfaces.png`: labelled with the surface's own
+   form — the same muted, uppercase, tracked treatment `.drawing-shelf__height`
+   already gives a shelf's own "SHELF <height>U". */
 .drawing-surface__form {
   flex-shrink: 0;
   font-size: var(--t-micro);
@@ -829,9 +829,8 @@
   overflow: hidden;
 }
 
-/* UI-SPEC "Places · Surfaces": "a millimetre rail at its left" —
-   `design/places/renders/Surfaces.png`'s own `1800/1500/.../0` ticks,
-   `rows.ts`'s `mmRailTicks`. */
+/* `design/places/renders/Surfaces.png`: a millimetre rail at its left, its
+   own `1800/1500/.../0` ticks — `rows.ts`'s `mmRailTicks`. */
 .drawing-surface__rail {
   position: absolute;
   left: 0;
@@ -866,9 +865,9 @@
   bottom: 0;
 }
 
-/* UI-SPEC "Places · Surfaces": "no rear and no flip" — named on the plate
-   itself, the same muted micro-caption `.drawing-shelf__height` already
-   uses for a fact rather than a control. */
+/* `design/places/renders/Surfaces.png`, UI-SPEC "Places": "flat, no rear,
+   no flip" — named on the plate itself, the same muted micro-caption
+   `.drawing-shelf__height` already uses for a fact rather than a control. */
 .drawing-surface__no-rear {
   position: absolute;
   right: 4px;
@@ -879,11 +878,11 @@
   color: var(--muted);
 }
 
-/* UI-SPEC "Places · Surfaces": "a fixture with no position sits in a 'not
-   measured' strip at the panel's foot with its name." A hairline-topped
-   strip, the same weight as every other divider in this drawing, never a
-   risk colour — provenance, not risk (UI-SPEC "Look" reserves colour to
-   error/warning/recommendation/confirmation). */
+/* `design/places/renders/Surfaces.png`: a fixture with no position sits in
+   a "not measured" strip at the panel's foot with its name. A
+   hairline-topped strip, the same weight as every other divider in this
+   drawing, never a risk colour — provenance, not risk (UI-SPEC "Look"
+   reserves colour to error/warning/recommendation/confirmation). */
 .drawing-surface__unmeasured {
   display: flex;
   flex-wrap: wrap;
@@ -980,9 +979,9 @@
   cursor: default;
 }
 
-/* UI-SPEC "Places · Surfaces": "fixtures on it (a UPS) stand as upright
-   boxes" — the floor band's own reading of the same fixture box, taller
-   than wide rather than the panel's wider-than-tall footprint. */
+/* `design/places/renders/Surfaces.png`: fixtures on the floor (a UPS) stand
+   as upright boxes — the floor band's own reading of the same fixture box,
+   taller than wide rather than the panel's wider-than-tall footprint. */
 .drawing-surface__fixture--upright {
   justify-content: flex-end;
 }
@@ -1012,9 +1011,10 @@
   text-overflow: ellipsis;
 }
 
-/* UI-SPEC "Places · Surfaces": a sketch fixture's own "no catalogue entry"
-   mark — the same dotted-hairline provenance mark `.drawing-shelf__typed`
-   already gives a sketch shelf occupant, never a risk colour. */
+/* `design/places/renders/Surfaces.png`, UI-SPEC "Places": a sketch
+   fixture's own "no catalogue entry" mark — the same dotted-hairline
+   provenance mark `.drawing-shelf__typed` already gives a sketch shelf
+   occupant, never a risk colour. */
 .drawing-surface__typed {
   font-size: var(--t-micro);
   letter-spacing: var(--track-label);

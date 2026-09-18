@@ -5,6 +5,7 @@ import type { ChassisView, ClosetView, PortView, RackView } from './contract';
 // `ShelfPlate.tsx`'s own file headers give: `./contract.ts` (off limits
 // this session) has not widened its re-export list to carry them yet.
 import type { FixtureView, OccupantView, ShelfView, SurfaceView } from '../../document/view';
+import { shelfNodeId, surfaceNodeId } from './nodeId';
 
 /** Pure lookups over the view, shared by the editor and the drawing. Never
  * invents a result: each returns `undefined` when the id names nothing in
@@ -141,5 +142,77 @@ export function locatePort(view: ClosetView, portId: string): PortLocation | und
   if (onShelf) return { place: 'shelf', ...onShelf };
   const onFixture = findSurfaceFixturePort(view, portId);
   if (onFixture) return { place: 'fixture', ...onFixture };
+  return undefined;
+}
+
+/** ADR-0051 §1/§2 — the two of `locatePort`'s three places `Drawing.tsx`'s
+ * own `resolveEnd` cannot read a real React Flow node for off `findAnyPort`
+ * alone: a shelf occupant's port resolves to its shelf's ONE node
+ * (`shelfNodeId`, `ShelfPlate.tsx` — an occupant is content inside it, not a
+ * node of its own), and a surface fixture's resolves to its surface's ONE
+ * node (`surfaceNodeId`, `SurfaceNode.tsx`) however deep the fixture nests
+ * under a board — a board's own fixtures are content inside their surface's
+ * one node too. Both draw a real `Handle` under the port's own id
+ * (`ShelfPlate.tsx`'s `GlyphRow`, `SurfaceNode.tsx`'s `PortGlyphs`), so the
+ * handle id is always just `portId`. Pure and DOM-free on purpose — the
+ * chassis case (`findAnyPort`) stays `Drawing.tsx`'s own concern, since a
+ * PSU inlet's power lead needs elevation/camera-stop state this function
+ * does not have (`elevation.ts`'s `powerLeadHandle`). `undefined` when
+ * `portId` names neither place — including a chassis port, which this
+ * function never resolves (that is `findAnyPort`'s job, tried first by the
+ * caller). */
+export function resolvePlaceNode(view: ClosetView, portId: string): { nodeId: string; handleId: string } | undefined {
+  const location = locatePort(view, portId);
+  if (location?.place === 'shelf') return { nodeId: shelfNodeId(location.shelf.id), handleId: portId };
+  if (location?.place === 'fixture') return { nodeId: surfaceNodeId(location.surface.id), handleId: portId };
+  return undefined;
+}
+
+/** ADR-0051 §1 — an occupant (`SitsOn` a shelf), found by its OWN id, not a
+ * port's — the editor's own entry point for the `Selection`'s `'occupant'`
+ * kind (`contract.ts`), alongside the shelf and rack that carry it so a
+ * caller can build the `Placement` (`document/view.ts`) that placement
+ * reduces to: `{ kind: 'shelf', shelfId: shelf.id, slot: occupant.slot }`.
+ * `undefined` when this view carries no such occupant, never invented. */
+export function findOccupant(
+  view: ClosetView,
+  occupantId: string,
+): { rack: RackView; shelf: ShelfView; occupant: OccupantView } | undefined {
+  for (const rack of view.racks) {
+    for (const shelf of rack.shelves ?? []) {
+      const occupant = shelf.occupants.find((o) => o.id === occupantId);
+      if (occupant != null) return { rack, shelf, occupant };
+    }
+  }
+  return undefined;
+}
+
+/** ADR-0051 §1 — a fixture (`FixedTo` a surface or a board), found by its OWN
+ * id, alongside the surface it hangs off and its immediate parent fixture —
+ * the board it nests under, `null` when it sits directly on the surface —
+ * so a caller can build the matching `Placement`: `{ kind: 'surface', ... }`
+ * when `parent` is `null`, `{ kind: 'board', boardId: parent.id, ... }`
+ * otherwise (`document/view.ts`'s own `placementOf` reads the same
+ * distinction back off which kind of node `FixedTo.to` names). `undefined`
+ * when this view carries no such fixture, never invented. */
+export function findFixture(
+  view: ClosetView,
+  fixtureId: string,
+): { surface: SurfaceView; parent: FixtureView | null; fixture: FixtureView } | undefined {
+  function search(
+    fixtures: readonly FixtureView[],
+    parent: FixtureView | null,
+  ): { parent: FixtureView | null; fixture: FixtureView } | undefined {
+    for (const fixture of fixtures) {
+      if (fixture.id === fixtureId) return { parent, fixture };
+      const nested = search(fixture.fixtures, fixture);
+      if (nested) return nested;
+    }
+    return undefined;
+  }
+  for (const surface of view.surfaces ?? []) {
+    const found = search(surface.fixtures, null);
+    if (found) return { surface, parent: found.parent, fixture: found.fixture };
+  }
   return undefined;
 }
