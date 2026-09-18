@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-16, late: 1228 server-side tests and 423 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-18: 1234 server-side tests and 595 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -197,12 +197,21 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   strip in three states and the marks *single-fed* and *one fitted* are derived; the editor fits or
   removes a supply and sets a rack's row and bay.
 
-**Carried:** a panel's port pairing belongs on the schema's `PassThrough` edge, written at
-placement, and the path walk should follow it (the drawing pairs by label across rows today);
-that, shelves, surfaces, the sketch and the room's furniture are schema 0.8, ADR-0051, next.
-Optics (ADR-0047 §5). The left-right order of the EX4300's two supply slots could not be
-established from any reachable diagram. The "two people on a running server" proof, which tests
-and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
+- **Shelves, surfaces and sketches** (Session 6(b), ADR-0051 §1–2, schema 0.8). A shelf takes
+  units and its occupants take slots; a device or passive is fixed to a wall, floor, desk or ceiling,
+  or to a board on a wall, at millimetres; a device with no catalogue entry carries ports typed by
+  hand and says so; a port records its face; an outlet box or panel gets its pass-through pairs at
+  placement and a lit path follows them. The drawing mounts the shelf plate in both elevations,
+  surfaces as flat panels beside the rows with a not-measured strip, the floor as a band; cables
+  resolve on occupants and fixtures; the editor shows either with the placed-on control. The
+  catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
+
+**Carried:** a shelf cannot be named yet and the editor shows its id; a sketched device and a board
+have no create command in the palette, only in the document; a board fixed with no position hides
+what it carries; the opened occupant can sit under the editor; a panel's label pairing remains as
+the fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
+EX4300's two supply slots could not be established. The "two people on a running server" proof,
+which tests and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
 
 ---
