@@ -808,6 +808,21 @@ names, from the owner when the importer is built. Until then the importer is not
 Reading DWG means a large foreign dependency for a proprietary binary format. Every CAD tool
 exports DXF. Recommendation: say so in the import dialog and never read DWG.
 
+### W4. Four "look here" uses, three reserved colours: does recommendation get its own token?
+
+UI-SPEC "Look" names error, warning, recommendation and confirmation; `design/tokens.css` reserves
+three colours. The places boards use the safe colour for both recommendation and confirmation,
+told apart by form: a hairline ring is a recommendation, a bordered wash with words is a
+confirmation. Recommendation: keep three and tell them apart by form, since a fourth hue is one
+more thing to learn; the owner may want a fourth on merit.
+
+### W5. Three the lead decided while drawing the boards, recorded here so they can be overruled.
+
+A sketch's typed ports sit on the front face unless the person types a rear one; a surface's
+positions are millimetres from the floor and from the left edge, as the Surfaces board draws
+them; and a horizontal run is a cable like any other, so it carries a sheath colour when one is
+recorded and draws in ink when none is.
+
 ## What was dropped, and why that matters
 
 **42 of 93 candidates were stale.** If a question you remember being asked is not in this list, it
