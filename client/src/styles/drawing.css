@@ -21,6 +21,63 @@
   --xy-background-pattern-dots-color: var(--hairline);
 }
 
+/* This session's brief item 1 — the cables view control: "a small control
+   on the canvas near the lens row... a view control, not a lens." Flat,
+   hairline, zero radius, no shadow — the plan control on the Room board
+   (`design/places/Room.dc.html`) is the precedent for the form, redrawn in
+   this drawing's own segmented-button language (`Editor.tsx`'s own "PLACED
+   ON" control's inline styles, moved to real CSS here since this file, not
+   that one, owns `drawing.css`). Positioned near the bar's own lens row —
+   top-left of the canvas, never inside the React Flow pane, so it survives
+   a pan or zoom untouched. */
+.drawing-cables-control {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: stretch;
+  background: var(--surface);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+}
+
+.drawing-cables-control__label {
+  padding: var(--s1) var(--s2);
+  color: var(--muted);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  border-right: var(--rule-hair) solid var(--hairline);
+}
+
+.drawing-cables-control__option {
+  appearance: none;
+  border: none;
+  border-right: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+  font: inherit;
+}
+
+.drawing-cables-control__option:last-child {
+  border-right: none;
+}
+
+/* The one lit choice — ink background, page-coloured text, the exact pair
+   `shell.css`'s own `.shell-lens--on` already uses for "a lens, one lit" —
+   never a risk colour (UI-SPEC "Look": this names a view choice, not an
+   error/warning/recommendation/confirmation). */
+.drawing-cables-control__option--on {
+  background: var(--ink);
+  color: var(--page);
+}
+
 /* ADR-0050 §2: "the flip is one camera, never a page: racks move to their
    mirrored places with the standard motion, nothing remounts." The same
    node ids stay mounted (`Drawing.tsx`'s own `rackPositions`, keyed by rack
@@ -1161,6 +1218,30 @@
 .drawing-port--lit {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
+}
+
+/* This session's brief item 3 — "while a cable is selected its two ports
+   carry a hairline ring on the plate." A true hairline (`--rule-hair`, 1px)
+   at a wider offset than `.drawing-port--lit`'s own 2px ink outline above,
+   so the two marks stay legible apart on the rare port that could carry
+   both (a config-drawer line and a cable selection naming the same port). */
+.drawing-port--ringed {
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+   shakes once sideways." The same `drawing-shake` keyframe the rack frame's
+   own wrong-drop shake already plays (above), reused for a port a refused
+   cable drop landed on — one event, one play, never a loop. */
+.drawing-port--shake {
+  animation: drawing-shake 220ms var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-port--shake {
+    animation: none;
+  }
 }
 
 /* UI-SPEC "Inside a box" — the stop beyond faceplate. Fills the pane rather

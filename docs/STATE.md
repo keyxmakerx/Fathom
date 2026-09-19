@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-19: 1279 server-side tests and 800 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1279 server-side tests and 833 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -239,7 +239,9 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   last entry of a header Caddy overwrites; the compose image copies the corpus and serves the
   client through Caddy, unproven here where no daemon runs; the single-operator flag is read at
   apply. A driven run from sign-in proved a scope and a design created from Home, a save, and a
-  second browser's stale save refused.
+  second browser's stale save refused. The same day, from the owner: a cable's panel with the
+  colour selector and the ends, ports selectable with Select cable and Go to far end, a cables
+  view control by kind, and the wrong-drop shake on a port.
 
 **Carried:** the compose stack and the dependency-vulnerability gate need the owner's machine (no
 Docker daemon and no egress to the advisory database here), and the v0.1 tag waits on that run;

@@ -119,7 +119,16 @@ caution on the canvas beside a red cable, so location alone was never going to h
 **One cable per port.** Type decided by the port you start from. Only compatible ports stay live
 during a drag; the rest dim.
 
-### Keeping it readable at forty cables
+#**Reaching a cable on a crowded plate — the owner, 2026-09-19.** A port is a thing you can click:
+its panel names the device, connector, service and face, and its cable with the far end in words
+and the sheath swatch, with two actions, *Select cable* and *Go to far end*; a cable's panel has
+*Go to end A* and *Go to end B*, and a selected cable's two ports carry a hairline ring. A click
+selects; a drag of a few pixels connects. A **cables view control** beside the lens row, *all ·
+copper · fibre · power · none*, hides cables by kind and never a box; it is a view control, not a
+lens, remembered per browser and never saved to the design. A refused cable drop shakes the port
+once, as Motion 2 says.
+
+## Keeping it readable at forty cables
 
 1. **Bundles** — cables sharing both ends draw as one band, width and a `×n` badge carrying the count.
 2. **Fan on hover** — the band opens into its members with their port pairs, then folds back.

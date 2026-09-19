@@ -291,6 +291,85 @@ function SelectLink({ label, onSelect }: { label: string; onSelect?: () => void 
   );
 }
 
+// ===========================================================================
+// This session's brief item 2 — a selected port's own panel: the device and
+// port label (each of the three placement branches below already carries
+// this), connector, service, face, its cable if any (this section) with the
+// far end in words and the cable's sheath swatch, and two actions — Select
+// cable and Go to far end. A port with no cable says so and, for a writer,
+// offers Connect… instead.
+
+/** "a port with no cable... offers Connect… which starts the same drag the
+ * person could start by hand is not required — say 'drag from this port to
+ * connect' instead." A click opens the hint; nothing here ever calls
+ * React Flow — this file never touches the canvas (`contract.ts`'s own file
+ * header: the drawing and the editor share a view, not a DOM). Absent
+ * entirely for a reader (`canDraw` false — `EditorActions.onEdit == null`,
+ * the same reading every other action on this panel already gives). */
+function ConnectHint({ canDraw }: { canDraw: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (!canDraw) return null;
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        Connect…
+      </button>
+    );
+  }
+  return <div style={TYPED_NOTE_STYLE}>drag from this port to connect</div>;
+}
+
+/** A selected port's own "Cable" field — shared by all three placements
+ * below (a rack chassis's port, a shelf occupant's, a surface fixture's),
+ * since `PortView.cable` and `farEndOf` read the same way regardless of
+ * where the port itself sits. `actions.onSelect` (`EditorActions`, optional)
+ * is what "Select cable"/"Go to far end" raise — a plain selection change,
+ * the same shape the shelf's own occupant links already use; `Drawing.tsx`
+ * is what turns a `'port'` selection into a camera pan to the faceplate
+ * stop, "one camera," never a second one this file has to know about. */
+function PortCableSection({ view, port, actions }: { view: ClosetView; port: PortView; actions: EditorActions }) {
+  if (port.cable == null) {
+    return (
+      <div className="drawing-editor__field">
+        <div className="drawing-editor__field-label">Cable</div>
+        <div className="drawing-editor__field-value">Not cabled.</div>
+        <ConnectHint canDraw={actions.onEdit != null} />
+      </div>
+    );
+  }
+  const cable = port.cable;
+  const cableObj = view.cables.find((c) => c.id === cable.cableId);
+  const farEnd = farEndOf(view, cable.cableId, port.id);
+  const onSelect = actions.onSelect;
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Cable</div>
+      <div className="drawing-editor__field-value" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
+        {cableObj?.sheath != null ? (
+          <span
+            className="drawing-picker__swatch"
+            aria-hidden="true"
+            style={{ display: 'inline-block', background: SHEATH_VAR[cableObj.sheath] }}
+          />
+        ) : null}
+        <span>{farEnd ? cableEndText(view, farEnd) : ABSENT}</span>
+      </div>
+      {onSelect ? (
+        <div style={{ display: 'flex', gap: 'var(--s2)', marginTop: 'var(--s1)' }}>
+          <button type="button" onClick={() => onSelect({ kind: 'cable', id: cable.cableId })}>
+            Select cable
+          </button>
+          {cable.farPortId != null ? (
+            <button type="button" onClick={() => onSelect({ kind: 'port', id: cable.farPortId! })}>
+              Go to far end
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** The Inventory board's own mark (`design/proposals/screens/Inventory.dc.html`
  * — "Stored as typed."), shown once a field carries a value: every field
  * this editor writes is `Origin::Hand` (`document/edit.ts`'s `assertHand`),
@@ -433,6 +512,19 @@ export function cableEndText(view: ClosetView, end: CableEnd): string {
   if (located.place === 'chassis') return `${located.chassis.hostname || UNNAMED_HOSTNAME} · ${portLabel}`;
   if (located.place === 'shelf') return `${located.occupant.label || ABSENT} · ${portLabel}`;
   return `${located.fixture.label || ABSENT} · ${portLabel}`;
+}
+
+/** This session's brief items 2/3 — a selected port's own far end: the
+ * OTHER end of the cable filling it (`CableView.ends` holds 0, 1 or 2 —
+ * `document/view.ts`'s own doc on `Terminates`'s "0..2" cardinality), found
+ * by excluding the end that IS `thisPortId`. `undefined` when this view
+ * carries no such cable (never invented) or the cable has no other end yet
+ * — the call site falls back to `ABSENT`, the same "search, never guess"
+ * rule `lookup.ts` already keeps throughout this module. */
+export function farEndOf(view: ClosetView, cableId: string, thisPortId: string): CableEnd | undefined {
+  const cable = view.cables.find((c) => c.id === cableId);
+  if (cable == null) return undefined;
+  return cable.ends.find((e) => !('portId' in e) || e.portId !== thisPortId);
 }
 
 /** `document/cables.ts`'s `setCableField`, through `EditorActions.onEdit` —
@@ -1546,11 +1638,26 @@ export function EditorFor(
         <TypedNote shown={(cable.label ?? '').length > 0} />
 
         {/* "its two ends in words (device and port each side, or the
-            outside label)" */}
+            outside label)". This session's brief item 3 — "Go to end A and
+            Go to end B, each selecting that port and panning to it" —
+            offered only for a real port end; an outside end has no port to
+            go to. */}
         {cable.ends.length === 0 ? (
           <Field label="Ends" value={ABSENT} />
         ) : (
-          cable.ends.map((end, i) => <Field key={i} label={i === 0 ? 'End A' : 'End B'} value={cableEndText(view, end)} />)
+          cable.ends.map((end, i) => (
+            <div key={i} className="drawing-editor__field">
+              <div className="drawing-editor__field-label">{i === 0 ? 'End A' : 'End B'}</div>
+              <div className="drawing-editor__field-value" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
+                <span>{cableEndText(view, end)}</span>
+                {'portId' in end && actions.onSelect ? (
+                  <button type="button" onClick={() => actions.onSelect!({ kind: 'port', id: end.portId })}>
+                    {i === 0 ? 'Go to end A' : 'Go to end B'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))
         )}
 
         <Field label="Kind" value={cable.kind} />
@@ -1608,11 +1715,14 @@ export function EditorFor(
     return (
       <div className="drawing-editor__panel">
         <div className="drawing-editor__title">{port.label || ABSENT}</div>
-        <Field label="Connector" value={port.connector} />
-        <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
+        <Field label="Connector" value={port.connector} />
+        {/* This session's brief item 2 — "connector, service, face". */}
+        <Field label="Service" value={port.service ?? ABSENT} />
+        <Field label="Face" value={port.face} />
+        <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Rack" value={rack.label} />
-        <Field label="Cabled" value={ABSENT} />
+        <PortCableSection view={view} port={port} actions={actions} />
         {/* ADR-0053 §5 — PhysicalPort is one of the three `Notable` kinds,
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
@@ -1626,11 +1736,13 @@ export function EditorFor(
     return (
       <div className="drawing-editor__panel">
         <div className="drawing-editor__title">{port.label || ABSENT}</div>
+        <Field label="Device" value={occupant.label || ABSENT} />
         <Field label="Connector" value={port.connector} />
+        <Field label="Service" value={port.service ?? ABSENT} />
+        <Field label="Face" value={port.face} />
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
-        <Field label="Occupant" value={occupant.label || ABSENT} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
-        <Field label="Cabled" value={ABSENT} />
+        <PortCableSection view={view} port={port} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
       </div>
     );
@@ -1639,11 +1751,13 @@ export function EditorFor(
   return (
     <div className="drawing-editor__panel">
       <div className="drawing-editor__title">{port.label || ABSENT}</div>
+      <Field label="Device" value={fixture.label || ABSENT} />
       <Field label="Connector" value={port.connector} />
+      <Field label="Service" value={port.service ?? ABSENT} />
+      <Field label="Face" value={port.face} />
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
-      <Field label="Fixture" value={fixture.label || ABSENT} />
       <Field label="Surface" value={surface.label || surface.id} />
-      <Field label="Cabled" value={ABSENT} />
+      <PortCableSection view={view} port={port} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
     </div>
   );

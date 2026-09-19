@@ -21,7 +21,10 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
+import { CablesViewControl } from './CablesViewControl';
+import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
 import type { CableKind, CableView, ChassisView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
+import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
@@ -102,6 +105,24 @@ function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number): number {
     y += Math.max(0, ...heights) + ROW_GAP_PX;
   }
   return y;
+}
+
+/** This session's brief items 2/3 — "Go to far end"/"Go to end A/B" both
+ * select a port and pan the camera to its owning box at the faceplate
+ * stop. This resolves WHICH React Flow node that is: the chassis node for a
+ * rack chassis's own port (a PSU inlet included — the faceplate is always
+ * the right box to land on, regardless of which handle a cable end actually
+ * anchors to at this camera stop, `resolveEnd`'s own concern, below), the
+ * shelf node for a shelf occupant's, the surface node for a surface
+ * fixture's — `locatePort`'s own three places, the same one `resolveEnd`
+ * already walks for a cable end. `null` when this view carries no such
+ * port, never invented. */
+function ownerNodeIdForPort(view: ClosetView, portId: string): string | null {
+  const location = locatePort(view, portId);
+  if (location == null) return null;
+  if (location.place === 'chassis') return chassisNodeId(location.chassis.id);
+  if (location.place === 'shelf') return shelfNodeId(location.shelf.id);
+  return surfaceNodeId(location.surface.id);
 }
 
 /** Gap between a rack's frame and the portal tray(s) drawn above or below
@@ -282,6 +303,35 @@ function DrawingInner({
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
+  // This session's brief item 1 — the cables view control: "the choice is
+  // per browser (localStorage, wrapped in try/catch) and never saved to the
+  // document." Read once, lazily, on mount (`useState`'s own initialiser
+  // form) rather than in an effect, so the very first render already draws
+  // whatever this browser last chose instead of flashing "all" for a frame.
+  const [cableVisibility, setCableVisibilityState] = useState<CableVisibility>(() => loadCableVisibility());
+  const handleCableVisibilityChange = useCallback((next: CableVisibility) => {
+    setCableVisibilityState(next);
+    saveCableVisibility(next);
+  }, []);
+  // This session's brief items 3/4 — the selected cable's two ports (a
+  // hairline ring) and the port a refused cable drop landed on (a shake),
+  // both toggled as a DOM class on the SAME `data-port-id` element
+  // `litPortId`'s own effect below already targets, rather than threading a
+  // new prop through `ChassisNode`/`ShelfPlate`/`SurfaceNode`'s three
+  // separate data shapes for one hairline or one 220ms animation.
+  const [shakingPortId, setShakingPortId] = useState<string | null>(null);
+  const portShakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerPortShake = useCallback((portId: string) => {
+    if (portShakeTimer.current != null) clearTimeout(portShakeTimer.current);
+    setShakingPortId(portId);
+    portShakeTimer.current = setTimeout(() => setShakingPortId(null), SHAKE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (portShakeTimer.current != null) clearTimeout(portShakeTimer.current);
+    },
+    [],
+  );
   // ADR-0050 §1: "a flip at rack scale" — session-only, per rack, like
   // `rackPositions` above; not a document fact (`RACK_GAP_PX`'s own rule).
   // The rack stop's own control (`RackNode.tsx`'s header). Takes precedence
@@ -314,19 +364,30 @@ function DrawingInner({
     [view, dragFromPortId],
   );
 
+  // This session's brief item 1 — "hiding a kind removes those cables and
+  // bundles from the drawing and their fill from ports, never a box." The
+  // one filtered list everything below draws from; the boxes themselves
+  // (chassis, shelf, surface, portal tray) are built from the real `view`,
+  // never this one, so a hidden kind never removes anything but a cable, a
+  // bundle and a port's own sheath fill.
+  const visibleCables = useMemo(
+    () => filterCablesByVisibility(view.cables ?? [], cableVisibility),
+    [view.cables, cableVisibility],
+  );
+
   // UI-SPEC "Cables": "the port a cable fills takes the sheath colour" —
   // built once per view change rather than have every `ChassisNode` search
   // the whole cable list for its own ports.
   const portSheath = useMemo(() => {
     const map = new Map<string, Sheath>();
-    for (const cable of view.cables ?? []) {
+    for (const cable of visibleCables) {
       if (cable.sheath == null) continue;
       for (const end of cable.ends) {
         if ('portId' in end) map.set(end.portId, cable.sheath);
       }
     }
     return map;
-  }, [view.cables]);
+  }, [visibleCables]);
 
   // ADR-0050 §2: "the closet stop arranges racks by row, bays left to right
   // as seen from the front." Every rack's position is derived from
@@ -535,6 +596,48 @@ function DrawingInner({
     const matches = container.querySelectorAll(`[data-port-id="${CSS.escape(litPortId)}"]`);
     matches.forEach((el) => el.classList.add('drawing-port--lit'));
   }, [litPortId]);
+
+  // This session's brief item 3 — "while a cable is selected its two ports
+  // carry a hairline ring on the plate." Both real ends of the SELECTED
+  // cable, wherever each sits (a rack chassis, a shelf occupant, a surface
+  // fixture) — `null`/empty whenever the selection is not a cable, or that
+  // cable has no real port end at all (an outside-only or unterminated one).
+  const ringedPortIds = useMemo(() => {
+    if (selected?.kind !== 'cable') return null;
+    const cable = (view.cables ?? []).find((c) => c.id === selected.id);
+    if (cable == null) return null;
+    const ids = cable.ends
+      .filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e)
+      .map((e) => e.portId);
+    return ids.length > 0 ? new Set(ids) : null;
+  }, [selected, view.cables]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ringed = container.querySelectorAll('.drawing-port--ringed');
+    ringed.forEach((el) => el.classList.remove('drawing-port--ringed'));
+    if (ringedPortIds == null) return;
+    ringedPortIds.forEach((portId) => {
+      const matches = container.querySelectorAll(`[data-port-id="${CSS.escape(portId)}"]`);
+      matches.forEach((el) => el.classList.add('drawing-port--ringed'));
+    });
+  }, [ringedPortIds]);
+
+  // UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+  // shakes once sideways, lead springs back to your hand." The chassis-drop
+  // shake above (`triggerShake`/`shakingId`, `RackNode.tsx`) already covers
+  // a device dropped nowhere or overlapping; a cable dropped on an
+  // incompatible or already-cabled port had no shake at all before this
+  // session (`handleConnectEnd`'s own file header, further down, on why) —
+  // this is that gap closed, triggered from there, drawn here.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || shakingPortId == null) return undefined;
+    const matches = container.querySelectorAll(`[data-port-id="${CSS.escape(shakingPortId)}"]`);
+    matches.forEach((el) => el.classList.add('drawing-port--shake'));
+    return () => matches.forEach((el) => el.classList.remove('drawing-port--shake'));
+  }, [shakingPortId]);
 
   const nodes: Node[] = [];
 
@@ -780,6 +883,37 @@ function DrawingInner({
     } satisfies SurfaceNodeType);
   }
 
+  // This session's brief items 2/3 — "Go to far end"/"Go to end A/B ...
+  // pans the camera to it at the faceplate stop, one camera." Every rack
+  // chassis, shelf and surface node this closet draws is on `nodes` by now
+  // (the rows loop and the surfaces loop just above, both already run) —
+  // this reads the SELECTED port's own owning box straight off that array,
+  // the same "search what is already built" reading `resolveEnd`'s own
+  // `findAnyPort`/`resolvePlaceNode` already give a cable end, below.
+  const selectedPortId = selected?.kind === 'port' ? selected.id : null;
+  let selectedPortOwnerCentre: { x: number; y: number } | null = null;
+  if (selectedPortId != null) {
+    const ownerNodeId = ownerNodeIdForPort(view, selectedPortId);
+    const ownerNode = ownerNodeId != null ? nodes.find((n) => n.id === ownerNodeId) : undefined;
+    if (ownerNode != null) {
+      const style = ownerNode.style ?? {};
+      const w = typeof style.width === 'number' ? style.width : 0;
+      const h = typeof style.height === 'number' ? style.height : 0;
+      selectedPortOwnerCentre = { x: ownerNode.position.x + w / 2, y: ownerNode.position.y + h / 2 };
+    }
+  }
+
+  useEffect(() => {
+    if (selectedPortId == null || selectedPortOwnerCentre == null) return;
+    void rf.setCenter(selectedPortOwnerCentre.x, selectedPortOwnerCentre.y, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
+    // on the selected port's own id alone, the same reasoning
+    // `configDrawerOpen`'s own effect above already gives
+    // `selectedChassisFlowCentre`: recomputed fresh every render, and
+    // listing it here would fire this on every pixel of a person's own pan
+    // or scroll once a port happens to be selected.
+  }, [selectedPortId, rf]);
+
   // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
   // `portals.ts` does the grouping; this only lays the resulting boxes out
   // above or below their rack, stacking more than one on the same side.
@@ -875,7 +1009,10 @@ function DrawingInner({
 
   // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
   // ends (and the same lane/kind, `bundles.ts`'s own doc) draw as one band.
-  const bundles = useMemo(() => groupBundles(view.cables ?? []), [view.cables]);
+  // Built off `visibleCables` (this session's brief item 1) — a bundle with
+  // every member hidden by the cables view control is a bundle nobody
+  // should see either.
+  const bundles = useMemo(() => groupBundles(visibleCables), [visibleCables]);
 
   function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
     const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
@@ -951,7 +1088,7 @@ function DrawingInner({
     }
   }
 
-  for (const cable of view.cables ?? []) {
+  for (const cable of visibleCables) {
     if (bundledCableIds.has(cable.id)) continue; // drawn above, as the bundle's band and (when fanned) its members
     const built = buildCableEdge(cable);
     if (built) edges.push(built);
@@ -1097,15 +1234,27 @@ function DrawingInner({
   // recorded." A drop that lands on an incompatible or already-cabled port
   // is simply not `isValid` — `connectionState.isValid` reflects
   // `isValidConnection` above — so it falls through to the same "nothing
-  // recorded" path as a drop on empty canvas, per the brief's build list
-  // (no separate shake is specified for a cable drop, unlike a chassis
-  // drop's `overlapsRack` shake above).
+  // recorded" path as a drop on empty canvas.
+  //
+  // UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+  // shakes once sideways, lead springs back to your hand." Previously true
+  // only for a chassis dropped nowhere or overlapping (`overlapsRack`'s own
+  // shake below); a wrong CABLE drop had no shake at all. The lead itself
+  // already "springs back" for free — `setDragFromPortId(null)` just below
+  // is what stops the live droop drawing at all, and React Flow's own
+  // connection-in-progress state unmounts the SAME instant, so nothing ever
+  // lingers mid-air to animate back. The shake is the other half: only when
+  // the drop actually landed on some OTHER real port (`toHandleId`) rather
+  // than empty canvas, which refuses nothing in particular to shake.
   const handleConnectEnd: OnConnectEnd = useCallback(
     (_event, connectionState: FinalConnectionState) => {
       setDragFromPortId(null);
-      if (!connectionState.isValid) return;
+      const toHandleId = connectionState.toHandle?.id ?? null;
+      if (!connectionState.isValid) {
+        if (toHandleId != null) triggerPortShake(toHandleId);
+        return;
+      }
       const fromHandleId = connectionState.fromHandle?.id;
-      const toHandleId = connectionState.toHandle?.id;
       if (!fromHandleId || !toHandleId) return;
       const from = locatePort(view, fromHandleId);
       const to = locatePort(view, toHandleId);
@@ -1128,7 +1277,7 @@ function DrawingInner({
         screenY: (rect?.top ?? 0) + connectionState.to.y,
       });
     },
-    [view],
+    [view, triggerPortShake],
   );
 
   const handlePickerConfirm = useCallback(
@@ -1209,6 +1358,12 @@ function DrawingInner({
         // `ChassisNode.tsx`) both start and receive a connection.
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
+        // This session's brief item 2 — "a click without movement selects,
+        // a drag connects." React Flow's own threshold (`connectThreshold.ts`'s
+        // own file header): `onConnectStart` never fires until the pointer
+        // has moved this many flow px past the port glyph's own `onClick`
+        // handler already firing for a plain click.
+        connectionDragThreshold={PORT_CLICK_DRAG_THRESHOLD_PX}
         isValidConnection={isValidConnection}
         onConnectStart={handleConnectStart}
         onConnectEnd={handleConnectEnd}
@@ -1223,6 +1378,12 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
       </ReactFlow>
+      {/* This session's brief item 1 — "a cables view control: a small
+          control on the canvas near the lens row... a view control, not a
+          lens." An overlay sibling of the canvas, like `ColourPicker` below
+          — never part of the React Flow pane, so it survives a pan or zoom
+          untouched. */}
+      <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
       {pendingConnect && (
         <ColourPicker
           kind={pendingConnect.kind}

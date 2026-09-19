@@ -117,6 +117,17 @@ export interface PortView {
    * live one found — the drawing's own rendering rule, not this view's. */
   passThroughId: string | null;
   cable: CableEndView | null;
+  /** `PhysicalPort.service` (`schema/schema.yaml`; `document/compat.ts`'s
+   * `PORT_SERVICE_VALUES`) — what the cage is for: `ethernet`, `pon`, `rf`,
+   * `serial`, `console`, `management`, `power`, `other`. `null` when unset.
+   * This session's brief — the selected port's own panel: "connector,
+   * service, face." Typed optional, the same reason `CableView.lengthM`/
+   * `.ownership` are (this file's own doc on that pattern, just above): a
+   * `PortView` literal written before this session (several test fixtures'
+   * own, off limits this session) still type-checks without naming it, and
+   * every reader added this session treats a missing one exactly as an
+   * explicit `null` (`port.service ?? null`). */
+  service?: string | null;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
@@ -477,6 +488,7 @@ function portView(
         face: explicit ?? faceplate.face,
         passThroughId,
         cable,
+        service: fields.service ?? null,
       };
     }
   }
@@ -492,6 +504,7 @@ function portView(
     face: explicit ?? 'front',
     passThroughId,
     cable,
+    service: fields.service ?? null,
   };
 }
 
@@ -532,6 +545,7 @@ function fixedInletView(
     face: explicitFaceOf(fields.face) ?? slot.face,
     passThroughId: edge ? passThroughIdOf(doc, edge.to) : null,
     cable: edge ? portCableView(doc, edge.to, closetRackIds) : null,
+    service: fields.service ?? null,
     slot: slot.name,
     hotSwap: false,
     fitted: true,
@@ -575,6 +589,7 @@ function hotSwapInletView(
       face: slot.face,
       passThroughId: null,
       cable: null,
+      service: null,
       fitted: false,
       supplyId: null,
       serial: null,
@@ -595,6 +610,7 @@ function hotSwapInletView(
     face: explicitFaceOf(portFields.face) ?? slot.face,
     passThroughId: inletEdge ? passThroughIdOf(doc, inletEdge.to) : null,
     cable: inletEdge ? portCableView(doc, inletEdge.to, closetRackIds) : null,
+    service: portFields.service ?? null,
     fitted: true,
     supplyId,
     serial: supplyFields.serial ?? null,
