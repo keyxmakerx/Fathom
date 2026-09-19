@@ -170,8 +170,9 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
 - **The Racks place** (Session 4). Opening a design fetches the catalogue and the payload, reads the
   plain face (ADR-0049) into the browser's document, and draws it with React Flow: racks with rails,
   U numbers and hatched free runs; device boxes with name and model; ports from the catalogue's
-  faceplates fading in toward the faceplate stop. The camera has three stops derived from the
-  approved boards — closet 87.5%, rack 100% (one 42U rack fits), faceplate 200%. Dragging a palette
+  faceplates fading in toward the faceplate stop. The camera has seven stops named on the interface
+  page (UI-SPEC "The shape"); the client stops at four of them so far, derived from the approved
+  boards — closet 87.5%, rack 100% (one 42U rack fits), faceplate 200%, inside 300%. Dragging a palette
   item onto a rack snaps to a unit, refuses an overlap with a shake, and places the device, its
   chassis and its ports; a chassis drags within or between racks. Every change saves: one save in
   flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces

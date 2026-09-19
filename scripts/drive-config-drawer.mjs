@@ -76,10 +76,25 @@ function check(name, ok, detail) {
 // The two canaried pastes. `PASTE_ONE` is `crates/fathom-wasm/tests/paste.rs`'s
 // own `PASTE`, verbatim, carrying the `SuperSecret123` canary that test
 // pins by name. `PASTE_TWO` is `scripts/drive-reconciled-paste.mjs`'s own
-// `PASTE`, verbatim, carrying its six `FATHOMDRIVE*` canaries — sent as the
-// second paste attempt ADR-0052 §5's amendment says the drawer must refuse
-// ("the door refuses a second paste... and says so"), so this also proves a
-// REFUSED paste leaks nothing either.
+// `PASTE` in SHAPE only — sent as the second paste attempt ADR-0052 §5's
+// amendment says the drawer must refuse ("the door refuses a second
+// paste... and says so"), so this also proves a REFUSED paste leaks
+// nothing either.
+//
+// s6g #3, CLAUDE.md rule 2 ("test a safety gate against what a real device
+// accepts, not against what the detector needs"): it was verbatim once, and
+// its six `FATHOMDRIVE*` canaries were all longer than Junos would accept —
+// exactly the failure that rule names, caught once already against
+// `base64ish` (`crates/fathom-ingest/src/redact.rs`'s own `SECRET_WORD_LIST`
+// doc, "`base64ish` requires 24 characters. Juniper documents this key as 1
+// to 8.") and re-proved directly (`crates/fathom-ingest/tests/
+// redaction_canary.rs`'s `an_eight_character_ospf_password_is_destroyed_
+// because_of_its_name`, `secret = "Fath0m8x"`, 8 characters). The two cited
+// Junos bounds — OSPF `simple-password` 1 to 8 characters, `md5` 1 to 16 —
+// size every canary below: the `ospf...` one at 8, the rest at or under 16.
+// Each is still unique and greppable, just short: `FATHOMDRIVE` itself (11
+// characters) does not fit an 8-character field, so the OSPF one drops to
+// the shorter `FDR` marker the others keep as a suffix.
 // ---------------------------------------------------------------------------
 const CANARY_ONE = 'SuperSecret123';
 const PASTE_ONE = `set system host-name srx-branch-01
@@ -106,12 +121,12 @@ set security policies from-zone trust to-zone vpn policy allow match application
 `;
 
 const CANARIES_TWO = [
-  'FATHOMDRIVEospfSimplePw0123456789',
-  'FATHOMDRIVEbgpKeyBare',
-  'FATHOMDRIVEbgpKeyGroup',
-  'FATHOMDRIVEbgpKeyNeighbour',
-  'FATHOMDRIVEikePreShared0123456789',
-  'FATHOMDRIVEsnmpCommunity',
+  'ospfFDR1', // 8 chars — the OSPF `simple-password` bound, exactly
+  'bgpBareFDR01', // 12 chars
+  'bgpGroupFDR01', // 13 chars
+  'bgpNeighFDR01', // 13 chars
+  'ikePskFDR012345', // 15 chars
+  'snmpCommFDR012', // 14 chars
 ];
 const PASTE_TWO = `set system host-name srx-reconciled-01
 set system time-zone America/New_York
@@ -121,12 +136,12 @@ set protocols ospf reference-bandwidth 100000000000
 set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 metric 100
 set protocols ospf area 0.0.0.0 interface ge-0/0/2.0 passive
 set protocols ospf area 0.0.0.1 interface st0.0 interface-type p2p
-set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 authentication simple-password FATHOMDRIVEospfSimplePw0123456789
+set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 authentication simple-password ospfFDR1
 set protocols bgp local-as 65001
-set protocols bgp authentication-key FATHOMDRIVEbgpKeyBare
-set protocols bgp group ISP-EDGE authentication-key FATHOMDRIVEbgpKeyGroup
+set protocols bgp authentication-key bgpBareFDR01
+set protocols bgp group ISP-EDGE authentication-key bgpGroupFDR01
 set protocols bgp group ISP-EDGE neighbor 203.0.113.1 peer-as 64512
-set protocols bgp group ISP-EDGE neighbor 203.0.113.1 authentication-key FATHOMDRIVEbgpKeyNeighbour
+set protocols bgp group ISP-EDGE neighbor 203.0.113.1 authentication-key bgpNeighFDR01
 set protocols rip group RIP-GRP neighbor ge-0/0/9.0
 set vlans guests vlan-id 20
 set vlans guests l3-interface irb.20
@@ -135,8 +150,8 @@ set interfaces ge-0/0/6 unit 0 vlan-id 100
 set security flow tcp-mss ipsec-vpn mss 1350
 set security zones security-zone trust host-inbound-traffic protocols all
 set security zones security-zone untrust tcp-rst
-set security ike policy ike-pol pre-shared-key ascii-text FATHOMDRIVEikePreShared0123456789
-set snmp community FATHOMDRIVEsnmpCommunity authorization read-only
+set security ike policy ike-pol pre-shared-key ascii-text ikePskFDR012345
+set snmp community snmpCommFDR012 authorization read-only
 `;
 
 const ALL_CANARIES = [CANARY_ONE, ...CANARIES_TWO];
@@ -478,8 +493,13 @@ try {
     pskLineClass ?? 'line not found',
   );
 
-  await page.screenshot({ path: SHOTS + 's6f-drawer.png' });
-  console.log('    wrote ' + SHOTS + 's6f-drawer.png');
+  // s6g #2: scroll the destroyed-value block itself into view before the
+  // screenshot — the proof above already found it by locator regardless of
+  // scroll position, but the point of THIS shot is to show a human "a
+  // visible black block," which a block sitting below the fold would not.
+  await page.locator('.config-drawer__block').first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS + 's6g-drawer.png' });
+  console.log('    wrote ' + SHOTS + 's6g-drawer.png');
 
   // -------------------------------------------------------------------------
   // Hover the line that DID build (`Interface.name = "ge-0/0/0"`, confirmed
@@ -496,8 +516,8 @@ try {
     litCount > 0,
     `${litCount} lit port elements`,
   );
-  await page.screenshot({ path: SHOTS + 's6f-lit.png' });
-  console.log('    wrote ' + SHOTS + 's6f-lit.png');
+  await page.screenshot({ path: SHOTS + 's6g-lit.png' });
+  console.log('    wrote ' + SHOTS + 's6g-lit.png');
 
   // -------------------------------------------------------------------------
   // The inside stop, same device, same camera (Motion #10).
@@ -508,8 +528,8 @@ try {
   const insideText = await page.locator('.drawing-inside-stop').innerText();
   check('the inside stop names the pasted hostname', insideText.includes('srx-branch-01'));
   check('the inside stop shows the built interface', insideText.includes('ge-0/0/0'));
-  await page.screenshot({ path: SHOTS + 's6f-inside.png' });
-  console.log('    wrote ' + SHOTS + 's6f-inside.png');
+  await page.screenshot({ path: SHOTS + 's6g-inside.png' });
+  console.log('    wrote ' + SHOTS + 's6g-inside.png');
 
   // Back to the faceplate stop for the second paste attempt.
   await page.evaluate(() => window.__setPreviewZoom__?.(200));
@@ -571,8 +591,8 @@ try {
   check('read-only: "View only" is shown', (await roPage.locator('body').innerText()).includes('View only'));
   check('read-only: zero save (version) POSTs', roSaves.length === 0, `${roReqs.length} total requests`);
   check('read-only: zero inputs or textareas in the DOM', roInputs === 0, `${roInputs} found`);
-  await roPage.screenshot({ path: SHOTS + 's6f-readonly.png' });
-  console.log('    wrote ' + SHOTS + 's6f-readonly.png');
+  await roPage.screenshot({ path: SHOTS + 's6g-readonly.png' });
+  console.log('    wrote ' + SHOTS + 's6g-readonly.png');
   await roPage.close();
 
   await browser.close();

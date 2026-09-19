@@ -113,7 +113,11 @@
 .config-drawer__line {
   display: grid;
   grid-template-columns: var(--gutter-num) 16px 1fr;
-  align-items: baseline;
+  /* s6g #2: "keep the ordinal and the gutter mark aligned at the line's
+     first row" — `start`, not `baseline`, so a wrapped line's ordinal and
+     gutter sit at the top of the row's box, level with the first visual
+     row of wrapped text, rather than centring across every wrapped row. */
+  align-items: start;
   min-height: var(--row-min);
   font-family: var(--mono);
   font-size: var(--t-mono);
@@ -149,9 +153,14 @@
 .config-drawer__text {
   padding-left: var(--s2);
   padding-right: var(--s3);
-  white-space: pre;
-  overflow-x: hidden;
-  text-overflow: ellipsis;
+  /* s6g #2: an ellipsis at `--cfg-cols` hid the black block whenever a
+     destroyed value's marker span fell past column 72 — "gone, not
+     hidden" (UI-SPEC "Config") applies to the block itself, not only to
+     the fact of destruction. The drawer has vertical room (`config-drawer`'s
+     own `overflow: auto`), so a long line wraps within `--cfg-cols` instead
+     of being cut: every block is on screen, never clipped. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   max-width: calc(var(--cfg-cols) * 1ch);
 }
 

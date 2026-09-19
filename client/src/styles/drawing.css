@@ -1086,21 +1086,45 @@
   pointer-events: none;
 }
 
-/* ADR-0052 §1/§4, "Config": "A drawer under the faceplate, not a separate
-   page." Anchored to the drawing's own pane (`.drawing` is `position:
-   relative` above) so it sits over the canvas without moving it — Motion
-   #9: "the drawing beneath does not move." Slides in from the right, per
-   Motion #9's own words; `@media (prefers-reduced-motion: reduce)` below
-   mirrors the node-transition exemption already given the rack flip. Zero
-   radius, no shadow, a hairline border — "Look". */
+/* ADR-0052 §1/§4, "Config": "A drawer UNDER the faceplate, not a separate
+   page" — `design/rebuild/Config.dc.html`'s own board draws the faceplate as
+   a fixed strip at the top of the column and the drawer filling the rest
+   beneath it, never a column beside the canvas. s6g #1: this was a full-height
+   right-hand column (`right: 0; top: 0; bottom: 0`), which put the plate
+   itself outside the viewport entirely — the opposite of "plate stays
+   above, dimmed." Anchored to the drawing's own pane (`.drawing` is
+   `position: relative` above) and to the pane's own bottom edge instead, at
+   a height (`DRAWER_HEIGHT_FRACTION` below, kept in sync with
+   `Drawing.tsx`'s own literal) that leaves the pane's top strip uncovered
+   for the plate to sit in — `Drawing.tsx`'s own camera-recentre effect (s6g
+   #1) keeps the selected chassis inside that strip whenever this opens, so
+   "the camera keeps the plate in view" is an effect of this component, not
+   a hope about where a rack already happens to be scrolled to. Motion #9:
+   "the drawing beneath does not move" — a DOM overlay sibling of the
+   canvas, per that comment; a real React Flow node was ruled out for this
+   session (`ConfigDrawer` is a fixed-position document reader with its own
+   scroll region, paste box and hover wiring — none of which React Flow's
+   node model gives for free, and turning it into a node would still need
+   this same "leave the plate visible" placement rule, just re-expressed in
+   flow coordinates instead of screen ones). Slides up from the bottom, not
+   in from the right — the board never draws a right-hand slide for this
+   surface, only Motion #9's second half, "the drawing does not move";
+   `@media (prefers-reduced-motion: reduce)` below mirrors the
+   node-transition exemption already given the rack flip. Zero radius, no
+   shadow, a hairline border — "Look". */
 .drawing-config-drawer {
   position: absolute;
-  top: 0;
+  left: 0;
   right: 0;
   bottom: 0;
-  width: min(420px, 90%);
+  /* Kept equal to `Drawing.tsx`'s own `DRAWER_HEIGHT_FRACTION` (0.46) — the
+     camera-recentre effect centres the plate in the remaining 54% above
+     this exact figure. */
+  height: 46%;
+  min-height: 320px;
+  max-height: 560px;
   background: var(--surface);
-  border-left: var(--rule-hair) solid var(--hairline);
+  border-top: var(--rule-hair) solid var(--hairline);
   overflow-y: auto;
   z-index: var(--z-modal);
   animation: drawing-drawer-slide-in var(--m-pane) var(--m-ease);
@@ -1108,10 +1132,10 @@
 
 @keyframes drawing-drawer-slide-in {
   from {
-    transform: translateX(100%);
+    transform: translateY(100%);
   }
   to {
-    transform: translateX(0);
+    transform: translateY(0);
   }
 }
 

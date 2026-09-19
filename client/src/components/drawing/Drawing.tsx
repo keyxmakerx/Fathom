@@ -499,6 +499,13 @@ function DrawingInner({
 
   const nodes: Node[] = [];
 
+  // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — the selected
+  // chassis's own flow-space centre, captured while its `basePosition` is
+  // computed below, so the camera-recentre effect further down (which keeps
+  // this plate above the config drawer rather than covering it) has a real
+  // point to centre on without a second walk of `view.racks`.
+  let selectedChassisFlowCentre: { x: number; y: number } | null = null;
+
   rowLayouts.forEach((layout, rowIndex) => {
     const y = rowBandY(rowLayouts, rowIndex);
     if (cameraStop === 'closet' && layout.racks.length > 0) {
@@ -590,6 +597,13 @@ function DrawingInner({
           className: configDrawerContent != null && chassis.id === selectedChassis?.id ? 'drawing-chassis-node--dimmed' : undefined,
           data: chassisData,
         } satisfies AnyChassisNode);
+        if (chassis.id === selectedChassis?.id) {
+          const effective = dragOverride[id] ?? basePosition;
+          selectedChassisFlowCentre = {
+            x: effective.x + RACK_INNER_PX / 2,
+            y: effective.y + (chassis.heightU * U_PX) / 2,
+          };
+        }
       }
 
       // ADR-0051 §1/§2: a shelf takes rack units exactly as a chassis does —
@@ -647,6 +661,31 @@ function DrawingInner({
       }
     }
   });
+
+  // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
+  // `.drawing-config-drawer` reserves the pane's own bottom
+  // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
+  // chassis inside the remaining top strip, centred in it, whenever the
+  // drawer opens — an edge-triggered `setCenter` (the same call Motion #10's
+  // shelf-occupant open already makes, above), fired once on the transition
+  // into "a chassis is selected and the camera reads the faceplate stop,"
+  // never on every zoom tick while it stays there, so a person's own
+  // subsequent pan or scroll is never fought mid-read.
+  const configDrawerOpen = configDrawerContent != null;
+  useEffect(() => {
+    if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
+    const paneHeight = containerRef.current?.clientHeight ?? 0;
+    if (paneHeight === 0) return;
+    const zoomLevel = CAMERA_STOPS.faceplate / 100;
+    const DRAWER_HEIGHT_FRACTION = 0.46; // matches `drawing.css`'s own literal
+    const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
+    const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
+    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
+    // on purpose (see comment above): `selectedChassisFlowCentre` itself is
+    // rebuilt fresh every render and would fire this on every pixel of a
+    // person's own drag or scroll if it were a dependency.
+  }, [configDrawerOpen, selectedChassis?.id, rf]);
 
   // ADR-0051 §1/§2, `design/places/renders/Surfaces.png`: the closet layout
   // places surfaces after the rows, walls to the right of their premises'
