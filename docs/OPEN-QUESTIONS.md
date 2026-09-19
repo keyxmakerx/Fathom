@@ -823,6 +823,12 @@ positions are millimetres from the floor and from the left edge, as the Surfaces
 them; and a horizontal run is a cable like any other, so it carries a sheath colour when one is
 recorded and draws in ink when none is.
 
+### W6. D2's private-notes layer, reopened 2026-09-19 (ADR-0053 §7).
+
+A private note inside the shared sealed payload is not private. The schema carries notes from
+0.10; the private layer is a per-account side payload sealed under account keys and arrives with
+the vault. Decided by the lead on merit; the owner may overrule.
+
 ## What was dropped, and why that matters
 
 **42 of 93 candidates were stale.** If a question you remember being asked is not in this list, it
