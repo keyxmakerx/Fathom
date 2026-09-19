@@ -48,6 +48,7 @@ import type { Placement, Sheath } from '../../document/view';
 import type { NoteHow, NoteView } from '../../document/notes';
 
 export type {
+  CableEnd,
   CableEndView,
   InletView,
   RowView,
@@ -135,7 +136,23 @@ export type EditorChange =
    * (`racks/RacksPlace.tsx`'s `handleEdit`) validates it against
    * `SURFACE_FORMS` before calling, the same way `'rack'`'s `bay` is parsed
    * before `setRackField` gets a chance to refuse it. */
-  | { kind: 'create-surface'; premisesId: string; label: string; form: string };
+  | { kind: 'create-surface'; premisesId: string; label: string; form: string }
+  /** UI-SPEC "Cables" — a selected cable's own panel (this session's brief):
+   * `document/cables.ts`'s `setCableField` on the same live `Cable`
+   * `Selection`'s `'cable'` kind names, `value: null` clearing the field
+   * (`CableFieldKey`'s own subset actually offered by this panel — `media`
+   * is shown, `document/cables.ts` still writes it, but nothing in this
+   * panel edits it, so it is left out of this union rather than offered and
+   * never used). `value` is always the raw text an input holds, same
+   * reading as `'rack'`'s `bay` above — `length_m` is parsed to a number by
+   * the caller (`useDesignSession.ts`'s `handleEdit`) before
+   * `setCableField` gets a chance to refuse it. */
+  | { kind: 'cable'; id: string; field: 'label' | 'sheath' | 'length_m' | 'ownership'; value: string | null }
+  /** UI-SPEC "Cables" / "Delete/Backspace on a selected cable" — the
+   * panel's own "Disconnect" action, `document/cables.ts`'s `disconnect`.
+   * An action, not a field edit, the same shape `'supply-remove'` already
+   * is. */
+  | { kind: 'cable-disconnect'; id: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

@@ -170,8 +170,8 @@ describe('ports and power labels', () => {
 
   it('reads cable counts by kind, absent with none', () => {
     const cables: CableView[] = [
-      { id: 'cable:1', kind: 'copper', media: 'cat6', sheath: null, label: null, ends: [] },
-      { id: 'cable:2', kind: 'fibre', media: 'smf', sheath: null, label: null, ends: [] },
+      { id: 'cable:1', kind: 'copper', media: 'cat6', sheath: null, label: null, lengthM: null, ownership: null, ends: [] },
+      { id: 'cable:2', kind: 'fibre', media: 'smf', sheath: null, label: null, lengthM: null, ownership: null, ends: [] },
     ];
     const ports = [
       port('p1', { cable: { cableId: 'cable:1', farPortId: null, farChassisId: null, outsideCloset: true } }),

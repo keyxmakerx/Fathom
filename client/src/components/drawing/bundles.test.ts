@@ -9,6 +9,8 @@ function cable(overrides: Partial<CableView> & Pick<CableView, 'id'>): CableView
     media: 'cat6',
     sheath: 'grey',
     label: null,
+    lengthM: null,
+    ownership: null,
     ends: [
       { portId: `${overrides.id}-near`, chassisId: 'chassis-a', rackId: 'rack-1' },
       { portId: `${overrides.id}-far`, chassisId: 'chassis-b', rackId: 'rack-1' },

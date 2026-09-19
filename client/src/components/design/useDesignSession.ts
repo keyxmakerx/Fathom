@@ -38,6 +38,7 @@ import {
   movePlacement,
   removeSketchPort,
 } from '../../document/commands';
+import { disconnect, setCableField } from '../../document/cables';
 import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
@@ -268,6 +269,28 @@ export function useDesignSession(organisationId: string, designId: string, capab
           next = removeSupply(doc, change.id, opts);
         } else if (change.kind === 'supply-fit') {
           next = fitSupply(doc, change.chassisId, change.slot, {}, opts);
+        } else if (change.kind === 'cable') {
+          // UI-SPEC "Cables", this session's brief — the cable panel's own
+          // fields. `value` is always the raw text a field holds
+          // (`contract.ts`'s own doc on this `EditorChange` kind); `length_m`
+          // is parsed here, the same "the caller parses before the write-
+          // side function gets a chance to refuse it" reading `'rack'`'s
+          // `bay` above already gives.
+          if (change.field === 'length_m') {
+            if (change.value === null) {
+              next = setCableField(doc, change.id, 'length_m', null, opts);
+            } else {
+              const parsed = Number(change.value);
+              if (!Number.isInteger(parsed) || parsed < 0) {
+                throw new FieldValueError('Cable.length_m', change.value, 'must be a whole, non-negative number');
+              }
+              next = setCableField(doc, change.id, 'length_m', parsed, opts);
+            }
+          } else {
+            next = setCableField(doc, change.id, change.field, change.value, opts);
+          }
+        } else if (change.kind === 'cable-disconnect') {
+          next = disconnect(doc, change.id, opts);
         } else if (change.kind === 'move-placement') {
           next = movePlacement(doc, change.itemId, change.placement, opts);
         } else if (change.kind === 'add-sketch-port') {

@@ -10,6 +10,11 @@ import '../../styles/drawing.css';
 import '../config/config.css';
 import { DEVICE_ROLES } from '../../document/edit';
 import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
+// `OWNERSHIP_VALUES` (`Cable.ownership`'s own enum) — the same "mirrored
+// once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
+// this session's own cable panel.
+import { OWNERSHIP_VALUES } from '../../document/cables';
+import { SHEATH_VAR, sheathsFor } from './sheath';
 // `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
 // (frozen this session — that file's header: "the view re-exports stay"),
 // but they are `document/view.ts`'s own read-side shapes, the same ones
@@ -22,6 +27,8 @@ import type { FixtureView, Placement } from '../../document/view';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
+  type CableEnd,
+  type CableView,
   type ClosetView,
   type EditorActions,
   type EditorChange,
@@ -399,6 +406,122 @@ export function createShelfChange(
 
 export function createSurfaceChange(premisesId: string, label: string, form: string): EditorChange {
   return { kind: 'create-surface', premisesId, label, form };
+}
+
+// ===========================================================================
+// UI-SPEC "Cables" — the selected cable's own panel (this session's brief).
+// `cableEndText` is pulled out pure, same reasoning as `moveToRackChange`
+// and its siblings above: no DOM to render or click to simulate in this
+// project's tests, so the wording a caller would see is asserted directly.
+// `setCableFieldChange`/`disconnectCableChange` are the panel's own change-
+// shape builders, the same pattern.
+
+/** One end of the SELECTED cable, in words — UI-SPEC "Cables"' own panel
+ * brief: "the two ends in words (device and port each side, or the outside
+ * label)". `end` is one of `CableView.ends` (`document/view.ts`'s own
+ * reduction of a `Terminates` edge, `contract.ts`'s re-export); `outside`
+ * names the far side directly (`ExternalPeer.label`), everything else is
+ * resolved through `locatePort` — the one entry point that finds a port
+ * wherever this view draws one (a rack chassis, a shelf occupant or a
+ * surface fixture, the same three the port panels below already read).
+ * `ABSENT` when this view cannot resolve the port at all — never invented. */
+export function cableEndText(view: ClosetView, end: CableEnd): string {
+  if ('outside' in end) return end.label || ABSENT;
+  const located = locatePort(view, end.portId);
+  if (located == null) return ABSENT;
+  const portLabel = located.port.label || ABSENT;
+  if (located.place === 'chassis') return `${located.chassis.hostname || UNNAMED_HOSTNAME} · ${portLabel}`;
+  if (located.place === 'shelf') return `${located.occupant.label || ABSENT} · ${portLabel}`;
+  return `${located.fixture.label || ABSENT} · ${portLabel}`;
+}
+
+/** `document/cables.ts`'s `setCableField`, through `EditorActions.onEdit` —
+ * `value` is always the raw text a field holds (`contract.ts`'s own doc on
+ * `EditorChange`'s `'cable'` kind: `length_m` is parsed to a number by the
+ * caller, `useDesignSession.ts`'s `handleEdit`, before `setCableField` gets
+ * a chance to refuse it). */
+export function setCableFieldChange(
+  id: string,
+  field: 'label' | 'sheath' | 'length_m' | 'ownership',
+  value: string | null,
+): EditorChange {
+  return { kind: 'cable', id, field, value };
+}
+
+/** The panel's own "Disconnect" action — `document/cables.ts`'s
+ * `disconnect`, an action rather than a field edit, the same shape
+ * `'supply-remove'` already is. */
+export function disconnectCableChange(id: string): EditorChange {
+  return { kind: 'cable-disconnect', id };
+}
+
+/** The sheath colour selector — UI-SPEC "Cables": "Colour is the real
+ * sheath," and this session's brief: "a colour selector using the same
+ * lists as the connect-time picker for that kind (power fixed to grey)
+ * showing the current one marked and each swatch as the token's colour
+ * with its name." `sheathsFor`/`SHEATH_VAR` (`./sheath.ts`) are the exact
+ * pair `ColourPicker.tsx`'s own drop-time popover already reads — the same
+ * lists, so a copper cable offers the same nine here it offered at connect
+ * time, fibre the same four, power the one fixed grey. Reuses
+ * `drawing.css`'s own `.drawing-picker__swatch(--selected)` rules
+ * (`ColourPicker.tsx`'s own precedent) rather than a third copy of the same
+ * 14px hairline-bordered box. ADR-0052 §5: no `onEdit` at all renders the
+ * current sheath as plain text, the same "text, no action" reading every
+ * other control on this panel gives a reader. */
+function CableSheathField({ cable, onEdit }: { cable: CableView; onEdit: EditorActions['onEdit'] }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  // The authoritative sheath moved under us (the write landed, or this is a
+  // fresh cable selection entirely) — the same reset `EditableValue`'s own
+  // effect gives a stale refusal.
+  useEffect(() => {
+    setRefusal(null);
+  }, [cable.id, cable.sheath]);
+
+  if (!onEdit) {
+    return <Field label="Sheath" value={cable.sheath ?? ABSENT} />;
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Sheath — the lead you actually used</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s2)' }}>
+        {sheathsFor(cable.kind).map((sheath) => {
+          const selected = sheath === cable.sheath;
+          return (
+            <button
+              key={sheath}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--s2)',
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                font: 'inherit',
+                color: 'var(--ink)',
+                cursor: 'pointer',
+              }}
+              onClick={() => {
+                const result = onEdit(setCableFieldChange(cable.id, 'sheath', sheath));
+                setRefusal(result?.refused ?? null);
+              }}
+            >
+              <span
+                className={selected ? 'drawing-picker__swatch drawing-picker__swatch--selected' : 'drawing-picker__swatch'}
+                style={{ display: 'inline-block', background: SHEATH_VAR[sheath] }}
+              />
+              <span>{sheath}</span>
+            </button>
+          );
+        })}
+      </div>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
 }
 
 /** Every shelf across every rack this view carries, each labelled with its
@@ -1397,6 +1520,78 @@ export function EditorFor(
         ) : null}
 
         <PlacedOnControl itemId={fixture.id} placement={placement} view={view} actions={actions} />
+      </div>
+    );
+  }
+
+  // UI-SPEC "Cables" — this session's brief: a selected cable's own panel.
+  // `view.cables` (`ClosetView`, `contract.ts`'s re-export) is the one place
+  // a `Cable` lives in this view, the same "scan by kind" `document/view.ts`'s
+  // own file header gives `viewOf` for a root-level node — `null` when this
+  // view carries no such cable, never invented, the same rule every lookup
+  // in `lookup.ts` already keeps.
+  if (selection.kind === 'cable') {
+    const cable = view.cables.find((c) => c.id === selection.id);
+    if (cable == null) return null;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={cable.label ?? ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'label', v)) : undefined}
+          />
+        </div>
+        <TypedNote shown={(cable.label ?? '').length > 0} />
+
+        {/* "its two ends in words (device and port each side, or the
+            outside label)" */}
+        {cable.ends.length === 0 ? (
+          <Field label="Ends" value={ABSENT} />
+        ) : (
+          cable.ends.map((end, i) => <Field key={i} label={i === 0 ? 'End A' : 'End B'} value={cableEndText(view, end)} />)
+        )}
+
+        <Field label="Kind" value={cable.kind} />
+        <Field label="Media" value={cable.media || ABSENT} />
+
+        {/* "the sheath as a colour selector using the same lists as the
+            connect-time picker for that kind (power fixed to grey)". */}
+        <CableSheathField cable={cable} onEdit={actions.onEdit} />
+
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Length (m)</div>
+          <EditableValue
+            value={cable.lengthM != null ? String(cable.lengthM) : ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'length_m', v)) : undefined}
+          />
+        </div>
+        <TypedNote shown={cable.lengthM != null} />
+
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Ownership</div>
+          <EditableValue
+            value={cable.ownership ?? ''}
+            placeholder={ABSENT}
+            editorKind="select"
+            options={OWNERSHIP_VALUES}
+            onCommit={actions.onEdit ? (v) => actions.onEdit!(setCableFieldChange(cable.id, 'ownership', v)) : undefined}
+          />
+        </div>
+        <TypedNote shown={(cable.ownership ?? '').length > 0} />
+
+        {/* UI-SPEC "Delete/Backspace on a selected cable calls onDisconnect
+            — no confirmation dialog" — the panel's own version of the same
+            action, through `EditorActions.onEdit` rather than `Drawing`'s
+            own keyboard listener, the same "the same edit through either
+            door" reading `handleEdit` already gives every other change. */}
+        <SupplyAction
+          label="Disconnect"
+          onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
+        />
       </div>
     );
   }

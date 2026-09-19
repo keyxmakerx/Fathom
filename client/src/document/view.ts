@@ -21,7 +21,12 @@ import type {
   CataloguePsuSlot,
   CatalogueSlotPosition,
 } from '../api/catalogue';
-import { SHEATH_VALUES, type Sheath } from './cables';
+// This session's brief — the cable panel's own "length in metres and
+// ownership as editable values": `OWNERSHIP_VALUES` names the enum
+// `cableView` below checks a stray `Cable.ownership` value against
+// (`ownership` reads `null` for anything not in this list, the same guard
+// `sheath` already gets), the same read `SHEATH_VALUES` already gives.
+import { OWNERSHIP_VALUES, SHEATH_VALUES, type Sheath } from './cables';
 import type { CableKind } from './compat';
 import {
   edgesIn,
@@ -297,6 +302,24 @@ export interface CableView {
   media: string;
   sheath: Sheath | null;
   label: string | null;
+  /** `Cable.length_m` (`u32`, `schema/schema.yaml`), `null` when unset
+   * (UI-SPEC "Absent is drawn as absent"). Named `lengthM` for the same
+   * camelCase reading `Surface.width_mm` → `widthMm` already gives this
+   * file's own fields. Typed optional (not the bare `number | null` every
+   * other field on this interface carries) for the same reason
+   * `contract.ts`'s own file header gives `PortView.cable`/`.cables`: a
+   * `CableView` literal written before this session (`paths.test.ts`,
+   * `portals.test.ts`) still type-checks without naming it, and every
+   * reader added this session treats a missing one exactly as an explicit
+   * `null` (`cable.lengthM ?? null`) — the two spellings carry the same
+   * meaning throughout. `cableView` below always sets it. */
+  lengthM?: number | null;
+  /** `Cable.ownership` (`cables.ts`'s `OWNERSHIP_VALUES`), the raw string —
+   * `null` when unset or, like `sheath`, when a document somehow holds a
+   * value outside that enum. Plain `string`, not the narrower write-side
+   * type, the same reading `media` above already gives. Optional for the
+   * same reason `lengthM` above is. */
+  ownership?: string | null;
   ends: CableEnd[];
 }
 
@@ -337,6 +360,15 @@ function fieldString(node: GraphNode | undefined, key: string): string | null {
   const entry = node?.fields[key];
   if (!entry || entry.presence !== 'set') return null;
   return typeof entry.value === 'string' ? entry.value : null;
+}
+
+/** `fieldString`'s own numeric twin, added this session for `CableView.lengthM`
+ * — the same "local, read-only equivalent" reasoning as `fieldString`'s own
+ * doc: `document/model.ts`'s `asNumber` is private to that file. */
+function fieldNumber(node: GraphNode | undefined, key: string): number | null {
+  const entry = node?.fields[key];
+  if (!entry || entry.presence !== 'set') return null;
+  return typeof entry.value === 'number' ? entry.value : null;
 }
 
 /** Whichever live `Terminates` edge lands on `portId` (UI-SPEC "one cable
@@ -1031,6 +1063,8 @@ function cableView(doc: Document, node: GraphNode): CableView {
   const media = fieldString(node, 'Cable.media') ?? '';
   const sheathRaw = fieldString(node, 'Cable.sheath');
   const sheath = sheathRaw !== null && (SHEATH_VALUES as readonly string[]).includes(sheathRaw) ? (sheathRaw as Sheath) : null;
+  const ownershipRaw = fieldString(node, 'Cable.ownership');
+  const ownership = ownershipRaw !== null && (OWNERSHIP_VALUES as readonly string[]).includes(ownershipRaw) ? ownershipRaw : null;
   const ends = edgesOut(doc, node.id, 'Terminates')
     .map((e) => cableEnd(doc, e))
     .filter((e): e is CableEnd => e !== undefined);
@@ -1040,6 +1074,8 @@ function cableView(doc: Document, node: GraphNode): CableView {
     media,
     sheath,
     label: fieldString(node, 'Cable.label'),
+    lengthM: fieldNumber(node, 'Cable.length_m'),
+    ownership,
     ends,
   };
 }
