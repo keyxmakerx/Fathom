@@ -38,8 +38,8 @@
 //!   `account_keys.key_source` records that as a fact rather than leaving it
 //!   to be assumed.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{LazyLock, Mutex};
 
 use deadpool_postgres::Transaction;
 use fathom_canon::Json;
@@ -3466,48 +3466,55 @@ async fn row_verifies<'a>(
     Ok(verdict)
 }
 
-/// **Authorise, from scratch, every time** (§3.4).
-///
-/// 1. the scope's ancestors, so a grant above it counts;
-/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
-/// 3. the epoch against this process's high-water mark;
-/// 4. the whole authority state, digested and compared against the head —
-///    grants, secondings, suspensions and revocations, not grants alone;
-/// 5. the organisation id recomputed from the root key, and the genesis set
-///    compared against what the sealed `org_genesis` entry names;
-/// 6. each candidate grant: its row seal, both key bindings, the granter's
-///    signature over recomputed bytes, its times, and §3.5's quorum — which is
-///    met by **one qualifying seconding**, walked with a visited set so that a
-///    seconder whose own stewardship depends on the grant under evaluation
-///    does not qualify;
-/// 7. only then the answer.
-///
-/// Step 4 is why a hand-inserted grant grants nothing, why editing
-/// `capability` on a real one grants nothing, why deleting a revocation row
-/// does not restore the grant, and — since the digest covers the whole state
-/// rather than the grants alone — why a seconding nobody was entitled to make
-/// does not make a steward.
-///
-/// # Nothing is cached, and there is nowhere to put a verdict
-///
-/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
-/// read inside the call and recomputed from sealed rows. Two authorisations in
-/// one process, one second apart, do the same work — which is what makes
-/// tampering between them visible.
-pub async fn authorise_account(
+/// Steps 2-5 of [`authorise_account`]'s seven, done once: the head and its
+/// seal, the rollback watch, the whole authority state digested against the
+/// head, and the genesis set. None of this depends on the scope or the
+/// capability being asked for -- only on the organisation -- so a caller
+/// that is about to ask the same organisation the same question for many
+/// rows (a list route, one row per design or per scope) calls this once and
+/// [`authorise_in_verified_state`] per row, rather than re-reading the head,
+/// re-digesting the whole authority state and re-verifying genesis for every
+/// row in the list. `authorise_account` itself is unchanged in behaviour: it
+/// still does all seven steps, every time, by calling this and then that in
+/// sequence, for every caller that authorises a single act.
+pub(crate) struct VerifiedAuthorityState {
+    organisation: String,
+    auth_epoch: i32,
+    root_fpr: [u8; 32],
+    state: AuthorityState,
+}
+
+/// Test-only instrumentation, always compiled (an integration test binary
+/// does not see `#[cfg(test)]` items in the library it links, so this cannot
+/// be gated behind one): how many times [`verify_authority_state`] has run
+/// to completion for `organisation`, this process's lifetime. Keyed by
+/// organisation, not one process-wide total, so that a test asserting "ran
+/// once" is not made flaky by every *other* test's own authorisations
+/// running concurrently against their own, different, organisations — each
+/// test in `tests/design_api.rs` bootstraps a fresh organisation, so its own
+/// count is its own. Read nowhere outside tests; carries no secret (an
+/// organisation id and a count).
+static VERIFY_AUTHORITY_STATE_CALLS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// See [`VERIFY_AUTHORITY_STATE_CALLS`].
+pub fn verify_authority_state_calls(organisation: &str) -> u64 {
+    VERIFY_AUTHORITY_STATE_CALLS
+        .lock()
+        .expect(POISON)
+        .get(organisation)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// §3.4 steps 2-5. See [`VerifiedAuthorityState`]'s doc for why this is its
+/// own function rather than inline in [`authorise_account`].
+pub(crate) async fn verify_authority_state(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
-    scope: Option<ScopeId>,
-    needed: Capability,
-) -> Result<Capabilities, AuthorityError> {
+) -> Result<VerifiedAuthorityState, AuthorityError> {
     let (ring, ctx, watch) = (auth.ring, auth.ctx, auth.watch);
     let organisation = auth.organisation();
-    let account = auth.actor();
-
-    // 1. The scope and its ancestors. `None` is the organisation itself, which
-    //    every grant in the organisation is at or above.
-    let scope_text = scope.map(|s| s.to_string());
-    let covering = covering_scopes(tx, &organisation, scope_text.as_deref()).await?;
 
     // 2. The head, and its seal.
     let head = tx
@@ -3572,6 +3579,44 @@ pub async fn authorise_account(
     let root_fpr = organisation_root_fpr(tx, ring, &organisation).await?;
     verify_genesis_set(tx, ring, ctx, &state).await?;
 
+    *VERIFY_AUTHORITY_STATE_CALLS
+        .lock()
+        .expect(POISON)
+        .entry(organisation.clone())
+        .or_insert(0) += 1;
+
+    Ok(VerifiedAuthorityState {
+        organisation,
+        auth_epoch,
+        root_fpr,
+        state,
+    })
+}
+
+/// §3.4 steps 1, 6 and 7, against a [`VerifiedAuthorityState`] steps 2-5
+/// already settled. Scope-dependent (step 1's ancestors) and
+/// capability-dependent (step 6's `covers` and quorum checks), so this is
+/// the part a list route still runs once per row -- see
+/// [`VerifiedAuthorityState`]'s doc.
+pub(crate) async fn authorise_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
+    let ring = auth.ring;
+    let account = auth.actor();
+    let organisation = &verified.organisation;
+    let auth_epoch = verified.auth_epoch;
+    let root_fpr = &verified.root_fpr;
+    let state = &verified.state;
+
+    // 1. The scope and its ancestors. `None` is the organisation itself, which
+    //    every grant in the organisation is at or above.
+    let scope_text = scope.map(|s| s.to_string());
+    let covering = covering_scopes(tx, organisation, scope_text.as_deref()).await?;
+
     // 6. The candidates.
     let now = now_unix();
     let mut best: Option<Capabilities> = None;
@@ -3607,13 +3652,13 @@ pub async fn authorise_account(
 
         // The row: a hard question, because this is the grant the answer
         // would rest on. `Unverifiable` here is the alarm §3.4 asks for.
-        verify_grant_row(tx, ring, &root_fpr, grant).await?;
+        verify_grant_row(tx, ring, root_fpr, grant).await?;
         // The quorum: a soft one. A `steward` grant with no qualifying
         // seconding is not a broken store, it is a grant that is not yet
         // usable -- so it is passed over and another candidate may still
         // answer. Each candidate gets its own pass, discarded with it.
         let pass = Mutex::new(QuorumPass::default());
-        if !grant_quorum_met(tx, ring, &state, &root_fpr, grant, &pass).await? {
+        if !grant_quorum_met(tx, ring, state, root_fpr, grant, &pass).await? {
             short_of_quorum = true;
             continue;
         }
@@ -3638,6 +3683,52 @@ pub async fn authorise_account(
         None if short_of_quorum => Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 }),
         None => Err(AuthorityError::NotAuthorised),
     }
+}
+
+/// **Authorise, from scratch, every time** (§3.4).
+///
+/// 1. the scope's ancestors, so a grant above it counts;
+/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
+/// 3. the epoch against this process's high-water mark;
+/// 4. the whole authority state, digested and compared against the head —
+///    grants, secondings, suspensions and revocations, not grants alone;
+/// 5. the organisation id recomputed from the root key, and the genesis set
+///    compared against what the sealed `org_genesis` entry names;
+/// 6. each candidate grant: its row seal, both key bindings, the granter's
+///    signature over recomputed bytes, its times, and §3.5's quorum — which is
+///    met by **one qualifying seconding**, walked with a visited set so that a
+///    seconder whose own stewardship depends on the grant under evaluation
+///    does not qualify;
+/// 7. only then the answer.
+///
+/// Step 4 is why a hand-inserted grant grants nothing, why editing
+/// `capability` on a real one grants nothing, why deleting a revocation row
+/// does not restore the grant, and — since the digest covers the whole state
+/// rather than the grants alone — why a seconding nobody was entitled to make
+/// does not make a steward.
+///
+/// Steps 2-5 live in [`verify_authority_state`] and steps 1, 6 and 7 in
+/// [`authorise_in_verified_state`]; this function is the two of them in
+/// sequence, for every caller that authorises one act at a time.
+/// [`list_designs_handler`](crate::design_api) and
+/// [`list_scopes_handler`](crate::design_api) call the two separately
+/// instead, once and many times, for the reason given on
+/// [`VerifiedAuthorityState`].
+///
+/// # Nothing is cached, and there is nowhere to put a verdict
+///
+/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
+/// read inside the call and recomputed from sealed rows. Two authorisations in
+/// one process, one second apart, do the same work — which is what makes
+/// tampering between them visible.
+pub async fn authorise_account(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    authorise_in_verified_state(tx, auth, &verified, scope, needed).await
 }
 
 #[cfg(test)]

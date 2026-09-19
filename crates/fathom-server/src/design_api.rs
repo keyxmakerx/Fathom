@@ -19,15 +19,37 @@
 //! either's internals; see [`DesignApiState`]'s own doc for exactly what it
 //! needs constructed and handed in.
 //!
-//! # One transaction for verification and authorisation, still
+//! # One transaction for verification, authorisation and the act itself
 //!
 //! `api.rs`'s `Signed` changed shape on 2026-09-14 (`0014`, finding 8) so that
 //! a per-request signature and the authorisation that follows it share one
 //! database snapshot rather than two. This module's own [`Signed`] is a
 //! second implementation of the same shape for a second state type — not a
-//! shortcut back to the old one. Every handler below opens exactly one
-//! transaction, calls [`Signed::verify`] in it, authorises in the same `tx`,
-//! and only commits after both have run.
+//! shortcut back to the old one.
+//!
+//! **This used to stop at authorisation, and that was the bug.**
+//! [`save_design_handler`], [`open_design_handler`] and
+//! [`verify_design_handler`] each opened exactly one transaction, called
+//! [`Signed::verify`] and authorised in it — then *committed*, and asked
+//! `designs.rs` to perform the write, the read or the verification in a
+//! **second**, entirely separate transaction, opened fresh off the pool. That
+//! second transaction re-opened a tenant context (membership only) but never
+//! asked `grants::authorise_account` anything at all, so a grant revoked in
+//! the gap between the two transactions changed nothing: the act still ran
+//! on the capability the first transaction had already forgotten about.
+//!
+//! Every handler that acts on a design now opens exactly one transaction,
+//! calls [`Signed::verify`] in it, and hands that same transaction and the
+//! [`Authority`] it built straight to [`designs::write_version_in_tx`],
+//! [`designs::read_version_in_tx`], [`designs::verify_design_in_tx`] or
+//! [`designs::create_design_with_first_version_in_tx`] — each of which
+//! re-checks the grant itself, immediately before doing anything to
+//! `design_payload` or `chain_entries`, in that same transaction. Only after
+//! the act has actually happened does the handler commit. A grant revoked
+//! after the check this module used to make and before the act designs.rs
+//! used to perform can no longer slip through, because there is no longer a
+//! gap between the two for it to slip through in — see `tests/design_api.rs`
+//! for the case this is written against.
 //!
 //! # Why a design the caller cannot see is absent, not forbidden
 //!
@@ -74,14 +96,48 @@
 //! envelope on the way back out would just be re-parsing cost for the
 //! browser, which already knows how to read the bytes it saved.
 //!
-//! # The body size limit is this module's own
+//! # The body size limit is this module's own -- and it is per route, not
+//! # per module
 //!
 //! `api::MAX_SIGNED_BODY` is one mebibyte, and its own doc says a design
 //! payload route raises the limit deliberately, in its own commit, with its
-//! own number. This module's [`Signed`] does exactly that: its cap is
-//! [`designs::MAX_PAYLOAD_BYTES`] plus the four-byte schema version prefix
-//! [`save_design_handler`] reads off the front of the body, not `api.rs`'s
-//! one mebibyte.
+//! own number. This module's [`Signed`] does exactly that, but **only for
+//! the two routes that can legitimately carry a large body**: a save and a
+//! create, matched on method and path alone by [`is_large_body_route`],
+//! before any header is trusted or any byte of the body is read. Every
+//! other route -- a list, an open, history, verify, the catalogue, and any
+//! `GET` -- reads at `api::MAX_SIGNED_BODY`'s one mebibyte, same as
+//! `api.rs`'s own routes.
+//!
+//! This was not always so: this module used to read every request at
+//! [`designs::MAX_PAYLOAD_BYTES`] plus four (64 MiB), unconditionally,
+//! *before* `begin_request` ever ran -- so a caller who never held a valid
+//! session, with headers of the right shape but invented values, could make
+//! this process buffer 64 MiB on a plain `GET`. `begin_request` is where the
+//! nonce is spent and the signature checked; nothing before it is a
+//! credential check. [`is_large_body_route`]'s own doc has the rest.
+//!
+//! **This narrows the surface; it does not close it.** The two routes
+//! `is_large_body_route` names are matched on method and path alone, with no
+//! reference to authority at all, so a caller who has never held a session
+//! -- headers of the right *shape*, values free to invent -- still makes
+//! this process buffer up to 64 MiB on `POST .../versions` or `POST
+//! .../scopes/{scope}/designs`, deliberately: the signature that would
+//! prove authority covers a digest of the whole body, so it cannot be
+//! checked before the body is read. N concurrent such requests are still N
+//! times 64 MiB of heap from callers this server has not authenticated. On
+//! `save_design_handler`/`create_design_handler` specifically, this is
+//! actually worse than "buffered": [`validate_payload`] parses the body into
+//! a full [`Graph`] and runs [`find_credential`] over it BEFORE
+//! `signed.verify` ever runs (its own doc gives the reason: a malformed
+//! request should cost nothing from the database either way), so an
+//! unauthenticated caller also spends this process's CPU on a full parse of
+//! up to 64 MiB, not only its heap. Recorded here rather than fixed because
+//! closing it needs either a
+//! session lookup ahead of the body read (a shape this crate does not have:
+//! `begin_request` currently runs after) or putting these two routes behind
+//! the source rate-limit bucket `api.rs` already keeps for sign-in --
+//! either is a bigger change than this one.
 //!
 //! # The catalogue sits behind a session, and nowhere else
 //!
@@ -113,10 +169,15 @@ use deadpool_postgres::Transaction;
 
 use fathom_canon::Json;
 use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
+use fathom_graph::Graph;
+use fathom_ir::generated::accessors::{capture, note};
+use fathom_ir::generated::ir_types::NodeKind;
 
 use crate::api;
+use crate::audit;
 use crate::authority::Capability;
 use crate::chain;
+use crate::crypto;
 use crate::designs::{self, DesignError};
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::KeyRing;
@@ -184,7 +245,11 @@ pub fn router(state: DesignApiState) -> Router {
         )
         .route(
             "/organisations/{organisation}/scopes",
-            get(list_scopes_handler),
+            get(list_scopes_handler).post(create_scope_handler),
+        )
+        .route(
+            "/organisations/{organisation}/scopes/{scope}/designs",
+            post(create_design_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}",
@@ -257,10 +322,51 @@ impl Signed {
     }
 }
 
-/// Design payloads run up to [`designs::MAX_PAYLOAD_BYTES`] (64 MiB);
-/// `api::MAX_SIGNED_BODY` (1 MiB) is for the session-establishment routes
-/// only. See the module doc's "body size limit" section.
+/// Design payloads run up to [`designs::MAX_PAYLOAD_BYTES`] (64 MiB); this
+/// is *not* the cap every route in this module reads at -- see
+/// [`is_large_body_route`] and the module doc's "body size limit" section.
 pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
+
+/// True for exactly the two `POST` routes a legitimate body may run to
+/// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`)
+/// and a create (`.../scopes/{scope}/designs`). Every other route this
+/// module serves -- `list_designs_handler`, `list_scopes_handler`,
+/// `create_scope_handler`, `open_design_handler`, `history_handler`,
+/// `verify_design_handler`, the catalogue routes, and any GET, which never
+/// carries a legitimate body at all -- reads at `api::MAX_SIGNED_BODY`
+/// (one mebibyte) instead.
+///
+/// This has to be decided from the method and path alone, before the body
+/// is read at all: the credential this body would belong to is not checked
+/// until `begin_request` runs, *after* the read below, because the
+/// signature covers a digest of the whole body and cannot be verified
+/// without it (see `api::MAX_SIGNED_BODY`'s own doc). Before this function
+/// existed, every route in this module read at the 64 MiB cap regardless,
+/// so a caller who never held a valid session -- headers of the right
+/// shape are free to invent -- could make this process buffer 64 MiB on a
+/// plain `GET /organisations/{o}/designs`, once per request, before
+/// `begin_request` ever ran. Matched on the path's shape only, never on the
+/// ids inside it: this decides how many bytes `to_bytes` may buffer, never
+/// anything about the request's authority.
+fn is_large_body_route(method: &str, path: &str) -> bool {
+    if method != "POST" {
+        return false;
+    }
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    matches!(
+        segments.as_slice(),
+        [
+            "organisations",
+            _organisation,
+            "designs",
+            _design,
+            "versions"
+        ]
+    ) || matches!(
+        segments.as_slice(),
+        ["organisations", _organisation, "scopes", _scope, "designs"]
+    )
+}
 
 impl FromRequest<DesignApiState> for Signed {
     type Rejection = RouteError;
@@ -272,6 +378,7 @@ impl FromRequest<DesignApiState> for Signed {
         let (parts, body) = request.into_parts();
         let method = parts.method.as_str().to_string();
         let query = parts.uri.query().map(|q| q.to_string());
+        let route_path = parts.uri.path().to_string();
         let path = parts
             .uri
             .path_and_query()
@@ -298,7 +405,16 @@ impl FromRequest<DesignApiState> for Signed {
             .try_into()
             .map_err(|_| unsigned())?;
 
-        let body = axum::body::to_bytes(body, MAX_SIGNED_BODY)
+        // The finding this fixes: read at the small cap unless the method
+        // and path alone -- known before any of the header bytes above are
+        // trusted -- name one of the two routes a real payload can be large
+        // on. See [`is_large_body_route`].
+        let cap = if is_large_body_route(&method, &route_path) {
+            MAX_SIGNED_BODY
+        } else {
+            api::MAX_SIGNED_BODY
+        };
+        let body = axum::body::to_bytes(body, cap)
             .await
             .map_err(|_| SessionError::Malformed("request body"))?;
 
@@ -457,12 +573,72 @@ fn design_error_response(e: DesignError) -> Response {
             ),
         )
             .into_response(),
+        // ADR-0054 #1: the save precondition. The header names the version
+        // this design is actually on now, so a client that wants to reload
+        // and reapply does not have to make a second round trip to learn it.
+        DesignError::VersionConflict { base, current } => {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "fathom-design-version",
+                current
+                    .to_string()
+                    .parse()
+                    .expect("a decimal integer is a valid header value"),
+            );
+            (
+                StatusCode::CONFLICT,
+                headers,
+                format!(
+                    "you opened version {base}; it is now version {current}, someone saved in \
+                     between. Reload to see their change; yours is still on your screen and was \
+                     not written.\n"
+                ),
+            )
+                .into_response()
+        }
+        // This session's brief, item 4: the client gates before sending, so a
+        // hit here means an old or hostile client, not a real capture or
+        // note -- refused before the write, never stored.
+        DesignError::CredentialInPayload { kind, line } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "that payload's {kind} text still carries something that looks like a \
+                 credential, at line {line}; refused before it reaches storage. The client \
+                 redacts before sending, so this usually means an old or hostile client.\n"
+            ),
+        )
+            .into_response(),
+        // ADR-0054 #5: the re-check immediately before the act. Answered
+        // exactly as `api::Refusal` answers the same `AuthorityError`
+        // elsewhere in this crate -- see that mapping's own comment for why
+        // `NotAuthorised`/`QuorumNotMet` are a permission answer and
+        // everything else here is an integrity alarm.
+        DesignError::Authority(inner) => authority_refusal_response(inner),
         DesignError::Pool(_)
         | DesignError::Db(_)
         | DesignError::Repo(_)
         | DesignError::Keys(_)
         | DesignError::Crypto(_) => {
             tracing::error!(reason = %e, "design operation failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
+        }
+    }
+}
+
+/// [`DesignError::Authority`]'s mapping -- the same status and sentence
+/// `api::Refusal` gives `SessionError::Authority(_)`, kept as its own
+/// function because that impl matches on an owned `SessionError` and this
+/// site only ever holds a borrowed `AuthorityError` (`design_error_response`
+/// matches `&e`, and `AuthorityError` carries a `tokio_postgres::Error` that
+/// is not `Clone`, so there is no owned value to hand the other mapping).
+fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
+    match e {
+        grants::AuthorityError::NotAuthorised | grants::AuthorityError::QuorumNotMet { .. } => {
+            tracing::info!(reason = %e, "not authorised");
+            (StatusCode::FORBIDDEN, "not authorised\n").into_response()
+        }
+        _ => {
+            tracing::error!(reason = %e, "integrity check failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
         }
     }
@@ -537,6 +713,11 @@ fn parse_organisation(text: &str) -> Result<OrganisationId, SessionError> {
 fn parse_design(text: &str) -> Result<DesignId, SessionError> {
     text.parse()
         .map_err(|_| SessionError::Malformed("design id"))
+}
+
+fn parse_scope(text: &str) -> Result<ScopeId, SessionError> {
+    text.parse()
+        .map_err(|_| SessionError::Malformed("scope id"))
 }
 
 // ---------------------------------------------------------------------------
@@ -637,6 +818,13 @@ async fn list_designs_handler(
         watch: &state.watch,
     };
 
+    // §3.4 steps 2-5, once for this whole list, not once per row: see
+    // `grants::VerifiedAuthorityState`'s doc. Each row below only runs step
+    // 1's ancestors and step 6's candidate match against this one snapshot.
+    let verified = grants::verify_authority_state(&tx, &auth)
+        .await
+        .map_err(SessionError::Authority)?;
+
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, extract(epoch FROM d.created_at)::bigint, d.created_by, \
@@ -664,7 +852,14 @@ async fn list_designs_handler(
             .parse()
             .map_err(|_| SessionError::Corrupt("design scope id"))?;
 
-        let answer = grants::authorise_account(&tx, &auth, Some(scope), Capability::Read).await;
+        let answer = grants::authorise_in_verified_state(
+            &tx,
+            &auth,
+            &verified,
+            Some(scope),
+            Capability::Read,
+        )
+        .await;
         let capability = match answer {
             Ok(c) => c.capability,
             Err(grants::AuthorityError::NotAuthorised)
@@ -746,6 +941,13 @@ async fn list_scopes_handler(
         watch: &state.watch,
     };
 
+    // §3.4 steps 2-5, once for this whole list, not once per row: see
+    // `grants::VerifiedAuthorityState`'s doc, and
+    // `list_designs_handler`'s identical comment above.
+    let verified = grants::verify_authority_state(&tx, &auth)
+        .await
+        .map_err(SessionError::Authority)?;
+
     let rows = tx
         .query(
             "SELECT id, parent_scope_id, kind, display_name, path, depth \
@@ -771,7 +973,14 @@ async fn list_scopes_handler(
             .map_err(|_| SessionError::Corrupt("scope id"))?;
         let kind = repo::ScopeKind::parse(&kind_text).ok_or(SessionError::Corrupt("scope kind"))?;
 
-        let answer = grants::authorise_account(&tx, &auth, Some(scope), Capability::Read).await;
+        let answer = grants::authorise_in_verified_state(
+            &tx,
+            &auth,
+            &verified,
+            Some(scope),
+            Capability::Read,
+        )
+        .await;
         let capability = match answer {
             Ok(c) => c.capability,
             Err(grants::AuthorityError::NotAuthorised)
@@ -803,6 +1012,218 @@ async fn list_scopes_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
+/// `POST /organisations/{organisation}/scopes` — ADR-0054 #3 /
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.4: **a steward of the parent
+/// creates a scope.** The body is two length-prefixed fields, `crypto::lp`'s
+/// own framing (the shape `api.rs`'s session routes already use for a
+/// request with more than one field): the parent scope id, empty for a new
+/// root network, then the display name.
+///
+/// The child's *kind* is not on the wire at all -- it is the one kind that
+/// fits directly under the named parent (network under nothing, building
+/// under a network, rack under a building; [`child_kind_under`]), because the
+/// scope hierarchy is exactly three fixed levels deep and a client asking to
+/// create "the next thing under this scope" has nothing else it could mean.
+///
+/// Authorises `steward` on the parent (organisation-wide, `None`, for a new
+/// root network -- §6.4's "stewardship inherits down the path, so no new
+/// signature") and only then inserts, in the one transaction that
+/// authorised it (ADR-0054 #5): a drawer, or a steward of some other
+/// subtree, is refused with the same `403` a missing or foreign parent scope
+/// gets, because `grants::authorise_account` cannot tell the two apart any
+/// more here than it can anywhere else in this module (module doc, "absent,
+/// not forbidden").
+///
+/// Answers with the shape [`list_scopes_handler`]'s own rows have.
+async fn create_scope_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+
+    let (parent_bytes, rest) =
+        crypto::read_lp(&signed.body).ok_or(SessionError::Malformed("request body"))?;
+    let (label_bytes, _) = crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
+    let parent: Option<ScopeId> = if parent_bytes.is_empty() {
+        None
+    } else {
+        Some(
+            core::str::from_utf8(parent_bytes)
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .ok_or(SessionError::Malformed("parent scope id"))?,
+        )
+    };
+    let label = core::str::from_utf8(label_bytes)
+        .map_err(|_| SessionError::Malformed("scope label"))?
+        .to_string();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let session = signed.verify(&state, &tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = grants::authorise_account(&tx, &auth, parent, Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+
+    let parent_kind = match parent {
+        None => None,
+        Some(p) => {
+            let row = tx
+                .query_opt(
+                    "SELECT kind FROM scopes WHERE id = $1 AND organisation_id = $2",
+                    &[&p.to_string(), &ctx.tenant().to_string()],
+                )
+                .await
+                .map_err(SessionError::Db)?
+                .ok_or(DesignError::NoSuchScope)?;
+            let kind_text: String = row.get(0);
+            Some(repo::ScopeKind::parse(&kind_text).ok_or(SessionError::Corrupt("scope kind"))?)
+        }
+    };
+    let kind = child_kind_under(parent_kind)
+        .ok_or(SessionError::Malformed("a rack may not contain a scope"))?;
+
+    let scope = repo::create_scope_in_tx(&tx, tenant, parent, kind, &label)
+        .await
+        .map_err(SessionError::from)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("scope_id".to_string(), Json::Str(scope.id.to_string()));
+    map.insert(
+        "parent_scope_id".to_string(),
+        match scope.parent_scope_id {
+            Some(p) => Json::Str(p.to_string()),
+            None => Json::Null,
+        },
+    );
+    map.insert(
+        "kind".to_string(),
+        Json::Str(scope.kind.as_str().to_string()),
+    );
+    map.insert(
+        "display_name".to_string(),
+        Json::Str(scope.display_name.clone()),
+    );
+    map.insert("depth".to_string(), Json::Int(scope.depth as i64));
+    map.insert("path".to_string(), Json::Str(scope.path.clone()));
+    map.insert(
+        "capability".to_string(),
+        Json::Str(answer.capability.as_str().to_string()),
+    );
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// The one scope kind that fits directly under a parent of kind
+/// `parent_kind` — see [`create_scope_handler`]'s own doc. `None` for `Rack`,
+/// which has no child kind at all: the hierarchy is exactly three levels
+/// deep (`repo::ScopeKind`'s own doc).
+fn child_kind_under(parent_kind: Option<repo::ScopeKind>) -> Option<repo::ScopeKind> {
+    match parent_kind {
+        None => Some(repo::ScopeKind::Network),
+        Some(repo::ScopeKind::Network) => Some(repo::ScopeKind::Building),
+        Some(repo::ScopeKind::Building) => Some(repo::ScopeKind::Rack),
+        Some(repo::ScopeKind::Rack) => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Create a design
+// ---------------------------------------------------------------------------
+
+/// `POST /organisations/{organisation}/scopes/{scope}/designs` — ADR-0054 #2:
+/// **draw creates a design.** The body carries a save's own framing
+/// (`u32_le(payload_schema_version) ‖ payload_bytes`), validated by
+/// [`validate_payload`] -- the same function [`save_design_handler`] uses, so
+/// the two cannot drift apart on what counts as a valid payload -- carrying
+/// the client's empty document (`client/src/document/model.ts`'s
+/// `emptyDocument`, written through `fathom_workspace::write_plain`).
+///
+/// Authorises `draw` on `scope` (or an ancestor) and creates the design and
+/// its first version in the one transaction that authorised it
+/// (ADR-0054 #5), through [`designs::create_design_with_first_version_in_tx`]
+/// -- a bodiless design (a row in `designs` with no version behind it) is
+/// never minted, because the two inserts share this transaction and neither
+/// commits without the other.
+///
+/// A reader is refused with `403`; a foreign or missing scope answers
+/// identically, for the reason the module doc's "absent, not forbidden"
+/// section gives for a design named directly. A payload that would push the
+/// audit spool beyond its bound is refused `503`, with no design row left
+/// behind either.
+///
+/// Answers with the shape [`list_designs_handler`]'s own rows have.
+async fn create_design_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+
+    let (schema_version, payload) = validate_payload(&signed.body)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let session = signed.verify(&state, &tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+
+    let (design_id, version, created_at_unix, capability) =
+        designs::create_design_with_first_version_in_tx(
+            &tx,
+            &auth,
+            scope_id,
+            payload,
+            schema_version as i32,
+            &audit::SpoolBounds::from_env(),
+        )
+        .await?;
+
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("design_id".to_string(), Json::Str(design_id.to_string()));
+    map.insert("scope_id".to_string(), Json::Str(scope_id.to_string()));
+    map.insert("created_at_unix".to_string(), Json::Int(created_at_unix));
+    map.insert("created_by".to_string(), Json::Str(ctx.actor().to_string()));
+    map.insert(
+        "capability".to_string(),
+        Json::Str(capability.as_str().to_string()),
+    );
+    map.insert("latest_version".to_string(), Json::Int(version));
+    Ok(json_response(Json::Obj(map)))
+}
+
 // ---------------------------------------------------------------------------
 // Open
 // ---------------------------------------------------------------------------
@@ -810,6 +1231,11 @@ async fn list_scopes_handler(
 /// `GET /organisations/{organisation}/designs/{design}[?version=N]` — the
 /// decrypted payload, verbatim, plus its version numbers in headers. Requires
 /// at least `read`.
+///
+/// ADR-0054 #5: opens exactly one transaction, and reads the version inside
+/// it -- see [`save_design_handler`]'s own comment on why the capability
+/// check now lives inside [`designs::read_version_in_tx`] rather than in a
+/// separate call this handler makes and commits before it.
 async fn open_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -833,19 +1259,20 @@ async fn open_design_handler(
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
     let session = signed.verify(&state, &tx).await?;
-    let ctx =
-        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
-    tx.commit().await.map_err(SessionError::Db)?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
 
-    let stored = designs::read_version(
-        state.sessions.pool(),
-        &state.ring,
-        tenant,
-        ctx.actor(),
-        design_id,
-        version,
-    )
-    .await?;
+    let stored = designs::read_version_in_tx(&tx, &auth, design_id, scope, version).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -877,20 +1304,100 @@ async fn open_design_handler(
 // Save
 // ---------------------------------------------------------------------------
 
-/// `POST /organisations/{organisation}/designs/{design}/versions` — a new
-/// version. Requires `draw`; a `read`-only caller is refused, and the refusal
-/// does not distinguish a design that exists from one that does not (module
-/// doc).
+/// `POST /organisations/{organisation}/designs/{design}/versions?base=N` — a
+/// new version. Requires `draw`; a `read`-only caller is refused, and the
+/// refusal does not distinguish a design that exists from one that does not
+/// (module doc).
+///
+/// # ADR-0054 #1: a save names the version it was based on
+///
+/// `base` is REQUIRED, in the signed query -- an optional precondition is no
+/// precondition (the ADR's own words). Missing or not a plain integer is a
+/// `400`, before the session is even verified: like every check
+/// [`validate_payload`] already runs, a malformed request costs nothing from
+/// the database either way. A present, well-formed `base` that simply
+/// disagrees with the design's current version is a different thing
+/// entirely -- not malformed, refused -- and is [`designs::write_version_in_tx`]'s
+/// job, under the row lock that also decides the next version number, so the
+/// two can never disagree with each other.
 ///
 /// Body: `u32_le(payload_schema_version) ‖ payload_bytes` — the schema
 /// version fixed at four bytes because everything after it is the payload
 /// verbatim, and a length-prefixed field here would mean copying up to 64 MiB
-/// twice for no reason.
+/// twice for no reason. See [`validate_payload`] for everything checked
+/// about it before this handler ever opens a transaction.
+async fn save_design_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+
+    let (schema_version, payload) = validate_payload(&signed.body)?;
+
+    // ADR-0054 #1: required, and a signed query parameter -- an optional
+    // precondition is no precondition.
+    let base: i64 = signed
+        .query_param("base")
+        .ok_or(SessionError::Malformed("base"))?
+        .parse()
+        .map_err(|_| SessionError::Malformed("base"))?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let session = signed.verify(&state, &tx).await?;
+
+    // ADR-0054 #5: one transaction. `ctx`, `tenant_key` and `scope` below are
+    // exactly what `authorise_on_design` used to compute and check itself in
+    // this same transaction before committing it -- the capability check
+    // itself now lives in `write_version_in_tx`, immediately before the
+    // write it gates, rather than here, a step earlier, with a chance for
+    // something to change in between (see the module doc's "one
+    // transaction" section for what that chance used to cost).
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+
+    let version = designs::write_version_in_tx(
+        &tx,
+        &auth,
+        design_id,
+        scope,
+        payload,
+        schema_version as i32,
+        base,
+        &audit::SpoolBounds::from_env(),
+    )
+    .await?;
+
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    Ok((StatusCode::OK, format!("{version}\n")).into_response())
+}
+
+/// Everything ADR-0049 and this session's brief require of a wire payload
+/// before it is written, whether by a save or by a scope's design-creation
+/// route (both call this, so the two cannot drift apart on what counts as a
+/// valid payload).
 ///
 /// # The server reads every payload back before storing it (ADR-0049 #2)
 ///
 /// `payload` is parsed with [`fathom_workspace::read_plain`] before anything
-/// else here touches the database. A design payload is a `fathom-plain 1`
+/// else touches the database. A design payload is a `fathom-plain 1`
 /// document by decision, not by convention (ADR-0049 #1) — the one graph
 /// format the Rust engine reads — so bytes the engine itself cannot read
 /// back are refused at the door rather than stored opaque, unreadable to
@@ -909,24 +1416,46 @@ async fn open_design_handler(
 /// string `"0.N"`; no major bump has happened yet) anywhere in this tree, so
 /// [`schema_version_as_u32`] is the one place that defines the wire number:
 /// strip the fixed `"0."` and parse the remainder as the minor number.
-async fn save_design_handler(
-    State(state): State<DesignApiState>,
-    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
-    signed: Signed,
-) -> Result<Response, RouteError> {
-    let tenant = parse_organisation(&organisation)?;
-    let design_id = parse_design(&design)?;
-
+///
+/// # The payload's own text fields, checked once more, at the door
+///
+/// This session's brief, item 4: the redaction gate runs client-side before a
+/// capture or a pasted note ever reaches this server (`fathom-ingest`,
+/// compiled for the browser — CLAUDE.md rule 3), so every `Capture.text` and
+/// `Note.text` this handler sees ought to have already had a credential shape
+/// destroyed at the gate. "Ought to have" is not "did": a hit here means an
+/// old client that predates the gate, or a hostile one that skipped it, never
+/// a real capture — and either way the write is refused, naming which field
+/// kind and which line, before anything is stored. [`find_credential`] calls
+/// `fathom_ingest::redact::looks_like_credential_bare` for `Capture.text`,
+/// never a second, hand-tuned detector: it is `looks_like_credential` (the
+/// gate's own safety-net predicate) plus that crate's own
+/// `raw_walk`/`gate_unshaped` bare-adjacency rule, both already used by the
+/// ingest gate itself, restated only because this caller has no lexed token
+/// list to hand it (see that function's doc). Plain `looks_like_credential`
+/// alone requires a `:`/`=` beside a secret word and so misses most real
+/// device output, which overwhelmingly writes `keyword <secret>` with a bare
+/// space — CLAUDE.md rule 2 names exactly this failure mode, and
+/// `fathom-ingest`'s own unit tests pin the space-separated Cisco/Junos
+/// forms this must catch. `Note.text` stays on plain `looks_like_credential`
+/// — [`find_credential`]'s own doc says why (ADR-0053 §5: a note may be
+/// hand-typed prose, not only pasted device output, and bare adjacency's own
+/// unit test shows it flags an ordinary sentence like "replaced the key
+/// switch"). Both halves are still a hint over unstructured text, not the
+/// dictionary-driven bound-statement path, so a keyword the crate's static
+/// list does not carry (SNMPv3's `auth`/`priv`) is not caught in either — a
+/// residual gap, not claimed closed.
+fn validate_payload(body: &[u8]) -> Result<(u32, &[u8]), RouteError> {
     let (schema_version, payload) =
-        read_u32_le(&signed.body).ok_or(SessionError::Malformed("design payload body"))?;
+        read_u32_le(body).ok_or(SessionError::Malformed("design payload body"))?;
 
     // ADR-0049 #2: refuse anything the engine cannot read, before the
-    // session is verified or the database is touched. `let _ =`, not a bound
-    // name: `fathom_graph::Graph` boxes field values as `dyn Any` with no
-    // `Send` bound, so a `Graph` kept alive across the `.await`s below would
-    // make this handler's future itself not `Send` -- the wildcard pattern
-    // drops it immediately, right here, well before any of them.
-    let _ = fathom_workspace::read_plain(payload).map_err(DesignError::InvalidPlainPayload)?;
+    // session is verified or the database is touched. This function is not
+    // `async`, so the `Graph` below -- `fathom_graph::Graph` boxes field
+    // values as `dyn Any` with no `Send` bound -- is built and fully scanned
+    // for a credential shape, then dropped, before this function ever
+    // returns; nothing here crosses an `.await` boundary.
+    let graph = fathom_workspace::read_plain(payload).map_err(DesignError::InvalidPlainPayload)?;
 
     // ADR-0049 #4: the wire prefix and the payload's own declared schema
     // version must agree. `read_plain` above already proved line 3 is a
@@ -941,30 +1470,66 @@ async fn save_design_handler(
         .into());
     }
 
-    let mut client = state
-        .sessions
-        .pool()
-        .get()
-        .await
-        .map_err(SessionError::Pool)?;
-    let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
-    let ctx =
-        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Draw).await?;
-    tx.commit().await.map_err(SessionError::Db)?;
+    if let Some((kind, line)) = find_credential(&graph) {
+        return Err(DesignError::CredentialInPayload { kind, line }.into());
+    }
 
-    let version = designs::write_version(
-        state.sessions.pool(),
-        &state.ring,
-        tenant,
-        ctx.actor(),
-        design_id,
-        payload,
-        schema_version as i32,
-    )
-    .await?;
+    Ok((schema_version, payload))
+}
 
-    Ok((StatusCode::OK, format!("{version}\n")).into_response())
+/// This session's brief, item 4: every `Capture.text` and `Note.text` in the
+/// plain face, line by line -- so the refusal can name which one, rather than
+/// only that the payload as a whole was refused. `Some((kind, line))` on the
+/// first hit, in node order within a kind and line order within a node;
+/// `None` when nothing in either kind trips the gate's own sketch predicate.
+fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
+    // `Capture` is never hand-typed (its doc: "what the redaction gate let
+    // through" -- its node id is the weld's own `CaptureId`, minted only by
+    // a parse), so it is always pasted device output and the bare-adjacency
+    // check is the right aggression for it. `Note.text` is the one field
+    // ADR-0053 §5's own schema doc says may be EITHER pasted (through the
+    // same gate) OR hand-typed prose ("Fathom does not redact what you
+    // type, only what you paste"), and this handler has no way from the
+    // plain-face payload alone to tell which one a given `Note` is -- so it
+    // stays on the delimiter-only check, which is prose-safe by
+    // construction, rather than risk refusing a real, hand-typed sentence
+    // like "replaced the key switch" (`looks_like_credential_bare`'s own
+    // unit test on that exact sentence). A credential a hostile client
+    // typed into a `Note` with no delimiter is the residual this leaves.
+    for node in graph.nodes_of_kind(NodeKind::Capture) {
+        if let Ok(text) = capture::text(node) {
+            if let Some(line) = credential_line(&text.0, true) {
+                return Some(("Capture", line));
+            }
+        }
+    }
+    for node in graph.nodes_of_kind(NodeKind::Note) {
+        if let Ok(text) = note::text(node) {
+            if let Some(line) = credential_line(&text.0, false) {
+                return Some(("Note", line));
+            }
+        }
+    }
+    None
+}
+
+/// The 1-based line within one field's text that first looks like a
+/// credential, run per line rather than over the whole field: a multi-line
+/// `Capture.text` is a whole configuration file, and naming the line is what
+/// this session's brief asks for. `bare` selects
+/// `looks_like_credential_bare` over plain `looks_like_credential` -- see
+/// [`find_credential`]'s doc for which caller passes which and why.
+fn credential_line(text: &str, bare: bool) -> Option<usize> {
+    text.lines()
+        .enumerate()
+        .find(|(_, line)| {
+            if bare {
+                fathom_ingest::redact::looks_like_credential_bare(line)
+            } else {
+                fathom_ingest::redact::looks_like_credential(line)
+            }
+        })
+        .map(|(idx, _)| idx + 1)
 }
 
 fn read_u32_le(bytes: &[u8]) -> Option<(u32, &[u8])> {
@@ -1093,7 +1658,8 @@ async fn history_handler(
 
 /// `GET /organisations/{organisation}/designs/{design}/verify[?deep=true]` —
 /// storage design §11.2's three outcomes, by name: `verified`, `broken_at`,
-/// `cannot_verify_under_key_epoch`. Requires at least `read`.
+/// `cannot_verify_under_key_epoch`. Requires at least `read`. ADR-0054 #5:
+/// one transaction, see [`open_design_handler`]'s own comment.
 async fn verify_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1111,19 +1677,20 @@ async fn verify_design_handler(
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
     let session = signed.verify(&state, &tx).await?;
-    let ctx =
-        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
-    tx.commit().await.map_err(SessionError::Db)?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
 
-    let report = designs::verify_design(
-        state.sessions.pool(),
-        &state.ring,
-        tenant,
-        ctx.actor(),
-        design_id,
-        deep,
-    )
-    .await?;
+    let report = designs::verify_design_in_tx(&tx, &auth, design_id, scope, deep).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
 
     Ok(json_response(json_of_report(&report)))
 }

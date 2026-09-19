@@ -453,6 +453,7 @@ dependencies = [
  "fathom-corpus",
  "fathom-graph",
  "fathom-id",
+ "fathom-ingest",
  "fathom-ir",
  "fathom-schema",
  "fathom-workspace",

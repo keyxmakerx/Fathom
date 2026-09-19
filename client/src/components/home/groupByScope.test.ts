@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { DesignSummary } from '../../api/designs';
 import type { Scope } from '../../api/scopes';
-import { groupDesignsByScope } from './groupByScope';
+import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 
 const IDF_2: Scope = {
   scopeId: 'scope-idf-2',
@@ -59,5 +59,29 @@ describe('groupDesignsByScope', () => {
 
   it('returns empty groups and elsewhere for no designs', () => {
     expect(groupDesignsByScope([], [IDF_2])).toEqual({ groups: [], elsewhere: [] });
+  });
+});
+
+describe('scopesWithNoDesigns', () => {
+  it('returns every scope no design names', () => {
+    const designs = [design('d1', 'scope-idf-2')];
+    expect(scopesWithNoDesigns([IDF_2, IDF_1], designs)).toEqual([IDF_1]);
+  });
+
+  it('returns all scopes when there are no designs at all — the empty-organisation case', () => {
+    expect(scopesWithNoDesigns([IDF_2, IDF_1], [])).toEqual([IDF_2, IDF_1]);
+  });
+
+  it('returns none when every scope already has a design', () => {
+    const designs = [design('d1', 'scope-idf-2'), design('d2', 'scope-idf-1')];
+    expect(scopesWithNoDesigns([IDF_2, IDF_1], designs)).toEqual([]);
+  });
+
+  it('preserves the caller-supplied scope order', () => {
+    expect(scopesWithNoDesigns([IDF_1, IDF_2], [])).toEqual([IDF_1, IDF_2]);
+  });
+
+  it('returns an empty list for an empty scope list', () => {
+    expect(scopesWithNoDesigns([], [])).toEqual([]);
   });
 });

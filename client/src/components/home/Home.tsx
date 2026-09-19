@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 
 import { signOut } from '../../api/auth';
-import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from '../../api/designs';
+import { createDesign, fetchDesigns, sortDesignsByRecency, type DesignSummary } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
-import { fetchScopes, type Scope } from '../../api/scopes';
+import { createScope, fetchScopes, type Scope } from '../../api/scopes';
+import { emptyDocument } from '../../document/model';
+import { writePlain } from '../../document/plain';
+import { canDrawFor } from '../design/useDesignSession';
+import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
-import { groupDesignsByScope } from './groupByScope';
+import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 import './home.css';
 
 export interface HomeProps {
@@ -54,6 +58,24 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
   const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
   const [landed, setLanded] = useState(false);
+
+  // "New design" (ADR-0054 §2, draw creates a design): which scope's button
+  // is mid-request, and the last refusal, if any. Never more than one
+  // in-flight scope at a time — the button that started it disables itself
+  // (`busyScopeId === scope.scopeId`), so a second click cannot fire a
+  // second create for the one this screen is already waiting on.
+  const [newDesignBusyScopeId, setNewDesignBusyScopeId] = useState<string | null>(null);
+  const [newDesignError, setNewDesignError] = useState<string | null>(null);
+
+  // "New scope" (ADR-0054 §3): the one open form, naming the parent it will
+  // create a child under (`null` — "of the organisation" — when Home opened
+  // it from the section header rather than a scope heading), and that
+  // form's own label input and refusal. One form at a time, closed on
+  // success or cancel.
+  const [scopeFormParent, setScopeFormParent] = useState<{ id: string | null; label: string } | null>(null);
+  const [scopeLabelInput, setScopeLabelInput] = useState('');
+  const [scopeFormBusy, setScopeFormBusy] = useState(false);
+  const [scopeFormError, setScopeFormError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +168,69 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
       ? organisations.value.find((org) => org.organisationId === selectedOrgId) ?? null
       : null;
 
+  /**
+   * ADR-0054 §2: creates the design, then opens it in Racks the moment the
+   * create answers — there is nothing on Home worth staying to look at, the
+   * new design has no name yet (D11), and Racks is where a fresh document is
+   * drawn into. A refusal leaves Home exactly where it was, the button live
+   * again, the reason in `newDesignError`.
+   */
+  function handleCreateDesign(organisation: Organisation, scope: Scope) {
+    setNewDesignError(null);
+    setNewDesignBusyScopeId(scope.scopeId);
+    createDesign(organisation.organisationId, scope.scopeId, writePlain(emptyDocument()))
+      .then((design) => {
+        onOpenRacks(organisation, design);
+      })
+      .catch((error: unknown) => {
+        setNewDesignError(describeError(error));
+        setNewDesignBusyScopeId(null);
+      });
+  }
+
+  function openScopeForm(parentId: string | null, parentLabel: string) {
+    setScopeFormParent({ id: parentId, label: parentLabel });
+    setScopeLabelInput('');
+    setScopeFormError(null);
+  }
+
+  function closeScopeForm() {
+    setScopeFormParent(null);
+    setScopeLabelInput('');
+    setScopeFormError(null);
+  }
+
+  /**
+   * ADR-0054 §3. On success the new scope is appended to the loaded list
+   * in place — no refetch — so its heading (with "New design" already live
+   * on it, `canDrawFor` fails open for a capability this client has never
+   * seen) appears immediately without a round trip nobody asked for.
+   */
+  function submitScopeForm() {
+    if (scopeFormParent === null || selectedOrgId === null) {
+      return;
+    }
+    const label = scopeLabelInput.trim();
+    if (label.length === 0) {
+      setScopeFormError('A scope needs a label.');
+      return;
+    }
+    setScopeFormBusy(true);
+    setScopeFormError(null);
+    createScope(selectedOrgId, scopeFormParent.id, label)
+      .then((scope) => {
+        setScopes((current) =>
+          current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current,
+        );
+        setScopeFormBusy(false);
+        closeScopeForm();
+      })
+      .catch((error: unknown) => {
+        setScopeFormError(describeError(error));
+        setScopeFormBusy(false);
+      });
+  }
+
   return (
     <div className="home">
       <aside className="home__rail">
@@ -180,7 +265,25 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
 
         <section className="home__section">
-          <div className="home__label">Designs you may open</div>
+          <div className="home__section-head">
+            <div className="home__label">Designs you may open</div>
+            {/* ADR-0054 §3, "or of the organisation": the one scope-creation
+                action that names no existing scope as its parent. Shown
+                whenever an organisation is open — this screen has no
+                capability to check it against, since there is no scope yet
+                to hold one — and left to the server's own refusal,
+                `describeError`, when the account is not in fact a steward
+                of the organisation. */}
+            {selectedOrganisation && (
+              <button
+                type="button"
+                className="home__btn home__btn--small"
+                onClick={() => openScopeForm(null, selectedOrganisation.displayName)}
+              >
+                New scope
+              </button>
+            )}
+          </div>
           {selectedOrgId === null && <p className="home__muted">No organisation selected.</p>}
           {selectedOrgId !== null && (designs.status === 'loading' || scopes.status === 'loading') && (
             <p className="home__muted">Loading…</p>
@@ -189,16 +292,30 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
           {designs.status !== 'error' && scopes.status === 'error' && (
             <p className="home__error">{scopes.message}</p>
           )}
-          {designs.status === 'ready' && designs.value.length === 0 && (
-            <p className="home__muted">No designs in this organisation yet.</p>
+          {newDesignError && <p className="home__error">{newDesignError}</p>}
+
+          {scopeFormParent && (
+            <ScopeForm
+              parentLabel={scopeFormParent.label}
+              value={scopeLabelInput}
+              onChange={setScopeLabelInput}
+              onSubmit={submitScopeForm}
+              onCancel={closeScopeForm}
+              busy={scopeFormBusy}
+              error={scopeFormError}
+            />
           )}
-          {designs.status === 'ready' && scopes.status === 'ready' && designs.value.length > 0 && selectedOrganisation && (
-            <ScopedDesignList
+
+          {designs.status === 'ready' && scopes.status === 'ready' && selectedOrganisation && (
+            <HomeDesigns
               designs={sortDesignsByRecency(designs.value)}
               scopes={scopes.value}
               organisation={selectedOrganisation}
               onOpenRacks={onOpenRacks}
               onOpenInventory={onOpenInventory}
+              onCreateDesign={handleCreateDesign}
+              onCreateScope={openScopeForm}
+              busyScopeId={newDesignBusyScopeId}
             />
           )}
         </section>
@@ -215,37 +332,53 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   );
 }
 
-interface ScopedDesignListProps {
+interface HomeDesignsProps {
   designs: DesignSummary[];
   scopes: Scope[];
   organisation: Organisation;
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
+  /** ADR-0054 §2 — creates a design in `scope` and opens it. */
+  onCreateDesign: (organisation: Organisation, scope: Scope) => void;
+  /** ADR-0054 §3 — opens the new-scope form with `scope` as the parent. */
+  onCreateScope: (parentId: string, parentLabel: string) => void;
+  /** The scope whose "New design" button is mid-request, or `null`. */
+  busyScopeId: string | null;
 }
 
 /**
- * The board grouped by closet (D11: a design's scope is its name). One
- * block per scope that has at least one open-able design — the scope's own
- * `display_name` as the block's name, its `kind` as a small label beside
- * it, and a design count that is always read off `designs.length`, never
- * typed. A design whose scope did not come back from `/scopes` (the
- * caller may open it but may not read its closet) is listed last, under
- * "Elsewhere" — an honest heading, not an invented closet.
+ * Everything Home shows about designs and where to start one, replacing the
+ * old `ScopedDesignList`: the board grouped by closet (D11) when there is at
+ * least one design, PLUS — this task's own brief — a list of every scope the
+ * account may draw in that has none yet, so an organisation with zero
+ * designs is never left with nothing to press. `scopesWithNoDesigns` is
+ * itself capability-blind; the `canDrawFor` filter here is what actually
+ * decides which of them get a "Start a design" row.
  */
-function ScopedDesignList({ designs, scopes, organisation, onOpenRacks, onOpenInventory }: ScopedDesignListProps) {
+function HomeDesigns({
+  designs,
+  scopes,
+  organisation,
+  onOpenRacks,
+  onOpenInventory,
+  onCreateDesign,
+  onCreateScope,
+  busyScopeId,
+}: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
+  const startable = scopesWithNoDesigns(scopes, designs).filter((scope) => canDrawFor(scope.capability));
 
   return (
     <div className="home__scope-groups">
       {groups.map(({ scope, designs: scopeDesigns }) => (
         <div className="home__scope-group" key={scope.scopeId}>
-          <div className="home__scope-heading">
-            <span className="home__scope-name">{scope.displayName}</span>
-            <span className="home__scope-kind">{scope.kind}</span>
-            <span className="home__scope-count">
-              {scopeDesigns.length} design{scopeDesigns.length === 1 ? '' : 's'}
-            </span>
-          </div>
+          <ScopeHeading
+            scope={scope}
+            designCount={scopeDesigns.length}
+            busy={busyScopeId === scope.scopeId}
+            onCreateDesign={() => onCreateDesign(organisation, scope)}
+            onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName)}
+          />
           <ul className="home__design-list">
             {scopeDesigns.map((design) => (
               <DesignRow
@@ -281,7 +414,118 @@ function ScopedDesignList({ designs, scopes, organisation, onOpenRacks, onOpenIn
           </ul>
         </div>
       )}
+
+      {groups.length === 0 && elsewhere.length === 0 && (
+        <p className="home__muted">No designs in this organisation yet.</p>
+      )}
+
+      {startable.length > 0 && (
+        <div className="home__scope-group" key="startable">
+          <div className="home__label">Start a design in…</div>
+          {startable.map((scope) => (
+            <div className="home__scope-heading" key={scope.scopeId}>
+              <ScopeHeading
+                scope={scope}
+                designCount={0}
+                busy={busyScopeId === scope.scopeId}
+                onCreateDesign={() => onCreateDesign(organisation, scope)}
+                onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName)}
+                bare
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+interface ScopeHeadingProps {
+  scope: Scope;
+  designCount: number;
+  busy: boolean;
+  onCreateDesign: () => void;
+  onCreateScope: () => void;
+  /** `true` for a "Start a design" row, which is not inside its own
+   * `.home__scope-heading` wrapper (its caller already provides one) —
+   * avoids nesting that class inside itself. */
+  bare?: boolean;
+}
+
+/**
+ * One scope's name, kind and design count, plus the two actions this task's
+ * brief adds: "New design" when `canDrawFor(scope.capability)` (ADR-0054
+ * §2), "New scope" when `canStewardFor(scope.capability)` (ADR-0054 §3).
+ * Shared between a scope that already has designs and one offered under
+ * "Start a design in…" so the two lists behave identically.
+ */
+function ScopeHeading({ scope, designCount, busy, onCreateDesign, onCreateScope, bare }: ScopeHeadingProps) {
+  const body = (
+    <>
+      <span className="home__scope-name">{scope.displayName}</span>
+      <span className="home__scope-kind">{scope.kind}</span>
+      <span className="home__scope-count">
+        {designCount} design{designCount === 1 ? '' : 's'}
+      </span>
+      <span className="home__scope-actions">
+        {canDrawFor(scope.capability) && (
+          <button type="button" className="home__btn home__btn--small" onClick={onCreateDesign} disabled={busy}>
+            {busy ? 'Creating…' : 'New design'}
+          </button>
+        )}
+        {canStewardFor(scope.capability) && (
+          <button type="button" className="home__btn home__btn--small" onClick={onCreateScope}>
+            New scope
+          </button>
+        )}
+      </span>
+    </>
+  );
+  return bare ? body : <div className="home__scope-heading">{body}</div>;
+}
+
+interface ScopeFormProps {
+  /** The parent scope's own name, or the organisation's, for the form's
+   * own label — never invented, always the same string the button that
+   * opened it was already showing. */
+  parentLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  busy: boolean;
+  error: string | null;
+}
+
+/** ADR-0054 §3's label field, opened by either "New scope" button above. */
+function ScopeForm({ parentLabel, value, onChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
+  return (
+    <form
+      className="home__scope-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+    >
+      <label className="home__scope-form-label" htmlFor="home-new-scope-label">
+        New scope under {parentLabel}
+      </label>
+      <input
+        id="home-new-scope-label"
+        className="home__scope-form-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="label"
+        autoFocus
+      />
+      <button type="submit" className="home__btn" disabled={busy}>
+        {busy ? 'Creating…' : 'Create'}
+      </button>
+      <button type="button" className="home__btn" onClick={onCancel} disabled={busy}>
+        Cancel
+      </button>
+      {error && <p className="home__error">{error}</p>}
+    </form>
   );
 }
 

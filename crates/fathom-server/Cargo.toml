@@ -141,6 +141,24 @@ fathom-corpus = { path = "../fathom-corpus" }
 # `fathom-ir`, all already reachable from this crate through `fathom-graph`.
 fathom-workspace = { path = "../fathom-workspace" }
 
+# The generated node-kind accessors (`design_api.rs`'s payload credential
+# check, ADR-0054 #4, reads `Capture.text`/`Note.text` off the parsed plain
+# face). A path member of this workspace, exactly like the four above: NOT an
+# external dependency, and already reachable through `fathom-graph` --
+# promoted here from `[dev-dependencies]` (where only `tests/design_api.rs`
+# named it) because production code now calls it too.
+fathom-ir = { path = "../fathom-ir" }
+
+# The redaction gate's own `looks_like_credential` sketch predicate
+# (`crates/fathom-ingest/src/redact.rs`), reused rather than reimplemented
+# (CLAUDE.md rule 3 is about the gate itself; this is the same argument one
+# level up -- `49` §1's "a second implementation... guaranteed to drift"
+# applies just as much to a second credential-shape detector). A path member,
+# not an external dependency: `fathom-ingest` names only `fathom-ir` and
+# `fathom-schema`, both already dependencies of this crate, so gate-zero's
+# closure count is unchanged by this line.
+fathom-ingest = { path = "../fathom-ingest" }
+
 # ---------------------------------------------------------------------------
 # PHASE 2's KEY HIERARCHY. Every version below is `docs/PHASE-2-STORAGE-DESIGN.md`
 # §12.4's table, and each has its own `deps/decisions/` record because this
@@ -237,9 +255,7 @@ ecdsa = { version = "0.17.0", default-features = false, features = [
 # `tests/design_api.rs` builds real graphs to prove a save round-trips a
 # genuine `fathom-plain` payload (ADR-0049), which needs the generated node
 # kinds `fathom-workspace` itself does not re-export (that crate is
-# deliberately bytes-in/bytes-out). A path member of this workspace, exactly
-# like the dependencies above: NOT an external dependency, and it is already
-# reachable from this crate through `fathom-graph` -- naming it directly only
-# makes it `use`-able from a test binary, which Cargo requires even for a
-# transitively-present path member.
-fathom-ir = { path = "../fathom-ir" }
+# deliberately bytes-in/bytes-out). `fathom-ir` itself moved to
+# `[dependencies]` above once production code needed it too, which already
+# makes it `use`-able here; nothing below is new, kept only so this section is
+# not empty and its own history stays legible.

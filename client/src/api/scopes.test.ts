@@ -1,9 +1,34 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { buildScopeForest, parseScopes, pathTo, type Scope } from './scopes';
+vi.mock('./signedFetch', () => ({
+  signedFetch: vi.fn(),
+}));
+
+import { signedFetch } from './signedFetch';
+import { buildScopeForest, createScope, parseScope, parseScopes, pathTo, type Scope } from './scopes';
+
+const mockedSignedFetch = vi.mocked(signedFetch);
 
 function bytesOf(text: string): Uint8Array {
   return new TextEncoder().encode(text);
+}
+
+/** The mirror of `crypto::read_lp`, over the exact bytes `createScope` sent
+ * — `crypto::lp` twice, parent then label — rather than `JSON.parse`, which
+ * `create_scope_handler` never calls (design_api.rs's own doc on the
+ * handler: two length-prefixed fields). */
+function readTwoLpFields(bytes: Uint8Array): { parent: string; label: string } {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const parentLen = view.getUint32(0, true);
+  const parentBytes = bytes.subarray(4, 4 + parentLen);
+  const rest = bytes.subarray(4 + parentLen);
+  const restView = new DataView(rest.buffer, rest.byteOffset, rest.byteLength);
+  const labelLen = restView.getUint32(0, true);
+  const labelBytes = rest.subarray(4, 4 + labelLen);
+  return {
+    parent: new TextDecoder().decode(parentBytes),
+    label: new TextDecoder().decode(labelBytes),
+  };
 }
 
 const HQ: Scope = {
@@ -129,6 +154,78 @@ describe('parseScopes', () => {
 
   it('rejects an entry that is not an object', () => {
     expect(() => parseScopes(bytesOf('["not an object"]'))).toThrow(/not an object/);
+  });
+});
+
+describe('parseScope', () => {
+  it('parses a single object — the shape a create response answers with', () => {
+    const record = {
+      scope_id: 'scope-hq',
+      parent_scope_id: null,
+      kind: 'site',
+      display_name: 'HQ',
+      depth: 0,
+      path: 'scope-hq',
+      capability: 'steward',
+    };
+    expect(parseScope(record, 'the create response')).toEqual({ ...HQ, capability: 'steward' });
+  });
+
+  it('names the caller-given label in its refusal', () => {
+    expect(() => parseScope({ kind: 'site' }, 'the create response')).toThrow(/the create response/);
+  });
+});
+
+describe('createScope', () => {
+  it('POSTs two length-prefixed fields to the scopes route and parses one scope', async () => {
+    const created = {
+      scope_id: 'scope-idf-4',
+      parent_scope_id: 'scope-building-a',
+      kind: 'closet',
+      display_name: 'IDF-4',
+      depth: 2,
+      path: 'scope-hq.scope-building-a.scope-idf-4',
+      capability: 'steward',
+    };
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode(JSON.stringify(created)));
+
+    const scope = await createScope('org-1', 'scope-building-a', 'IDF-4');
+
+    expect(scope).toEqual({
+      scopeId: created.scope_id,
+      parentScopeId: created.parent_scope_id,
+      kind: created.kind,
+      displayName: created.display_name,
+      depth: created.depth,
+      path: created.path,
+      capability: created.capability,
+    });
+
+    const [method, path, sentBody] = mockedSignedFetch.mock.calls[0];
+    expect(method).toBe('POST');
+    expect(path).toBe('/organisations/org-1/scopes');
+    expect(readTwoLpFields(sentBody as Uint8Array)).toEqual({ parent: 'scope-building-a', label: 'IDF-4' });
+  });
+
+  it('rejects a response body that is not JSON', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode('not json'));
+    await expect(createScope('org-1', 'scope-building-a', 'IDF-4')).rejects.toThrow(/not JSON/);
+  });
+
+  it('sends a null parent unchanged — the "of the organisation" bootstrap case', async () => {
+    const created = {
+      scope_id: 'scope-hq',
+      parent_scope_id: null,
+      kind: 'site',
+      display_name: 'HQ',
+      depth: 0,
+      path: 'scope-hq',
+      capability: 'steward',
+    };
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode(JSON.stringify(created)));
+    await createScope('org-1', null, 'HQ');
+    const [, , sentBody] = mockedSignedFetch.mock.calls[0];
+    expect(readTwoLpFields(sentBody as Uint8Array)).toEqual({ parent: '', label: 'HQ' });
   });
 });
 

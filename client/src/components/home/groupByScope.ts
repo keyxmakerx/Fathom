@@ -56,3 +56,19 @@ export function groupDesignsByScope(
 
   return { groups, elsewhere };
 }
+
+/**
+ * Every scope in `scopes` that no design in `designs` names — ADR-0054 §2/
+ * §3's "draw creates a design," read backwards: a scope with nothing in it
+ * yet is exactly where "New design" needs to be offered, because
+ * `groupDesignsByScope` above only ever produces a heading for a scope that
+ * already has one. Order preserved from `scopes` (the server's own `path`
+ * order, `scopes.ts`'s own doc) — this function does not re-sort. Whether a
+ * given scope is one this account may actually draw in is `capabilities.ts`'s
+ * `canDrawFor` question, not this one's: this is the "has no design" half
+ * alone, kept pure and testable apart from that policy.
+ */
+export function scopesWithNoDesigns(scopes: readonly Scope[], designs: readonly DesignSummary[]): Scope[] {
+  const scopeIdsWithDesigns = new Set(designs.map((design) => design.scopeId));
+  return scopes.filter((scope) => !scopeIdsWithDesigns.has(scope.scopeId));
+}

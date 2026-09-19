@@ -925,9 +925,31 @@ pub async fn create_scope(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
     authorise(&tx, tenant, actor).await?;
+    let scope = create_scope_in_tx(&tx, tenant, parent, kind, display_name).await?;
+    tx.commit().await?;
+    Ok(scope)
+}
 
+/// The insert half of [`create_scope`], in a transaction the caller already
+/// has open.
+///
+/// `design_api`'s scope-creation route (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
+/// §6.4: a steward of the parent creates a scope) authorises the *steward*
+/// capability itself, through `grants::authorise_account` against the parent
+/// scope (or the organisation, for a new root network) -- a stronger, scope-aware
+/// check than [`create_scope`]'s own plain membership one, and one this
+/// function must not re-loosen by opening a second transaction in which that
+/// capability is no longer what is being asked about. `pub(crate)`: the only
+/// caller outside this module is `design_api`, in this same crate.
+pub(crate) async fn create_scope_in_tx(
+    tx: &Transaction<'_>,
+    tenant: OrganisationId,
+    parent: Option<ScopeId>,
+    kind: ScopeKind,
+    display_name: &str,
+) -> Result<Scope, RepoError> {
     let parent_info = match parent {
-        Some(p) => Some(fetch_scope_for_parent(&tx, tenant, p).await?),
+        Some(p) => Some(fetch_scope_for_parent(tx, tenant, p).await?),
         None => None,
     };
 
@@ -959,7 +981,6 @@ pub async fn create_scope(
     )
     .await?;
 
-    tx.commit().await?;
     Ok(Scope {
         id,
         organisation_id: tenant,

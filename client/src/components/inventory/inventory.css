@@ -29,6 +29,13 @@
   font-size: var(--t-small);
 }
 
+/* ADR-0054 §1's refusal wash "offers reload" — see `racks.css`'s matching
+   control. */
+.inventory-place__refusal-reload {
+  display: block;
+  margin-top: var(--s2);
+}
+
 /* ---- the rail: kinds, then saved filters ----------------------------- */
 
 .inventory-place__rail {

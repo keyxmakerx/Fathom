@@ -14,12 +14,13 @@
 // from `'./RacksPlace'` (`RacksPlace.canDraw.test.ts`,
 // `RacksPlace.edit.test.ts`) keep working unchanged.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { ApiRefusal } from '../../api/errors';
 import type { DesignCapability } from '../../api/designs';
-import { openDesign, saveDesign } from '../../api/payload';
+import { openDesign } from '../../api/payload';
+import { ConditionalSave } from './conditionalSave';
 import type { EditorChange } from '../drawing';
 import {
   AlreadyPlacedError,
@@ -107,6 +108,16 @@ export interface DesignSession {
   /** ADR-0046 §2, "edited from either": the one `EditorChange` dispatcher
    * both places' `EditorFor` calls raise through `EditorActions.onEdit`. */
   handleEdit: (change: EditorChange) => { refused: string } | void;
+  /** ADR-0054 §1's Reload: re-opens this design and adopts the version it
+   * comes back at as a fresh base — the one place a server-told version is
+   * ever adopted, because here the person themselves asked for it, unlike a
+   * save refusal's own header, which nothing in this module ever reads for
+   * that purpose. Wired to the Reload button `RacksPlace.tsx` and
+   * `InventoryPlace.tsx` render in the save-refusal wash a 409 leaves
+   * showing; it does not itself touch `doc` or `saveRefusal` before the
+   * reopened design actually arrives, so nothing visible is
+   * discarded until then. */
+  reloadDesign: () => void;
 }
 
 /**
@@ -129,39 +140,79 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setDoc(null);
-    setCatalogue([]);
+  // ADR-0054 §1: the base a save is conditioned on, held here rather than in
+  // state — it moves on every save that lands, which a document mid-drawing
+  // does often, and nothing in this hook needs to re-render off that move by
+  // itself (only `saveRefusal`, set separately below on a refusal, does).
+  // `null` exactly when no design has finished opening yet, the one state a
+  // queued save arriving too early (it cannot: `applyDocChange` needs a
+  // `doc`, which is set in the same place this is) would otherwise have
+  // nothing valid to send.
+  const conditionalSaveRef = useRef<ConditionalSave | null>(null);
+  const cancelledRef = useRef(false);
+
+  const load = useCallback(() => {
+    cancelledRef.current = false;
     setLoadError(null);
-    setSaveRefusal(null);
 
     fetchCatalogue()
       .then((list) => Promise.all(list.map((entry) => fetchModel(entry.vendor, entry.model))))
       .then((models) => {
-        if (!cancelled) setCatalogue(models);
+        if (!cancelledRef.current) setCatalogue(models);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLoadError(describeError(error));
+        if (!cancelledRef.current) setLoadError(describeError(error));
       });
 
     openDesign(organisationId, designId)
       .then((opened) => {
-        if (!cancelled) setDoc(readPlain(opened.bytes));
+        if (cancelledRef.current) return;
+        // The one place a server-told version is ever adopted: reopening is
+        // always the person's own asking (the initial open, or Reload after
+        // a conflict), never a reaction to a refusal's own header.
+        conditionalSaveRef.current = new ConditionalSave(opened.version);
+        setDoc(readPlain(opened.bytes));
+        setSaveRefusal(null);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLoadError(describeError(error));
+        if (!cancelledRef.current) setLoadError(describeError(error));
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [organisationId, designId]);
+
+  useEffect(() => {
+    setDoc(null);
+    setCatalogue([]);
+    setSaveRefusal(null);
+    conditionalSaveRef.current = null;
+    load();
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [load]);
+
+  /** ADR-0054 §1's Reload — see the `DesignSession.reloadDesign` doc. */
+  const reloadDesign = useCallback(() => {
+    load();
+  }, [load]);
 
   const saveQueue = useMemo(
     () =>
       new SaveQueue<Uint8Array>(
-        (bytes) => saveDesign(organisationId, designId, bytes).then(() => setSaveRefusal(null)),
+        (bytes) => {
+          const conditionalSave = conditionalSaveRef.current;
+          if (conditionalSave == null) {
+            // Cannot happen through `applyDocChange` (it requires `doc`,
+            // which is set in the same step as `conditionalSaveRef`), but a
+            // typed `Promise.reject` here is still an honest answer rather
+            // than a throw the `SaveQueue` was not built to catch
+            // synchronously.
+            return Promise.reject(new Error('save queued before the design finished opening'));
+          }
+          // ADR-0054 §1: this is the one call site that ever appends
+          // `?base=` — `conditionalSave.save` reads and moves the base
+          // itself; this hook never touches it directly.
+          return conditionalSave.save(organisationId, designId, bytes).then(() => setSaveRefusal(null));
+        },
         (error: unknown) => setSaveRefusal(describeError(error)),
       ),
     [organisationId, designId],
@@ -252,5 +303,5 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit };
+  return { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
 }

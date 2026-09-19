@@ -29,8 +29,10 @@ use deadpool_postgres::{Pool, PoolError, Transaction};
 use fathom_canon::Json;
 
 use crate::audit;
+use crate::authority::Capability;
 use crate::chain::{self, EntryType};
 use crate::crypto::{self};
+use crate::grants::{self, Authority, AuthorityError};
 use crate::keys::{self, DataKey, KeyRing, KeyStoreError};
 use crate::repo::{self, AccountId, DesignId, OrganisationId, RepoError, ScopeId, TenantContext};
 
@@ -175,6 +177,35 @@ pub enum DesignError {
         prefix: u32,
         declared: String,
     },
+    /// ADR-0054 #1: a save named a `base` that is no longer the design's
+    /// current version. Nothing was written and nothing was appended --
+    /// checked under the same row lock the version number itself comes from,
+    /// so this is the one true answer, not a race with the write it refuses.
+    VersionConflict {
+        base: i64,
+        current: i64,
+    },
+    /// ADR-0054 items 4/5: a re-check that failed. Two distinct sources
+    /// share this variant, both refused the same way a capability failure
+    /// anywhere else in this crate is refused:
+    ///
+    /// - a payload's own `Capture` or `Note` text still carries a credential
+    ///   shape after the client's own gate (`kind` names which, `line` is
+    ///   1-based within that field's text) -- the client redacts before
+    ///   sending, so a hit here means an old or hostile client, never a real
+    ///   capture;
+    /// - the grant that authorised this act no longer covers it when the act
+    ///   itself re-checks, immediately before doing anything irreversible,
+    ///   inside the same transaction the first check ran in.
+    CredentialInPayload {
+        kind: &'static str,
+        line: usize,
+    },
+    /// The re-check immediately before the act (ADR-0054 #5) found the grant
+    /// no longer covers it -- carried whole rather than collapsed to a
+    /// string so the caller answers exactly as every other authority
+    /// refusal in this crate does.
+    Authority(AuthorityError),
 }
 
 impl fmt::Display for DesignError {
@@ -225,6 +256,18 @@ impl fmt::Display for DesignError {
                 "the wire prefix names schema version {prefix} but the payload's own line 3 \
                  declares `{declared}`; these must agree"
             ),
+            Self::VersionConflict { base, current } => write!(
+                f,
+                "you opened version {base}; it is now version {current}, someone saved in \
+                 between. Reload to see their change; yours is still on your screen and was not \
+                 written."
+            ),
+            Self::CredentialInPayload { kind, line } => write!(
+                f,
+                "that payload's {kind} text still carries something that looks like a \
+                 credential, at line {line}; refused before it reaches storage"
+            ),
+            Self::Authority(e) => write!(f, "{e}"),
         }
     }
 }
@@ -326,6 +369,68 @@ pub async fn create_design(
 
     tx.commit().await?;
     Ok(id)
+}
+
+/// ADR-0054 #2: **draw creates a design.** The row in `designs` and its first
+/// version are written in the ONE transaction the caller (`design_api`'s
+/// scope-design route) already authorised `draw` in -- so a design with no
+/// version behind it, "a bodiless design", is never minted: either both
+/// inserts land, or neither does.
+///
+/// Re-checks `auth`'s grant on `scope` immediately before the first insert
+/// (ADR-0054 #5, same reasoning as [`write_version_in_tx`]'s own doc), and
+/// refuses under §9's spool bounds **before that insert**, so a spooled
+/// refusal leaves no design row behind either (this task's own words: "spool
+/// beyond bounds -> 503 and no row").
+pub async fn create_design_with_first_version_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    payload: &[u8],
+    payload_schema_version: i32,
+    bounds: &audit::SpoolBounds,
+) -> Result<(DesignId, i64, i64, Capability), DesignError> {
+    if payload.len() > MAX_PAYLOAD_BYTES {
+        return Err(DesignError::PayloadTooLarge {
+            bytes: payload.len(),
+        });
+    }
+    refuse_if_spool_beyond_bounds(tx, bounds).await?;
+    let answer = grants::authorise_account(tx, auth, Some(scope), Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+
+    let ctx = auth.ctx;
+    let tenant_text = ctx.tenant().to_string();
+    let id = DesignId::new();
+    let row = tx
+        .query_opt(
+            "INSERT INTO designs (id, organisation_id, scope_id, created_by) \
+             SELECT $1, $2, $3, $4 WHERE EXISTS \
+                 (SELECT 1 FROM scopes WHERE id = $3 AND organisation_id = $2) \
+             RETURNING extract(epoch FROM created_at)::bigint",
+            &[
+                &id.to_string(),
+                &tenant_text,
+                &scope.to_string(),
+                &ctx.actor().to_string(),
+            ],
+        )
+        .await?;
+    let created_at_unix: i64 = row.ok_or(DesignError::NoSuchScope)?.get(0);
+
+    let version = write_version_locked(
+        tx,
+        auth.ring,
+        ctx,
+        id,
+        payload,
+        payload_schema_version,
+        None,
+    )
+    .await?;
+
+    Ok((id, version, created_at_unix, answer.capability))
 }
 
 // ---------------------------------------------------------------------------
@@ -432,21 +537,108 @@ pub async fn write_version_under(
     refuse_if_spool_beyond_bounds(&tx, &bounds).await?;
 
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
+    let version = write_version_locked(
+        &tx,
+        ring,
+        &ctx,
+        design,
+        payload,
+        payload_schema_version,
+        None,
+    )
+    .await?;
 
+    tx.commit().await?;
+    Ok(version)
+}
+
+/// ADR-0054 #1's save precondition and #5's one-transaction rule, together:
+/// the same write as [`write_version_under`], in the transaction and
+/// [`TenantContext`] the caller already authorised in
+/// (`design_api::save_design_handler`), naming the version it was based on.
+///
+/// **Refuses with [`DesignError::VersionConflict`] and writes nothing** when
+/// `base` disagrees with the design's current version, read under the same
+/// row lock [`write_version_locked`] takes for the write itself -- so the
+/// read that decides and the write it gates can never see two different
+/// answers. Also re-checks `auth`'s grant, in this same transaction,
+/// immediately before touching `design_payload` (ADR-0054 #5): the earlier
+/// check the handler ran authorised the *request*; this is what stops a
+/// grant revoked in the moment between that check and this act from being
+/// carried out anyway, which two separate transactions with only the first
+/// one checking could not.
+#[allow(clippy::too_many_arguments)]
+pub async fn write_version_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    payload: &[u8],
+    payload_schema_version: i32,
+    base: i64,
+    bounds: &audit::SpoolBounds,
+) -> Result<i64, DesignError> {
+    if payload.len() > MAX_PAYLOAD_BYTES {
+        return Err(DesignError::PayloadTooLarge {
+            bytes: payload.len(),
+        });
+    }
+    refuse_if_spool_beyond_bounds(tx, bounds).await?;
+    grants::authorise_account(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    write_version_locked(
+        tx,
+        auth.ring,
+        auth.ctx,
+        design,
+        payload,
+        payload_schema_version,
+        Some(base),
+    )
+    .await
+}
+
+/// The shared core of every version write: the row lock, the next version
+/// number, ADR-0054 #1's precondition when `expected_base` is `Some`, the
+/// seal and the chain entry -- all inside the caller's own transaction.
+///
+/// `expected_base` is `None` for every write from before ADR-0054 (this
+/// function's two callers other than [`write_version_in_tx`]): the next
+/// version is written unconditionally, exactly as it always was, so nothing
+/// that already calls [`write_version_under`] or
+/// [`create_design_with_first_version_in_tx`] had to change its own
+/// signature for this task.
+async fn write_version_locked(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    payload: &[u8],
+    payload_schema_version: i32,
+    expected_base: Option<i64>,
+) -> Result<i64, DesignError> {
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
-    lock_design(&tx, &design_text, &tenant_text).await?;
+    lock_design(tx, &design_text, &tenant_text).await?;
 
-    let key = keys::design_key(&tx, ring, &ctx, design).await?;
+    let key = keys::design_key(tx, ring, ctx, design).await?;
 
-    let version: i64 = tx
+    let current: i64 = tx
         .query_one(
-            "SELECT coalesce(max(design_version), 0) + 1 FROM design_payload \
+            "SELECT coalesce(max(design_version), 0) FROM design_payload \
              WHERE design_id = $1 AND organisation_id = $2",
             &[&design_text, &tenant_text],
         )
         .await?
         .get(0);
+
+    if let Some(base) = expected_base {
+        if current != base {
+            return Err(DesignError::VersionConflict { base, current });
+        }
+    }
+    let version = current + 1;
 
     let nonce = crypto::random_nonce()?;
     let aad = payload_aad(
@@ -478,18 +670,18 @@ pub async fn write_version_under(
     )
     .await?;
 
-    keys::count_write_under_key(&tx, design, key.epoch).await?;
+    keys::count_write_under_key(tx, design, key.epoch).await?;
 
     let entry_type = if version == 1 {
         EntryType::Create
     } else {
         EntryType::Update
     };
-    let metadata = metadata_for_write(&ctx, version, payload_schema_version, entry_type);
+    let metadata = metadata_for_write(ctx, version, payload_schema_version, entry_type);
     append_entry(
-        &tx,
+        tx,
         ring,
-        &ctx,
+        ctx,
         design,
         AppendFacts {
             entry_type,
@@ -505,7 +697,6 @@ pub async fn write_version_under(
     )
     .await?;
 
-    tx.commit().await?;
     Ok(version)
 }
 
@@ -525,7 +716,35 @@ pub async fn read_version(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
+    let result = read_version_locked(&tx, ring, &ctx, design, version).await?;
+    tx.commit().await?;
+    Ok(result)
+}
 
+/// The same read, re-checking `auth`'s grant immediately before it, in the
+/// transaction and [`TenantContext`] `design_api::open_design_handler`
+/// already authorised in -- ADR-0054 #5, exactly as
+/// [`write_version_in_tx`]'s own doc explains for a save.
+pub async fn read_version_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    version: Option<i64>,
+) -> Result<DesignVersion, DesignError> {
+    grants::authorise_account(tx, auth, scope, Capability::Read)
+        .await
+        .map_err(DesignError::Authority)?;
+    read_version_locked(tx, auth.ring, auth.ctx, design, version).await
+}
+
+async fn read_version_locked(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    version: Option<i64>,
+) -> Result<DesignVersion, DesignError> {
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
 
@@ -558,7 +777,7 @@ pub async fn read_version(
     let key_epoch: i32 = row.get(3);
     let payload_schema_version: i32 = row.get(4);
 
-    let key = design_key_at_epoch(&tx, ring, &ctx, design, key_epoch).await?;
+    let key = design_key_at_epoch(tx, ring, ctx, design, key_epoch).await?;
     let payload = open_payload(
         &key,
         &tenant_text,
@@ -570,7 +789,6 @@ pub async fn read_version(
         &ciphertext,
     )?;
 
-    tx.commit().await?;
     Ok(DesignVersion {
         design,
         version,
@@ -788,7 +1006,35 @@ pub async fn verify_design(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
+    let report = verify_design_locked(&tx, ring, &ctx, design, deep).await?;
+    tx.commit().await?;
+    Ok(report)
+}
 
+/// The same verification, re-checking `auth`'s grant immediately before it,
+/// in the transaction and [`TenantContext`]
+/// `design_api::verify_design_handler` already authorised in -- ADR-0054 #5,
+/// exactly as [`write_version_in_tx`]'s own doc explains for a save.
+pub async fn verify_design_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    deep: bool,
+) -> Result<chain::Report, DesignError> {
+    grants::authorise_account(tx, auth, scope, Capability::Read)
+        .await
+        .map_err(DesignError::Authority)?;
+    verify_design_locked(tx, auth.ring, auth.ctx, design, deep).await
+}
+
+async fn verify_design_locked(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    deep: bool,
+) -> Result<chain::Report, DesignError> {
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
 
@@ -807,8 +1053,8 @@ pub async fn verify_design(
         design: &design_text,
     };
 
-    let entries = read_entries(&tx, &design_text, &tenant_text).await?;
-    let payloads = read_payload_facts(&tx, &design_text, &tenant_text).await?;
+    let entries = read_entries(tx, &design_text, &tenant_text).await?;
+    let payloads = read_payload_facts(tx, &design_text, &tenant_text).await?;
 
     // **Every chain key epoch the entries name, derived.** `chain::chain_key`
     // takes the epoch as an input and the chain master in hand produces any of
@@ -836,7 +1082,7 @@ pub async fn verify_design(
     let deep_payloads = if deep {
         let mut out: Vec<(i64, Vec<u8>)> = Vec::new();
         for p in &payloads {
-            let key = design_key_at_epoch(&tx, ring, &ctx, design, p.key_epoch).await?;
+            let key = design_key_at_epoch(tx, ring, ctx, design, p.key_epoch).await?;
             let bytes = open_payload(
                 &key,
                 &tenant_text,
@@ -875,7 +1121,6 @@ pub async fn verify_design(
         deep_inputs.as_ref(),
     );
 
-    tx.commit().await?;
     Ok(report)
 }
 

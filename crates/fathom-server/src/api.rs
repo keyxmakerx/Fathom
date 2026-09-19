@@ -584,14 +584,55 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 /// limit a client can evade, and a peer address behind a proxy is one bucket
 /// for the whole deployment. Both failure modes are real and the deployment
 /// has to choose which one it is not in.
+///
+/// **The LAST entry, not the first.** Caddy's own doc, read again 2026-09-19
+/// after an earlier version of this comment misquoted it: "For these
+/// `X-Forwarded-*` headers, by default, the proxy will ignore their values
+/// from incoming requests, to prevent spoofing"
+/// (caddyserver.com/docs/caddyfile/directives/reverse_proxy). Caddy's own
+/// source (`addForwardedHeaders`,
+/// `modules/caddyhttp/reverseproxy/reverseproxy.go`, read the same day)
+/// matches: with no `trusted_proxies` configured -- `deploy/Caddyfile`
+/// configures none -- an incoming `X-Forwarded-For` is deleted outright and
+/// replaced with the address Caddy itself accepted the connection from, not
+/// appended to; `deploy/Caddyfile` additionally overwrites the header a
+/// second, independent way with `header_up X-Forwarded-For {remote_host}`
+/// (belt and braces). So on *this* deployment first and last entry already
+/// agree, both being the one entry Caddy itself wrote.
+///
+/// Read the LAST entry anyway, because that is also the right choice on a
+/// deployment this is not: a genuine multi-hop chain that trusts its
+/// immediate peer to append (Caddy with `trusted_proxies` set, or nginx's
+/// `$proxy_add_x_forwarded_for`) still writes its own hop last, and a
+/// client is free to send `X-Forwarded-For: 1.2.3.4` itself either way -- so
+/// the FIRST entry is exactly as attacker-chosen as no trusted header at all
+/// in both cases. (This reasoning does NOT extend to a chain of more than
+/// one trusted hop: there, the last entry is the *nearest* trusted proxy's
+/// view, not necessarily the true client, and only `trusted_proxies`
+/// parsing the whole chain gets that right -- not built here, because this
+/// deployment has exactly one hop.)
 fn source_of(state: &ApiState, headers: &HeaderMap, extensions: &axum::http::Extensions) -> String {
-    if let Some(name) = &state.trusted_client_ip_header {
+    source_of_with(
+        state.trusted_client_ip_header.as_deref(),
+        headers,
+        extensions,
+    )
+}
+
+/// [`source_of`]'s body, taking the header name on its own rather than the
+/// whole [`ApiState`] -- so a test can drive it without a [`SessionStore`],
+/// an [`EpochWatch`] and a [`keys::KeyRing`], none of which the address
+/// choice below touches.
+fn source_of_with(
+    trusted_header: Option<&str>,
+    headers: &HeaderMap,
+    extensions: &axum::http::Extensions,
+) -> String {
+    if let Some(name) = trusted_header {
         if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
-            // The first entry of a comma-separated list is the client in every
-            // forwarding convention; the rest are proxies.
-            let first = value.split(',').next().unwrap_or("").trim();
-            if !first.is_empty() {
-                return first.to_string();
+            let last = value.rsplit(',').next().unwrap_or("").trim();
+            if !last.is_empty() {
+                return last.to_string();
             }
         }
     }
@@ -681,5 +722,45 @@ impl IntoResponse for Refusal {
             }
         };
         (status, body).into_response()
+    }
+}
+
+#[cfg(test)]
+mod source_of_tests {
+    use super::*;
+    use axum::http::{Extensions, HeaderValue};
+
+    /// The finding this guards: a client-supplied `X-Forwarded-For` puts an
+    /// attacker's own choice of address first; the trusted proxy in front of
+    /// this server (`deploy/Caddyfile`) puts its own view of the connection
+    /// last, appended after whatever the client sent. Reading the first
+    /// entry reads the attacker's value; this must read the proxy's.
+    #[test]
+    fn a_trusted_header_is_read_from_its_last_entry_not_its_first() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("6.6.6.6, 10.0.0.9"),
+        );
+        let source = source_of_with(Some("x-forwarded-for"), &headers, &Extensions::new());
+        assert_eq!(
+            source, "10.0.0.9",
+            "the proxy's own appended entry, not the client's claimed one"
+        );
+    }
+
+    #[test]
+    fn a_single_entry_trusted_header_is_read_as_is() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("10.0.0.9"));
+        let source = source_of_with(Some("x-forwarded-for"), &headers, &Extensions::new());
+        assert_eq!(source, "10.0.0.9");
+    }
+
+    #[test]
+    fn no_trusted_header_configured_falls_back_to_unknown_with_no_connect_info() {
+        let headers = HeaderMap::new();
+        let source = source_of_with(None, &headers, &Extensions::new());
+        assert_eq!(source, "unknown");
     }
 }

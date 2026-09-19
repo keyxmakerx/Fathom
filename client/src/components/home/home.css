@@ -104,6 +104,41 @@
   flex-direction: column;
 }
 
+.home__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.home__scope-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--s2);
+  flex-shrink: 0;
+}
+
+.home__scope-form {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  flex-wrap: wrap;
+}
+
+.home__scope-form-label {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.home__scope-form-input {
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--ink);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-small);
+}
+
 .home__scope-groups {
   display: flex;
   flex-direction: column;
@@ -198,4 +233,14 @@
   padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   cursor: pointer;
+}
+
+.home__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.home__btn--small {
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-micro);
 }

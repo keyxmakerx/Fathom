@@ -2463,7 +2463,19 @@ impl OperatorStore {
             )
             .await?
             .is_none();
-        if !first_version && row.facts.seconded_by.is_none() && !row.facts.single_operator {
+        // **`self.single_operator()`, not `row.facts.single_operator`.** The
+        // row's own field is what this deployment was configured as at
+        // REQUEST time, stamped onto the row and sealed there -- a fixed
+        // record, on purpose, of what was true then. Gating on it here would
+        // be exactly the mistake the comment above just finished ruling out
+        // for `first_version`, for the identical reason: an operator turns
+        // `FATHOM_SINGLE_OPERATOR` off (a restart, between a request and its
+        // delayed apply) meaning to require a second signature from that
+        // point on, and a change requested a minute before the restart would
+        // still apply alone on the strength of a flag that is no longer this
+        // deployment's policy. The live value is asked fresh, here, same as
+        // `first_version` above it.
+        if !first_version && row.facts.seconded_by.is_none() && !self.single_operator() {
             return Ok(false);
         }
 
@@ -2487,7 +2499,10 @@ impl OperatorStore {
                             None => Json::Null,
                         },
                     ),
-                    ("single_operator", Json::Bool(row.facts.single_operator)),
+                    // The live value this apply was actually gated on, same
+                    // as the condition above -- not the row's own stamped
+                    // request-time field, for the same reason.
+                    ("single_operator", Json::Bool(self.single_operator())),
                 ],
             ),
         )
@@ -2732,7 +2747,21 @@ impl OperatorStore {
         if row.effective_at_unix > now_unix() {
             return Ok(None);
         }
-        if row.seconded_by.is_none() && !row.single_operator {
+        // **`self.single_operator()`, live, not `row.single_operator`.** Same
+        // finding, same fix, as `apply_if_due` above (see that function's own
+        // comment): the row's field is a record of this deployment's
+        // configuration at REQUEST time, sealed there deliberately; gating a
+        // creation that mints a whole new operator on a flag that may since
+        // have been turned off (a restart, between the request and its
+        // delayed apply) would let a request made under the escape hatch
+        // still use it after the deployment turned it off intending exactly
+        // the opposite. The outer caller's `SELECT` (`apply_due_operator_requests`)
+        // still reads the row's own column to decide which requests are even
+        // candidates -- that is fine: a row it excludes because neither is
+        // true yet is not one this check would have accepted either, and a
+        // row it includes because it stamped `single_operator = true` still
+        // has to pass the live check here before anything is created.
+        if row.seconded_by.is_none() && !self.single_operator() {
             return Ok(None);
         }
 
@@ -2756,7 +2785,9 @@ impl OperatorStore {
                             None => Json::Null,
                         },
                     ),
-                    ("single_operator", Json::Bool(row.single_operator)),
+                    // The live value this apply was actually gated on, same
+                    // as the condition above.
+                    ("single_operator", Json::Bool(self.single_operator())),
                     ("state", Json::Str("applied".to_string())),
                 ],
             ),

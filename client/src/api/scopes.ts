@@ -13,7 +13,14 @@
 // highest ancestor that actually came back — never an invented one. See
 // `docs/OPEN-QUESTIONS.md` D11 and
 // `docs/decisions/adr-0047-the-shell-four-kinds-of-thing.md` §2.
+//
+// `createScope` below is `POST /organisations/{organisation}/scopes`, added
+// alongside this route by the same parallel build — ADR-0054 §3: "a steward
+// of the parent creates a scope," by a route taking `{parent, label}` in the
+// body and answering one scope, the same object shape this file's own list
+// reads. `parseScope` is split out of `parseScopes` so both read it.
 
+import { concatBytes, lp, utf8 } from '../crypto/bytes';
 import { signedFetch } from './signedFetch';
 
 export interface Scope {
@@ -27,6 +34,40 @@ export interface Scope {
 }
 
 const REQUIRED_STRING_FIELDS = ['scope_id', 'kind', 'display_name', 'path', 'capability'] as const;
+
+/**
+ * Decode and validate one scope object — the shape one element of
+ * `/organisations/{organisation}/scopes`'s array holds, and (ADR-0054 §3)
+ * the whole body `createScope`'s route answers with. `label` names which
+ * body this came from in a thrown message without this function needing to
+ * know which caller it is.
+ */
+export function parseScope(entry: unknown, label: string): Scope {
+  if (typeof entry !== 'object' || entry === null) {
+    throw new Error(`malformed scopes response: ${label} is not an object`);
+  }
+  const record = entry as Record<string, unknown>;
+  for (const field of REQUIRED_STRING_FIELDS) {
+    if (typeof record[field] !== 'string' || (record[field] as string).length === 0) {
+      throw new Error(`malformed scopes response: ${label} has no ${field}`);
+    }
+  }
+  if (record.parent_scope_id !== null && typeof record.parent_scope_id !== 'string') {
+    throw new Error(`malformed scopes response: ${label} has no parent_scope_id`);
+  }
+  if (typeof record.depth !== 'number') {
+    throw new Error(`malformed scopes response: ${label} has no depth`);
+  }
+  return {
+    scopeId: record.scope_id as string,
+    parentScopeId: record.parent_scope_id as string | null,
+    kind: record.kind as string,
+    displayName: record.display_name as string,
+    depth: record.depth,
+    path: record.path as string,
+    capability: record.capability as string,
+  };
+}
 
 /**
  * Decode and validate one `/organisations/{organisation}/scopes` response
@@ -48,32 +89,43 @@ export function parseScopes(bytes: Uint8Array): Scope[] {
   if (!Array.isArray(parsed)) {
     throw new Error('malformed scopes response: body is not a JSON array');
   }
-  return parsed.map((entry, index) => {
-    if (typeof entry !== 'object' || entry === null) {
-      throw new Error(`malformed scopes response: entry ${index} is not an object`);
-    }
-    const record = entry as Record<string, unknown>;
-    for (const field of REQUIRED_STRING_FIELDS) {
-      if (typeof record[field] !== 'string' || (record[field] as string).length === 0) {
-        throw new Error(`malformed scopes response: entry ${index} has no ${field}`);
-      }
-    }
-    if (record.parent_scope_id !== null && typeof record.parent_scope_id !== 'string') {
-      throw new Error(`malformed scopes response: entry ${index} has no parent_scope_id`);
-    }
-    if (typeof record.depth !== 'number') {
-      throw new Error(`malformed scopes response: entry ${index} has no depth`);
-    }
-    return {
-      scopeId: record.scope_id as string,
-      parentScopeId: record.parent_scope_id as string | null,
-      kind: record.kind as string,
-      displayName: record.display_name as string,
-      depth: record.depth,
-      path: record.path as string,
-      capability: record.capability as string,
-    };
-  });
+  return parsed.map((entry, index) => parseScope(entry, `entry ${index}`));
+}
+
+/**
+ * `POST /organisations/{organisation}/scopes` — ADR-0054 §3: "a steward of
+ * the parent creates a scope," by a route that takes the parent and a
+ * label. Answers with one scope, the same object shape `parseScopes` reads
+ * out of the list.
+ *
+ * `parent: null` names the one case ADR-0054 §3 does not spell out in
+ * terms this file can check on its own: an organisation with no scope yet
+ * has nothing an account could already be "a steward of a scope" in, so
+ * `Home` offers this only as "of the organisation" instead (Home's own
+ * brief) — this function sends `null` through unchanged and lets the server
+ * decide, and hold, who that is; it does not gate on it, and neither does
+ * the caller: a refusal here is a refusal to render, through the same
+ * `describeError` path every other action on this screen already uses.
+ *
+ * `create_scope_handler`'s own wire shape, not JSON: two length-prefixed
+ * fields, `crypto::read_lp` twice over (`design_api.rs`'s doc on the
+ * handler) — the parent scope id, empty for a new root network, then the
+ * label. `bytes.ts`'s `lp`/`concatBytes`/`utf8` are the same helpers
+ * `auth.ts` and `enrolment.ts` already use for this server's other
+ * length-prefixed routes.
+ */
+export async function createScope(organisationId: string, parent: string | null, label: string): Promise<Scope> {
+  const path = `/organisations/${encodeURIComponent(organisationId)}/scopes`;
+  const body = concatBytes(lp(utf8(parent ?? '')), lp(utf8(label)));
+  const response = await signedFetch('POST', path, body);
+  const text = new TextDecoder().decode(response);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('malformed create-scope response: body is not JSON');
+  }
+  return parseScope(parsed, 'the create response');
 }
 
 /** Every scope the signed-in account may at least read within

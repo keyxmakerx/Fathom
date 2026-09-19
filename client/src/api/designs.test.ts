@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
+vi.mock('./signedFetch', () => ({
+  signedFetch: vi.fn(),
+}));
+
+import { SCHEMA_VERSION } from '../document/plain';
+import { signedFetch } from './signedFetch';
+import { createDesign, parseDesignSummary, parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
+
+const mockedSignedFetch = vi.mocked(signedFetch);
+const EXPECTED_MINOR = Number.parseInt(SCHEMA_VERSION.slice('0.'.length), 10);
 
 function bytesOf(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -71,6 +80,55 @@ describe('parseDesigns', () => {
   it('rejects an entry with a non-numeric latest_version', () => {
     const bad = { ...ROW_A, latest_version: '3' };
     expect(() => parseDesigns(bytesOf(JSON.stringify([bad])))).toThrow(/latest_version/);
+  });
+});
+
+describe('parseDesignSummary', () => {
+  it('parses a single object — the shape a create response answers with', () => {
+    expect(parseDesignSummary(ROW_A, 'the create response')).toEqual({
+      designId: ROW_A.design_id,
+      scopeId: ROW_A.scope_id,
+      createdAtUnix: 100,
+      createdBy: ROW_A.created_by,
+      capability: 'read',
+      latestVersion: 3,
+    });
+  });
+
+  it('names the caller-given label in its refusal, not a hard-coded "entry N"', () => {
+    const { design_id: _dropped, ...rest } = ROW_A;
+    expect(() => parseDesignSummary(rest, 'the create response')).toThrow(/the create response/);
+  });
+});
+
+describe('createDesign', () => {
+  it('POSTs to the scope-scoped designs route, framed like a save, and parses one summary', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode(JSON.stringify(ROW_B)));
+    const bytes = new Uint8Array([0xaa, 0xbb, 0xcc]);
+
+    const created = await createDesign('org-1', 'scope-1', bytes);
+
+    expect(created).toEqual({
+      designId: ROW_B.design_id,
+      scopeId: ROW_B.scope_id,
+      createdAtUnix: 200,
+      createdBy: ROW_B.created_by,
+      capability: 'steward',
+      latestVersion: 1,
+    });
+
+    const [method, path, sentBody] = mockedSignedFetch.mock.calls[0];
+    expect(method).toBe('POST');
+    expect(path).toBe('/organisations/org-1/scopes/scope-1/designs');
+    const body = sentBody as Uint8Array;
+    const view = new DataView(body.buffer, body.byteOffset, 4);
+    expect(view.getUint32(0, true)).toBe(EXPECTED_MINOR);
+    expect(Array.from(body.subarray(4))).toEqual(Array.from(bytes));
+  });
+
+  it('rejects a response body that is not JSON', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode('not json'));
+    await expect(createDesign('org-1', 'scope-1', new Uint8Array())).rejects.toThrow(/not JSON/);
   });
 });
 

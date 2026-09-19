@@ -48,7 +48,7 @@ describe('saveDesign', () => {
       headers: new Headers(),
     });
     const payload = new Uint8Array([0xaa, 0xbb, 0xcc]);
-    const version = await saveDesign('org-1', 'design-1', payload);
+    const version = await saveDesign('org-1', 'design-1', payload, 4);
     expect(version).toBe(9);
 
     const [, , sentBody] = mockedFetch.mock.calls[0];
@@ -58,11 +58,17 @@ describe('saveDesign', () => {
     const view = new DataView(body.buffer, body.byteOffset, 4);
     expect(view.getUint32(0, true)).toBe(EXPECTED_MINOR);
     expect(Array.from(body.subarray(4))).toEqual(Array.from(payload));
-    expect(mockedFetch.mock.calls[0][1]).toBe('/organisations/org-1/designs/design-1/versions');
+    expect(mockedFetch.mock.calls[0][1]).toBe('/organisations/org-1/designs/design-1/versions?base=4');
+  });
+
+  it('appends the given base as a required query parameter, ADR-0054 §1', async () => {
+    mockedFetch.mockResolvedValueOnce({ bytes: new TextEncoder().encode('11\n'), headers: new Headers() });
+    await saveDesign('org-1', 'design-1', new Uint8Array(), 10);
+    expect(mockedFetch.mock.calls[0][1]).toBe('/organisations/org-1/designs/design-1/versions?base=10');
   });
 
   it('throws when the response is not a decimal version number', async () => {
     mockedFetch.mockResolvedValueOnce({ bytes: new TextEncoder().encode('not-a-number\n'), headers: new Headers() });
-    await expect(saveDesign('org-1', 'design-1', new Uint8Array())).rejects.toThrow(/decimal version number/);
+    await expect(saveDesign('org-1', 'design-1', new Uint8Array(), 4)).rejects.toThrow(/decimal version number/);
   });
 });

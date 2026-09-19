@@ -10,16 +10,20 @@
 # artifact; the tag is a pointer. Digests read 2026-09-03. Changing one is a
 # deliberate act, and it shows up in a diff.
 
-# ---- build ----------------------------------------------------------------
-FROM rust@sha256:cf09adf8c3ebaba10779e5c23ff7fe4df4cccdab8a91f199b0c142c53fef3e1a AS build
+# ---- toolchain --------------------------------------------------------
+# Shared by every Rust stage below (`build`, native, and `wasm-build`, for the
+# browser engine) so the CA-trust and toolchain-version setup is written once.
+FROM rust@sha256:cf09adf8c3ebaba10779e5c23ff7fe4df4cccdab8a91f199b0c142c53fef3e1a AS toolchain
 
 # The BASE IMAGE IS the pinned toolchain -- `rust:1.94.1-slim` is 1.94.1, the
 # same version `rust-toolchain.toml` pins -- so this says so and rustup stops
-# there. Without it, rustup reads the toolchain file, sees its `targets` and
-# `components` lines, and goes to the network to install a wasm32 target this
-# image will never build. Pinning the digest above and then downloading a
-# toolchain at build time would also make the build depend on rust-lang.org
-# being reachable, which is one more thing between a checkout and a binary.
+# there rather than going to the network to resolve one on its own. Pinning
+# the digest above and then downloading a toolchain at build time would also
+# make the build depend on rust-lang.org being reachable, which is one more
+# thing between a checkout and a binary. `wasm-build` below still adds the
+# `wasm32-unknown-unknown` target explicitly, on top of this same pinned
+# toolchain, rather than let rustup fetch it from `rust-toolchain.toml`'s
+# `targets` line on its own.
 #
 # **If this version and rust-toolchain.toml's ever disagree, the build is
 # wrong**, and the check below is what says so rather than silently building
@@ -52,6 +56,9 @@ RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') 
         exit 1; \
     fi && rustc --version
 
+# ---- build (native, fathom-server) ---------------------------------------
+FROM toolchain AS build
+
 # --locked, always. ADR-0032 §4: a cargo command without it may rewrite
 # Cargo.lock, and a build that resolves its own dependencies is a build that
 # ships something nobody reviewed.
@@ -61,6 +68,16 @@ RUN pinned=$(grep -E '^channel' rust-toolchain.toml | sed 's/.*"\(.*\)".*/\1/') 
 # request into a whole-server outage. See the comment on [profile.server] in
 # the workspace Cargo.toml.
 RUN cargo build --locked --profile server -p fathom-server
+
+# ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
+# `scripts/build-wasm.sh` in miniature: that script is for a developer's own
+# checkout (it writes into `client/public/engine/`, gitignored, and is not
+# itself invoked here because there is no host checkout inside this stage to
+# write into) -- same command, same target, so the artifact this image ships
+# is the one that script also produces, never a second recipe for it.
+FROM toolchain AS wasm-build
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
 
 # A directory for the runtime stage to copy, and the reason it is made HERE:
 # the runtime image is distroless, so there is no shell to `mkdir` with. See
@@ -81,8 +98,13 @@ RUN mkdir -p /bootstrap-seed && \
       "Once any operator key is enrolled that command refuses, by design." \
       > /bootstrap-seed/README
 
-# ---- run ------------------------------------------------------------------
-FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
+# ---- run --------------------------------------------------------------
+# Named `server` (not left anonymous) because this Dockerfile now builds
+# more than one final image from one file -- `deploy/compose.yaml` names
+# this stage with `target: server` for exactly that reason, so that adding
+# the stages below can never silently change what an unqualified
+# `docker build .` produces.
+FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS server
 
 COPY --from=build /src/target/server/fathom-server /fathom-server
 
@@ -101,6 +123,16 @@ COPY --from=build /src/target/server/fathom-server /fathom-server
 # update should not require a new binary.
 COPY --from=build /src/schema /schema
 ENV FATHOM_SCHEMA_ROOT=/schema
+
+# `corpus/`, beside `schema/`, for the SAME reason `schema/` is copied above
+# rather than embedded: `main.rs` (~L513) loads the equipment catalogue from
+# `FATHOM_SCHEMA_ROOT`'s PARENT, expecting `corpus/catalogue/` to sit next to
+# `schema/` there (`design_api::load_catalogue`'s own doc). Without this line
+# the schema tree loads, the catalogue does not, and the process refuses to
+# start with a catalogue error naming the missing directory -- found running
+# `deploy/compose.yaml` rather than reading it, same as the note above this
+# one.
+COPY --from=build /src/corpus /corpus
 
 # THE ONE PATH THIS SERVER WRITES, and the one reason this image is not
 # entirely read-only. Admin design §6.3's first start mints the first operator
@@ -125,3 +157,67 @@ USER 65532:65532
 
 EXPOSE 8080
 ENTRYPOINT ["/fathom-server"]
+
+# ---- client build -------------------------------------------------------
+# Owner: this stack served no client at all until this stage existed --
+# `deploy/compose.yaml` brought up a server and a proxy with nothing for the
+# proxy to serve except the API. This builds the client the same way
+# `docs/RUNNING-IT.md`'s "from source" section does: `npm ci`, the wasm
+# engine staged into `client/public/engine/` (below), then `npm run build`,
+# into `client/dist`.
+#
+# Digest read 2026-09-19 from `registry-1.docker.io/v2/library/node/manifests/22-slim`
+# (the `docker-content-digest` response header on a manifest-list GET,
+# authenticated the way `docker pull` itself does) -- 22 is the current Node
+# LTS line. Pinned by digest, never by tag, for the identical reason every
+# other `FROM` in this file is (see the file header): the digest is the
+# artifact, the tag is a pointer.
+FROM node@sha256:f1127b82781601ca2a57c96811cf6be9da3d1f77d58ec13bab49e5f79cf8c84c AS client-build
+
+# `COPY . .` at `/src`, not a hand-picked file list: `client/src/index.css`
+# imports `../../design/tokens.css` (`client/vite.config.ts`'s own comment
+# names it), so the client's build needs the repository root beside it, not
+# just `client/`. The Rust build stage above makes the identical choice for
+# the identical reason -- one checkout, copied whole, rather than a file list
+# that silently drifts from what the build actually reads.
+WORKDIR /src
+COPY . .
+WORKDIR /src/client
+
+# `ci`, never `install`: a build that resolves its own client dependency
+# versions is the same objection ADR-0032 §4 makes of a cargo build run
+# without `--locked` -- `package-lock.json` is what was reviewed, and `ci`
+# refuses to touch it. `client/package.json` names no new package for this
+# change to have reviewed; it is `react`, `react-dom` and `@xyflow/react`,
+# already in the tree.
+RUN npm ci
+
+# `scripts/build-wasm.sh`'s destination, staged from `wasm-build` above
+# rather than left for `npm run build` to discover missing: without this,
+# `client/src/engine/wasm.ts`'s fetch of `/engine/fathom_wasm.wasm` 404s at
+# runtime and the paste box and config drawer refuse every input, closed
+# (`client/src/components/design/DesignPlace.tsx`'s own `Engine.init()`
+# catch) -- a dead feature, not a leak, but dead all the same, and `vite
+# build` has no way to notice a public/ file that was never staged.
+COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wasm /src/client/public/engine/fathom_wasm.wasm
+
+RUN npm run build
+
+# ---- caddy, with the client baked in -------------------------------------
+# Owner: this is the SAME pinned Caddy image `deploy/compose.yaml` used to
+# pull directly -- digest unchanged, read 2026-09-03 per the file header
+# above -- now as a build stage so the client's built files can be copied
+# into it. Caddy's own official image has no `npm`, so the client cannot be
+# built inside it; it is only ever copied in, already built, from the stage
+# above.
+FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS caddy
+
+# `/srv/www`, matching `deploy/Caddyfile`'s `root * /srv/www`; the two say
+# the same path so that neither alone is load-bearing, the same convention
+# `deploy/compose.yaml`'s bootstrap-token path uses across three files.
+COPY --from=client-build /src/client/dist /srv/www
+
+# `deploy/Caddyfile` itself is still a bind mount, from `deploy/compose.yaml`
+# -- deliberately not copied in here -- so that a TLS or host-name change
+# (this file's own "a real deployment replaces this block" comments) does
+# not need an image rebuild to take effect.

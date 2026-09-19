@@ -16,6 +16,13 @@
   font-size: var(--t-small);
 }
 
+/* ADR-0054 §1's refusal wash "offers reload" — the control that sentence
+   names. */
+.racks-place__refusal-reload {
+  display: block;
+  margin-top: var(--s2);
+}
+
 /* ADR-0053 §4 — the Trail panel (`Trail.tsx`), beside the drawing. */
 
 .racks-trail {

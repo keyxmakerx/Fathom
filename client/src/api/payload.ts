@@ -73,20 +73,34 @@ export async function openDesign(
 }
 
 /**
- * `POST /organisations/{organisation}/designs/{design}/versions` — a new
- * version. Body: `u32_le(schema minor) ‖ bytes`, `save_design_handler`'s
- * exact framing (`read_u32_le`); the response is the new version number as
- * decimal text followed by a newline (`{version}\n`). The prefix is always
- * `schemaVersionMinor()` — derived from the same `SCHEMA_VERSION` `plain.ts`
- * wrote into `bytes`' own `schema` line, never a caller-supplied number that
- * could disagree with it.
+ * `POST /organisations/{organisation}/designs/{design}/versions?base=<base>`
+ * — a new version. Body: `u32_le(schema minor) ‖ bytes`,
+ * `save_design_handler`'s exact framing (`read_u32_le`); the response is the
+ * new version number as decimal text followed by a newline (`{version}\n`).
+ * The prefix is always `schemaVersionMinor()` — derived from the same
+ * `SCHEMA_VERSION` `plain.ts` wrote into `bytes`' own `schema` line, never a
+ * caller-supplied number that could disagree with it.
+ *
+ * `base` — ADR-0054 §1: "a save names the version it was based on, in the
+ * signed query, required: an optional precondition is no precondition."
+ * There is no default here for the same reason: a caller that has no base
+ * yet (the design has not finished opening) has nothing valid to send and
+ * must not send anything at all rather than guess. The server serialises on
+ * the design's row lock and refuses (409) a base that is not the current
+ * version, naming both numbers in one sentence in the body and the current
+ * version in the `fathom-design-version` header; this function does not
+ * read that header — `components/design/conditionalSave.ts` is the one
+ * place that decides what a refusal does to the base it holds, and it never
+ * adopts the server's own number (ADR-0054 §1's "that is the silent
+ * overwrite by another name").
  */
 export async function saveDesign(
   organisationId: string,
   designId: string,
   bytes: Uint8Array,
+  base: number,
 ): Promise<number> {
-  const path = `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}/versions`;
+  const path = `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}/versions?base=${encodeURIComponent(String(base))}`;
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, schemaVersionMinor(), true); // little-endian
   const body = new Uint8Array(prefix.length + bytes.length);

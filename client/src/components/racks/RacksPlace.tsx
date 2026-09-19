@@ -186,7 +186,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     notesActions,
     ...shellProps
   } = props;
-  const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit } = session;
+  const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
 
   // "Show on rack" (`InventoryPlace.tsx`) — this session's brief item 5: a
@@ -498,7 +498,15 @@ export function RacksPlace(props: RacksPlaceProps) {
   // here too: "an edit here is the same edit there."
   const editor =
     saveRefusal != null ? (
-      <div className="racks-place__refusal">{saveRefusal}</div>
+      <div className="racks-place__refusal">
+        {saveRefusal}
+        {/* ADR-0054 §1's refusal wash "offers reload" — this is the control
+            the sentence above names; without it a 409 pointed at an
+            affordance the screen never rendered. */}
+        <button type="button" className="racks-place__refusal-reload" onClick={reloadDesign}>
+          Reload
+        </button>
+      </div>
     ) : doc != null ? (
       // `onSelect: setSelection` — ADR-0051 §1, this session's brief item
       // 4 — a shelf's own editor lists its occupants by slot, each a link

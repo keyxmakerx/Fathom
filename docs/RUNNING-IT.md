@@ -1,12 +1,18 @@
-# Running Fathom — 2026-09-14
+# Running Fathom — 2026-09-19
 
 Two ways to start it: **from source**, which is verified below and is what you want today, and
 **Docker Compose**, which nobody has yet run end to end and which needs one thing done by hand
 first. Both end in the same place: a server, a browser client, and one operator who can invite
 people.
 
-**Read `docs/STATE.md` for what is and is not built.** The short version: you can sign in, and there
-is no diagram yet. The canvas is the next block of work.
+**Read `docs/STATE.md` for what is and is not built.** The short version, current as of
+2026-09-19 (read the actual page for the rest; this paragraph is corrected here because an
+earlier draft of this file said the client was a shell with no diagram, which stopped being true
+several sessions ago): you sign in, land on Home, and draw a rack-first network diagram with
+React Flow — racks, devices, ports and cables, a rear elevation, shelves and wall-mounted gear,
+a view-only config drawer behind the redaction gate, and an inventory with notes and undo. What
+is still missing: nothing is emailed, nothing talks to a live device, and the credential vault
+(private notes, secrets) is not built yet.
 
 ---
 
@@ -85,6 +91,16 @@ with a reason, not a server that runs with a piece missing.
 
 ### 4. Start the client
 
+The browser engine (the paste box and the config drawer's redaction gate, ADR-0052 §1) ships as a
+file, not a package, and is not checked in — `client/public/engine/` is gitignored. Build it once,
+from the repository root, before the client can use either surface:
+
+```sh
+./scripts/build-wasm.sh
+```
+
+Then:
+
 ```sh
 cd client
 npm ci --ignore-scripts          # --ignore-scripts is not optional, see below
@@ -127,15 +143,36 @@ restart                                   one operator, no re-bootstrap
 
 ## Docker Compose
 
-`deploy/compose.yaml` builds a two-container deployment behind Caddy, with the database passwords
-generated at first start and the images pinned by digest rather than by tag.
+`deploy/compose.yaml` builds a three-container deployment (PostgreSQL, the server, and Caddy in
+front of both), with the database passwords generated at first start and the images pinned by
+digest rather than by tag.
 
 **Nobody has run it end to end. Docker is not available in the environment this repository is
 developed in, so the compose path can only be proven on your machine, and until you do, treat this
-section as reasoning rather than evidence.**
+section as reasoning rather than evidence.** Everything below this stack's own shape was written
+without ever running `docker compose up` — read `deploy/Dockerfile`, `deploy/Caddyfile` and
+`deploy/compose.yaml` themselves, which carry a comment on every line that is a decision rather
+than boilerplate, for the reasoning this page only summarises.
 
-Two first-start faults have been found by reading it. The first is fixed; the second needs one
-action from you.
+**The stack's shape, as of 2026-09-19: Caddy now serves the client, not only the API.**
+`deploy/Dockerfile` gained two build stages — `client-build` (Node, pinned by digest like every
+other image here) runs `npm ci && npm run build` against the same checkout the server builds
+from, and a `caddy` stage bakes that build's `client/dist` into `/srv/www` on top of the same
+pinned Caddy image the stack already used. `deploy/Caddyfile` now routes every path
+`crates/fathom-server`'s own routers actually serve (`/session`, `/organisations`, `/catalogue`,
+`/admin`, `/enrolment`, `/firmware`, `/health`, `/schema/kinds` — enumerated, not wildcarded, the
+same choice `client/vite.config.ts`'s dev-time proxy already made) to the `server` container, and
+serves everything else as a static file from `/srv/www`. Before this change the compose stack
+brought up a server and a proxy with nothing at all for the proxy to serve except the API; a
+browser pointed at `https://localhost:8443/` got nothing.
+
+Also fixed in the same change: `deploy/Dockerfile` used to copy `schema/` into the server image
+but not `corpus/`, and `main.rs` loads the equipment catalogue from `corpus/`'s being beside
+`schema/` — so the containerised server refused to start with a catalogue error. `corpus/` is now
+copied alongside `schema/`.
+
+Beyond the catalogue and the client above, two more first-start faults have been found by reading
+this stack. The first is fixed; the second needs one action from you.
 
 **Fixed:** the first-start operator token was written beside the master key, and the key volume is
 mounted read-only on purpose, so the server could not start. The token now has its own writable
@@ -168,6 +205,17 @@ than defaulting it. The install record it feeds is write-once by design, no role
 organisation enrolment claims are pinned to it, so a plausible-looking placeholder would be
 permanently wrong in any deployment that did not read the comment.
 
+**The sign-in rate limit's source bucket, fixed 2026-09-19.** Behind any reverse proxy, every
+request the server sees arrives from that proxy's own address unless told otherwise
+(`src/config.rs`'s own comment on `FATHOM_TRUSTED_CLIENT_IP_HEADER`) — and this stack puts Caddy
+in front of the server, so without that variable set, every sign-in attempt from every real
+client shared one rate-limit bucket. `deploy/compose.yaml` now sets
+`FATHOM_TRUSTED_CLIENT_IP_HEADER=X-Forwarded-For`, and it is safe to set only because
+`deploy/Caddyfile` overwrites that exact header on every proxied request with the address Caddy
+itself accepted the connection from (`header_up X-Forwarded-For {remote_host}`), rather than
+trusting whatever a client sent — a deployment that set the variable without that guarantee would
+let a client pick its own rate-limit bucket instead.
+
 **If you lose the first-start token before redeeming it**, `fathom-server reissue-bootstrap-token`
 issues another. It refuses the moment any operator key has ever been enrolled, including a retired
 one, because a re-issue that still worked after that would be a way for anyone who can run a command
@@ -175,11 +223,16 @@ on the host to make themselves an operator.
 
 ## What does not work yet
 
-- **There is no diagram.** The client has a shell, a sign-in, and a page showing the five port
-  glyphs. Racks, faceplates and cables are the next block of work.
+Corrected 2026-09-19 against `docs/STATE.md`, which is the page of record — read it, not this
+list, for anything more specific than the headline gaps below:
+
+- **The diagram is real** (racks, cables, a rear elevation, shelves and wall-mounted gear, a
+  view-only config drawer, an inventory with notes and undo), **but the credential vault is
+  not built.** Private notes and device secrets have nowhere to live yet.
 - **Nothing is emailed.** There is no mail path at all, so an invitation is a token you hand over
   yourself, and the two-operator interlock on settings refuses correctly but notifies nobody.
-- **Nothing talks to a live device.** Everything comes from pasted text.
+- **Nothing talks to a live device.** Everything comes from pasted text, through the redaction
+  gate.
 - **The audit trail is unwitnessed** unless you set `FATHOM_AUDIT_SYSLOG`. Without it, every entry is
   sealed and stored, and nothing outside the machine holds a copy — so whoever holds the machine
   holds all of it. The server says so at startup.

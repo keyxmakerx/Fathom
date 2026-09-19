@@ -1531,6 +1531,132 @@ async fn single_operator_mode_drops_the_second_signature_and_keeps_the_delay() {
     );
 }
 
+/// **The finding this guards:** `single_operator` used to be read off the
+/// pending row at apply time — a record of what this deployment was
+/// configured as when the change was *requested* — rather than asked fresh,
+/// the way `first_version` right next to it in `apply_if_due` already is (its
+/// own comment: *"the difference matters: between requesting and applying,
+/// some other change may have become this key's first applied version, and a
+/// remembered flag would then let a second change through with one
+/// signature"* — true of `single_operator` for the identical reason and, until
+/// this fix, not applied to it).
+///
+/// A request made under single-operator mode, still unseconded when the
+/// deployment's own configuration turns that mode off — a restart between the
+/// request and its delayed apply, the only way `FATHOM_SINGLE_OPERATOR`
+/// changes — must NOT apply on the strength of the flag that no longer
+/// describes this deployment. Two `OperatorStore`s over the same pool and the
+/// same deployment id, differing only in `single_operator`, stand in for the
+/// same process before and after that restart: nothing else about a restart
+/// changes any row already in PostgreSQL.
+#[tokio::test]
+async fn single_operator_is_re_evaluated_at_apply_not_remembered_from_the_request() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+
+    // Requested while this deployment is configured single-operator.
+    let store_when_requested = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&store_when_requested, &sessions_store).await;
+
+    // A colleague, minted here (using the single-operator store, before the
+    // restart below) purely so a REAL second signature exists to reach for
+    // later -- minting an operator itself needs single-operator mode or a
+    // second signature, and there is nobody yet to provide the second, so
+    // this has to happen before the flag this test is about turns off.
+    //
+    // The colleague REQUESTS the change below and `operator` SECONDS it --
+    // the other way round would trip the independent-seconder trigger
+    // (`0015`'s `fathom_seconder_is_independent`, tested on its own in
+    // `an_operator_cannot_be_seconded_by_the_operator_they_created`): a
+    // seconder that the requester created is refused, and `operator` created
+    // this colleague. `operator`, not created by anyone (it is this
+    // deployment's §6.3 bootstrap), has no such creator to trip that check
+    // when it seconds instead. Backdated here for the OTHER half of that same
+    // trigger -- an independent sign-in older than the longest delay window
+    // -- since `operator` is now the one whose sign-in history the trigger
+    // reads.
+    let colleague = a_second_operator(&store_when_requested, &sessions_store, &operator).await;
+    superuser()
+        .await
+        .execute(
+            "UPDATE operators SET first_independent_signin_at = now() - interval '30 days' \
+              WHERE id = $1",
+            &[&operator.id],
+        )
+        .await
+        .expect("backdate the seconder's first sign-in");
+
+    let key = unique("cadence-live");
+    request_and_expect_applied(&store_when_requested, &operator, &key, b"first").await;
+
+    let value = b"second";
+    let acting = colleague
+        .session_for(&sessions_store, "POST", "/admin/settings", b"")
+        .await;
+    let message = operators::setting_request_bytes(
+        store_when_requested.deployment(),
+        &colleague.id,
+        &key,
+        value,
+    );
+    let pending = store_when_requested
+        .request_setting(&acting, &key, value, &colleague.key.sign(&message))
+        .await
+        .expect("a second version is requested, alone, under single-operator mode");
+    assert!(
+        pending.sealed_seq.is_none() && pending.applied_at_unix == 0,
+        "still delayed, exactly as the mode promises"
+    );
+
+    // The restart: the same deployment, the same database, single-operator
+    // mode now off.
+    let store_after_restart = store(&pool, Arc::clone(&ring), false, Duration::from_secs(1)).await;
+
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+
+    assert_eq!(
+        store_after_restart
+            .effective_setting(&key)
+            .await
+            .expect("the resolver answers")
+            .as_deref(),
+        Some(&b"first"[..]),
+        "the delay elapsed, but this deployment now requires a second signature and the \
+         request has none -- it must stay pending, not apply on a flag that was true only \
+         when it was requested"
+    );
+
+    // Sweeping again changes nothing: the pending row is not silently
+    // dropped, only left unapplied, and asking twice must answer the same
+    // way both times -- a re-evaluated gate is not a coin flip.
+    assert_eq!(
+        store_after_restart
+            .effective_setting(&key)
+            .await
+            .expect("the resolver answers")
+            .as_deref(),
+        Some(&b"first"[..]),
+        "still refused on a second sweep, not applied on the first and merely reported \
+         differently on the second"
+    );
+
+    // NOTE for the row's OWN recovery path: seconding this particular pending
+    // row (rather than merely confirming it does not silently apply) runs
+    // into `site_settings_versions_check7`
+    // (`0015_operator_console.sql`: `CHECK (NOT single_operator OR
+    // seconded_by IS NULL)`) -- a row stamped `single_operator = true` at
+    // request time cannot ever carry a `seconded_by` afterwards, regardless
+    // of what this deployment is configured as when someone tries to second
+    // it. That is a second, narrower bug adjacent to this one (a request
+    // made under single-operator mode that outlives a switch back to
+    // two-operator mode can be refused forever but never seconded) and is
+    // schema-owned, not `operators.rs`-owned -- reported to the lead rather
+    // than fixed here.
+    let _ = pending.id;
+}
+
 /// §5.5's other seconder rule: **the seconder was not created by the
 /// requester.** Two ids that differ are not two humans when one of them minted
 /// the other.

@@ -13,7 +13,18 @@
 // doc on `DesignId`), and `scope_id` is an opaque ULID with no label this
 // route resolves. Any screen wanting a human name for a design or its scope
 // has nothing here to read it from yet.
+//
+// `createDesign` below is `POST /organisations/{organisation}/scopes/{scope}/designs`
+// — ADR-0054 §2, "draw creates a design": the route takes the scope in the
+// signed path and the client's empty document as the body, through the same
+// validation a save uses (`payload.ts`'s `saveDesign` framing: `u32_le(schema
+// minor) ‖ bytes` — duplicated here in miniature rather than imported,
+// because `payload.ts` is not this file's to change), and answers with the
+// same shape `list_designs_handler` gives — one element, not an array —
+// which is why `parseDesignSummary` is split out of `parseDesigns` rather
+// than kept private: both read the one object shape.
 
+import { SCHEMA_VERSION } from '../document/plain';
 import { signedFetch } from './signedFetch';
 
 /** `authority.rs`'s `Capability::as_str`: `"read"`, `"draw"` or
@@ -33,6 +44,39 @@ export interface DesignSummary {
 const REQUIRED_STRING_FIELDS = ['design_id', 'scope_id', 'created_by', 'capability'] as const;
 
 /**
+ * Decode and validate one design summary object — the shape one element of
+ * `/organisations/{organisation}/designs`'s array holds, and (ADR-0054 §2)
+ * the whole body `createDesign`'s route answers with. `label` identifies
+ * which body this came from in a thrown message (`"entry 0"`, `"the create
+ * response"`) without this function needing to know which caller it is.
+ */
+export function parseDesignSummary(entry: unknown, label: string): DesignSummary {
+  if (typeof entry !== 'object' || entry === null) {
+    throw new Error(`malformed designs response: ${label} is not an object`);
+  }
+  const record = entry as Record<string, unknown>;
+  for (const field of REQUIRED_STRING_FIELDS) {
+    if (typeof record[field] !== 'string' || (record[field] as string).length === 0) {
+      throw new Error(`malformed designs response: ${label} has no ${field}`);
+    }
+  }
+  if (typeof record.created_at_unix !== 'number') {
+    throw new Error(`malformed designs response: ${label} has no created_at_unix`);
+  }
+  if (typeof record.latest_version !== 'number') {
+    throw new Error(`malformed designs response: ${label} has no latest_version`);
+  }
+  return {
+    designId: record.design_id as string,
+    scopeId: record.scope_id as string,
+    createdAtUnix: record.created_at_unix,
+    createdBy: record.created_by as string,
+    capability: record.capability as string,
+    latestVersion: record.latest_version,
+  };
+}
+
+/**
  * Decode and validate one `/organisations/{organisation}/designs` response
  * body. Throws a plain `Error` — not `ApiRefusal`, reserved for a refusal
  * the server itself sent (`errors.ts`) — for a body that is not JSON, not
@@ -50,31 +94,60 @@ export function parseDesigns(bytes: Uint8Array): DesignSummary[] {
   if (!Array.isArray(parsed)) {
     throw new Error('malformed designs response: body is not a JSON array');
   }
-  return parsed.map((entry, index) => {
-    if (typeof entry !== 'object' || entry === null) {
-      throw new Error(`malformed designs response: entry ${index} is not an object`);
-    }
-    const record = entry as Record<string, unknown>;
-    for (const field of REQUIRED_STRING_FIELDS) {
-      if (typeof record[field] !== 'string' || (record[field] as string).length === 0) {
-        throw new Error(`malformed designs response: entry ${index} has no ${field}`);
-      }
-    }
-    if (typeof record.created_at_unix !== 'number') {
-      throw new Error(`malformed designs response: entry ${index} has no created_at_unix`);
-    }
-    if (typeof record.latest_version !== 'number') {
-      throw new Error(`malformed designs response: entry ${index} has no latest_version`);
-    }
-    return {
-      designId: record.design_id as string,
-      scopeId: record.scope_id as string,
-      createdAtUnix: record.created_at_unix,
-      createdBy: record.created_by as string,
-      capability: record.capability as string,
-      latestVersion: record.latest_version,
-    };
-  });
+  return parsed.map((entry, index) => parseDesignSummary(entry, `entry ${index}`));
+}
+
+/**
+ * `save_design_handler`'s own wire prefix (`payload.ts`'s `saveDesign`,
+ * verbatim): the schema's minor version as `u32_le`, read off `SCHEMA_VERSION`
+ * rather than typed a second time. Kept here rather than imported from
+ * `payload.ts` — this file's own brief does not extend to changing that
+ * module, and the duplication is four lines against a shared constant, not a
+ * second spelling of the version number itself.
+ */
+function schemaVersionMinor(): number {
+  const prefix = '0.';
+  if (!SCHEMA_VERSION.startsWith(prefix)) {
+    throw new Error(`SCHEMA_VERSION "${SCHEMA_VERSION}" is not of the form "0.<minor>"`);
+  }
+  const minor = Number.parseInt(SCHEMA_VERSION.slice(prefix.length), 10);
+  if (!Number.isInteger(minor) || minor < 0 || String(minor) !== SCHEMA_VERSION.slice(prefix.length)) {
+    throw new Error(`SCHEMA_VERSION "${SCHEMA_VERSION}" has a non-numeric minor part`);
+  }
+  return minor;
+}
+
+/**
+ * `POST /organisations/{organisation}/scopes/{scope}/designs` — ADR-0054
+ * §2: "draw creates a design." `bytes` is the plain-encoded document to
+ * create it with — Home always passes `writePlain(emptyDocument())`, never
+ * anything read back from a live editor, because a bodiless design is never
+ * minted and a fresh design starts from nothing. Framed exactly as
+ * `saveDesign` frames a save (`u32_le(schema minor) ‖ bytes`) because the
+ * route validates it the same way; answers with one design summary, the
+ * same object shape `parseDesigns` reads out of the list.
+ */
+export async function createDesign(
+  organisationId: string,
+  scopeId: string,
+  bytes: Uint8Array,
+): Promise<DesignSummary> {
+  const path = `/organisations/${encodeURIComponent(organisationId)}/scopes/${encodeURIComponent(scopeId)}/designs`;
+  const prefix = new Uint8Array(4);
+  new DataView(prefix.buffer).setUint32(0, schemaVersionMinor(), true); // little-endian
+  const body = new Uint8Array(prefix.length + bytes.length);
+  body.set(prefix, 0);
+  body.set(bytes, prefix.length);
+
+  const response = await signedFetch('POST', path, body);
+  const text = new TextDecoder().decode(response);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('malformed create-design response: body is not JSON');
+  }
+  return parseDesignSummary(parsed, 'the create response');
 }
 
 /** The designs the signed-in account may see within `organisationId` — a

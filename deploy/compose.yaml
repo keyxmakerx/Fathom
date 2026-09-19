@@ -183,6 +183,12 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      # Named explicitly now that this Dockerfile builds more than one final
+      # image (`client-build` and `caddy` are later stages in the same
+      # file) -- an unqualified build picks the LAST stage, which would
+      # otherwise silently become the caddy image the day these stages
+      # moved. See `deploy/Dockerfile`'s own comment on the `server` stage.
+      target: server
     # In a real deployment this is a digest, exactly like the two above:
     #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
     # `build:` is here so the stack can be brought up from a clean checkout
@@ -259,6 +265,23 @@ services:
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
+      # `src/config.rs`'s own doc on this field, in full: unset means the
+      # peer address, right on the open internet and wrong behind a proxy,
+      # "because behind a proxy every request arrives from the proxy — so
+      # with this unset in that deployment, the source bucket is one bucket
+      # for the whole site and a single attacker rate-limits everybody."
+      # This compose file puts Caddy in front (the `caddy` service, below),
+      # so it must set this, and it was the one line missing that made every
+      # sign-in in this stack share one rate-limit bucket regardless of who
+      # made it. **Safe only because `deploy/Caddyfile` overwrites this exact
+      # header on every request it proxies** (`header_up X-Forwarded-For
+      # {remote_host}`, in its own file) rather than trusting whatever a
+      # client sent -- setting this without that would let a client pick its
+      # own rate-limit bucket instead, which is the other failure mode
+      # `src/config.rs`'s comment names. `src/api.rs::source_of` also reads
+      # this header's LAST entry rather than its first, a second,
+      # independent defence against the same client-supplied-header risk.
+      FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --
@@ -286,7 +309,18 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
   caddy:
-    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    # Built, not pulled, as of this change: `deploy/Dockerfile`'s `caddy`
+    # stage bakes the built client into the same pinned Caddy image this
+    # used to pull directly (digest unchanged; see that stage's own
+    # comment). `image:` below still names a real, pinned upstream image
+    # once published -- exactly the `server` service's own pattern, and its
+    # comment explains why `build:` is what makes this stack runnable from a
+    # clean checkout before that publish exists.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: caddy
+    image: fathom-caddy:wo-11
     restart: unless-stopped
     depends_on:
       - server

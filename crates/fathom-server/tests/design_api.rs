@@ -30,16 +30,20 @@ use fathom_graph::{
     Actor, BatchId, Confidence, Graph, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
 };
 use fathom_id::Ulid;
-use fathom_ir::generated::ir_types::NodeKind;
+use fathom_ir::generated::ir_types::{CaptureField, NodeKind, NoteField};
+use fathom_ir::scalar;
 use fathom_server::api::{
     HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN,
 };
+use fathom_server::audit;
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
 use fathom_server::crypto::Key32;
 use fathom_server::design_api::{self, DesignApiState};
 use fathom_server::designs;
-use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
+use fathom_server::grants::{
+    self, Authority, AuthorityError, EpochWatch, GenesisGrant, GrantRequest,
+};
 use fathom_server::keys::{self, KeyRing};
 use fathom_server::repo::{self, AccountId, DesignId, OrganisationId, ScopeId, ScopeKind};
 use fathom_server::sessions::{self, SessionStore, SignInLimits};
@@ -773,14 +777,14 @@ async fn a_read_only_caller_is_refused_a_save_and_the_refusal_does_not_leak_whet
     let body = save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(1));
 
     let real_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, design
     );
     let (real_status, real_body) = call(addr, &reader, "POST", &real_path, &body).await;
 
     let fake = a_design_id_nothing_was_ever_created_under();
     let fake_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, fake
     );
     let (fake_status, fake_body) = call(addr, &reader, "POST", &fake_path, &body).await;
@@ -916,7 +920,7 @@ async fn a_drawer_saves_a_version_and_the_steward_opens_the_same_bytes_back() {
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
 
     let versions_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, design
     );
     // A real `fathom-plain` payload -- ADR-0049 #2, exactly as the read-only
@@ -971,7 +975,7 @@ async fn a_payload_written_by_write_plain_saves_and_opens_back_byte_for_byte() {
 
     let payload = a_plain_face_payload(3);
     let versions_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, design
     );
     let (status, body) = call(
@@ -1029,7 +1033,7 @@ async fn a_payload_whose_warning_line_is_edited_is_refused_with_the_named_error(
 
     let corrupted = corrupt_warning_line(&a_plain_face_payload(4));
     let versions_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, design
     );
     let (status, body) = call(
@@ -1079,7 +1083,7 @@ async fn a_payload_whose_prefix_disagrees_with_line_3_is_refused() {
 
     let payload = a_plain_face_payload(5);
     let versions_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=0",
         estate.organisation, design
     );
     let (status, body) = call(
@@ -1115,6 +1119,196 @@ async fn a_payload_whose_prefix_disagrees_with_line_3_is_refused() {
         matches!(latest, Err(designs::DesignError::NoSuchVersion)),
         "the refused save must not have written a version: {latest:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0054 #1: a save names the version it was based on
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_save_with_no_base_at_all_is_refused_with_400() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(6)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        "400",
+        "a save with no base at all must be refused, never treated as no precondition: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "the refused save must not have written a version: {latest:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_save_with_a_non_integer_base_is_refused_with_400() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=not-a-number",
+        estate.organisation, design
+    );
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(7)),
+    )
+    .await;
+    assert_eq!(status, "400");
+}
+
+/// The ADR's own two-session proof, all four of its clauses: A opens at
+/// version 0 and saves; B, still holding base 0, is refused with a `409`
+/// naming version 1 and sees A's own bytes on a fresh open, and the history
+/// has exactly one entry; B reloads (base 1) and now saves; a stale base (7)
+/// is refused; no base at all is a `400`.
+#[tokio::test]
+async fn two_sessions_saving_in_turn_get_adr_0054s_precondition() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let a = a_member_with(&pool, &ring, &estate, "session-a", Some(Capability::Draw)).await;
+    let b = a_member_with(&pool, &ring, &estate, "session-b", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = |base: &str| {
+        format!(
+            "/organisations/{}/designs/{}/versions?base={base}",
+            estate.organisation, design
+        )
+    };
+
+    // A, base 0 -> 200 "1".
+    let (status, body) = call(
+        addr,
+        &a,
+        "POST",
+        &versions_path("0"),
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(8)),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(body, b"1\n");
+
+    // B, still on base 0 -> 409 naming 1; open still returns A's bytes;
+    // history has one entry.
+    let b_payload = a_plain_face_payload(9);
+    let (status, body) = call(
+        addr,
+        &b,
+        "POST",
+        &versions_path("0"),
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &b_payload),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "409", "{text}");
+    assert!(
+        text.contains("you opened version 0") && text.contains("it is now version 1"),
+        "the refusal must name both numbers in one sentence: {text}"
+    );
+    assert!(text.contains("Reload"), "{text}");
+
+    let open_path = format!("/organisations/{}/designs/{}", estate.organisation, design);
+    let (status, body) = call(addr, &a, "GET", &open_path, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        body,
+        a_plain_face_payload(8),
+        "B's refused save must not have overwritten A's version"
+    );
+
+    let history_path = format!(
+        "/organisations/{}/designs/{}/history",
+        estate.organisation, design
+    );
+    let (status, body) = call(addr, &a, "GET", &history_path, b"").await;
+    assert_eq!(status, "200");
+    let history_text = String::from_utf8_lossy(&body);
+    assert_eq!(
+        history_text.matches("\"seq\":").count(),
+        1,
+        "B's refused save must not have appended a chain entry either: {history_text}"
+    );
+
+    // B reloads (base 1) -> 200 "2".
+    let (status, body) = call(
+        addr,
+        &b,
+        "POST",
+        &versions_path("1"),
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &b_payload),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(body, b"2\n");
+
+    // B, a stale base -> 409.
+    let (status, body) = call(
+        addr,
+        &b,
+        "POST",
+        &versions_path("7"),
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &b_payload),
+    )
+    .await;
+    assert_eq!(status, "409", "{}", String::from_utf8_lossy(&body));
+
+    // No base at all -> 400.
+    let no_base_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let (status, _) = call(
+        addr,
+        &b,
+        "POST",
+        &no_base_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &b_payload),
+    )
+    .await;
+    assert_eq!(status, "400");
 }
 
 #[tokio::test]
@@ -1169,7 +1363,7 @@ async fn a_reader_cannot_save_but_can_still_open_and_verify() {
     // open and verify, so a version already on file is not itself what was
     // making the read-only save win nothing: it never reaches version 2.
     let versions_path = format!(
-        "/organisations/{}/designs/{}/versions",
+        "/organisations/{}/designs/{}/versions?base=1",
         estate.organisation, design
     );
     let save_attempt = save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(2));
@@ -1492,6 +1686,106 @@ async fn organisations_refuses_unsigned_and_badly_signed_requests_like_every_oth
     );
 }
 
+/// **The finding this guards:** every route through `design_api::Signed`
+/// used to read its body at `design_api::MAX_SIGNED_BODY` (64 MiB) before
+/// `begin_request` -- the nonce spend and the signature check -- ever ran, so
+/// a caller who never held a valid session, presenting headers of the right
+/// SHAPE (this test's own signature is real cryptographic garbage: a
+/// well-formed session and a bit flipped in the signature, exactly
+/// `call_badly_signed`'s own shape), could still make this process buffer 64
+/// MiB on a plain `GET /organisations`, which has no legitimate body at all.
+///
+/// The proof is a comparison, not a guess about what is happening inside the
+/// server: `organisations_refuses_unsigned_and_badly_signed_requests_like_every_other_route`
+/// (immediately above) sends the IDENTICAL bad signature with an EMPTY body
+/// and gets `401` -- the signature was checked and failed. Here, the same bad
+/// signature with a 2 MiB body -- comfortably over `api::MAX_SIGNED_BODY`'s
+/// one mebibyte this route reads at, comfortably under the 64 MiB the two
+/// write routes are allowed (`design_api::is_large_body_route`, and
+/// `/organisations` is not one of them) -- must come back `400`, the fixed
+/// `malformed request` sentence `axum::body::to_bytes` exceeding its cap
+/// produces, and MUST NOT come back `401`: a `401` here would mean the whole
+/// 2 MiB was buffered and a signature check was even attempted, which is
+/// exactly the finding.
+#[tokio::test]
+async fn a_two_mebibyte_body_with_an_invented_signature_is_refused_by_the_cap_before_the_signature_is_ever_checked(
+) {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let body = vec![0u8; 2 * 1024 * 1024];
+    let (status, response) =
+        call_badly_signed(addr, &estate.steward, "GET", "/organisations", &body).await;
+    assert_eq!(
+        status, "400",
+        "the small cap must refuse this body before begin_request runs at all -- NOT the 401 \
+         the identical bad signature earns over an empty body once begin_request actually \
+         checks it"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&response),
+        "malformed request\n",
+        "the fixed sentence `api::Refusal` gives every `SessionError::Malformed`, which is what \
+         a body over `axum::body::to_bytes`'s cap produces"
+    );
+}
+
+/// The residual the module doc now states explicitly: `is_large_body_route`
+/// narrows which routes read at the 64 MiB cap, it does not require
+/// authority first. A bad signature over a 2 MiB body -- comfortably over
+/// `api::MAX_SIGNED_BODY`'s one mebibyte, comfortably under the 64 MiB this
+/// route is allowed -- to `POST .../versions` must still come back `401`,
+/// not `400`: a `400` would mean the small cap caught it, which would mean
+/// this is not actually one of the two large-body routes any more. The body
+/// must be a well-formed plain-face payload, not arbitrary bytes: this
+/// handler's own [`validate_payload`] parses and credential-scans the body
+/// BEFORE `signed.verify` ever runs (its own doc: "a malformed request costs
+/// nothing from the database either way"), so a body that fails to parse
+/// answers `422` without ever reaching the signature check at all -- a
+/// second, worse-shaped instance of the same residual (parsing runs before
+/// authority too), not exercised by this test. `401` here proves the whole
+/// 2 MiB was parsed AND buffered and a signature check was attempted against
+/// invented header values, before any session was looked up -- exactly the
+/// residual the module doc names, recorded rather than left implied closed.
+#[tokio::test]
+async fn a_two_mebibyte_body_with_an_invented_signature_on_a_large_body_route_is_still_buffered_before_the_signature_is_checked(
+) {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+
+    // A valid, large plain-face payload: a 2 MiB `Capture.text` of ordinary
+    // words, so `validate_payload` accepts it and the request reaches
+    // `signed.verify`, the thing this test actually checks. Not `"x"`
+    // repeated with no separator -- that is one giant token, and
+    // `looks_like_credential_bare`'s own `base64ish` shape detector (any
+    // run of 24+ base64-alphabet characters) trips on it, which would make
+    // this test measure a credential-detector false positive instead of the
+    // signature-check residual it is for.
+    let big_line = "filler ".repeat(2 * 1024 * 1024 / "filler ".len());
+    let capture_payload = a_payload_with_capture_text(310, &big_line);
+    let body = save_body(CURRENT_SCHEMA_WIRE_VERSION, &capture_payload);
+    let (status, _response) =
+        call_badly_signed(addr, &estate.steward, "POST", &versions_path, &body).await;
+    assert_eq!(
+        status, "401",
+        "a 2 MiB body on a large-body route must still be buffered, parsed and reach the \
+         signature check -- a 400 or 422 here would mean it never got that far"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // GET /organisations/{organisation}/scopes — D11
 // ---------------------------------------------------------------------------
@@ -1540,6 +1834,80 @@ async fn a_steward_sees_every_scope_in_the_organisation_in_path_order_root_first
     assert!(
         building_a_at < rack_at,
         "a parent must be listed before its own descendant: {text}"
+    );
+}
+
+/// **The finding this guards:** `list_scopes_handler` used to call
+/// `grants::authorise_account` once per row, and that function does §3.4's
+/// whole seven steps from scratch every time -- steps 2 through 5 read and
+/// verify the organisation's entire authority head, state and genesis, none
+/// of which depends on which row is being checked. A hundred scopes in one
+/// organisation meant that work done a hundred times over one list. This
+/// asserts the fix directly, by counting: `grants::verify_authority_state`
+/// (steps 2-5) must run exactly ONCE for this whole list, no matter how many
+/// scopes are in it -- `grants::verify_authority_state_calls` is instrumented
+/// for exactly this (see its own doc).
+#[tokio::test]
+async fn listing_a_hundred_scopes_verifies_the_whole_authority_state_once_not_once_per_row() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+
+    let network = repo::create_scope(
+        &pool,
+        estate.organisation,
+        estate.steward.account,
+        None,
+        ScopeKind::Network,
+        &unique("net-100"),
+    )
+    .await
+    .expect("create network")
+    .id;
+    let building = repo::create_scope(
+        &pool,
+        estate.organisation,
+        estate.steward.account,
+        Some(network),
+        ScopeKind::Building,
+        &unique("building-100"),
+    )
+    .await
+    .expect("create building")
+    .id;
+    for i in 0..100 {
+        repo::create_scope(
+            &pool,
+            estate.organisation,
+            estate.steward.account,
+            Some(building),
+            ScopeKind::Rack,
+            &unique(&format!("rack-{i}")),
+        )
+        .await
+        .expect("create rack");
+    }
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+    let organisation = estate.organisation.to_string();
+
+    let before = grants::verify_authority_state_calls(&organisation);
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let after = grants::verify_authority_state_calls(&organisation);
+
+    let text = String::from_utf8_lossy(&body).into_owned();
+    let rows = text.matches("\"scope_id\":").count();
+    assert_eq!(
+        rows, 102,
+        "network, building and 100 racks -- every row must still be listed: {text}"
+    );
+    assert_eq!(
+        after - before,
+        1,
+        "one verification for the whole list of {rows} scopes, not one per row"
     );
 }
 
@@ -1653,5 +2021,703 @@ async fn scopes_refuses_unsigned_and_badly_signed_requests_like_every_other_rout
         status, "401",
         "a session that is real but a signature that does not verify must be refused the same \
          way an unsigned request is"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0054 #2: a drawer creates a design on a scope, in one transaction
+// ---------------------------------------------------------------------------
+
+/// The client's own `emptyDocument()` (`client/src/document/model.ts`),
+/// carried through `fathom_workspace::write_plain` exactly as a real drawer
+/// creating a design would send it.
+fn empty_document_payload() -> Vec<u8> {
+    fathom_workspace::write_plain(&Graph::new()).expect("an empty graph writes")
+}
+
+#[tokio::test]
+async fn a_drawer_creates_a_design_on_a_scope_and_a_reader_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = repo::create_scope(
+        &pool,
+        estate.organisation,
+        estate.steward.account,
+        None,
+        ScopeKind::Network,
+        &unique("net"),
+    )
+    .await
+    .expect("scope");
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!(
+        "/organisations/{}/scopes/{}/designs",
+        estate.organisation, scope.id
+    );
+    let body = save_body(CURRENT_SCHEMA_WIRE_VERSION, &empty_document_payload());
+
+    // A reader is refused, and nothing is created for the attempt.
+    let (status, resp) = call(addr, &reader, "POST", &path, &body).await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&resp));
+
+    // A drawer succeeds and gets the design list's own element shape back.
+    let (status, resp) = call(addr, &drawer, "POST", &path, &body).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&resp));
+    let text = String::from_utf8_lossy(&resp).into_owned();
+    assert!(
+        text.contains(&format!("\"scope_id\":\"{}\"", scope.id)),
+        "{text}"
+    );
+    assert!(text.contains("\"latest_version\":1"), "{text}");
+    assert!(
+        text.contains(&format!("\"capability\":\"{}\"", Capability::Draw.as_str())),
+        "{text}"
+    );
+
+    // The design and its first version were both actually created, in one
+    // transaction: opening it returns the empty document, not "no such
+    // version" -- a bodiless design was never minted.
+    let design_id_text = text
+        .split("\"design_id\":\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a design_id in the answer")
+        .to_string();
+    let open_path = format!(
+        "/organisations/{}/designs/{}",
+        estate.organisation, design_id_text
+    );
+    let (status, opened) = call(addr, &drawer, "GET", &open_path, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(opened, empty_document_payload());
+
+    // Exactly one design exists: the refused reader attempt created none of
+    // its own.
+    let list_path = format!("/organisations/{}/designs", estate.organisation);
+    let (status, list_body) = call(addr, &estate.steward, "GET", &list_path, b"").await;
+    assert_eq!(status, "200");
+    let list_text = String::from_utf8_lossy(&list_body);
+    assert_eq!(
+        list_text.matches("\"design_id\":").count(),
+        1,
+        "the refused reader attempt must not have created a design of its own: {list_text}"
+    );
+}
+
+#[tokio::test]
+async fn creating_a_design_on_a_foreign_or_missing_scope_answers_like_one_that_never_existed() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let body = save_body(CURRENT_SCHEMA_WIRE_VERSION, &empty_document_payload());
+
+    // A scope id nothing was ever created under.
+    let missing = ScopeId(fathom_server::ids::new_ulid());
+    let missing_path = format!(
+        "/organisations/{}/scopes/{}/designs",
+        estate.organisation, missing
+    );
+    let (missing_status, missing_body) = call(addr, &drawer, "POST", &missing_path, &body).await;
+
+    // A scope that is real, but in a different organisation entirely.
+    let estate_b = bootstrap(&pool, &ring).await;
+    let scope_b = repo::create_scope(
+        &pool,
+        estate_b.organisation,
+        estate_b.steward.account,
+        None,
+        ScopeKind::Network,
+        &unique("net"),
+    )
+    .await
+    .expect("scope in B");
+    let foreign_path = format!(
+        "/organisations/{}/scopes/{}/designs",
+        estate.organisation, scope_b.id
+    );
+    let (foreign_status, foreign_body) = call(addr, &drawer, "POST", &foreign_path, &body).await;
+
+    assert_eq!(
+        missing_status,
+        "403",
+        "{}",
+        String::from_utf8_lossy(&missing_body)
+    );
+    assert_eq!(missing_status, foreign_status);
+    assert_eq!(
+        missing_body, foreign_body,
+        "a missing scope and a foreign one must answer identically"
+    );
+}
+
+#[tokio::test]
+async fn creating_a_design_past_the_spool_bound_leaves_no_row() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = repo::create_scope(
+        &pool,
+        estate.organisation,
+        estate.steward.account,
+        None,
+        ScopeKind::Network,
+        &unique("net"),
+    )
+    .await
+    .expect("scope");
+
+    // Seed the spool so it is not empty, under the real defaults -- the
+    // positive control `tests/audit_chains.rs` uses for the same claim
+    // against a save.
+    let seed_design =
+        designs::create_design(&pool, estate.organisation, estate.steward.account, scope.id)
+            .await
+            .expect("seed design");
+    designs::write_version_under(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        seed_design,
+        b"seed",
+        1,
+        audit::SpoolBounds::defaults(),
+    )
+    .await
+    .expect("seed write");
+
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, estate.steward.account)
+        .await
+        .expect("ctx");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+
+    let beyond = audit::SpoolBounds {
+        max_age: audit::SpoolBounds::DEFAULT_MAX_AGE,
+        max_bytes: 1,
+    };
+    let err = designs::create_design_with_first_version_in_tx(
+        &tx,
+        &auth,
+        scope.id,
+        &empty_document_payload(),
+        CURRENT_SCHEMA_WIRE_VERSION as i32,
+        &beyond,
+    )
+    .await
+    .expect_err("past the bound, a create must be refused");
+    assert!(
+        matches!(err, designs::DesignError::AuditSpoolBeyondBounds { .. }),
+        "{err:?}"
+    );
+    tx.rollback().await.expect("rollback");
+
+    // No row: exactly the one design this test itself seeded, and no more.
+    let su = support::superuser_client_on_test_database().await;
+    let count: i64 = su
+        .query_one(
+            "SELECT count(*) FROM designs WHERE scope_id = $1",
+            &[&scope.id.to_string()],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(
+        count, 1,
+        "a create refused for the spool bound must leave no design row behind"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0054 #3: a steward of the parent creates a scope
+// ---------------------------------------------------------------------------
+
+fn scope_create_body(parent: Option<ScopeId>, label: &str) -> Vec<u8> {
+    let mut body = Vec::new();
+    lp(
+        &mut body,
+        parent.map(|p| p.to_string()).unwrap_or_default().as_bytes(),
+    );
+    lp(&mut body, label.as_bytes());
+    body
+}
+
+#[tokio::test]
+async fn a_steward_creates_scopes_down_the_tree_and_a_drawer_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!("/organisations/{}/scopes", estate.organisation);
+
+    // A drawer, even organisation-wide, may not create a root network.
+    let net_label = unique("net");
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &path,
+        &scope_create_body(None, &net_label),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+
+    // A steward of the organisation creates the root network.
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        &scope_create_body(None, &net_label),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert!(text.contains("\"kind\":\"network\""), "{text}");
+    assert!(text.contains("\"parent_scope_id\":null"), "{text}");
+    assert!(
+        text.contains(&format!("\"display_name\":\"{net_label}\"")),
+        "{text}"
+    );
+    assert!(text.contains("\"capability\":\"steward\""), "{text}");
+    let network_id: ScopeId = text
+        .split("\"scope_id\":\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a scope_id")
+        .parse()
+        .expect("a well-formed scope id");
+
+    // Stewardship inherits down the path: the same organisation-wide
+    // steward creates a building under the network it just made.
+    let building_label = unique("building");
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        &scope_create_body(Some(network_id), &building_label),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("\"kind\":\"building\""), "{text}");
+    assert!(
+        text.contains(&format!("\"parent_scope_id\":\"{network_id}\"")),
+        "{text}"
+    );
+
+    // A drawer may not create a building under it either.
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &path,
+        &scope_create_body(Some(network_id), &unique("building")),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+}
+
+// ---------------------------------------------------------------------------
+// This session's brief, item 4: a Capture or a Note carrying a credential
+// ---------------------------------------------------------------------------
+
+fn a_graph_prov(seed: u128) -> ProvenanceRecord {
+    ProvenanceRecord {
+        id: ProvenanceId(Ulid(seed * 10 + 2)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(0),
+        asserted_by: Actor::User(UserId(Ulid(seed * 10 + 3))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    }
+}
+
+/// A plain-face payload carrying one `Capture` node whose `text` is `line`,
+/// verbatim -- the wire shape a redaction-gate miss (or a client that never
+/// ran the gate at all) would produce.
+fn a_payload_with_capture_text(seed: u128, line: &str) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "credential test fixture")
+        .expect("open batch");
+    let capture = g
+        .insert_node(NodeKind::Capture, Ulid(seed * 10 + 1), a_graph_prov(seed))
+        .expect("capture node");
+    g.set_field(
+        capture.into(),
+        CaptureField::Text.key(),
+        scalar::Text(line.to_string()),
+        a_graph_prov(seed),
+    )
+    .expect("set capture text");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+/// The same, for a `Note` node instead.
+fn a_payload_with_note_text(seed: u128, line: &str) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "credential test fixture")
+        .expect("open batch");
+    let note = g
+        .insert_node(NodeKind::Note, Ulid(seed * 10 + 1), a_graph_prov(seed))
+        .expect("note node");
+    g.set_field(
+        note.into(),
+        NoteField::Text.key(),
+        scalar::Text(line.to_string()),
+        a_graph_prov(seed),
+    )
+    .expect("set note text");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+#[tokio::test]
+async fn a_capture_or_note_carrying_a_junos_psk_refuses_the_write_naming_the_kind_and_line() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+
+    // A real-length Junos pre-shared-key crypt hash, the shape a device
+    // itself would accept (CLAUDE.md rule 2) -- `$9$` plus twenty-one more
+    // characters, well past `crypt_prefix`'s own bar. Unquoted: `pieces`
+    // splits a token on `=`/`:`/`,` but not `"`, so a quoted value would
+    // start with the quote character, not `$`, and `crypt_prefix` would
+    // never see it -- the same reason `fathom-ingest`'s own unit test for
+    // this exact shape (`looks_like_credential_catches_real_credential_shapes`)
+    // carries it unquoted too.
+    let psk_line =
+        "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234";
+
+    let capture_payload = a_payload_with_capture_text(201, psk_line);
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &capture_payload),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "422", "{text}");
+    assert!(text.contains("Capture"), "{text}");
+    assert!(text.contains("line 1"), "{text}");
+
+    let note_payload = a_payload_with_note_text(202, psk_line);
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &note_payload),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "422", "{text}");
+    assert!(text.contains("Note"), "{text}");
+
+    // Neither refused save wrote anything.
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "{latest:?}"
+    );
+}
+
+/// CLAUDE.md rule 2: a safety gate is tested against what a real device
+/// accepts, not against the one shape its detector cannot miss. These carry
+/// no `$x$` crypt prefix, no long hex/base64 run and no `:`/`=` delimiter —
+/// the space-separated form Cisco IOS and Junos set-form overwhelmingly use
+/// — so a detector that only matched the delimited or crypt-prefixed shape
+/// (`looks_like_credential` alone) would let every one of these through.
+#[tokio::test]
+async fn a_capture_carrying_a_space_separated_real_device_credential_refuses_the_write() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+
+    for (seed, line) in [
+        (301u128, "snmp-server community s3cr3tR0 RO"),
+        (302, "enable secret cisco123"),
+        (303, "crypto isakmp key Sh4redS3cret address 10.0.0.1"),
+    ] {
+        let capture_payload = a_payload_with_capture_text(seed, line);
+        let (status, body) = call(
+            addr,
+            &drawer,
+            "POST",
+            &versions_path,
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, &capture_payload),
+        )
+        .await;
+        let text = String::from_utf8_lossy(&body);
+        assert_eq!(status, "422", "{line}: {text}");
+        assert!(text.contains("Capture"), "{line}: {text}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0054 #5: a grant revoked between the check and the act stops the write
+// ---------------------------------------------------------------------------
+
+/// Like [`a_member_with`], but hands back the grant's own id too, so the
+/// test below can revoke exactly this grant.
+async fn a_member_with_revocable_grant(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    name: &str,
+    capability: Capability,
+) -> (Person, String) {
+    let person = an_account(pool, name).await;
+    repo::add_member(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        person.account,
+        repo::Role::Member,
+    )
+    .await
+    .expect("membership");
+    enrol(pool, ring, estate.organisation, &person).await;
+
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, estate.steward.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await.expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject: person.account,
+            capability,
+            expires_at_unix: now_unix() + 30 * 24 * 3600,
+        },
+    )
+    .await
+    .expect("proposed");
+    let signature = estate.steward.key.sign(&proposal.bytes);
+    let grant_id = grants::sign_grant(&tx, &auth, &proposal, &signature)
+        .await
+        .expect("signed");
+    tx.commit().await.expect("commit");
+    (person, grant_id)
+}
+
+/// The bytes a revocation of `grant_id` signs over -- copied from
+/// `tests/authority.rs`'s own `grant_bytes_for` (private to that file; this
+/// is the same reconstruction, off the public columns and
+/// `authority::grant_bytes`, for this file's own use).
+async fn grant_bytes_for(tx: &deadpool_postgres::Transaction<'_>, grant_id: &str) -> Vec<u8> {
+    let row = tx
+        .query_one(
+            "SELECT organisation_id, scope_id, subject_id, subject_key_fpr, capability, \
+                    granted_by, granter_key_fpr, auth_epoch, \
+                    EXTRACT(EPOCH FROM effective_from)::bigint, \
+                    COALESCE(EXTRACT(EPOCH FROM expires_at)::bigint, 0), \
+                    sole_steward_appointment \
+               FROM scope_grants WHERE id = $1",
+            &[&grant_id],
+        )
+        .await
+        .expect("the grant");
+    let organisation: String = row.get(0);
+    let scope: Option<String> = row.get(1);
+    let subject: String = row.get(2);
+    let subject_fpr: Vec<u8> = row.get(3);
+    let capability: String = row.get(4);
+    let granted_by: Option<String> = row.get(5);
+    let granter_fpr: Vec<u8> = row.get(6);
+
+    let root_pubkey: Vec<u8> = tx
+        .query_one(
+            "SELECT root_pubkey FROM organisation_roots WHERE organisation_id = $1",
+            &[&organisation],
+        )
+        .await
+        .expect("the root")
+        .get(0);
+
+    authority::grant_bytes(&GrantFacts {
+        organisation: &organisation,
+        root_pubkey_fpr: &authority::key_fingerprint(&root_pubkey),
+        scope: scope.as_deref().unwrap_or(""),
+        subject: &subject,
+        subject_key_fpr: &subject_fpr.try_into().expect("32 bytes"),
+        capability: Capability::parse(&capability).expect("a capability"),
+        granter: granted_by.as_deref(),
+        granter_key_fpr: &granter_fpr.try_into().expect("32 bytes"),
+        effective_from_unix: row.get(8),
+        expires_at_unix: row.get(9),
+        sole_steward_appointment: row.get(10),
+        auth_epoch: row.get(7),
+    })
+}
+
+async fn revoke(pool: &Pool, ring: &KeyRing, estate: &Estate, grant_id: &str) {
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, estate.steward.account)
+        .await
+        .expect("ctx");
+    let tenant_key = keys::tenant_key(&tx, ring, &ctx).await.expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let at = now_unix();
+    let grant_bytes = grant_bytes_for(&tx, grant_id).await;
+    let signature = estate.steward.key.sign(&authority::revoke_bytes(
+        &estate.organisation.to_string(),
+        grant_id,
+        &grant_bytes,
+        at,
+    ));
+    grants::revoke_grant(&tx, &auth, grant_id, &signature, at)
+        .await
+        .expect("revoke");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn a_grant_revoked_between_the_check_and_the_act_stops_the_write() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let (drawer, grant_id) =
+        a_member_with_revocable_grant(&pool, &ring, &estate, "drawer", Capability::Draw).await;
+
+    // Open the transaction the act will run in, and prove the grant
+    // authorises a draw right now -- exactly what `save_design_handler`'s
+    // own capability check would find.
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, drawer.account)
+        .await
+        .expect("ctx");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    grants::authorise_account(&tx, &auth, None, Capability::Draw)
+        .await
+        .expect("authorised, before the revoke");
+
+    // Revoke it now, from a completely separate connection, committed. The
+    // transaction above is still open and has read nothing about this grant
+    // since the line above.
+    revoke(&pool, &ring, &estate, &grant_id).await;
+
+    // The act, in the SAME still-open transaction: `write_version_in_tx`
+    // re-checks the grant itself, immediately before touching
+    // `design_payload`, and READ COMMITTED means that re-check sees the
+    // revocation just committed.
+    let result = designs::write_version_in_tx(
+        &tx,
+        &auth,
+        design,
+        None,
+        &a_plain_face_payload(20),
+        CURRENT_SCHEMA_WIRE_VERSION as i32,
+        0,
+        &audit::SpoolBounds::from_env(),
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            Err(designs::DesignError::Authority(
+                AuthorityError::NotAuthorised
+            ))
+        ),
+        "a grant revoked between the check and the act must stop the write: {result:?}"
+    );
+    let _ = tx.rollback().await;
+
+    // Positive control: nothing was written.
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "{latest:?}"
     );
 }

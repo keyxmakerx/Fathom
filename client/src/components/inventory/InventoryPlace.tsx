@@ -96,7 +96,7 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
   const { session, onShowOnRack, notesActions, undoRefusal, lens, ...shellProps } = props;
-  const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit } = session;
+  const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -128,7 +128,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const editorPane =
     saveRefusal != null ? (
-      <div className="inventory-place__refusal">{saveRefusal}</div>
+      <div className="inventory-place__refusal">
+        {saveRefusal}
+        {/* ADR-0054 §1's refusal wash "offers reload" — see the matching
+            control in `RacksPlace.tsx`. */}
+        <button type="button" className="inventory-place__refusal-reload" onClick={reloadDesign}>
+          Reload
+        </button>
+      </div>
     ) : doc != null ? (
       <>
         {EditorFor(
