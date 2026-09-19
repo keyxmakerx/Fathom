@@ -82,7 +82,7 @@ jobs:
       # `crates/fathom-server/migrations/0005_planes.sql` creates the second
       # database role -- the sightless operator plane -- inside the migration
       # chain, so that "run the chain from an empty database" produces the
-      # whole fence rather than half of it. `deploy/init-db/10-app-role.sh`
+      # whole fence rather than half of it. the database init script (inline in `compose.yaml`)
       # grants the deployment's `fathom` role the same attribute, for the
       # same reason and with the same accounting written out there. It is NOT
       # superuser and NOT BYPASSRLS, which is what

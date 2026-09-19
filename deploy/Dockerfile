@@ -224,12 +224,12 @@ RUN npm run build
 # above.
 FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS caddy
 
-# `/srv/www`, matching `deploy/Caddyfile`'s `root * /srv/www`; the two say
+# `/srv/www`, matching the Caddyfile's `root * /srv/www` (inline in `compose.yaml`); the two say
 # the same path so that neither alone is load-bearing, the same convention
 # `compose.yaml`'s bootstrap-token path uses across three files.
 COPY --from=client-build /src/client/dist /srv/www
 
-# `deploy/Caddyfile` itself is still a bind mount, from `compose.yaml`
+# The Caddyfile itself is delivered by `compose.yaml`, as an inline config
 # -- deliberately not copied in here -- so that a TLS or host-name change
 # (this file's own "a real deployment replaces this block" comments) does
 # not need an image rebuild to take effect.
