@@ -16,7 +16,7 @@ use fathom_id::Ulid;
 /// **Why a file read and not a crate.** This task may add no external crate.
 /// `/dev/urandom` is the kernel's CSPRNG exposed as a special file --
 /// reading it needs nothing beyond `std::fs`, which is already linked. Fathom
-/// ships only as Linux containers (`docker-compose.yml`, `deploy/compose.yaml`),
+/// ships only as Linux containers (`docker-compose.yml`, `compose.yaml`),
 /// where the device is always present, so this is not a portability gap.
 ///
 /// These ids are primary keys, not secrets -- their job is to never collide,

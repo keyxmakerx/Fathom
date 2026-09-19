@@ -2,7 +2,7 @@
 //! it must refuse a superuser connection, and it must accept the restricted
 //! role every other real-database test in this crate already uses.
 //!
-//! Found 2026-09-12: `deploy/compose.yaml` connected as PostgreSQL's
+//! Found 2026-09-12: `compose.yaml` connected as PostgreSQL's
 //! bootstrap role, which the official image always makes a superuser
 //! regardless of the name given it, and a superuser bypasses row-level
 //! security unconditionally -- `FORCE` or not. So the tenant isolation
@@ -32,7 +32,7 @@ async fn the_restricted_role_every_other_test_uses_is_accepted() {
 async fn a_superuser_connection_is_refused() {
     // `.github/workflows/ci.yml`'s bootstrap `postgres` role, or a local
     // developer's own -- see `tests/support::superuser_database_url`. This is
-    // exactly the shape of connection `deploy/compose.yaml` handed the
+    // exactly the shape of connection `compose.yaml` handed the
     // server before this fix: a role a real device -- or a real deployment
     // -- actually starts with, not a contrived one.
     let client = support::superuser_client().await;

@@ -3,9 +3,15 @@
 # can only run images, not build them -- there is no `build:` in the Cosmos
 # container schema -- so without this there is nothing for them to pull.
 #
-# WHAT SHIPS: the `serve` stage of the root Dockerfile. Unprivileged nginx plus
-# exactly one file, the assembled Fathom artifact, at
-# /usr/share/nginx/html/index.html.
+# WHAT SHIPS, since 2026-09-19: the two final stages of `deploy/Dockerfile`,
+# as two images. `fathom-server` is the distroless server binary with the
+# schema and corpus beside it; `fathom-caddy` is Caddy with the built client
+# baked in. `compose.yaml` builds the same two stages from a checkout; these
+# are the same images, published, for a host that can only pull. Until this
+# date the workflow built the root Dockerfile, which packaged the retired
+# single-file client behind nginx, and it had never published anything since
+# the client was rebuilt: its inline gate floor ran the server's tests with no
+# PostgreSQL to run them against, and failed there every time.
 #
 # ---------------------------------------------------------------------------
 # WHY THE GATES RUN HERE TOO, DUPLICATING ci.yml
@@ -71,7 +77,8 @@ env:
   # happens to lowercase it for you (sanitizeImageName, meta.ts) but
   # attest-build-provenance does not, so one spelling used everywhere is safer
   # than relying on one action's normalisation and not the other's.
-  IMAGE: ghcr.io/keyxmakerx/fathom
+  SERVER_IMAGE: ghcr.io/keyxmakerx/fathom-server
+  CADDY_IMAGE: ghcr.io/keyxmakerx/fathom-caddy
 
 concurrency:
   # A second merge should supersede the first rather than race it to `latest`.
@@ -81,11 +88,34 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # The same PostgreSQL and roles `ci.yml` provisions for the test suite,
+    # because the floor below runs that suite and it needs a real database
+    # (`crates/fathom-server/tests/support/mod.rs` refuses to run without one).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # ---- the verification floor, before anything is built or pushed ----
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
       - name: Install the pinned toolchain (reads rust-toolchain.toml)
         run: rustup toolchain install
 
@@ -96,6 +126,9 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Tests
+        env:
+          DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
+          FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
         run: cargo test --workspace --locked
 
       - name: Schema gates
@@ -122,108 +155,83 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tags and labels
-        id: meta
+      - name: Tags and labels, server
+        id: meta_server
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ env.SERVER_IMAGE }}
           tags: |
-            # `latest` -- the one to use unless you have a reason not to.
             type=raw,value=latest,enable={{is_default_branch}}
-            # `main` -- the branch name. Present because reaching for the branch
-            # name is the obvious guess, and a tag that does not exist fails as
-            # `denied` on GHCR rather than `not found`, which reads like a
-            # permissions problem and sends you to the wrong place entirely.
             type=ref,event=branch
-            # `v1.2.3` -- on a git tag push.
             type=ref,event=tag
-            # `sha-<full commit>` -- always. Pin to this, or to the digest, for
-            # anything you want to be able to reproduce.
             type=sha,format=long
           labels: |
-            org.opencontainers.image.title=Fathom
-            org.opencontainers.image.description=A security-first, client-side network tool. Parses pasted configs in your browser; never connects to a device.
-
-      - name: Build and push
-        id: build
+            org.opencontainers.image.title=Fathom server
+            org.opencontainers.image.description=The Fathom server. A security-first network documentation tool; configs pass a redaction gate before anything is stored.
+      - name: Tags and labels, caddy
+        id: meta_caddy
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.CADDY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=Fathom caddy
+            org.opencontainers.image.description=Caddy terminating TLS in front of the Fathom server, with the Fathom client baked in.
+      # `file` and `target` are inputs of build-push-action at this pin
+      # (action.yml, read 2026-09-19), the same way `compose.yaml` names them.
+      - name: Build and push, server
+        id: build_server
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          target: serve
+          file: deploy/Dockerfile
+          target: server
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # BuildKit's own inline attestations are OFF, and the signed one from
-          # actions/attest-build-provenance below is kept instead. They are not
-          # equivalent and this is not a downgrade:
-          #
-          #   BuildKit's provenance is unsigned metadata added as extra entries
-          #   in the image manifest. Anyone who can push the image can write it.
-          #
-          #   The attestation below is signed through Sigstore, bound to this
-          #   repository and workflow, and verifiable by a third party with
-          #   `gh attestation verify`. It rides as a separate referrer artifact
-          #   and does not touch the image manifest at all.
-          #
-          # Only one of those is evidence. Keeping both would mean a
-          # multi-entry manifest for no gain -- and a sibling repository of this
-          # owner's records ghcr.io intermittently rejecting exactly that shape
-          # of push with "ERROR: unknown blob". Single manifest, signed
-          # provenance beside it: the stronger half, and the one that pushes
-          # reliably.
+          tags: ${{ steps.meta_server.outputs.tags }}
+          labels: ${{ steps.meta_server.outputs.labels }}
           provenance: false
           sbom: false
-
-      # Signed, verifiable evidence of which commit and which workflow produced
-      # this exact digest. For Fathom this is not decoration: the whole security
-      # story is "the page you are running is the page we built", and an operator
-      # who pulls by digest can now check that claim rather than take it.
-      #   gh attestation verify oci://ghcr.io/keyxmakerx/fathom:latest \
-      #     --repo keyxmakerx/Fathom
-      - name: Attest build provenance
+      - name: Build and push, caddy
+        id: build_caddy
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: caddy
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta_caddy.outputs.tags }}
+          labels: ${{ steps.meta_caddy.outputs.labels }}
+          provenance: false
+          sbom: false
+      - name: Attest build provenance, server
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ env.SERVER_IMAGE }}
+          subject-digest: ${{ steps.build_server.outputs.digest }}
           push-to-registry: true
-
-      # The two numbers an operator actually needs, written where they can find
-      # them: the image digest to pull by, and the hash of the served page so a
-      # bind-mount deployment can be compared against what CI built.
+      - name: Attest build provenance, caddy
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.CADDY_IMAGE }}
+          subject-digest: ${{ steps.build_caddy.outputs.digest }}
+          push-to-registry: true
       - name: Record what shipped
         run: |
           set -euo pipefail
-          REF="${IMAGE}@${{ steps.build.outputs.digest }}"
-          # Pull explicitly. With the docker-container driver the built image is
-          # NOT in the runner's local image store -- it went straight to the
-          # registry -- so this is a real fetch, and doing it as its own command
-          # means a registry problem says so rather than surfacing as a confusing
-          # `docker run` failure.
-          docker pull -q "$REF"
-          PAGE_SHA=$(docker run --rm --entrypoint sha256sum "$REF" \
-            /usr/share/nginx/html/index.html | cut -d' ' -f1)
-          PAGE_BYTES=$(docker run --rm --entrypoint stat "$REF" \
-            -c %s /usr/share/nginx/html/index.html)
           {
             echo "### Published"
             echo
             echo '```'
-            echo "image   ${IMAGE}"
-            echo "digest  ${{ steps.build.outputs.digest }}"
+            echo "server  ${SERVER_IMAGE}@${{ steps.build_server.outputs.digest }}"
+            echo "caddy   ${CADDY_IMAGE}@${{ steps.build_caddy.outputs.digest }}"
             echo "commit  ${GITHUB_SHA}"
             echo '```'
             echo
-            echo "**Served page** — \`/usr/share/nginx/html/index.html\`"
-            echo
-            echo '```'
-            echo "sha256  ${PAGE_SHA}"
-            echo "bytes   ${PAGE_BYTES}"
-            echo '```'
-            echo
-            echo "Pull by digest, not by tag:"
-            echo
-            echo '```'
-            echo "docker pull ${REF}"
-            echo '```'
+            echo "Pull by digest, not by tag; \`compose.yaml\`'s \`image:\` lines take exactly this form."
           } >> "$GITHUB_STEP_SUMMARY"

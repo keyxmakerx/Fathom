@@ -69,18 +69,11 @@ FROM toolchain AS build
 # the workspace Cargo.toml.
 RUN cargo build --locked --profile server -p fathom-server
 
-# ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
-# `scripts/build-wasm.sh` in miniature: that script is for a developer's own
-# checkout (it writes into `client/public/engine/`, gitignored, and is not
-# itself invoked here because there is no host checkout inside this stage to
-# write into) -- same command, same target, so the artifact this image ships
-# is the one that script also produces, never a second recipe for it.
-FROM toolchain AS wasm-build
-RUN rustup target add wasm32-unknown-unknown
-RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
-
-# A directory for the runtime stage to copy, and the reason it is made HERE:
-# the runtime image is distroless, so there is no shell to `mkdir` with. See
+# A directory for the runtime stage to copy, and the reason it is made HERE,
+# in the `build` stage the runtime stage copies from: the runtime image is
+# distroless, so there is no shell to `mkdir` with. It sat in `wasm-build`
+# until 2026-09-19, and the first real build (CI's `compose` job) failed on
+# `COPY --from=build`, which had never been run before that day. See
 # the `COPY` that uses it below for what it is for. The README is not
 # decoration -- it is the one thing an operator finds if they go looking in the
 # volume before the server has written anything, and a `COPY` of a genuinely
@@ -98,13 +91,32 @@ RUN mkdir -p /bootstrap-seed && \
       "Once any operator key is enrolled that command refuses, by design." \
       > /bootstrap-seed/README
 
+
+# ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
+# `scripts/build-wasm.sh` in miniature: that script is for a developer's own
+# checkout (it writes into `client/public/engine/`, gitignored, and is not
+# itself invoked here because there is no host checkout inside this stage to
+# write into) -- same command, same target, so the artifact this image ships
+# is the one that script also produces, never a second recipe for it.
+FROM toolchain AS wasm-build
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
+
 # ---- run --------------------------------------------------------------
 # Named `server` (not left anonymous) because this Dockerfile now builds
-# more than one final image from one file -- `deploy/compose.yaml` names
+# more than one final image from one file -- `compose.yaml` names
 # this stage with `target: server` for exactly that reason, so that adding
 # the stages below can never silently change what an unqualified
 # `docker build .` produces.
-FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS server
+# debian13, not debian12, since 2026-09-19: the build stage's pinned `rust`
+# image is `1.94.1-slim-trixie` (Debian 13, glibc 2.41 -- Docker Hub tag
+# listing read that day), so the binary it produces asks the runtime for a
+# glibc at least that new. The first real start of this stack (CI's
+# `compose` job) died on `GLIBC_2.39' not found` against the Debian 12
+# runtime that was here. The two FROM lines must move together: a newer
+# Debian in `rust` needs at least as new a Debian here. Digest read from
+# gcr.io's manifest for `cc-debian13:latest`, 2026-09-19.
+FROM gcr.io/distroless/cc-debian13@sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750 AS server
 
 COPY --from=build /src/target/server/fathom-server /fathom-server
 
@@ -130,7 +142,7 @@ ENV FATHOM_SCHEMA_ROOT=/schema
 # `schema/` there (`design_api::load_catalogue`'s own doc). Without this line
 # the schema tree loads, the catalogue does not, and the process refuses to
 # start with a catalogue error naming the missing directory -- found running
-# `deploy/compose.yaml` rather than reading it, same as the note above this
+# `compose.yaml` rather than reading it, same as the note above this
 # one.
 COPY --from=build /src/corpus /corpus
 
@@ -139,7 +151,7 @@ COPY --from=build /src/corpus /corpus
 # and writes their single-use enrolment token to a file for a human to read;
 # `FATHOM_BOOTSTRAP_TOKEN_FILE` names where. It is NOT in the key volume --
 # that volume is mounted read-only on the server, deliberately, and deriving
-# this path from the master key's is what stopped `deploy/compose.yaml` from
+# this path from the master key's is what stopped `compose.yaml` from
 # ever completing a first start (see its header).
 #
 # **Owned by 65532 here so that the named volume inherits it.** Docker seeds a
@@ -160,7 +172,7 @@ ENTRYPOINT ["/fathom-server"]
 
 # ---- client build -------------------------------------------------------
 # Owner: this stack served no client at all until this stage existed --
-# `deploy/compose.yaml` brought up a server and a proxy with nothing for the
+# `compose.yaml` brought up a server and a proxy with nothing for the
 # proxy to serve except the API. This builds the client the same way
 # `docs/RUNNING-IT.md`'s "from source" section does: `npm ci`, the wasm
 # engine staged into `client/public/engine/` (below), then `npm run build`,
@@ -204,7 +216,7 @@ COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wa
 RUN npm run build
 
 # ---- caddy, with the client baked in -------------------------------------
-# Owner: this is the SAME pinned Caddy image `deploy/compose.yaml` used to
+# Owner: this is the SAME pinned Caddy image `compose.yaml` used to
 # pull directly -- digest unchanged, read 2026-09-03 per the file header
 # above -- now as a build stage so the client's built files can be copied
 # into it. Caddy's own official image has no `npm`, so the client cannot be
@@ -214,10 +226,10 @@ FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d586
 
 # `/srv/www`, matching `deploy/Caddyfile`'s `root * /srv/www`; the two say
 # the same path so that neither alone is load-bearing, the same convention
-# `deploy/compose.yaml`'s bootstrap-token path uses across three files.
+# `compose.yaml`'s bootstrap-token path uses across three files.
 COPY --from=client-build /src/client/dist /srv/www
 
-# `deploy/Caddyfile` itself is still a bind mount, from `deploy/compose.yaml`
+# `deploy/Caddyfile` itself is still a bind mount, from `compose.yaml`
 # -- deliberately not copied in here -- so that a TLS or host-name change
 # (this file's own "a real deployment replaces this block" comments) does
 # not need an image rebuild to take effect.

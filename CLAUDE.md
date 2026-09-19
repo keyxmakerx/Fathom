@@ -6,7 +6,7 @@ it. Teaching and estate-of-record are co-equal goals.
 **Server product.** Data lives on the server; the browser is a window onto it. Multi-tenant, live
 multi-user editing, thousands of devices per design.
 
-**Status: first usable version, pending the owner's compose run and OSV gate** (2026-09-19). The
+**Status: first usable version, pending the owner's OSV gate run** (2026-09-19). The
 engine, server and rebuilt client are in; the rebuild's reasoning is `docs/REBUILD-PLAN.md`, and
 `docs/NEXT.md` says what is next.
 
@@ -20,7 +20,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 |---|---|
 | The plan | `docs/REBUILD-PLAN.md` |
 | **What to do next, session by session** | `docs/NEXT.md` — written 2026-09-13 for the sessions after it |
-| **How to actually run it** | `docs/RUNNING-IT.md` — from source is verified; Compose is not yet |
+| **How to actually run it** | `docs/RUNNING-IT.md` — `docker compose up` from the root, proven by CI |
 | **The key file, backups, restore, rekey** | `docs/OPERATING.md` — the operator's register ADR-0043 §9 requires |
 | What is actually built right now | `docs/STATE.md` |
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |

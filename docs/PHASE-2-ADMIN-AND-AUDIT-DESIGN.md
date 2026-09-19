@@ -1206,7 +1206,7 @@ Both are written to the master-key volume, not mailed — because on a fresh ins
 
   **Corrected 2026-09-14. This paragraph said `/var/lib/fathom/keys/first_operator.token`, and it
   was wrong twice over.** The filename was never that in code, and the master-key volume is the one
-  place the token must not go: `deploy/compose.yaml` mounts it read-only, correctly, so the first
+  place the token must not go: `compose.yaml` mounts it read-only, correctly, so the first
   start in a container could not write the token and the server refused to start. The path is now
   the deployment's choice with its own writable volume, and the key volume stays read-only.
 

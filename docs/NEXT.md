@@ -89,8 +89,8 @@ and Ubiquiti, and every gap the verification found, is in `docs/STATE.md` under 
 of those gaps are the owner's stack's own: EOS block config and Linux `ip` output cannot bind
 until the core grows a record-shaped front end beside `shape.rs`'s `set`-line shaper, and
 `config.xml` needs an XML framer. **What remains before the v0.1 tag is the owner's:
-run `deploy/compose.yaml` end to end on a machine with Docker, and `scripts/osv-gate.sh` on one
-with egress; both are recorded in `docs/STATE.md`'s carried list.** Then the bookkeeper
+`scripts/osv-gate.sh` on a machine with egress; the compose stack is run end to end by CI since
+2026-09-19 (`docs/STATE.md`, "The compose stack").** Then the bookkeeper
 over STATE.md and the tag. After that, the list under "After the first usable version". For the
 record, 6(c) was: inside a box, the config surface with
 the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in JavaScript; test the gate
@@ -177,8 +177,8 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
 
 ## Session 7 — Hardening and a release candidate
 
-- **First, not last: run the Docker stack end to end** (`deploy/compose.yaml`) — never done, the
-  largest risk to a release. Then have the checker try two browsers saving the same design in turn
+- **First, not last: run the Docker stack end to end** (`compose.yaml`) — done by CI on
+  2026-09-19, and until then the largest risk to a release. Then have the checker try two browsers saving the same design in turn
   and prove the second save is refused, never a silent overwrite, since live editing comes later.
 - One opus `checker` round on the **HTTP surface as a whole**, now that proposals and sessions
   cross a real trust boundary (admin §3.8's standing question).

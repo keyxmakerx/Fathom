@@ -195,7 +195,7 @@ here that is expensive to fix later.
 #### Operational foundations — added 2026-09-12, owner's list
 
 Four things that are cheap now and expensive once code and data exist. Docker is confirmed as the
-shipping shape; `deploy/compose.yaml` already runs the database, the server and Caddy in front.
+shipping shape; `compose.yaml` already runs the database, the server and Caddy in front.
 
 **1. Two Fathom containers must be interchangeable.** This is what load balancing actually requires,
 and it is a constraint on every line written from here: no session state in process memory, nothing
@@ -240,7 +240,7 @@ The current schema has only `admin` and `member` on an organisation. That was de
 ship the hierarchy — and it is not enough for this. The full model lands here.
 
 **4. The database role must not be a superuser.** Found 2026-09-12 while building the hierarchy:
-`deploy/compose.yaml` starts PostgreSQL with the image's bootstrap role, which PostgreSQL always
+`compose.yaml` starts PostgreSQL with the image's bootstrap role, which PostgreSQL always
 makes a superuser, and **a superuser bypasses row-level security unconditionally** — `FORCE` or not.
 So the tenant isolation that was just built would not bind in the shipped deployment. The tests
 already run against a properly restricted role so they cannot pass vacuously; the deployment needs

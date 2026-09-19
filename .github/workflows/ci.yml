@@ -212,3 +212,56 @@ jobs:
         run: cargo test --workspace --locked
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check
+
+  # THE STACK, END TO END. Added 2026-09-19: until this job, nobody had ever
+  # run `compose.yaml`, because the environment this repository is developed
+  # in has no Docker daemon, and three first-start faults were found only by
+  # reading it. This runner has one. Build every image from the checkout, bring
+  # the stack up, wait for the server's own healthcheck, ask Caddy for the
+  # health endpoint through TLS, and prove the first-operator token was
+  # written -- the one file a fresh deployment exists to produce. `down -v`
+  # at the end, always, so a failed run leaves nothing behind for the next.
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FATHOM_OPERATOR_NOTICE_ADDRESS: ci@example.invalid
+      # A tag no registry holds, so every `up` in this job runs the images
+      # `--build` produced from this checkout and never pulls a published
+      # one in their place (a `latest` tag would be re-pulled on every `up`).
+      FATHOM_TAG: ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start
+        run: docker compose up --build --detach --wait --wait-timeout 300
+      - name: The health endpoint answers through Caddy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsk https://localhost:8443/health > /dev/null; then
+              echo "health: 200 after ${i} tries"; exit 0
+            fi
+            sleep 2
+          done
+          echo "health never answered"; exit 1
+      - name: The client is served
+        run: curl -fsk https://localhost:8443/ | grep -q "<title>"
+      - name: The first-operator token was written, once, mode 0400
+        run: |
+          docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
+          test -s ./first-operator-token
+          rm -f ./first-operator-token
+      - name: A restart keeps its keys
+        run: |
+          before=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
+          test "$before" -eq 5 || { echo "expected five secrets generated at first start, saw $before"; exit 1; }
+          docker compose restart server
+          docker compose up --detach --wait --wait-timeout 120
+          after=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
+          test "$after" -eq 5 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
+          curl -fsk https://localhost:8443/health > /dev/null
+      - name: Logs, on failure
+        if: failure()
+        run: docker compose logs --no-color | tail -200
+      - name: Down
+        if: always()
+        run: docker compose down -v

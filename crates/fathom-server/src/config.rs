@@ -219,7 +219,7 @@ pub struct Config {
     /// **Chosen by the deployment, not derived from where the master key
     /// lives.** It was derived, until 2026-09-14, and that is what made a
     /// first start in a container impossible: ADR-0043 §3 gives the master key
-    /// its own volume, `deploy/compose.yaml` mounts that volume READ-ONLY on
+    /// its own volume, `compose.yaml` mounts that volume READ-ONLY on
     /// the server because the server only reads it, and a token path derived
     /// from the key's path therefore pointed at a filesystem this process
     /// cannot write. The write failed, the first operator existed with an
@@ -234,7 +234,7 @@ pub struct Config {
     /// from a checkout — and in a container, where the root filesystem is
     /// read-only (`43` §5.4), it fails loudly at the write with the path in
     /// the message rather than quietly putting a bearer token somewhere
-    /// nobody was told about. The shipped `deploy/compose.yaml` sets this
+    /// nobody was told about. The shipped `compose.yaml` sets this
     /// variable explicitly at a writable volume of its own.
     pub bootstrap_token_file: String,
 
