@@ -265,7 +265,6 @@ which tests and screenshots still stand in for. The old Rust-assembled HTML clie
 
 - Walkthrough view — the teaching half of the product.
 - Config view.
-- Inventory place — the lists and the page; the designer surface (ADR-0051) lives here.
 - The building and room stops — decided (UI-SPEC "The building", ADR-0051), not built.
 - Engine manager — how equipment types are registered and kept current.
 - Automatic correlation across separately-pasted configs.

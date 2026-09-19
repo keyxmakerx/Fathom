@@ -250,7 +250,7 @@ The whole set, and where each stands. ADR-0046 is the decision; this is the list
 | Sign in and enrol | everyone | built in the client |
 | **Home** — organisations, the closets and designs you may open, what changed | everyone | built in the client |
 | **Racks** — the drawing on this page | everyone | approved: the shell of 2026-09-16 is the frame, the 2026-09-11 boards are the drawing's details; built in the client |
-| **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | redrawn 2026-09-15 as a place, the page as the editor (screens set); not built |
+| **Inventory** — lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | redrawn 2026-09-15 as a place, the page as the editor (screens set); built in the client (basic version: lists, page, show on rack, notes, undo) |
 | Search — an overlay, never a page | everyone | the far-end picker on the patching board is the same box; the overlay itself is not drawn |
 | Findings and the config checker | everyone | not drawn; the first pass carried the tab strip and was retired 2026-09-16 |
 | Walkthrough — the teaching half | everyone | sketched low-fi 2026-09-15 (screens set); never built |
