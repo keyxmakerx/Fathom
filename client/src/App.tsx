@@ -8,7 +8,7 @@ import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
-import { RacksPlace } from './components/racks/RacksPlace';
+import { DesignPlace } from './components/design/DesignPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
@@ -207,29 +207,18 @@ export default function App() {
     onPlaceChange: (place: Place) => setView({ ...view, place }),
   };
 
-  // Racks has a real place to render now; Inventory keeps its placeholder
-  // (this task's brief) until its own session builds it.
-  if (view.place === 'racks') {
-    return (
-      <RacksPlace
-        {...shellPlaceProps}
-        organisationId={view.organisation.organisationId}
-        designId={view.design.designId}
-        onZoomChange={setZoom}
-        capability={view.design.capability}
-      />
-    );
-  }
-
+  // ADR-0046 §8: Inventory is basic-but-real now, not a placeholder — both
+  // places are mounted beneath `DesignPlace`, which holds the one
+  // `Document`/`SaveQueue` (`useDesignSession`) the two share, so choosing
+  // between them here never reloads the design or drops a queued save.
   return (
-    <Shell {...shellPlaceProps}>
-      <div className="app-placeholder">
-        <p>The inventory is not built yet.</p>
-        <button type="button" onClick={() => setView({ kind: 'home' })}>
-          Back to home
-        </button>
-      </div>
-    </Shell>
+    <DesignPlace
+      {...shellPlaceProps}
+      organisationId={view.organisation.organisationId}
+      designId={view.design.designId}
+      onZoomChange={setZoom}
+      capability={view.design.capability}
+    />
   );
 }
 

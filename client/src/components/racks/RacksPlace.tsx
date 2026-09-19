@@ -1,52 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
-import { openDesign, saveDesign } from '../../api/payload';
-import { ApiRefusal } from '../../api/errors';
-import type { DesignCapability } from '../../api/designs';
 import { captureOf } from '../../document/capture';
+import { SURFACE_FORMS, createSketchDevice, moveChassis, movePlacement, placeChassis } from '../../document/commands';
+import { parseNodeId, type Document } from '../../document/model';
+import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { ConfigDrawer } from '../config/ConfigDrawer';
+import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
+import { Drawing, EditorFor, Palette, type Selection } from '../drawing';
+import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
-import {
-  AlreadyPlacedError,
-  InvalidFixedToTargetError,
-  NotAShelfError,
-  RackOverlapError,
-  RackRangeError,
-  SketchOnCatalogueChassisError,
-  SlotTakenError,
-  SURFACE_FORMS,
-  addSketchPort,
-  createShelf,
-  createSketchDevice,
-  createSurface,
-  isSurfaceForm,
-  moveChassis,
-  movePlacement,
-  placeChassis,
-  removeSketchPort,
-} from '../../document/commands';
-import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from '../../document/edit';
-import { parseNodeId, type Document } from '../../document/model';
-import { readPlain, writePlain } from '../../document/plain';
-import {
-  FixedSlotError,
-  SlotAlreadyFittedError,
-  UnknownSlotError,
-  fitSupply,
-  removeSupply,
-  setSupplyField,
-} from '../../document/supplies';
-import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
-import { Drawing, EditorFor, Palette, type EditorChange, type Selection } from '../drawing';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import './racks.css';
-import { SaveQueue } from './saveQueue';
+
+// `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`
+// (this session's brief item 1) — re-exported here, unchanged, so the two
+// test files that import them from `'./RacksPlace'`
+// (`RacksPlace.canDraw.test.ts`, `RacksPlace.edit.test.ts`) keep passing
+// without themselves needing to know the logic moved.
+export { canDrawFor, refusalFor };
 
 /** Not a valid formatted node id (`document/model.ts`'s ids are always
  * `<kebab-kind>:<ulid>`) — a sentinel `Drawing` can hand back to `onPlace`
@@ -66,20 +42,6 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
   row: null,
   bay: null,
 };
-
-/** The server's own wording where the failure was a refusal it sent
- * (`ApiRefusal`, `errors.ts`); this client's own honest statement where it
- * was not. Never a guess at which check failed — the same rule
- * `components/home/Home.tsx`'s `describeError` follows. */
-function describeError(error: unknown): string {
-  if (error instanceof ApiRefusal) {
-    return error.retryAfterSeconds != null
-      ? `${error.message} Try again in ${error.retryAfterSeconds}s.`
-      : error.message;
-  }
-  if (error instanceof Error) return error.message;
-  return 'That request did not complete.';
-}
 
 /**
  * ADR-0051 §1, this session's brief item 3 — "+ add a surface". There is no
@@ -149,159 +111,65 @@ function AddSurfaceControl({
   );
 }
 
-/** What `handleEdit` turns a caught `document/edit.ts` failure into for
- * `EditorActions.onEdit` (`contract.ts`) — pulled out as its own pure
- * function, no `Document` or React involved, so the message for each kind
- * of refusal can be tested directly. Only `FieldValueError` (a malformed
- * value the schema refuses — a malformed management address, a role outside
- * the enum) becomes a refusal the editor shows beside the field it came
- * from; `UnknownReferenceError` (the id no longer resolves because the
- * document moved under us) has no field left to attach a message to, so it
- * still resolves to `undefined` — the same silent drop as before this
- * change, now named rather than accidental. */
-/** ADR-0052 §5, this session's brief item 1: "canDraw = capability !== 'read'."
- * A capability this client does not recognise (`api/designs.ts`'s own note
- * on why `DesignCapability` is kept as `string`) is never treated as
- * drawable by guessing — only the one capability that names "cannot write"
- * is refused draw, so an unrecognised future value fails open to draw
- * rather than silently losing every save, the opposite of the security
- * failure mode this gate exists to prevent. Pulled out as its own function,
- * pure and exported, so the gate itself is tested without mounting
- * anything. */
-export function canDrawFor(capability: DesignCapability): boolean {
-  return capability !== 'read';
-}
-
-export function refusalFor(error: unknown): { refused: string } | undefined {
-  if (error instanceof FieldValueError) return { refused: error.message };
-  // `document/supplies.ts`'s own typed refusals (ADR-0050 §4) — an unknown
-  // slot, a slot already fitted, a fixed slot — shown beside the fit/remove
-  // action the same way a `FieldValueError` shows beside its field.
-  if (error instanceof UnknownSlotError || error instanceof SlotAlreadyFittedError || error instanceof FixedSlotError) {
-    return { refused: error.message };
-  }
-  // `document/commands.ts`'s own ADR-0051 §1 refusals — the "PLACED ON"
-  // control's `movePlacement`, a shelf's `createShelf`, a sketch's
-  // `addSketchPort`: an occupied slot, a target that is not a shelf/board/
-  // surface, an item already placed elsewhere, a catalogued chassis refusing
-  // a hand-typed port. Shown beside the control the same way as above.
-  if (
-    error instanceof NotAShelfError ||
-    error instanceof SlotTakenError ||
-    error instanceof AlreadyPlacedError ||
-    error instanceof InvalidFixedToTargetError ||
-    error instanceof SketchOnCatalogueChassisError
-  ) {
-    return { refused: error.message };
-  }
-  // `movePlacement`'s `'rack'` branch reuses the same `RackRangeError`/
-  // `RackOverlapError` a rack drop-place already refuses with — the "PLACED
-  // ON" control asks for a unit the same way the drawing's own drop does,
-  // and needs the same two refusals shown beside it rather than treated as
-  // a stale view (`AlreadyPlacedError`'s neighbours above).
-  if (error instanceof RackRangeError || error instanceof RackOverlapError) {
-    return { refused: error.message };
-  }
-  // `document/model.ts`'s `uint`/`identifier` throw a bare `RangeError` for
-  // a value out of the schema's own numeric range (e.g. `FixedTo.x_mm`
-  // beyond u32, or negative) that the editor's own input check did not
-  // already catch. Shown generically rather than silently treated as
-  // success (this file's own `handleEdit` doc: "a refused VALUE is the
-  // editor's to show beside the field it came from, not to drop silently").
-  if (error instanceof RangeError) return { refused: error.message };
-  return undefined;
-}
-
 export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
-  organisationId: string;
-  designId: string;
+  /** This session's brief item 1: the document, the catalogue, the
+   * `SaveQueue` and the one `handleEdit` dispatcher — held by
+   * `useDesignSession` and mounted exactly once, in `DesignPlace.tsx`,
+   * above wherever this component and `InventoryPlace` are chosen between.
+   * Neither place calls the hook itself, so switching place remounts only
+   * the place component, never the session: nothing reloads, no queued
+   * save is lost. */
+  session: DesignSession;
   /** The camera's continuous zoom, kept in agreement with the bar's
    * stepped `zoom`/`onZoomIn`/`onZoomOut` by the caller (`App.tsx`) — the
    * same single number, two ways to move it. */
   onZoomChange: (zoom: number) => void;
-  /** `api/designs.ts`'s `DesignSummary.capability` for the open design —
-   * ADR-0052 §5: "canDraw = capability !== 'read'" is computed once, here,
-   * from this and threaded to every place that needs it (`Drawing`'s
-   * `canDraw`, the editor's `onEdit`, the rail's controls) rather than each
-   * of them re-deriving it. */
-  capability: DesignCapability;
+  /** This session's brief item 5 — "Show on rack": `InventoryPlace.tsx`'s
+   * caller (`DesignPlace.tsx`) hands in a `Selection` to open already
+   * chosen, e.g. the chassis a device row named. Selected the moment the
+   * document is ready, with the camera asked to the faceplate stop
+   * (`CAMERA_STOPS.faceplate`) the same motion a shelf-occupant open
+   * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
+   * open — nothing is pre-selected just because a design loaded. */
+  initialFocus?: Selection | null;
+  /** This session's brief item 5's reverse — "Open in inventory," rendered
+   * beside the editor for a selected chassis. Omitted (no button at all)
+   * where no caller supplies it, the same "no action, not a disabled one"
+   * shape `EditorActions.onSelect` already follows. */
+  onOpenInventory?: (chassisId: string) => void;
 }
 
 /**
- * The Racks place for one open design: fetches the catalogue and the
- * design once on mount, holds the `Document` this session edits, and turns
- * every `Drawing` action into a command from `document/commands.ts`
- * followed by a save. Every change saves — the server is where the data
- * lives — through one `SaveQueue` per (organisation, design) pair, so a
- * save already running is never joined by a second one for the same
- * design.
+ * The Racks place for one open design: reads the `Document`/`SaveQueue`
+ * `session` prop (shared with `InventoryPlace` over the same design —
+ * `DesignPlace.tsx`, this session's brief item 1) and turns every `Drawing`
+ * action into a command from `document/commands.ts` followed by a save.
+ * Every change saves — the server is where the data lives — through the
+ * session's one `SaveQueue`, so a save already running is never joined by a
+ * second one for the same design.
  */
 export function RacksPlace(props: RacksPlaceProps) {
-  const { organisationId, designId, onZoomChange, capability, ...shellProps } = props;
-  const canDraw = canDrawFor(capability);
+  const { session, onZoomChange, initialFocus, onOpenInventory, ...shellProps } = props;
+  const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit } = session;
+  const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
 
-  const [doc, setDoc] = useState<Document | null>(null);
-  const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
-
+  // "Show on rack" (`InventoryPlace.tsx`) — this session's brief item 5: a
+  // caller landing here with something already chosen selects it and asks
+  // for the faceplate stop the moment the document is ready (an
+  // `initialFocus` handed in before `doc` loads waits for it rather than
+  // selecting an id `EditorFor` cannot yet resolve to anything). Fires once
+  // per distinct `initialFocus` value — `DesignPlace.tsx` gives every "Show
+  // on rack" click a fresh object, so identity itself is the "asked again"
+  // signal, the same edge-triggered shape `Drawing.tsx`'s own camera moves
+  // already use.
   useEffect(() => {
-    let cancelled = false;
-    setDoc(null);
-    setCatalogue([]);
-    setSelection(null);
-    setLoadError(null);
-    setSaveRefusal(null);
-
-    fetchCatalogue()
-      .then((list) => Promise.all(list.map((entry) => fetchModel(entry.vendor, entry.model))))
-      .then((models) => {
-        if (!cancelled) setCatalogue(models);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setLoadError(describeError(error));
-      });
-
-    openDesign(organisationId, designId)
-      .then((opened) => {
-        if (!cancelled) setDoc(readPlain(opened.bytes));
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setLoadError(describeError(error));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [organisationId, designId]);
-
-  // One in-flight save at a time for this (organisation, design); the next
-  // change made while it is running replaces whatever was queued and goes
-  // out the moment it finishes, success or refusal (`SaveQueue`'s own doc).
-  const saveQueue = useMemo(
-    () =>
-      new SaveQueue<Uint8Array>(
-        (bytes) => saveDesign(organisationId, designId, bytes).then(() => setSaveRefusal(null)),
-        (error: unknown) => setSaveRefusal(describeError(error)),
-      ),
-    [organisationId, designId],
-  );
-
-  const applyDocChange = useCallback(
-    (next: Document) => {
-      setDoc(next);
-      // ADR-0052 §5, this session's brief item 1: a reader's document never
-      // reaches the `SaveQueue` — nothing here should ever run for one
-      // (`Drawing`'s own `canDraw` gating, `EditorFor`'s absent `onEdit`),
-      // but this is the one place every path that could still call
-      // `applyDocChange` funnels through, so it is the save's own last
-      // refusal too, not only the controls'.
-      if (!canDraw) return;
-      saveQueue.push(writePlain(next));
-    },
-    [saveQueue, canDraw],
-  );
+    if (initialFocus == null || doc == null) return;
+    setSelection(initialFocus);
+    onZoomChange(CAMERA_STOPS.faceplate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
+    // on the `initialFocus` object identity and `doc` becoming available;
+    // `onZoomChange` is a stable setter from `App.tsx`.
+  }, [initialFocus, doc]);
 
   // ADR-0052 §1/§4, this session's brief item 2 — the config drawer's
   // engine. `Engine.init()` fetches and boots the wasm module
@@ -588,89 +456,10 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange],
   );
 
-  // Turns an `EditorChange` (ADR-0046 §2's one editor) into the matching
-  // `document/edit.ts`/`document/supplies.ts` call and saves it the same way
-  // `handlePlace` and `handleMove` do above — one `SaveQueue` push, a
-  // refused edit (an out-of-schema value, an id that no longer resolves
-  // because the document moved under us, or one of `supplies.ts`'s own
-  // typed refusals) leaves the document exactly as it was.
-  const handleEdit = useCallback(
-    (change: EditorChange): { refused: string } | void => {
-      if (doc == null) return;
-      try {
-        let next: Document;
-        if (change.kind === 'device') {
-          next = setDeviceField(doc, change.id, change.field, change.value);
-        } else if (change.kind === 'chassis') {
-          next = setChassisField(doc, change.id, change.field, change.value);
-        } else if (change.kind === 'shelf') {
-          // ADR-0051 §1, this session's brief item 1 — a shelf's own
-          // editor commits its name through `setPassiveNodeField`.
-          next = setPassiveNodeField(doc, change.id, change.field, change.value);
-        } else if (change.kind === 'rack') {
-          // `EditorChange`'s own doc (`drawing/contract.ts`): the editor
-          // only ever holds text, so `bay` is parsed here, before
-          // `setRackField` gets a chance to refuse it as a schema value.
-          if (change.field === 'bay') {
-            if (change.value === null) {
-              next = setRackField(doc, change.id, 'bay', null);
-            } else {
-              const parsed = Number(change.value);
-              if (!Number.isInteger(parsed)) {
-                throw new FieldValueError('Rack.bay', change.value, 'must be a whole number');
-              }
-              next = setRackField(doc, change.id, 'bay', parsed);
-            }
-          } else {
-            next = setRackField(doc, change.id, 'row', change.value);
-          }
-        } else if (change.kind === 'supply') {
-          next = setSupplyField(doc, change.id, change.field, change.value);
-        } else if (change.kind === 'supply-remove') {
-          next = removeSupply(doc, change.id);
-        } else if (change.kind === 'supply-fit') {
-          next = fitSupply(doc, change.chassisId, change.slot);
-        } else if (change.kind === 'move-placement') {
-          next = movePlacement(doc, change.itemId, change.placement);
-        } else if (change.kind === 'add-sketch-port') {
-          next = addSketchPort(doc, change.chassisId, {
-            label: change.label,
-            connector: change.connector,
-            service: change.service ?? undefined,
-            face: change.face,
-          });
-        } else if (change.kind === 'remove-sketch-port') {
-          next = removeSketchPort(doc, change.chassisId, change.portId);
-        } else if (change.kind === 'create-shelf') {
-          const model = change.model
-            ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
-            : undefined;
-          next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model });
-        } else {
-          // change.kind === 'create-surface' — `EditorChange`'s own doc
-          // (`drawing/contract.ts`): the control only ever holds raw text,
-          // so `form` is validated against `SURFACE_FORMS` here, before
-          // `createSurface` gets a chance to refuse it as a schema value
-          // (the same "parse before the write-side sees it" shape `'rack'`'s
-          // `bay` above already follows).
-          if (!isSurfaceForm(change.form)) {
-            throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
-          }
-          next = createSurface(doc, change.premisesId, { label: change.label, form: change.form });
-        }
-        applyDocChange(next);
-      } catch (e) {
-        // As `handlePlace`/`handleMove`: the editor raised a request against
-        // a view that turned out to be stale, or a value the schema refuses.
-        // Leave the document as it was rather than apply a half-formed edit
-        // — but a refused VALUE (`refusalFor`) is the editor's to show
-        // beside the field it came from, not to drop silently.
-        return refusalFor(e);
-      }
-    },
-    [doc, applyDocChange],
-  );
-
+  // `handleEdit` (ADR-0046 §2's one editor) now lives in
+  // `useDesignSession` — this session's brief item 1 — so the exact same
+  // function `InventoryPlace`'s own `EditorFor` call raises through runs
+  // here too: "an edit here is the same edit there."
   const editor =
     saveRefusal != null ? (
       <div className="racks-place__refusal">{saveRefusal}</div>
@@ -684,12 +473,21 @@ export function RacksPlace(props: RacksPlaceProps) {
       // value then renders as plain text with no input and no action
       // (`Editor.tsx`'s own `EditableValue`/`SupplyAction`/`PlacedOnControl`
       // doc on reading `onEdit == null`).
-      EditorFor(
-        selection,
-        displayView,
-        { onEdit: canDraw ? handleEdit : undefined, onSelect: setSelection },
-        paletteFromCatalogue(catalogue),
-      )
+      <>
+        {EditorFor(
+          selection,
+          displayView,
+          { onEdit: canDraw ? handleEdit : undefined, onSelect: setSelection },
+          paletteFromCatalogue(catalogue),
+        )}
+        {/* This session's brief item 5 — the reverse of Inventory's "Show
+            on rack": a selected chassis gets one button back to its page. */}
+        {selection?.kind === 'chassis' && onOpenInventory ? (
+          <button type="button" className="racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
+            Open in inventory
+          </button>
+        ) : null}
+      </>
     ) : null;
 
   // ADR-0052 §5, this session's brief item 1 — "the rail shows no palette
