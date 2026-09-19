@@ -226,6 +226,12 @@ matched to the lead in the hand; under every other lens cables draw in ink and c
 from that lens's meaning. The lens row is the on and off. Nothing is coloured to look alive, and
 nothing decorative is coloured at all.
 
+**The owner's clarification, 2026-09-19.** Colour is for important things and it is wanted: a
+warning or error is an icon at the canvas's corner that opens into a box with a light border of
+the same colour; in the config drawer a line carrying a warning or error is highlighted the same
+way; under a lens whose meaning is protocol, a traced path may colour by protocol, TCP against UDP.
+All of it subtle, every colour a token of the theme, never a solid fill.
+
 ---
 
 ## Places — 2026-09-18, ADR-0051

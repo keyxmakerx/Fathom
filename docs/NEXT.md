@@ -231,7 +231,8 @@ Each binds until overruled on merit in writing (`CLAUDE.md` rule 6):
 
 ## Questions only the owner can answer (none block Session 1)
 
-- Is a 24-hour delay on one administrator removing another right for a two-person team?
-  (Admin §3.5's dated block states the cost; the operator's instant suspend remains.)
-- Which directory comes first when sync is built: LDAP as stated, or Active Directory — the door
-  is the same, the first connector is not.
+- **Answered 2026-09-19.** The 24-hour delay on one administrator removing another stays, for a
+  two-person team too: it is the defence against a single compromised steward, and the operator's
+  instant suspend covers the emergency. Active Directory is the first directory connector when
+  sync is built, because it is the one that can be tested against a real directory on the owner's
+  machine; LDAP remains the door.

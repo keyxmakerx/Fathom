@@ -792,6 +792,8 @@ credential in the vault is gone permanently.
 
 ### W1. Where does the places track sit after v0.1: before the vault, or after it?
 
+**DECIDED 2026-09-19 by the owner: after the vault**; the designer alone may come first because it writes a file and never touches the estate.
+
 The vault is the product's promise about stored data and is already designed; the places track
 (the designer, the room stop, blueprint import) is what the owner asked for on 2026-09-18. The
 recommendation is after the vault, because the vault changes storage and the places track does
@@ -800,15 +802,21 @@ decide the other way on merit.
 
 ### W2. A real blueprint to test the DXF importer against.
 
+**DECIDED 2026-09-19: one DXF of a real floor when the importer is scheduled, not before.**
+
 A hand-made file proves the parser and not the world. One DXF of a real floor, with its layer
 names, from the owner when the importer is built. Until then the importer is not scheduled.
 
 ### W3. DWG is not supported; is that acceptable?
 
+**DECIDED 2026-09-19: never read DWG; every CAD tool exports DXF.**
+
 Reading DWG means a large foreign dependency for a proprietary binary format. Every CAD tool
 exports DXF. Recommendation: say so in the import dialog and never read DWG.
 
 ### W4. Four "look here" uses, three reserved colours: does recommendation get its own token?
+
+**DECIDED 2026-09-19 by the owner: three colours; a recommendation is a ring and a confirmation a wash, told apart by form. Warnings and errors keep their own colours. See UI-SPEC "Look" for the owner's clarification of the same day.**
 
 UI-SPEC "Look" names error, warning, recommendation and confirmation; `design/tokens.css` reserves
 three colours. The places boards use the safe colour for both recommendation and confirmation,
@@ -818,6 +826,8 @@ more thing to learn; the owner may want a fourth on merit.
 
 ### W5. Three the lead decided while drawing the boards, recorded here so they can be overruled.
 
+**CONFIRMED 2026-09-19 by the owner.**
+
 A sketch's typed ports sit on the front face unless the person types a rear one; a surface's
 positions are millimetres from the floor and from the left edge, as the Surfaces board draws
 them; and a horizontal run is a cable like any other, so it carries a sheath colour when one is
@@ -825,11 +835,15 @@ recorded and draws in ink when none is.
 
 ### W6. D2's private-notes layer, reopened 2026-09-19 (ADR-0053 §7).
 
+**DECIDED 2026-09-19 by the owner: the private layer arrives with the vault, never as a flag in the shared payload.**
+
 A private note inside the shared sealed payload is not private. The schema carries notes from
 0.10; the private layer is a per-account side payload sealed under account keys and arrives with
 the vault. Decided by the lead on merit; the owner may overrule.
 
 ### W7. The server stores what a signed session sends; how much of the gate belongs on the server?
+
+**DECIDED 2026-09-19 by the owner: the credential refusal now; the full server-side pass with the vault, as a deliberate change of stance.**
 
 CLAUDE.md rule 4 says credentials are protected by never arriving. The gate runs in the browser
 before a paste reaches the document (ADR-0052); the server validates the payload's shape and
