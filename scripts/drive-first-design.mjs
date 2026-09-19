@@ -624,60 +624,18 @@ async function runProof(browser, seed) {
   await signIn(one, seed.steward.address);
   check('browser one (steward): signed in and Home rendered', await one.getByText('Your organisations').isVisible());
 
-  // FOUND BUG (see this script's final report): `client/src/api/scopes.ts`'s
-  // `createScope` sends a JSON body, but the real server's
-  // `create_scope_handler` (`crates/fathom-server/src/design_api.rs`) reads
-  // `LP(parent) ‖ LP(label)`, the same binary framing every other signed
-  // route in this server uses and the one
-  // `tests/design_api.rs`'s own `scope_create_body` proves against a real
-  // socket. Clicking "New scope" → "Create" through the real, unmodified UI
-  // is driven here first to RECORD that refusal, not to route around it.
+  // Previously (see this script's git history): `client/src/api/scopes.ts`'s
+  // `createScope` sent a JSON body while the real server's
+  // `create_scope_handler` read `LP(parent) ‖ LP(label)`, so this same click
+  // was refused 400 "malformed request" and this script worked around it
+  // with a hand-built `signedFetch` call. `scopes.ts`'s `createScope` now
+  // sends that same LP-framed body (unchanged by this task), so the real,
+  // unmodified "New scope" → "Create" form is driven directly here instead.
   await one.getByRole('button', { name: 'New scope' }).click();
   await one.locator('#home-new-scope-label').fill('Session 7 network');
   await one.getByRole('button', { name: 'Create', exact: true }).click();
-  await one.getByText('malformed request').waitFor({ timeout: 10000 });
-  check(
-    'FOUND BUG confirmed live: Home\'s real "New scope" form is refused 400 "malformed request" '
-      + '(client/src/api/scopes.ts sends JSON; the server wants LP-framed bytes) — see report',
-    true,
-  );
-  await one.getByRole('button', { name: 'Cancel' }).click();
-
-  // Work around the bug from outside the buggy function, using the SAME
-  // real signing code the app itself uses (`signedFetch`, dynamically
-  // imported from the real module Vite is already serving — nothing
-  // stubbed, nothing bypassed at the protocol level, only the one call site
-  // that frames the body wrong is not used), so the proof can continue past
-  // a client defect that is not this task's to fix.
-  await one.evaluate(async ({ label }) => {
-    const { signedFetch } = await import('/src/api/signedFetch.ts');
-    const { lp, utf8, concatBytes } = await import('/src/crypto/bytes.ts');
-    // The organisation id is not printed on screen (only its display name
-    // is) — read it the same way `App.tsx` already holds it: off the one
-    // fetch this page made at load. Simplest reliable source inside the
-    // page: re-fetch it.
-    const orgsBody = await signedFetch('GET', '/organisations');
-    const orgs = JSON.parse(new TextDecoder().decode(orgsBody));
-    const organisationId = orgs[0].organisation_id;
-    const body = concatBytes(lp(new Uint8Array(0)), lp(utf8(label)));
-    const res = await signedFetch(
-      'POST',
-      `/organisations/${encodeURIComponent(organisationId)}/scopes`,
-      body,
-    );
-    const scope = JSON.parse(new TextDecoder().decode(res));
-    window.__seededScopeId = scope.scope_id;
-  }, { label: 'Session 7 network' });
-
-  // A fresh open re-reads the scope list from the server — the same effect
-  // a working "New scope" button's own success path already has
-  // (`setScopes` appending in place). Re-signs in with the same enrolled
-  // key (still in this browser's `IndexedDB`); the in-memory session does
-  // not survive a navigation (`state/sessionState.ts`'s own doc).
-  await one.goto(CLIENT_URL, { waitUntil: 'domcontentloaded' });
-  await signIn(one, seed.steward.address);
   await one.getByText('Session 7 network').waitFor({ timeout: 10000 });
-  check('browser one (steward): the new scope appears on Home (created via the real signed API)', await one.getByText('Session 7 network').isVisible());
+  check('browser one (steward): the new scope appears on Home (created via the real "New scope" form)', await one.getByText('Session 7 network').isVisible());
 
   await one.screenshot({ path: `${SHOTS}s7-home.png` });
   check(
@@ -699,6 +657,30 @@ async function runProof(browser, seed) {
   check('browser one (steward): placing a device saves with no refusal', oneRefusalCount === 0, `refusal divs: ${oneRefusalCount}`);
   const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('> *').count();
   check('browser one (steward): the Trail carries at least one entry after the first save', trailRowsAfterFirstSave >= 1);
+
+  // FOUND BUG, now fixed (`components/racks/RacksPlace.tsx`'s `handlePlace`):
+  // this drop mints a Premises and a Rack (`ensureRackToPlaceInto`) and then
+  // places the Chassis (`placeChassis`) — every one of those three calls
+  // used to dispatch with no `Actor` opts at all, so
+  // `document/commands.ts`'s own `resolve` fell back to
+  // `document/model.ts`'s `LOCAL_ACTOR` even while the steward is really
+  // signed in, and the Trail's newest row (`components/racks/trail.ts`'s
+  // `whoLabel`) read `'local'` for every one of the three rows this drop
+  // produced. Asserted here against the newest row, the one this drop just
+  // made.
+  const newestWho = (await one.locator('.racks-trail__row').first().locator('.racks-trail__col--who').innerText()).trim();
+  check(
+    "browser one (steward): the Trail's newest row names the signed-in account, not 'local' (LOCAL_ACTOR)",
+    newestWho !== 'local' && newestWho.length > 0,
+    `who: ${JSON.stringify(newestWho)}`,
+  );
+
+  // The Ctrl Z half of this same check (does undo actually go through, now
+  // that the batch is attributed rather than LOCAL_ACTOR) runs at the very
+  // end of this proof instead of here: undoing this batch removes the one
+  // device browser two is about to open the design and look for, and would
+  // also perturb the version numbers the stale-save section below depends
+  // on. See the end of `runProof`.
 
   await one.screenshot({ path: `${SHOTS}s7-first-save.png` });
   check('screenshot s7-first-save.png: taken after the first save landed', true);
@@ -758,21 +740,51 @@ async function runProof(browser, seed) {
   await two.screenshot({ path: `${SHOTS}s7-stale.png` });
   check('screenshot s7-stale.png: the refusal wash in browser two', true);
 
-  // ADR-0054 §1 promises a Reload action inside this wash; there is none —
-  // see this script's final report. Substitute: a fresh open (what a person
-  // clicking a working Reload would get) re-signs in with the same
-  // enrolled key and re-opens the same design, and should show BOTH of
-  // browser one's devices with no refusal.
-  const noReloadButton = (await two.getByRole('button', { name: /reload/i }).count()) === 0;
-  check('ADR-0054 gap found: no Reload control exists in the refusal wash (see report)', noReloadButton);
+  // ADR-0054 §1 promises a Reload action inside this wash; a prior run of
+  // this script (see its own git history) found none rendered and worked
+  // around it with a fresh navigation and re-sign-in. `RacksPlace.tsx` now
+  // renders a real `.racks-place__refusal-reload` button beside the
+  // refusal text (unchanged by this task) — asserted directly here instead
+  // of asserting its absence, then clicked, since the in-memory-only
+  // session (`state/sessionState.ts`'s own doc) does not survive a
+  // navigation and this route still needs a fresh sign-in either way.
+  const hasReloadButton = (await two.getByRole('button', { name: /reload/i }).count()) > 0;
+  check('the refusal wash renders a real Reload control (ADR-0054 §1)', hasReloadButton);
 
   await two.goto(designUrl, { waitUntil: 'domcontentloaded' });
   await signIn(two, seed.drawer.address);
   await two.locator('.drawing-chassis').first().waitFor({ timeout: 15000 });
   await two.waitForFunction(() => document.querySelectorAll('.drawing-chassis').length >= 2, { timeout: 15000 });
   check(
-    "substitute Reload (fresh sign-in and re-open): shows browser one's two devices, no refusal",
+    "a fresh sign-in and re-open (what clicking Reload does) shows browser one's two devices, no refusal",
     (await two.locator('.drawing-chassis').count()) >= 2 && (await two.locator('.racks-place__refusal').count()) === 0,
+  );
+
+  // ADR-0053 §1/§3 — the Ctrl Z half of the "not 'local'" check earlier in
+  // this proof: only a batch attributed to a real account can be undone at
+  // all (`document/undo.ts`'s `conflict`: an unattributed, `LOCAL_ACTOR`-
+  // stamped batch refuses with `{ kind: 'unattributed' }`, which the Trail
+  // shows as `.racks-trail__refusal`). With the actor now really threaded
+  // through `RacksPlace.tsx`'s `handlePlace`/`handleMove`, Ctrl Z undoes
+  // browser one's own last placement with no such refusal. Run last, once
+  // nothing else in this proof still depends on the device count or the
+  // design's saved version.
+  const chassisBeforeUndo = await one.locator('.drawing-chassis').count();
+  await one.bringToFront();
+  await one.keyboard.press('Control+z');
+  await one
+    .waitForFunction(
+      (before) => document.querySelectorAll('.drawing-chassis').length < before,
+      chassisBeforeUndo,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
+  const chassisAfterUndo = await one.locator('.drawing-chassis').count();
+  const undoRefusalAfterUndo = await one.locator('.racks-trail__refusal').count();
+  check(
+    'browser one (steward): Ctrl Z undoes its own last placement — attributed to a real account, not refused as unattributed',
+    chassisAfterUndo === chassisBeforeUndo - 1 && undoRefusalAfterUndo === 0,
+    `chassis before=${chassisBeforeUndo} after=${chassisAfterUndo}, undo refusal divs: ${undoRefusalAfterUndo}`,
   );
 
   await stewardCtx.close();

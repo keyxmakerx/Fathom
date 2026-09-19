@@ -25,6 +25,23 @@ import './racks.css';
 // without themselves needing to know the logic moved.
 export { canDrawFor, refusalFor };
 
+/**
+ * The `Actor` opts every command `handlePlace`/`handleMove` dispatches is
+ * stamped with — the signed-in account's own ulid, the same shape
+ * `useDesignSession.ts`'s `handleEdit` already builds from
+ * `getSession()?.accountId`. Pulled out as its own named, exported function
+ * (rather than an inline ternary at four call sites) so it is a thing this
+ * file's own test can call directly: a regression that drops the argument
+ * from one of those four calls, or that reintroduces `undefined` for a real
+ * signed-in `accountId`, previously landed a batch stamped
+ * `document/model.ts`'s `LOCAL_ACTOR` — one nobody could undo (ADR-0053
+ * §1/§3) and the Trail could only read as `'local'`
+ * (`components/racks/trail.ts`'s `whoLabel`).
+ */
+export function actorOpts(accountId: string | null): { actor: string } | undefined {
+  return accountId != null ? { actor: accountId } : undefined;
+}
+
 /** Not a valid formatted node id (`document/model.ts`'s ids are always
  * `<kebab-kind>:<ulid>`) — a sentinel `Drawing` can hand back to `onPlace`
  * that can never collide with a real rack. Stands in for the rack an empty
@@ -414,6 +431,15 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handlePlace = useCallback(
     (rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number) => {
       if (doc == null) return;
+      // ADR-0053 §3, same stamp `useDesignSession.ts`'s `handleEdit` gives
+      // every field write — every command dispatched from here (creating a
+      // premises/rack to drop the first device into, placing or moving a
+      // chassis) is stamped with the signed-in account's ulid too, so its
+      // provenance names who really made it rather than falling through to
+      // `document/model.ts`'s `LOCAL_ACTOR` read-side sentinel (undoable by
+      // nobody — ADR-0053's "you undo your own changes" has no "you" for
+      // that stamp).
+      const opts = actorOpts(accountId);
 
       // ADR-0051 §1/§2, this session's brief item 2 — the palette's own two
       // extra rows (`racks/palette.ts`'s `SKETCH_DEVICE_PALETTE_ITEM`/
@@ -423,7 +449,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         let working = doc;
         let targetRackId = rackId;
         if (rackId === PENDING_RACK_ID) {
-          const ensured = ensureRackToPlaceInto(working, realView.premisesId === '' ? null : realView.premisesId);
+          const ensured = ensureRackToPlaceInto(working, realView.premisesId === '' ? null : realView.premisesId, opts);
           working = ensured.doc;
           targetRackId = ensured.rackId;
         }
@@ -434,10 +460,12 @@ export function RacksPlace(props: RacksPlaceProps) {
           // `ensureRackToPlaceInto` finds a fresh `Rack`: diffing
           // `doc.nodes` against the ids that existed before the call.
           const beforeIds = new Set(working.nodes.map((n) => n.id));
-          const withDevice = createSketchDevice(working, {});
+          const withDevice = createSketchDevice(working, opts ?? {});
           const chassisNode = withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Chassis');
           if (!chassisNode) return;
-          applyDocChange(movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }));
+          applyDocChange(
+            movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts),
+          );
         } catch {
           // As below: `Drawing` checked this drop against a view that
           // turned out to be stale. Leave the document as it was.
@@ -462,13 +490,13 @@ export function RacksPlace(props: RacksPlaceProps) {
       let working = doc;
       let targetRackId = rackId;
       if (rackId === PENDING_RACK_ID) {
-        const ensured = ensureRackToPlaceInto(working, realView.premisesId === '' ? null : realView.premisesId);
+        const ensured = ensureRackToPlaceInto(working, realView.premisesId === '' ? null : realView.premisesId, opts);
         working = ensured.doc;
         targetRackId = ensured.rackId;
       }
 
       try {
-        applyDocChange(placeChassis(working, targetRackId, model, positionU, 'front'));
+        applyDocChange(placeChassis(working, targetRackId, model, positionU, 'front', opts));
       } catch {
         // `Drawing` already checked this drop for range/overlap against the
         // view it was given before calling `onPlace`; a command-level
@@ -476,20 +504,21 @@ export function RacksPlace(props: RacksPlaceProps) {
         // document exactly as it was rather than apply a half-formed edit.
       }
     },
-    [doc, catalogue, realView.premisesId, applyDocChange],
+    [doc, catalogue, realView.premisesId, applyDocChange, accountId],
   );
 
   const handleMove = useCallback(
     (chassisId: string, rackId: string, positionU: number) => {
       if (doc == null) return;
       try {
-        applyDocChange(moveChassis(doc, chassisId, rackId, positionU, 'front'));
+        // ADR-0053 §3 — same stamp as `handlePlace` above.
+        applyDocChange(moveChassis(doc, chassisId, rackId, positionU, 'front', actorOpts(accountId)));
       } catch {
         // As `handlePlace` above: the drawing validated the drop against a
         // view that turned out to be stale. Leave the document as it was.
       }
     },
-    [doc, applyDocChange],
+    [doc, applyDocChange, accountId],
   );
 
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
