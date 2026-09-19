@@ -15,7 +15,7 @@ use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
 /// key lives.** It was derived, until 2026-09-14, on the argument that the key
 /// volume is the place the operator has already been told to guard -- and that
 /// argument was right about the guarding and wrong about the filesystem. ADR-
-/// 0043 §3 gives the master key its own volume; `deploy/compose.yaml` mounts
+/// 0043 §3 gives the master key its own volume; `compose.yaml` mounts
 /// that volume READ-ONLY on the server, because the server reads the key and
 /// does not write it. So a first start in a container tried to write a bearer
 /// token into a read-only mount, failed, and exited -- with the operator row
@@ -272,7 +272,7 @@ async fn main() -> ExitCode {
     // `migrations/0002_identity_and_scope.sql` FORCEs row-level security, but
     // that binds for nothing if the role this server connected as is a
     // superuser or carries BYPASSRLS -- Postgres exempts both
-    // unconditionally. Found 2026-09-12: the shipped `deploy/compose.yaml`
+    // unconditionally. Found 2026-09-12: the shipped `compose.yaml`
     // connected as exactly such a role, so every isolation policy was inert
     // in production while the tests, which provision a restricted role on
     // purpose, kept passing. This asks the database what the connected role

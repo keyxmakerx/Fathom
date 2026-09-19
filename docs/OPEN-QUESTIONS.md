@@ -321,7 +321,7 @@ The first is worth more and owes more.
 
 *Found 2026-09-16 by the enrolment review, looking for them.* The server sends no
 `Content-Security-Policy`, and nothing in the tree sends `Strict-Transport-Security` or redirects
-plain HTTP; `deploy/compose.yaml` puts Caddy in front to terminate TLS and says nothing about
+plain HTTP; `compose.yaml` puts Caddy in front to terminate TLS and says nothing about
 either header. Two consequences: any script that runs on the origin can open the browser's key
 store and sign with an enrolled key — non-extractable stops the key leaving, not its being used —
 and over plain HTTP an invitation token crosses the wire in the clear.

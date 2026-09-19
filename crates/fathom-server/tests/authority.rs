@@ -3552,8 +3552,13 @@ async fn a_proposal_whose_sole_steward_flag_no_longer_holds_is_refused_with_re_p
     // any difference is the typed re-propose error.
     let pool = support::migrated_pool().await;
     let ring = keyring(85);
-    // The second genesis steward is signed live from two seconds hence.
-    let estate = bootstrap_with_starts(&pool, &ring, &[0, 2]).await;
+    // The second genesis steward is signed live from six seconds hence. It
+    // was two until 2026-09-19, when a loaded CI runner spent longer than
+    // that on the bystander, the connection and the acting context below,
+    // so the co-steward was already live at the proposal and the first
+    // assertion failed. The window must outlast those round trips with room
+    // to spare; the sleep below must outlast the window.
+    let estate = bootstrap_with_starts(&pool, &ring, &[0, 6]).await;
     let (subject, _subject_key) = a_bystander(&pool, &ring, &estate, "candidate").await;
 
     let mut client = pool.get().await.expect("connection");
@@ -3593,7 +3598,7 @@ async fn a_proposal_whose_sole_steward_flag_no_longer_holds_is_refused_with_re_p
     // The co-steward becomes live while the proposal is in the signer's hands.
     // Nothing else happens, so the EPOCH is untouched -- this is the
     // sole-steward re-derivation being the check that fires, not the epoch.
-    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(7000)).await;
 
     let refused = grants::sign_grant(&tx, &auth, &proposal, &signature).await;
     match refused {

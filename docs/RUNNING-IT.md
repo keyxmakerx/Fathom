@@ -119,7 +119,7 @@ Open the client, redeem the operator token from step 3, and let the browser gene
 is no password anywhere in this product, and no self-registration: every account arrives by
 invitation.
 
-### Verified on 2026-09-14
+### Verified on 2026-09-14, from source
 
 Run here against a real PostgreSQL 16, from an empty database:
 
@@ -143,83 +143,53 @@ restart                                   one operator, no re-bootstrap
 
 ## Docker Compose
 
-`deploy/compose.yaml` builds a three-container deployment (PostgreSQL, the server, and Caddy in
-front of both), with the database passwords generated at first start and the images pinned by
-digest rather than by tag.
-
-**Nobody has run it end to end. Docker is not available in the environment this repository is
-developed in, so the compose path can only be proven on your machine, and until you do, treat this
-section as reasoning rather than evidence.** Everything below this stack's own shape was written
-without ever running `docker compose up` — read `deploy/Dockerfile`, `deploy/Caddyfile` and
-`deploy/compose.yaml` themselves, which carry a comment on every line that is a decision rather
-than boilerplate, for the reasoning this page only summarises.
-
-**The stack's shape, as of 2026-09-19: Caddy now serves the client, not only the API.**
-`deploy/Dockerfile` gained two build stages — `client-build` (Node, pinned by digest like every
-other image here) runs `npm ci && npm run build` against the same checkout the server builds
-from, and a `caddy` stage bakes that build's `client/dist` into `/srv/www` on top of the same
-pinned Caddy image the stack already used. `deploy/Caddyfile` now routes every path
-`crates/fathom-server`'s own routers actually serve (`/session`, `/organisations`, `/catalogue`,
-`/admin`, `/enrolment`, `/firmware`, `/health`, `/schema/kinds` — enumerated, not wildcarded, the
-same choice `client/vite.config.ts`'s dev-time proxy already made) to the `server` container, and
-serves everything else as a static file from `/srv/www`. Before this change the compose stack
-brought up a server and a proxy with nothing at all for the proxy to serve except the API; a
-browser pointed at `https://localhost:8443/` got nothing.
-
-Also fixed in the same change: `deploy/Dockerfile` used to copy `schema/` into the server image
-but not `corpus/`, and `main.rs` loads the equipment catalogue from `corpus/`'s being beside
-`schema/` — so the containerised server refused to start with a catalogue error. `corpus/` is now
-copied alongside `schema/`.
-
-Beyond the catalogue and the client above, two more first-start faults have been found by reading
-this stack. The first is fixed; the second needs one action from you.
-
-**Fixed:** the first-start operator token was written beside the master key, and the key volume is
-mounted read-only on purpose, so the server could not start. The token now has its own writable
-volume, `FATHOM_BOOTSTRAP_TOKEN_FILE` points at it, and the key volume is unchanged.
-
-**You must do this: generate the two keys before the first `compose up`.** The server creates them
-itself when they are missing, which is right when you run it from source and impossible in the
-container, because it would be writing into the read-only key volume. Seed the volume first:
+From a clean checkout, on a machine with Docker:
 
 ```sh
-docker volume create fathom_keys        # match your compose project's volume name
-docker run --rm -v fathom_keys:/keys alpine sh -c '
-  head -c 32 /dev/urandom > /keys/master.key
-  head -c 32 /dev/urandom > /keys/chain.key
-  chown 65532:65532 /keys/master.key /keys/chain.key
-  chmod 400 /keys/master.key /keys/chain.key'
+cp .env.example .env         # then set FATHOM_OPERATOR_NOTICE_ADDRESS in it
+docker compose up -d --build
 ```
 
-`65532` is the unprivileged user the distroless image runs as. The server refuses to load a key file
-that is readable by anyone but its owner, which is why the mode matters and why the database
-container's generated password files are a separate, world-readable thing.
+Then open <https://localhost:8443/>. The certificate is Caddy's own local one, so the browser will
+warn once. To sign in the first time, read the one-time token the first start wrote and paste it
+into the enrolment screen:
 
-**Generating the keys yourself is better than letting the server do it, and not only because of the
-mount.** It puts the backup conversation at the start, where it belongs. Copy that volume somewhere
-your database backups are not, before you put a single design in. There is no recovery path and that
-is deliberate (ADR-0043).
+```sh
+docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
+cat ./first-operator-token
+```
 
-`FATHOM_OPERATOR_NOTICE_ADDRESS` must be set in your environment; the compose file requires it rather
-than defaulting it. The install record it feeds is write-once by design, no role can update it, and
-organisation enrolment claims are pinned to it, so a plausible-looking placeholder would be
-permanently wrong in any deployment that did not read the comment.
+The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before that,
+`docker compose run --rm server reissue-bootstrap-token` mints another, and refuses the moment any
+operator key has ever been enrolled.
 
-**The sign-in rate limit's source bucket, fixed 2026-09-19.** Behind any reverse proxy, every
-request the server sees arrives from that proxy's own address unless told otherwise
-(`src/config.rs`'s own comment on `FATHOM_TRUSTED_CLIENT_IP_HEADER`) — and this stack puts Caddy
-in front of the server, so without that variable set, every sign-in attempt from every real
-client shared one rate-limit bucket. `deploy/compose.yaml` now sets
-`FATHOM_TRUSTED_CLIENT_IP_HEADER=X-Forwarded-For`, and it is safe to set only because
-`deploy/Caddyfile` overwrites that exact header on every proxied request with the address Caddy
-itself accepted the connection from (`header_up X-Forwarded-For {remote_host}`), rather than
-trusting whatever a client sent — a deployment that set the variable without that guarantee would
-let a client pick its own rate-limit bucket instead.
+**What the stack does for itself.** A one-shot `keys-init` container runs first and generates,
+into the `keys` volume, whatever is missing: the master key and the chain key (mode 0400, owned by
+the server's uid) and the three database passwords (bootstrap, migration, runtime; mode 0444). A
+restart keeps what exists. **Copy that volume somewhere your database backups are not before the
+first design goes in**; there is no recovery path without it, by design (`docs/OPERATING.md`).
 
-**If you lose the first-start token before redeeming it**, `fathom-server reissue-bootstrap-token`
-issues another. It refuses the moment any operator key has ever been enrolled, including a retired
-one, because a re-issue that still worked after that would be a way for anyone who can run a command
-on the host to make themselves an operator.
+**What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, and nothing else. It is recorded
+once, at first start, and cannot be changed afterwards; a default would create an operator nobody
+can reach. `FATHOM_HTTPS_PORT` moves Caddy off 8443 if you need to.
+
+**What runs.** Three containers plus the one-shot: PostgreSQL 16, the server (distroless,
+read-only root, unprivileged, not published to the host), and Caddy terminating TLS and serving
+the client, routing exactly the paths the server serves and nothing else (`deploy/Caddyfile`
+enumerates them from the server's own routers). Every image is pinned by digest. The server reads
+the client's address from the `X-Forwarded-For` header Caddy overwrites on every proxied request,
+so the sign-in rate limit counts per client rather than per proxy.
+
+**Proven where.** `.github/workflows/ci.yml`'s `compose` job builds every image from the checkout
+on every push and pull request, brings the stack up, waits for the server's healthcheck, asks
+Caddy for `/health` and the client over TLS, reads the first-operator token, restarts the server
+and checks the keys were kept. Before 2026-09-19 nobody had run this file at all, because the
+environment it was written in has no Docker daemon; three first-start faults were found by
+reading it, and the fourth (the database container could not write into a root-owned volume) by
+reading it again when the first three were fixed. The published images
+(`.github/workflows/publish.yml`, on every merge to `main`) are the same two stages.
+
+**Backups and everything after.** `docs/OPERATING.md`.
 
 ## What does not work yet
 
