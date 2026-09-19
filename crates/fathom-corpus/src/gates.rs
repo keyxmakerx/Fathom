@@ -137,7 +137,7 @@ pub fn run(index: &CorpusIndex) -> Vec<Finding> {
         }
     }
     for x in &corpus.explainers {
-        if x.reviewed_by.as_deref().is_none_or(|r| r.starts_with('<')) {
+        if x.reviewed_by.starts_with('<') {
             finding(
                 &mut out,
                 Severity::Warning,
@@ -148,7 +148,7 @@ pub fn run(index: &CorpusIndex) -> Vec<Finding> {
         }
     }
     for r in &corpus.rules {
-        if r.reviewed_by.as_deref().is_none_or(|v| v.starts_with('<')) {
+        if r.reviewed_by.starts_with('<') {
             finding(
                 &mut out,
                 Severity::Warning,

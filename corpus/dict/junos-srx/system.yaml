@@ -9,6 +9,8 @@
 # not satisfied until a named SRX-competent human replaces every one of them
 # (WO-03 §10 item 9).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, domain-name, time-zone, ntp server (edit system)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/system.host-name
     path: [system, host-name, "$h"]

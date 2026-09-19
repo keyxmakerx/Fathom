@@ -1,0 +1,130 @@
+# corpus/explainers/opnsense-basics.yaml — orientation for OPNsense, written in
+# the manner of corpus/explainers/arista-eos-basics.yaml (see that file's own
+# header for the full field-by-field convention; not repeated here).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders, not names
+# (invariant 10, OPEN-QUESTIONS E2): this entry is shown, clearly labelled
+# *unreviewed*, until a named human vouches for it. It was written by an AI
+# agent from vendor documentation and corroborated web-search synthesis, and
+# that is not a substitute for review.
+#
+# SOURCES — read 2026-09-19. `docs.opnsense.org` is blocked by this
+# environment's egress proxy (`EGRESS_BLOCKED`), so every claim is either a
+# direct read of the documentation's own source (`raw.githubusercontent.com/
+# opnsense/docs`, which renders into the blocked page) or web-search synthesis
+# corroborated across independent listings, marked as such per claim.
+#
+#   - `raw.githubusercontent.com/opnsense/docs/master/source/manual/
+#     backups.rst` — direct read, 2026-09-19: System -> Configuration ->
+#     Backups holds a "Download configuration" button producing one XML file,
+#     optionally password-protected, optionally carrying RRD statistics in
+#     the same file.
+#   - `raw.githubusercontent.com/opnsense/docs/master/source/manual/
+#     aliases.rst` — direct read, 2026-09-19: Firewall -> Aliases groups
+#     hosts/networks/ports under one name reused across rules, with a
+#     download/upload button in the table footer producing a JSON list.
+#   - `corpus/dict/opnsense/README.md` §5 (this repository, ADR-0034-dated
+#     2026-08-15) — the firewall rule action vocabulary (`pass`/`block`/
+#     `reject`) and OPNsense's own citation that evaluation is *last-match-
+#     wins unless a rule sets `quick`* (`docs.opnsense.org/manual/
+#     firewall.html`, read 2026-08-15, carried here rather than re-read).
+#   - Community/reseller documentation on OPNsense's pfSense/m0n0wall lineage
+#     and its Deciso/BSD packet-filter (pf) basis — search synthesis
+#     corroborated across at least two independent listings, read 2026-09-19.
+#     No single vendor page fetched this session states the lineage in those
+#     words; it is well-attested across independent sources and is presented
+#     as synthesis rather than a verbatim read.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: how to install, harden, or choose plugins
+# for a box — Fathom does not recommend specific software or appliances, only
+# explains the shape of the configuration a person pastes or backs up. The
+# rules-CSV export mechanics are `README.md`'s job, not repeated here.
+entries:
+
+- id: explain:concept:opnsense.basics
+  class: concept
+  subject: { path: opnsense.basics }
+  title: "What OPNsense is, and how its configuration is structured"
+  entry_version: 1.0.0
+  status: active
+  platforms: [opnsense]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    OPNsense is an open-source firewall/router distribution built on FreeBSD's
+    packet filter (pf). There is no line-oriented CLI to paste from; the whole
+    configuration lives in one XML file, downloadable from the web interface.
+
+  explained: >
+    OPNsense is a firewall and routing platform, not a single appliance — it
+    runs on a general-purpose FreeBSD base and is configured almost entirely
+    through a web interface rather than a command-line session. Its entire
+    configuration — interfaces, firewall rules, VPNs, services — lives in one
+    plain XML file, conventionally at `/conf/config.xml` on the box, which the
+    web interface can back up as a single download. The firewall engine
+    underneath is FreeBSD's packet filter (pf), inherited through the same
+    software lineage as pfSense: rules are evaluated in a particular order,
+    and — unlike a "first match wins" firewall — the *last* matching rule
+    wins unless that rule is explicitly marked to stop evaluation early.
+
+  teaching:
+    body: >
+      Three things explain most of what makes an OPNsense configuration look
+      different from a traditional network vendor's CLI-driven one.
+
+      First, there usually is no terminal session to paste from. Traditional
+      network gear (Junos, EOS, IOS) is configured and inspected through a
+      command-line grammar built for exactly that — typing commands, showing
+      running state, pasting the output somewhere else. OPNsense's primary
+      interface is a web page, and its "configuration as text" equivalent is
+      a whole-file download (the XML backup) rather than a scrollback of
+      typed commands. One narrow exception exists: Firewall -> Rules carries
+      a CSV export intended for migrating between rule formats, and that is
+      the one OPNsense document this project currently knows how to read.
+
+      Second, the rule evaluation order is the opposite of what a person
+      coming from a "first match wins" firewall expects. OPNsense's pf-based
+      filter evaluates every matching rule in order and the *last* one to
+      match is the one that takes effect — unless a rule is marked `quick`,
+      in which case matching it stops evaluation immediately, first-match
+      style, for that one rule. A ruleset written by someone assuming
+      first-match semantics throughout can therefore behave differently from
+      what its rule order suggests, and reading one correctly means checking
+      whether `quick` is set before assuming order alone decides the outcome.
+
+      Third, "aliases" are the object-grouping mechanism: a named list of
+      hosts, networks, or ports, defined once and referenced by name from
+      any number of firewall rules — broadly the same idea as an address-book
+      or object-group on other platforms, so a rule that references an alias
+      cannot be understood from the rule alone; the alias's membership has to
+      be read separately (and today, only as a JSON export this project does
+      not yet parse — see `corpus/dict/opnsense/README.md` §6).
+
+    breaks_if_wrong: >
+      Assuming rule order is strictly first-match, the way many other
+      firewalls behave, misreads which rule actually governs a given packet
+      whenever more than one rule matches and none is marked `quick`. Reading
+      a rule that references an alias as if the alias's name described its
+      contents exactly is the other common miss — an alias named `office-lan`
+      could hold any set of hosts or networks an administrator chose, and
+      nothing about the rule text guarantees the name matches the membership.
+
+    misdiagnosed_as: >
+      "The firewall isn't applying the rule I wrote" often reads as a syntax
+      or placement mistake in that one rule, when the real cause is a later
+      rule in the list also matching the same traffic and winning under
+      last-match evaluation. Likewise, "traffic to the wrong hosts is being
+      allowed" is often not a wrong rule at all, but an alias whose
+      membership was edited separately from the rule that references it.
+
+  sources:
+    - { vendor: "Deciso / OPNsense", doc: "Configuration Backup and Restore", url: "https://docs.opnsense.org/manual/backups.html", read_on: "2026-09-19", note: "direct read of raw.githubusercontent.com/opnsense/docs source; docs.opnsense.org itself is proxy-blocked" }
+    - { vendor: "Deciso / OPNsense", doc: "Aliases", url: "https://docs.opnsense.org/manual/aliases.html", read_on: "2026-09-19", note: "direct read of raw.githubusercontent.com/opnsense/docs source" }
+    - { vendor: "Deciso / OPNsense", doc: "Firewall — rule evaluation order", url: "https://docs.opnsense.org/manual/firewall.html", read_on: "2026-08-15", note: "carried from corpus/dict/opnsense/README.md §3, not re-fetched this session" }
+
+  terminal: true

@@ -1,4 +1,5 @@
 platform: junos-srx
+source: { cite: ".context/field-card-srx-ipsec.txt (side 2, DH group table); internal design doc `14` section 14.4 (IntegrityAlgorithm mapping) — not a vendor documentation page", read_on: "2026-09-19" }
 reviewed_by: <named human>
 token_maps:
   DhGroup:            # field card side 2: group14 baseline; group19/group20

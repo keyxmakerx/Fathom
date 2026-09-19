@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-19: 1279 server-side tests and 833 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1311 server-side tests and 834 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -297,12 +297,16 @@ fresh database it passes; reused, it fails intermittently, and three separate ca
 - **A one-second session lifetime** in `an_expired_session_is_refused_and_the_row_goes_with_it` had
   to cover signing in *and* taking a nonce, both real round trips, so on a loaded machine the
   session expired before the test reached the refusal it exists to check. **Fixed**: four seconds.
-- **Two tests still share state across runs** and fail only on a reused database:
-  `an_operator_cannot_be_seconded_by_the_operator_they_created` (a settings row reads `captured`
-  where it expects `first`) and `past_the_bound_a_rotation_is_refused_and_drains_to_succeed`. Both
-  were confirmed to fail identically at the commit before that day's work, so neither is new. **Not
-  fixed.** They cost nothing under rule 3, which gives every builder its own database, and CI
-  creates one per run.
+- **`an_operator_cannot_be_seconded_by_the_operator_they_created`** read `captured` where it
+  expected `first`. Recorded on 2026-09-16 as a reused-database fault; on 2026-09-19 it failed
+  on a fresh database under a full workspace run, and the cause was read off the store: the
+  fixture ran in single-operator mode, under which an unseconded change applies alone once its
+  one-second delay passes, so the assertion raced the round trips. **Fixed**: the fixture
+  requires a second signature, as the two-operator control test already did.
+- **`past_the_bound_a_rotation_is_refused_and_drains_to_succeed`** fails only on a reused
+  database, confirmed to fail identically at the commit before 2026-09-16's work. **Not fixed.**
+  It costs nothing under rule 3, which gives every builder its own database, and CI creates one
+  per run.
 
 **`tests/operators.rs` leaves a database behind per test.** Its per-test fixture creates
 `fathom_isolated_*` databases and does not drop them; twelve were found after one run on
@@ -318,8 +322,53 @@ stage from the build stage, so the image ships exactly the tree it was built aga
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand into a
   field is stored and exported as written — it gets a warning mark beside it, and that is the
   decision, not a bug.
-- **Juniper is the only platform with real content behind it.** Five others are registered and
-  empty. A pasted Juniper branch config binds about 57% of its lines.
+- **Engines, as of 2026-09-19, are files in the tree.** ADR-0044 describes signed data packs;
+  none of its Phase 5 exists: no `engine.yaml`, no signature, no install, no chain entry, no
+  pinning. The server reads `corpus/catalogue/` from disk at start and the client compiles
+  `corpus/dict/` into its bundle. What the corpus carries for the owner's stack, every device fact
+  cited with its read date, every credential test at the length the device accepts:
+  - **Juniper.** `junos-srx` is the one dictionary with real depth (a branch config binds about
+    57% of its lines). `junos-ex` binds VLANs, ethernet-switching membership, LAG membership and
+    irb units; `interface-mode` is left unbound on purpose (per-edge fact, per-unit statement);
+    a virtual chassis has no schema representation. Catalogue: EX4300-48P, EX2300-48P,
+    EX4100-48P (its SFP28 uplinks recorded as SFP+ for want of a kind), SRX300, SRX340 (1U; the
+    vendor page wins over the design board).
+  - **OPNsense.** The rules-migration CSV (26.1 and later) is the only readable export and the
+    only one bound. Aliases export as JSON; `config.xml` needs an XML framer, and the fields it
+    must destroy are listed in `corpus/dict/opnsense/README-config-xml.md`. The dictionary
+    declares no secrets; the core floor destroyed every credential driven at it. No catalogue
+    entry: the catalogue has no form for "a box that runs OPNsense".
+  - **Ubiquiti.** Catalogue: UDM-SE, USW-24-PoE, USW-48-PoE (their 1G SFP cages recorded as
+    SFP+ for want of a kind). UniFi has no human-readable export, so no dictionary
+    (`corpus/dict/README-ubiquiti.md`). EdgeOS binds hostname, interface description and
+    disable, and `vif` sub-interfaces from `show configuration commands`; base interface
+    addresses, static routes, DHCP server and NAT are unbound for reasons written in the files.
+  - **Linux hosts.** A zero-entry dictionary. `ip` and `bridge` output is not verb-initial and
+    `shape.rs` shapes only `set` lines, so nothing binds until the core grows a record-shaped
+    front end (`corpus/dict/README-linux-host.md`); a pasted WireGuard private key is still
+    destroyed. Teaching: `linux-family-basics` and eight per-flavour explainers (Arch, Debian,
+    Ubuntu, Fedora, the RHEL family, openSUSE, NixOS, Alpine) cited from each distribution's
+    own documentation, recommending nothing beyond the platform's own package manager and init.
+  - **Arista.** Catalogue: 720XP-48ZC2, 7050SX3-48YC8; an EOS explainer. No dictionary: EOS
+    block config is the same shape gap as Linux, and the safety net destroys every credential
+    in a 120-line synthetic config (`crates/fathom-ingest/tests/arista_eos.rs`).
+
+  Every explainer written that day carries `reviewed_by: <named human>`, which means unreviewed;
+  no client surface shows that label yet (OPEN-QUESTIONS E2 is answered, not built).
+
+  **Gaps the verification found, carried:** the client boots one dictionary beside OPNsense
+  (`shell.rs` holds a single slot), so `junos-ex` and `edgeos` are compiled in but not booted,
+  listed in `engine.ts` as excluded with reasons and a test that refuses a silent omission; the
+  redaction-unproven refusal of ADR-0044 rule 2 is not built, the core floor is the only fence
+  (amended in the ADR); a credential typed into the free-text description cell of the OPNsense
+  CSV is not caught, pinned by a test in `opnsense_csv.rs`; the `<named human>` placeholder is
+  a warning, not a build failure, because the shipping gate does not exist; a dictionary cannot
+  bind `lacp_mode`, an interface form or a `NextHop` (`ValueTy` has no arm); the catalogue has
+  no plain SFP or SFP28 kind. **Closed the same day:** `secret_exempt` could be declared by any
+  dictionary with a free-text reason and let a cleartext password bind; it is now honoured only
+  for the path shapes a core-held allowlist names, with a canary that drives a real SRX password
+  through the rogue entry; empty citations and reviewers are refused; every dictionary file
+  carries a `source` header and a reviewer.
 - **Nothing creates cables or ports from a config.** Only by hand.
 
 ---

@@ -3,6 +3,8 @@
 # for why they exist and why each carries `partial: true`.
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "see corpus/dict/junos-srx/security-ipsec.yaml's header for the shared citation trail (Juniper Junos CLI reference and Guided Setup)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/security.ike.proposal
     path: [security, ike, proposal, "$p"]

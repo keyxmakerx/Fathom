@@ -46,6 +46,19 @@ function fieldKeysText(): string {
  * sources are not sorted, because entry indices are positional and a
  * different order would hand the module a dictionary whose provenance names
  * the wrong entries. */
+/** Every platform directory name under `corpus/dict/` the glob above actually
+ * found a `.yaml` file in — read by `engine.test.ts`'s coverage test so
+ * `engine.ts`'s `DICT_PLATFORMS` (what boots) cannot silently drift from what
+ * is really on disk (what could be booted). */
+export function allDictPlatforms(): string[] {
+  const names = new Set<string>();
+  for (const path of Object.keys(dictFiles)) {
+    const m = /\/corpus\/dict\/([^/]+)\//.exec(path);
+    if (m) names.add(m[1]);
+  }
+  return [...names].sort();
+}
+
 export function platformSources(platform: string): { name: string; source: string }[] {
   const marker = `/corpus/dict/${platform}/`;
   const matches = Object.entries(dictFiles)

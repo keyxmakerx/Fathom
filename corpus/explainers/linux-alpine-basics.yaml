@@ -1,0 +1,135 @@
+# corpus/explainers/linux-alpine-basics.yaml — orientation for Alpine
+# Linux, written in the manner of corpus/explainers/linux-family-basics.yaml
+# (read first) and corpus/explainers/arista-eos-basics.yaml (full field
+# convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `docs.alpinelinux.org/user-handbook/0.1a/Working/apk.html` (Alpine's
+#     own user handbook) — `apk add <pkg>` installs; `apk del <pkg>` removes
+#     (and, documented behaviour, may also remove now-unneeded dependencies);
+#     `apk search <term>` searches the package index, including provided
+#     binaries/libraries, not only package names; whole-system update is two
+#     steps, `apk update` (refresh the package index) then `apk upgrade`
+#     (upgrade every installed package) — `apk upgrade` alone does not
+#     refresh the index first.
+#   - `alpinelinux.org/releases/` (Alpine's own releases page) — a new
+#     release branch is cut from `edge` (Alpine's rolling development branch)
+#     each May and November; the main repository of a release branch is
+#     supported for about 2 years, the community repository only until the
+#     next release branch ships; only the latest release branch receives
+#     bug fixes, older supported branches receive security fixes only.
+#   - `docs.alpinelinux.org/user-handbook/0.1a/Working/apk.html`'s own
+#     networking note plus community corroboration (search synthesis,
+#     corroborated across two independent listings, direct fetch of the
+#     dedicated networking wiki page not attempted this session): network
+#     interfaces are configured in `/etc/network/interfaces`, the ifupdown
+#     format (loopback and Ethernet interfaces set up for DHCP by default on
+#     a standard install), with `/etc/resolv.conf` for DNS.
+#   - `wiki.alpinelinux.org/wiki/OpenRC` and
+#     `docs.alpinelinux.org/user-handbook/0.1a/Working/openrc.html` —
+#     OpenRC, not systemd, is Alpine's init/service manager; `rc-service
+#     <name> start|stop|status` operates one service, `rc-update add <name>`
+#     enables it at boot, `rc-status` shows what is currently running;
+#     system-wide OpenRC configuration is `/etc/rc.conf`.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend a particular
+# container base-image workflow or any tool beyond apk, ifupdown and OpenRC
+# themselves.
+entries:
+
+- id: explain:concept:linux-alpine.basics
+  class: concept
+  subject: { path: linux-alpine.basics }
+  title: "Alpine Linux: apk, a release every 6 months on a ~2-year support window, OpenRC not systemd"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    Alpine is the one distribution in this bundle that does not run systemd
+    — it uses OpenRC. `apk` is the package manager. A new release branch is
+    cut every May and November, each supported for about 2 years. Network
+    interfaces are configured the traditional ifupdown way,
+    `/etc/network/interfaces`.
+
+  explained: >
+    Alpine's defining choice, for reading a host correctly, is that it does
+    not use systemd: service management, boot sequencing and (by extension)
+    where to look for logs all follow OpenRC's model instead, not the
+    `systemctl`/`journalctl` pair the rest of this bundle shares. Package
+    management is its own tool, `apk`, distinct from both `dpkg`/`apt` and
+    `rpm`/`dnf` families. Alpine cuts a new release branch twice a year and
+    keeps the main repository of each supported for about two years, with
+    only the newest supported branch receiving bug fixes — older supported
+    branches receive security fixes only.
+
+  teaching:
+    body: >
+      Package management: `apk search <term>` searches the package index
+      (including things a package merely provides, such as a binary or
+      library name, not only the package's own name); `apk add <pkg>`
+      installs; `apk del <pkg>` removes, and is documented to also remove
+      dependencies no longer needed by anything else. Updating the whole
+      system is explicitly two steps: `apk update` refreshes the local
+      package index from the configured repositories, then `apk upgrade`
+      upgrades every installed package — running `apk upgrade` alone
+      against a stale index will not see newer versions.
+
+      Release model: a release branch (e.g. `3.20`, `3.21`) is cut from
+      Alpine's rolling `edge` branch each May and November. Its main
+      repository is supported for roughly 2 years; its community repository
+      only until the next branch ships. Only the current release branch
+      receives bug fixes; older, still-supported branches receive security
+      fixes only — a real narrowing of what "supported" means as a branch
+      ages, not a flat guarantee.
+
+      Network configuration: the traditional ifupdown format,
+      `/etc/network/interfaces` — a standard install configures loopback
+      and the Ethernet interface(s) for DHCP by default. `/etc/resolv.conf`
+      holds DNS resolver configuration. Reading the active state is reading
+      these files directly and the output of `ip addr`/`ip route`, since
+      there is no separate management daemon's own query tool the way
+      NetworkManager's `nmcli` is elsewhere in this bundle.
+
+      Service manager: OpenRC, not systemd. `rc-service <name> start`,
+      `stop`, or `status` operates one service; `rc-update add <name>
+      [runlevel]` enables it at boot; `rc-status` shows what is currently
+      running and in which runlevel. System-wide OpenRC settings live in
+      `/etc/rc.conf`.
+
+      Logs: no systemd journal exists on Alpine. A service's own logging
+      destination is configured per-service (many write directly under
+      `/var/log/`); checking a specific service's documented log location,
+      or running it in the foreground if it supports that, is the
+      documented approach when a service fails to start, rather than a
+      single unified log command.
+
+    breaks_if_wrong: >
+      Running `journalctl` (or expecting it to exist) on an Alpine host is
+      the most direct miss — there is no systemd journal to read, because
+      there is no systemd. Assuming `apk upgrade` alone refreshes the
+      package index first is the second: without a preceding `apk update`,
+      it upgrades against whatever index was last fetched, which may be
+      stale.
+
+    misdiagnosed_as: >
+      "Nothing showed up in the logs" on Alpine often means "the journal
+      command that would show it does not exist here" — the fix is finding
+      the specific service's own log file or foreground-run option, not
+      concluding the service logged nothing.
+
+  sources:
+    - { vendor: "Alpine Linux", doc: "User Handbook — Working with the Alpine Package Keeper (apk)", url: "https://docs.alpinelinux.org/user-handbook/0.1a/Working/apk.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Alpine Linux", doc: "Alpine release branches", url: "https://alpinelinux.org/releases/", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Alpine Linux Wiki", doc: "OpenRC", url: "https://wiki.alpinelinux.org/wiki/OpenRC", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Alpine Linux", doc: "User Handbook — Working with OpenRC", url: "https://docs.alpinelinux.org/user-handbook/0.1a/Working/openrc.html", read_on: "2026-09-19", note: "direct read" }
+
+  terminal: true

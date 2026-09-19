@@ -186,21 +186,26 @@ pub struct Entry {
 
 /// An explainer entry — only what the finder needs: the id (so `next_if_bad`
 /// references resolve), the class, the title (concept labels), reviewed_by
-/// (invariant-10 inventory).
+/// (invariant-10 inventory). `reviewed_by` is required and non-empty at load
+/// (`load::req_nonempty_str`) — same shape as `Entry::reviewed_by` — so a
+/// bundle missing it, or spelling it blank, never reaches `gates.rs`'s
+/// placeholder inventory as anything other than a load failure.
 #[derive(Debug, Clone)]
 pub struct ExplainerEntry {
     pub id: String,
     pub class: String,
     pub title: Option<String>,
-    pub reviewed_by: Option<String>,
+    pub reviewed_by: String,
 }
 
 /// A rule, id-and-reviewer only — loaded so `related_rules` references can be
 /// checked and the invariant-10 inventory covers the whole bundle set.
+/// `reviewed_by` is required and non-empty at load, exactly like
+/// [`ExplainerEntry::reviewed_by`].
 #[derive(Debug, Clone)]
 pub struct RuleLite {
     pub id: String,
-    pub reviewed_by: Option<String>,
+    pub reviewed_by: String,
 }
 
 /// Declared-but-not-yet-authored concept ids from the command bundle's

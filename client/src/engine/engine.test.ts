@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { Engine, EngineError } from './engine';
+import { DICT_PLATFORMS, DICT_PLATFORMS_EXCLUDED, Engine, EngineError } from './engine';
+import { allDictPlatforms } from './frames';
 import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
@@ -344,5 +345,37 @@ describe('OP_REDACT_TEXT (31)', () => {
     }
     expect(result.text).not.toContain('Sw0rdFsh');
     expect(result.drops.length).toBeGreaterThan(0);
+  });
+});
+
+// engine.ts's own DICT_PLATFORMS doc comment: a platform directory under
+// corpus/dict/ that is not in that list boots with no platform-specific
+// `secret:` path entries at all (ADR-0044 §2). This is the test that comment
+// promises exists — it fails the day a new corpus/dict/<platform>/ lands and
+// nobody wires it into DICT_PLATFORMS (or, deliberately, into the excluded
+// list with a reason).
+describe('DICT_PLATFORMS covers every directory under corpus/dict/', () => {
+  it('every directory is either booted or explicitly, reason-fully excluded', () => {
+    const onDisk = allDictPlatforms();
+    const booted = new Set<string>(DICT_PLATFORMS);
+    const excluded = new Set(Object.keys(DICT_PLATFORMS_EXCLUDED));
+    const unaccountedFor = onDisk.filter((p) => !booted.has(p) && !excluded.has(p));
+    expect(
+      unaccountedFor,
+      `corpus/dict/ has ${JSON.stringify(unaccountedFor)} which engine.ts's DICT_PLATFORMS ` +
+        'neither boots nor DICT_PLATFORMS_EXCLUDED names a reason to skip',
+    ).toEqual([]);
+
+    // And the excluded list itself must not be fiction: every name in it
+    // still has to exist on disk, or the exclusion is dead weight.
+    for (const name of excluded) {
+      expect(onDisk, `DICT_PLATFORMS_EXCLUDED names "${name}", not present under corpus/dict/`).toContain(name);
+    }
+
+    // No name is both booted and excluded — that would be a contradiction,
+    // not a decision.
+    for (const name of booted) {
+      expect(excluded.has(name), `"${name}" is in both DICT_PLATFORMS and DICT_PLATFORMS_EXCLUDED`).toBe(false);
+    }
   });
 });

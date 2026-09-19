@@ -83,13 +83,12 @@ Sessions 1 to 5 are done; Session 6(a), the rear elevation, 6(b), schema 0.8 wit
 surfaces and sketches, and 6(c), the config drawer with the gate in the browser, view-only and the
 inside stop (ADR-0052, schema 0.9), and 6(d), the inventory, notes and undo that records
 (ADR-0053, schema 0.10), are in, and Session 7's hardening landed the same day (ADR-0054, the
-checker's round on the surface, the operator's page). **The last push before the owner tests
-(2026-09-19): engines.** Verify the engine implementation against ADR-0044, then write the packs
-the owner's own estate needs — OPNsense beyond the rules export, Linux hosts with per-flavour
-teaching items (package manager, updating, where network config lives; never a recommendation of a
-particular application), Arista, Juniper completed, Ubiquiti — every device fact cited with its
-date under rule 1, every dictionary tested against real config text with credentials of the
-length the device accepts under rule 2. **Then what remains before the v0.1 tag is the owner's:
+checker's round on the surface, the operator's page). **The engines push landed 2026-09-19**, the last
+before the owner tests: what the corpus now carries for OPNsense, Linux hosts, Arista, Juniper
+and Ubiquiti, and every gap the verification found, is in `docs/STATE.md` under "Engines". Two
+of those gaps are the owner's stack's own: EOS block config and Linux `ip` output cannot bind
+until the core grows a record-shaped front end beside `shape.rs`'s `set`-line shaper, and
+`config.xml` needs an XML framer. **What remains before the v0.1 tag is the owner's:
 run `deploy/compose.yaml` end to end on a machine with Docker, and `scripts/osv-gate.sh` on one
 with egress; both are recorded in `docs/STATE.md`'s carried list.** Then the bookkeeper
 over STATE.md and the tag. After that, the list under "After the first usable version". For the
@@ -202,7 +201,13 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
    foundations item 1) already forbids in-process state.
 4. **Receipts, witness, break-glass, WebAuthn** — admin §7.4–§7.6, §8, §15.4; §15.2's Shamir.
 5. **Inventory, teaching, the config checker** — Phases 5 and 6. **LDAP** after groups.
-6. **The places track** — ADR-0051, added 2026-09-18; its position in this list relative to the
+6. **Engines as artefacts** — ADR-0044 Phase 5, ordered 2026-09-19 from the verification: a
+   `Shell`-side keyed dictionary store so the browser gate boots every platform's dictionary at
+   once; a record-shaped front end in `crates/fathom-ingest` for EOS block config and Linux `ip`
+   output; an XML framer for OPNsense `config.xml`; then `engine.yaml`, the signature, install,
+   the chain entry, pinning, and the redaction-unproven refusal. Plain SFP and SFP28 catalogue
+   kinds and `ValueTy` arms for `lacp_mode`, interface form and `NextHop` are small and first.
+7. **The places track** — ADR-0051, added 2026-09-18; its position in this list relative to the
    vault is the owner's (OPEN-QUESTIONS W1). In order: the designer that draws a model and writes
    it into your own engine, the sketch form first; the room stop with outlets and horizontal runs
    and the path lit from desk to switch; blueprint import, a plan image as a scaled background

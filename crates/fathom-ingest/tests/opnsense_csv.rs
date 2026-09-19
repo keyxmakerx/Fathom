@@ -736,3 +736,107 @@ fn the_handed_in_opnsense_dictionary_reads_what_the_disk_reads() {
     let b = ingest_csv(&fixture(), &hosted).expect("within the caps");
     assert_eq!(format!("{a:?}"), format!("{b:?}"));
 }
+
+/// **CLAUDE.md rule 2, on this path, with the bound cited from the vendor
+/// rather than picked to suit the detector.**
+///
+/// Two more columns than the compound test above, chosen because a real
+/// OPNsense box's own stated limits make them realistic wrong-file-paste
+/// values rather than synthetic ones:
+///
+/// - `password`: OPNsense enforces **no minimum length by default**.
+///   `docs.opnsense.org/manual/users.html`'s Local Database page describes
+///   "Enable password policy constraints" and "Minimum password length to
+///   require" as settings an administrator turns ON (read 2026-08-16, cited
+///   already in `a_compound_credential_column_does_not_survive_the_gate`
+///   above); `opnsense/core` issue #2390 (opened 2018, milestone 18.7)
+///   confirms length was not enforced at login at all. A short, ordinary
+///   password is therefore not a synthetic probe — it is what the product's
+///   own default policy allows a real operator to set.
+/// - `community`: the SNMP community string. `raw.githubusercontent.com/
+///   opnsense/plugins/master/net-mgmt/net-snmp/src/opnsense/mvc/app/models/
+///   OPNsense/Netsnmp/General.xml` (read 2026-09-19) declares it a plain
+///   `StrictTextField` with no `Mask` or length constraint at all — nothing
+///   in the product stops an operator from using `public`, the SNMPv1/v2c
+///   community RFC 1157 documents as the conventional default and which
+///   remains common in the wild.
+///
+/// Both values are far below every content detector's floor (24 for base64,
+/// 32 for hex, 8 for the mask rule) on purpose — same discipline as the
+/// compound test, restated here because the *length* itself is now a cited
+/// vendor fact rather than an arbitrary short string.
+#[test]
+fn vendor_length_grounded_credentials_do_not_survive_the_gate() {
+    let d = dict();
+    let probes = [("password", "Sn0w2x"), ("community", "public")];
+    for (column, value) in probes {
+        let paste = format!(
+            "@uuid;enabled;{column}\n\
+             8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;1;{value}\n"
+        );
+        let out = ingest_csv(paste.as_bytes(), &d).expect("within the caps");
+        assert!(
+            !out.capture.text().contains(value),
+            "`{value}` (a real-length OPNsense {column}) survived: {}",
+            out.capture.text()
+        );
+        assert_eq!(out.drops.entries.len(), 1, "column `{column}`");
+    }
+}
+
+/// **A discovered gap, pinned rather than hidden — not a passing safety
+/// claim.** CLAUDE.md rule 1 requires "could not establish" over a guess;
+/// the equivalent rule for a gate is that a hole gets written down the
+/// moment it is found, not quietly worked around.
+///
+/// The compound test above shows the gate catching a credential when the
+/// COLUMN NAME couples it to `SECRET_WORD_LIST` (`key_names_a_secret`,
+/// `crates/fathom-ingest/src/redact.rs`). `description` is a real, dictionary
+/// -bound column (`opnsense/firewall.rule.description`) whose whole point is
+/// to hold arbitrary operator prose, so that column-name coupling correctly
+/// does not fire on it — but this test drove the case CLAUDE.md rule 2 asks
+/// for: an operator's own sentence, of the kind `README-config-xml.md` §3
+/// names as real (a short admin password, a short SNMP community), typed
+/// into that free-text field the way a person actually writes a rule
+/// comment ("temp rule, password: Sn0w2x, remove after migration").
+///
+/// **It survives, verbatim, with `drops == 0`.** Traced this session:
+/// `gate_statement` (`redact.rs`) treats `description`'s value as
+/// `described_by_entry` (it is inside the matched dictionary entry's own
+/// path), which switches the `base64ish` detector off for it — correct,
+/// because a real description must not be destroyed for merely looking
+/// base64-ish — but `crypt_prefix`/`long_hex` do not match ordinary short
+/// prose either, `leaf_name_walk` checks the ENTRY's declared path names
+/// ("description", not a secret word) rather than the cell's own text, and
+/// `raw_walk`'s two-token lookback is never reached because the statement
+/// matched a dictionary entry in full. The ADR-0041 `looks_like_credential`/
+/// `adjacent_secret_word` machinery that WOULD catch a `word: value` pattern
+/// inside free text is, by its own doc comment, wired only into the
+/// non-destructive UI hint path — "never gates anything" — not into ingest.
+///
+/// So a credential typed into a rule's own description is a real, live hole
+/// in the redaction gate, on every platform whose dictionary binds a
+/// free-text field this way, not just OPNsense's. Fixing it is core
+/// `fathom-ingest` work (`redact.rs`), outside this dict builder's ownership
+/// this session; this test exists so the hole cannot be rediscovered as a
+/// surprise, and so a fix makes it start failing rather than nobody
+/// noticing either way.
+#[test]
+fn a_credential_typed_into_a_free_text_description_is_not_caught_by_the_gate() {
+    let d = dict();
+    let paste = b"@uuid;action;description\n\
+                  8f1d0d3e-1c6a-4a4e-9a2f-19f7b0c6d4a1;pass;temp rule password: Sn0w2x remove after migration\n"
+        .to_vec();
+    let out = ingest_csv(&paste, &d).expect("within the caps");
+    assert!(
+        out.capture.text().contains("Sn0w2x"),
+        "if this fails, the gate now catches a free-text credential and this \
+         test should be rewritten to assert the fix rather than deleted \
+         silently -- see the doc comment above"
+    );
+    assert_eq!(
+        out.drops.entries.len(),
+        0,
+        "the gap this test pins is that nothing drops here today"
+    );
+}

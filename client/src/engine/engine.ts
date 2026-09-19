@@ -7,12 +7,47 @@ import { decodeReply, type FaceRow } from './protocol';
 import { ERRORS, FACES, OPCODES, errorName } from './protocol.constants';
 import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm';
 
-/** The two dictionaries the drawer boots with (ADR-0052 §5's scope: "the
- * inside stop for a Junos SRX", plus the OPNsense rules table already on the
- * retired page). Booting both, always, mirrors `tests/common/mod.rs`'s
- * `booted_shell` — a helper that booted less than the real boot does would
- * let a slot-routing defect through untested. */
-const DICT_PLATFORMS = ['junos-srx', 'opnsense'] as const;
+/** Every dictionary the drawer boots with. Booting all of them, always,
+ * mirrors `tests/common/mod.rs`'s `booted_shell` — a helper that booted less
+ * than the real boot does would let a slot-routing defect through untested.
+ *
+ * THIS LIST CANNOT SIMPLY GROW TO EVERY `corpus/dict/` DIRECTORY — checked
+ * against the tree, 2026-09-19, the hard way, before extending it further.
+ * `crates/fathom-wasm/src/shell.rs`'s `Shell` holds exactly two dictionary
+ * slots: `self.csv_dict` for the one platform whose `platform()` is
+ * `"opnsense"`, and a single `self.dict` for every other platform — `OP_DICT`
+ * routes non-opnsense loads there unconditionally, and each call OVERWRITES
+ * whatever was there. Adding a second non-opnsense platform here (tried:
+ * `junos-ex`, `edgeos`) does not add a second net; it makes the LAST one
+ * booted the only one that survives, silently breaking every platform booted
+ * before it — confirmed by running this file's own suite with `junos-ex` and
+ * `edgeos` added: the junos-srx paste test's node/edge counts went to zero
+ * and its zone/policy decode came back empty, because `self.dict` held
+ * `edgeos` by the time the paste ran. Per ADR-0044 §2 this is the exact
+ * failure the rule exists to catch — it does not touch what
+ * `crates/fathom-corpus`/`fathom-ingest`'s own tests correctly report as
+ * green for those platforms, but it means the *client* cannot honestly claim
+ * to protect a Junos EX or EdgeOS paste today. Fixing it for real needs a
+ * `Shell`-side change (a keyed dictionary store, plus a way for `OP_PASTE` to
+ * say which platform it means, or auto-detection across several loaded
+ * dictionaries) — a design decision, not a one-line array edit, and not
+ * attempted here. See `DICT_PLATFORMS_EXCLUDED` for what is booted vs. what
+ * is knowingly not, and why. */
+export const DICT_PLATFORMS = ['junos-srx', 'opnsense'] as const;
+
+/** `corpus/dict/` directories this client deliberately does not boot a
+ * dictionary for, and why — read by the coverage test below so an
+ * intentional exclusion never looks like an oversight, and so the day
+ * `shell.rs` grows a real multi-platform dictionary store, whoever fixes it
+ * has this list telling them exactly what to move into `DICT_PLATFORMS`. */
+export const DICT_PLATFORMS_EXCLUDED: Readonly<Record<string, string>> = {
+  'junos-ex':
+    'shell.rs has one non-opnsense dictionary slot (self.dict); booting this after junos-srx silently discards the junos-srx dictionary rather than adding a second net — needs a Shell-side keyed store first, see engine.ts DICT_PLATFORMS doc comment',
+  edgeos:
+    'same self.dict single-slot limit as junos-ex — booting this after junos-srx silently discards it, confirmed by running the test suite; needs the same Shell-side fix before it can be added here',
+  'linux-host':
+    'zero-entry placeholder; corpus/dict/README-linux-host.md: no core front end shapes ip/bridge output yet, and no schema/platforms.yaml row exists for it',
+};
 
 const DEFAULT_MODULE_URL = '/engine/fathom_wasm.wasm';
 

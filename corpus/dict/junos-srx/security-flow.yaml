@@ -31,6 +31,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, tcp-mss (edit security flow)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/security.flow.tcp-mss.all-tcp
     path: [security, flow, tcp-mss, all-tcp, mss, "$v"]

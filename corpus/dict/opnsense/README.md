@@ -184,6 +184,50 @@ which is the same distinction in the same order.
   `config.xml` from the same box cannot be merged. That is `70` §6's unbuilt correlation
   requirement and nothing here fakes it.
 
+## 6. The wider export survey, 2026-09-19 — why nothing else was added
+
+The work order asked whether the dictionary should grow to cover OPNsense CSV exports beyond
+the rules migration file — aliases, the DHCP pages, the interfaces overview. **It should not,
+because none of the three exports as CSV**, and inventing a binding for a file OPNsense does
+not produce would be exactly the guess CLAUDE.md rule 1 forbids.
+
+Direct reads, this session, through the proxy (`docs.opnsense.org` itself is blocked by the
+egress proxy — `EGRESS_BLOCKED` — so these are `raw.githubusercontent.com` reads of the
+`opnsense/docs` source `.rst` files and `opnsense/core` view templates, which render into the
+same page the manual publishes from):
+
+| Page | What it offers | Source | Read |
+|---|---|---|---|
+| Firewall → Aliases | A **JSON** download/upload button in the table footer — *"download a `json` formatted list of all aliases in the system"* — no CSV | `raw.githubusercontent.com/opnsense/docs/master/source/manual/aliases.rst` | 2026-09-19 |
+| Services → DHCPv4/v6 (leases, static mappings) | No export or download feature of any kind is described | `raw.githubusercontent.com/opnsense/docs/master/source/manual/dhcp.rst` | 2026-09-19 |
+| Interfaces → Overview | No export or download feature of any kind is described | `raw.githubusercontent.com/opnsense/docs/master/source/manual/interfaces.rst` | 2026-09-19 |
+| Interfaces → Diagnostics → ARP Table | No `csv`/`export`/`download` string anywhere in the page's own template — this is the rendered view's source, not documentation about it, so it is the stronger of the two claims | `raw.githubusercontent.com/opnsense/core/master/src/opnsense/mvc/app/views/OPNsense/Diagnostics/arp.volt` | 2026-09-19 |
+| System → Configuration → Backups | Downloads the **whole config, as one XML file**, optionally password-protected, optionally carrying RRD statistics in the same file | `raw.githubusercontent.com/opnsense/docs/master/source/manual/backups.rst` | 2026-09-19 |
+
+**What this leaves paste-able, against what `crates/fathom-ingest/src/frame.rs` and `csv.rs`
+actually read (checked this session): line-shaped `set`-form text, and CSV tables.** Neither
+reads JSON or XML. So of everything a person can get OPNsense to hand them, exactly one file —
+the rules-migration CSV this dictionary already binds — is inside what the ingest frame can
+parse today. The aliases JSON and the `config.xml` backup are real, valuable, and both entirely
+unreadable by the current framer; §7 below is `config.xml`'s worked case for what reading it
+would need. Aliases JSON is not surveyed further here — it is a second, separate framer (a JSON
+one), and the work order named `config.xml` as the one to scope.
+
+## 7. The catalogue question — can `catalogue/` say "runs OPNsense" with no vendor model?
+
+**No, not today, and this file says so rather than inventing a workaround.**
+`crates/fathom-corpus/src/catalogue.rs`'s `Model` is a real hardware SKU: a `vendor` and
+`model` name, a `Faceplate` of physical `PortGroup`s, an optional `form` (`shelf`, `outlet`,
+`board`, `panel` — `ModelForm::from_token`, read this session). There is no fifth form for "no
+physical faceplate, runs on whatever hardware the operator chose" — a VM, a generic x86 box, or
+Deciso's own appliances (which *are* real SKUs and would each need their own catalogue entry,
+same as any other vendor's hardware, and none has been surveyed). Adding such a form — call it
+`sketch` or `virtual` — is a schema/catalogue design decision with consequences for every other
+software-defined platform this project might carry (a Proxmox VM, a container), not an
+OPNsense-specific one, so it is named here as a real gap and left for the planning session
+ADR-0044 §5 already reserves for catalogue work, rather than decided unilaterally in a dict
+builder's session.
+
 ## Sources consulted
 
 - `docs.opnsense.org/manual/firewall.html` (2026-08-15)
@@ -192,3 +236,14 @@ which is the same distinction in the same order.
 - `raw.githubusercontent.com/opnsense/core/master/src/opnsense/scripts/filter/list_legacy_rules.php` (2026-08-15)
 - `raw.githubusercontent.com/opnsense/core/master/src/opnsense/mvc/app/models/OPNsense/Firewall/Filter.xml` (2026-08-15)
 - `thomas-krenn.com/en/wiki/OPNsense_26.1_Firewall_Rule_Migration` (2026-08-15)
+- `raw.githubusercontent.com/opnsense/docs/master/source/manual/aliases.rst` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/docs/master/source/manual/dhcp.rst` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/docs/master/source/manual/interfaces.rst` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/docs/master/source/manual/backups.rst` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/core/master/src/opnsense/mvc/app/views/OPNsense/Diagnostics/arp.volt` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/core/master/src/etc/config.xml.sample` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/core/master/src/opnsense/mvc/app/models/OPNsense/IPsec/IPsec.xml` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/core/master/src/opnsense/mvc/app/models/OPNsense/OpenVPN/OpenVPN.xml` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/plugins/master/net-mgmt/net-snmp/src/opnsense/service/templates/OPNsense/Netsnmp/snmpd.conf` (2026-09-19)
+- `raw.githubusercontent.com/opnsense/plugins/master/net-mgmt/net-snmp/src/opnsense/mvc/app/models/OPNsense/Netsnmp/General.xml` (2026-09-19)
+- `docs.opnsense.org/manual/users.html`, `opnsense/core` issue #2390 (2026-08-16, carried over from §3's password-policy citation, reused in `crates/fathom-ingest/tests/opnsense_csv.rs` for the length-grounded rule-2 test added 2026-09-19)

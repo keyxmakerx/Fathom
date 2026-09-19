@@ -8,6 +8,7 @@
 # carries the correction and why the prose stays outside anyway. Sources and
 # dates for every vendor fact: README 5. What is deliberately absent: README 4.
 platform: opnsense
+source: { cite: "OPNsense Filter.xml OptionValues (opnsense/core, models/OPNsense/Firewall/Filter.xml) and docs.opnsense.org/manual/firewall.html; see corpus/dict/opnsense/README.md for the full trail", read_on: "2026-08-15" }
 reviewed_by: <named human>
 
 token_maps:

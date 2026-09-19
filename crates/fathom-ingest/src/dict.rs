@@ -31,6 +31,61 @@ pub(crate) const VISIT_BUDGET: usize = 64;
 /// (WO-03 §12 item 11).
 pub(crate) const BACKTRACK_ALLOWANCE: usize = 8;
 
+/// The exemptions core grants — the ONLY authority `secret_exempt: true` can
+/// ever draw on.
+///
+/// A dictionary file may **ask** for an exemption: it writes `secret_exempt:
+/// { reason: "…" }` on an entry, and the reason is a real review record. But
+/// the grant itself does not live in the dictionary — a corpus file is
+/// content, reviewed by whoever wrote it, never an authority over the
+/// redaction gate (ADR-0044: *"a dictionary can never lower the gate"*).
+/// Whether the exemption is HONOURED is decided here, against the exact path
+/// shape, by whoever can edit this crate's source and pass CI. Anything not
+/// listed is refused at load with `DictGate::SecretCoupling`, unconditionally
+/// — a dictionary cannot self-grant what only a core change can grant, no
+/// matter how well-argued its `reason`.
+///
+/// Shapes are written exactly as `Entry::path` renders them: a literal
+/// segment as its own text, a capture as `"*"` (position, not name — two
+/// entries that capture the same shape under different names are the same
+/// shape). Length must match exactly; there is no prefix or wildcard
+/// matching beyond the per-segment `"*"`.
+///
+/// Today this holds exactly one shape: the shipped
+/// `junos-srx/security.ipsec.policy.perfect-forward-secrecy` entry
+/// (`corpus/dict/junos-srx/security-ipsec.yaml`). Its captured argument is a
+/// Diffie-Hellman GROUP NUMBER (the field card's own `perfect-forward-secrecy
+/// keys group14`), not a key — `keys` names the exchange, not the material,
+/// on this one statement. Extending this list is a security decision, not a
+/// corpus edit: it is reached only by adding a line here, in a reviewed
+/// change to this crate.
+const SECRET_EXEMPT_ALLOWLIST: &[&[&str]] = &[&[
+    "security",
+    "ipsec",
+    "policy",
+    "*",
+    "perfect-forward-secrecy",
+    "keys",
+    "*",
+]];
+
+/// `path`, rendered the way [`SECRET_EXEMPT_ALLOWLIST`] spells a shape:
+/// literals as their text, captures as `"*"`.
+fn path_shape(path: &[PathSeg]) -> Vec<&str> {
+    path.iter()
+        .map(|s| match s {
+            PathSeg::Literal(t) => t.as_str(),
+            PathSeg::Capture(_) => "*",
+        })
+        .collect()
+}
+
+/// Is this exact path shape one core has granted a `secret_exempt` for?
+fn secret_exempt_allowed(path: &[PathSeg]) -> bool {
+    let shape = path_shape(path);
+    SECRET_EXEMPT_ALLOWLIST.contains(&shape.as_slice())
+}
+
 // ---------------------------------------------------------------------------
 // Public surface (WO-03 §4.7)
 // ---------------------------------------------------------------------------
@@ -65,6 +120,10 @@ pub enum DictGate {
     SecretCoupling,
     ReviewedByMissing,
     TokenMapUnknown,
+    /// The file-level `source: { cite, read_on }` provenance header is
+    /// missing, or one of its two fields is malformed (§ below,
+    /// `Dictionary::from_sources`).
+    SourceMissing,
 }
 
 // The dictionary used to be compiled in here, as six `include_str!` lines plus
@@ -307,6 +366,41 @@ impl ValueTy {
             ValueTy::PolicyAction => Some("PolicyAction"),
             _ => None,
         }
+    }
+
+    /// **Closed**, for the one purpose `secret_exempt` needs it: the type's
+    /// parser accepts a bounded, structurally-constrained vocabulary — a
+    /// fixed Rust enum, a network-address or duration shape, or a plain
+    /// number — and so cannot carry a printable credential of realistic
+    /// shape. `Summer2026!` is not a legal `DhGroup`, `Seconds`, `IpAddr` or
+    /// `Bool`, and a `secret_exempt` review cannot make it one.
+    ///
+    /// The cheapest honest predicate this catalogue supports is therefore
+    /// the negative: name the handful of types this module gives raw or
+    /// near-raw `String` storage, and closed is everything else. Five
+    /// qualify, each by its own `fathom_ir::scalar` doc comment: `Text`
+    /// ("the one free-string scalar"), `Identifier` ("validated, never
+    /// normalised" — free text once past the charset check),
+    /// `InterfaceName` ("carries the raw text only"), `Fqdn` (DNS-shaped but
+    /// still string content, and a password missing only the handful of
+    /// punctuation marks DNS forbids reads as one), and `TzName` ("stored as
+    /// written"). An operator's password-shaped text passes through every
+    /// one of them unmolested, so none is ever closed — allowlisted shape or
+    /// not.
+    ///
+    /// `DhGroup` is explicitly NOT a closed set of numbers (its own doc:
+    /// "any 1..=65535 IANA transform-type-4 number") — but the property this
+    /// predicate needs is not "closed vocabulary", it is "cannot hold free
+    /// text", and a `u16` cannot, regardless of how many values it admits.
+    pub(crate) fn is_closed(self) -> bool {
+        !matches!(
+            self,
+            ValueTy::Text
+                | ValueTy::Identifier
+                | ValueTy::InterfaceName
+                | ValueTy::Fqdn
+                | ValueTy::TzName
+        )
     }
 }
 
@@ -703,6 +797,21 @@ fn err(file: &str, line: usize, gate: DictGate, message: impl Into<String>) -> D
     }
 }
 
+/// `YYYY-MM-DD` shape only — four digits, a hyphen, two digits, a hyphen, two
+/// digits. `source.read_on` is a provenance record, not a `Date` scalar, so
+/// this checks shape and stops there; a real calendar/range check is not
+/// this gate's job.
+fn is_date_shaped(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() == 10
+        && bytes.get(4) == Some(&b'-')
+        && bytes.get(7) == Some(&b'-')
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+}
+
 fn label_from_token(token: &str) -> Option<RedactLabel> {
     [
         RedactLabel::Psk,
@@ -746,15 +855,71 @@ impl Dictionary {
                     ))
                 }
             }
-            if let Some(maps) = root.get("token_maps") {
-                if root.get("reviewed_by").and_then(|n| n.as_str()).is_none() {
-                    return Err(err(
+            // Provenance is a file-level requirement, not just a
+            // `token_maps` one — corpus content is corpus content whether it
+            // is a token table or an ordinary entry. Citations used to live
+            // as YAML comments, which is prose a gate cannot see; `source`
+            // makes the citation and its read date part of the checked file
+            // (`docs/90-decisions/adr-0044-…` §7, 2026-09-19).
+            let source = root.get("source").ok_or_else(|| {
+                err(
+                    name,
+                    root.line,
+                    DictGate::SourceMissing,
+                    "missing `source: { cite, read_on }` — every dictionary file must record \
+                     what it was read from and when",
+                )
+            })?;
+            let cite = source.get("cite").and_then(|n| n.as_str()).ok_or_else(|| {
+                err(
+                    name,
+                    source.line,
+                    DictGate::SourceMissing,
+                    "`source.cite` is missing",
+                )
+            })?;
+            if cite.trim().is_empty() {
+                return Err(err(
+                    name,
+                    source.line,
+                    DictGate::SourceMissing,
+                    "`source.cite` is empty or whitespace-only",
+                ));
+            }
+            let read_on = source
+                .get("read_on")
+                .and_then(|n| n.as_str())
+                .ok_or_else(|| {
+                    err(
                         name,
-                        root.line,
-                        DictGate::ReviewedByMissing,
-                        "token maps are corpus content: the file needs `reviewed_by`",
-                    ));
-                }
+                        source.line,
+                        DictGate::SourceMissing,
+                        "`source.read_on` is missing",
+                    )
+                })?;
+            if !is_date_shaped(read_on) {
+                return Err(err(
+                    name,
+                    source.line,
+                    DictGate::SourceMissing,
+                    format!("`source.read_on`: `{read_on}` is not shaped `YYYY-MM-DD`"),
+                ));
+            }
+            let reviewed_by_file = root
+                .get("reviewed_by")
+                .and_then(|n| n.as_str())
+                .map(|s| s.trim())
+                .unwrap_or("");
+            if reviewed_by_file.is_empty() {
+                return Err(err(
+                    name,
+                    root.line,
+                    DictGate::ReviewedByMissing,
+                    "every dictionary file needs a non-empty file-level `reviewed_by` \
+                     (invariant 10) — not only files with `token_maps`",
+                ));
+            }
+            if let Some(maps) = root.get("token_maps") {
                 load_token_maps(name, maps, &mut token_maps)?;
             }
             if let Some(list) = root.get("entries") {
@@ -951,6 +1116,26 @@ fn load_entry(
                     format!("`{id}`: `secret_exempt` needs a written `reason`"),
                 ));
             }
+            // A written `reason` is a request, not a grant (`14` §9.1,
+            // ADR-0044). Only a path shape `SECRET_EXEMPT_ALLOWLIST` names is
+            // honoured; every other shape is refused here, however good the
+            // reason reads, because the alternative is a dictionary file
+            // vetoing the redaction gate on its own signature.
+            if !secret_exempt_allowed(&path) {
+                return Err(err(
+                    file,
+                    s.line,
+                    DictGate::SecretCoupling,
+                    format!(
+                        "`{id}`: `secret_exempt` is not granted for this path shape. A \
+                         dictionary may ask for an exemption with a written `reason`, but only \
+                         a shape core's `SECRET_EXEMPT_ALLOWLIST` (crates/fathom-ingest/src/\
+                         dict.rs) names is honoured — the grant is made in core, never in a \
+                         dictionary file, because a dictionary can never lower the redaction \
+                         gate (ADR-0044)"
+                    ),
+                ));
+            }
             true
         }
     };
@@ -1057,6 +1242,58 @@ fn load_entry(
                 .ok_or_else(|| err(file, list.line, DictGate::Parse, "`edges` is not a list"))?
             {
                 edges.push(load_edge(file, &id, spec, &names, &path, field_keys)?);
+            }
+        }
+    }
+
+    // An allowlisted `secret_exempt` still has to be honest about what it
+    // binds. It is granted on the strength of a claim about the ARGUMENT's
+    // shape (the field card's `perfect-forward-secrecy keys group14`: "the
+    // argument is a Diffie-Hellman group, not a key"), and the only way that
+    // claim can be checked by the gate rather than merely asserted in a
+    // comment is to require the field that carries the argument into the
+    // graph to use a `ValueTy` that cannot hold a credential — never
+    // `Text`/`Identifier`/`InterfaceName`/`Fqdn`/`TzName` (`ValueTy::is_closed`).
+    // Unbound is refused too: a grant that binds nothing has nothing to check
+    // it against, and "trust the comment" is exactly what this whole fix
+    // exists to stop doing.
+    if secret_exempt {
+        if let Some(seg) = path.iter().rev().find(|s| matches!(s, PathSeg::Capture(_))) {
+            let PathSeg::Capture(cap_name) = seg else {
+                unreachable!("find matched only Capture segments");
+            };
+            let bound: Vec<ValueTy> = nodes
+                .iter()
+                .flat_map(|n| n.fields.iter())
+                .chain(edges.iter().flat_map(|e| e.fields.iter()))
+                .filter_map(|f| match &f.value {
+                    ValueSpec::From { from, ty } if from == cap_name => Some(*ty),
+                    _ => None,
+                })
+                .collect();
+            if bound.is_empty() {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::SecretCoupling,
+                    format!(
+                        "`{id}`: `secret_exempt` grants an exemption for `${cap_name}`, but no \
+                         field binds it — an allowlisted exemption must bind the exempted \
+                         capture with a closed scalar, not leave it unbound"
+                    ),
+                ));
+            }
+            if let Some(ty) = bound.iter().find(|ty| !ty.is_closed()) {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::SecretCoupling,
+                    format!(
+                        "`{id}`: `secret_exempt` on `${cap_name}` binds it with `{ty:?}`, a \
+                         free-text scalar — an allowlisted exemption may only bind the exempted \
+                         capture with a closed scalar"
+                    ),
+                ));
             }
         }
     }
@@ -2017,7 +2254,8 @@ mod tests {
     fn shadowing_gate_refuses_an_undeclared_prefix() {
         let sources = vec![(
             "t.yaml".to_owned(),
-            "platform: junos-srx\nentries:\n  \
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+             reviewed_by: x\nentries:\n  \
              - { id: a, path: [security, ike], versions: \"*\", reviewed_by: x }\n  \
              - { id: b, path: [security, ike, mode], versions: \"*\", reviewed_by: x }\n"
                 .to_owned(),
@@ -2030,7 +2268,8 @@ mod tests {
     fn secret_coupling_gate_refuses_an_undeclared_secret_word() {
         let sources = vec![(
             "t.yaml".to_owned(),
-            "platform: junos-srx\nentries:\n  \
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+             reviewed_by: x\nentries:\n  \
              - { id: a, path: [system, radius-server, secret, \"$v\"], versions: \"*\", reviewed_by: x }\n"
                 .to_owned(),
         )];
@@ -2042,18 +2281,69 @@ mod tests {
     fn reviewed_by_is_mandatory() {
         let sources = vec![(
             "t.yaml".to_owned(),
-            "platform: junos-srx\nentries:\n  - { id: a, path: [system, x], versions: \"*\" }\n"
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+             reviewed_by: x\nentries:\n  - { id: a, path: [system, x], versions: \"*\" }\n"
                 .to_owned(),
         )];
         let e = Dictionary::from_sources(&sources, BTreeMap::new()).unwrap_err();
         assert_eq!(e.gate, DictGate::ReviewedByMissing);
     }
 
+    /// The FILE-level half of the same gate: a file with entries but no
+    /// file-level `reviewed_by` is refused even before any entry is looked
+    /// at, and no longer only when the file also carries `token_maps`.
+    #[test]
+    fn reviewed_by_is_mandatory_at_file_level_too() {
+        let sources = vec![(
+            "t.yaml".to_owned(),
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+             entries:\n  - { id: a, path: [system, x], versions: \"*\", reviewed_by: x }\n"
+                .to_owned(),
+        )];
+        let e = Dictionary::from_sources(&sources, BTreeMap::new()).unwrap_err();
+        assert_eq!(e.gate, DictGate::ReviewedByMissing);
+    }
+
+    /// `source: { cite, read_on }` is required on every file; missing,
+    /// empty and malformed each refuse with `DictGate::SourceMissing`.
+    #[test]
+    fn source_header_is_mandatory() {
+        let missing = vec![(
+            "t.yaml".to_owned(),
+            "platform: junos-srx\nreviewed_by: x\nentries:\n  \
+             - { id: a, path: [system, x], versions: \"*\", reviewed_by: x }\n"
+                .to_owned(),
+        )];
+        let e = Dictionary::from_sources(&missing, BTreeMap::new()).unwrap_err();
+        assert_eq!(e.gate, DictGate::SourceMissing);
+
+        let empty_cite = vec![(
+            "t.yaml".to_owned(),
+            "platform: junos-srx\nsource: { cite: \"   \", read_on: \"2026-09-19\" }\n\
+             reviewed_by: x\nentries:\n  \
+             - { id: a, path: [system, x], versions: \"*\", reviewed_by: x }\n"
+                .to_owned(),
+        )];
+        let e = Dictionary::from_sources(&empty_cite, BTreeMap::new()).unwrap_err();
+        assert_eq!(e.gate, DictGate::SourceMissing);
+
+        let bad_date = vec![(
+            "t.yaml".to_owned(),
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"09/19/2026\" }\n\
+             reviewed_by: x\nentries:\n  \
+             - { id: a, path: [system, x], versions: \"*\", reviewed_by: x }\n"
+                .to_owned(),
+        )];
+        let e = Dictionary::from_sources(&bad_date, BTreeMap::new()).unwrap_err();
+        assert_eq!(e.gate, DictGate::SourceMissing);
+    }
+
     #[test]
     fn capture_arity_gate_refuses_a_dangling_reference() {
         let sources = vec![(
             "t.yaml".to_owned(),
-            "platform: junos-srx\nentries:\n  \
+            "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+             reviewed_by: x\nentries:\n  \
              - { id: a, path: [system, x, \"$v\"], binds: { nodes: [ { as: n0, kind: Device, key: \"$nope\" } ] }, versions: \"*\", reviewed_by: x }\n"
                 .to_owned(),
         )];

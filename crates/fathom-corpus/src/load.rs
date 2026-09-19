@@ -178,6 +178,28 @@ fn opt_str(n: &Node, key: &str) -> Option<String> {
         .map(|s| s.trim_end().to_owned())
 }
 
+/// Like `req_str`, but a string of nothing but whitespace is treated the same
+/// as the key being absent — refused, not returned. `req_str` alone considers
+/// `""` present (it parses as a string), which let an explainer or rule
+/// bundle declare `reviewed_by: ""` and load clean; `gates.rs`'s placeholder
+/// check only ever sees a `<...>`-shaped value, never a blank one, so nothing
+/// downstream would have caught it either.
+fn req_nonempty_str(n: &Node, key: &str, file: &str) -> Result<String, LoadError> {
+    let v = req(n, key, file)?;
+    let s = v
+        .as_str()
+        .map(|s| s.trim_end().to_owned())
+        .ok_or_else(|| err(file, v.line, format!("`{key}` must be a string")))?;
+    if s.trim().is_empty() {
+        return Err(err(
+            file,
+            v.line,
+            format!("`{key}` must not be empty or whitespace-only (invariant 10)"),
+        ));
+    }
+    Ok(s)
+}
+
 fn opt_int(n: &Node, key: &str) -> Option<i64> {
     n.get(key).and_then(|v| v.as_int())
 }
@@ -378,7 +400,7 @@ fn load_explainer_bundle(source: &str, file: &str) -> Result<Vec<ExplainerEntry>
             id: req_str(item, "id", file)?,
             class: opt_str(item, "class").unwrap_or_default(),
             title: opt_str(item, "title"),
-            reviewed_by: opt_str(item, "reviewed_by"),
+            reviewed_by: req_nonempty_str(item, "reviewed_by", file)?,
         });
     }
     Ok(out)
@@ -396,7 +418,7 @@ fn load_rule_bundle(source: &str, file: &str) -> Result<Vec<RuleLite>, LoadError
     for item in seq {
         out.push(RuleLite {
             id: req_str(item, "id", file)?,
-            reviewed_by: opt_str(item, "reviewed_by"),
+            reviewed_by: req_nonempty_str(item, "reviewed_by", file)?,
         });
     }
     Ok(out)

@@ -6,9 +6,9 @@ it. Teaching and estate-of-record are co-equal goals.
 **Server product.** Data lives on the server; the browser is a window onto it. Multi-tenant, live
 multi-user editing, thousands of devices per design.
 
-**Status: rebuilding the client.** The engine and server are sound. The browser side still carries
-an architecture retired in August 2026 and is being replaced. Read `docs/REBUILD-PLAN.md` before
-planning anything.
+**Status: first usable version, pending the owner's compose run and OSV gate** (2026-09-19). The
+engine, server and rebuilt client are in; the rebuild's reasoning is `docs/REBUILD-PLAN.md`, and
+`docs/NEXT.md` says what is next.
 
 ---
 

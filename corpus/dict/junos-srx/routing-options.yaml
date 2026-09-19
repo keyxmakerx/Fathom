@@ -4,6 +4,8 @@
 # residue: README-routing.md §4 and §5, beside this file.
 platform: junos-srx
 
+source: { cite: "Juniper Junos CLI reference, router-id (edit routing-options)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   # router-id (Routing Options): `router-id address ;` at `[edit
   # routing-options]`. "The router identifier is used by BGP and OSPF to

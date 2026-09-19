@@ -1,0 +1,74 @@
+# corpus/dict/edgeos/system.yaml — read by fathom-ingest's `Dictionary`
+# loader (`crates/fathom-ingest/src/dict.rs`). See
+# `corpus/dict/README-ubiquiti.md` for what this platform's capture is
+# (EdgeOS `show configuration commands`, a flat `set <path> <value>` form,
+# the same shape Junos's `display set` produces) and what it is not (the
+# nested `show configuration` brace tree, which this core cannot shape).
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+#
+# `set system host-name <name>` — two independent sources, read 2026-09-19
+# via web-search synthesis (direct fetch of every domain tried blocked, see
+# README-ubiquiti.md): NetworkJutsu's "EdgeOS CLI Introduction" and
+# justinho.com's "EdgeRouter Guided CLI Configuration", both showing
+# `set system host-name <name>` as the hostname statement. Same grammar
+# shape as Junos's `system host-name`, so bound the same way.
+#
+# `set system login user <user> authentication plaintext-password <secret>`
+# and `… encrypted-password <secret>` — read 2026-09-19, corroborated across
+# independent sources: a UI Community "Enable root in edgerouter lite"
+# thread and blog.voina.org's "EdgeRouter : activate CLI root account", both
+# giving `set system login user <user> authentication plaintext-password
+# "<secret>"` verbatim. EdgeOS spells this `plaintext-password`, one word —
+# NOT Junos's `plain-text-password` — confirmed by both sources agreeing on
+# the one-word spelling; the two platforms' words are simply different and
+# this file does not borrow Junos's.
+#
+# THREE OF THESE FOUR ENTRIES EXIST TO FEED THE REDACTION GATE, NOT THE
+# BINDER — `14` §9.1's fourth structural property is that the set of
+# `secret:` entries IS the redaction catalogue, so a credential Fathom does
+# not model still has to be catalogued here or it reaches the store. This is
+# the same reasoning `corpus/dict/junos-srx/system.yaml`'s own header states
+# for its own secret-only entries.
+#
+# `set service snmp community <community> authorization <ro|rw>` — the
+# community NAME functions as the SNMP shared secret (SNMPv1/v2c has no
+# separate password field). Two independent sources, read 2026-09-19:
+# TimoDJatomika's `EdgeRouter-Stuff/example-snmp.md` and manitonetworks.com's
+# "Ubiquiti SNMP Configuration", both showing `set service snmp community
+# <community> authorization ro`. The community token is the credential and
+# sits BEFORE `authorization` in the path — this entry's path stops there
+# (matches the Junos `snmp.community` precedent's shape exactly, one
+# directory down: `corpus/dict/junos-srx/system.yaml`'s
+# `junos-srx/snmp.community`), and the trailing `authorization <ro|rw>`
+# tokens are not modelled (residue): this dictionary destroys the
+# credential, it does not model SNMP access policy.
+platform: edgeos
+source: { cite: "Ubiquiti EdgeOS CLI documentation and community sources; see corpus/dict/README-ubiquiti.md for the full citation trail", read_on: "2026-09-19" }
+reviewed_by: <named human>
+entries:
+  - id: edgeos/system.host-name
+    path: [system, host-name, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: edgeos/system.login.user.plaintext-password
+    path: [system, login, user, "$u", authentication, plaintext-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: edgeos/system.login.user.encrypted-password
+    path: [system, login, user, "$u", authentication, encrypted-password, "$v"]
+    secret: { label: password }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: edgeos/service.snmp.community
+    path: [service, snmp, community, "$c"]
+    secret: { label: snmp-community }
+    versions: "*"
+    reviewed_by: <named human>

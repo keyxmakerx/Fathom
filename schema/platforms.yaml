@@ -58,6 +58,15 @@ vendors:
                          # reasoning as `apc`/`panduit` above — has power and
                          # a management jack, not a CLI to capture.
 
+  ubiquiti:  {}          # Added 2026-09-19 for corpus/catalogue/ubiquiti/ (a UniFi
+                         # gateway and two UniFi switches) and the `edgeos` platform
+                         # row below. Ubiquiti is two worlds: UniFi devices are
+                         # configured by a controller and export no text config a
+                         # person pastes (corpus/dict/README-ubiquiti.md records what
+                         # was checked and why no UniFi dictionary exists), while
+                         # EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived and
+                         # do print one, hence the platform row.
+
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,
                          # and the sentence that set the direction for ADR-0037 §5's open
@@ -69,6 +78,19 @@ vendors:
                          # gate must learn first. The platform row still waits on a real
                          # capture being seen, per the precedent above — the survey read
                          # manuals and pve-manager's source, not a config off a box.
+
+  linux:     {}          # Added 2026-09-19 for corpus/dict/linux-host/ and
+                         # corpus/explainers/linux-*-basics.yaml. Vendor only, same
+                         # precedent as ciena/sodola above, but for a different reason
+                         # than either: a real capture WAS seen (synthetic `ip -d link
+                         # show` / `ip -4 -6 addr show` / `ip route show` / `bridge vlan
+                         # show` output, built against the iproute2 manual pages), but
+                         # `crates/fathom-ingest/src/shape.rs`'s unconditional
+                         # verb-initial check refuses every line of it before any
+                         # dictionary is consulted — a core front-end gap, not a missing
+                         # entry. No `linux-host` platform row exists because the "the
+                         # core can read it" half of the test still fails. Full finding:
+                         # corpus/dict/README-linux-host.md.
 
 # Cisco Meraki has NO vendor entry of its own and NO platform row, and that is the
 # finding rather than an omission. `64` §2: Cisco's own FAQ states "The dashboard
@@ -101,3 +123,15 @@ platforms:
   # own statement, and the controller's backup is an encrypted binary that shares the
   # `.cfg` extension with the switch's plain-text export (`64` §1) — a collision the
   # paste surface must name, since the two files look identical until you open them.
+  # Added 2026-09-19, corpus/dict/edgeos/ built against it: `show configuration
+  # commands` prints the running config as flat `set <path> <value>` statements —
+  # the same shape Junos's `display set` produces, corroborated across at least two
+  # independent listings each time a syntax claim below rests on one (no direct
+  # fetch of a vendor or community page was possible; egress to every domain tried
+  # was blocked — see corpus/dict/README-ubiquiti.md). `show configuration` (no
+  # `commands`) prints a nested curly-brace tree instead, which this platform row
+  # does NOT cover: the ingest core's shaper only shapes verb-initial flat
+  # statements (`crates/fathom-ingest/src/shape.rs`'s `VERBS`), so a nested-brace
+  # capture is not parseable by the dictionary this row backs. See
+  # corpus/dict/README-ubiquiti.md for exactly what the core would need to read it.
+  edgeos:    { vendor: ubiquiti,  family: edgeos,  version_scheme: edgeos }

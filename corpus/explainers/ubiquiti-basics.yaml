@@ -1,0 +1,113 @@
+# corpus/explainers/ubiquiti-basics.yaml — orientation for Ubiquiti's two
+# separate worlds (UniFi and EdgeOS), written in the manner of
+# corpus/explainers/arista-eos-basics.yaml (see that file's header for the
+# full field-by-field convention; not repeated here).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders, not
+# names (invariant 10): this entry is shown, clearly labelled *unreviewed*,
+# until a named human vouches for it. Written by an AI agent from vendor and
+# community documentation, corroborated across independent listings where a
+# direct fetch was blocked, and that is not a substitute for review.
+#
+# SOURCES — read 2026-09-19. Direct fetch of ui.com and every community/
+# reseller domain tried was blocked (`EGRESS_BLOCKED`; see
+# corpus/catalogue/ubiquiti/udm-se.yaml's and corpus/dict/
+# README-ubiquiti.md's headers for what was tried in this session), so every
+# claim below is web-search synthesis, corroborated across independent
+# listings per CLAUDE.md rule 1, cited as such rather than presented as a
+# verbatim read. The full citation trail for the controller-export and
+# EdgeOS-format findings this entry summarises lives in
+# corpus/dict/README-ubiquiti.md; not restated here in full.
+entries:
+
+- id: explain:concept:ubiquiti.basics
+  class: concept
+  subject: { path: ubiquiti.basics }
+  title: "Ubiquiti is two products, not one: UniFi and EdgeOS"
+  entry_version: 1.0.0
+  status: active
+  platforms: [edgeos]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    UniFi devices are configured by a controller and hand you no text
+    config to paste. EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived
+    and do — `show configuration commands` prints it as flat `set` lines.
+
+  explained: >
+    "Ubiquiti" names a company with two unrelated configuration models, and
+    knowing which one a device uses decides what a paste from it can even
+    look like. UniFi access points, switches and gateways are adopted by a
+    controller (self-hosted software or a UniFi console appliance) and hold
+    almost no configuration of their own — the controller pushes it to
+    them, and its own record of "what the network looks like" lives in an
+    encrypted site backup, not a text file. EdgeOS is a different, older
+    product line — the EdgeRouter/EdgeMAX family — descended from Vyatta,
+    an open-source router OS, and it keeps the traditional model: log in,
+    type configuration commands, and ask the box to show you what it holds.
+
+  teaching:
+    body: >
+      Two things follow from that split, and both matter before reading
+      any Ubiquiti-sourced paste.
+
+      First, a UniFi device is not something you configure and then copy
+      the result from. The controller's own backup file is an encrypted
+      archive of a database — not a document a person opens and reads —
+      and no documented, human-readable export of a site's networks or
+      switch port settings exists outside that archive. This is the same
+      situation this project has already recorded for Cisco Meraki: a
+      cloud-managed line with nothing for a human to copy is a line with
+      nothing to paste here, and that is a finding about the product, not
+      a gap in this project's coverage of it.
+
+      Second, EdgeOS genuinely does have something to copy, but it prints
+      it two different ways and only one of them is a flat list a line-by-
+      line reader can follow. `show configuration` shows the traditional
+      Vyatta form: a nested tree with curly braces, `interfaces { ethernet
+      eth0 { address … } }` — readable by a person, awkward to process one
+      line at a time because a line deep in the tree carries no memory of
+      which braces it is inside. `show configuration commands` shows the
+      same configuration as a flat list instead: every line restates its
+      full path from the top, `set interfaces ethernet eth0 address …`,
+      the same shape Juniper's Junos produces with `show | display set`.
+      Asking for the second form is what turns an EdgeOS box's
+      configuration into something that pastes and reads predictably.
+
+      Underneath both, EdgeOS authenticates logins the ordinary Linux way
+      (PAM and `crypt()`-hashed passwords), which is why an EdgeOS paste
+      can carry a `$6$…`-shaped hash under `encrypted-password` — that
+      string is not this project's business to decode or judge, only to
+      keep out of anything stored.
+
+    breaks_if_wrong: >
+      Pasting `show configuration`'s nested-brace form and expecting the
+      same reading a flat `set`-style paste gets is the mistake this entry
+      exists to head off: a line like `address 192.168.1.1/24` on its own,
+      several braces deep, does not say which interface it belongs to
+      without the lines above it, and a line-oriented reader has no way to
+      recover that without re-parsing the whole nested structure. Assuming
+      a UniFi device has an equivalent `show configuration` at all is the
+      other one — it does not, by design; the controller is the record.
+
+    misdiagnosed_as: >
+      "This paste didn't pick anything up" from an EdgeOS box usually means
+      `show configuration` (nested) was pasted instead of `show
+      configuration commands` (flat) — not that the tool failed to
+      recognise the device. "I can't find a config to export" from a UniFi
+      device is not a missing feature to work around; there genuinely is no
+      text export in the normal flow, and reaching for the controller's
+      encrypted backup or its undocumented API is a different, riskier
+      project than a paste box.
+
+  sources:
+    - { vendor: "EvilBit-Labs (third-party tool, not Ubiquiti)", doc: "UniFi backup/export format and API shape (community and third-party synthesis)", url: "https://github.com/EvilBit-Labs/unifi_extract", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked; full trail in corpus/dict/README-ubiquiti.md; not a Ubiquiti-published source" }
+    - { vendor: "networkjutsu.com (third-party blog, not Ubiquiti)", doc: "EdgeOS CLI — show configuration vs. show configuration commands", url: "https://networkjutsu.com/edgeos-cli-introduction/", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked; full trail in corpus/dict/README-ubiquiti.md; the show-configuration/show-configuration-commands distinction rests on this blog alone, not on a Ubiquiti-published source" }
+    - { vendor: "Ubiquiti", doc: "EdgeOS Vyatta lineage and login authentication", url: "https://help.uisp.com/hc/en-us/articles/22591215486103-EdgeRouter-User-Accounts", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked; full trail in corpus/dict/README-ubiquiti.md" }
+
+  terminal: true

@@ -6,6 +6,7 @@
 # sits with the entry. `reviewed_by: <named human>` is the placeholder used
 # throughout corpus/ — invariant 10 needs a named human to replace it.
 platform: junos-srx
+source: { cite: "Juniper Junos OSPF CLI reference, area and interface-type (edit protocols ospf)", read_on: "2026-08-15" }
 reviewed_by: <named human>
 
 token_maps:

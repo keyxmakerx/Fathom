@@ -1,0 +1,90 @@
+# corpus/catalogue/juniper/srx300.yaml — read by fathom-corpus's `catalogue`
+# module (crates/fathom-corpus/src/catalogue.rs), which see for the format's
+# rules.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+#
+# WHERE EVERY NUMBER BELOW CAME FROM. Direct fetch of juniper.net is blocked
+# in this environment (checked 2026-09-19; same EGRESS_BLOCKED failure the
+# sibling EX-series files' headers record for the same date). What follows
+# is web-search-result synthesis of Juniper's own documentation, corroborated
+# across at least two independent search queries per claim.
+#
+#   Juniper Networks, "SRX300 Firewall Hardware Guide" / datasheet
+#   (juniper.net/documentation/us/en/hardware/srx300/), searched 2026-09-19,
+#   two independent queries: "The SRX300 Firewall has eight 1 G Ethernet
+#   ports, two 1 G SFP ports" and, more specifically, "the SRX300 features
+#   eight 1GbE ports, including six RJ-45 network ports, and two small
+#   form-factor pluggable (SFP) transceiver ports" — the second, more precise
+#   phrasing (6 RJ45 + 2 SFP = 8 total) is used below; the first is the same
+#   fact restated less precisely by a different search pass over the same
+#   underlying page.
+#
+#   PortKind: the vendor's own word is "1 G SFP", not "SFP+". This reader's
+#   `PortKind` (crates/fathom-corpus/src/catalogue.rs) has no plain-SFP
+#   member — the same gap `ex4300-48p.yaml`'s header documents for that
+#   model's built-in QSFP+ ports before the reader grew a QSFP+ kind. Rather
+#   than invent a member unilaterally, these two ports are recorded as the
+#   nearest existing kind, `SFP+` (SFP+ cages accept 1G SFP optics), and the
+#   speed mismatch is stated here rather than silently absorbed.
+#
+#   CONSOLE — same two-query corroboration, 2026-09-19: "The SRX300 Firewall
+#   has two console ports: an RJ-45 Ethernet port and a mini-USB Type-B
+#   port." Recorded as one named RJ45 port (`con`, lower-case to match this
+#   directory's SRX naming convention below); the Mini-USB alternative is not
+#   recorded, the same reasoning as every EX-series Mini-USB/USB-C omission
+#   in this directory (`PortKind` has no such member).
+#
+#   MANAGEMENT — searched twice (2026-09-19) and NOT established: no query
+#   surfaced a dedicated physical management port on standalone SRX300,
+#   unlike SRX340 below. What the search DID surface is that `fxp0` exists
+#   only in chassis-cluster mode, where one of the built-in GE ports (e.g.
+#   ge-0/0/0) is repurposed as the cluster management interface — a
+#   configuration fact, not a separate physical jack. No `management` port
+#   group is recorded here for that reason; a maintainer with the hardware
+#   guide's own port diagram in hand should correct this if a dedicated
+#   management jack does exist and was simply not surfaced by search.
+#
+#   POWER — searched 2026-09-19: a reseller listing for the vendor part
+#   number `SRX300-PWR-60W` ("AC DC Adapter Compatible with Juniper Networks
+#   SRX300... SRX300-PWR-60W") corroborates an EXTERNAL 60 W power brick,
+#   not an internal chassis inlet. This format's `PortKind` has no external
+#   DC-barrel or proprietary-DC-jack member (the same class of gap as the
+#   Mini-USB omissions above), so `psu_slots` is omitted entirely rather than
+#   guessing a connector kind the chassis inlet is not — the same convention
+#   `crates/fathom-corpus/src/catalogue.rs`'s `PsuSlot` doc states for "a
+#   captive-corded device with no socket to name".
+#
+#   FACE — all ports (data, console) are recorded on `front`: branch SRX
+#   appliances of this size are single-faced desktop/rack units with every
+#   jack on one panel, consistent with how this repository's own approved
+#   design board draws the sibling SRX340 (`design/rebuild/Firewall.dc.html`,
+#   read directly, not searched — its interior view labels the port column
+#   "FRONT" and draws every jack, RJ45 and SFP alike, inside it).
+vendor: juniper
+model: SRX300
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Juniper Networks, "SRX300 Firewall Hardware Guide" / datasheet
+    (juniper.net/documentation/us/en/hardware/srx300/), for the 6 RJ45 + 2
+    SFP built-in 1GbE port count and the RJ-45 + Mini-USB console pair; a
+    reseller listing for part number SRX300-PWR-60W for the external 60 W
+    power-brick fact. All read via web search synthesis on 2026-09-19
+    because this environment's network egress blocks a direct fetch of
+    juniper.net (see file header). No dedicated physical management port
+    was established for standalone SRX300 — see file header. The 2 SFP ports
+    are recorded as this reader's `SFP+` kind though the vendor documents
+    them as 1G SFP, the nearest-kind reasoning stated in the file header.
+    Port numbering (0- vs 1-based) is not independently confirmed by any
+    photo read; recorded 0-based by analogy with the EX-series convention
+    ex2300-48p.yaml's header quotes from the vendor's own general statement.
+  read_on: "2026-09-19"
+faceplates:
+  - face: front
+    port_count: 9
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 6, start_number: 0 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 0 }
+      - { kind: "RJ45", role: console, layout: single_row, names: [con] }

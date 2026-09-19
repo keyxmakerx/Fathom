@@ -102,7 +102,12 @@ pub enum CatalogueGate {
     DuplicatePortNumber,
     PortCountMismatch,
     UplinkNotRight,
+    /// `reviewed_by` is absent, or present but empty/whitespace-only (CLAUDE.md
+    /// invariant 10 — a named human, not a blank field that merely parses).
     ReviewedByMissing,
+    /// `source.cite` is absent, or present but empty/whitespace-only — a
+    /// citation with no source (CLAUDE.md rule 1).
+    CiteEmpty,
     /// A port group declared both `names` and `count` (exactly one is
     /// required), or declared `role: management` / `role: console` without
     /// `names` (ADR-0050 §5 — a named port is not numbered).
@@ -664,6 +669,42 @@ fn req_str(file: &str, node: &Node, key: &str) -> Result<String, CatalogueError>
     })
 }
 
+/// A required string field that must also be non-empty once whitespace is
+/// trimmed. `req_str` alone treats `""` as present — it parses as a string,
+/// so a presence-only check (`.as_str().is_some()`) never sees anything
+/// wrong with it. That is the gap this closes: `reviewed_by: ""` and
+/// `cite: ""` both used to load clean under `req_str`, which satisfies the
+/// letter of "a name is in the field" while defeating its point.
+fn req_nonempty_str(
+    file: &str,
+    node: &Node,
+    key: &str,
+    gate: CatalogueGate,
+    empty_message: impl Into<String>,
+) -> Result<String, CatalogueError> {
+    let empty_message = empty_message.into();
+    // A missing key and a present-but-blank one are the same failure for a
+    // citation or a reviewer's name, so both take the caller's `gate` and
+    // message rather than the missing-key case falling through to `req`'s
+    // generic `CatalogueGate::Parse` — that would have been an observable
+    // behaviour change for `reviewed_by_is_mandatory`.
+    let Some(v) = node.get(key) else {
+        return Err(err(file, node.line, gate, empty_message));
+    };
+    let s = v.as_str().ok_or_else(|| {
+        err(
+            file,
+            v.line,
+            CatalogueGate::Parse,
+            format!("`{key}` is not a string"),
+        )
+    })?;
+    if s.trim().is_empty() {
+        return Err(err(file, v.line, gate, empty_message));
+    }
+    Ok(s.to_owned())
+}
+
 /// A required non-negative integer field, refused outside `min..=max`
 /// (§11.6's spirit: a cap that fails fast beats an unbounded `Vec` later).
 fn req_u32_range(
@@ -744,19 +785,18 @@ fn load_model(
     let model_name = req_str(file, root, "model")?;
     let rack_units = req_u32_range(file, root, "rack_units", 1, MAX_RACK_UNITS)?;
 
-    // Presence only, exactly like `dict.rs`'s `reviewed_by` gate: this loader
-    // checks a name is IN the field, not that it is a real one. The
+    // Non-empty, not just present: this loader checks a name is genuinely IN
+    // the field, not merely that the key parses as a string. The
     // `<named human>` placeholder used throughout `corpus/` (invariant 10)
-    // still counts as present, which is the point of the placeholder.
-    if root.get("reviewed_by").and_then(|n| n.as_str()).is_none() {
-        return Err(err(
-            file,
-            root.line,
-            CatalogueGate::ReviewedByMissing,
-            format!("`{model_name}` has no `reviewed_by` (invariant 10)"),
-        ));
-    }
-    let reviewed_by = req_str(file, root, "reviewed_by")?;
+    // still counts as present, which is the point of the placeholder — an
+    // empty or whitespace-only string is not a placeholder, it is nothing.
+    let reviewed_by = req_nonempty_str(
+        file,
+        root,
+        "reviewed_by",
+        CatalogueGate::ReviewedByMissing,
+        format!("`{model_name}` has no `reviewed_by` (invariant 10)"),
+    )?;
 
     let source = load_source(file, req(file, root, "source")?)?;
     let faceplates = load_faceplates(file, req(file, root, "faceplates")?)?;
@@ -805,7 +845,13 @@ fn load_model(
 
 fn load_source(file: &str, node: &Node) -> Result<Source, CatalogueError> {
     refuse_unknown_keys(file, node, SOURCE_KEYS)?;
-    let cite = req_str(file, node, "cite")?;
+    let cite = req_nonempty_str(
+        file,
+        node,
+        "cite",
+        CatalogueGate::CiteEmpty,
+        "a citation with no source",
+    )?;
     let read_on = req_str(file, node, "read_on")?;
     if !looks_like_date(&read_on) {
         return Err(err(
@@ -1487,6 +1533,29 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_only_reviewed_by_is_refused() {
+        // Presence alone is not enough: a string of only spaces still parses
+        // as a string, so a naive `.as_str().is_some()` gate would have let
+        // this load — see `req_nonempty_str`'s doc comment.
+        let text =
+            good_model_text("").replace("reviewed_by: <named human>", "reviewed_by: \"   \"");
+        let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("a whitespace-only reviewed_by must be refused");
+        assert_eq!(e.gate, CatalogueGate::ReviewedByMissing);
+    }
+
+    #[test]
+    fn empty_cite_is_refused() {
+        let text = good_model_text("").replace(
+            "cite: \"a test fixture, not a real datasheet\"",
+            "cite: \"\"",
+        );
+        let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("a citation with no source must be refused");
+        assert_eq!(e.gate, CatalogueGate::CiteEmpty);
+    }
+
+    #[test]
     fn numbering_is_odd_over_even_in_12port_groups_with_uplinks_right() {
         // A single 24-port access bank plus a 4-port uplink bank, numbered
         // from 1 — the literal UI-SPEC wording, checked digit for digit.
@@ -1771,6 +1840,73 @@ mod tests {
         assert_eq!(ex.psu_slots.len(), 2);
         assert!(ex.psu_slots.iter().all(|s| s.hot_swap));
         assert!(ex.psu_slots.iter().all(|s| s.face == Face::Rear));
+    }
+
+    #[test]
+    fn ubiquiti_catalogue_loads() {
+        let cat = Catalogue::load_platform(&repo_root(), "ubiquiti")
+            .expect("the shipped Ubiquiti catalogue loads");
+        assert_eq!(cat.models().len(), 3, "gateway + 24-port + 48-port switch");
+
+        let gw = cat.model("UDM-SE").expect("UDM-SE is reachable by name");
+        assert_eq!(gw.vendor, "ubiquiti");
+        assert_eq!(gw.rack_units, 1, "rack-mount, unlike the desktop UCG-Ultra");
+        let gw_ports = gw
+            .faceplate(Face::Front)
+            .expect("front face present")
+            .ports();
+        assert_eq!(
+            gw_ports.iter().filter(|p| p.kind == PortKind::Rj45).count(),
+            9,
+            "8 LAN + 1 WAN RJ45"
+        );
+        assert_eq!(
+            gw_ports
+                .iter()
+                .filter(|p| p.kind == PortKind::SfpPlus)
+                .count(),
+            2
+        );
+        assert_eq!(
+            gw_ports.iter().filter(|p| p.role == Role::Access).count(),
+            8,
+            "the 8 LAN ports, not the WAN-facing ones"
+        );
+
+        let sw24 = cat
+            .model("USW-24-PoE")
+            .expect("USW-24-PoE is reachable by name");
+        let sw24_ports = sw24
+            .faceplate(Face::Front)
+            .expect("front face present")
+            .ports();
+        assert_eq!(
+            sw24_ports
+                .iter()
+                .filter(|p| p.kind == PortKind::Rj45)
+                .count(),
+            24
+        );
+
+        let sw48 = cat
+            .model("USW-48-PoE")
+            .expect("USW-48-PoE is reachable by name");
+        let sw48_ports = sw48
+            .faceplate(Face::Front)
+            .expect("front face present")
+            .ports();
+        assert_eq!(
+            sw48_ports
+                .iter()
+                .filter(|p| p.kind == PortKind::Rj45)
+                .count(),
+            48
+        );
+        // Neither switch declares a PSU slot — see usw-24-poe.yaml's header
+        // for why (an internal, non-user-serviceable supply, unlike the
+        // EX4300's or 7050X3's external hot-swap bays).
+        assert!(sw24.psu_slots.is_empty());
+        assert!(sw48.psu_slots.is_empty());
     }
 
     #[test]

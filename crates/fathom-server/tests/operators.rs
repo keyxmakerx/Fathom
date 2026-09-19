@@ -1666,9 +1666,19 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
     let pool = deployment().await;
     let ring = ring();
     let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
-    let operators_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
-    let first = a_bootstrapped_operator(&operators_store, &sessions_store).await;
-    let second = a_second_operator(&operators_store, &sessions_store, &first).await;
+    // Two stores over one deployment, the pattern
+    // `single_operator_is_re_evaluated_at_apply_not_remembered_from_the_request` uses: the colleague is
+    // enrolled through the single-operator store, because `a_second_operator`
+    // needs the mode and its one-second delay; the setting is then requested
+    // through a store that requires a second signature. Under the single-operator flag an
+    // unseconded change applies alone once its delay passes, so the "does not
+    // apply" assertion below was a race against one second of real round
+    // trips and lost it on a loaded machine (2026-09-19). The rule under test
+    // is the seconder's, and it is only visible when a second is required.
+    let enrolling_store = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    let first = a_bootstrapped_operator(&enrolling_store, &sessions_store).await;
+    let second = a_second_operator(&enrolling_store, &sessions_store, &first).await;
+    let operators_store = store(&pool, Arc::clone(&ring), false, Duration::from_secs(1)).await;
 
     // Give the seconder the independent sign-in history §5.5 also requires, so
     // that what refuses the seconding below is the rule being tested and not a

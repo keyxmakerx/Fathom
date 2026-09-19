@@ -1,0 +1,101 @@
+# corpus/catalogue/ubiquiti/udm-se.yaml — read by fathom-corpus's `catalogue`
+# module (crates/fathom-corpus/src/catalogue.rs); see that file for the
+# format's rules (unknown keys refused, numbering/layout are a pattern the
+# reader expands, never literal coordinates).
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10,
+# the convention every file in this catalogue uses).
+#
+# WHY THIS MODEL AND NOT THE COMPACT UCG-ULTRA / UXG-LITE GATEWAYS: those are
+# desktop-only consoles with no rack-unit height stated anywhere in their own
+# listings (USB-C powered, 141.8 x 127.6 x 30 mm) — the same CLAUDE.md rule 1
+# dead end `corpus/catalogue/cyberpower/pr1500lcdrt2u.yaml`'s header records
+# for this format's mandatory `rack_units` field, and resolved the same way:
+# pick the well-documented rack-mount sibling instead. The UniFi Dream
+# Machine Special Edition (UDM-SE) is Ubiquiti's rack-mount, 1U all-in-one
+# console+gateway and is what a home or small estate's rack actually carries
+# when the UniFi console is rack-mounted rather than a desktop puck.
+#
+# WHERE EVERY NUMBER BELOW CAME FROM.
+#
+# This environment's network egress blocked every attempt to fetch ui.com
+# directly on 2026-09-19 (`WebFetch` returned `EGRESS_BLOCKED` for
+# techspecs.ui.com, store.ui.com and dl.ui.com's hosted datasheet PDF on the
+# CONNECT). What follows is web-search synthesis, corroborated across
+# independent listings, read 2026-09-19 (CLAUDE.md rule 1) — the same method
+# this session's Juniper and Arista catalogue entries used under the same
+# constraint.
+#
+#   Ubiquiti's own "UniFi Dream Machine Special Edition — Tech Specs" page
+#   (title/URL read: techspecs.ui.com/unifi/cloud-gateways/udm-se) plus two
+#   independent reseller listings — hummingbirdnetworks.com and
+#   broadbandbuyer.com's specification pages for UDM-SE, both read via
+#   search synthesis 2026-09-19 — agree: 1U rack-mount chassis
+#   (442.4 x 43.7 x 285.6 mm); 8 x 1GbE RJ45 LAN ports; 1 x 2.5GbE RJ45 port
+#   (the default WAN port); 2 x 10G SFP+ (one usable as a second WAN, one as
+#   a 10G LAN uplink) — "1 x 10G SFP+ as default WAN port and 1 x 10G SFP+
+#   as a LAN port" per hummingbirdnetworks.com's listing.
+#
+# ROLE ASSIGNMENT — A READING, NOT A VENDOR WORD. This catalogue's `Role`
+# enum has no `wan`/`lan` pair; only `access`/`uplink`/`management`/
+# `console` exist (`crates/fathom-corpus/src/catalogue.rs`). The 8 GbE RJ45
+# ports face downstream clients/switches and are recorded `role: access`;
+# the WAN-designated 2.5GbE RJ45 and both SFP+ ports face upstream (the ISP,
+# or an aggregation switch) and are recorded `role: uplink` — the closest
+# existing meaning, not a vendor-stated equivalence, stated here once rather
+# than re-argued per group below.
+#
+# WHAT IS NOT INDEPENDENTLY CONFIRMED, AND THE CONSERVATIVE READING USED:
+#
+#   No photograph or diagram of the exact left-to-right physical port order
+#   was read (same egress block); `layout: paired_columns` on the 8-port LAN
+#   bank and `layout: single_row` on the WAN RJ45 and the SFP+ pair follow
+#   this catalogue's own established conventions (see
+#   `corpus/catalogue/arista/720xp-48zc2.yaml`'s header for the identical
+#   reasoning, not repeated here).
+#
+#   A rear-panel "Management Port" is named in exactly ONE listing title
+#   (hummingbirdnetworks.com) and not corroborated by a second independent
+#   source within this session — conventions §*Currency*'s "two independent
+#   sources for a negative" rule cuts the other way here too: one source is
+#   not enough to record a claim, so no management or console port group is
+#   recorded below. This is an omission pending a second source, not a
+#   statement that the device has none.
+#
+#   The AC power inlet's exact silkscreen label was not read anywhere (same
+#   egress block); one search summary describes only "standard AC power
+#   input" with a cord-lock latch, not a printed slot name. `psu_slots[].name`
+#   below is therefore this file's own descriptive label, "AC IN", NOT a
+#   vendor-quoted word — flagged here rather than presented as read off the
+#   unit. No USP-RPS redundant-PSU bay is recorded: the two independent
+#   listings describe it as an external DC-input option via a rear jack, not
+#   a second populated PSU slot on the base unit.
+vendor: ubiquiti
+model: UDM-SE
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, "UniFi Dream Machine Special Edition — Tech Specs"
+    (techspecs.ui.com/unifi/cloud-gateways/udm-se), title/URL read; body not
+    fetchable (direct fetch of ui.com blocked, see file header) —
+    corroborated by hummingbirdnetworks.com's and broadbandbuyer.com's
+    independent specification listings for UDM-SE, both read via web-search
+    synthesis on 2026-09-19, for the 1U rack-mount chassis, the 8x 1GbE RJ45
+    LAN port count, the 1x 2.5GbE RJ45 WAN port, and the 2x 10G SFP+ ports
+    (one default WAN, one LAN). Port ROLE (access vs. uplink) is this file's
+    own reading of the vendor's WAN/LAN designation onto this catalogue's
+    four-role vocabulary, not a vendor word — see the file header. Port
+    LAYOUT is this catalogue's own conservative convention, not confirmed by
+    a photograph. The AC inlet's slot name is this file's own label, not a
+    vendor-quoted one — see the file header's PSU note.
+  read_on: "2026-09-19"
+faceplates:
+  - face: front
+    port_count: 11
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 8, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 9 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 1 }
+psu_slots:
+  - { name: "AC IN", hot_swap: false, face: rear, position: { row: single, column: 0 } }

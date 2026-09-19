@@ -1,0 +1,67 @@
+# corpus/catalogue/ubiquiti/usw-48-poe.yaml — read by fathom-corpus's
+# `catalogue` module (crates/fathom-corpus/src/catalogue.rs); see that file
+# for the format's rules.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+#
+# WHERE EVERY NUMBER BELOW CAME FROM.
+#
+# Direct fetch of ui.com and dl.ui.com was blocked (`EGRESS_BLOCKED`) on
+# 2026-09-19 — see `corpus/catalogue/ubiquiti/udm-se.yaml`'s header, same
+# session, for what was tried. What follows is web-search synthesis,
+# corroborated across independent listings, read 2026-09-19 (CLAUDE.md
+# rule 1).
+#
+#   Ubiquiti's own "UniFi Standard 48 PoE — Tech Specs" page (title/URL
+#   read: techspecs.ui.com/unifi/switching/usw-48-poe) — the Standard tier,
+#   chosen over the Pro/Pro-Max/Enterprise 48-port switches for the same
+#   reason `usw-24-poe.yaml`'s header gives for its own model: the one a
+#   home or small estate is most likely to run, matching the brief this
+#   file was written against. Content established via web search synthesis:
+#   48 x 1GbE RJ45 ports (32 of them PoE+ capable) and 4 x 1G SFP ports;
+#   total PoE budget 195W; 1U rack-mount. Corroborated by the combined
+#   legacy "UniFi Switch Datasheet" (US-24/US-48, title read) describing the
+#   same port split for the product line's 48-port members, and by
+#   manualshelf.com's independently hosted datasheet page for the Pro-tier
+#   sibling (used only to corroborate the 4x SFP uplink COUNT convention
+#   this tier's port count shares, not its PoE wattage or SFP+ capability).
+#
+# THE FOUR UPLINK PORTS ARE NAMED `SFP+` BELOW BUT ARE NOT SFP+ METAL — same
+# caveat, same reasoning, as `corpus/catalogue/ubiquiti/usw-24-poe.yaml`'s
+# header states in full for its own two uplink ports (1G SFP cages, not
+# 10G-capable SFP+; this reader has no plain `Sfp` `PortKind` yet). Not
+# repeated in full here; see that file.
+#
+# WHAT IS NOT INDEPENDENTLY CONFIRMED, AND THE CONSERVATIVE READING USED:
+#
+#   No photograph of the exact left-to-right port order or rear-panel layout
+#   was read (same egress block). `layout: paired_columns` on the 48-port
+#   RJ45 bank and `layout: single_row` on the 4-port SFP bank follow this
+#   catalogue's own established convention (see
+#   `corpus/catalogue/arista/720xp-48zc2.yaml`'s header for the identical
+#   reasoning). No management or console port and no `psu_slots` entry is
+#   recorded, for the same reasons `usw-24-poe.yaml`'s header gives in full
+#   for its own model — not repeated here.
+vendor: ubiquiti
+model: USW-48-PoE
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, "UniFi Standard 48 PoE — Tech Specs"
+    (techspecs.ui.com/unifi/switching/usw-48-poe), title/URL read; body not
+    fetchable (direct fetch of ui.com blocked, see file header) — read via
+    web-search synthesis on 2026-09-19, corroborated by the combined legacy
+    US-24/US-48 UniFi Switch Datasheet describing the same port split and by
+    manualshelf.com's hosted Pro-tier datasheet page (title read, same
+    session, for the 4x SFP uplink count convention only). 48x RJ45 (32
+    PoE+) + 4x SFP (1G, not SFP+ — see file header), 1U, 195W PoE budget.
+    Port layout is this catalogue's own conservative convention, not
+    confirmed by a photograph — see the file header.
+  read_on: "2026-09-19"
+faceplates:
+  - face: front
+    port_count: 52
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 48, start_number: 1 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 4, start_number: 1 }

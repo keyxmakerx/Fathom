@@ -232,7 +232,9 @@ fn an_out_of_order_frame_is_refused_rather_than_sorted() {
 fn a_dictionary_that_fails_its_gates_is_a_corpus_error() {
     let mut shell = Shell::new();
     let keys = common::field_keys();
-    let shadowing = "platform: junos-srx\nentries:\n  \
+    let shadowing =
+        "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+         reviewed_by: x\nentries:\n  \
          - { id: a, path: [security, ike], versions: \"*\", reviewed_by: x }\n  \
          - { id: b, path: [security, ike, mode], versions: \"*\", reviewed_by: x }\n";
     let frame = pack_dict(&[

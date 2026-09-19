@@ -53,6 +53,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, security-zone and host-inbound-traffic (edit security zones)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   # The bare stanza. `14` §7.1 states the rule this implements: *"the second
   # creates the node with no fields"* — `set security zones security-zone vpn`
