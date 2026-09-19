@@ -108,7 +108,15 @@ RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknow
 # this stage with `target: server` for exactly that reason, so that adding
 # the stages below can never silently change what an unqualified
 # `docker build .` produces.
-FROM gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS server
+# debian13, not debian12, since 2026-09-19: the build stage's pinned `rust`
+# image is `1.94.1-slim-trixie` (Debian 13, glibc 2.41 -- Docker Hub tag
+# listing read that day), so the binary it produces asks the runtime for a
+# glibc at least that new. The first real start of this stack (CI's
+# `compose` job) died on `GLIBC_2.39' not found` against the Debian 12
+# runtime that was here. The two FROM lines must move together: a newer
+# Debian in `rust` needs at least as new a Debian here. Digest read from
+# gcr.io's manifest for `cc-debian13:latest`, 2026-09-19.
+FROM gcr.io/distroless/cc-debian13@sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750 AS server
 
 COPY --from=build /src/target/server/fathom-server /fathom-server
 
