@@ -1,0 +1,250 @@
+/* UI-SPEC "Inside a box" — the stop beyond the faceplate. Every colour and
+   size below is a token from `design/tokens.css`: no hex, no bare px font
+   sizes, no radius (`--radius` is 0, nothing here overrides it) and no
+   shadow. Nothing on this surface uses a risk colour — a disabled policy
+   row and an unzoned unit are both facts, not warnings, so both stay ink
+   and hairline; `--caution`/`--danger` are left for an actual error or
+   warning elsewhere (UI-SPEC "Look": colour only as "look here"). */
+
+.inside-stop {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.inside-stop__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.inside-stop__hostname {
+  font-weight: 700;
+  font-size: var(--t-small);
+}
+
+.inside-stop__body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s3);
+  overflow: auto;
+}
+
+/* --- the panel, seen from inside: the same jacks as the rack ----------- */
+
+.inside-stop__jacks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  flex-shrink: 0;
+  padding-right: var(--s3);
+  border-right: var(--rule-hair) solid var(--hairline);
+}
+
+.inside-stop__jack {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.inside-stop__jack-mark {
+  width: var(--s2);
+  height: var(--s2);
+  border: var(--rule-hair) solid var(--muted);
+  flex-shrink: 0;
+}
+
+/* Not a risk colour — the same ink-outline "this one" mark
+   `config-drawer__line--selected` already uses. */
+.inside-stop__jack--lit {
+  color: var(--ink);
+  font-weight: 700;
+}
+.inside-stop__jack--lit .inside-stop__jack-mark {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+/* --- zones: regions inside the box, interfaces sit in them ------------- */
+
+.inside-stop__zones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s3);
+  flex-shrink: 0;
+}
+
+.inside-stop__zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 12rem;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--surface-2);
+}
+
+.inside-stop__zone-name {
+  font-weight: 700;
+  font-size: var(--t-small);
+}
+
+.inside-stop__unit {
+  display: flex;
+  flex-direction: column;
+  padding: var(--s1) var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.inside-stop__unit-addr,
+.inside-stop__unit-tunnel {
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.inside-stop__unzoned {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 12rem;
+  padding: var(--s2) 0;
+}
+
+.inside-stop__unzoned-label {
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+/* --- the policy stack: a rack of rules, ordinal on the rail ------------ */
+
+.inside-stop__policy-sets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  flex-shrink: 0;
+}
+
+.inside-stop__policy-set {
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  min-width: 16rem;
+}
+
+.inside-stop__policy-scope {
+  padding: var(--s1) var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.inside-stop__policy-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.inside-stop__policy-row {
+  display: grid;
+  grid-template-columns: var(--gutter-num) 1fr;
+  min-height: var(--row-min);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.inside-stop__policy-row:last-child {
+  border-bottom: none;
+}
+
+.inside-stop__policy-ordinal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border-right: var(--rule-hair) solid var(--hairline);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.inside-stop__policy-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.inside-stop__policy-name {
+  font-weight: 700;
+}
+
+.inside-stop__policy-action {
+  color: var(--muted);
+}
+
+.inside-stop__policy-description {
+  font-family: var(--sans);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+/* A disabled rule is a fact this build reads off the device, not a
+   warning about it — ink and muted, never a risk colour. */
+.inside-stop__policy-row--off {
+  color: var(--muted);
+}
+.inside-stop__policy-off {
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+/* --- routes and tunnels: the lines out ---------------------------------- */
+
+.inside-stop__out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  flex-shrink: 0;
+}
+
+.inside-stop__route,
+.inside-stop__tunnel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  min-width: 10rem;
+}
+
+.inside-stop__route-name,
+.inside-stop__tunnel-name {
+  font-weight: 700;
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.inside-stop__proto,
+.inside-stop__tunnel-unit {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}

@@ -98,6 +98,253 @@ export interface PasteResult {
   drops: DropRow[];
 }
 
+// --- OP_INSIDE (opcode 26), UI-SPEC "Inside a box" -------------------------
+//
+// `crates/fathom-wasm/src/protocol.rs`'s `encode_inside_reply`: one
+// `FACE_INSIDE` head record, then `FACE_IN_IFACE` records each immediately
+// followed by that interface's own `FACE_IN_UNIT` children, then every
+// `FACE_IN_ZONE`, then `FACE_IN_SET` records each immediately followed by
+// that set's own `FACE_IN_POLICY` children (already in the ordinal order the
+// device reads them — `tests/inside.rs`'s own property 1, never re-sorted
+// here), then `FACE_IN_ROUTE` records each immediately followed by that
+// route's own `FACE_IN_PROTO` children, then every `FACE_IN_TUNNEL`. A
+// live element that is not a `Device` (or one with nothing recorded yet)
+// comes back as zero rows — `tests/inside.rs`'s
+// `a_live_non_device_comes_back_empty` — decoded below to every field
+// empty, not thrown as an error: UI-SPEC "Absent is drawn as absent."
+
+/** One `FACE_IN_UNIT` row — a logical unit under an interface. `zoneId`/
+ * `zoneName` are empty when the config names no zone for it (read off a
+ * live `ZoneMember` edge, never inferred — `tests/inside.rs`'s
+ * `a_units_zone_is_read_not_inferred`); `tunnel` is empty unless a live
+ * `Tunnel.bind_interface` names this unit. */
+export interface InsideUnit {
+  id: string;
+  interfaceId: string;
+  label: string;
+  /** Already comma-joined by the module (`protocol.rs`'s own note: "a
+   * string a reader is shown is a string this side composed"). */
+  addresses: string;
+  zoneId: string;
+  zoneName: string;
+  tunnel: string;
+}
+
+/** One `FACE_IN_IFACE` row, with its `FACE_IN_UNIT` children gathered under
+ * it. An interface with no unit at all is still a row — `unitCount` is `0`
+ * and `units` is empty (`tests/inside.rs`'s `ge-0/0/2`, "description-only",
+ * still a row). */
+export interface InsideInterface {
+  id: string;
+  name: string;
+  kindWord: string;
+  unitCount: number;
+  units: InsideUnit[];
+}
+
+/** One `FACE_IN_ZONE` row — "zones are regions inside the box" (UI-SPEC
+ * "Inside a box"). `members` is the count the module walked; the regions
+ * page draws are the units above whose `zoneId` names this zone's `id`. */
+export interface InsideZone {
+  id: string;
+  name: string;
+  members: number;
+}
+
+/** One `FACE_IN_POLICY` row — a rung on the ordinal rail. `action` is the
+ * stored token verbatim (`permit`/`deny`/`reject`, `schema/enums/policy_action.yaml`),
+ * never a verdict: "Fathom never says permitted or denied" (UI-SPEC "Inside
+ * a box"). `enabled` is the wire's own three-state-safe string (`"1"`/`"0"`),
+ * carried through rather than collapsed to a boolean the caller cannot tell
+ * "off" apart from "the field forgot to say." */
+export interface InsidePolicy {
+  id: string;
+  setId: string;
+  ordinal: string;
+  name: string;
+  action: string;
+  enabled: string;
+  description: string;
+}
+
+/** One `FACE_IN_SET` row, with its `FACE_IN_POLICY` children already in
+ * device order — "a policy set is a stack with an ordinal rail — a rack of
+ * rules" (UI-SPEC "Inside a box"). `scope` is empty in this build:
+ * `tests/inside.rs`'s `a_policy_set_cannot_name_the_zone_pair_it_governs`,
+ * `PolicyScope` has no shape yet, so this client draws nothing rather than
+ * inventing one. */
+export interface InsidePolicySet {
+  id: string;
+  scope: string;
+  policyCount: number;
+  policies: InsidePolicy[];
+}
+
+/** One `FACE_IN_PROTO` row — a routing protocol instance's adjacency count,
+ * never a listing of the adjacencies themselves (`tests/inside.rs`'s
+ * `a_routing_protocol_counts_its_adjacencies`: "counted, not listed"). */
+export interface InsideProtocol {
+  id: string;
+  instanceId: string;
+  protocol: string;
+  adjacencies: number;
+}
+
+/** One `FACE_IN_ROUTE` row, with its `FACE_IN_PROTO` children. */
+export interface InsideRoute {
+  id: string;
+  name: string;
+  protocols: InsideProtocol[];
+}
+
+/** One `FACE_IN_TUNNEL` row — `unit` names the interface unit it binds
+ * (`tests/inside.rs`'s `the_tunnel_names_the_unit_it_binds`), so a caller
+ * never has to cross the picture to draw the line back. */
+export interface InsideTunnel {
+  id: string;
+  name: string;
+  unit: string;
+}
+
+/** `OP_INSIDE` decoded. Everything empty (`deviceId`/`hostname` `''`, every
+ * band an empty array, `unzoned` `0`) is the reply's own empty state — a
+ * live element that named nothing this stop can draw, not an error and not
+ * a field this client invents text for. */
+export interface InsideFaces {
+  deviceId: string;
+  hostname: string;
+  interfaces: InsideInterface[];
+  zones: InsideZone[];
+  policySets: InsidePolicySet[];
+  routes: InsideRoute[];
+  tunnels: InsideTunnel[];
+  /** Slot 7's third decimal — units that name no zone at all
+   * (`tests/inside.rs`: "ge-0/0/1.10 is in no zone, and that is reported
+   * rather than blank"). The units themselves are still findable in
+   * `interfaces[].units` by an empty `zoneId`; this is the count the head
+   * itself already carries, read once rather than recomputed. */
+  unzoned: number;
+}
+
+const EMPTY_INSIDE: InsideFaces = {
+  deviceId: '',
+  hostname: '',
+  interfaces: [],
+  zones: [],
+  policySets: [],
+  routes: [],
+  tunnels: [],
+  unzoned: 0,
+};
+
+function readInsideReply(rows: FaceRow[]): InsideFaces {
+  if (rows.length === 0) {
+    return EMPTY_INSIDE;
+  }
+  const head = rows[0];
+  if (!head || head.role !== FACES.FACE_INSIDE) {
+    throw new Error(`OP_INSIDE reply: record 0 is not the FACE_INSIDE head (got role ${head?.role})`);
+  }
+  const deviceId = head.strings[0];
+  const hostname = head.strings[1];
+  const tailParts = head.strings[7].split(' ');
+  if (tailParts.length !== 3) {
+    throw new Error(`OP_INSIDE reply: head slot 7 is "${head.strings[7]}", not three space-separated counts`);
+  }
+  const unzoned = parseCount(tailParts[2], 'inside head tail slot 2 (unzoned)');
+
+  const interfaces: InsideInterface[] = [];
+  const zones: InsideZone[] = [];
+  const policySets: InsidePolicySet[] = [];
+  const routes: InsideRoute[] = [];
+  const tunnels: InsideTunnel[] = [];
+
+  let currentIface: InsideInterface | null = null;
+  let currentSet: InsidePolicySet | null = null;
+  let currentRoute: InsideRoute | null = null;
+
+  for (const row of rows.slice(1)) {
+    switch (row.role) {
+      case FACES.FACE_IN_IFACE:
+        currentIface = {
+          id: row.strings[0],
+          name: row.strings[1],
+          kindWord: row.strings[2],
+          unitCount: parseCount(row.strings[3], 'interface unit count'),
+          units: [],
+        };
+        interfaces.push(currentIface);
+        break;
+      case FACES.FACE_IN_UNIT:
+        if (!currentIface) {
+          throw new Error('OP_INSIDE reply: FACE_IN_UNIT arrived before any FACE_IN_IFACE');
+        }
+        currentIface.units.push({
+          id: row.strings[0],
+          interfaceId: row.strings[1],
+          label: row.strings[2],
+          addresses: row.strings[3],
+          zoneId: row.strings[4],
+          zoneName: row.strings[5],
+          tunnel: row.strings[6],
+        });
+        break;
+      case FACES.FACE_IN_ZONE:
+        zones.push({
+          id: row.strings[0],
+          name: row.strings[1],
+          members: parseCount(row.strings[2], 'zone member count'),
+        });
+        break;
+      case FACES.FACE_IN_SET:
+        currentSet = {
+          id: row.strings[0],
+          scope: row.strings[1],
+          policyCount: parseCount(row.strings[2], 'policy set count'),
+          policies: [],
+        };
+        policySets.push(currentSet);
+        break;
+      case FACES.FACE_IN_POLICY:
+        if (!currentSet) {
+          throw new Error('OP_INSIDE reply: FACE_IN_POLICY arrived before any FACE_IN_SET');
+        }
+        currentSet.policies.push({
+          id: row.strings[0],
+          setId: row.strings[1],
+          ordinal: row.strings[2],
+          name: row.strings[3],
+          action: row.strings[4],
+          enabled: row.strings[5],
+          description: row.strings[6],
+        });
+        break;
+      case FACES.FACE_IN_ROUTE:
+        currentRoute = { id: row.strings[0], name: row.strings[1], protocols: [] };
+        routes.push(currentRoute);
+        break;
+      case FACES.FACE_IN_PROTO:
+        if (!currentRoute) {
+          throw new Error('OP_INSIDE reply: FACE_IN_PROTO arrived before any FACE_IN_ROUTE');
+        }
+        currentRoute.protocols.push({
+          id: row.strings[0],
+          instanceId: row.strings[1],
+          protocol: row.strings[2],
+          adjacencies: parseCount(row.strings[3], 'protocol adjacency count'),
+        });
+        break;
+      case FACES.FACE_IN_TUNNEL:
+        tunnels.push({ id: row.strings[0], name: row.strings[1], unit: row.strings[2] });
+        break;
+      default:
+        throw new Error(`OP_INSIDE reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+  }
+
+  return { deviceId, hostname, interfaces, zones, policySets, routes, tunnels, unzoned };
+}
+
 function parseCount(value: string, what: string): number {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) {
@@ -307,6 +554,21 @@ export class Engine {
     frame.set(textBytes, prefix.length + idLen.length + idBytes.length);
     const rows = this.callFaces(OPCODES.OP_PASTE_INTO, frame);
     return readPasteReply(rows);
+  }
+
+  /** `OP_INSIDE`: the zoom ladder's stop beyond the faceplate (UI-SPEC "Zoom
+   * is one continuous camera"). Request is the raw UTF-8 display id, no
+   * framing (`shell.rs::node_request` reads the whole request buffer as the
+   * id string, the same convention `OP_ELEMENT`/`OP_EQUIPMENT` already use).
+   * A display id that names nothing is `ERR_NO_ELEMENT`, surfaced as the
+   * usual `EngineError` by `callFaces`; a live element that is not a
+   * `Device` is the reply's own empty state, not an error
+   * (`tests/inside.rs`'s `a_live_non_device_comes_back_empty`) and decoded
+   * to `EMPTY_INSIDE` above rather than thrown. */
+  inside(deviceId: string): InsideFaces {
+    const req = new TextEncoder().encode(deviceId);
+    const rows = this.callFaces(OPCODES.OP_INSIDE, req);
+    return readInsideReply(rows);
   }
 }
 

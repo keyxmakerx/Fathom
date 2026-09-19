@@ -68,6 +68,12 @@ export interface ShellProps {
    * (owner's decision, BRIEF.md "The account chip opens a menu"). */
   account: AccountInfo;
 
+  /** ADR-0052 §5: the open design's `capability` is `'read'`
+   * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the
+   * bar. Omitted or `false` on Home and everywhere a reader could not have
+   * landed anyway. */
+  viewOnly?: boolean;
+
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */
   editor: ReactNode | null;

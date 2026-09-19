@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { openDesign, saveDesign } from '../../api/payload';
 import { ApiRefusal } from '../../api/errors';
+import type { DesignCapability } from '../../api/designs';
+import { captureOf } from '../../document/capture';
+import { Engine } from '../../engine/engine';
+import { Mirror, refusalSentence } from '../../engine/mirror';
+import { ConfigDrawer } from '../config/ConfigDrawer';
+import { InsideStop } from '../inside/InsideStop';
 import {
   AlreadyPlacedError,
   InvalidFixedToTargetError,
@@ -33,7 +39,7 @@ import {
   removeSupply,
   setSupplyField,
 } from '../../document/supplies';
-import { viewOf, type ClosetView } from '../../document/view';
+import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Drawing, EditorFor, Palette, type EditorChange, type Selection } from '../drawing';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
@@ -153,6 +159,19 @@ function AddSurfaceControl({
  * document moved under us) has no field left to attach a message to, so it
  * still resolves to `undefined` — the same silent drop as before this
  * change, now named rather than accidental. */
+/** ADR-0052 §5, this session's brief item 1: "canDraw = capability !== 'read'."
+ * A capability this client does not recognise (`api/designs.ts`'s own note
+ * on why `DesignCapability` is kept as `string`) is never treated as
+ * drawable by guessing — only the one capability that names "cannot write"
+ * is refused draw, so an unrecognised future value fails open to draw
+ * rather than silently losing every save, the opposite of the security
+ * failure mode this gate exists to prevent. Pulled out as its own function,
+ * pure and exported, so the gate itself is tested without mounting
+ * anything. */
+export function canDrawFor(capability: DesignCapability): boolean {
+  return capability !== 'read';
+}
+
 export function refusalFor(error: unknown): { refused: string } | undefined {
   if (error instanceof FieldValueError) return { refused: error.message };
   // `document/supplies.ts`'s own typed refusals (ADR-0050 §4) — an unknown
@@ -200,6 +219,12 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * stepped `zoom`/`onZoomIn`/`onZoomOut` by the caller (`App.tsx`) — the
    * same single number, two ways to move it. */
   onZoomChange: (zoom: number) => void;
+  /** `api/designs.ts`'s `DesignSummary.capability` for the open design —
+   * ADR-0052 §5: "canDraw = capability !== 'read'" is computed once, here,
+   * from this and threaded to every place that needs it (`Drawing`'s
+   * `canDraw`, the editor's `onEdit`, the rail's controls) rather than each
+   * of them re-deriving it. */
+  capability: DesignCapability;
 }
 
 /**
@@ -212,7 +237,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
  * design.
  */
 export function RacksPlace(props: RacksPlaceProps) {
-  const { organisationId, designId, onZoomChange, ...shellProps } = props;
+  const { organisationId, designId, onZoomChange, capability, ...shellProps } = props;
+  const canDraw = canDrawFor(capability);
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
@@ -265,9 +291,196 @@ export function RacksPlace(props: RacksPlaceProps) {
   const applyDocChange = useCallback(
     (next: Document) => {
       setDoc(next);
+      // ADR-0052 §5, this session's brief item 1: a reader's document never
+      // reaches the `SaveQueue` — nothing here should ever run for one
+      // (`Drawing`'s own `canDraw` gating, `EditorFor`'s absent `onEdit`),
+      // but this is the one place every path that could still call
+      // `applyDocChange` funnels through, so it is the save's own last
+      // refusal too, not only the controls'.
+      if (!canDraw) return;
       saveQueue.push(writePlain(next));
     },
-    [saveQueue],
+    [saveQueue, canDraw],
+  );
+
+  // ADR-0052 §1/§4, this session's brief item 2 — the config drawer's
+  // engine. `Engine.init()` fetches and boots the wasm module
+  // (`engine.ts`'s own doc), which is not free, so it happens on first
+  // need — the first time a chassis is selected in this session — and
+  // never at sign-in or on opening the design. `mirrorPromiseRef` makes a
+  // second "first need" (a second chassis selected before the first
+  // `Engine.init()` resolves) join the same boot rather than start another.
+  const mirrorRef = useRef<Mirror | null>(null);
+  const mirrorPromiseRef = useRef<Promise<Mirror> | null>(null);
+  // The `Document` the module currently holds, by reference — `writePlain`
+  // and `loadPlain` (`mirror.ts`'s `load`) are not free (measured: seconds,
+  // not milliseconds, on a realistic multi-thousand-line capture), so this
+  // is what lets every call site below load the module only when the
+  // document it holds is stale, rather than on every render or every
+  // document change regardless of whether the module is even in use.
+  const mirrorLoadedDocRef = useRef<Document | null>(null);
+  // Bumped once `mirrorRef.current` goes from `null` to real — a ref change
+  // alone does not schedule a render, and `renderConfigDrawer`/
+  // `renderInsideStop` (below) read `mirrorRef.current` directly, so
+  // something has to ask React to call them again once the engine is
+  // actually ready.
+  const [, forceMirrorRerender] = useState(0);
+
+  const ensureMirror = useCallback((): Promise<Mirror> => {
+    if (mirrorPromiseRef.current == null) {
+      mirrorPromiseRef.current = Engine.init().then((engine) => {
+        const mirror = new Mirror(engine);
+        mirrorRef.current = mirror;
+        forceMirrorRerender((n) => n + 1);
+        return mirror;
+      });
+    }
+    return mirrorPromiseRef.current;
+  }, []);
+
+  // On demand only, never on every document change: a design nobody has
+  // opened the drawer or the inside stop on yet never boots the module at
+  // all, and one already open only reloads the module when the document it
+  // holds is actually stale (`mirrorLoadedDocRef` above) — dragging a
+  // chassis, editing a hostname, fitting a PSU pay nothing here unless a
+  // call site below is about to actually use the module. Reference equality
+  // is enough: every `document/commands.ts`/`document/edit.ts` call and
+  // `mirror.pasteInto`'s own readback return a fresh `Document`, never
+  // mutate one in place.
+  const withMirror = useCallback(async (): Promise<Mirror> => {
+    const mirror = await ensureMirror();
+    if (doc != null && mirrorLoadedDocRef.current !== doc) {
+      mirror.load(doc);
+      mirrorLoadedDocRef.current = doc;
+    }
+    return mirror;
+  }, [ensureMirror, doc]);
+
+  const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
+
+  // First need: a chassis is selected at all (the faceplate/inside stops
+  // are a further zoom on the same selection, not a separate action) —
+  // warms the engine so the drawer or the inside stop, whichever the
+  // camera reaches next, does not wait on a fresh boot. Best-effort: a
+  // refusal here surfaces instead from `handlePasteInto`, the one place
+  // this session actually acts on the module's reply.
+  useEffect(() => {
+    if (selectedChassisId == null) return;
+    withMirror().catch(() => {});
+  }, [selectedChassisId, withMirror]);
+
+  const [pasteRefusal, setPasteRefusal] = useState<string | null>(null);
+  // ADR-0052 §1: "the drawer's gutter lights the port it built" — hover and
+  // a click both name a line's own port label; hover wins while it is
+  // active (UI-SPEC "Config": "click a line and the port it built lights"),
+  // the last click stays lit once the pointer leaves.
+  const [hoverPortLabel, setHoverPortLabel] = useState<string | null>(null);
+  const [selectedLinePortLabel, setSelectedLinePortLabel] = useState<string | null>(null);
+  const litPortLabel = hoverPortLabel ?? selectedLinePortLabel;
+
+  // All three are facts about ONE device's own drawer — a refusal from the
+  // last chassis's paste, a line hovered or clicked in the last chassis's
+  // own capture — and none of them names the device they are about. Left
+  // alone across a selection change, the next chassis's drawer would show
+  // the previous one's refusal, or light a port on this chassis for a line
+  // that only ever built something on the last one (the normal case for two
+  // devices sharing a port label like `ge-0/0/0`). Reset the moment the
+  // selected chassis itself changes, not only at design load or paste time.
+  useEffect(() => {
+    setPasteRefusal(null);
+    setHoverPortLabel(null);
+    setSelectedLinePortLabel(null);
+  }, [selectedChassisId]);
+
+  const handlePasteInto = useCallback(
+    (deviceId: string, text: string) => {
+      setPasteRefusal(null);
+      withMirror()
+        .then((mirror) => {
+          // Door three, ADR-0052 §4: "the human answer ADR-0010 asks for" —
+          // `pasteInto`'s own reply already carries `PasteResult`, but the
+          // drawer's own gutter (built/kept/destroyed) is derived from the
+          // saved document's own provenance on reopen (`document/capture.ts`'s
+          // `captureOf`, ADR-0052 §3) rather than kept from this reply, so
+          // only the `Document` it returns is used here.
+          const { doc: nextDoc } = mirror.pasteInto(deviceId, text);
+          // The module already holds exactly this document — its own
+          // `OP_EXPORT_PLAIN` is what `nextDoc` was read back from
+          // (`mirror.ts`'s `pasteInto`) — so the next call to reach for the
+          // mirror (a hover, a second paste, the inside stop) must not pay
+          // `writePlain`/`loadPlain` again for a round-trip that already
+          // happened.
+          mirrorLoadedDocRef.current = nextDoc;
+          applyDocChange(nextDoc);
+        })
+        // `mirror.ts`'s own `refusalSentence` — the one place an
+        // `EngineError`'s code is read into the drawer's own sentence
+        // (ADR-0052 §5's amendment on a second paste, among others); this
+        // file's own `describeError` is for the server's refusals, a
+        // different vocabulary.
+        .catch((error: unknown) => setPasteRefusal(refusalSentence(error)));
+    },
+    [withMirror, applyDocChange],
+  );
+
+  // ADR-0052 §5, this session's brief item 2 — "when a chassis is selected
+  // at the faceplate stop and canDraw or a capture exists." `Drawing.tsx`
+  // decides WHEN this runs (a chassis selected, the camera at the
+  // faceplate stop); this decides WHAT it draws — the real `ConfigDrawer`
+  // when either half of that "or" holds, `null` (nothing mounts, no dim)
+  // otherwise, mirroring `captureOf`'s own read of `doc`'s provenance
+  // rather than the paste reply this session just got (ADR-0052 §3: "on
+  // reopen the gutter is derived from provenance spans... never stored
+  // twice" — true of every render, not only a reopen).
+  const renderConfigDrawer = useCallback(
+    (chassis: ChassisView) => {
+      const capture = doc != null ? captureOf(doc, chassis.deviceId) : null;
+      if (!canDraw && capture == null) return null;
+      return (
+        // Keyed to the device: `Drawing.tsx` mounts this at the same
+        // position under the faceplate regardless of which chassis is
+        // selected, so with no key React would keep the previous device's
+        // `ConfigDrawer` instance (and therefore its own paste-box state)
+        // mounted across a selection change. A fresh key forces a fresh
+        // instance — a fresh, empty paste box — every time the selected
+        // device changes.
+        <ConfigDrawer
+          key={chassis.deviceId}
+          chassis={chassis}
+          capture={capture}
+          canDraw={canDraw}
+          onPaste={(text) => handlePasteInto(chassis.deviceId, text)}
+          onLineHover={setHoverPortLabel}
+          onLineSelect={setSelectedLinePortLabel}
+          refusal={pasteRefusal}
+        />
+      );
+    },
+    [doc, canDraw, handlePasteInto, pasteRefusal],
+  );
+
+  // ADR-0051 "Inside a box" / this session's brief item 3 — `mirror.inside`
+  // is synchronous once the module holds the document (`Mirror`'s own
+  // contract), but the module itself may still be booting the first time a
+  // chassis reaches this stop — `mirrorRef.current == null` then, and
+  // nothing renders rather than call a method on a mirror that is not
+  // there yet; `forceMirrorRerender` (above) is what asks this to run
+  // again the moment it is.
+  const renderInsideStop = useCallback(
+    (chassis: ChassisView) => {
+      if (mirrorRef.current == null) return null;
+      // Loaded on demand, the same reference-equality dedupe `withMirror`
+      // above uses: this stop needs the module in step with `doc` right
+      // now, synchronously (`Mirror.inside` has no async door to await
+      // one), but only pays the reload when the module is actually stale.
+      if (doc != null && mirrorLoadedDocRef.current !== doc) {
+        mirrorRef.current.load(doc);
+        mirrorLoadedDocRef.current = doc;
+      }
+      const faces = mirrorRef.current.inside(chassis.deviceId);
+      return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
+    },
+    [litPortLabel, doc],
   );
 
   const realView = useMemo<ClosetView>(
@@ -465,11 +678,25 @@ export function RacksPlace(props: RacksPlaceProps) {
       // `onSelect: setSelection` — ADR-0051 §1, this session's brief item
       // 4 — a shelf's own editor lists its occupants by slot, each a link
       // that selects the occupant; the same setter `Drawing`'s own
-      // `onSelect` prop below already uses.
-      EditorFor(selection, displayView, { onEdit: handleEdit, onSelect: setSelection }, paletteFromCatalogue(catalogue))
+      // `onSelect` prop below already uses. ADR-0052 §5, this session's
+      // brief item 1 — `onEdit` is omitted entirely for a reader
+      // (`canDraw`), never supplied as a function that would refuse: every
+      // value then renders as plain text with no input and no action
+      // (`Editor.tsx`'s own `EditableValue`/`SupplyAction`/`PlacedOnControl`
+      // doc on reading `onEdit == null`).
+      EditorFor(
+        selection,
+        displayView,
+        { onEdit: canDraw ? handleEdit : undefined, onSelect: setSelection },
+        paletteFromCatalogue(catalogue),
+      )
     ) : null;
 
-  const rail = (
+  // ADR-0052 §5, this session's brief item 1 — "the rail shows no palette
+  // and no add controls" for a reader: the whole rail is empty rather than
+  // showing a palette that could never place anything or a surface control
+  // that could never write.
+  const rail = canDraw ? (
     <>
       <AddSurfaceControl
         premisesId={realView.premisesId}
@@ -482,10 +709,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           optional model never offers either as if it were a real one. */}
       <Palette palette={paletteRows(catalogue)} />
     </>
-  );
+  ) : null;
 
   return (
-    <Shell {...shellProps} editor={editor} rail={rail}>
+    <Shell {...shellProps} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -497,6 +724,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPlace={handlePlace}
           onMove={handleMove}
           onSelect={setSelection}
+          canDraw={canDraw}
+          renderConfigDrawer={renderConfigDrawer}
+          renderInsideStop={renderInsideStop}
+          litPortLabel={litPortLabel}
         />
       )}
     </Shell>

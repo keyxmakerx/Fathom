@@ -216,6 +216,7 @@ export default function App() {
         organisationId={view.organisation.organisationId}
         designId={view.design.designId}
         onZoomChange={setZoom}
+        capability={view.design.capability}
       />
     );
   }

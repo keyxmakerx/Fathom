@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent } from 'react';
+import type { DragEvent, ReactNode } from 'react';
 import {
   Background,
   ConnectionMode,
@@ -21,10 +21,12 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
-import type { CableKind, CableView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
+import type { CableKind, CableView, ChassisView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
+  MAX_ZOOM,
+  MIN_ZOOM,
   RACK_HEADER_PX,
   RACK_INNER_PX,
   RAIL_PX,
@@ -141,6 +143,41 @@ export interface DrawingProps extends DrawingActions {
    * component is the one place that converts between the two. */
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
+   * (`RacksPlace.tsx`'s own computation, the one place capability is read).
+   * `false` disables React Flow's own `nodesDraggable`/`nodesConnectable`
+   * (below) — a reader neither moves a chassis or rack nor starts a cable —
+   * and this component refuses a palette drop itself rather than trust the
+   * caller never to raise `onPlace` (`handleDrop`, below): a reader that
+   * somehow still fires a native drag-and-drop event gets no placement. */
+  canDraw: boolean;
+  /** ADR-0052 §1/§4, this session's brief item 2 — "the drawer opens
+   * beneath the faceplate." This component knows the camera stop and the
+   * selection; it does not know the `Document`, the Mirror or the save path
+   * the drawer itself needs (`contract.ts`'s own file header: this drawing
+   * never imports `document/` for anything but the view types) — so the
+   * caller (`racks/RacksPlace.tsx`) supplies the drawer's content as a
+   * function of the selected chassis, called only once that chassis is
+   * selected AND the camera reads as the faceplate stop, and the caller
+   * decides whether that content is the real `ConfigDrawer` or `null`
+   * (ADR-0052 §5's "canDraw or a capture exists" gate lives with the
+   * caller, which is the one place that knows whether a capture exists). */
+  renderConfigDrawer?: (chassis: ChassisView) => ReactNode;
+  /** ADR-0051 "Inside a box" / this session's brief item 3 — the stop
+   * beyond faceplate. Same shape as `renderConfigDrawer` above, called once
+   * the camera reads as the `'inside'` stop for the selected chassis. */
+  renderInsideStop?: (chassis: ChassisView) => ReactNode;
+  /** ADR-0052 §1, this session's brief item 2 — "click a line and the port
+   * it built lights, tagged with which line built it." The caller
+   * (`racks/RacksPlace.tsx`) tracks the drawer's own hover/select state and
+   * resolves it to a port label on the selected chassis; this component
+   * resolves that label to a port id on the currently-selected chassis
+   * (`ChassisView.ports`) and lights it through `ChassisNode.tsx`'s
+   * existing `data-port-id` attribute (already emitted for every port and
+   * inlet glyph) — a CSS class toggled on the matching element, the same
+   * "reuse what is already there" reading `litCableId` above gives the
+   * rail hexagon's own hover. `null`/absent lights nothing. */
+  litPortLabel?: string | null;
 }
 
 type AnyRackNode = RackNodeType;
@@ -180,6 +217,10 @@ function DrawingInner({
   onSelect,
   onConnect,
   onDisconnect,
+  canDraw,
+  renderConfigDrawer,
+  renderInsideStop,
+  litPortLabel,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -419,6 +460,43 @@ function DrawingInner({
   // "the same hover key" both read off `ChassisNodeData.litCableId`.
   const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
 
+  // ADR-0052 §1/§4/§5, this session's brief items 2/3 — the config drawer
+  // (item 2, `renderConfigDrawer`) and the inside stop (item 3,
+  // `renderInsideStop`) both key off "a chassis is selected" and "the
+  // camera reads at a particular stop," which this component already
+  // tracks; only the chassis lookup is new. A rack-mounted `Chassis` only —
+  // ADR-0052 §5's scope is "the inside stop for a Junos SRX," a rack device,
+  // and the faceplate/inside stops themselves are rack-elevation concepts
+  // (`CAMERA_STOPS`) that a shelf occupant or surface fixture does not
+  // share a camera reading with.
+  const selectedChassis: ChassisView | null =
+    selected?.kind === 'chassis' ? (view.racks.flatMap((r) => r.chassis).find((c) => c.id === selected.id) ?? null) : null;
+  // Motion #9: "A surface slides in from the right and out again; the
+  // drawing beneath does not move" — content only, never whether to draw at
+  // all: the caller decides that (`renderConfigDrawer`'s own doc, above) by
+  // returning `null` when ADR-0052 §5's "canDraw or a capture exists" does
+  // not hold, so this reads the same `!= null` check either way.
+  const configDrawerContent: ReactNode =
+    selectedChassis != null && cameraStop === 'faceplate' ? (renderConfigDrawer?.(selectedChassis) ?? null) : null;
+  const insideStopContent: ReactNode =
+    selectedChassis != null && cameraStop === 'inside' ? (renderInsideStop?.(selectedChassis) ?? null) : null;
+
+  // ADR-0052 §1, item 2 — resolves `litPortLabel` to a port id on the
+  // selected chassis only: a line in one device's drawer has no business
+  // lighting a same-labelled port on a different one.
+  const litPortId =
+    litPortLabel != null && selectedChassis != null ? (selectedChassis.ports.find((p) => p.label === litPortLabel)?.id ?? null) : null;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const lit = container.querySelectorAll('.drawing-port--lit');
+    lit.forEach((el) => el.classList.remove('drawing-port--lit'));
+    if (litPortId == null) return;
+    const matches = container.querySelectorAll(`[data-port-id="${CSS.escape(litPortId)}"]`);
+    matches.forEach((el) => el.classList.add('drawing-port--lit'));
+  }, [litPortId]);
+
   const nodes: Node[] = [];
 
   rowLayouts.forEach((layout, rowIndex) => {
@@ -468,7 +546,7 @@ function DrawingInner({
         id: rackNodeId(rack.id),
         type: 'rack',
         position: pos,
-        draggable: true,
+        draggable: canDraw,
         selectable: true,
         style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
         data: rackData,
@@ -500,10 +578,16 @@ function DrawingInner({
           id,
           type: 'chassis',
           position: dragOverride[id] ?? basePosition,
-          draggable: true,
+          draggable: canDraw,
           selectable: true,
           zIndex: 10,
           style: { width: RACK_INNER_PX, height: chassis.heightU * U_PX },
+          // UI-SPEC "Config": "Plate stays above, dimmed." A plain CSS
+          // class (`drawing.css`) rather than a new `ChassisNodeData` field
+          // — `ChassisNode.tsx` is not this session's file, so the dim is
+          // applied here, on the React Flow node itself, the same seam
+          // `RowLabelNode`'s own styling already sits outside its data prop.
+          className: configDrawerContent != null && chassis.id === selectedChassis?.id ? 'drawing-chassis-node--dimmed' : undefined,
           data: chassisData,
         } satisfies AnyChassisNode);
       }
@@ -870,14 +954,19 @@ function DrawingInner({
     [view.racks, rackPositions, onMove, triggerShake],
   );
 
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-  }, []);
+  const handleDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!canDraw) return; // ADR-0052 §5: a reader's palette drop is refused, not merely ignored on drop
+      if (!event.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    [canDraw],
+  );
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
+      if (!canDraw) return; // ADR-0052 §5: no placement for a reader, even if a drop event somehow reaches here
       const raw = event.dataTransfer.getData(PALETTE_DRAG_MIME);
       if (!raw) return;
       event.preventDefault();
@@ -896,7 +985,7 @@ function DrawingInner({
       }
       onPlace(rack.id, { vendor: payload.vendor, model: payload.model }, positionU);
     },
-    [rf, view.racks, rackPositions, onPlace, triggerShake],
+    [rf, view.racks, rackPositions, onPlace, triggerShake, canDraw],
   );
 
   // UI-SPEC "Drag-to-connect": "the lead droops live between the fixed
@@ -904,6 +993,7 @@ function DrawingInner({
   // live... a port that already has a cable is never a target."
   const isValidConnection: IsValidConnection = useCallback(
     (edgeOrConnection) => {
+      if (!canDraw) return false; // ADR-0052 §5: belt-and-braces alongside `nodesConnectable={canDraw}` above
       const fromId = edgeOrConnection.sourceHandle;
       const toId = edgeOrConnection.targetHandle;
       if (!fromId || !toId || fromId === toId) return false;
@@ -917,7 +1007,7 @@ function DrawingInner({
       if ((to.port.cable ?? null) != null) return false;
       return compatible(from.port.connector, to.port.connector).ok;
     },
-    [view],
+    [view, canDraw],
   );
 
   const handleConnectStart: OnConnectStart = useCallback((_event, params) => {
@@ -983,6 +1073,7 @@ function DrawingInner({
   // a cable is the current selection.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
       if (selected?.kind !== 'cable') return;
       event.preventDefault();
@@ -990,7 +1081,7 @@ function DrawingInner({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onDisconnect]);
+  }, [selected, onDisconnect, canDraw]);
 
   return (
     <div className="drawing" ref={containerRef} onDrop={handleDrop} onDragOver={handleDragOver}>
@@ -1005,8 +1096,8 @@ function DrawingInner({
         onPaneClick={() => onSelect(null)}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        minZoom={CAMERA_STOPS.closet / 100 - 0.1}
-        maxZoom={CAMERA_STOPS.faceplate / 100 + 0.3}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
         panOnDrag
         panOnScroll={false}
         zoomOnScroll
@@ -1019,7 +1110,12 @@ function DrawingInner({
         isValidConnection={isValidConnection}
         onConnectStart={handleConnectStart}
         onConnectEnd={handleConnectEnd}
-        nodesConnectable
+        // ADR-0052 §5: the pane-level defaults a reader's document is drawn
+        // under — every node above still names its own `draggable: canDraw`
+        // too (React Flow's own per-node field wins over this default when
+        // a node sets it explicitly), so dragging is refused both ways.
+        nodesDraggable={canDraw}
+        nodesConnectable={canDraw}
         elementsSelectable
         deleteKeyCode={null}
       >
@@ -1034,6 +1130,26 @@ function DrawingInner({
           onConfirm={handlePickerConfirm}
           onCancel={handlePickerCancel}
         />
+      )}
+      {/* UI-SPEC "Config": "A drawer under the faceplate, not a separate
+          page." Motion #9: "A surface slides in from the right and out
+          again; the drawing beneath does not move" — an overlay sibling of
+          the canvas, like `ColourPicker` above, never a layout change to
+          the canvas itself; `drawing.css`'s own transition is the slide. */}
+      {configDrawerContent != null && (
+        <div className="drawing-config-drawer" role="complementary" aria-label="Config">
+          {configDrawerContent}
+        </div>
+      )}
+      {/* UI-SPEC "Inside a box" / Motion #10: "A box on a shelf opens at
+          the faceplate stop by the same camera as everything else" — the
+          inside stop is the same continuous camera one step further in,
+          drawn as its own overlay rather than unmounting the rack canvas
+          beneath it. */}
+      {insideStopContent != null && (
+        <div className="drawing-inside-stop" role="region" aria-label="Inside">
+          {insideStopContent}
+        </div>
       )}
     </div>
   );

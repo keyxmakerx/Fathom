@@ -1156,6 +1156,49 @@ async fn a_reader_cannot_save_but_can_still_open_and_verify() {
     assert_eq!(status, "200");
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("\"outcome\":\"verified\""), "{text}");
+
+    // ADR-0052 §5, this session's brief item 1 ("canDraw = capability !==
+    // 'read'"): the client gate the drawing/editor apply is proven honest
+    // only if the server refuses the save it is meant to stop a reader from
+    // ever reaching in the first place — this function's own name has
+    // promised exactly that since it was written, but the body above never
+    // actually attempted one, so the promise was untested. Completed here
+    // rather than left beside `a_read_only_caller_is_refused_a_save_and_the_refusal_does_not_leak_whether_the_design_exists`
+    // (which proves the same 403 against a *fresh* design with no prior
+    // version) — this one proves it against a design the reader can already
+    // open and verify, so a version already on file is not itself what was
+    // making the read-only save win nothing: it never reaches version 2.
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions",
+        estate.organisation, design
+    );
+    let save_attempt = save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(2));
+    let (save_status, save_body_bytes) =
+        call(addr, &reader, "POST", &versions_path, &save_attempt).await;
+    assert_eq!(
+        save_status,
+        "403",
+        "a reader's save must be refused: {}",
+        String::from_utf8_lossy(&save_body_bytes)
+    );
+
+    // Positive control: the version this test seeded before the reader ever
+    // showed up is still the latest one — the refused save neither replaced
+    // it nor landed beside it as a second version.
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await
+    .expect("the seeded version is still readable");
+    assert_eq!(
+        latest.version, 1,
+        "the reader's refused save must not have written version 2"
+    );
 }
 
 #[tokio::test]

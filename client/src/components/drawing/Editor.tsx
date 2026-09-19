@@ -98,8 +98,11 @@ interface EditableValueProps {
   options?: readonly string[];
   /** Returns the refusal beside a value the schema refused
    * (`EditorActions.onEdit`, `contract.ts`) — see its doc for why this is a
-   * return value and not a callback. */
-  onCommit: (raw: string | null) => { refused: string } | void;
+   * return value and not a callback. `undefined` when the caller holds no
+   * `EditorActions.onEdit` at all (ADR-0052 §5's view-only rendering) — the
+   * field then never becomes selectable or editable, only ever the plain
+   * text `hasValue ? value : placeholder` already read for the idle state. */
+  onCommit: ((raw: string | null) => { refused: string } | void) | undefined;
 }
 
 /**
@@ -107,11 +110,18 @@ interface EditableValueProps {
  * click again edits it. Enter or blur commits; Escape reverts without
  * committing. A `select` (for `Device.role`) commits on choice — there is no
  * free-text value to refuse there, the schema's own enum is the option list.
+ *
+ * ADR-0052 §5: `onCommit == null` (a reader, no `EditorActions.onEdit`) is
+ * read-only — the click handler that would move it out of `idle` is simply
+ * not attached, so `state` can never reach `'selected'`/`'editing'` and no
+ * `<input>`/`<select>` is ever rendered, only the same text a writer sees at
+ * rest.
  */
 function EditableValue({ value, placeholder, placeholderClassName, editorKind, options, onCommit }: EditableValueProps) {
   const [state, setState] = useState<FieldState>('idle');
   const [draft, setDraft] = useState(value);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const readOnly = onCommit == null;
 
   // The document changed under us (a save applied, or a refusal left it as
   // it was) — pick up the authoritative value whenever this field is not
@@ -129,6 +139,7 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
   }, [value]);
 
   function commit(raw: string) {
+    if (!onCommit) return; // unreachable in practice — see `readOnly`, below
     const trimmed = raw.trim();
     const result = onCommit(trimmed.length > 0 ? trimmed : null);
     if (result?.refused) {
@@ -146,7 +157,7 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
     setState('selected');
   }
 
-  if (state === 'editing') {
+  if (state === 'editing' && !readOnly) {
     if (editorKind === 'select') {
       return (
         <select
@@ -190,9 +201,9 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
   return (
     <>
       <span
-        style={state === 'selected' ? SELECTED_STYLE : IDLE_STYLE}
+        style={readOnly ? undefined : state === 'selected' ? SELECTED_STYLE : IDLE_STYLE}
         className={hasValue ? undefined : placeholderClassName}
-        onClick={() => setState(state === 'selected' ? 'editing' : 'selected')}
+        onClick={readOnly ? undefined : () => setState(state === 'selected' ? 'editing' : 'selected')}
       >
         {hasValue ? value : placeholder}
       </span>
@@ -208,8 +219,19 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
  * (`document/supplies.ts`'s `UnknownSlotError`/`SlotAlreadyFittedError`/
  * `FixedSlotError`, via `racks/RacksPlace.tsx`'s own `refusalFor`) beside
  * the button, the same way a refused field edit shows beside its field. */
-function SupplyAction({ label, onCommit }: { label: string; onCommit: () => { refused: string } | void }) {
+function SupplyAction({
+  label,
+  onCommit,
+}: {
+  label: string;
+  /** `undefined` when the caller holds no `EditorActions.onEdit`
+   * (ADR-0052 §5) — nothing renders at all, "no actions" rather than a
+   * disabled button, since there is no refusal to show for a click that
+   * would never happen. */
+  onCommit: (() => { refused: string } | void) | undefined;
+}) {
   const [refusal, setRefusal] = useState<string | null>(null);
+  if (!onCommit) return null;
   return (
     <>
       <button
@@ -441,6 +463,35 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
     setRefusal(null);
   }, [itemId, placement.kind]);
 
+  const onEdit = actions.onEdit;
+
+  // ADR-0052 §5: no `EditorActions.onEdit` at all — the segmented choice and
+  // every form behind it are the actions this control has, so a reader gets
+  // only the plain summary Fields below, never a control that could commit
+  // nothing.
+  if (!onEdit) {
+    return (
+      <div className="drawing-editor__field">
+        <div className="drawing-editor__field-label">Placed on</div>
+        {placement.kind === 'none' ? <Field label="Placed" value={ABSENT} /> : null}
+        {placement.kind === 'rack' ? <Field label="Unit" value={`U${placement.positionU}`} /> : null}
+        {placement.kind === 'shelf' ? <Field label="Slot" value={String(placement.slot)} /> : null}
+        {placement.kind === 'surface' || placement.kind === 'board' ? (
+          <Field
+            label="Position"
+            value={placement.xMm != null && placement.yMm != null ? `${placement.xMm}mm, ${placement.yMm}mm` : ABSENT}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  // Re-typed without the `| undefined` the field carries — the `if (!onEdit)
+  // return` above already proved it out, but that narrowing does not reach
+  // into `commit`, a nested `function` declaration TypeScript does not
+  // narrow a closed-over `const` through (unlike an inline arrow function).
+  const doEdit: (change: EditorChange) => { refused: string } | void = onEdit;
+
   const racks = view.racks;
   const shelves = shelfOptions(view);
   const surfaces = surfaceOptions(view);
@@ -464,7 +515,7 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
   }
 
   function commit(change: EditorChange) {
-    const result = actions.onEdit(change);
+    const result = doEdit(change);
     if (result?.refused) {
       setRefusal(result.refused);
       return;
@@ -635,6 +686,16 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   const [face, setFace] = useState<'front' | 'rear'>('front');
   const [refusal, setRefusal] = useState<string | null>(null);
 
+  const onEdit = actions.onEdit;
+  // ADR-0052 §5: no `EditorActions.onEdit` — no add control at all, not
+  // even the closed "+ add a port" button, the same "no actions" reading
+  // `SupplyAction` gives a reader.
+  if (!onEdit) return null;
+  // As `PlacedOnControl`'s own `doEdit` above — `commit`, a nested
+  // `function` declaration, does not inherit the narrowing the `if
+  // (!onEdit)` check just proved.
+  const doEdit: (change: EditorChange) => { refused: string } | void = onEdit;
+
   if (!open) {
     return (
       <button type="button" onClick={() => setIsOpen(true)}>
@@ -644,7 +705,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   }
 
   function commit() {
-    const result = actions.onEdit(addSketchPortChange(chassisId, label, connector, service.length > 0 ? service : null, face));
+    const result = doEdit(addSketchPortChange(chassisId, label, connector, service.length > 0 ? service : null, face));
     if (result?.refused) {
       setRefusal(result.refused);
       return;
@@ -701,7 +762,10 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
           <span>{port.label || ABSENT}</span>
           <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
           <span style={TYPED_BADGE_STYLE}>typed</span>
-          <SupplyAction label="remove" onCommit={() => actions.onEdit(removeSketchPortChange(chassisId, port.id))} />
+          <SupplyAction
+            label="remove"
+            onCommit={actions.onEdit ? () => actions.onEdit!(removeSketchPortChange(chassisId, port.id)) : undefined}
+          />
         </div>
       ))}
       <AddSketchPortForm chassisId={chassisId} actions={actions} />
@@ -719,6 +783,13 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
   const [label, setLabel] = useState('');
   const [modelKey, setModelKey] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
+
+  const onEdit = actions.onEdit;
+  // ADR-0052 §5: as `AddSketchPortForm` above — no `EditorActions.onEdit`,
+  // no "+ add a shelf" control at all.
+  if (!onEdit) return null;
+  // As `PlacedOnControl`'s own `doEdit` above.
+  const doEdit: (change: EditorChange) => { refused: string } | void = onEdit;
 
   if (!open) {
     return (
@@ -748,7 +819,7 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
       const [vendor, ...rest] = modelKey.split('|');
       model = { vendor, model: rest.join('|') };
     }
-    const result = actions.onEdit(createShelfChange(rackId, u, label.trim(), model));
+    const result = doEdit(createShelfChange(rackId, u, label.trim(), model));
     if (result?.refused) {
       setRefusal(result.refused);
       return;
@@ -817,7 +888,7 @@ export function EditorFor(
             value={rack.row ?? ''}
             placeholder={ABSENT}
             editorKind="text"
-            onCommit={(v) => actions.onEdit({ kind: 'rack', id: rack.id, field: 'row', value: v })}
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'row', value: v }) : undefined}
           />
         </div>
         <TypedNote shown={(rack.row ?? '').length > 0} />
@@ -828,7 +899,7 @@ export function EditorFor(
             value={rack.bay != null ? String(rack.bay) : ''}
             placeholder={ABSENT}
             editorKind="text"
-            onCommit={(v) => actions.onEdit({ kind: 'rack', id: rack.id, field: 'bay', value: v })}
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'bay', value: v }) : undefined}
           />
         </div>
         <TypedNote shown={rack.bay != null} />
@@ -856,7 +927,7 @@ export function EditorFor(
             value={shelf.label}
             placeholder={ABSENT}
             editorKind="text"
-            onCommit={(v) => actions.onEdit({ kind: 'shelf', id: shelf.id, field: 'label', value: v })}
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'shelf', id: shelf.id, field: 'label', value: v }) : undefined}
           />
         </div>
         <TypedNote shown={shelf.label.length > 0} />
@@ -911,7 +982,9 @@ export function EditorFor(
             placeholder={UNNAMED_HOSTNAME}
             placeholderClassName="drawing-editor__title--placeholder"
             editorKind="text"
-            onCommit={(v) => actions.onEdit({ kind: 'device', id: chassis.deviceId, field: 'hostname', value: v })}
+            onCommit={
+              actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'hostname', value: v }) : undefined
+            }
           />
         </div>
         <TypedNote shown={chassis.hostname.length > 0} />
@@ -939,7 +1012,9 @@ export function EditorFor(
             placeholder={ABSENT}
             editorKind="select"
             options={DEVICE_ROLES}
-            onCommit={(v) => actions.onEdit({ kind: 'device', id: chassis.deviceId, field: 'role', value: v })}
+            onCommit={
+              actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'role', value: v }) : undefined
+            }
           />
         </div>
         <TypedNote shown={(chassis.role ?? '').length > 0} />
@@ -950,8 +1025,10 @@ export function EditorFor(
             value={chassis.managementAddress ?? ''}
             placeholder={ABSENT}
             editorKind="text"
-            onCommit={(v) =>
-              actions.onEdit({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+            onCommit={
+              actions.onEdit
+                ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                : undefined
             }
           />
         </div>
@@ -963,7 +1040,9 @@ export function EditorFor(
             value={chassis.serial ?? ''}
             placeholder={ABSENT}
             editorKind="text"
-            onCommit={(v) => actions.onEdit({ kind: 'chassis', id: chassis.id, field: 'serial', value: v })}
+            onCommit={
+              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
+            }
           />
         </div>
         <TypedNote shown={(chassis.serial ?? '').length > 0} />
@@ -978,7 +1057,9 @@ export function EditorFor(
                   {!inlet.fitted ? (
                     <SupplyAction
                       label="fit"
-                      onCommit={() => actions.onEdit({ kind: 'supply-fit', chassisId: chassis.id, slot: inlet.slot })}
+                      onCommit={
+                        actions.onEdit ? () => actions.onEdit!({ kind: 'supply-fit', chassisId: chassis.id, slot: inlet.slot }) : undefined
+                      }
                     />
                   ) : inlet.hotSwap && inlet.supplyId != null ? (
                     <>
@@ -986,14 +1067,16 @@ export function EditorFor(
                         value={inlet.serial ?? ''}
                         placeholder={ABSENT}
                         editorKind="text"
-                        onCommit={(v) =>
-                          actions.onEdit({ kind: 'supply', id: inlet.supplyId!, field: 'serial', value: v })
+                        onCommit={
+                          actions.onEdit
+                            ? (v) => actions.onEdit!({ kind: 'supply', id: inlet.supplyId!, field: 'serial', value: v })
+                            : undefined
                         }
                       />
                       <TypedNote shown={(inlet.serial ?? '').length > 0} />
                       <SupplyAction
                         label="remove"
-                        onCommit={() => actions.onEdit({ kind: 'supply-remove', id: inlet.supplyId! })}
+                        onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'supply-remove', id: inlet.supplyId! }) : undefined}
                       />
                     </>
                   ) : (

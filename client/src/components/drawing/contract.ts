@@ -138,7 +138,14 @@ export type EditorChange =
  * `UnknownReferenceError`) — either way the caller leaves the document as
  * it was. */
 export interface EditorActions {
-  onEdit(change: EditorChange): { refused: string } | void;
+  /** Optional — ADR-0052 §5's view-only rendering: a caller that holds only
+   * `read` capability (`RacksPlace.tsx`'s `canDraw`) omits this entirely
+   * rather than supply a function that refuses every call, so `Editor.tsx`
+   * can tell "nothing to write to" apart from "wrote it, refused." Every
+   * field then renders as plain text with no input and no action —
+   * `Editor.tsx`'s own `EditableValue`/`SupplyAction`/`PlacedOnControl` and
+   * the "+ add a port"/"+ add a shelf" controls all read this the same way. */
+  onEdit?(change: EditorChange): { refused: string } | void;
   /** ADR-0051 §1, this session's brief item 4 — a shelf's own editor lists
    * its occupants by slot, each a link that selects the occupant (moves the
    * whole editor to that occupant's own panel) rather than editing

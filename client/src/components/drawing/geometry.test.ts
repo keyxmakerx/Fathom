@@ -4,6 +4,8 @@ import {
   CABLE_SAG_MAX_PX,
   CAMERA_STOPS,
   MAX_GLYPH_TRUE_HEIGHT_PX,
+  MAX_ZOOM,
+  MIN_ZOOM,
   PORT_ROW_GAP_PX,
   RACK_HEADER_PX,
   TEXT_FLOOR_PX,
@@ -29,6 +31,19 @@ describe('the rack stop fits the reference 42U rack', () => {
   it('42U at U_PX plus the header fits inside the drawing pane (819px, 1440x900)', () => {
     const DRAWING_PANE_PX = 819;
     expect(RACK_HEADER_PX + 42 * U_PX).toBeLessThan(DRAWING_PANE_PX);
+  });
+
+  it('every camera stop is reachable by the wheel/pinch zoom limits given to React Flow', () => {
+    // `Drawing.tsx`'s own `minZoom`/`maxZoom` — every named stop must sit
+    // inside them, or a wheel/pinch can never reach it at all (the "two
+    // controls, two different ceilings" defect this guards against: the
+    // bar's own stepped zoom is not bound by these two, but the wheel/pinch
+    // is, via React Flow's d3 `scaleExtent`).
+    for (const stop of Object.values(CAMERA_STOPS)) {
+      const zoom = stop / 100;
+      expect(zoom).toBeGreaterThanOrEqual(MIN_ZOOM);
+      expect(zoom).toBeLessThanOrEqual(MAX_ZOOM);
+    }
   });
 
   it('the closet and faceplate stops read the approved boards exactly', () => {
@@ -102,6 +117,7 @@ describe('cameraStopAt', () => {
     expect(cameraStopAt(CAMERA_STOPS.closet)).toBe('closet');
     expect(cameraStopAt(CAMERA_STOPS.rack)).toBe('rack');
     expect(cameraStopAt(CAMERA_STOPS.faceplate)).toBe('faceplate');
+    expect(cameraStopAt(CAMERA_STOPS.inside)).toBe('inside');
   });
 
   it('picks the nearest stop off-exact', () => {
@@ -112,11 +128,15 @@ describe('cameraStopAt', () => {
     expect(cameraStopAt((CAMERA_STOPS.closet + CAMERA_STOPS.rack) / 2 + 1)).toBe('rack');
     expect(cameraStopAt(CAMERA_STOPS.rack + (CAMERA_STOPS.faceplate - CAMERA_STOPS.rack) * 0.25)).toBe('rack');
     expect(cameraStopAt(CAMERA_STOPS.faceplate - 20)).toBe('faceplate');
+    expect(cameraStopAt(CAMERA_STOPS.faceplate + (CAMERA_STOPS.inside - CAMERA_STOPS.faceplate) * 0.25)).toBe(
+      'faceplate',
+    );
+    expect(cameraStopAt(CAMERA_STOPS.inside - 20)).toBe('inside');
   });
 
-  it('clamps below the lowest and above the highest stop', () => {
+  it('clamps below the lowest and above the highest stop, the highest now being inside', () => {
     expect(cameraStopAt(0)).toBe('closet');
-    expect(cameraStopAt(10000)).toBe('faceplate');
+    expect(cameraStopAt(10000)).toBe('inside');
   });
 });
 

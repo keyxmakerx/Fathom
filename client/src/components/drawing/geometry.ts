@@ -126,9 +126,9 @@ export const RACK_HEADER_PX = 16;
 
 /**
  * Camera stops, as percentages matching the shell's `zoom` convention (the
- * bar shows `100%` — `design/shell/Main.dc.html`). This drawing only spans
- * three of UI-SPEC's seven stops (closet, rack, faceplate); estate, site,
- * building and inside are other surfaces' concern.
+ * bar shows `100%` — `design/shell/Main.dc.html`). This drawing spans four
+ * of UI-SPEC's seven stops (closet, rack, faceplate, inside); estate, site
+ * and building are other surfaces' concern.
  *
  * `docs/UI-SPEC.md` "Owed to the boards" names the port hit-target zoom as
  * a number this page has never specified and says to name it "when the
@@ -138,10 +138,41 @@ export const RACK_HEADER_PX = 16;
  * Derived against `U_PX`'s new base (see the file header): `closet` reads
  * 14px per U on the approved board, `14 / 16 × 100 = 87.5`; `faceplate`
  * reads 32px per U, `32 / 16 × 100 = 200`. Both exact.
+ *
+ * `inside: 300` — UI-SPEC "Zoom is one continuous camera" names *inside* as
+ * "the approved Hypervisor and Firewall boards, named as a stop," beyond
+ * *faceplate*. Unlike `closet`/`faceplate` above, `design/rebuild/Firewall.dc.html`'s
+ * masthead carries no literal per-U pixel size to derive a stop from — its
+ * chassis draws "open," at a scale that answers "how much room does a zone
+ * need to read," not "how many pixels is a U here" (its ports sit against
+ * the panel edge at the faceplate's own scale, then everything past that
+ * edge is drawn at whatever size the regions inside need, exactly UI-SPEC's
+ * own "the jacks on the panel at the edge are the same ports you cabled" —
+ * the two zooms coexist in one picture, not a single px/U ratio the way a
+ * rack elevation's board reads). `300` is chosen instead as the plainest
+ * number that reads as "one stop past the faceplate" in the same 100%
+ * increment `rack → faceplate` already uses (100 → 200), never fitted to a
+ * board pixel that is not there.
  */
-export const CAMERA_STOPS = { closet: 87.5, rack: 100, faceplate: 200 } as const;
+export const CAMERA_STOPS = { closet: 87.5, rack: 100, faceplate: 200, inside: 300 } as const;
 export type CameraStop = keyof typeof CAMERA_STOPS;
-const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate'];
+const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
+
+/**
+ * The one pair of zoom limits `Drawing.tsx` gives React Flow
+ * (`minZoom`/`maxZoom`), derived here rather than inlined there so every
+ * `CAMERA_STOPS` member is provably reachable by the wheel/pinch that
+ * `zoomOnScroll` drives, not only by the bar's stepped +/- (which pushes the
+ * controlled `viewport` directly and is not clamped by these two — the
+ * "two controls, two different ceilings" defect this fixes is specifically
+ * the wheel/pinch side, d3's own `scaleExtent`). `MAX_ZOOM` covers the
+ * furthest-in named stop (`inside`, deepest in `STOP_ORDER`) with the same
+ * 0.3 (30 percentage points) of headroom past it that `faceplate` used to
+ * get past `rack`, so scrolling one tick further than the deepest stop does
+ * not immediately clamp back to it and read as "snapped out".
+ */
+export const MIN_ZOOM = CAMERA_STOPS.closet / 100 - 0.1;
+export const MAX_ZOOM = CAMERA_STOPS.inside / 100 + 0.3;
 
 /** Which named stop a zoom percentage reads as right now — nearest stop by
  * absolute distance, ties won by the earlier (smaller) stop. */

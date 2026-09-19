@@ -261,3 +261,55 @@ describe("ADR-0052 §4's three doors (opcodes 28/29/30)", () => {
     expect(result.summary.hostname).toBe('srx-placed-01-renamed');
   });
 });
+
+// `OP_INSIDE` (opcode 26), decoded by `Engine.inside` — the inside stop's
+// own contract. Placed via `OP_EQUIP_ADD` (`placeDevice`, above) rather than
+// built by the paste itself, then `PASTE` (`crates/fathom-wasm/tests/paste.rs`'s
+// own constant, this file's copy above) lands on it through `OP_PASTE_INTO`
+// — the same two-step `mirror.test.ts` already drives. `tests/inside.rs`
+// asserts its zone/policy counts against its own longer `SRX` fixture; this
+// asserts them against `PASTE`'s own two `security zones` statements and one
+// `security policies` statement, so the numbers below are this text's own,
+// not copied from a different fixture.
+describe('OP_INSIDE (26)', () => {
+  it('decodes the zones and the one policy set this paste actually declares', () => {
+    const deviceId = placeDevice('srx-inside-01', 'junos-srx');
+    engine.pasteInto(deviceId, PASTE);
+
+    const faces = engine.inside(deviceId);
+
+    expect(faces.deviceId).toBe(deviceId);
+    expect(faces.hostname).toBe('srx-branch-01');
+
+    // `set security zones security-zone trust interfaces ge-0/0/0.0` and
+    // `... vpn interfaces st0.0` — two zones, by name.
+    expect(faces.zones.map((z) => z.name).sort()).toEqual(['trust', 'vpn']);
+
+    // `set security policies from-zone trust to-zone vpn policy allow ...`,
+    // twice — one policy set, one policy named `allow` (the second line
+    // adds a field to the same policy, not a second one).
+    expect(faces.policySets.length).toBe(1);
+    expect(faces.policySets[0].policies.length).toBe(1);
+    expect(faces.policySets[0].policies[0].name).toBe('allow');
+
+    // Property 2, this client's own decode of it: whatever the module
+    // stored travels verbatim, and nothing that reads as Fathom's own
+    // verdict does. `PASTE` never states a `then permit`/`then deny` for
+    // this policy, so the honest value here is the empty string — UI-SPEC
+    // "Absent is drawn as absent" — not a guessed default.
+    expect(faces.policySets[0].policies[0].action).toBe('');
+    const everyString = JSON.stringify(faces).toLowerCase();
+    for (const word of ['permitted', 'denied', 'allowed', 'blocked']) {
+      expect(everyString).not.toContain(word);
+    }
+
+    // `st0.0` binds `hq-vpn` — the fourth band pointing back at the first.
+    expect(faces.tunnels.length).toBe(1);
+    expect(faces.tunnels[0].name).toBe('hq-vpn');
+    expect(faces.tunnels[0].unit).toBe('st0.0');
+  });
+
+  it('a display id that names nothing is ERR_NO_ELEMENT, surfaced as an EngineError', () => {
+    expect(() => engine.inside('device:not-a-real-ulid')).toThrow();
+  });
+});

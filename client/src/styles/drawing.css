@@ -1085,3 +1085,69 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* ADR-0052 §1/§4, "Config": "A drawer under the faceplate, not a separate
+   page." Anchored to the drawing's own pane (`.drawing` is `position:
+   relative` above) so it sits over the canvas without moving it — Motion
+   #9: "the drawing beneath does not move." Slides in from the right, per
+   Motion #9's own words; `@media (prefers-reduced-motion: reduce)` below
+   mirrors the node-transition exemption already given the rack flip. Zero
+   radius, no shadow, a hairline border — "Look". */
+.drawing-config-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 90%);
+  background: var(--surface);
+  border-left: var(--rule-hair) solid var(--hairline);
+  overflow-y: auto;
+  z-index: var(--z-modal);
+  animation: drawing-drawer-slide-in var(--m-pane) var(--m-ease);
+}
+
+@keyframes drawing-drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-config-drawer {
+    animation: none;
+  }
+}
+
+/* UI-SPEC "Config": "Plate stays above, dimmed" — the selected chassis's
+   own plate, while its drawer is open. Opacity only, never a risk colour —
+   "Look" reserves colour for an error, a warning, a recommendation or a
+   confirmation, and this is none of those. */
+.drawing-chassis-node--dimmed {
+  opacity: 0.4;
+}
+
+/* ADR-0052 §1: "click a line and the port it built lights, tagged with
+   which line built it." Toggled by `Drawing.tsx` on the existing
+   `data-port-id` element (`ChassisNode.tsx`'s own attribute, already
+   present on every port/inlet glyph) — an ink outline, never a risk
+   colour, per "Look". */
+.drawing-port--lit {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* UI-SPEC "Inside a box" — the stop beyond faceplate. Fills the pane rather
+   than sliding as a drawer (Motion #10: "the same camera as everything
+   else," not a second surface) — a plain, zero-radius, hairline-bordered
+   panel over the canvas, the page's own colour so the rack behind it does
+   not show through. */
+.drawing-inside-stop {
+  position: absolute;
+  inset: 0;
+  background: var(--page);
+  z-index: var(--z-modal);
+  overflow: auto;
+}

@@ -57,6 +57,11 @@ export interface BarProps {
   onUndo: () => void;
   onRedo: () => void;
   account: AccountInfo;
+  /** ADR-0052 §5 — the open design's `capability` is `'read'`
+   * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
+   * beside the undo/redo pair; absent everywhere there is nothing to be
+   * read-only about (Home, or a writable design). */
+  viewOnly?: boolean;
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -77,6 +82,7 @@ export function Bar({
   onUndo,
   onRedo,
   account,
+  viewOnly,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -236,6 +242,20 @@ export function Bar({
                 </span>
               ))}
             </div>
+            <Sep />
+          </>
+        )}
+
+        {/* ADR-0052 §5: "view only" reads with the same plain hairline chip
+            as everything else in this group — UI-SPEC "Look" reserves
+            colour for an error, a warning, a recommendation or a
+            confirmation, and this is none of those, only a fact about the
+            open design. */}
+        {viewOnly === true && (
+          <>
+            <span className="shell-chip" aria-label="view only">
+              View only
+            </span>
             <Sep />
           </>
         )}

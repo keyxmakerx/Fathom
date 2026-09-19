@@ -41,6 +41,7 @@ export function Shell({
   editor,
   rail,
   children,
+  viewOnly,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -60,6 +61,7 @@ export function Shell({
         onUndo={onUndo}
         onRedo={onRedo}
         account={account}
+        viewOnly={viewOnly}
       />
       <div className="shell__body">
         <Strip rail={rail} />
