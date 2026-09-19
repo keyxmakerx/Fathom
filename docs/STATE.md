@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-19: 1260 server-side tests and 755 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1279 server-side tests and 781 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -226,14 +226,32 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   batches, a colleague's later change refuses by name; the trail beside the drawing with sealed
   and pending, a comment on the next change, the chips and keys live.
 
-**Carried:** the trail's sealed mark is an idle-time approximation until the session hook exposes
+- **A save carries its base; a drawer creates a design; a steward creates a scope** (Session 7,
+  ADR-0054, schema unchanged). A save names the version it was based on; the server refuses a base
+  that is not the current version, naming both numbers, writes nothing, and the client keeps its
+  own base rather than adopting the server's. `POST .../scopes/{scope}/designs` (draw creates a
+  design) and `POST .../scopes` (a steward of the parent creates a scope) mean a design is
+  reachable from a fresh deployment. The refusal wash names the change and offers a Reload button.
+  From the checker's round on the whole surface: the server refuses a payload whose capture or note
+  text still looks like a credential; save, open, verify and create re-check the grant inside the
+  acting transaction; a body is capped at one mebibyte until the signature is checked; the list
+  handlers verify authority once per organisation; behind the proxy the client address is the
+  last entry of a header Caddy overwrites; the compose image copies the corpus and serves the
+  client through Caddy, unproven here where no daemon runs; the single-operator flag is read at
+  apply. A driven run from sign-in proved a scope and a design created from Home, a save, and a
+  second browser's stale save refused.
+
+**Carried:** the compose stack and the dependency-vulnerability gate need the owner's machine (no
+Docker daemon and no egress to the advisory database here), and the v0.1 tag waits on that run;
+the server's credential check is the detector only, with SNMPv3 auth and priv values a known
+residual until dictionary matching runs on the server (W7); nothing yet exercises two genuinely
+concurrent saves, which the row lock serialises by construction; the trail's sealed mark is an idle-time approximation until the session hook exposes
 save completion; the comment box should attach to the next batch, not an already-recorded one; a
 note's line count is taken before the gate; the new wire shapes have no cross-language vector
 yet; saved filters and the grids for racks, cables and ports are named and unbuilt; the private
 notes layer arrives with the vault (W6). Replacing a capture (a second paste into the same device
 is refused until then); the drawer tags every built line and should show them on hover only; a
-successful paste has no confirmation pulse yet; no route creates a design, a question for Session
-7; a Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and
+successful paste has no confirmation pulse yet; a Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and
 the assistant panel; dropping a board onto a surface is a no-op until the drawing has a surface
 drop zone; the opened occupant can sit under the editor; a panel's label pairing remains as the
 fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
