@@ -137,15 +137,12 @@ async fn verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone() {
     let runtime_pool = support::migrated_pool().await;
     let runtime_client = runtime_pool.get().await.expect("runtime connection");
 
-    assert!(matches!(
-        migrate::verify_current(&runtime_client).await,
-        Ok(true)
-    ));
-
-    // Corrupt the recorded checksum for version 2, exactly as the test
-    // above does and exactly as carefully undone -- but through the
-    // MIGRATION role this time, since the runtime role holds no UPDATE on
-    // this table at all (that is the point of the split).
+    // The lock FIRST, before the first look at the bookkeeping. The test
+    // above corrupts the same row under this lock, and both tests run in
+    // one binary against one database; an assertion made outside the lock
+    // can observe the other test's corruption window. It did, on
+    // 2026-09-19, in the publish workflow's run of this suite, after
+    // passing in the gates run of the same commit minutes earlier.
     let migrate_pool = support::migration_pool().await;
     let migrate_client = migrate_pool.get().await.expect("migration connection");
     migrate_client
@@ -156,6 +153,15 @@ async fn verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone() {
         .await
         .expect("take the migration lock for the duration of this test");
 
+    assert!(matches!(
+        migrate::verify_current(&runtime_client).await,
+        Ok(true)
+    ));
+
+    // Corrupt the recorded checksum for version 2, exactly as the test
+    // above does and exactly as carefully undone -- but through the
+    // MIGRATION role this time, since the runtime role holds no UPDATE on
+    // this table at all (that is the point of the split).
     let row = migrate_client
         .query_one(
             "SELECT checksum FROM _fathom_migrations WHERE version = 2",
@@ -181,6 +187,10 @@ async fn verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone() {
         )
         .await
         .expect("restore the recorded checksum");
+
+    // Read back while the lock is still held, for the same reason it was
+    // taken before the first read.
+    let restored = migrate::verify_current(&runtime_client).await;
     migrate_client
         .execute(
             "SELECT pg_advisory_unlock($1)",
@@ -193,9 +203,5 @@ async fn verify_current_reflects_the_bookkeeping_from_the_runtime_role_alone() {
         Err(MigrateError::Changed { version, .. }) => assert_eq!(version, 2),
         other => panic!("an edited migration must be refused, got: {other:?}"),
     }
-
-    assert!(matches!(
-        migrate::verify_current(&runtime_client).await,
-        Ok(true)
-    ));
+    assert!(matches!(restored, Ok(true)));
 }
