@@ -53,6 +53,9 @@ chmod 600 /var/lib/fathom/keys/*.key
 backup that contains your data in the clear to whoever holds it. The server says this at every
 startup, which is not decoration.
 
+See `docs/OPERATING.md` for the key file, backups, restore, rekey and the operator notice address —
+the full operator's register ADR-0043 §9 requires.
+
 ### 3. Start the server
 
 ```sh
