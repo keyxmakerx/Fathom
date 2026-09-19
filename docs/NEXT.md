@@ -79,9 +79,11 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-18)
 
-Sessions 1 to 5 are done; Session 6(a), the rear elevation, and 6(b), schema 0.8 with shelves,
-surfaces and sketches, are in (2026-09-18; the room's furniture waits for the room stop, additive
-later). **Next is Session 6(c)**: inside a box, the config surface with
+Sessions 1 to 5 are done; Session 6(a), the rear elevation, 6(b), schema 0.8 with shelves,
+surfaces and sketches, and 6(c), the config drawer with the gate in the browser, view-only and the
+inside stop (ADR-0052, schema 0.9), are in (2026-09-19). **Next is Session 6(d)**: the basic
+inventory, notes on a device, undo that records; then Session 7. For the record, 6(c) was: inside
+a box, the config surface with
 the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in JavaScript; test the gate
 against what a real device accepts, `CLAUDE.md` rule 2), view-only for `read`, motion and look.
 Read first: `docs/STATE.md`'s client section and its "Carried" list; ADR-0050 and ADR-0051;

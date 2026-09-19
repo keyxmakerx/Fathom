@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-18: 1234 server-side tests and 624 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1250 server-side tests and 667 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -207,9 +207,24 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   resolve on occupants and fixtures; the editor shows either with the placed-on control. The
   catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
 
-**Carried:** replacing a capture (a second paste into the same device is refused until then); dropping a board onto a surface is a no-op until the drawing has a surface drop zone;
-the opened occupant can sit under the editor; a panel's label pairing remains as
-the fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
+- **The config drawer, view-only, the inside stop** (Session 6(c), ADR-0052, schema 0.9). The
+  redaction module ships as a file and runs in the browser with no packages; a paste goes through
+  the gate before anything reaches the document, and a driven browser run proves seven
+  credentials of real device length absent from every save body. The drawer sits under the dimmed
+  faceplate with the three gutter marks, a black block where a value was destroyed, the six rules
+  printed, a lit port for a built line; the capture is a node on the device and the marks derive
+  from provenance on reopen. A reader sees a view-only chip and text only, and the server refuses
+  a read account's save. The inside stop draws a firewall's zones, interfaces, policy rail,
+  routes and tunnels from the module's own inside door, never a verdict.
+
+**Carried:** replacing a capture (a second paste into the same device is refused until then); the
+drawer tags every built line with its node and "no port on this plate", which should show on
+hover only; a successful paste has no confirmation pulse yet (Motion 4); no route creates a
+design, so a driven sign-in flow cannot reach one from nothing, a question for Session 7; a
+Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and the
+assistant panel; dropping a board onto a surface is a no-op until the drawing has a surface drop
+zone; the opened occupant can sit under the editor; a panel's label pairing remains as the
+fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
 EX4300's two supply slots could not be established. The "two people on a running server" proof,
 which tests and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
 `crates/fathom-artifact/`; it is not served.
