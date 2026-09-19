@@ -157,12 +157,13 @@ after the same gate floor CI runs, with provenance attested per image). `docker 
 do on a machine that cannot reach the registry. To freeze a deployment on one build, set
 `FATHOM_TAG=sha-<the 40-hex commit>` in `.env`; `latest` follows `main`.
 
-**Once, after the first publish: make the two packages public.** A package first published under
-a personal account is private and visible only to its owner, whatever the repository's visibility
-(GitHub Docs, "Configuring a package's access control and visibility", read 2026-09-19). Until
-that is done, a pull from another machine needs `docker login ghcr.io` with a personal access
-token that can read packages. The setting is on each package's page under the repository's
-Packages, and it cannot be reversed.
+**If a pull is refused, the package is private.** GitHub's documentation says a package first
+published under a personal account is private whatever the repository's visibility ("Configuring
+a package's access control and visibility", read 2026-09-19); in practice the first publish on
+2026-09-19 came out public, both images listable anonymously from `ghcr.io` within minutes.
+Should a pull ever be refused, either make the package public from its page under the
+repository's Packages (not reversible) or `docker login ghcr.io` with a personal access token
+that can read packages.
 
 Then open <https://localhost:8443/>. The certificate is Caddy's own local one, so the browser will
 warn once. To sign in the first time, read the one-time token the first start wrote and paste it
