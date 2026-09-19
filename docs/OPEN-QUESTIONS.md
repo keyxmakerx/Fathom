@@ -829,6 +829,18 @@ A private note inside the shared sealed payload is not private. The schema carri
 0.10; the private layer is a per-account side payload sealed under account keys and arrives with
 the vault. Decided by the lead on merit; the owner may overrule.
 
+### W7. The server stores what a signed session sends; how much of the gate belongs on the server?
+
+CLAUDE.md rule 4 says credentials are protected by never arriving. The gate runs in the browser
+before a paste reaches the document (ADR-0052); the server validates the payload's shape and
+stores it. The Session 7 checker saved a payload carrying a real router credential from a hostile
+client and read it back. Session 7 adds the cheap half: the server runs the gate's own
+credential detector over every capture and note text in a payload and refuses the save, naming
+the kind and the line. The full half, running the redaction pipeline on the server so a hostile
+client's paste is destroyed rather than refused, costs the server an ingest dependency and a
+dictionary, and changes what the server sees. Recommendation: the refusal now, the full pass with
+the vault. The owner decides whether v0.1 ships with the refusal alone.
+
 ## What was dropped, and why that matters
 
 **42 of 93 candidates were stale.** If a question you remember being asked is not in this list, it

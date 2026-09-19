@@ -37,6 +37,13 @@ private-notes half of OPEN-QUESTIONS D2.
    Typed text is stored as typed and the editor says: Fathom does not redact what you type, only
    what you paste.
 
+**Amended 2026-09-19, from the Session 7 checker.** The actor a payload names in its batches is
+written by the client and never re-derived by the server; the sealed chain entry records the
+session's true actor and is the evidence. In-payload attribution is advisory: it drives "you
+undo your own changes" as a courtesy, not as a security boundary. A server that compares the
+new batches' actor with the session's needs the base precondition of ADR-0054 to know which
+batches are new; it is a later step, recorded here so nobody mistakes the trail for a proof.
+
 ## The private layer
 
 7. **A private note inside the shared sealed payload is readable by anyone who can open the
