@@ -69,18 +69,11 @@ FROM toolchain AS build
 # the workspace Cargo.toml.
 RUN cargo build --locked --profile server -p fathom-server
 
-# ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
-# `scripts/build-wasm.sh` in miniature: that script is for a developer's own
-# checkout (it writes into `client/public/engine/`, gitignored, and is not
-# itself invoked here because there is no host checkout inside this stage to
-# write into) -- same command, same target, so the artifact this image ships
-# is the one that script also produces, never a second recipe for it.
-FROM toolchain AS wasm-build
-RUN rustup target add wasm32-unknown-unknown
-RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
-
-# A directory for the runtime stage to copy, and the reason it is made HERE:
-# the runtime image is distroless, so there is no shell to `mkdir` with. See
+# A directory for the runtime stage to copy, and the reason it is made HERE,
+# in the `build` stage the runtime stage copies from: the runtime image is
+# distroless, so there is no shell to `mkdir` with. It sat in `wasm-build`
+# until 2026-09-19, and the first real build (CI's `compose` job) failed on
+# `COPY --from=build`, which had never been run before that day. See
 # the `COPY` that uses it below for what it is for. The README is not
 # decoration -- it is the one thing an operator finds if they go looking in the
 # volume before the server has written anything, and a `COPY` of a genuinely
@@ -97,6 +90,17 @@ RUN mkdir -p /bootstrap-seed && \
       "" \
       "Once any operator key is enrolled that command refuses, by design." \
       > /bootstrap-seed/README
+
+
+# ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
+# `scripts/build-wasm.sh` in miniature: that script is for a developer's own
+# checkout (it writes into `client/public/engine/`, gitignored, and is not
+# itself invoked here because there is no host checkout inside this stage to
+# write into) -- same command, same target, so the artifact this image ships
+# is the one that script also produces, never a second recipe for it.
+FROM toolchain AS wasm-build
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
 
 # ---- run --------------------------------------------------------------
 # Named `server` (not left anonymous) because this Dockerfile now builds
