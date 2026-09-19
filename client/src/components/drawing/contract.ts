@@ -39,6 +39,13 @@
 // seam that once redeclared them locally was collapsed on 2026-09-16 once
 // the document carried cables.
 import type { Placement, Sheath } from '../../document/view';
+// ADR-0053 §5/§6, this session's brief item 4 — the Notes section shared by
+// a device, a port and a rack's own editor panel (`document/notes.ts`'s
+// `NOTABLE_KINDS`): `NoteView` is the one read-side shape a caller hands
+// back from `EditorActions.notesOf` below, the same "re-export the one
+// document/ shape" precedent `Placement`/`Sheath` above already set for this
+// file.
+import type { NoteHow, NoteView } from '../../document/notes';
 
 export type {
   CableEndView,
@@ -52,6 +59,7 @@ export type {
   RackView,
   Sheath,
 } from '../../document/view';
+export type { NoteHow, NoteView } from '../../document/notes';
 
 export interface DrawingActions {
   onPlace(rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number): void;
@@ -68,6 +76,17 @@ export interface DrawingActions {
    * else; undo is the caller's concern, not this drawing's. Optional, same
    * reason as `onConnect`. */
   onDisconnect?(cableId: string): void;
+  /** ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z, at the same
+   * `keydown` listener `onDisconnect` above already uses, ignored while
+   * focus sits in an input/textarea/select (the drawing's own cable delete
+   * key already carries no such guard, since nothing else on this canvas
+   * reads a keystroke while typing; Ctrl Z would collide with an ordinary
+   * text undo in a field otherwise). Optional, same reason as `onConnect` —
+   * a caller with nothing undoable simply never wires it, and the listener
+   * calls nothing. */
+  onUndo?(): void;
+  /** Ctrl Shift Z, the same site. */
+  onRedo?(): void;
 }
 
 /** The one editor's own field set (ADR-0046 §2). `value: null` is a cleared
@@ -155,7 +174,35 @@ export interface EditorActions {
    * (`contract.ts`'s own file header note on that pattern): a caller that
    * does not supply one simply has no selecting links, not a crash. */
   onSelect?(selection: Selection): void;
+  /** ADR-0053 §5, this session's brief item 4 — every live note on
+   * `ownerId` (a Device, a PhysicalPort or a Rack — `document/notes.ts`'s
+   * own `Notable`), re-read fresh off the caller's held `Document` on every
+   * call rather than cached here: the same "no `Document` in this file"
+   * contract every other `EditorActions` member already keeps. Optional —
+   * absent renders no Notes section at all, not an empty one (ADR-0052 §5's
+   * "no action, not a disabled one"). */
+  notesOf?(ownerId: string): NoteView[];
+  /** Typed text is stored exactly as given; pasted text is the caller's own
+   * job to run through the redaction gate FIRST (`engine.ts`'s
+   * `redactText`, ADR-0053 §6) before this is ever called — this function
+   * only ever sees the text that should be written, typed or already gated.
+   * Async because a paste's own gate call needs the module booted, which
+   * `onEdit`'s synchronous contract (this file's own doc above) has no room
+   * for; Notes are the one thing in this editor with a real await in the
+   * middle. Optional, same reading as `onEdit`. */
+  onAddNote?(ownerId: string, opts: { text: string; how: NoteHow }): Promise<{ refused: string } | void>;
+  /** The reverse — `document/notes.ts`'s `removeNote`, synchronous like
+   * `onEdit` (nothing to await: a tombstone needs no gate). Optional, same
+   * reading. */
+  onRemoveNote?(noteId: string): { refused: string } | void;
 }
+
+/** `EditorActions`'s three Notes members, grouped for a caller that only
+ * wants to thread notes support (never `onEdit`/`onSelect`) into a place
+ * component — `DesignPlace.tsx` builds exactly one of these and hands it to
+ * both `RacksPlace`/`InventoryPlace`, each of which spreads it into its own
+ * `EditorFor` call's `actions`. */
+export type NotesActions = Required<Pick<EditorActions, 'notesOf' | 'onAddNote' | 'onRemoveNote'>>;
 
 export type Selection =
   | { kind: 'rack'; id: string }

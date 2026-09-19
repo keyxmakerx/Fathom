@@ -21,7 +21,8 @@
     "OP_CABLE": 27,
     "OP_LOAD_PLAIN": 28,
     "OP_EXPORT_PLAIN": 29,
-    "OP_PASTE_INTO": 30
+    "OP_PASTE_INTO": 30,
+    "OP_REDACT_TEXT": 31
   },
   "faces": {
     "FACE_HEADER": 0,

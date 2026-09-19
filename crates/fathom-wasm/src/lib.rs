@@ -325,6 +325,24 @@ pub const OP_EXPORT_PLAIN: u32 = 29;
 /// `apply_new_device` — never on a freshly minted one.
 pub const OP_PASTE_INTO: u32 = 30;
 
+/// The gate alone, for a pasted note (ADR-0053 §6). Request: raw pasted
+/// bytes, verbatim, no host clock or entropy prefix — this door writes
+/// nothing to the graph and mints no provenance, so it needs neither.
+///
+/// Runs `fathom_ingest::redact_only`: frame, lex, shape, **the gate**, and
+/// stops there. The reply is one [`protocol::FACE_CAPTURE`] row holding the
+/// gated text and the [`protocol::FACE_DROP`] rows naming what the gate
+/// destroyed — the same two faces `OP_PASTE`'s own reply already carries, so
+/// the page reads a pasted note's redactions exactly the way it reads a
+/// pasted config's. The caller writes the returned text into the `Note`
+/// itself; this opcode never touches `self.estate`.
+///
+/// Refuses with [`protocol::ERR_NO_DICTIONARY`] before it reads a byte if
+/// `OP_DICT` has not yet handed in the set-form dictionary the gate's
+/// statement path needs — the same refusal `OP_PASTE` gives for the same
+/// reason.
+pub const OP_REDACT_TEXT: u32 = 31;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second

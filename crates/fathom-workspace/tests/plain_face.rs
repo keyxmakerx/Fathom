@@ -337,6 +337,71 @@ fn worked_example_round_trips_byte_identical() {
     assert_eq!(first, second, "write -> read -> write is byte-identical");
 }
 
+/// ADR-0053 §1 and §4: the fifth op, and the two optional batch keys, through
+/// the wire and back.
+#[test]
+fn revive_and_batch_fields_round_trip_byte_identical() {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    let device = g
+        .insert_node(NodeKind::Device, ulid(1), prov(1))
+        .expect("device");
+    g.end_batch().expect("close");
+
+    g.begin_batch(BatchId(ulid(2)), "remove device")
+        .expect("open");
+    g.tombstone(
+        ElementId::Node(device),
+        Timestamp(AT + 1),
+        Actor::User(UserId::LOCAL),
+    )
+    .expect("tombstone");
+    let removed = g.end_batch().expect("close");
+
+    g.begin_batch(BatchId(ulid(3)), "undo of remove device")
+        .expect("open");
+    g.set_batch_reverses(removed).expect("reverses");
+    g.set_batch_comment(Text("bring it back".to_owned()))
+        .expect("comment");
+    g.revive(
+        ElementId::Node(device),
+        Timestamp(AT + 2),
+        Actor::User(UserId::LOCAL),
+    )
+    .expect("revive");
+    g.end_batch().expect("close");
+
+    let first = write_plain(&g).expect("writes");
+    let reloaded = read_plain(&first).expect("reads");
+    let second = write_plain(&reloaded).expect("writes again");
+    assert_eq!(first, second, "write -> read -> write is byte-identical");
+
+    let text = String::from_utf8(first).expect("UTF-8");
+    assert!(
+        text.contains(r#"{"revive":"#),
+        "the fifth op has its own tag"
+    );
+    assert!(
+        text.contains(r#""comment":"bring it back""#),
+        "the comment is written when present"
+    );
+    assert!(
+        text.contains(r#""reverses":"#),
+        "reverses is written when present"
+    );
+}
+
+/// An ordinary batch sets neither key, and the wire says so by omission —
+/// `PINNED` itself already proves this for `minimal_estate`'s one batch, so
+/// this only pins the negative in words.
+#[test]
+fn a_batch_with_neither_key_omits_both() {
+    let bytes = write_plain(&minimal_estate()).expect("writes");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    assert!(!text.contains("\"comment\""));
+    assert!(!text.contains("\"reverses\""));
+}
+
 #[test]
 fn empty_graph_round_trips_byte_identical() {
     let first = write_plain(&Graph::new()).expect("writes");

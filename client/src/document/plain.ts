@@ -258,11 +258,17 @@ function opToJson(op: Op): CanonValue {
       };
     case 'tombstone':
       return { tombstone: { at: op.at, by: op.by, element: op.element } };
+    case 'revive':
+      return { revive: { at: op.at, by: op.by, element: op.element } };
   }
 }
 
 function batchToJson(b: Batch): CanonValue {
-  return { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
+  const out: { [key: string]: CanonValue } = { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
+  // ADR-0053 §4: both optional, written only when present.
+  if (b.comment !== undefined) out.comment = b.comment;
+  if (b.reverses !== undefined) out.reverses = b.reverses;
+  return out;
 }
 
 function documentToJson(doc: Document): CanonValue {
@@ -452,15 +458,25 @@ function readOp(v: CanonValue, path: string): Op {
         at: isNum(req(p, 'at', path), path),
         by: isStr(req(p, 'by', path), path),
       };
+    case 'revive':
+      return {
+        type: 'revive',
+        element: isStr(req(p, 'element', path), path),
+        at: isNum(req(p, 'at', path), path),
+        by: isStr(req(p, 'by', path), path),
+      };
     default:
-      throw shapeErr(path, 'one of the four op tags');
+      throw shapeErr(path, 'one of the five op tags');
   }
 }
 
 function readBatch(v: CanonValue, path: string): Batch {
   const m = isObj(v, path);
   const ops = isArr(req(m, 'ops', path), `${path}.ops`).map((o, i) => readOp(o, `${path}.ops[${i}]`));
-  return { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };
+  const batch: Batch = { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };
+  if ('comment' in m) batch.comment = isStr(m.comment, `${path}.comment`);
+  if ('reverses' in m) batch.reverses = isStr(m.reverses, `${path}.reverses`);
+  return batch;
 }
 
 function jsonToDocument(v: CanonValue): Document {

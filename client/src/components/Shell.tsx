@@ -40,6 +40,7 @@ export function Shell({
   account,
   editor,
   rail,
+  trail,
   children,
   viewOnly,
 }: ShellProps) {
@@ -69,6 +70,14 @@ export function Shell({
           {children}
         </main>
         {editor != null && <Editor>{editor}</Editor>}
+        {/* ADR-0053 §4 — the Trail panel, beside the drawing: its own aside,
+            not `Editor`'s (a selection's editor and the document's whole
+            trail are different things and may both be open at once). */}
+        {trail != null && (
+          <aside className="shell-trail" aria-label="Trail">
+            {trail}
+          </aside>
+        )}
       </div>
     </div>
   );

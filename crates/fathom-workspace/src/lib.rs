@@ -52,6 +52,7 @@ use fathom_graph::{
 use fathom_id::Ulid;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{FIELD_KEYS, SCHEMA_VERSION};
+use fathom_ir::scalar::Text;
 
 /// Line 1's magic. Deliberately not `.fathom`'s: this face does not claim the
 /// sealed container's name, and it does not claim `17` §15.2's `fathom-json`
@@ -444,15 +445,37 @@ fn op_to_json(op: &Op) -> Json {
                 ]),
             )
         }
+        // The fifth op (ADR-0053 §1). Same three keys as `tombstone`, same
+        // reasoning for `by`: a revive is exactly as authored an act as a
+        // removal, and no more entitled to travel with no name attached.
+        Op::Revive { element, at, by } => {
+            let Actor::User(UserId(user)) = by;
+            tagged(
+                "revive",
+                obj(vec![
+                    ("at", Json::Int(at.0 as i64)),
+                    ("by", ulid_json(*user)),
+                    ("element", Json::Str(element.to_string())),
+                ]),
+            )
+        }
     }
 }
 
 fn batch_to_json(b: &Batch) -> Json {
-    obj(vec![
+    let mut pairs = vec![
         ("id", ulid_json(b.id.0)),
         ("label", Json::Str(b.label.clone())),
         ("ops", Json::Arr(b.ops.iter().map(op_to_json).collect())),
-    ])
+    ];
+    // ADR-0053 §4: both optional, written only when present.
+    if let Some(comment) = &b.comment {
+        pairs.push(("comment", Json::Str(comment.0.clone())));
+    }
+    if let Some(reverses) = b.reverses {
+        pairs.push(("reverses", ulid_json(reverses.0)));
+    }
+    obj(pairs)
 }
 
 fn snapshot_to_json(s: &Snapshot) -> Json {
@@ -732,6 +755,16 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
             id: BatchId(read_ulid(key_or(m, "id", &path)?, &path)?),
             label: get_str(key_or(m, "label", &path)?, &path)?.to_owned(),
             ops,
+            // Both ADR-0053 §4 keys: absent on the wire reads as absent here,
+            // exactly `by`'s own established shape for an optional key.
+            comment: match m.get("comment") {
+                Some(v) => Some(Text(get_str(v, &path)?.to_owned())),
+                None => None,
+            },
+            reverses: match m.get("reverses") {
+                Some(v) => Some(BatchId(read_ulid(v, &path)?)),
+                None => None,
+            },
         });
     }
 
@@ -784,6 +817,15 @@ fn read_op(j: &Json, path: &str) -> Result<Op, PlainError> {
                 None => Actor::User(UserId::LOCAL),
             },
         }),
-        _ => Err(shape(path, "one of the four op tags")),
+        // The fifth op (ADR-0053 §1). No pre-2026-09-19 file can carry this
+        // tag, so — unlike `tombstone`'s `by` — `by` is required here: every
+        // writer of this tag already stamps the account id (ADR-0053 §3),
+        // and there is no old-file case to repair around.
+        "revive" => Ok(Op::Revive {
+            element: ElementId::parse(get_str(key_or(p, "element", path)?, path)?)?,
+            at: Timestamp(get_u64(key_or(p, "at", path)?, path)?),
+            by: Actor::User(UserId(read_ulid(key_or(p, "by", path)?, path)?)),
+        }),
+        _ => Err(shape(path, "one of the five op tags")),
     }
 }

@@ -23,6 +23,7 @@ use crate::{
     OP_CABLE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD,
     OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK,
     OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
+    OP_REDACT_TEXT,
 };
 
 pub struct Shell {
@@ -85,6 +86,7 @@ impl Shell {
             OP_ESTATE_DEMO => self.estate_demo(req),
             OP_PASTE => self.paste(req),
             OP_PASTE_INTO => self.paste_into(req),
+            OP_REDACT_TEXT => self.redact_text(req),
             OP_LOAD_PLAIN => self.load_plain(req),
             OP_EXPORT_PLAIN => self.export_plain(req),
             OP_EQUIP_ADD => self.equip_add(req),
@@ -208,6 +210,32 @@ impl Shell {
         }
 
         Ok((ingest, dict.platform().to_owned()))
+    }
+
+    /// `OP_REDACT_TEXT`: the gate alone, for a pasted note (ADR-0053 §6) —
+    /// see [`crate::OP_REDACT_TEXT`]'s own doc for the frame and the reply.
+    ///
+    /// The set-form dictionary only: a pasted note has no platform of its
+    /// own to sniff, and `fathom_ingest::redact_only`'s stages are the
+    /// Junos-set-form ones `self.dict` was loaded for. Writes nothing —
+    /// `self.estate` is not touched, on success or refusal.
+    fn redact_text(&self, req: &[u8]) -> Vec<u8> {
+        let Some(dict) = self.dict.as_ref() else {
+            return protocol::encode_error(
+                ERR_NO_DICTIONARY,
+                "no statement dictionary is loaded: OP_DICT must succeed before OP_REDACT_TEXT",
+            );
+        };
+        match fathom_ingest::redact_only(req, dict) {
+            Ok(out) => {
+                let drops = drop_rows(&out.drops);
+                protocol::encode_redact_reply(&protocol::RedactReply {
+                    capture: out.text.text(),
+                    drops: &drops,
+                })
+            }
+            Err(e) => protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
+        }
     }
 
     /// `OP_PASTE`: pasted text in, an estate out.
@@ -3147,9 +3175,13 @@ fn line_rows(
 
 /// [`protocol::FACE_DROP`]'s rows: one per destroyed value. Deliberately
 /// never reads `RedactionEntry::orig_len` — see that face's own doc.
-fn drop_rows(ingest: &fathom_ingest::IngestOutput) -> Vec<[String; 5]> {
-    ingest
-        .drops
+///
+/// Takes the manifest directly, not `&IngestOutput`, so `OP_REDACT_TEXT`'s
+/// `fathom_ingest::redact_only` — which produces a `DropManifest` and no
+/// `IngestOutput`, having never reached bind — reads it too. One row shape,
+/// one function, for both doors.
+fn drop_rows(drops: &fathom_ingest::redact::DropManifest) -> Vec<[String; 5]> {
+    drops
         .entries
         .iter()
         .take(DROP_ROW_CAP)
@@ -3236,7 +3268,7 @@ fn paste_reply(
     // not a rounding error.
     let shape = fathom_graph::shape_hex(graph);
     let lines = line_rows(ingest, weld);
-    let drops = drop_rows(ingest);
+    let drops = drop_rows(&ingest.drops);
 
     protocol::encode_paste_reply(&protocol::PasteReply {
         summary: [

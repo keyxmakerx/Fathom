@@ -492,6 +492,7 @@ impl Graph {
                         loader.require_prov(*prov)?;
                     }
                     Op::Tombstone { element, .. } => loader.require_element(*element)?,
+                    Op::Revive { element, .. } => loader.require_element(*element)?,
                 }
             }
         }

@@ -9,6 +9,7 @@ import { UnknownReferenceError } from './commands';
 import { FieldValueError } from './edit';
 import {
   LOCAL_ACTOR,
+  archiveField,
   assertHand,
   edgesIn,
   edgesOut,
@@ -46,7 +47,9 @@ function resolve(opts: Actor | undefined): { actor: string; now: number } {
 }
 
 /** `commands.ts`'s private `setField`, mirrored here for the same reason
- * `cables.ts`'s own copy is: it is private to its module. */
+ * `cables.ts`'s own copy is: it is private to its module. ADR-0053 §2 —
+ * `existing`, when given, is archived into `doc.history` first (`model.ts`'s
+ * `archiveField`), so an undo asking for the prior value finds one. */
 function setField(
   working: Document,
   now: number,
@@ -58,10 +61,11 @@ function setField(
 ): { doc: Document; entry: FieldEntry; op: Op } {
   requireFieldName(key);
   const prov = assertHand(working, { assertedAt: now, assertedBy: actor, supersedes: existing?.prov });
+  const archived = existing !== undefined ? archiveField(prov.doc, elementId, key, existing) : prov.doc;
   const entry: FieldEntry =
     value === undefined ? { presence: 'absent', prov: prov.id } : { presence: 'set', prov: prov.id, value };
   return {
-    doc: prov.doc,
+    doc: archived,
     entry,
     op: { type: 'set_field', element: elementId, key, presence: value === undefined ? 'absent' : 'set', prov: prov.id },
   };

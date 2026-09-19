@@ -11,6 +11,7 @@ import type { Placement } from './view';
 import {
   LOCAL_ACTOR,
   UnknownReferenceError,
+  archiveField,
   assertHand,
   edgesIn,
   edgesOut,
@@ -92,7 +93,10 @@ function setEntry(value: FieldEntry['value'], prov: string): FieldEntry {
 
 /** One field, minted a fresh provenance record and (if the field already
  * carried a value) linked to it via `supersedes` — `11` §8.6's "edits never
- * overwrite" chain, the same rule the engine's own `set_field` enforces. */
+ * overwrite" chain, the same rule the engine's own `set_field` enforces.
+ * ADR-0053 §2 — `existing`, when given, is archived into `doc.history` first
+ * (`model.ts`'s `archiveField`, mirroring `fathom-graph`'s own
+ * `archive_replaced`), so an undo asking for the prior value finds one. */
 function setField(
   working: Document,
   now: number,
@@ -104,8 +108,9 @@ function setField(
 ): { doc: Document; entry: FieldEntry; op: Op } {
   requireFieldName(key);
   const prov = assertHand(working, { assertedAt: now, assertedBy: actor, supersedes: existing?.prov });
+  const archived = existing !== undefined ? archiveField(prov.doc, elementId, key, existing) : prov.doc;
   return {
-    doc: prov.doc,
+    doc: archived,
     entry: setEntry(value, prov.id),
     op: { type: 'set_field', element: elementId, key, presence: 'set', prov: prov.id },
   };

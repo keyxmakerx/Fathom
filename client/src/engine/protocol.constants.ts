@@ -40,6 +40,9 @@ export const OPCODES = {
   OP_EXPORT_PLAIN: 29,
   /** ADR-0052 §4, door three: paste under a placed device. */
   OP_PASTE_INTO: 30,
+  /** ADR-0053 §6: the redaction gate alone, for a pasted note — frames,
+   * lexes, shapes and redacts, stops before binding, writes nothing. */
+  OP_REDACT_TEXT: 31,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,

@@ -843,3 +843,39 @@ describe('addSketchPort / removeSketchPort', () => {
     ).toThrow(UnknownReferenceError);
   });
 });
+
+// ADR-0053 §2 — a replaced field is archived into `doc.history`, the way
+// `fathom-graph::Graph::archive_replaced` does, so a prior value exists.
+describe('setField archives the replaced value into doc.history', () => {
+  it('moveChassis (same rack) archives the old position_u and face', () => {
+    const { doc, rackId } = rackOf(42);
+    const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
+    const mounted = edgesIn(placed, rackId, 'MountedIn')[0];
+    const chassisId = mounted.from;
+    const oldPositionProv = mounted.fields['MountedIn.position_u'].prov;
+    const oldFaceProv = mounted.fields['MountedIn.face'].prov;
+
+    const moved = moveChassis(placed, chassisId, rackId, 20, 'rear', { now: NOW + 1 });
+    const movedEdge = edgesIn(moved, rackId, 'MountedIn')[0];
+
+    const positionHistory = moved.history.find(
+      (h) => h.element === movedEdge.id && h.field === 'MountedIn.position_u',
+    )!;
+    expect(positionHistory.entries).toEqual([{ presence: 'set', prov: oldPositionProv, value: 12 }]);
+    expect(positionHistory.truncated).toBe(0);
+
+    const faceHistory = moved.history.find((h) => h.element === movedEdge.id && h.field === 'MountedIn.face')!;
+    expect(faceHistory.entries).toEqual([{ presence: 'set', prov: oldFaceProv, value: 'front' }]);
+
+    // The new field entry supersedes the archived one.
+    const newProv = moved.provenance.find((p) => p.id === movedEdge.fields['MountedIn.position_u'].prov)!;
+    expect(newProv.supersedes).toBe(oldPositionProv);
+  });
+
+  it('a field set for the first time archives nothing (no prior slot)', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const next = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
+    const portId = edgesOut(next, chassisId, 'HasPort')[0].to;
+    expect(next.history.find((h) => h.element === portId)).toBeUndefined();
+  });
+});

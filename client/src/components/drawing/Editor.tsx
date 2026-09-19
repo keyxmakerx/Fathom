@@ -1,6 +1,13 @@
 import { useEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
+// ADR-0053 §6, this session's brief item 4 — "the black block reused from
+// the drawer where a value was destroyed": `.config-drawer__block`
+// (`config/config.css`) is imported here, read-only, rather than copied —
+// the same visual, `NotesSection`'s own marker parsing below only ever
+// applies the class the gate's own `<REDACTED:label>` convention already
+// gets in `ConfigDrawer.tsx`.
+import '../config/config.css';
 import { DEVICE_ROLES } from '../../document/edit';
 import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
 // `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
@@ -18,6 +25,8 @@ import {
   type ClosetView,
   type EditorActions,
   type EditorChange,
+  type NoteHow,
+  type NoteView,
   type PaletteItem,
   type PortView,
   type Selection,
@@ -854,6 +863,164 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
   );
 }
 
+// ===========================================================================
+// ADR-0053 §5/§6, this session's brief item 4 — Notes, on a device, a port
+// and a rack (exactly `document/notes.ts`'s `Notable` set): the notes with
+// who, when, typed or pasted; an add box for each of the two; remove.
+
+/** `<REDACTED:label>` — the same marker `ConfigDrawer.tsx`'s own
+ * `lineSegments` reads (that file's own doc on the convention;
+ * `document/capture.ts`'s `dropsIn` is the third, unexported reader). A
+ * pasted note's stored text carries this literally (`engine.ts`'s
+ * `redactText`'s own doc: "the client writes the note with the returned
+ * text"), so parsing it back out at render time — rather than storing a
+ * separate drops list nothing in `document/notes.ts`'s schema carries — is
+ * enough to draw the same black block here that a destroyed config value
+ * gets in the drawer, with no second copy of the gate's own decision.
+ */
+const NOTE_REDACTED_MARKER = /<REDACTED:([^>]+)>/g;
+
+function noteTextSegments(text: string): ReactNode {
+  NOTE_REDACTED_MARKER.lastIndex = 0;
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = NOTE_REDACTED_MARKER.exec(text)) !== null) {
+    if (m.index > cursor) parts.push(text.slice(cursor, m.index));
+    parts.push(
+      <span key={`note-block-${key}`} className="config-drawer__block">
+        {m[1]} · destroyed at the gate
+      </span>,
+    );
+    key += 1;
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts.length > 0 ? parts : text;
+}
+
+const NOTE_META_STYLE: CSSProperties = {
+  fontSize: 'var(--t-micro)',
+  color: 'var(--muted)',
+};
+
+const NOTE_TEXT_STYLE: CSSProperties = {
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
+};
+
+/** ADR-0053 §6: "Fathom does not redact what you type, only what you
+ * paste" — printed beside a typed note exactly as `EditorChange`'s own
+ * `management_address` note already prints the parallel sentence for a
+ * typed field, `MANAGEMENT_ADDRESS_NOTE` above. */
+const NOTE_TYPED_SENTENCE = 'stored as typed — Fathom does not redact what you type, only what you paste';
+
+function NoteRow({ note, onRemove }: { note: NoteView; onRemove?: () => { refused: string } | void }) {
+  return (
+    <div className="drawing-editor__field">
+      <div style={NOTE_META_STYLE}>
+        {note.who} · {new Date(note.when).toLocaleString()} · {note.how}
+      </div>
+      <div style={NOTE_TEXT_STYLE}>{noteTextSegments(note.text)}</div>
+      {note.how === 'typed' ? <div style={TYPED_NOTE_STYLE}>{NOTE_TYPED_SENTENCE}</div> : null}
+      {onRemove ? <SupplyAction label="remove" onCommit={onRemove} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The Notes section shared by a device, a port and a rack's own panel
+ * (three call sites below). Reads `actions.notesOf` fresh on every render —
+ * the same "no cache, ask the caller" contract every other `EditorActions`
+ * member keeps — and writes through `actions.onAddNote`/`.onRemoveNote`.
+ * Absent entirely when the caller supplies neither add nor read
+ * (ADR-0052 §5's "no action, not a disabled one"); a reader still SEES the
+ * notes list (`notesOf` is never gated the way `onAddNote`/`onRemoveNote`
+ * are, `RacksPlace.tsx`/`InventoryPlace.tsx`'s own doc on why) but gets no
+ * add box and no remove link.
+ */
+function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+  if (!actions.notesOf && !actions.onAddNote) return null;
+  const notes = actions.notesOf ? actions.notesOf(ownerId) : [];
+
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Notes</div>
+      {notes.length === 0 ? <div className="drawing-editor__field-value">{ABSENT}</div> : null}
+      {notes.map((note) => (
+        <NoteRow
+          key={note.id}
+          note={note}
+          onRemove={actions.onRemoveNote ? () => actions.onRemoveNote!(note.id) : undefined}
+        />
+      ))}
+      {actions.onAddNote ? <AddNoteForm ownerId={ownerId} onAddNote={actions.onAddNote} /> : null}
+    </div>
+  );
+}
+
+function AddNoteForm({
+  ownerId,
+  onAddNote,
+}: {
+  ownerId: string;
+  onAddNote: (ownerId: string, opts: { text: string; how: NoteHow }) => Promise<{ refused: string } | void>;
+}) {
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // ADR-0053 §6 — "pasted note text goes through the gate": a real `onPaste`
+  // on the textarea, not the button pressed, is what marks a draft as a
+  // paste — CLAUDE.md rule 4, a credential is protected by never arriving,
+  // and a wrong button must not be the one thing standing between a pasted
+  // secret and the gate. Sticky once set: a paste anywhere in this draft's
+  // life means the whole draft goes through the door, even if "add typed" is
+  // the button someone then presses.
+  const [hadPaste, setHadPaste] = useState(false);
+
+  async function commit(button: NoteHow) {
+    if (draft.trim().length === 0 || busy) return;
+    const how: NoteHow = hadPaste ? 'pasted' : button;
+    setBusy(true);
+    const result = await onAddNote(ownerId, { text: draft, how });
+    setBusy(false);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setDraft('');
+    setHadPaste(false);
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onPaste={() => setHadPaste(true)}
+        placeholder="add a note"
+        rows={2}
+        disabled={busy}
+      />
+      <div style={{ display: 'flex', gap: 'var(--s2)' }}>
+        <button type="button" disabled={busy} onClick={() => void commit('typed')}>
+          add typed
+        </button>
+        {/* ADR-0053 §6 — "pasted note text goes through the gate": this
+            button confirms a paste that a real `onPaste` on the textarea
+            above has already marked (`hadPaste`) — the button alone no
+            longer decides which door the text goes through. */}
+        <button type="button" disabled={busy} onClick={() => void commit('pasted')}>
+          add pasted
+        </button>
+      </div>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
 /**
  * The selected thing's fields, exactly as the shell's `editor` prop wants
  * them (`Shell.tsx`'s `editor: ReactNode | null`). The same function serves
@@ -907,6 +1074,12 @@ export function EditorFor(
         {/* ADR-0051 §1, brief item 3 — "a rack's editor gains '+ add a
             shelf'". */}
         <AddShelfControl rackId={rack.id} catalogue={catalogue} actions={actions} />
+
+        {/* ADR-0053 §5 — a Rack is one of the three `Notable` kinds; the
+            rack's own "no notes FIELD" (schema's own doc) stays true — this
+            is a note reached through `HasNote`, a node, never a field
+            `Rack` itself declares. */}
+        <NotesSection ownerId={rack.id} actions={actions} />
       </div>
     );
   }
@@ -1098,6 +1271,11 @@ export function EditorFor(
         {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
             current one marked. */}
         <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
+
+        {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
+            hostname and the capture, so its notes are `HasNote`'d off
+            `chassis.deviceId`, not `chassis.id`. */}
+        <NotesSection ownerId={chassis.deviceId} actions={actions} />
       </div>
     );
   }
@@ -1240,6 +1418,11 @@ export function EditorFor(
         <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
         <Field label="Rack" value={rack.label} />
         <Field label="Cabled" value={ABSENT} />
+        {/* ADR-0053 §5 — PhysicalPort is one of the three `Notable` kinds,
+            wherever the port sits (a rack chassis, a shelf occupant or a
+            surface fixture — `port.id` is the same `PhysicalPort` node id
+            either way, `locatePort`'s own contract). */}
+        <NotesSection ownerId={port.id} actions={actions} />
       </div>
     );
   }
@@ -1253,6 +1436,7 @@ export function EditorFor(
         <Field label="Occupant" value={occupant.label || ABSENT} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <Field label="Cabled" value={ABSENT} />
+        <NotesSection ownerId={port.id} actions={actions} />
       </div>
     );
   }
@@ -1265,6 +1449,7 @@ export function EditorFor(
       <Field label="Fixture" value={fixture.label || ABSENT} />
       <Field label="Surface" value={surface.label || surface.id} />
       <Field label="Cabled" value={ABSENT} />
+      <NotesSection ownerId={port.id} actions={actions} />
     </div>
   );
 }

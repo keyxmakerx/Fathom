@@ -205,12 +205,25 @@ export type Op =
   | { type: 'add_node'; node: string; prov: string }
   | { type: 'add_edge'; edge: string; from: string; to: string; prov: string }
   | { type: 'set_field'; element: string; key: string; presence: FieldPresence | 'unknown'; prov: string }
-  | { type: 'tombstone'; element: string; at: number; by: string };
+  | { type: 'tombstone'; element: string; at: number; by: string }
+  /** ADR-0053 §1 — the fifth op: reviving a tombstoned element, because a
+   * re-add under a new id would lose identity, history and capture links.
+   * `crates/fathom-workspace/src/lib.rs`'s `Op::Revive` carries the same
+   * three fields as `Tombstone`, for the same reason (an authored act, not
+   * entitled to travel with no name attached). */
+  | { type: 'revive'; element: string; at: number; by: string };
 
 export interface Batch {
   id: string;
   label: string;
   ops: Op[];
+  /** ADR-0053 §4 — a comment on a pending change. Optional on the wire,
+   * omitted when absent. */
+  comment?: string;
+  /** ADR-0053 §4/§1 — the batch this one reverses, when this batch is an
+   * undo (or a redo — the undo of an undo). Optional, omitted when this
+   * batch is not itself a reversal. */
+  reverses?: string;
 }
 
 export interface Document {
@@ -245,6 +258,59 @@ export function withProvenance(doc: Document, record: ProvenanceRecord): Documen
 
 export function withBatch(doc: Document, batch: Batch): Document {
   return { ...doc, batches: [...doc.batches, batch] };
+}
+
+// ---------------------------------------------------------------------------
+// History — the browser side of `fathom-graph::Graph::archive_replaced`
+// (`crates/fathom-graph/src/graph.rs`): every field write moves the slot it
+// replaces into the side table first, so an undo asking for the prior value
+// finds one. `11` §8.6's retention rule is mirrored too — "the most recent 16
+// entries, plus the earliest entry from each distinct Origin discriminant,
+// always" — computed from `doc.provenance` rather than a parallel origins
+// array, since `HistoryEntry`'s own wire shape (`plain.ts`) carries no origin
+// column and one is not invented here either; an entry's origin is always
+// resolvable from its `prov` because provenance records are append-only
+// (`withProvenance` never removes one).
+const HISTORY_RECENT = 16;
+
+function originOf(doc: Document, provId: string): Origin['kind'] {
+  return doc.provenance.find((p) => p.id === provId)?.origin.kind ?? 'hand';
+}
+
+function pruneHistoryEntries(doc: Document, entries: HistoryEntry[]): { entries: HistoryEntry[]; dropped: number } {
+  const n = entries.length;
+  if (n <= HISTORY_RECENT) return { entries, dropped: 0 };
+  const keep = new Array<boolean>(n).fill(false);
+  for (let i = n - HISTORY_RECENT; i < n; i += 1) keep[i] = true;
+  const seenOrigins = new Set<Origin['kind']>();
+  for (let i = 0; i < n; i += 1) {
+    const origin = originOf(doc, entries[i].prov);
+    if (!seenOrigins.has(origin)) {
+      seenOrigins.add(origin);
+      keep[i] = true;
+    }
+  }
+  const kept = entries.filter((_, i) => keep[i]);
+  return { entries: kept, dropped: n - kept.length };
+}
+
+/** Archive `replaced` (the entry a field write is about to overwrite) into
+ * `doc.history` for `(element, field)` — `archive_replaced`'s own "move the
+ * replaced slot into history" (`graph.rs`), called by every `setField`-style
+ * writer (`commands.ts`, `edit.ts`, `undo.ts`) BEFORE the new entry is
+ * written, so a value is never simply gone the moment it is edited. Entries
+ * are oldest first, matching `FieldHistory::entries`'s own doc comment. */
+export function archiveField(doc: Document, element: string, field: string, replaced: FieldEntry): Document {
+  const idx = doc.history.findIndex((h) => h.element === element && h.field === field);
+  const prior = idx >= 0 ? doc.history[idx] : undefined;
+  const appended: HistoryEntry[] = [
+    ...(prior?.entries ?? []),
+    { presence: replaced.presence, prov: replaced.prov, value: replaced.value },
+  ];
+  const { entries, dropped } = pruneHistoryEntries(doc, appended);
+  const record: HistoryRecord = { element, field, entries, truncated: (prior?.truncated ?? 0) + dropped };
+  const history = idx >= 0 ? doc.history.map((h, i) => (i === idx ? record : h)) : [...doc.history, record];
+  return { ...doc, history };
 }
 
 export function replaceNode(doc: Document, id: string, update: (n: GraphNode) => GraphNode): Document {

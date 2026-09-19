@@ -135,6 +135,31 @@ const RACK_GAP_PX = 96;
  * Matches `drawing.css`'s `--drawing-shake-ms`. */
 const SHAKE_MS = 220;
 
+/** This session's brief item 5, the "Show on rack" fix — whether the
+ * mount-time "fit every rack" camera move (the `allRacksPositioned` effect,
+ * below) should run. `RacksPlace.tsx`'s own `initialFocus` effect lands a
+ * chosen chassis at the faceplate stop through a SEPARATE, edge-triggered
+ * `rf.setCenter` (the `configDrawerOpen` effect, further down, the same one
+ * Motion #10's shelf-occupant open already uses) — not wrapped in a
+ * `requestAnimationFrame`, unlike the generic fit below. Before this fix the
+ * two raced: the generic fit's own `requestAnimationFrame` callback,
+ * scheduled during the SAME render that first saw the pending focus, could
+ * still fire on the next paint — after the focus's own `setCenter` already
+ * ran — and silently drag the camera back to "every rack fitted," undoing
+ * the very selection "Show on rack" asked for.
+ *
+ * `isFirstRun` is true only for the very first render at which
+ * `allRacksPositioned` holds (a `useRef` flag the caller flips once, never
+ * back) — every later rack-set change still fits exactly as before,
+ * regardless of what happens to be selected then; only the initial race is
+ * guarded. A `selected` naming a chassis IS a pending focus (`RacksPlace.tsx`'s
+ * `useState(initialFocus ?? null)` sets it synchronously, before this
+ * component's own first render, whenever the design was already loaded) —
+ * the one case this defers to. */
+export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null): boolean {
+  return !(isFirstRun && selected?.kind === 'chassis');
+}
+
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
   selected: Selection | null;
@@ -217,6 +242,8 @@ function DrawingInner({
   onSelect,
   onConnect,
   onDisconnect,
+  onUndo,
+  onRedo,
   canDraw,
   renderConfigDrawer,
   renderInsideStop,
@@ -384,8 +411,15 @@ function DrawingInner({
   // manual scroll-zoom already takes (`handleViewportChange`, below).
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
   const allRacksPositioned = view.racks.every((r) => rackPositions[r.id] != null);
+  // This session's brief item 5: guards the race `shouldFitOnMount` above
+  // documents — flips true on the first qualifying run and stays there, so
+  // only that first run can ever be skipped.
+  const hasFitOnceRef = useRef(false);
   useEffect(() => {
     if (!allRacksPositioned || view.racks.length === 0) return;
+    const isFirstRun = !hasFitOnceRef.current;
+    hasFitOnceRef.current = true;
+    if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     const raf = requestAnimationFrame(() => {
       void rf.fitView({
         nodes: view.racks.map((r) => ({ id: rackNodeId(r.id) })),
@@ -399,7 +433,12 @@ function DrawingInner({
     // change this effect should react to. The array's own object identity
     // is not guaranteed stable across a caller's re-renders (nothing
     // requires the caller to memoise it), and re-fitting on every render
-    // would fight a person's own scroll-zoom.
+    // would fight a person's own scroll-zoom. `selected` is deliberately not
+    // a dependency either — reading it fresh from the closure is exactly
+    // right for `isFirstRun`'s one-time check (this effect's dependencies
+    // are unrelated to selection changes, and adding `selected` here would
+    // re-run the generic fit every time someone merely clicks something).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackIdsKey, allRacksPositioned, rf]);
 
   useEffect(() => {
@@ -1110,9 +1149,33 @@ function DrawingInner({
   // below, unchanged from before this session) for racks and chassis,
   // which do not have a delete feature yet — this listener acts only when
   // a cable is the current selection.
+  //
+  // ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z / Ctrl Shift Z, at
+  // this SAME listener (the brief's own words: "at the existing keydown
+  // site"), ignored while focus sits in an input, textarea, select or any
+  // `contenteditable` — the Trail's own comment box and the Notes editor's
+  // own add box (`racks/Trail.tsx`, `drawing/Editor.tsx`) both hold real
+  // text fields a browser's own Ctrl Z already has a meaning for, and this
+  // canvas has no business stealing that keystroke out of a field someone
+  // is typing into.
   useEffect(() => {
+    function focusIsInAField(): boolean {
+      const el = document.activeElement;
+      if (el == null) return false;
+      if (el instanceof HTMLElement && el.isContentEditable) return true;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    }
+
     function onKeyDown(event: KeyboardEvent) {
-      if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing
+      if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing, undoes nothing
+      if ((event.key === 'z' || event.key === 'Z') && (event.ctrlKey || event.metaKey)) {
+        if (focusIsInAField()) return;
+        event.preventDefault();
+        if (event.shiftKey) onRedo?.();
+        else onUndo?.();
+        return;
+      }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
       if (selected?.kind !== 'cable') return;
       event.preventDefault();
@@ -1120,7 +1183,7 @@ function DrawingInner({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onDisconnect, canDraw]);
+  }, [selected, onDisconnect, canDraw, onUndo, onRedo]);
 
   return (
     <div className="drawing" ref={containerRef} onDrop={handleDrop} onDragOver={handleDragOver}>

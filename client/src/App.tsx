@@ -138,9 +138,12 @@ export default function App() {
     address: session.address,
   };
 
-  // Everything the two views share. Undo and redo are always present and
-  // always disabled in this build: nothing here changes the graph yet, and
-  // a control that claims otherwise would be a lie about what is built.
+  // Everything the two views share. `canUndo`/`canRedo`/`onUndo`/`onRedo`
+  // are a stub HERE — always present, always disabled — because Home has no
+  // open design to undo anything in; `DesignPlace.tsx` overrides all four
+  // with the live ones (ADR-0053 §1, off `document/undo.ts`'s `undoable`)
+  // the moment a place actually renders, so the bar's chips are real
+  // wherever a design is open.
   const common = {
     presence: [],
     canUndo: false,

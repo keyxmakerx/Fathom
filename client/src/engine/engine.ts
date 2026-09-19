@@ -556,6 +556,37 @@ export class Engine {
     return readPasteReply(rows);
   }
 
+  /** `OP_REDACT_TEXT` (ADR-0053 §6): the gate alone, for a pasted note — the
+   * same framing, lexing, shaping and redaction a captured configuration
+   * passes through, stopped before binding; this door never writes the
+   * graph (`shell.rs::redact_text`'s own doc). Request is the raw UTF-8
+   * text, undecoded, no clock/entropy/confirm prefix — unlike `paste`,
+   * nothing here ever mints an id, so there is nothing host-supplied to
+   * carry. Reply is one `FACE_CAPTURE` row (the gated text) followed by
+   * zero or more `FACE_DROP` rows (`protocol.rs`'s `RedactReply`); the
+   * client writes the note with the returned text, never the original. */
+  redactText(text: string): { text: string; drops: DropRow[] } {
+    const rows = this.callFaces(OPCODES.OP_REDACT_TEXT, new TextEncoder().encode(text));
+    const head = rows[0];
+    if (!head || head.role !== FACES.FACE_CAPTURE) {
+      throw new Error(`OP_REDACT_TEXT reply: record 0 is not the FACE_CAPTURE row (got role ${head?.role})`);
+    }
+    const drops: DropRow[] = [];
+    for (const row of rows.slice(1)) {
+      if (row.role !== FACES.FACE_DROP) {
+        throw new Error(`OP_REDACT_TEXT reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+      }
+      drops.push({
+        ordinal: parseCount(row.strings[0], 'drop ordinal'),
+        markerStart: parseCount(row.strings[1], 'drop marker start'),
+        markerEnd: parseCount(row.strings[2], 'drop marker end'),
+        label: row.strings[3],
+        detectors: row.strings[4],
+      });
+    }
+    return { text: head.strings[0], drops };
+  }
+
   /** `OP_INSIDE`: the zoom ladder's stop beyond the faceplate (UI-SPEC "Zoom
    * is one continuous camera"). Request is the raw UTF-8 display id, no
    * framing (`shell.rs::node_request` reads the whole request buffer as the

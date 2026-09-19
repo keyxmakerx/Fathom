@@ -29,6 +29,7 @@ use fathom_id::Ulid;
 use fathom_ir::bag::{FieldBag, FieldKey};
 use fathom_ir::generated::accessors::slot_type;
 use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind, NodeKind};
+use fathom_ir::scalar::Text;
 
 use crate::field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
 use crate::id::{EdgeId, ElementId, NodeId};
@@ -187,6 +188,11 @@ pub enum WriteError {
     AlreadyTombstoned {
         element: ElementId,
     },
+    /// `Graph::revive` on an element that is not tombstoned (ADR-0053 §1):
+    /// nothing new, live or already-revived can be revived.
+    NotTombstoned {
+        element: ElementId,
+    },
 }
 
 fn kind_list(kinds: &[NodeKind]) -> String {
@@ -304,6 +310,9 @@ impl fmt::Display for WriteError {
             WriteError::AlreadyTombstoned { element } => {
                 write!(f, "{element} is already tombstoned")
             }
+            WriteError::NotTombstoned { element } => {
+                write!(f, "{element} is not tombstoned; there is nothing to revive")
+            }
         }
     }
 }
@@ -383,6 +392,8 @@ impl Graph {
             id,
             label: label.to_owned(),
             ops: Vec::new(),
+            comment: None,
+            reverses: None,
         });
         Ok(())
     }
@@ -393,6 +404,31 @@ impl Graph {
         let id = batch.id;
         self.log.push(batch);
         Ok(id)
+    }
+
+    /// Attach a comment to the batch that is open (ADR-0053 §4: *"A comment
+    /// on a pending change is a batch field"*). Written only when this is
+    /// called; a batch nobody commented on carries `None`, never an empty
+    /// string standing in for absence.
+    pub fn set_batch_comment(&mut self, comment: Text) -> Result<(), WriteError> {
+        self.require_batch()?;
+        self.open
+            .as_mut()
+            .expect("checked by require_batch")
+            .comment = Some(comment);
+        Ok(())
+    }
+
+    /// Mark the batch that is open as the undo of `reverses` (ADR-0053 §4).
+    /// Same optionality as the comment above: a batch that is not an undo
+    /// never sets this and carries `None`.
+    pub fn set_batch_reverses(&mut self, reverses: BatchId) -> Result<(), WriteError> {
+        self.require_batch()?;
+        self.open
+            .as_mut()
+            .expect("checked by require_batch")
+            .reverses = Some(reverses);
+        Ok(())
     }
 
     /// Committed batches, in the order they were closed.
@@ -1013,6 +1049,58 @@ impl Graph {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Clear a tombstone (ADR-0053 §1). The fifth op, and the only writer of
+    /// [`Op::Revive`].
+    ///
+    /// **A node revives on its own say-so; an edge re-runs the ladder.** A
+    /// tombstoned node's fields and containment are untouched by
+    /// tombstoning, so clearing the flag is enough — nothing else could have
+    /// changed under it. An edge is different: `check_edge_l0` counts
+    /// *effective* edges (§ its own doc: "not tombstoned, neither endpoint
+    /// tombstoned"), so while this edge sat tombstoned another one may have
+    /// taken its containment slot, filled a cardinality bound, or closed a
+    /// cycle. Re-running the same ladder `insert_edge` runs — on this edge's
+    /// own kind, `from` and `to`, verbatim — answers exactly one question:
+    /// would this edge be legal to add fresh, right now? The edge itself is
+    /// tombstoned and so invisible to that ladder, which is what makes the
+    /// question well-posed rather than the edge refusing on its own account.
+    ///
+    /// Does not cascade. `tombstone`'s subtree walk is `tombstone`'s alone;
+    /// ADR-0053 §1 revives one element.
+    pub fn revive(
+        &mut self,
+        element: ElementId,
+        at: Timestamp,
+        by: Actor,
+    ) -> Result<(), WriteError> {
+        self.require_batch()?;
+        if !self.exists(element) {
+            return Err(WriteError::UnknownElement { element });
+        }
+        match element {
+            ElementId::Node(id) => {
+                let node = self.nodes.get(&id).expect("checked by exists");
+                if node.absent_since.is_none() {
+                    return Err(WriteError::NotTombstoned { element });
+                }
+                self.nodes.get_mut(&id).expect("checked").absent_since = None;
+            }
+            ElementId::Edge(id) => {
+                let edge = self.edges.get(&id).expect("checked by exists");
+                if edge.absent_since.is_none() {
+                    return Err(WriteError::NotTombstoned { element });
+                }
+                let (kind, from, to) = (id.kind, edge.from, edge.to);
+                // The tombstoned edge itself is not `is_effective`, so it
+                // cannot collide with itself here; see the doc comment above.
+                self.check_edge_l0(kind, from, to)?;
+                self.edges.get_mut(&id).expect("checked").absent_since = None;
+            }
+        }
+        self.record(Op::Revive { element, at, by });
         Ok(())
     }
 

@@ -8,13 +8,14 @@ import { Engine } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
-import { Drawing, EditorFor, Palette, type Selection } from '../drawing';
+import { Drawing, EditorFor, Palette, type NotesActions, type Selection } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
+import { Trail } from './Trail';
 import './racks.css';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`
@@ -137,6 +138,28 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * where no caller supplies it, the same "no action, not a disabled one"
    * shape `EditorActions.onSelect` already follows. */
   onOpenInventory?: (chassisId: string) => void;
+  /** ADR-0053 §4, this session's brief item 1 — the Trail panel's own "who,"
+   * held above this component (`DesignPlace.tsx`) since it comes off the
+   * session, not the document. `accountId === null` in the same gap
+   * `useDesignSession.ts`'s own comment on `handleEdit` names (between an
+   * expired session and the shell noticing). */
+  accountId: string | null;
+  accountAddress: string | null;
+  /** `DesignPlace.tsx`'s own approximation of "present in the last version
+   * opened or saved" (that file's own header on what is and is not
+   * observable here). */
+  sealedBatchIds: ReadonlySet<string>;
+  /** ADR-0053 §3 — the refusal wash: a colleague's change in between, or a
+   * LOCAL-stamped batch nobody signed in wrote. `null` when the last undo
+   * or redo was not refused. */
+  undoRefusal: string | null;
+  /** ADR-0053 §4 — the comment box beneath the Trail, held one level up so
+   * it survives whichever change ends up sealed with it. */
+  pendingComment: string;
+  onPendingCommentChange: (text: string) => void;
+  /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
+   * into `EditorFor`'s own `actions` below. */
+  notesActions: NotesActions;
 }
 
 /**
@@ -149,7 +172,20 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
  * second one for the same design.
  */
 export function RacksPlace(props: RacksPlaceProps) {
-  const { session, onZoomChange, initialFocus, onOpenInventory, ...shellProps } = props;
+  const {
+    session,
+    onZoomChange,
+    initialFocus,
+    onOpenInventory,
+    accountId,
+    accountAddress,
+    sealedBatchIds,
+    undoRefusal,
+    pendingComment,
+    onPendingCommentChange,
+    notesActions,
+    ...shellProps
+  } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
 
@@ -477,7 +513,18 @@ export function RacksPlace(props: RacksPlaceProps) {
         {EditorFor(
           selection,
           displayView,
-          { onEdit: canDraw ? handleEdit : undefined, onSelect: setSelection },
+          {
+            onEdit: canDraw ? handleEdit : undefined,
+            onSelect: setSelection,
+            // ADR-0053 §5/§6, this session's brief item 4 — every reader may
+            // read a Notes section (`notesOf` is never gated on `canDraw`,
+            // the same "read is always open" reading `Field`/`Fixture`
+            // panels already give a reader), but only a writer may add or
+            // remove one.
+            notesOf: notesActions.notesOf,
+            onAddNote: canDraw ? notesActions.onAddNote : undefined,
+            onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
+          },
           paletteFromCatalogue(catalogue),
         )}
         {/* This session's brief item 5 — the reverse of Inventory's "Show
@@ -509,8 +556,24 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
+  // ADR-0053 §4, this session's brief item 1 — the Trail panel, beside the
+  // drawing. Absent with no document yet (nothing to show), the same
+  // "loading" gate `editor`/`Drawing` itself already reads off `doc`.
+  const trail =
+    doc != null ? (
+      <Trail
+        doc={doc}
+        accountId={accountId}
+        accountAddress={accountAddress}
+        sealedBatchIds={sealedBatchIds}
+        undoRefusal={undoRefusal}
+        pendingComment={pendingComment}
+        onPendingCommentChange={onPendingCommentChange}
+      />
+    ) : null;
+
   return (
-    <Shell {...shellProps} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} editor={editor} rail={rail} trail={trail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -526,6 +589,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
+          // ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z / Ctrl
+          // Shift Z, at `Drawing.tsx`'s own existing keydown site.
+          onUndo={shellProps.onUndo}
+          onRedo={shellProps.onRedo}
         />
       )}
     </Shell>

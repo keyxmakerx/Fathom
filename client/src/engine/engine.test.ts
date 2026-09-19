@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { Engine } from './engine';
+import { Engine, EngineError } from './engine';
 import { decodeReply } from './protocol';
-import { OPCODES } from './protocol.constants';
+import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -311,5 +311,38 @@ describe('OP_INSIDE (26)', () => {
 
   it('a display id that names nothing is ERR_NO_ELEMENT, surfaced as an EngineError', () => {
     expect(() => engine.inside('device:not-a-real-ulid')).toThrow();
+  });
+});
+
+// ADR-0053 §6 — the redaction gate alone, for a pasted note. `OP_REDACT_TEXT`
+// (opcode 31) is landing on the Rust side in parallel with this client slice;
+// if this build of `fathom_wasm.wasm` predates it, the module answers
+// `ERR_UNKNOWN_OP` and this test says so, loudly, rather than pretending the
+// door was exercised — the gate re-runs this suite once the artefact is
+// rebuilt from the landed Rust.
+describe('OP_REDACT_TEXT (31)', () => {
+  it('gates a pasted note exactly as it gates a captured configuration', () => {
+    // A short, device-realistic PSK — no real device takes a 20-character
+    // one, and the detector is statement-driven, not length-sensitive, so a
+    // fixture this short is the honest test, not the lenient one.
+    const note = 'set security ike policy ike-pol pre-shared-key ascii-text "Sw0rdFsh"';
+    let result: ReturnType<Engine['redactText']>;
+    try {
+      result = engine.redactText(note);
+    } catch (e) {
+      if (e instanceof EngineError && e.code === ERRORS.ERR_UNKNOWN_OP) {
+        // Loud, not silent (this file's own promise): a stale or missing
+        // artefact fails the gate's one client-side test rather than
+        // reporting it green having never exercised the door at all.
+        throw new Error(
+          'OP_REDACT_TEXT (31) is not in this build of fathom_wasm.wasm — ' +
+            "the Rust builder's work has not landed in this artefact, or it " +
+            'predates opcode 31. Run scripts/build-wasm.sh and rerun this test.',
+        );
+      }
+      throw e;
+    }
+    expect(result.text).not.toContain('Sw0rdFsh');
+    expect(result.drops.length).toBeGreaterThan(0);
   });
 });

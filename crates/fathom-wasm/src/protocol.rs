@@ -1706,6 +1706,34 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
     )
 }
 
+/// `OP_REDACT_TEXT`'s reply (ADR-0053 §6): the gated text, then what the gate
+/// destroyed. No summary row, no lines, no shape — those belong to a paste
+/// that reached the binder, and this door stops before it.
+pub struct RedactReply<'a> {
+    /// The post-redaction text — [`FACE_CAPTURE`], always present, even when
+    /// the gate touched nothing.
+    pub capture: &'a str,
+    /// [`FACE_DROP`] rows, one per destroyed value — the same shape
+    /// `PasteReply::drops` carries.
+    pub drops: &'a [[String; 5]],
+}
+
+pub fn encode_redact_reply(reply: &RedactReply<'_>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
+    write_face_record(&mut records, &rec);
+
+    for row in reply.drops {
+        let slots: [&str; 5] = std::array::from_fn(|i| row[i].as_str());
+        let rec = face_slots(&mut blob, FACE_DROP, 5, &slots);
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + reply.drops.len(), blob)
+}
+
 // --- decoding ----------------------------------------------------------------
 
 /// The reference reader — the decoder tests parity against, and the byte-

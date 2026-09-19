@@ -406,6 +406,20 @@
   padding: var(--s4);
 }
 
+/* ADR-0053 §4 — the Trail panel, beside the drawing. Wider than the editor
+   (`.shell-editor` above): "What changed"/"Why" both need real room, and
+   the two panels are never meant to compete for the same strip — the
+   editor still opens on a selection, the trail on the design itself. */
+.shell-trail {
+  width: 420px;
+  flex-shrink: 0;
+  border-left: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+  overflow: hidden;
+  display: flex;
+  min-width: 0;
+}
+
 /* Where the drawing will be. Session 4 of `docs/NEXT.md` builds the rack;
    until then this says so rather than showing an empty canvas that looks
    like a failure. */

@@ -134,6 +134,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_PASTE_INTO",
             code: m::OP_PASTE_INTO,
         },
+        Entry {
+            name: "OP_REDACT_TEXT",
+            code: m::OP_REDACT_TEXT,
+        },
     ]
 }
 

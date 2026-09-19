@@ -17,6 +17,7 @@
 import {
   LOCAL_ACTOR,
   UnknownReferenceError,
+  archiveField,
   assertHand,
   findNode,
   identifier,
@@ -101,7 +102,9 @@ function identifierOrRefuse(field: string, value: string): FieldEntry['value'] {
 
 /** One field's new entry plus the op that records it — `commands.ts`'s
  * `setField`, mirrored here so `edit.ts` does not reach into a sibling
- * module's private helper. */
+ * module's private helper. ADR-0053 §2 — `existing`, when given, is archived
+ * into `doc.history` first (`model.ts`'s `archiveField`), the same
+ * `archive_replaced` mirror `commands.ts`'s own `setField` makes. */
 function setFieldEntry(
   working: Document,
   now: number,
@@ -113,10 +116,11 @@ function setFieldEntry(
 ): { doc: Document; entry: FieldEntry; op: Op } {
   requireFieldName(key);
   const prov = assertHand(working, { assertedAt: now, assertedBy: actor, supersedes: existing?.prov });
+  const archived = existing !== undefined ? archiveField(prov.doc, elementId, key, existing) : prov.doc;
   const entry: FieldEntry =
     value === undefined ? { presence: 'absent', prov: prov.id } : { presence: 'set', prov: prov.id, value };
   return {
-    doc: prov.doc,
+    doc: archived,
     entry,
     op: { type: 'set_field', element: elementId, key, presence: value === undefined ? 'absent' : 'set', prov: prov.id },
   };

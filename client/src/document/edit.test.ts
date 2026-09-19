@@ -262,3 +262,40 @@ describe('setPassiveNodeField — label', () => {
     ).toThrow(UnknownReferenceError);
   });
 });
+
+// ADR-0053 §2 — the replaced value is archived into `doc.history` so a prior
+// value exists when an undo asks for it; it did not before this session.
+describe('setDeviceField / setPassiveNodeField archive the replaced value', () => {
+  it('the second write archives the first, with supersedes chained to it', () => {
+    const { doc, shelfId } = docWithShelf();
+    const once = setPassiveNodeField(doc, shelfId, 'label', 'Shelf 1', { now: NOW });
+    const oldProv = findNode(once, shelfId)!.fields['PassiveNode.label'].prov;
+
+    const twice = setPassiveNodeField(once, shelfId, 'label', 'Shelf 2', { now: NOW + 1 });
+    const newProv = findNode(twice, shelfId)!.fields['PassiveNode.label'].prov;
+
+    // `createShelf` (`commands.ts`) already wrote `PassiveNode.label` once
+    // (this session's brief item 1: a shelf is named at creation), so
+    // `once`'s own write already archived THAT value — checking the tail
+    // entry, not the whole array, keeps this test honest about which write
+    // it is asserting on.
+    const history = twice.history.find((h) => h.element === shelfId && h.field === 'PassiveNode.label')!;
+    expect(history.entries.at(-1)).toEqual({ presence: 'set', prov: oldProv, value: 'Shelf 1' });
+    expect(twice.provenance.find((p) => p.id === newProv)!.supersedes).toBe(oldProv);
+  });
+
+  it('clearing a field archives the value it had before the clear', () => {
+    const { doc, shelfId } = docWithShelf();
+    const once = setPassiveNodeField(doc, shelfId, 'label', 'Shelf 1', { now: NOW });
+    const oldProv = findNode(once, shelfId)!.fields['PassiveNode.label'].prov;
+    const cleared = setPassiveNodeField(once, shelfId, 'label', null, { now: NOW + 1 });
+    const history = cleared.history.find((h) => h.element === shelfId && h.field === 'PassiveNode.label')!;
+    expect(history.entries.at(-1)).toEqual({ presence: 'set', prov: oldProv, value: 'Shelf 1' });
+  });
+
+  it('the first write on a field archives nothing (no prior slot)', () => {
+    const { doc, deviceId } = docWithChassis();
+    const next = setDeviceField(doc, deviceId, 'hostname', 'core-01', { now: NOW });
+    expect(next.history.find((h) => h.element === deviceId)).toBeUndefined();
+  });
+});

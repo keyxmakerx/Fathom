@@ -11,7 +11,7 @@ use fathom_graph::{
 };
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{DeviceField, EdgeKind, NodeKind};
-use fathom_ir::scalar::Identifier;
+use fathom_ir::scalar::{Identifier, Text};
 
 const AT: u64 = 1_700_000_000_000;
 
@@ -325,4 +325,59 @@ fn tombstoned_edges_leave_cardinality_counts() {
     )
     .expect("tombstone the VPN");
     fx.edge(EdgeKind::BindsInterface, vpn_c, unit);
+}
+
+/// ADR-0053 §4: both keys are optional, set through the batch API, and
+/// written only when present — an ordinary batch carries `None` for both, a
+/// commented one carries a comment and no `reverses`, and an undo carries
+/// both.
+#[test]
+fn batch_comment_and_reverses_round_trip() {
+    let mut fx = Fx::bare();
+
+    // An ordinary batch: neither key is ever set.
+    fx.g.begin_batch(BatchId(ulid(1)), "plain").expect("open");
+    fx.node(NodeKind::Site);
+    fx.g.end_batch().expect("close");
+    assert_eq!(fx.g.log()[0].comment, None);
+    assert_eq!(fx.g.log()[0].reverses, None);
+
+    // A commented batch, no reverses.
+    fx.g.begin_batch(BatchId(ulid(2)), "commented")
+        .expect("open");
+    fx.g.set_batch_comment(Text("checked with the vendor first".to_owned()))
+        .expect("comment");
+    fx.node(NodeKind::Site);
+    fx.g.end_batch().expect("close");
+    assert_eq!(
+        fx.g.log()[1].comment,
+        Some(Text("checked with the vendor first".to_owned()))
+    );
+    assert_eq!(fx.g.log()[1].reverses, None);
+
+    // An undo: reverses the first batch, and carries its own comment too.
+    let reversed = fx.g.log()[0].id;
+    fx.g.begin_batch(BatchId(ulid(3)), "undo of plain")
+        .expect("open");
+    fx.g.set_batch_reverses(reversed).expect("reverses");
+    fx.g.set_batch_comment(Text("undoing the accidental add".to_owned()))
+        .expect("comment");
+    let id = fx.g.end_batch().expect("close");
+
+    let batch = fx.g.log().iter().find(|b| b.id == id).expect("logged");
+    assert_eq!(batch.reverses, Some(reversed));
+    assert_eq!(
+        batch.comment,
+        Some(Text("undoing the accidental add".to_owned()))
+    );
+
+    // Both refuse outside a batch, like every other batch-scoped write.
+    match fx.g.set_batch_comment(Text("too late".to_owned())) {
+        Err(WriteError::NoOpenBatch) => {}
+        other => panic!("expected NoOpenBatch, got {other:?}"),
+    }
+    match fx.g.set_batch_reverses(reversed) {
+        Err(WriteError::NoOpenBatch) => {}
+        other => panic!("expected NoOpenBatch, got {other:?}"),
+    }
 }
