@@ -305,7 +305,13 @@ async fn challenge_handler(
 /// `POST /session` — sign-in.
 ///
 /// Body: `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)`.
-/// Answer: `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix)`.
+/// Answer: `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
+///
+/// **`account_id` is appended, not inserted.** ADR-0053 §3: the client
+/// stamps it as the actor on every change it makes from here on, so undo can
+/// tell its own batches from a colleague's. It is additive on the wire — a
+/// client built before this change reads the first three fields and never
+/// looks past them, so it keeps working unchanged.
 ///
 /// **There is no password field and there is nowhere one could go.** §4.5 and
 /// `docs/OPEN-QUESTIONS.md` C2: the operator surface has no password path, and
@@ -334,6 +340,7 @@ async fn sign_in_handler(
     crypto::lp(&mut out, signed_in.session_id.as_bytes());
     crypto::lp(&mut out, &signed_in.token);
     crypto::u64_le(&mut out, signed_in.expires_at_unix as u64);
+    crypto::lp(&mut out, signed_in.account_id.as_bytes());
     Ok(bytes_response(out))
 }
 

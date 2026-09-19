@@ -48,6 +48,7 @@ import {
   removeSupply,
   setSupplyField,
 } from '../../document/supplies';
+import { getSession } from '../../state/sessionState';
 import { SaveQueue } from '../racks/saveQueue';
 
 /** The server's own wording where the failure was a refusal it sent
@@ -178,55 +179,70 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const handleEdit = useCallback(
     (change: EditorChange): { refused: string } | void => {
       if (doc == null) return;
+      // ADR-0053 §3: every command dispatched here is stamped with the
+      // signed-in account's ulid, so its provenance records and tombstones
+      // name who really made the change rather than `document/model.ts`'s
+      // `LOCAL_ACTOR` read-side sentinel. `useDesignSession` mounts only
+      // beneath a signed-in `App` (`App.tsx` renders `DesignPlace` only once
+      // `session` is set), so `accountId` is absent only in the moment
+      // between an expired session and the shell noticing — `opts.actor`
+      // being `undefined` then falls back to each command's own default.
+      const accountId = getSession()?.accountId;
+      const opts = accountId !== undefined ? { actor: accountId } : undefined;
       try {
         let next: Document;
         if (change.kind === 'device') {
-          next = setDeviceField(doc, change.id, change.field, change.value);
+          next = setDeviceField(doc, change.id, change.field, change.value, opts);
         } else if (change.kind === 'chassis') {
-          next = setChassisField(doc, change.id, change.field, change.value);
+          next = setChassisField(doc, change.id, change.field, change.value, opts);
         } else if (change.kind === 'shelf') {
-          next = setPassiveNodeField(doc, change.id, change.field, change.value);
+          next = setPassiveNodeField(doc, change.id, change.field, change.value, opts);
         } else if (change.kind === 'rack') {
           if (change.field === 'bay') {
             if (change.value === null) {
-              next = setRackField(doc, change.id, 'bay', null);
+              next = setRackField(doc, change.id, 'bay', null, opts);
             } else {
               const parsed = Number(change.value);
               if (!Number.isInteger(parsed)) {
                 throw new FieldValueError('Rack.bay', change.value, 'must be a whole number');
               }
-              next = setRackField(doc, change.id, 'bay', parsed);
+              next = setRackField(doc, change.id, 'bay', parsed, opts);
             }
           } else {
-            next = setRackField(doc, change.id, 'row', change.value);
+            next = setRackField(doc, change.id, 'row', change.value, opts);
           }
         } else if (change.kind === 'supply') {
-          next = setSupplyField(doc, change.id, change.field, change.value);
+          next = setSupplyField(doc, change.id, change.field, change.value, opts);
         } else if (change.kind === 'supply-remove') {
-          next = removeSupply(doc, change.id);
+          next = removeSupply(doc, change.id, opts);
         } else if (change.kind === 'supply-fit') {
-          next = fitSupply(doc, change.chassisId, change.slot);
+          next = fitSupply(doc, change.chassisId, change.slot, {}, opts);
         } else if (change.kind === 'move-placement') {
-          next = movePlacement(doc, change.itemId, change.placement);
+          next = movePlacement(doc, change.itemId, change.placement, opts);
         } else if (change.kind === 'add-sketch-port') {
-          next = addSketchPort(doc, change.chassisId, {
-            label: change.label,
-            connector: change.connector,
-            service: change.service ?? undefined,
-            face: change.face,
-          });
+          next = addSketchPort(
+            doc,
+            change.chassisId,
+            {
+              label: change.label,
+              connector: change.connector,
+              service: change.service ?? undefined,
+              face: change.face,
+            },
+            opts,
+          );
         } else if (change.kind === 'remove-sketch-port') {
-          next = removeSketchPort(doc, change.chassisId, change.portId);
+          next = removeSketchPort(doc, change.chassisId, change.portId, opts);
         } else if (change.kind === 'create-shelf') {
           const model = change.model
             ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
             : undefined;
-          next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model });
+          next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model, ...opts });
         } else {
           if (!isSurfaceForm(change.form)) {
             throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
           }
-          next = createSurface(doc, change.premisesId, { label: change.label, form: change.form });
+          next = createSurface(doc, change.premisesId, { label: change.label, form: change.form, ...opts });
         }
         applyDocChange(next);
       } catch (e) {

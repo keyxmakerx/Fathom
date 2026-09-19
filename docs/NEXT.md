@@ -113,6 +113,12 @@ Four things learned that the rules above do not say:
     defects in one week passed every report and every test and were caught only by rendering: a
     plate built and never mounted, cables dropped by a resolver, a 1U plate with nothing on it.
     A harness that mounts a component directly proves the component, not the drawing.
+14. **After a container restart, two things are down and one is stale.** The database cluster:
+    `pg_ctlcluster 16 main start` (it clears its own stale pid). Background agents and
+    workflows: gone without a report; read the tree with `git status` and `git diff --stat` to
+    see what they landed, gate it, and commit it as a checkpoint before resuming. The shipped
+    module under `client/public/engine/` is ignored by git and may predate a schema bump:
+    `bash scripts/build-wasm.sh` before trusting any engine test.
 
 ## Sessions 1 and 2 — done
 

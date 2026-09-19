@@ -114,7 +114,10 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // move again: `HasCapture` adds (Device, Capture) — CONTAINMENT, in the
     // manner of `HasChassis` — and joining `Placeable` adds (Capture,
     // LayoutPin) through `HasLayoutPin`.
-    assert_eq!(resolved, 105, "the containment pair set moved");
+    // 105 -> 109 on 2026-09-19 (ADR-0053, schema 0.10): `HasNote` from the
+    // `Notable` class resolves to three pairs (Device, PhysicalPort, Rack)
+    // -> Note, and `Note` joining `Placeable` adds (Note, LayoutPin).
+    assert_eq!(resolved, 109, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -134,7 +137,7 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 46 as of 2026-09-18: `HasSurface` (ADR-0051 §1, schema 0.8), Premises -> Surface.
     // `SitsOn` and `FixedTo` are REFERENCE and do not count here.
     // 47 as of 2026-09-18: `HasCapture` (ADR-0052 §3, schema 0.9), Device -> Capture.
-    assert_eq!(containment, 47);
+    assert_eq!(containment, 48); // `HasNote` is containment (2026-09-19)
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

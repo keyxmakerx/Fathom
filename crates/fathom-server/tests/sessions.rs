@@ -424,6 +424,9 @@ async fn a_signed_request_verifies_and_names_the_account_from_the_session_and_no
         .expect("a fresh, correctly signed request verifies");
 
     assert_eq!(verified.principal_id(), estate.steward.account.to_string());
+    // ADR-0053 §3: the sign-in answer carries the account id so the client
+    // can stamp every change it makes with the real actor.
+    assert_eq!(signed_in.account_id, estate.steward.account.to_string());
     assert_eq!(verified.kind(), PrincipalKind::Steward);
     assert_eq!(
         verified.assurance(),
@@ -1739,8 +1742,17 @@ async fn call_over_http(
     let (status, answer) = post_bytes(addr, "/session", &body, forwarded).await;
     assert_eq!(status, "200", "sign-in");
     let (session_id, rest) = read_lp(&answer);
-    let (token, _) = read_lp(rest);
+    let (token, rest) = read_lp(rest);
     let session_id = String::from_utf8(session_id.to_vec()).unwrap();
+
+    // ADR-0053 §3: the answer's fourth field, after the 8-byte
+    // `expires_at_unix`, is the signed-in account's ulid.
+    let account_id = String::from_utf8(read_lp(&rest[8..]).0.to_vec()).unwrap();
+    assert_eq!(
+        account_id,
+        person.account.to_string(),
+        "account id over HTTP"
+    );
 
     // POST /session/nonce
     let (status, answer) = post_bytes(

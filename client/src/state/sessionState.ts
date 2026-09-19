@@ -15,6 +15,12 @@ export interface ActiveSession {
    * this client reads back — kept only so the shell can show who is signed
    * in without a round trip for it. */
   address: string;
+  /** The signed-in principal's ulid, `POST /session`'s fourth answer field
+   * (ADR-0053 §3, `../api/auth.ts`'s `parseSignInAnswer`). This is the value
+   * every command dispatched while this session is live is stamped with as
+   * its actor, so a provenance record or a tombstone names who really made
+   * it rather than `document/model.ts`'s `LOCAL_ACTOR` placeholder. */
+  accountId: string;
 }
 
 type Listener = () => void;

@@ -100,9 +100,11 @@ fn slot_type_covers_every_registry_key() {
     // `.y_mm` (323-324), `PhysicalPort.face` (325).
     // 325 -> 329 on 2026-09-18: ADR-0052 §3's four `Capture` keys -- `.text`,
     // `.platform`, `.line_count`, `.shape` (326-329).
+    // 329 -> 332 on 2026-09-19: ADR-0053 §5's three `Note` keys -- `.text`,
+    // `.how`, `.line_count` (330-332).
     assert_eq!(
         FIELD_KEYS.len(),
-        329,
+        332,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

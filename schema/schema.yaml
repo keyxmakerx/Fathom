@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.9"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.10"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -160,6 +160,32 @@ schema:
                     # pair set). No kind removed, no retype, no tuple reordered, no
                     # containment moved for anything that already had one. Whole change =
                     # MINOR.
+                    #
+                    # 0.10 is ADR-0053 §5 (undo that records, notes and the private layer,
+                    # 2026-09-19), all additive. One new node kind, Note — the text of a note
+                    # on a device, port or rack, how it arrived and, for a paste, its line
+                    # count — joining the Placeable class exactly as Capture did (0.9), for
+                    # the same reason every declared kind but LayoutPin does (62 §16.2: "New
+                    # node kind" is minor). Three fields on the new declarer — text, how,
+                    # line_count (62 §16.2: fields on a new declarer are minor). One new
+                    # class, Notable — Device, PhysicalPort and Rack, the owners of a note
+                    # (62 §16.2 has no row for a class widening or addition because a class
+                    # is not itself wire data; ADR-0036 and ADR-0051 §1 already added members
+                    # to Placeable without moving the version by more than the kind or edge
+                    # that motivated it, and a new class is the same shape of change again —
+                    # nothing it names did not already exist). One new edge kind, HasNote,
+                    # containing a Note in whichever of Device, PhysicalPort or Rack owns it,
+                    # HasLayoutPin's own shape of a class on the `from:` side rather than
+                    # HasChassis's single kind (62 §16.2: "New edge kind" is minor). Three
+                    # new field keys, 330-332 (Note.text, Note.how, Note.line_count), one new
+                    # kind (54 -> 55), one new class (4 -> 5), one new edge — HasNote — plus,
+                    # through Placeable, the extra HasLayoutPin pair for Note (HasCapture's
+                    # own precedent: HasLayoutPin is not a new edge KIND, only a wider pair
+                    # set). No kind removed, no retype, no tuple reordered, no containment
+                    # moved for anything that already had one — Rack's own "no notes field"
+                    # stays literally true, because Rack still declares no `notes`-shaped
+                    # field of its own; a note is a node reached through HasNote, never a
+                    # field. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -355,8 +381,26 @@ classes:
       # and this class is the latter (ADR-0035's own division of labour, stated
       # at the top of this class).
       - Capture
+      # ADR-0053 §5. A note is drawn as a box like its Capture and DhcpRelay
+      # siblings — `fathom-layout` draws every live node the class membership
+      # test insists on, and a note is not the first deliberately-unplaceable
+      # kind any more than a capture was. `crates/fathom-layout/src/layers.rs`
+      # leaves it UNTABLED beside Capture because it has no geometry of its
+      # own: `56` predates the note entirely, so there is no row to read one
+      # out of. That is a layers.rs decision about which layers draw it, not
+      # a schema decision about whether it CAN be placed, and this class is
+      # the latter.
+      - Note
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
+  - class: Notable
+    members: [Device, PhysicalPort, Rack]
+    doc: |
+      The owners of Note (ADR-0053 §5). Device, not Chassis: the device has the page, the
+      hostname and the capture, so a note about the box belongs where those already live.
+      Rack joins Notable rather than gaining a `notes` field of its own — the rack's
+      deliberate "no notes field" (ADR-0053 §5) stays true, because a note reached
+      through Notable's containment edge is a node, never a field on Rack.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -1598,6 +1642,40 @@ kinds:
     identity:
       - [ owner(Device), line_count, platform ]   # weak by design -- see doc. The node id, not this tuple, is what
                                                     # Origin::Parsed resolves against.
+
+  # ADR-0053 §5 (undo that records, notes and the private layer, 2026-09-19). Appended at
+  # the tail because order is wire identity (62 §13) -- Capture's own precedent.
+  - kind: Note
+    layer: physical
+    emits: false
+    doc: |
+      A note is a node, not a field (ADR-0053 §5). Owned through the Notable class --
+      Device, PhysicalPort and Rack -- by the containment edge HasNote. Device, not
+      Chassis: the device has the page, the hostname and the capture; the rack's
+      deliberate "no notes field" stays true because a note reached through HasNote is a
+      node, never a field Rack itself declares.
+
+      PASTED TEXT GOES THROUGH THE GATE FIRST, by the module door OP_REDACT_TEXT (ADR-0053
+      §6): the same pipeline framing, lexing, shaping and redaction a captured
+      configuration passes through, stopped before binding, so a pasted note can never
+      carry a credential a captured config would not have been allowed to. Typed text is
+      stored as typed -- Fathom does not redact what a person types, only what they paste
+      -- and `how` is what tells the two apart on the wire.
+
+      IDENTITY IS WEAK, DOCUMENTED THE WAY Capture's IS: the tuple below is 62 §4.2's
+      required L0 declaration, and it is weak on purpose. Two notes on the same owner
+      with the same text are indistinguishable by this tuple -- distinguishable only by
+      the node id itself, which nothing here re-identifies by. Who wrote a note and when
+      are not fields of Note at all: they come from the node's own existence provenance
+      (`asserted_by`, `asserted_at`), the same record every node already carries, so
+      answering "who and when" needs no field this kind declares.
+    fields:
+      - { name: text, type: Text, card: "1", doc: "The note as stored. For a pasted note this is the text OP_REDACT_TEXT returned, after the gate ran and destroyed any credential it found (ADR-0053 §6) -- never the original. For a typed note this is exactly what was typed.", emit: "—" }
+      - { name: how, type: "enum { typed, pasted }", card: "1", doc: "How the note arrived. A pasted note passed the gate first; a typed one is stored as typed (ADR-0053 §6) and the editor says so.", emit: "—" }
+      - { name: line_count, type: u32, card: "0..1", doc: "A paste's line count -- present only when how is pasted, absent for a typed note, which has no gutter to count.", emit: "—" }
+    identity:
+      - [ owner(Notable), text ]   # weak by design -- see doc. The node id, not this tuple, is what
+                                    # who-and-when (the existence provenance) is asked of.
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2877,6 +2955,24 @@ edges:
       62 §4.2's required fallback. This edge exists because 11 §7.2 requires every non-root
       node to have exactly one containment parent, the same reason every other containment
       edge in this tree exists.
+
+  - edge: HasNote
+    class: containment
+    from: [Notable]
+    to: [Note]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0053 §5. A note hangs off whichever of Device, PhysicalPort or Rack it is about --
+      HasLayoutPin's own shape of a class on the `from:` side, because a note's owner is not
+      one kind the way a capture's is. `in: "1"` keeps containment a forest, HasRack's and
+      HasCapture's own convention, unchanged. This edge exists because 11 §7.2 requires every
+      non-root node to have exactly one containment parent, the same reason every other
+      containment edge in this tree exists.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

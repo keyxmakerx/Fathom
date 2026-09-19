@@ -129,7 +129,18 @@ fn schema_version_is_the_trees() {
     // 62 §16.2 prices a new node kind, fields on a new declarer and a new edge kind
     // all MINOR; an old build keeps the unrecognised kind in `unknown` rather than
     // refusing the file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.9");
+    //
+    // 0.9 -> 0.10 on 2026-09-19: ADR-0053 §5, notes. One new node kind `Note`
+    // (joins `Placeable`, `Capture`'s own precedent) holding the text of a note on
+    // a device, port or rack -- `text`, `how`, `line_count`, three fields all on
+    // the new declarer. One new class `Notable` (`Device`, `PhysicalPort`, `Rack`),
+    // the owners of a note; Rack gains no `notes` field of its own. One new
+    // containment edge `HasNote` (`Notable -> Note`, `HasLayoutPin`'s own shape of
+    // a class on the `from:` side rather than a single kind). Three new field
+    // keys, 330-332. 62 §16.2 prices a new node kind, fields on a new declarer and
+    // a new edge kind all MINOR; an old build keeps the unrecognised kind in
+    // `unknown` rather than refusing the file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.10");
 }
 
 #[test]
@@ -642,7 +653,10 @@ fn dispatch_names_every_registry_key() {
     // 325 -> 329 on 2026-09-18: ADR-0052 §3's four keys -- `Capture.text`,
     // `.platform`, `.line_count`, `.shape` (326-329) -- appended after
     // `PhysicalPort.face`.
-    assert_eq!(FIELD_KEYS.len(), 329, "the registry grew or shrank");
+    //
+    // 329 -> 332 on 2026-09-19: ADR-0053 §5's three keys -- `Note.text`, `.how`,
+    // `.line_count` (330-332) -- appended after `Capture.shape`.
+    assert_eq!(FIELD_KEYS.len(), 332, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

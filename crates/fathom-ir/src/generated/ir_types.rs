@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.9";
+    pub const SCHEMA_VERSION: &str = "0.10";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -305,12 +305,33 @@ mod body {
         /// in this tree re-identifies a Capture by it, and nothing should — Origin::Parsed already
         /// carries the real answer.
         Capture,
+        /// A note is a node, not a field (ADR-0053 §5). Owned through the Notable class --
+        /// Device, PhysicalPort and Rack -- by the containment edge HasNote. Device, not
+        /// Chassis: the device has the page, the hostname and the capture; the rack's
+        /// deliberate "no notes field" stays true because a note reached through HasNote is a
+        /// node, never a field Rack itself declares.
+        ///
+        /// PASTED TEXT GOES THROUGH THE GATE FIRST, by the module door OP_REDACT_TEXT (ADR-0053
+        /// §6): the same pipeline framing, lexing, shaping and redaction a captured
+        /// configuration passes through, stopped before binding, so a pasted note can never
+        /// carry a credential a captured config would not have been allowed to. Typed text is
+        /// stored as typed -- Fathom does not redact what a person types, only what they paste
+        /// -- and `how` is what tells the two apart on the wire.
+        ///
+        /// IDENTITY IS WEAK, DOCUMENTED THE WAY Capture's IS: the tuple below is 62 §4.2's
+        /// required L0 declaration, and it is weak on purpose. Two notes on the same owner
+        /// with the same text are indistinguishable by this tuple -- distinguishable only by
+        /// the node id itself, which nothing here re-identifies by. Who wrote a note and when
+        /// are not fields of Note at all: they come from the node's own existence provenance
+        /// (`asserted_by`, `asserted_at`), the same record every node already carries, so
+        /// answering "who and when" needs no field this kind declares.
+        Note,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 54;
+        pub const COUNT: usize = 55;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 54] = [
+        pub const ALL: [NodeKind; 55] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -365,6 +386,7 @@ mod body {
             NodeKind::PowerSupply,
             NodeKind::Surface,
             NodeKind::Capture,
+            NodeKind::Note,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -425,6 +447,7 @@ mod body {
                 NodeKind::PowerSupply => "PowerSupply",
                 NodeKind::Surface => "Surface",
                 NodeKind::Capture => "Capture",
+                NodeKind::Note => "Note",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -483,6 +506,7 @@ mod body {
                 "PowerSupply" => Some(NodeKind::PowerSupply),
                 "Surface" => Some(NodeKind::Surface),
                 "Capture" => Some(NodeKind::Capture),
+                "Note" => Some(NodeKind::Note),
                 _ => None,
             }
         }
@@ -547,6 +571,7 @@ mod body {
                 NodeKind::PowerSupply => &[&["owner(Chassis)", "slot"]],
                 NodeKind::Surface => &[&["owner(Premises)", "label"]],
                 NodeKind::Capture => &[&["owner(Device)", "line_count", "platform"]],
+                NodeKind::Note => &[&["owner(Notable)", "text"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -606,6 +631,7 @@ mod body {
                 NodeKind::PowerSupply => Layer::Physical,
                 NodeKind::Surface => Layer::Physical,
                 NodeKind::Capture => Layer::Config,
+                NodeKind::Note => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -666,6 +692,7 @@ mod body {
                 NodeKind::PowerSupply => false,
                 NodeKind::Surface => false,
                 NodeKind::Capture => false,
+                NodeKind::Note => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -727,6 +754,7 @@ mod body {
                 NodeKind::PowerSupply => &[crate::bag::FieldKey(315), crate::bag::FieldKey(316), crate::bag::FieldKey(317)],
                 NodeKind::Surface => &[crate::bag::FieldKey(319), crate::bag::FieldKey(320), crate::bag::FieldKey(321), crate::bag::FieldKey(322)],
                 NodeKind::Capture => &[crate::bag::FieldKey(326), crate::bag::FieldKey(327), crate::bag::FieldKey(328), crate::bag::FieldKey(329)],
+                NodeKind::Note => &[crate::bag::FieldKey(330), crate::bag::FieldKey(331), crate::bag::FieldKey(332)],
             }
         }
     }
@@ -1043,12 +1071,19 @@ mod body {
         /// node to have exactly one containment parent, the same reason every other containment
         /// edge in this tree exists.
         HasCapture,
+        /// ADR-0053 §5. A note hangs off whichever of Device, PhysicalPort or Rack it is about --
+        /// HasLayoutPin's own shape of a class on the `from:` side, because a note's owner is not
+        /// one kind the way a capture's is. `in: "1"` keeps containment a forest, HasRack's and
+        /// HasCapture's own convention, unchanged. This edge exists because 11 §7.2 requires every
+        /// non-root node to have exactly one containment parent, the same reason every other
+        /// containment edge in this tree exists.
+        HasNote,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 92;
+        pub const COUNT: usize = 93;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 92] = [
+        pub const ALL: [EdgeKind; 93] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1141,6 +1176,7 @@ mod body {
             EdgeKind::HasSurface,
             EdgeKind::FixedTo,
             EdgeKind::HasCapture,
+            EdgeKind::HasNote,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1239,6 +1275,7 @@ mod body {
                 EdgeKind::HasSurface => "HasSurface",
                 EdgeKind::FixedTo => "FixedTo",
                 EdgeKind::HasCapture => "HasCapture",
+                EdgeKind::HasNote => "HasNote",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1335,6 +1372,7 @@ mod body {
                 "HasSurface" => Some(EdgeKind::HasSurface),
                 "FixedTo" => Some(EdgeKind::FixedTo),
                 "HasCapture" => Some(EdgeKind::HasCapture),
+                "HasNote" => Some(EdgeKind::HasNote),
                 _ => None,
             }
         }
@@ -1433,6 +1471,7 @@ mod body {
                 EdgeKind::HasSurface => EdgeClass::Containment,
                 EdgeKind::FixedTo => EdgeClass::Reference,
                 EdgeKind::HasCapture => EdgeClass::Containment,
+                EdgeKind::HasNote => EdgeClass::Containment,
             }
         }
     }
@@ -1610,7 +1649,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1621,6 +1660,7 @@ mod body {
                 EdgeKind::HasSurface => &[NodeKind::Premises],
                 EdgeKind::FixedTo => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasCapture => &[NodeKind::Device],
+                EdgeKind::HasNote => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Rack],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1718,6 +1758,7 @@ mod body {
                 EdgeKind::HasSurface => &[NodeKind::Surface],
                 EdgeKind::FixedTo => &[NodeKind::Surface, NodeKind::PassiveNode],
                 EdgeKind::HasCapture => &[NodeKind::Capture],
+                EdgeKind::HasNote => &[NodeKind::Note],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1815,6 +1856,7 @@ mod body {
                 EdgeKind::HasSurface => EdgeCardBound { min: 0, max: None },
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasCapture => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasNote => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1912,6 +1954,7 @@ mod body {
                 EdgeKind::HasSurface => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCapture => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasNote => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2010,6 +2053,7 @@ mod body {
                 EdgeKind::HasSurface => false,
                 EdgeKind::FixedTo => false,
                 EdgeKind::HasCapture => false,
+                EdgeKind::HasNote => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2107,6 +2151,7 @@ mod body {
                 EdgeKind::HasSurface => false,
                 EdgeKind::FixedTo => false,
                 EdgeKind::HasCapture => false,
+                EdgeKind::HasNote => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2204,6 +2249,7 @@ mod body {
                 EdgeKind::HasSurface => &[],
                 EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
                 EdgeKind::HasCapture => &[],
+                EdgeKind::HasNote => &[],
             }
         }
     }
@@ -4194,6 +4240,41 @@ mod body {
         }
     }
 
+    /// Inline enum on `Note.how` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum NoteHow {
+        Typed,
+        Pasted,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl NoteHow {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "typed",
+            "pasted",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> NoteHow {
+            match token {
+                "typed" => NoteHow::Typed,
+                "pasted" => NoteHow::Pasted,
+                other => NoteHow::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                NoteHow::Typed => "typed",
+                NoteHow::Pasted => "pasted",
+                NoteHow::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -4920,6 +5001,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(SurfaceForm::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for NoteHow {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(NoteHow::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -7497,6 +7590,42 @@ mod body {
         }
     }
 
+    /// Fields of kind `Note`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum NoteField {
+        Text,
+        How,
+        LineCount,
+    }
+
+    impl NoteField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [NoteField; 3] = [
+            NoteField::Text,
+            NoteField::How,
+            NoteField::LineCount,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                NoteField::Text => "text",
+                NoteField::How => "how",
+                NoteField::LineCount => "line_count",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                NoteField::Text => crate::bag::FieldKey(330),
+                NoteField::How => crate::bag::FieldKey(331),
+                NoteField::LineCount => crate::bag::FieldKey(332),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -7960,7 +8089,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 329] = [
+    pub const FIELD_KEYS: [(&str, u32); 332] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -8290,6 +8419,9 @@ mod body {
         ("Capture.platform", 327),
         ("Capture.line_count", 328),
         ("Capture.shape", 329),
+        ("Note.text", 330),
+        ("Note.how", 331),
+        ("Note.line_count", 332),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
@@ -8298,7 +8430,7 @@ mod body {
     pub const FIELD_REQUIRED_BITS: [u8; 42] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x01,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x0d,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

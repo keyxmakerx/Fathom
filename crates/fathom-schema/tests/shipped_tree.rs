@@ -64,14 +64,20 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 54, "kind count");
-    assert_eq!(tree.edges.len(), 100, "edge count (92 + 8 derived)");
+    // ADR-0053 (2026-09-19, schema 0.10) moved four: +1 kind (`Note`, 54 -> 55),
+    // +1 edge (`HasNote`, 100 -> 101), +1 CLASS (`Notable`, the first new class
+    // since the tree was pinned, 4 -> 5), +3 field keys (`Note.text`, `.how`,
+    // `.line_count`, 329 -> 332). `how` is an INLINE enum, so the enum FILE
+    // count does not move. The builder moved every other tripwire in the tree
+    // before the container restarted under it; this block was the one left.
+    assert_eq!(tree.kinds.len(), 55, "kind count");
+    assert_eq!(tree.edges.len(), 101, "edge count (93 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
-    assert_eq!(tree.classes.len(), 4, "class count");
+    assert_eq!(tree.classes.len(), 5, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 329, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 332, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -127,7 +133,7 @@ fn shipped_tree_declaration_counts_hold() {
     // are the existing `Text`. The `class` count stays 4 -- no class added -- but
     // `Placeable` widens to include `Capture`, exactly as it widened for `Surface`, and
     // the noticer below still holds. `PortHost` is untouched -- a capture hosts no ports.
-    assert_eq!(tree.version.as_deref(), Some("0.9"));
+    assert_eq!(tree.version.as_deref(), Some("0.10"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

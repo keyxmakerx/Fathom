@@ -414,3 +414,8 @@ fields:
   Capture.platform: 327
   Capture.line_count: 328
   Capture.shape: 329
+  # ADR-0053 §5 (undo that records, notes and the private layer, 2026-09-19). Appended at
+  # the tail with the next integers, which is the only way a key is ever assigned.
+  Note.text: 330
+  Note.how: 331
+  Note.line_count: 332

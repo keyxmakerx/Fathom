@@ -111,11 +111,9 @@ export async function signIn(address: string): Promise<void> {
   if (!signInResponse.ok) {
     throw await refusalFrom(signInResponse);
   }
-  // Answer: LP(session_id) || LP(token) || u64(expires_at_unix)
-  const signInOut = new Uint8Array(await signInResponse.arrayBuffer());
-  const { value: sessionIdBytes, rest: afterSessionId } = readLp(signInOut);
-  const { value: token, rest: afterToken } = readLp(afterSessionId);
-  const expiresAtUnix = Number(readU64LE(afterToken));
+  const { sessionId, token, expiresAtUnix, accountId } = parseSignInAnswer(
+    new Uint8Array(await signInResponse.arrayBuffer()),
+  );
 
   if (usingPendingKey) {
     // The server just accepted a signature made with the pending key, so it
@@ -126,12 +124,44 @@ export async function signIn(address: string): Promise<void> {
   }
 
   setSession({
-    sessionId: new TextDecoder().decode(sessionIdBytes),
+    sessionId,
     token,
     sessionKeyPair,
     expiresAtUnix,
     address,
+    accountId,
   });
+}
+
+/**
+ * Parses `POST /session`'s answer: `LP(session_id) || LP(token) ||
+ * u64(expires_at_unix) || LP(account_id)`.
+ *
+ * ADR-0053 §3: `account_id` is appended after the three fields this client
+ * already read, so it can be added without breaking a client built before
+ * this change. `account_id` is the signed-in principal's ulid, and this
+ * client stamps it as the actor on every change it makes from here on
+ * (`useDesignSession.ts`).
+ *
+ * Exported for `auth.test.ts`, which drives it directly rather than through
+ * a stubbed `fetch` and the rest of `signIn`'s IndexedDB machinery.
+ */
+export function parseSignInAnswer(bytes: Uint8Array): {
+  sessionId: string;
+  token: Uint8Array;
+  expiresAtUnix: number;
+  accountId: string;
+} {
+  const { value: sessionIdBytes, rest: afterSessionId } = readLp(bytes);
+  const { value: token, rest: afterToken } = readLp(afterSessionId);
+  const expiresAtUnix = Number(readU64LE(afterToken));
+  const { value: accountIdBytes } = readLp(afterToken.slice(8));
+  return {
+    sessionId: new TextDecoder().decode(sessionIdBytes),
+    token,
+    expiresAtUnix,
+    accountId: new TextDecoder().decode(accountIdBytes),
+  };
 }
 
 /** `DELETE /session`, signed like every other protected route. */

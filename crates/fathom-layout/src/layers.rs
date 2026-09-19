@@ -355,6 +355,14 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     that test admits every kind but the pin, not because anything
         //     in this build actually drags a capture around a diagram.
         | NodeKind::Capture
+        //     ADR-0053 §5 (2026-09-19): a note is a per-owner fact with no
+        //     geometry of its own, the same shape as `Capture` above. `56`
+        //     has no row for it — it predates the note entirely — so it is
+        //     drawn UNTABLED beside its `Capture` sibling rather than hidden.
+        //     It joins `Placeable` (schema.yaml's own class) because that
+        //     test admits every kind but the pin, not because anything in
+        //     this build actually drags a note around a diagram.
+        | NodeKind::Note
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a

@@ -1656,6 +1656,24 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(329))
         }
     }
+    /// Typed reads for `Note` fields.
+    pub mod note {
+        /// `Note.text` — `Text`, card `1`, emit `—`.
+        /// The note as stored. For a pasted note this is the text OP_REDACT_TEXT returned, after the gate ran and destroyed any credential it found (ADR-0053 §6) -- never the original. For a typed note this is exactly what was typed.
+        pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(330))
+        }
+        /// `Note.how` — `enum { typed, pasted }`, card `1`, emit `—`.
+        /// How the note arrived. A pasted note passed the gate first; a typed one is stored as typed (ADR-0053 §6) and the editor says so.
+        pub fn how<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::NoteHow, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(331))
+        }
+        /// `Note.line_count` — `u32`, card `0..1`, emit `—`.
+        /// A paste's line count -- present only when how is pasted, absent for a typed note, which has no gutter to count.
+        pub fn line_count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(332))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -1991,6 +2009,9 @@ mod body {
             327 => Some((core::any::TypeId::of::<crate::scalar::PlatformId>(), "crate::scalar::PlatformId")),
             328 => Some((core::any::TypeId::of::<u32>(), "u32")),
             329 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            330 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            331 => Some((core::any::TypeId::of::<crate::generated::ir_types::NoteHow>(), "crate::generated::ir_types::NoteHow")),
+            332 => Some((core::any::TypeId::of::<u32>(), "u32")),
             _ => None,
         }
     }
@@ -2328,6 +2349,9 @@ mod body {
             327 => crate::canon::slot_to::<crate::scalar::PlatformId>(327, "crate::scalar::PlatformId", value),
             328 => crate::canon::slot_to::<u32>(328, "u32", value),
             329 => crate::canon::slot_to::<crate::scalar::Text>(329, "crate::scalar::Text", value),
+            330 => crate::canon::slot_to::<crate::scalar::Text>(330, "crate::scalar::Text", value),
+            331 => crate::canon::slot_to::<crate::generated::ir_types::NoteHow>(331, "crate::generated::ir_types::NoteHow", value),
+            332 => crate::canon::slot_to::<u32>(332, "u32", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2663,6 +2687,9 @@ mod body {
             327 => crate::canon::slot_from::<crate::scalar::PlatformId>(j),
             328 => crate::canon::slot_from::<u32>(j),
             329 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            330 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            331 => crate::canon::slot_from::<crate::generated::ir_types::NoteHow>(j),
+            332 => crate::canon::slot_from::<u32>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

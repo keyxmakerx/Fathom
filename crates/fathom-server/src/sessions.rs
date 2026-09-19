@@ -702,6 +702,10 @@ pub struct SignedIn {
     /// The bearer half, returned once and never stored in the clear.
     pub token: [u8; 32],
     pub expires_at_unix: i64,
+    /// The principal's ulid. ADR-0053 §3: the client stamps this as the
+    /// actor on every change it makes, so undo can tell its own batches from
+    /// a colleague's.
+    pub account_id: String,
 }
 
 impl core::fmt::Debug for SignedIn {
@@ -714,6 +718,7 @@ impl core::fmt::Debug for SignedIn {
             .field("session_id", &self.session_id)
             .field("token", &"<not printed>")
             .field("expires_at_unix", &self.expires_at_unix)
+            .field("account_id", &self.account_id)
             .finish()
     }
 }
@@ -1620,11 +1625,12 @@ impl SessionStore {
         })?;
 
         Ok((
-            account,
+            account.clone(),
             SignedIn {
                 session_id: id,
                 token,
                 expires_at_unix,
+                account_id: account,
             },
         ))
     }
