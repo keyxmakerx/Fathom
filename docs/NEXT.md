@@ -83,9 +83,15 @@ Sessions 1 to 5 are done; Session 6(a), the rear elevation, 6(b), schema 0.8 wit
 surfaces and sketches, and 6(c), the config drawer with the gate in the browser, view-only and the
 inside stop (ADR-0052, schema 0.9), and 6(d), the inventory, notes and undo that records
 (ADR-0053, schema 0.10), are in, and Session 7's hardening landed the same day (ADR-0054, the
-checker's round on the surface, the operator's page). **What remains before the v0.1 tag is the
-owner's: run `deploy/compose.yaml` end to end on a machine with Docker, and `scripts/osv-gate.sh`
-on one with egress; both are recorded in `docs/STATE.md`'s carried list.** Then the bookkeeper
+checker's round on the surface, the operator's page). **The last push before the owner tests
+(2026-09-19): engines.** Verify the engine implementation against ADR-0044, then write the packs
+the owner's own estate needs — OPNsense beyond the rules export, Linux hosts with per-flavour
+teaching items (package manager, updating, where network config lives; never a recommendation of a
+particular application), Arista, Juniper completed, Ubiquiti — every device fact cited with its
+date under rule 1, every dictionary tested against real config text with credentials of the
+length the device accepts under rule 2. **Then what remains before the v0.1 tag is the owner's:
+run `deploy/compose.yaml` end to end on a machine with Docker, and `scripts/osv-gate.sh` on one
+with egress; both are recorded in `docs/STATE.md`'s carried list.** Then the bookkeeper
 over STATE.md and the tag. After that, the list under "After the first usable version". For the
 record, 6(c) was: inside a box, the config surface with
 the redaction gate on paste (`crates/fathom-wasm`, never reimplemented in JavaScript; test the gate
