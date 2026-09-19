@@ -48,3 +48,7 @@ scratch/
 client/node_modules/
 client/dist/
 client/public/engine/
+
+# The deployment's own inputs. `compose.yaml` reads `.env` for the operator
+# notice address; the image must not carry it (`COPY . .` would).
+.env

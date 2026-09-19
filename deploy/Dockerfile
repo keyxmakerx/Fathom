@@ -100,7 +100,7 @@ RUN mkdir -p /bootstrap-seed && \
 
 # ---- run --------------------------------------------------------------
 # Named `server` (not left anonymous) because this Dockerfile now builds
-# more than one final image from one file -- `deploy/compose.yaml` names
+# more than one final image from one file -- `compose.yaml` names
 # this stage with `target: server` for exactly that reason, so that adding
 # the stages below can never silently change what an unqualified
 # `docker build .` produces.
@@ -130,7 +130,7 @@ ENV FATHOM_SCHEMA_ROOT=/schema
 # `schema/` there (`design_api::load_catalogue`'s own doc). Without this line
 # the schema tree loads, the catalogue does not, and the process refuses to
 # start with a catalogue error naming the missing directory -- found running
-# `deploy/compose.yaml` rather than reading it, same as the note above this
+# `compose.yaml` rather than reading it, same as the note above this
 # one.
 COPY --from=build /src/corpus /corpus
 
@@ -139,7 +139,7 @@ COPY --from=build /src/corpus /corpus
 # and writes their single-use enrolment token to a file for a human to read;
 # `FATHOM_BOOTSTRAP_TOKEN_FILE` names where. It is NOT in the key volume --
 # that volume is mounted read-only on the server, deliberately, and deriving
-# this path from the master key's is what stopped `deploy/compose.yaml` from
+# this path from the master key's is what stopped `compose.yaml` from
 # ever completing a first start (see its header).
 #
 # **Owned by 65532 here so that the named volume inherits it.** Docker seeds a
@@ -160,7 +160,7 @@ ENTRYPOINT ["/fathom-server"]
 
 # ---- client build -------------------------------------------------------
 # Owner: this stack served no client at all until this stage existed --
-# `deploy/compose.yaml` brought up a server and a proxy with nothing for the
+# `compose.yaml` brought up a server and a proxy with nothing for the
 # proxy to serve except the API. This builds the client the same way
 # `docs/RUNNING-IT.md`'s "from source" section does: `npm ci`, the wasm
 # engine staged into `client/public/engine/` (below), then `npm run build`,
@@ -204,7 +204,7 @@ COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wa
 RUN npm run build
 
 # ---- caddy, with the client baked in -------------------------------------
-# Owner: this is the SAME pinned Caddy image `deploy/compose.yaml` used to
+# Owner: this is the SAME pinned Caddy image `compose.yaml` used to
 # pull directly -- digest unchanged, read 2026-09-03 per the file header
 # above -- now as a build stage so the client's built files can be copied
 # into it. Caddy's own official image has no `npm`, so the client cannot be
@@ -214,10 +214,10 @@ FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d586
 
 # `/srv/www`, matching `deploy/Caddyfile`'s `root * /srv/www`; the two say
 # the same path so that neither alone is load-bearing, the same convention
-# `deploy/compose.yaml`'s bootstrap-token path uses across three files.
+# `compose.yaml`'s bootstrap-token path uses across three files.
 COPY --from=client-build /src/client/dist /srv/www
 
-# `deploy/Caddyfile` itself is still a bind mount, from `deploy/compose.yaml`
+# `deploy/Caddyfile` itself is still a bind mount, from `compose.yaml`
 # -- deliberately not copied in here -- so that a TLS or host-name change
 # (this file's own "a real deployment replaces this block" comments) does
 # not need an image rebuild to take effect.

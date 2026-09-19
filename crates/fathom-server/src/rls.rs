@@ -6,7 +6,7 @@
 //! says plainly what `FORCE` cannot do: **it does not bind for an actual
 //! PostgreSQL superuser, or for a role carrying `BYPASSRLS`** -- Postgres
 //! exempts both unconditionally, `FORCE` or not. Found 2026-09-12:
-//! `deploy/compose.yaml` started PostgreSQL with the image's bootstrap role,
+//! `compose.yaml` started PostgreSQL with the image's bootstrap role,
 //! which the official image always makes a superuser regardless of the name
 //! given it, so every isolation policy migration 0002 defines was inert in
 //! the shipped deployment while the tests -- which provision a restricted
@@ -42,7 +42,7 @@ impl core::fmt::Display for RlsError {
                 "the database role this server connected as is a PostgreSQL superuser. A \
                  superuser bypasses row-level security unconditionally, so every tenant-isolation \
                  policy in migrations/0002_identity_and_scope.sql is inert for this connection. \
-                 Connect as a non-superuser role instead -- see deploy/compose.yaml for how the \
+                 Connect as a non-superuser role instead -- see compose.yaml for how the \
                  shipped deployment provisions one.",
             ),
             Self::BypassRls => f.write_str(

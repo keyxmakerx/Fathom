@@ -17,3 +17,6 @@ deploy/ca/*.crt
 # Seeded design-canvas payload — rebuilt from the .dc.html sources, not source itself
 design/rebuild/*.html
 !design/rebuild/*.dc.html
+
+# Local deployment inputs (`compose.yaml` reads `.env`); holds an address.
+.env

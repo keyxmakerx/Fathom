@@ -69,7 +69,7 @@ localhost:8443 {
 			# and sets it fresh from the connection's own peer address, so
 			# this `header_up` is a second, independent way to guarantee the
 			# same outcome for a deployment that is a single hop (client →
-			# Caddy → server, `deploy/compose.yaml`'s own header: "the server
+			# Caddy → server, `compose.yaml`'s own header: "the server
 			# is not published to the host; only Caddy is"), not a fix for a
 			# default that appends. `fathom-server` reads the LAST entry of a
 			# trusted header regardless (`crates/fathom-server/src/api.rs::source_of`
