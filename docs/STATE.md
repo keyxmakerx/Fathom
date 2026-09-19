@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-19: 1250 server-side tests and 667 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1260 server-side tests and 755 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -217,13 +217,25 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   a read account's save. The inside stop draws a firewall's zones, interfaces, policy rail,
   routes and tunnels from the module's own inside door, never a verdict.
 
-**Carried:** replacing a capture (a second paste into the same device is refused until then); the
-drawer tags every built line with its node and "no port on this plate", which should show on
-hover only; a successful paste has no confirmation pulse yet (Motion 4); no route creates a
-design, so a driven sign-in flow cannot reach one from nothing, a question for Session 7; a
-Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and the
-assistant panel; dropping a board onto a surface is a no-op until the drawing has a surface drop
-zone; the opened occupant can sit under the editor; a panel's label pairing remains as the
+- **The inventory, notes, undo that records** (Session 6(d), ADR-0053, schema 0.10). Two places
+  over one opened design sharing the document and the save queue; the inventory's rail of kinds,
+  the device grid grouped per rack with the lens choosing the columns, the Gaps section, the page
+  as the one editor, Show on rack both ways. A note is a node on a device, port or rack, pasted
+  through the gate by its own door or stored as typed and saying so. An undo is a new batch of
+  reversing operations with a revive operation for what a tombstone removed; only your own
+  batches, a colleague's later change refuses by name; the trail beside the drawing with sealed
+  and pending, a comment on the next change, the chips and keys live.
+
+**Carried:** the trail's sealed mark is an idle-time approximation until the session hook exposes
+save completion; the comment box should attach to the next batch, not an already-recorded one; a
+note's line count is taken before the gate; the new wire shapes have no cross-language vector
+yet; saved filters and the grids for racks, cables and ports are named and unbuilt; the private
+notes layer arrives with the vault (W6). Replacing a capture (a second paste into the same device
+is refused until then); the drawer tags every built line and should show them on hover only; a
+successful paste has no confirmation pulse yet; no route creates a design, a question for Session
+7; a Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and
+the assistant panel; dropping a board onto a surface is a no-op until the drawing has a surface
+drop zone; the opened occupant can sit under the editor; a panel's label pairing remains as the
 fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
 EX4300's two supply slots could not be established. The "two people on a running server" proof,
 which tests and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
