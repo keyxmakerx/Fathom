@@ -147,8 +147,22 @@ From a clean checkout, on a machine with Docker:
 
 ```sh
 cp .env.example .env         # then set FATHOM_OPERATOR_NOTICE_ADDRESS in it
-docker compose up -d --build
+docker compose up -d
 ```
+
+That pulls the two images GitHub built from the last merge to `main`
+(`ghcr.io/keyxmakerx/fathom-server` and `fathom-caddy`, pushed by `.github/workflows/publish.yml`
+after the same gate floor CI runs, with provenance attested per image). `docker compose up -d
+--build` builds the same two stages from the checkout instead, which is what CI does and what to
+do on a machine that cannot reach the registry. To freeze a deployment on one build, set
+`FATHOM_TAG=sha-<the 40-hex commit>` in `.env`; `latest` follows `main`.
+
+**Once, after the first publish: make the two packages public.** A package first published under
+a personal account is private and visible only to its owner, whatever the repository's visibility
+(GitHub Docs, "Configuring a package's access control and visibility", read 2026-09-19). Until
+that is done, a pull from another machine needs `docker login ghcr.io` with a personal access
+token that can read packages. The setting is on each package's page under the repository's
+Packages, and it cannot be reversed.
 
 Then open <https://localhost:8443/>. The certificate is Caddy's own local one, so the browser will
 warn once. To sign in the first time, read the one-time token the first start wrote and paste it
@@ -181,7 +195,8 @@ the client's address from the `X-Forwarded-For` header Caddy overwrites on every
 so the sign-in rate limit counts per client rather than per proxy.
 
 **Proven where.** `.github/workflows/ci.yml`'s `compose` job builds every image from the checkout
-on every push and pull request, brings the stack up, waits for the server's healthcheck, asks
+on every push and pull request (under a tag no registry holds, so it never pulls a published image
+in place of the one it built), brings the stack up, waits for the server's healthcheck, asks
 Caddy for `/health` and the client over TLS, reads the first-operator token, restarts the server
 and checks the keys were kept. Before 2026-09-19 nobody had run this file at all, because the
 environment it was written in has no Docker daemon; three first-start faults were found by

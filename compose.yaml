@@ -14,8 +14,24 @@
 #
 # THE LINES THAT ARE DECISIONS RATHER THAN BOILERPLATE, per `43` §5.4's table:
 #
-#   image: ...@sha256:   never a tag. The digest is the artifact; the tag is a
-#                        pointer (`35` §7.4). Digests read 2026-09-03.
+#   image: ...@sha256:   never a tag, for every image somebody else builds. The
+#                        digest is the artifact; the tag is a pointer (`35`
+#                        §7.4). Digests read 2026-09-03. FATHOM'S OWN TWO
+#                        IMAGES ARE THE ONE EXCEPTION, since 2026-09-19: they
+#                        are named `ghcr.io/keyxmakerx/fathom-server` and
+#                        `fathom-caddy` at the tag `FATHOM_TAG` (default
+#                        `latest`), which `.github/workflows/publish.yml`
+#                        pushes from every merge to `main` with provenance
+#                        attested per image, after the same gate floor
+#                        `ci.yml` runs. `docker compose up -d` PULLS them; the
+#                        `build:` beside each is what `--build` uses to build
+#                        the same two stages from this checkout instead
+#                        (compose-spec 05-services.md, read 2026-09-19: with a
+#                        build section present, pulling is still the default,
+#                        `pull_policy: missing` says so explicitly, and a
+#                        `latest` tag is always re-pulled). To freeze a
+#                        deployment, set `FATHOM_TAG=sha-<40-hex commit>` in
+#                        `.env`; publish.yml pushes that tag beside `latest`.
 #   read_only: true      the ROOT filesystem. The server writes exactly one
 #                        path, and it is a volume of its own -- see THE
 #                        BOOTSTRAP TOKEN VOLUME below. This line said "the
@@ -245,7 +261,8 @@ services:
     #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
     # `build:` is here so the stack can be brought up from a clean checkout
     # before any image has been published.
-    image: fathom-server:wo-11
+    image: ghcr.io/keyxmakerx/fathom-server:${FATHOM_TAG:-latest}
+    pull_policy: missing
     restart: unless-stopped
     read_only: true
     user: "65532:65532"
@@ -374,7 +391,8 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
       target: caddy
-    image: fathom-caddy:wo-11
+    image: ghcr.io/keyxmakerx/fathom-caddy:${FATHOM_TAG:-latest}
+    pull_policy: missing
     restart: unless-stopped
     depends_on:
       - server

@@ -226,6 +226,10 @@ jobs:
     timeout-minutes: 45
     env:
       FATHOM_OPERATOR_NOTICE_ADDRESS: ci@example.invalid
+      # A tag no registry holds, so every `up` in this job runs the images
+      # `--build` produced from this checkout and never pulls a published
+      # one in their place (a `latest` tag would be re-pulled on every `up`).
+      FATHOM_TAG: ci
     steps:
       - uses: actions/checkout@v4
       - name: Build and start
