@@ -252,3 +252,74 @@ fn a_malformed_verified_on_is_refused() {
         );
     }
 }
+
+// --- explainer/rule `reviewed_by` is required and non-empty -----------------
+//
+// Commands already required `reviewed_by` via `req_str`; explainers and rules
+// used to read it with `opt_str`, so a bundle declaring none loaded clean and
+// only `gates.rs`'s placeholder inventory (which never sees a blank value,
+// only a `<...>`-shaped one) had anything to say about it. These two tests
+// hold the loader itself to the same "a name is in the field" bar commands
+// already met, closing that gap for the other two sections.
+
+/// An explainer entry with no `reviewed_by` key at all must be refused at
+/// load, not read as `None` and left for a warning that never fires.
+#[test]
+fn explainer_entry_without_reviewed_by_is_refused() {
+    let mut files = source_files();
+    let mut touched = false;
+    for f in files.iter_mut() {
+        // Remove the whole line, newline and all, rather than just the text
+        // on it — leaving the line's own leading spaces behind would splice
+        // onto the following line's indentation and fail with an unrelated
+        // parse error instead of the missing-field one this test wants.
+        if f.section == Section::Explainers && f.source.contains("\n  reviewed_by: <named human>\n")
+        {
+            f.source = f
+                .source
+                .replacen("\n  reviewed_by: <named human>\n", "\n", 1);
+            touched = true;
+            break;
+        }
+    }
+    assert!(
+        touched,
+        "at least one explainer entry carries the placeholder"
+    );
+    let err = match CorpusIndex::from_sources(&files) {
+        Ok(_) => panic!("an explainer entry missing `reviewed_by` must be refused"),
+        Err(e) => e,
+    };
+    assert!(
+        err.message.contains("reviewed_by"),
+        "the refusal names the missing field: {}",
+        err.message
+    );
+}
+
+/// A rule entry declaring `reviewed_by: ""` must be refused — presence alone
+/// (what `opt_str`/a naive `req_str` both accept) is not enough.
+#[test]
+fn rule_entry_with_empty_reviewed_by_is_refused() {
+    let mut files = source_files();
+    let mut touched = false;
+    for f in files.iter_mut() {
+        if f.section == Section::Rules && f.source.contains("reviewed_by: \"<named reviewer>\"") {
+            f.source =
+                f.source
+                    .replacen("reviewed_by: \"<named reviewer>\"", "reviewed_by: \"\"", 1);
+            touched = true;
+            break;
+        }
+    }
+    assert!(touched, "at least one rule entry carries the placeholder");
+    let err = match CorpusIndex::from_sources(&files) {
+        Ok(_) => panic!("a rule entry with an empty `reviewed_by` must be refused"),
+        Err(e) => e,
+    };
+    assert!(
+        err.message.contains("reviewed_by"),
+        "the refusal names the empty field: {}",
+        err.message
+    );
+}

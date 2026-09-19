@@ -1,0 +1,128 @@
+/* The port-glyph gallery, laid out like the Legend board's bands: a header
+   column on the left, the drawings on the right. Geometry here; every
+   colour, rule and type size is a token from `design/tokens.css`. */
+
+.gallery {
+  min-height: 100%;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.gallery__mast {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  height: calc(var(--lh-step) * 2);
+  padding: 0 var(--s4);
+  border-bottom: var(--rule-mast) solid var(--ink);
+}
+
+.gallery__brand {
+  font-size: var(--t-mast);
+  font-weight: 700;
+  letter-spacing: var(--track-mast);
+  text-transform: uppercase;
+}
+
+.gallery__crumb {
+  font-size: var(--t-tab);
+  color: var(--muted);
+}
+.gallery__crumb strong { color: var(--ink); }
+
+.gallery__spacer { flex: 1; }
+
+.gallery__band {
+  display: flex;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.gallery__head {
+  flex: 0 0 180px;
+  padding: var(--s3) var(--s4);
+  border-right: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+
+.gallery__label {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  color: var(--muted);
+}
+
+.gallery__title {
+  font-size: var(--t-head);
+  font-weight: 700;
+}
+
+.gallery__note,
+.gallery__cap {
+  font-size: var(--t-micro);
+  line-height: var(--lh-micro);
+  color: var(--muted);
+  margin-top: var(--s2);
+}
+
+.gallery__body {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s6);
+  padding: var(--s3) var(--s5);
+}
+
+.gallery__cell {
+  min-width: 180px;
+}
+
+.gallery__name {
+  font-size: var(--t-small);
+  font-weight: 700;
+}
+
+/* Every glyph in a row sits on one baseline, whatever its height. */
+.gallery__glyphs {
+  display: flex;
+  align-items: flex-end;
+  height: 72px;
+}
+
+.gallery__pair {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+
+/* A strip of ports at the Faceplate board's pitch: 36 units between
+   centres of the small glyphs. Bottom-aligned, as they sit on a plate. */
+.gallery__plate {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--surface-2);
+}
+
+.gallery__gap { width: var(--s5); }
+
+.gallery__body--isolation {
+  gap: var(--s8);
+}
+
+.gallery__island {
+  width: 120px;
+  height: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.gallery__foot {
+  padding: var(--s2) var(--s4);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}

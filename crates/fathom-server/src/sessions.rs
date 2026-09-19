@@ -14,10 +14,16 @@
 //! is made structural here rather than asserted:
 //!
 //! * [`VerifiedSession`] has private fields and no public constructor. The
-//!   only thing that produces one is [`SessionStore::verify_request`], which
-//!   recomputes the row MAC, consumes a single-use nonce and verifies an
-//!   ES256 signature over the request's own method, path, body digest, nonce
-//!   and time before it returns.
+//!   only thing that produces one is [`SessionStore::verify_pending`], which
+//!   recomputes the row MAC, checks that the session has not been recorded as
+//!   signed out, re-resolves the evidence key and verifies an ES256 signature
+//!   over the request's own method, path, body digest, nonce and time before
+//!   it returns — all of it inside the caller's transaction, so that whatever
+//!   the caller authorises next sees the same snapshot.
+//!   [`SessionStore::begin_request`] spends the single-use nonce first, in a
+//!   transaction of its own that commits whatever the handler then does, and
+//!   [`SessionStore::verify_request`] is the two together for a caller with
+//!   nothing else to do.
 //! * It does **not** expose an `AccountId`. It exposes
 //!   [`VerifiedSession::principal_id`], a string for logging and for tests,
 //!   and that is not a type the repository layer accepts.
@@ -40,13 +46,22 @@
 //!   enrolled in `account_keys` (§15.1's deliberate downgrade). The challenge
 //!   derivation is the one §4.2 specifies, so the WebAuthn path lands on the
 //!   same bytes when it is built.
-//! * **No operator authenticator.** §4.5 is kept exactly — an operator
-//!   session is `A1` or it does not exist — and there is no table an
-//!   operator's key could be enrolled in yet, so the operator sign-in surface
-//!   refuses every attempt with [`SessionError::OperatorHasNoAuthenticator`]
-//!   rather than growing a re-issuable factor to fill the gap.
+//! * **No operator password, and no operator anything-but-a-key.** §4.5 is
+//!   kept exactly: an operator session is `A1` or it does not exist. Since
+//!   `migrations/0015` there IS a table an operator's key is enrolled in
+//!   (`operator_keys`), so the operator branch of sign-in now resolves a key
+//!   and verifies a signature over the same challenge an account signs —
+//!   **the same mechanism, on the other plane**, which is what §4.5 asks for.
+//!   An operator with no key enrolled is refused with the same message an
+//!   unknown address gets; there is no weaker factor to fall back to and
+//!   there must never be one.
 //! * **No verdict is cached.** Every request re-reads the row, re-verifies the
 //!   MAC, re-resolves the evidence key and re-verifies a fresh signature.
+//! * **No background task.** `migrations/0014_session_hardening.sql` §C's
+//!   sweep of expired rows runs on the write path of each of the three tables
+//!   it is about, because this deployment is two interchangeable containers
+//!   with no scheduler and a sweeper that runs in one of them stops when that
+//!   one is rescheduled.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -63,6 +78,7 @@ use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
 use crate::keys::{KeyRing, KeyStoreError};
+use crate::operators;
 use crate::repo::{self, AccountId, OrganisationId, RepoError, TenantContext};
 
 // ---------------------------------------------------------------------------
@@ -81,6 +97,13 @@ const TAG_SESSION_TOKEN: &[u8] = b"fathom/session/token/v1";
 
 /// The software-key analogue of §4.3's `assertion_digest`.
 const TAG_SESSION_EVIDENCE: &[u8] = b"fathom/session/evidence/v1";
+
+/// HKDF `info` from the site chain key → `K_addr`, the key the claimed
+/// sign-in address is hashed under. `0014` §A.
+const KDF_SESSION_ADDRESS: &[u8] = b"fathom/session/kdf/address/v1";
+
+/// In-MAC tag of the claimed-address key. `0014` §A.
+const TAG_SESSION_ADDRESS: &[u8] = b"fathom/session/address/v1";
 
 /// **Every label this module introduces, for `PHASE-2-STORAGE-DESIGN.md`
 /// §12.2's table, which owns them.**
@@ -120,6 +143,16 @@ pub const LABELS: &[(&str, &str)] = &[
          LP(evidence_sig)). §4.3's `assertion_digest` presumes WebAuthn; §15.1 ships software \
          keys",
     ),
+    (
+        "fathom/session/kdf/address/v1",
+        "HKDF `info` from the SITE chain key → `K_addr`, the key a claimed sign-in address is \
+         hashed under so the rate-limit table never holds a list of addresses that are not \
+         accounts (0014 §A). Same shape as `authority::row_key`'s expansion of the same input",
+    ),
+    (
+        "fathom/session/address/v1",
+        "in-MAC tag of the claimed-address key: MAC(K_addr, LP(tag) ‖ LP(address)) (0014 §A)",
+    ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -154,26 +187,102 @@ pub const CLOCK_SKEW: Duration = NONCE_LIFETIME;
 /// way to grow a table without bound.
 pub const MAX_OUTSTANDING_NONCES: i64 = 32;
 
+/// How far past the mark recorded when a nonce was issued a request counter
+/// may sit before it is refused (`0014`, finding 7).
+///
+/// **Without an upper bound the counter is a brick.** `request_counter` is
+/// stored as `GREATEST(request_counter, $counter)`, so one signed request
+/// carrying `i64::MAX` set the high-water mark to `i64::MAX` and no later
+/// nonce could ever satisfy `counter > issued_counter` again. The session was
+/// dead for the rest of its twelve hours and nothing but a sign-out could
+/// clear it — a self-inflicted denial of service a stolen bearer token could
+/// trigger against the person it was stolen from.
+///
+/// The window is [`MAX_OUTSTANDING_NONCES`] because that is exactly how many
+/// requests one browser may legitimately have in flight against one mark: all
+/// of them share an `issued_counter` and each picks the next value of its own
+/// tally, so `issued + 1 ..= issued + 32` is the whole legitimate range and
+/// anything beyond it is a client that has lost count or an attacker.
+pub const COUNTER_WINDOW: i64 = MAX_OUTSTANDING_NONCES;
+
+/// The absolute range a client-supplied millisecond timestamp must be inside
+/// **before any arithmetic touches it** (`0014`, finding 5).
+///
+/// `fathom-timestamp: -9223372036854775808` parsed cleanly as an `i64` and
+/// reached `now * 1000 - unix_ms`, which overflows — and the server profile
+/// sets `overflow-checks = true`, so that is a panic, and `.abs()` on
+/// `i64::MIN` panics on the same line for a second reason. A header panicked
+/// the request task.
+///
+/// The bound is the honest one rather than the one the arithmetic needs: a
+/// request timestamp is a wall clock in milliseconds, so it is at or after the
+/// epoch and before the end of the four-digit years. Checked arithmetic
+/// follows anyway, because a bound that is later widened must not quietly
+/// re-open the panic.
+pub const MIN_UNIX_MS: i64 = 0;
+
+/// The upper half of [`MIN_UNIX_MS`]'s range: `9999-12-31T23:59:59.999Z`.
+pub const MAX_UNIX_MS: i64 = 253_402_300_799_999;
+
+/// How many expired rows one write sweeps (`0014` §C).
+///
+/// **A sweep on the write path, not a background task**: this deployment is
+/// two interchangeable containers with no scheduler, and a sweeper that runs
+/// in one of them stops when that one is rescheduled. Bounded so that one
+/// unlucky request does not pay for a year of accumulated rows, and large
+/// enough that the steady state is bounded by the arrival rate — every write
+/// clears far more than the one row it adds.
+pub const SWEEP_BATCH: i64 = 256;
+
 /// §13 item 7's shape, which the design does not specify. See
-/// `migrations/0013_sessions.sql` §D for the argument; this is the part a
-/// deployment can change.
+/// `migrations/0013_sessions.sql` §D for the argument and
+/// `migrations/0014_session_hardening.sql` §0 for the correction to it; this
+/// is the part a deployment can change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignInLimits {
     /// `FATHOM_SIGNIN_WINDOW_SECONDS`. The fixed window both buckets count in.
     pub window: Duration,
-    /// `FATHOM_SIGNIN_MAX_PER_ACCOUNT`. **Failures** against one account.
+    /// `FATHOM_SIGNIN_MAX_PER_ACCOUNT`. **Failures** against one claimed
+    /// identity — an account id where the address resolved, a keyed hash of
+    /// the address where it did not (`0014` §A).
     pub max_per_account: i32,
-    /// `FATHOM_SIGNIN_MAX_PER_SOURCE`. **Attempts** from one source address.
+    /// `FATHOM_SIGNIN_MAX_PER_SOURCE`. **Attempts** from one source address,
+    /// counted at `/session/challenge` as well as at `/session`, so one
+    /// complete sign-in costs two.
     pub max_per_source: i32,
 }
 
 impl SignInLimits {
-    /// Fifteen minutes, ten failures per account, thirty attempts per source.
+    /// Fifteen minutes, ten failures per claimed identity, thirty attempts per
+    /// source.
     ///
-    /// The account number is a lockout and the source number is a rate limit,
-    /// which is why they differ: a legitimate person fails a signature a
-    /// handful of times at most (a wrong profile, a stale key), while a
-    /// legitimate office behind one address signs in all morning.
+    /// # Both numbers are rate limits. Neither is a lockout
+    ///
+    /// **Decided 2026-09-14, and `0014` §0 carries the whole argument.** This
+    /// doc comment used to read *"the account number is a lockout and the
+    /// source number is a rate limit"*, and `0013` §D said either bucket
+    /// refuses. Neither was true of the code: [`SessionStore::sign_in`] checks
+    /// the source bucket before it attempts anything and reads the account
+    /// bucket only on a path that has already failed, so a caller whose
+    /// signature is good has never been refused by the account bucket however
+    /// many failures that identity has collected.
+    ///
+    /// It stays that way. On an unauthenticated surface a lockout hands an
+    /// attacker a denial of service against a named person for the price of
+    /// eleven bad signatures, and there is no password here to brute force —
+    /// the factor is a signature by a key enrolled in `account_keys`, and the
+    /// only way past it is the private half. What the account bucket buys is a
+    /// bound on how much work and how much sealed audit one claimed identity
+    /// can cause inside a window, which is worth having and is all it claims.
+    ///
+    /// The two numbers still differ, for the reason they always did: a
+    /// legitimate person fails a signature a handful of times at most (a wrong
+    /// profile, a stale key), while a legitimate office behind one address
+    /// signs in all morning.
+    ///
+    /// **Thirty per source is fifteen complete sign-ins**, since `0014` counts
+    /// the challenge route too. A deployment behind a single NAT should raise
+    /// it; that is what `FATHOM_SIGNIN_MAX_PER_SOURCE` is for.
     pub fn defaults() -> Self {
         Self {
             window: Duration::from_secs(15 * 60),
@@ -360,6 +469,49 @@ pub fn evidence_digest(challenge: &[u8; 32], evidence_sig: &[u8]) -> [u8; 32] {
     Sha256::digest(&msg).into()
 }
 
+/// The keyed hash a claimed sign-in address is counted under (`0014` §A).
+///
+/// ```text
+/// K_addr              = HKDF-Expand(site chain key,
+///                                   "fathom/session/kdf/address/v1", 32)
+/// claimed_address_key = MAC(K_addr, LP("fathom/session/address/v1")
+///                                   ‖ LP(address))
+/// ```
+///
+/// # Why the table may not hold the address
+///
+/// The defect this closes is an account oracle: the account bucket used to be
+/// counted only when the consumed bind nonce carried a principal, so an
+/// address belonging to nobody never crossed the cap and always answered `401`
+/// while a real one answered `429`. Counting both closes it — but the bucket
+/// key is stored, and storing the addresses that are NOT accounts means
+/// storing whatever people type into a sign-in box, which is their address at
+/// some other service often enough to matter and occasionally a password typed
+/// into the wrong field. A keyed hash groups attempts per address for as long
+/// as the window lasts and is not a list of addresses to anybody holding the
+/// database, because `K_addr` is derived from the chain master and the chain
+/// master is not in PostgreSQL.
+///
+/// # Derived from the site chain key, exactly as `authority::row_key` is
+///
+/// The site chain key is the one key in this deployment that is the same for
+/// every organisation, and a sign-in is not organisation-scoped. The label is
+/// new because this is a new USE of that key, which is the rule
+/// `PHASE-2-STORAGE-DESIGN.md` §12.2 states for when a label is and is not
+/// warranted.
+///
+/// **The address is hashed exactly as it was typed.** No case folding and no
+/// trimming, because `account_by_address` matches exactly too: a variant
+/// spelling resolves to no account, lands in its own bucket, and is refused
+/// for the same reason any other unknown address is.
+pub fn claimed_address_key(site_chain_key: &Key32, address: &str) -> [u8; 32] {
+    let subkey = crypto::hkdf_expand(site_chain_key, KDF_SESSION_ADDRESS);
+    let mut msg = Vec::with_capacity(96);
+    crypto::lp(&mut msg, TAG_SESSION_ADDRESS);
+    crypto::lp(&mut msg, address.as_bytes());
+    crypto::mac(subkey.expose(), &msg)
+}
+
 // ---------------------------------------------------------------------------
 // Small types
 // ---------------------------------------------------------------------------
@@ -392,6 +544,41 @@ impl PrincipalKind {
             _ => None,
         }
     }
+}
+
+/// Which key a failed sign-in is counted against in the account bucket
+/// (`0014` §A).
+///
+/// **Both variants are counted and both land in the same bucket kind**, which
+/// is the whole point: an address that resolves to an account and one that
+/// resolves to nothing must cross the cap at the same attempt and change the
+/// answer in the same way, or the rate limiter is an oracle over the
+/// deployment's user list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AccountBucket {
+    /// The account id the consumed bind nonce named.
+    Account(String),
+    /// The hex of [`claimed_address_key`], for an address that named none.
+    ClaimedAddress(String),
+}
+
+impl AccountBucket {
+    fn key(&self) -> &str {
+        match self {
+            Self::Account(id) => id,
+            Self::ClaimedAddress(key) => key,
+        }
+    }
+}
+
+/// Which of a `sign_in_attempts` row's two latches is being taken.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Latch {
+    /// `locked_entry_written` — this bucket crossed its cap.
+    Locked,
+    /// `anon_entry_written` — a refusal from this source with no account
+    /// behind it (`0014` §B).
+    Anonymous,
 }
 
 /// §4.3's assurance. `A1` is the only value anything writes today.
@@ -436,6 +623,33 @@ pub struct SignedRequest<'a> {
     pub signature: [u8; 64],
 }
 
+/// A request whose single-use nonce has been spent and which is waiting to be
+/// verified — inside the transaction that will also authorise it (`0014`,
+/// finding 8).
+///
+/// **This is not an actor and cannot become one by itself.** Holding it proves
+/// only that a nonce issued to some session id was fresh a moment ago; every
+/// check that matters — the row's MAC, the account, the evidence key, the
+/// clock, the counter and the signature — is still ahead of it, and
+/// [`VerifiedSession`] is still what nothing but
+/// [`SessionStore::verify_pending`] produces. It exists because a transaction
+/// cannot be carried across an axum extractor, so the request has to be
+/// carried instead.
+///
+/// It owns its fields rather than borrowing the request, for the same reason:
+/// the `Request` it came from is gone by the time a handler runs.
+pub struct PendingRequest {
+    session_id: String,
+    method: String,
+    path: String,
+    body_digest: [u8; 32],
+    nonce: [u8; 32],
+    unix_ms: i64,
+    counter: i64,
+    signature: [u8; 64],
+    issued_counter: i64,
+}
+
 /// A session that has just proved itself on this request.
 ///
 /// **Private fields, no public constructor, and no accessor that yields an
@@ -457,8 +671,14 @@ impl VerifiedSession {
     }
 
     /// The principal, as text. **Deliberately not an `AccountId`**: the
-    /// repository layer takes `AccountId`, and the only way to hand it one
-    /// derived from a session is [`open_tenant_context`].
+    /// repository layer takes `AccountId`, and the only ways to hand it one
+    /// derived from a session are [`open_tenant_context`] and
+    /// [`account_without_tenant`] — named functions, so that every place a
+    /// session becomes an actor is greppable.
+    ///
+    /// This returns text for logging, comparison and audit entries. Parsing
+    /// it back into an `AccountId` is exactly the bypass those two functions
+    /// exist to prevent; call one of them instead.
     pub fn principal_id(&self) -> String {
         self.actor.to_string()
     }
@@ -482,6 +702,10 @@ pub struct SignedIn {
     /// The bearer half, returned once and never stored in the clear.
     pub token: [u8; 32],
     pub expires_at_unix: i64,
+    /// The principal's ulid. ADR-0053 §3: the client stamps this as the
+    /// actor on every change it makes, so undo can tell its own batches from
+    /// a colleague's.
+    pub account_id: String,
 }
 
 impl core::fmt::Debug for SignedIn {
@@ -494,6 +718,7 @@ impl core::fmt::Debug for SignedIn {
             .field("session_id", &self.session_id)
             .field("token", &"<not printed>")
             .field("expires_at_unix", &self.expires_at_unix)
+            .field("account_id", &self.account_id)
             .finish()
     }
 }
@@ -520,6 +745,28 @@ pub struct Challenge {
 /// accounts. The sealed `account_signin_failed` entry carries the real reason,
 /// where an operator can read it and an attacker cannot.
 ///
+/// **One variant was not enough on its own, and `0014` §A is the fix.** The
+/// uniform message was undone one layer up by [`SessionError::RateLimited`],
+/// which only a real address could ever reach: the account bucket was counted
+/// only for an address that resolved, so an unknown one answered the uniform
+/// refusal for ever while a known one changed to a `429` with a `Retry-After`
+/// header at the eleventh attempt. A refusal is uniform only if *every*
+/// refusal this surface can produce is uniform, at every attempt, which is now
+/// what `tests/sessions.rs` asserts rather than assuming from one try.
+///
+/// **What is closed and what is not, stated narrowly.** What is closed is the
+/// answer: status, headers and body are identical for a known and an unknown
+/// address at every attempt, below the cap and above it, tested over the wire.
+/// What is **not** closed is how long the answer takes. An address that
+/// resolves sends this code on to read `accounts`, resolve a live signing key,
+/// verify that key's own row seal and verify an ES256 signature; an address
+/// that resolves to nothing stops several steps earlier. That is a timing
+/// difference of real size, it is not measured here, and it is not defended
+/// against. Closing it means doing the same work either way — verifying a
+/// signature against a decoy key for an address nobody holds — which changes
+/// what sign-in *does* rather than what it answers, and is not this build's.
+/// **Nothing here is a claim that sign-in is constant time.**
+///
 /// **[`SessionError::Unverifiable`] is NOT a permission error**, on §3.4's
 /// argument: a row MAC that does not recompute means the store is not telling
 /// the truth about itself, and rendering that as "please sign in again" would
@@ -537,17 +784,31 @@ pub enum SessionError {
     /// master. §4.3's second fence, caught.
     Unverifiable(&'static str),
     /// Sign-in did not succeed. One variant for every cause, on purpose.
+    ///
+    /// **`OperatorHasNoAuthenticator` was a variant here until `0015` and is
+    /// deliberately gone.** It said, to an unauthenticated caller, that the
+    /// operator plane had no key enrolled — which was harmless while no
+    /// operator could exist at all and became an oracle the moment one could:
+    /// an attacker walking operator ids would learn which of them have
+    /// enrolled and which are still holding a token. §4.5 is unchanged and is
+    /// kept by the code rather than by the error type: an operator session is
+    /// `A1` or it does not exist, and there is no password path to fall back
+    /// to.
     SignInRefused,
     /// Too many attempts in this window (§13 item 7).
     RateLimited {
         retry_after_seconds: i64,
     },
-    /// §4.5: an operator session is `A1` or it does not exist, and no operator
-    /// authenticator can be enrolled yet. **There is no password path to fall
-    /// back to and there must never be one.**
-    OperatorHasNoAuthenticator,
     /// No live session with that id.
     NoSuchSession,
+    /// This session id is in `session_revocations`: it was signed out, and the
+    /// row presenting itself now is one a restore put back (`0014` §D).
+    ///
+    /// **Rendered exactly as [`SessionError::NoSuchSession`]** — a signed-out
+    /// session and an unknown one are one answer from outside — but kept as
+    /// its own variant so that the log line an operator reads says which of
+    /// the two it was, and so that a test can tell them apart.
+    SessionRevoked,
     /// The request carried no signature at all, or one this layer could not
     /// even parse.
     ///
@@ -574,7 +835,11 @@ pub enum SessionError {
         by_seconds: i64,
     },
     /// The counter did not advance past the value recorded when the nonce was
-    /// issued.
+    /// issued, or it ran further than [`COUNTER_WINDOW`] past it.
+    ///
+    /// **Both directions are one variant.** They are the same fact from the
+    /// verifier's side — this request's counter is not the next one — and
+    /// telling them apart would tell a caller what the stored mark is.
     CounterNotFresh,
     /// The per-request signature was refused, with `authority`'s reason.
     Signature(SignatureRefused),
@@ -615,12 +880,11 @@ impl core::fmt::Display for SessionError {
                 f,
                 "too many sign-in attempts; this window closes in {retry_after_seconds} seconds"
             ),
-            Self::OperatorHasNoAuthenticator => f.write_str(
-                "an operator session is A1 or it does not exist (§4.5), and no operator \
-                 authenticator is enrolled on this deployment. There is no password path on the \
-                 operator surface and there must never be one",
-            ),
             Self::NoSuchSession => f.write_str("no live session with that id"),
+            Self::SessionRevoked => f.write_str(
+                "this session was signed out and is recorded as signed out, so the row \
+                 presenting itself now is one something put back",
+            ),
             Self::NotSigned => f.write_str(
                 "this route serves only signed requests: §4.1 clause (b), a fresh signature by \
                  the key this session's browser holds",
@@ -639,9 +903,10 @@ impl core::fmt::Display for SessionError {
                 f,
                 "this request's own timestamp is {by_seconds} seconds from this server's clock"
             ),
-            Self::CounterNotFresh => {
-                f.write_str("the request counter did not advance past the issued nonce's mark")
-            }
+            Self::CounterNotFresh => f.write_str(
+                "the request counter is not the next one: it did not advance past the issued \
+                 nonce's mark, or it ran further than a window past it",
+            ),
             Self::Signature(e) => write!(f, "{e}"),
             Self::TooManyNonces => write!(
                 f,
@@ -766,11 +1031,27 @@ impl SessionStore {
     /// column of it is NULL — so the response cannot be used to enumerate
     /// accounts. The refusal happens at [`SessionStore::sign_in`], after the
     /// attempt has been counted.
+    ///
+    /// # Two things `0014` changed here
+    ///
+    /// 1. **The route is rate limited against the source bucket.** It was not,
+    ///    and it writes a row: one anonymous POST was one permanent
+    ///    `session_nonces` row, since nothing swept and the only deletes
+    ///    matched one exact nonce. It costs one count, so a complete sign-in
+    ///    costs two against `max_per_source` — see [`SignInLimits::defaults`].
+    /// 2. **The claimed address's keyed hash travels on the nonce row**
+    ///    ([`claimed_address_key`], `0014` §A), for every bind nonce and not
+    ///    only for the ones that resolve to nothing. §4.2 deliberately keeps
+    ///    the address out of the sign-in message, so this is the only place it
+    ///    is known; without it the account bucket cannot be counted for an
+    ///    address that belongs to nobody, and that asymmetry was an oracle
+    ///    over the deployment's user list.
     pub async fn issue_challenge(
         &self,
         kind: PrincipalKind,
         address: &str,
         session_pubkey: &[u8],
+        source: &str,
     ) -> Result<Challenge, SessionError> {
         check_public_key(session_pubkey)?;
 
@@ -778,25 +1059,52 @@ impl SessionStore {
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
 
-        // An operator has no keyring to resolve an address against, so the
-        // principal is always absent on that plane. §4.5 is kept by refusing
-        // at sign-in, not by refusing to issue a nonce, so the two planes
-        // cannot be told apart from outside either.
+        // Expired rows first, so the table this is about to write to is the
+        // one that pays for its own growth (`0014` §C).
+        sweep_expired_nonces(&tx).await?;
+
+        let source_count = self
+            .count_attempt(&tx, "source", source)
+            .await?
+            .unwrap_or(0);
+        if source_count > self.limits.max_per_source {
+            let e = self
+                .refuse(&tx, None, source, "rate_limited_source", kind)
+                .await;
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(e);
+        }
+
+        // **What an operator types in the address box is their operator id**,
+        // and the resolution is the same shape either way: a string that names
+        // nobody produces a nonce with no principal, byte-identical to one
+        // that does, and the refusal happens at sign-in after the attempt has
+        // been counted.
+        //
+        // §4.5 gives an operator no address of record — there is no reset path
+        // to send anything to — so there is nothing else to resolve them by.
+        // The id is not a secret and is not treated as one: it is the operator
+        // plane's equivalent of an address, and possession of the enrolled
+        // private key is the whole of the factor.
         let principal = match kind {
             PrincipalKind::Steward => account_by_address(&tx, address).await?,
-            PrincipalKind::Operator => None,
+            PrincipalKind::Operator => operator_by_id(&tx, address).await?,
         };
+        let claimed = claimed_address_key(&grants::site_chain_key(&tx, &self.ring).await?, address);
 
         let nonce = random_32()?;
         tx.execute(
             "INSERT INTO session_nonces \
-                 (nonce, purpose, session_pubkey, principal_id, principal_kind, expires_at) \
-             VALUES ($1, 'bind', $2, $3, $4, now() + make_interval(secs => $5))",
+                 (nonce, purpose, session_pubkey, principal_id, principal_kind, \
+                  claimed_address_key, expires_at) \
+             VALUES ($1, 'bind', $2, $3, $4, $5, now() + make_interval(secs => $6))",
             &[
                 &nonce.to_vec(),
                 &session_pubkey.to_vec(),
                 &principal,
                 &principal.as_ref().map(|_| kind.as_str()),
+                &claimed.to_vec(),
                 &(NONCE_LIFETIME.as_secs() as f64),
             ],
         )
@@ -858,8 +1166,17 @@ impl SessionStore {
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
 
-        // (1) The source bucket counts every attempt, not only the failures:
-        // it is a rate limit, where the account bucket below is a lockout.
+        // Expired rows first — this call writes to all three session tables
+        // and each pays for its own growth (`0014` §C).
+        sweep_expired_nonces(&tx).await?;
+        sweep_expired_sessions(&tx).await?;
+
+        // (1) The source bucket counts every attempt, not only the failures.
+        // **Both buckets are rate limits and neither is a lockout** — `0014`
+        // §0 carries the decision and [`SignInLimits::defaults`] carries the
+        // argument. What differs is not their nature but when they are
+        // consulted: the source bucket before anything is looked up, the
+        // account bucket on a path that has already failed.
         let source_count = self
             .count_attempt(&tx, "source", source)
             .await?
@@ -891,9 +1208,9 @@ impl SessionStore {
                 .await?;
                 Ok(signed_in.1)
             }
-            Err((account, reason, error)) => {
+            Err((bucket, reason, error)) => {
                 let counted = self
-                    .refuse(&tx, account.as_deref(), source, reason, kind)
+                    .refuse(&tx, bucket.as_ref(), source, reason, kind)
                     .await;
                 // A rate-limit refusal outranks the underlying reason: the
                 // caller must be told to wait rather than to try again.
@@ -909,9 +1226,62 @@ impl SessionStore {
         result
     }
 
+    /// Count one attempt against the source bucket §13 item 7 already keeps —
+    /// the same `sign_in_attempts` rows, the same window, the same cap — and
+    /// refuse over it exactly as [`SessionStore::issue_challenge`] and
+    /// [`SessionStore::sign_in`] do: the same [`SessionError::RateLimited`],
+    /// carrying the same `Retry-After`.
+    ///
+    /// **For a caller with no session to compose [`sign_in`](Self::sign_in)
+    /// with** — `admin.rs`'s two enrolment-redemption routes, which by
+    /// necessity serve an unauthenticated caller (the module header says why)
+    /// and so had no rate limit and no lockout at all. This is not a second
+    /// limiter: it is `count_attempt`/`refuse`, the ones §13 item 7 already
+    /// built, reached from a caller that is not a sign-in. A source that has
+    /// spent its budget guessing addresses at `/session` has spent it here
+    /// too, and one that has spent it here has that much less left for
+    /// `/session`.
+    ///
+    /// `kind` picks which of the two site-chain types the cap's own sealed
+    /// entry is filed under when it fires — [`EntryType::AccountSigninFailed`]
+    /// or [`EntryType::OperatorSigninFailed`] — matching which redemption
+    /// route the caller reached, not because a redemption IS a sign-in but
+    /// because §13 item 7's *"one entry per (source, window)"* latch already
+    /// lives on those two types and a third type would need a migration this
+    /// change does not make.
+    ///
+    /// [`EntryType::AccountSigninFailed`]: crate::chain::EntryType::AccountSigninFailed
+    /// [`EntryType::OperatorSigninFailed`]: crate::chain::EntryType::OperatorSigninFailed
+    pub async fn check_source_budget(
+        &self,
+        kind: PrincipalKind,
+        source: &str,
+    ) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+
+        let source_count = self
+            .count_attempt(&tx, "source", source)
+            .await?
+            .unwrap_or(0);
+        if source_count > self.limits.max_per_source {
+            let e = self
+                .refuse(&tx, None, source, "rate_limited_source", kind)
+                .await;
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(e);
+        }
+
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// The part of [`SessionStore::sign_in`] that can fail without the
-    /// transaction being poisoned. Returns the account id alongside the error
-    /// so the failure can be counted against the right bucket.
+    /// transaction being poisoned. Returns the bucket the failure belongs to
+    /// alongside the error, so it can be counted against the right one.
     #[allow(clippy::type_complexity)]
     async fn attempt_sign_in(
         &self,
@@ -920,7 +1290,7 @@ impl SessionStore {
         session_pubkey: &[u8],
         nonce: &[u8; 32],
         evidence_sig: &[u8],
-    ) -> Result<(String, SignedIn), (Option<String>, &'static str, SessionError)> {
+    ) -> Result<(String, SignedIn), (Option<AccountBucket>, &'static str, SessionError)> {
         // (2) Consume the nonce. `DELETE ... RETURNING` is the whole of
         // "single use": no row back means it was never issued, has already
         // been used, or has expired, and those are one fact from here.
@@ -928,13 +1298,30 @@ impl SessionStore {
             .query_opt(
                 "DELETE FROM session_nonces \
                   WHERE nonce = $1 AND purpose = 'bind' AND expires_at > now() \
-                  RETURNING session_pubkey, principal_id, principal_kind",
+                  RETURNING session_pubkey, principal_id, principal_kind, claimed_address_key",
                 &[&nonce.to_vec()],
             )
             .await
             .map_err(|e| (None, "database", SessionError::Db(e)))?;
         let Some(consumed) = consumed else {
+            // **No bucket, and that is not a hole.** A nonce that was never
+            // issued names no claimed identity at all, so there is nothing to
+            // count it against — and a known address and an unknown one reach
+            // this branch identically, which is the property that matters.
+            // The source bucket has already counted the attempt.
             return Err((None, "nonce_not_fresh", SessionError::SignInRefused));
+        };
+
+        // Which bucket this attempt belongs to, decided before anything can
+        // fail: the account the nonce named, or — when it named none — the
+        // keyed hash of the address that was claimed (`0014` §A). **Both are
+        // counted.** Counting only the first was the account oracle.
+        let principal: Option<String> = consumed.get(1);
+        let claimed: Option<Vec<u8>> = consumed.get(3);
+        let bucket = match (&principal, &claimed) {
+            (Some(account), _) => Some(AccountBucket::Account(account.clone())),
+            (None, Some(key)) => Some(AccountBucket::ClaimedAddress(hex(key))),
+            (None, None) => None,
         };
 
         // The challenge is derived over the key the nonce was issued for. A
@@ -945,88 +1332,156 @@ impl SessionStore {
         let bound_pubkey: Vec<u8> = consumed.get(0);
         if bound_pubkey != session_pubkey {
             return Err((
-                None,
+                bucket,
                 "pubkey_not_the_bound_one",
                 SessionError::SignInRefused,
             ));
         }
 
-        let principal: Option<String> = consumed.get(1);
         let principal_kind: Option<String> = consumed.get(2);
         let Some(account) = principal else {
-            // No account for that address, or the operator plane, where there
-            // is no keyring at all.
-            return match kind {
-                PrincipalKind::Operator => Err((
-                    None,
-                    "operator_has_no_authenticator",
-                    SessionError::OperatorHasNoAuthenticator,
-                )),
-                PrincipalKind::Steward => {
-                    Err((None, "no_such_account", SessionError::SignInRefused))
-                }
-            };
+            // The claimed identity — an address on the account plane, an
+            // operator id on the operator plane — resolved to nobody. One
+            // answer for both planes and for both reasons.
+            return Err((bucket, "no_such_principal", SessionError::SignInRefused));
         };
         if principal_kind.as_deref() != Some(kind.as_str()) {
             return Err((
-                Some(account),
+                Some(AccountBucket::Account(account)),
                 "principal_kind_mismatch",
                 SessionError::SignInRefused,
             ));
         }
-        if kind == PrincipalKind::Operator {
-            return Err((
-                Some(account),
-                "operator_has_no_authenticator",
-                SessionError::OperatorHasNoAuthenticator,
-            ));
-        }
 
-        // (3) The account, and whether it may sign in at all.
-        let disabled = tx
-            .query_opt(
-                "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
-                &[&account],
-            )
-            .await
-            .map_err(|e| (Some(account.clone()), "database", SessionError::Db(e)))?;
-        match disabled {
-            Some(row) if row.get::<_, bool>(0) => {
-                return Err((
-                    Some(account),
-                    "account_disabled",
-                    SessionError::SignInRefused,
-                ))
-            }
-            Some(_) => {}
-            None => {
-                return Err((
-                    Some(account),
-                    "no_such_account",
-                    SessionError::SignInRefused,
-                ))
-            }
-        }
-
-        // `account_keys` is read through a policy that shows an account its
-        // own rows when `app.account_id` names it. Sign-in is exactly that
-        // case: the account is the one the consumed nonce named, never one the
-        // caller supplied.
-        set_account_id(tx, &account)
-            .await
-            .map_err(|e| (Some(account.clone()), "database", e))?;
+        // (3) The principal, whether it may sign in at all, and the key it
+        // signs with. **Two planes, one shape.** An account has a disabled
+        // flag and a keyring row; an operator has a disabled flag, a keyring
+        // row of its own, and one check an account does not need — that the
+        // register row itself verifies. Every refusal below is the refusal the
+        // other plane gives, so the two cannot be told apart from outside.
         let now = now_unix();
-        let key = match grants::live_signing_key(tx, &self.ring, &account, now).await {
-            Ok(key) => key,
-            Err(AuthorityError::NoSigningKey) => {
-                return Err((Some(account), "no_signing_key", SessionError::SignInRefused))
+        let key: SignInKey = match kind {
+            PrincipalKind::Steward => {
+                let disabled = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
+                        &[&account],
+                    )
+                    .await
+                    .map_err(|e| {
+                        (
+                            Some(AccountBucket::Account(account.clone())),
+                            "database",
+                            SessionError::Db(e),
+                        )
+                    })?;
+                match disabled {
+                    Some(row) if row.get::<_, bool>(0) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "account_disabled",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                    Some(_) => {}
+                    None => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_such_account",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                }
+
+                // `account_keys` is read through a policy that shows an account
+                // its own rows when `app.account_id` names it. Sign-in is
+                // exactly that case: the account is the one the consumed nonce
+                // named, never one the caller supplied.
+                set_account_id(tx, &account)
+                    .await
+                    .map_err(|e| (Some(AccountBucket::Account(account.clone())), "database", e))?;
+                match grants::live_signing_key(tx, &self.ring, &account, now).await {
+                    Ok(key) => SignInKey {
+                        id: key.id,
+                        public_key: key.public_key,
+                        fpr: key.fpr,
+                    },
+                    Err(AuthorityError::NoSigningKey) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_signing_key",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                    Err(e @ AuthorityError::Unverifiable(_)) => {
+                        // An integrity alarm, not a sign-in failure: say so
+                        // rather than folding it into the uniform refusal.
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "keyring_unverifiable",
+                            e.into(),
+                        ));
+                    }
+                    Err(e) => {
+                        return Err((Some(AccountBucket::Account(account)), "keyring", e.into()))
+                    }
+                }
             }
-            Err(e @ AuthorityError::Unverifiable(_)) => {
-                // An integrity alarm, not a sign-in failure: say so rather
-                // than folding it into the uniform refusal.
-                return Err((Some(account), "keyring_unverifiable", e.into()));
+            PrincipalKind::Operator => {
+                // **The register row is verified, not merely read.**
+                // `operators::verify_operator_row` recomputes its seal AND
+                // checks the site-chain entry that created it — §5.4's
+                // interlock applied to the register itself, so an operator row
+                // minted by whoever holds the database cannot sign in.
+                let row = match operators::verify_operator_row(tx, &self.ring, &account).await {
+                    Ok(row) => row,
+                    Err(operators::OperatorError::Unverifiable(what)) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "operator_row_unverifiable",
+                            SessionError::Unverifiable(what),
+                        ))
+                    }
+                    Err(_) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_such_operator",
+                            SessionError::SignInRefused,
+                        ))
+                    }
+                };
+                if row.disabled_at_unix != 0 {
+                    return Err((
+                        Some(AccountBucket::Account(account)),
+                        "operator_disabled",
+                        SessionError::SignInRefused,
+                    ));
+                }
+                match operators::live_operator_key(tx, &self.ring, &account, now).await {
+                    Ok(key) => SignInKey {
+                        id: key.id,
+                        public_key: key.public_key,
+                        fpr: key.fpr,
+                    },
+                    Err(operators::OperatorError::Unverifiable(what)) => {
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "operator_keyring_unverifiable",
+                            SessionError::Unverifiable(what),
+                        ))
+                    }
+                    Err(_) => {
+                        // §4.5: an operator session is `A1` or it does not
+                        // exist. No key, no session, and no weaker factor to
+                        // fall back to.
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_signing_key",
+                            SessionError::SignInRefused,
+                        ));
+                    }
+                }
             }
-            Err(e) => return Err((Some(account), "keyring", e.into())),
         };
 
         // (4) The evidence signature.
@@ -1034,7 +1489,7 @@ impl SessionStore {
         if let Err(refused) = authority::verify_es256(&key.public_key, &challenge, evidence_sig) {
             let _ = refused;
             return Err((
-                Some(account),
+                Some(AccountBucket::Account(account)),
                 "evidence_signature",
                 SessionError::SignInRefused,
             ));
@@ -1042,15 +1497,22 @@ impl SessionStore {
 
         // (5) The entry first, then the row whose MAC covers its seq.
         let id = ids::new_ulid().to_string();
-        let token = random_32().map_err(|e| (Some(account.clone()), "random", e))?;
+        let token = random_32()
+            .map_err(|e| (Some(AccountBucket::Account(account.clone())), "random", e))?;
         let digest = evidence_digest(&challenge, evidence_sig);
+        // §7.2 names both, and which one this is is the one fact a reader of
+        // the site chain can group by without holding the metadata key.
+        let entry_type = match kind {
+            PrincipalKind::Steward => EntryType::AccountSignin,
+            PrincipalKind::Operator => EntryType::OperatorSignin,
+        };
         let appended = chains::append_site(
             tx,
             &self.ring,
             &self.deployment,
-            EntryType::AccountSignin,
+            entry_type,
             &entry_metadata(
-                EntryType::AccountSignin,
+                entry_type,
                 &[
                     ("account", Json::Str(account.clone())),
                     ("session", Json::Str(id.clone())),
@@ -1062,9 +1524,19 @@ impl SessionStore {
             ),
         )
         .await
-        .map_err(|e| (Some(account.clone()), "chain", e.into()))?;
+        .map_err(|e| {
+            (
+                Some(AccountBucket::Account(account.clone())),
+                "chain",
+                e.into(),
+            )
+        })?;
 
-        let expires_at_unix = now + self.lifetime.as_secs() as i64;
+        // Not a client-supplied number — the clock and a constant — and
+        // checked anyway, because the audit that found the timestamp panic
+        // looked for every addition on this path and a reader doing that again
+        // should not have to work out which ones are safe.
+        let expires_at_unix = now.saturating_add(self.lifetime.as_secs() as i64);
         let row = SessionRow {
             id: id.clone(),
             principal_id: account.clone(),
@@ -1085,15 +1557,45 @@ impl SessionStore {
         let mac = self
             .row_mac(tx, &row)
             .await
-            .map_err(|e| (Some(account.clone()), "row mac", e))?;
+            .map_err(|e| (Some(AccountBucket::Account(account.clone())), "row mac", e))?;
 
+        // §5.5's *"the seconder has an independent sign-in on record"*, taken
+        // once, on the operator plane only. It is recorded here rather than at
+        // the console because what §5.5 is asking about is a sign-in, and this
+        // is the only place one happens.
+        if kind == PrincipalKind::Operator {
+            operators::note_first_signin(tx, &account)
+                .await
+                .map_err(|_| {
+                    (
+                        Some(AccountBucket::Account(account.clone())),
+                        "database",
+                        SessionError::Corrupt("operator register"),
+                    )
+                })?;
+        }
+
+        // **One value, two columns, two foreign keys** (`0015` §B2). The key
+        // that proved this session is in `account_keys` or in `operator_keys`,
+        // never both, and referential integrity is the only mechanism that
+        // answers "does it exist" the same way for every caller — a trigger
+        // reading either keyring answers "is it visible to me", which is a
+        // different question and was the wrong one.
+        //
+        // `row.evidence_key_id` is still the single value the MAC covers, so
+        // `session_row_state` and its pinned vectors are untouched.
+        let (account_evidence, operator_evidence) = match kind {
+            PrincipalKind::Steward => (row.evidence_key_id.clone(), None),
+            PrincipalKind::Operator => (None, row.evidence_key_id.clone()),
+        };
         tx.execute(
             "INSERT INTO sessions \
                  (id, principal_id, principal_kind, token_hash, session_pubkey, session_alg, \
                   bound_nonce, evidence_key_id, evidence_sig, assertion_digest, assurance, \
-                  chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac) \
+                  chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac, \
+                  evidence_operator_key_id) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15)",
+                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16)",
             &[
                 &row.id,
                 &row.principal_id,
@@ -1102,7 +1604,7 @@ impl SessionStore {
                 &row.session_pubkey,
                 &authority::ALG_ES256,
                 &row.bound_nonce.to_vec(),
-                &row.evidence_key_id,
+                &account_evidence,
                 &row.evidence_sig,
                 &row.assertion_digest.map(|d| d.to_vec()),
                 &row.assurance.as_str(),
@@ -1110,54 +1612,102 @@ impl SessionStore {
                 &(row.issued_at_unix as f64),
                 &(row.expires_at_unix as f64),
                 &mac.to_vec(),
+                &operator_evidence,
             ],
         )
         .await
-        .map_err(|e| (Some(account.clone()), "database", SessionError::Db(e)))?;
+        .map_err(|e| {
+            (
+                Some(AccountBucket::Account(account.clone())),
+                "database",
+                SessionError::Db(e),
+            )
+        })?;
 
         Ok((
-            account,
+            account.clone(),
             SignedIn {
                 session_id: id,
                 token,
                 expires_at_unix,
+                account_id: account,
             },
         ))
     }
 
-    /// Count a failure against the account bucket, write the sealed entry, and
-    /// say whether the bucket has now closed.
+    /// Count a failure against its account bucket, write the sealed entry if
+    /// this is the refusal that gets to record itself, and say whether the
+    /// bucket has now closed.
+    ///
+    /// # Which refusals write an entry, and why not all of them
+    ///
+    /// `0013` §D's rule was *"once per window rather than once per refused
+    /// request"*, and the latch that implemented it was taken only when a
+    /// bucket had already closed. For an ANONYMOUS failure no account bucket
+    /// was counted at all, so nothing ever closed and an entry was appended on
+    /// every attempt: an unauthenticated caller chose how fast this
+    /// deployment's sealed audit grew, which is the amplifier the rule exists
+    /// to prevent. Counting a claimed-address bucket (`0014` §A) does not fix
+    /// it on its own — the attacker varies the address and gets a fresh
+    /// bucket, a fresh cap and a fresh run of entries.
+    ///
+    /// So there are three cases, in this order:
+    ///
+    /// 1. **The source cap itself.** `locked_entry_written` on the source row:
+    ///    one entry per (source, window), which is the fact an operator wants.
+    /// 2. **Any other anonymous failure** — no account resolved, whether the
+    ///    address was unknown or the nonce named nobody. `anon_entry_written`
+    ///    on the source row: at most one entry per (source, window) however
+    ///    many addresses are sprayed through it.
+    /// 3. **A failure against a resolved account.** One entry per attempt up
+    ///    to that account's cap, then one more when the cap closes. Bounded by
+    ///    the account bucket, and an attacker cannot inflate it without
+    ///    holding the address — which is a signal worth keeping.
     async fn refuse(
         &self,
         tx: &Transaction<'_>,
-        account: Option<&str>,
+        bucket: Option<&AccountBucket>,
         source: &str,
         reason: &'static str,
         kind: PrincipalKind,
     ) -> SessionError {
         let mut locked = false;
         let mut latched = false;
-        if let Some(account) = account {
+        if let Some(bucket) = bucket {
             // A counter that could not be written is not a reason to let the
             // attempt through un-refused: the refusal below stands either way,
-            // and only the lockout is lost.
-            if let Ok(Some(count)) = self.count_attempt(tx, "account", account).await {
+            // and only the rate limit is lost.
+            if let Ok(Some(count)) = self.count_attempt(tx, "account", bucket.key()).await {
                 locked = count > self.limits.max_per_account;
                 if locked {
-                    latched = matches!(self.latch(tx, "account", account).await, Ok(true));
+                    latched = matches!(
+                        self.latch(tx, "account", bucket.key(), Latch::Locked).await,
+                        Ok(true)
+                    );
                 }
             }
         }
-        if reason == "rate_limited_source" {
+        let source_cap = reason == "rate_limited_source";
+        if source_cap {
             locked = true;
-            latched = matches!(self.latch(tx, "source", source).await, Ok(true));
+            latched = matches!(
+                self.latch(tx, "source", source, Latch::Locked).await,
+                Ok(true)
+            );
         }
 
-        // The entry is written for every failure EXCEPT the repeated refusals
-        // of a window that has already been latched. Otherwise an anonymous
-        // attacker chooses how fast this deployment's audit chain grows, which
-        // turns a rate limit into an amplifier (`0013` §D).
-        let write_entry = !locked || latched;
+        let anonymous = !matches!(bucket, Some(AccountBucket::Account(_)));
+        let write_entry = if source_cap {
+            latched
+        } else if anonymous {
+            matches!(
+                self.latch(tx, "source", source, Latch::Anonymous).await,
+                Ok(true)
+            )
+        } else {
+            !locked || latched
+        };
+
         if write_entry {
             let entry_type = match kind {
                 PrincipalKind::Steward => EntryType::AccountSigninFailed,
@@ -1168,9 +1718,19 @@ impl SessionStore {
                 &[
                     (
                         "account",
-                        match account {
-                            Some(a) => Json::Str(a.to_string()),
-                            None => Json::Null,
+                        match bucket {
+                            Some(AccountBucket::Account(a)) => Json::Str(a.clone()),
+                            _ => Json::Null,
+                        },
+                    ),
+                    // The keyed hash and never the address (`0014` §A): an
+                    // operator can group a spray by it, and it is not a list
+                    // of what people typed.
+                    (
+                        "claimed_address_key",
+                        match bucket {
+                            Some(AccountBucket::ClaimedAddress(k)) => Json::Str(k.clone()),
+                            _ => Json::Null,
                         },
                     ),
                     ("reason", Json::Str(reason.to_string())),
@@ -1206,6 +1766,10 @@ impl SessionStore {
         if key.is_empty() {
             return Ok(None);
         }
+        // The table pays for its own growth (`0014` §C): one row per (bucket,
+        // window) accumulated for ever, and `0013` §F had taken DELETE away on
+        // the argument that nothing would ever want it.
+        self.sweep_old_attempts(tx).await?;
         let row = tx
             .query_one(
                 "INSERT INTO sign_in_attempts (bucket_kind, bucket_key, window_start, attempts) \
@@ -1219,25 +1783,66 @@ impl SessionStore {
         Ok(Some(row.get(0)))
     }
 
-    /// Take this window's "the entry has been written" latch. `true` means
-    /// this call took it, so this is the one refusal that records itself.
+    /// Take one of this window's "the entry has been written" latches. `true`
+    /// means this call took it, so this is the one refusal that records
+    /// itself.
+    ///
+    /// **The column is chosen from a closed set and never interpolated from a
+    /// string a caller supplied** — [`Latch`] has two values and no `From<&str>`
+    /// — because the only reason this statement cannot take the column name as
+    /// a parameter is that SQL does not allow it, and "so we concatenated it"
+    /// is how the next injection gets written.
     async fn latch(
         &self,
         tx: &Transaction<'_>,
         bucket_kind: &str,
         bucket_key: &str,
+        which: Latch,
     ) -> Result<bool, SessionError> {
         let key: String = bucket_key.chars().take(128).collect();
-        let row = tx
-            .query_opt(
+        let statement = match which {
+            Latch::Locked => {
                 "UPDATE sign_in_attempts SET locked_entry_written = true \
                   WHERE bucket_kind = $1 AND bucket_key = $2 AND window_start = $3 \
                     AND NOT locked_entry_written \
-                  RETURNING true",
+                  RETURNING true"
+            }
+            Latch::Anonymous => {
+                "UPDATE sign_in_attempts SET anon_entry_written = true \
+                  WHERE bucket_kind = $1 AND bucket_key = $2 AND window_start = $3 \
+                    AND NOT anon_entry_written \
+                  RETURNING true"
+            }
+        };
+        let row = tx
+            .query_opt(
+                statement,
                 &[&bucket_kind, &key, &window_start(self.limits.window)],
             )
             .await?;
         Ok(row.is_some())
+    }
+
+    /// `0014` §C's sweep of `sign_in_attempts`.
+    ///
+    /// A row for a window that has already closed can never be counted again —
+    /// [`window_start`] is computed from the clock — so it is dead weight from
+    /// the moment the window turns over.
+    async fn sweep_old_attempts(&self, tx: &Transaction<'_>) -> Result<(), SessionError> {
+        tx.execute(
+            "DELETE FROM sign_in_attempts a \
+              USING (SELECT bucket_kind, bucket_key, window_start \
+                       FROM sign_in_attempts \
+                      WHERE window_start < $1 \
+                      ORDER BY window_start \
+                      LIMIT $2) d \
+              WHERE a.bucket_kind = d.bucket_kind \
+                AND a.bucket_key = d.bucket_key \
+                AND a.window_start = d.window_start",
+            &[&window_start(self.limits.window), &SWEEP_BATCH],
+        )
+        .await?;
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1259,10 +1864,16 @@ impl SessionStore {
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
 
+        // This call writes a nonce row, so it sweeps expired ones (`0014` §C).
+        sweep_expired_nonces(&tx).await?;
+
         let row = read_session(&tx, session_id).await?;
         let Some(row) = row else {
             return Err(SessionError::NoSuchSession);
         };
+        if is_revoked(&tx, &row.id).await? {
+            return Err(SessionError::SessionRevoked);
+        }
         // The MAC first: a row this server did not write is not a session, and
         // handing it a nonce would be answering a question about a forgery.
         self.check_row_mac(&tx, &row).await?;
@@ -1309,44 +1920,141 @@ impl SessionStore {
         Ok(nonce)
     }
 
-    /// §4.1 clause (b), and the only thing in this server that produces a
-    /// [`VerifiedSession`].
+    /// **Step one of §4.1 clause (b): spend the nonce, in a transaction of its
+    /// own that commits.**
     ///
-    /// # It commits, and that is deliberate
+    /// # Why this is separate from the rest, since `0014`
     ///
-    /// Verification runs in its **own** transaction, which commits before the
-    /// handler's work begins. The nonce is consumed by that commit whatever
-    /// the handler then does: a request whose handler fails must not leave a
-    /// replayable nonce behind, and a handler that rolls back its own
-    /// transaction must not roll back the fact that this nonce has been spent.
+    /// Verification used to run whole in its own committed transaction, and
+    /// `api.rs` then opened a *second* one for `open_tenant_context` and
+    /// `authorise_account`. The disabled-account check, the evidence-key check
+    /// and grant evaluation therefore never shared a snapshot: an account
+    /// disabled, or a key retired, or a grant revoked between the two commits
+    /// was checked against one state and authorised against another. §3.4's
+    /// seven steps and §4's *"before setting `app.design_capability`"* both
+    /// read as one continuous act; they were two.
+    ///
+    /// The rest of verification moved into the caller's transaction
+    /// ([`SessionStore::verify_pending`]) so that it and authorisation share a
+    /// snapshot. The nonce did **not** move, because the reason it committed
+    /// separately is still true: a request whose handler fails must not leave
+    /// a replayable nonce behind, and a handler that rolls its own transaction
+    /// back must not roll back the fact that this nonce has been spent. Nonce
+    /// freshness is an atomic claim about a single row, not a fact about a
+    /// consistent view of several tables, so it loses nothing by standing
+    /// apart.
+    ///
+    /// **The bounds come first, before the pool is even touched.** A timestamp
+    /// or counter outside [`MIN_UNIX_MS`]`..=`[`MAX_UNIX_MS`] is refused here,
+    /// so nothing further down ever arithmetics on a number a client chose to
+    /// make overflow.
+    pub async fn begin_request(
+        &self,
+        request: &SignedRequest<'_>,
+    ) -> Result<PendingRequest, SessionError> {
+        check_unix_ms(request.unix_ms)?;
+        if request.counter < 0 {
+            return Err(SessionError::CounterNotFresh);
+        }
+
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        sweep_expired_nonces(&tx).await?;
+
+        let consumed = tx
+            .query_opt(
+                "DELETE FROM session_nonces \
+                  WHERE nonce = $1 AND purpose = 'request' AND session_id = $2 \
+                    AND expires_at > now() \
+                  RETURNING issued_counter",
+                &[&request.nonce.to_vec(), &request.session_id],
+            )
+            .await?;
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+
+        let Some(consumed) = consumed else {
+            return Err(SessionError::NonceNotFresh);
+        };
+        Ok(PendingRequest {
+            session_id: request.session_id.to_string(),
+            method: request.method.to_string(),
+            path: request.path.to_string(),
+            body_digest: body_digest(request.body),
+            nonce: request.nonce,
+            unix_ms: request.unix_ms,
+            counter: request.counter,
+            signature: request.signature,
+            issued_counter: consumed.get(0),
+        })
+    }
+
+    /// **Step two: everything else, inside the transaction the caller will
+    /// also authorise in.**
+    ///
+    /// `app.session_custody` is turned on at the start and off again before
+    /// this returns, so the rest of the caller's transaction — the tenant
+    /// context, the grant evaluation, whatever the handler does — reaches zero
+    /// rows in the session tables exactly as `0013` §E requires of every
+    /// transaction that is not a verification.
     ///
     /// # What is checked, in order
     ///
-    /// 1. the row exists, and **its MAC recomputes** — §4.3's second fence: a
-    ///    tier-2 attacker cannot mint a row, because the site row key is not
-    ///    in PostgreSQL;
-    /// 2. the session has not expired (and if it has, the row is deleted);
-    /// 3. the account is not disabled;
-    /// 4. the key that proved this session is still in service, and **its own
+    /// 1. the row exists, and **has not been recorded as signed out** (`0014`
+    ///    §D: a row restored from a backup does not come back to life);
+    /// 2. **its MAC recomputes** — §4.3's second fence: a tier-2 attacker
+    ///    cannot mint a row, because the site row key is not in PostgreSQL;
+    /// 3. the session has not expired (and if it has, the row is deleted);
+    /// 4. the account is not disabled;
+    /// 5. the key that proved this session is still in service, and **its own
     ///    keyring row seal verifies** — so a retired or superseded key stops
     ///    the session at its next request;
-    /// 5. the nonce is consumed, atomically, or the request is refused;
-    /// 6. the timestamp is inside [`CLOCK_SKEW`] and the counter has advanced;
+    /// 6. the timestamp is inside [`CLOCK_SKEW`] and the counter is the next
+    ///    one, inside [`COUNTER_WINDOW`] of the mark the nonce was issued at;
     /// 7. the ES256 signature verifies over [`request_bytes`] recomputed from
     ///    **the request as it arrived**, never from anything the caller
     ///    asserted about it.
+    pub async fn verify_pending(
+        &self,
+        tx: &Transaction<'_>,
+        pending: &PendingRequest,
+    ) -> Result<VerifiedSession, SessionError> {
+        enter_session_custody(tx).await?;
+        let result = self.verify_inside(tx, pending).await;
+        match result {
+            Ok(session) => {
+                leave_session_custody(tx).await?;
+                Ok(session)
+            }
+            // The transaction may already be aborted, in which case closing
+            // the capability fails too and has nothing left to protect.
+            Err(e) => {
+                let _ = leave_session_custody(tx).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// §4.1 clause (b) whole, for a caller with nothing else to do in the same
+    /// transaction — sign-out, and every test that verifies for its own sake.
+    ///
+    /// A route that goes on to authorise must call [`begin_request`] and
+    /// [`verify_pending`] instead, so that verification and authorisation
+    /// share one snapshot.
+    ///
+    /// [`begin_request`]: SessionStore::begin_request
+    /// [`verify_pending`]: SessionStore::verify_pending
     pub async fn verify_request(
         &self,
         request: &SignedRequest<'_>,
     ) -> Result<VerifiedSession, SessionError> {
+        let pending = self.begin_request(request).await?;
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
-        enter_session_custody(&tx).await?;
-
-        let result = self.verify_inside(&tx, request).await;
-        // The consumed nonce, the advanced counter and any expiry deletion are
-        // committed either way; the refusal is returned afterwards.
-        leave_session_custody(&tx).await?;
+        let result = self.verify_pending(&tx, &pending).await;
+        // The advanced counter and any expiry deletion are committed either
+        // way; the refusal is returned afterwards.
         tx.commit().await?;
         result
     }
@@ -1354,80 +2062,124 @@ impl SessionStore {
     async fn verify_inside(
         &self,
         tx: &Transaction<'_>,
-        request: &SignedRequest<'_>,
+        request: &PendingRequest,
     ) -> Result<VerifiedSession, SessionError> {
-        let Some(row) = read_session(tx, request.session_id).await? else {
+        let Some(row) = read_session(tx, &request.session_id).await? else {
             return Err(SessionError::NoSuchSession);
         };
 
-        // (1) The row MAC.
+        // (1) Signed out, and recorded as signed out.
+        if is_revoked(tx, &row.id).await? {
+            return Err(SessionError::SessionRevoked);
+        }
+
+        // (2) The row MAC.
         self.check_row_mac(tx, &row).await?;
 
-        // (2) Expiry.
+        // (3) Expiry.
         let now = now_unix();
         if row.expires_at_unix <= now {
             delete_session(tx, &row.id).await?;
             return Err(SessionError::Expired);
         }
 
-        // (3) The account.
+        // (4) The principal — on both planes.
         set_account_id(tx, &row.principal_id).await?;
-        if row.principal_kind == PrincipalKind::Steward {
-            let disabled: Option<bool> = tx
-                .query_opt(
-                    "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
-                    &[&row.principal_id],
-                )
-                .await?
-                .map(|r| r.get(0));
-            match disabled {
-                Some(false) => {}
-                Some(true) => return Err(SessionError::AccountDisabled),
-                None => return Err(SessionError::NoSuchSession),
-            }
-        }
-
-        // (4) The evidence key, still in service, its own seal still true.
-        if let Some(key_id) = &row.evidence_key_id {
-            match grants::signing_key_by_id(tx, &self.ring, key_id, now).await {
-                Ok(_) => {}
-                Err(AuthorityError::NoSigningKey) => {
-                    return Err(SessionError::EvidenceKeyNotInService)
+        match row.principal_kind {
+            PrincipalKind::Steward => {
+                let disabled: Option<bool> = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM accounts WHERE id = $1",
+                        &[&row.principal_id],
+                    )
+                    .await?
+                    .map(|r| r.get(0));
+                match disabled {
+                    Some(false) => {}
+                    Some(true) => return Err(SessionError::AccountDisabled),
+                    None => return Err(SessionError::NoSuchSession),
                 }
-                Err(e) => return Err(e.into()),
+            }
+            // **A suspended operator stops at the next request**, which is the
+            // same sentence `0013` §A wrote for a disabled account and the same
+            // mechanism: a column re-read inside the transaction that will also
+            // authorise, never a flag cached in the session row. A session
+            // carrying a stored "is an operator in good standing" boolean would
+            // be one `UPDATE` from being true again.
+            PrincipalKind::Operator => {
+                let disabled: Option<bool> = tx
+                    .query_opt(
+                        "SELECT disabled_at IS NOT NULL FROM operators WHERE id = $1",
+                        &[&row.principal_id],
+                    )
+                    .await?
+                    .map(|r| r.get(0));
+                match disabled {
+                    Some(false) => {}
+                    Some(true) => return Err(SessionError::AccountDisabled),
+                    None => return Err(SessionError::NoSuchSession),
+                }
             }
         }
 
-        // (5) The nonce, consumed.
-        let consumed = tx
-            .query_opt(
-                "DELETE FROM session_nonces \
-                  WHERE nonce = $1 AND purpose = 'request' AND session_id = $2 \
-                    AND expires_at > now() \
-                  RETURNING issued_counter",
-                &[&request.nonce.to_vec(), &row.id],
-            )
-            .await?;
-        let Some(consumed) = consumed else {
-            return Err(SessionError::NonceNotFresh);
-        };
-        let issued_counter: i64 = consumed.get(0);
+        // (5) The evidence key, still in service, its own seal still true —
+        // **resolved from the keyring the session's own plane keeps**. The two
+        // keyrings are different tables with different seals (`0015` §B), and
+        // resolving an operator's key id against `account_keys` would refuse
+        // every operator session at its second request.
+        if let Some(key_id) = &row.evidence_key_id {
+            match row.principal_kind {
+                PrincipalKind::Steward => {
+                    match grants::signing_key_by_id(tx, &self.ring, key_id, now).await {
+                        Ok(_) => {}
+                        Err(AuthorityError::NoSigningKey) => {
+                            return Err(SessionError::EvidenceKeyNotInService)
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                PrincipalKind::Operator => {
+                    match operators::live_operator_key(tx, &self.ring, &row.principal_id, now).await
+                    {
+                        // The operator's LIVE key must still be the one that
+                        // proved this session. An operator who enrolled a
+                        // second key does not keep a session the first one
+                        // established, for §8.4's reason: a session dies with
+                        // the key that made it.
+                        Ok(key) if &key.id == key_id => {}
+                        Ok(_) => return Err(SessionError::EvidenceKeyNotInService),
+                        Err(operators::OperatorError::Unverifiable(what)) => {
+                            return Err(SessionError::Unverifiable(what))
+                        }
+                        Err(_) => return Err(SessionError::EvidenceKeyNotInService),
+                    }
+                }
+            }
+        }
 
-        // (6) Time and counter.
-        let skew = (now * 1000 - request.unix_ms).abs() / 1000;
+        let issued_counter = request.issued_counter;
+
+        // (6) Time and counter, on numbers that have already been bounded by
+        // `begin_request` and are checked again here rather than assumed —
+        // every arithmetic on this path is checked, so a later widening of the
+        // bound cannot quietly re-open the panic that `0014` closed.
+        let skew = clock_skew_seconds(now, request.unix_ms)?;
         if skew > CLOCK_SKEW.as_secs() as i64 {
             return Err(SessionError::ClockSkew { by_seconds: skew });
         }
-        if request.counter <= issued_counter {
+        let ceiling = issued_counter
+            .checked_add(COUNTER_WINDOW)
+            .ok_or(SessionError::CounterNotFresh)?;
+        if request.counter <= issued_counter || request.counter > ceiling {
             return Err(SessionError::CounterNotFresh);
         }
 
         // (7) The signature, over the request as it arrived.
         let message = request_bytes(
-            request.session_id,
-            request.method,
-            request.path,
-            &body_digest(request.body),
+            &request.session_id,
+            &request.method,
+            &request.path,
+            &request.body_digest,
             &request.nonce,
             request.unix_ms,
             request.counter,
@@ -1455,23 +2207,116 @@ impl SessionStore {
         })
     }
 
-    /// Sign-out. **The row is deleted, not flagged.**
+    /// Sign-out. **The row is deleted AND the fact is recorded** (`0014` §D).
     ///
     /// §4.3 has no column for it, and adding one would put a boolean between
     /// an attacker and a live session — one `UPDATE` from being false again.
-    /// A deleted row cannot be resurrected without the site row key, which is
-    /// not in PostgreSQL; the outstanding nonces go with it through the one
-    /// `ON DELETE CASCADE` in this schema.
+    /// So the row still goes, and the outstanding nonces go with it through
+    /// the one `ON DELETE CASCADE` in this schema.
+    ///
+    /// # Why deleting it was not enough
+    ///
+    /// `0013` argued that *"a deleted row cannot be resurrected without the
+    /// site row key, which is not in PostgreSQL"*. That is true of MINTING a
+    /// row and false of RESTORING one. [`session_row_state`] covers the row's
+    /// own fields and nothing else, and none of them changes when a session is
+    /// signed out — so last night's backup holds bytes whose MAC recomputes
+    /// for ever, and re-inserting one row silently undid the sign-out. Nothing
+    /// anywhere recorded that the id had existed.
+    ///
+    /// An append-only `session_revocations` row closes it, in the shape the
+    /// authority tables already use for revocation: sealed under the same
+    /// site-scoped row key with `authority::row_seal`, bound by `chain_seq` to
+    /// a sealed `account_signed_out` entry appended first, and unreachable to
+    /// `fathom_app` through UPDATE or DELETE at all. [`verify_inside`] refuses
+    /// any session id that appears in it.
+    ///
+    /// What this does **not** close is a restore of the whole database to a
+    /// point before the sign-out; nothing inside the database could, and §7.6
+    /// says so. What catches that is the off-box anchor.
     ///
     /// Takes a [`VerifiedSession`], so signing another session out requires
     /// having signed this request with that session's own key.
+    ///
+    /// [`verify_inside`]: SessionStore::verify_inside
     pub async fn sign_out(&self, session: &VerifiedSession) -> Result<(), SessionError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
-        enter_session_custody(&tx).await?;
-        delete_session(&tx, &session.id).await?;
-        leave_session_custody(&tx).await?;
+        let result = self.sign_out_in(&tx, session).await;
+        result?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// [`SessionStore::sign_out`], inside a transaction the caller owns — so
+    /// that a route which verified in that transaction signs out in it too and
+    /// the two cannot come apart.
+    pub async fn sign_out_in(
+        &self,
+        tx: &Transaction<'_>,
+        session: &VerifiedSession,
+    ) -> Result<(), SessionError> {
+        enter_session_custody(tx).await?;
+        let principal = session.actor.to_string();
+
+        // The entry first, then the row whose MAC covers its seq: no record,
+        // no sign-out, which is the order `attempt_sign_in` uses for the same
+        // reason (§0, "stopping the log stops the act").
+        // §7.2 names `account_signed_out` and, since `0015`, `operator_signed_out`
+        // — two types rather than one with a `principal_kind` field, because
+        // the type is what a reader holding only the chain key can group by,
+        // and an operator's acts must be legible as operator acts to whoever
+        // audits the operator plane.
+        let entry_type = match session.kind {
+            PrincipalKind::Steward => EntryType::AccountSignedOut,
+            PrincipalKind::Operator => EntryType::OperatorSignedOut,
+        };
+        let appended = chains::append_site(
+            tx,
+            &self.ring,
+            &self.deployment,
+            entry_type,
+            &entry_metadata(
+                entry_type,
+                &[
+                    ("session", Json::Str(session.id.clone())),
+                    ("account", Json::Str(principal.clone())),
+                    (
+                        "principal_kind",
+                        Json::Str(session.kind.as_str().to_string()),
+                    ),
+                ],
+            ),
+        )
+        .await?;
+
+        let facts = RevocationFacts {
+            session_id: &session.id,
+            principal_id: &principal,
+            reason: SIGNED_OUT,
+            chain_seq: appended.seq,
+            row_version: 1,
+        };
+        let key = grants::site_row_key(tx, &self.ring).await?;
+        let mac = revocation_row_mac(&key, &facts);
+
+        tx.execute(
+            "INSERT INTO session_revocations \
+                 (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
+             VALUES ($1, $2, $3, $4, 1, $5) \
+             ON CONFLICT (session_id) DO NOTHING",
+            &[
+                &facts.session_id,
+                &facts.principal_id,
+                &facts.reason,
+                &facts.chain_seq,
+                &mac.to_vec(),
+            ],
+        )
+        .await?;
+
+        delete_session(tx, &session.id).await?;
+        leave_session_custody(tx).await?;
         Ok(())
     }
 
@@ -1581,6 +2426,37 @@ pub async fn open_tenant_context(
         return Err(SessionError::NotATenantPrincipal);
     }
     Ok(repo::open_tenant_context(tx, tenant, session.actor).await?)
+}
+
+/// The account behind a session, for the one kind of query that has no tenant
+/// to open: *"which organisations do I belong to?"*.
+///
+/// **This is the second and last bridge from a session to an `AccountId`**,
+/// [`open_tenant_context`] being the first. It exists because that one cannot
+/// serve a caller who does not yet know which tenant it is asking about —
+/// which is the whole point of `list_organisations_for_account`, whose own
+/// doc comment says so.
+///
+/// **It opens no tenant context, and that is the danger.** `open_tenant_context`
+/// sets the row-level-security context that keeps one organisation's rows away
+/// from another's; this sets nothing. A caller may therefore use the returned
+/// `AccountId` **only** with queries whose RLS policy is satisfied by the
+/// `account_id` branch — the `organisations` and `memberships` policies of
+/// `0002`, read through `repo::list_organisations_for_account_in`, which sets
+/// `app.account_id` itself. Handing it to anything tenant-scoped would read
+/// under no context at all. If a second caller ever wants this, read that
+/// caller's policy first and say in its doc comment which branch it relies on.
+///
+/// An operator session is refused with the same
+/// [`SessionError::NotATenantPrincipal`] `open_tenant_context` gives, for the
+/// same reason: an operator principal is unrepresentable in a membership at
+/// every privilege level (§2, `0004`), so it belongs to no organisation and
+/// the honest answer is a typed refusal rather than an empty list.
+pub fn account_without_tenant(session: &VerifiedSession) -> Result<AccountId, SessionError> {
+    if session.kind != PrincipalKind::Steward {
+        return Err(SessionError::NotATenantPrincipal);
+    }
+    Ok(session.actor)
 }
 
 // ---------------------------------------------------------------------------
@@ -1735,11 +2611,167 @@ fn session_row_state(row: &SessionFacts<'_>) -> Vec<u8> {
     Json::Obj(map).to_canonical_bytes()
 }
 
+/// The one value `session_revocations.reason` takes today.
+const SIGNED_OUT: &str = "signed_out";
+
+/// What one `session_revocations` row's seal covers (`0014` §D).
+///
+/// **Public, and shaped like [`SessionFacts`] and `authority::RowFacts` on
+/// purpose** — same argument as `SessionFacts`': a construction that can only
+/// be exercised through a transaction is a construction nobody cross-checks.
+pub struct RevocationFacts<'a> {
+    pub session_id: &'a str,
+    pub principal_id: &'a str,
+    pub reason: &'a str,
+    pub chain_seq: i64,
+    pub row_version: i32,
+}
+
+/// The seal on a `session_revocations` row.
+///
+/// ```text
+/// row_mac = MAC(K_row_site, LP("fathom/row/v1") ‖ LP("session_revocations")
+///               ‖ LP(session_id) ‖ u64(chain_seq) ‖ u32(row_version)
+///               ‖ LP(canon(row_state)))
+/// ```
+///
+/// `authority::row_seal` under the same site-scoped row key a session row is
+/// sealed under, and **no new label**: `0013`'s departure 2 carries the whole
+/// argument, and a revocation is account-scoped in exactly the way the session
+/// it revokes was. The table name is inside the seal, so a revocation row
+/// lifted into another table — or a session row filed as a revocation — does
+/// not verify where it lands.
+pub fn revocation_row_mac(row_key: &Key32, facts: &RevocationFacts<'_>) -> [u8; 32] {
+    authority::row_seal(
+        row_key,
+        &RowFacts {
+            table: "session_revocations",
+            row_id: facts.session_id,
+            chain_seq: facts.chain_seq,
+            row_version: facts.row_version,
+            row_state: &revocation_row_state(facts),
+        },
+    )
+}
+
+fn revocation_row_state(facts: &RevocationFacts<'_>) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "principal_id".to_string(),
+        Json::Str(facts.principal_id.to_string()),
+    );
+    map.insert("reason".to_string(), Json::Str(facts.reason.to_string()));
+    map.insert(
+        "session_id".to_string(),
+        Json::Str(facts.session_id.to_string()),
+    );
+    Json::Obj(map).to_canonical_bytes()
+}
+
+/// Has this session id been recorded as signed out (`0014` §D)?
+///
+/// **The row's own seal is deliberately NOT checked here, and the reason is
+/// which way each failure falls.** An unsealed or resealed revocation row
+/// refuses a session, which is the fail-closed direction and costs an attacker
+/// who can write one nothing they could not get by deleting the session row
+/// instead. Verifying the seal would mean an attacker who *corrupts* a
+/// revocation gets the session back, which is the fail-open direction and is
+/// exactly what this table exists to stop. The seal is what makes a minted
+/// revocation detectable by an auditor, not what makes it effective here.
+async fn is_revoked(tx: &Transaction<'_>, session_id: &str) -> Result<bool, SessionError> {
+    let row = tx
+        .query_opt(
+            "SELECT 1 FROM session_revocations WHERE session_id = $1",
+            &[&session_id],
+        )
+        .await?;
+    Ok(row.is_some())
+}
+
+/// `0014` §C's sweep of `session_nonces`, driving `session_nonces_expiry_idx`.
+///
+/// A nonce past its `expires_at` can never be consumed — every `DELETE ...
+/// RETURNING` that spends one also requires `expires_at > now()` — so it is
+/// dead weight from the moment it expires.
+async fn sweep_expired_nonces(tx: &Transaction<'_>) -> Result<(), SessionError> {
+    tx.execute(
+        "DELETE FROM session_nonces \
+          WHERE nonce IN (SELECT nonce FROM session_nonces \
+                           WHERE expires_at <= now() \
+                           ORDER BY expires_at \
+                           LIMIT $1)",
+        &[&SWEEP_BATCH],
+    )
+    .await?;
+    Ok(())
+}
+
+/// `0014` §C's sweep of `sessions`, driving `sessions_expiry_idx`.
+///
+/// An expired session is refused and deleted at its next use, which is where
+/// the refusal has to happen anyway — `0013`'s argument, and it is still true.
+/// What it left out is the session that has **no** next use, which is most of
+/// them: a browser closed at five o'clock never comes back, and its row and
+/// its outstanding nonces stayed for ever.
+///
+/// **No revocation row is recorded for a swept session**, unlike a sign-out:
+/// `expires_at` is inside the row's own MAC, so a restored expired row is
+/// refused by the expiry check on its own bytes.
+async fn sweep_expired_sessions(tx: &Transaction<'_>) -> Result<(), SessionError> {
+    tx.execute(
+        "DELETE FROM sessions \
+          WHERE id IN (SELECT id FROM sessions \
+                        WHERE expires_at <= now() \
+                        ORDER BY expires_at \
+                        LIMIT $1)",
+        &[&SWEEP_BATCH],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Refuse a client-supplied millisecond timestamp outside the range a wall
+/// clock can produce, **before any arithmetic touches it** (`0014`, finding
+/// 5).
+fn check_unix_ms(unix_ms: i64) -> Result<(), SessionError> {
+    if !(MIN_UNIX_MS..=MAX_UNIX_MS).contains(&unix_ms) {
+        return Err(SessionError::Malformed("request timestamp"));
+    }
+    Ok(())
+}
+
+/// `|now_seconds·1000 − unix_ms| / 1000`, with every step checked.
+///
+/// The line this replaces was `(now * 1000 - request.unix_ms).abs() / 1000`.
+/// With `fathom-timestamp: -9223372036854775808` the subtraction overflows —
+/// and the server profile sets `overflow-checks = true`, so that is a panic —
+/// and `.abs()` on `i64::MIN` panics on the same line for a second reason.
+/// [`check_unix_ms`] already refuses that input; this is checked anyway,
+/// because the bound and the arithmetic are two statements of one rule and
+/// somebody will one day relax the first.
+fn clock_skew_seconds(now_seconds: i64, unix_ms: i64) -> Result<i64, SessionError> {
+    let now_ms = now_seconds
+        .checked_mul(1000)
+        .ok_or(SessionError::Malformed("server clock"))?;
+    let delta = now_ms
+        .checked_sub(unix_ms)
+        .ok_or(SessionError::Malformed("request timestamp"))?;
+    let magnitude = delta
+        .checked_abs()
+        .ok_or(SessionError::Malformed("request timestamp"))?;
+    Ok(magnitude / 1000)
+}
+
 async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRow>, SessionError> {
     let row = tx
         .query_opt(
+            // `COALESCE` over the two evidence columns, and it is unambiguous
+            // because `0015` §B2's `CHECK`s let only the one matching this
+            // row's `principal_kind` be set. What comes back is the same single
+            // value `session_row_state` has always hashed.
             "SELECT id, principal_id, principal_kind, token_hash, session_pubkey, bound_nonce, \
-                    evidence_key_id, evidence_sig, assertion_digest, assurance, chain_seq, \
+                    COALESCE(evidence_key_id, evidence_operator_key_id), \
+                    evidence_sig, assertion_digest, assurance, chain_seq, \
                     row_version, EXTRACT(EPOCH FROM issued_at)::bigint, \
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter \
                FROM sessions WHERE id = $1",
@@ -1791,6 +2823,41 @@ async fn account_by_address(
         .query_opt("SELECT id FROM accounts WHERE email = $1", &[&address])
         .await?;
     Ok(row.map(|r| r.get(0)))
+}
+
+/// Resolve what an operator typed to an operator id, for sign-in only.
+///
+/// **§4.5 gives an operator no address of record**, because there is no reset
+/// path to send anything to, so the operator plane's equivalent of an address
+/// is the operator's own id — handed to them once at enrolment and shown on the
+/// console beside their name. It is not a secret and is not treated as one: the
+/// factor is a signature by the key `operator_keys` holds for them.
+///
+/// A value that names nobody returns `None` and takes exactly the path an
+/// unknown address takes on the account plane, which is what keeps the two
+/// planes' refusals identical.
+async fn operator_by_id(
+    tx: &Transaction<'_>,
+    claimed: &str,
+) -> Result<Option<String>, SessionError> {
+    let row = tx
+        .query_opt("SELECT id FROM operators WHERE id = $1", &[&claimed])
+        .await?;
+    Ok(row.map(|r| r.get(0)))
+}
+
+/// The one shape sign-in needs from either keyring: which key proved this
+/// session, and what verifies against it.
+///
+/// `grants::AccountKey` and `operators::OperatorKey` are different rows in
+/// different tables with different seals, and deliberately so — `0015` §B
+/// carries that argument. What sign-in needs from either is the same three
+/// fields, and this is that, so the branch below produces one value and the
+/// forty lines after it are written once.
+struct SignInKey {
+    id: String,
+    public_key: Vec<u8>,
+    fpr: [u8; 32],
 }
 
 // ---------------------------------------------------------------------------

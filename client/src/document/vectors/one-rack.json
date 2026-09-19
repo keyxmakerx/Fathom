@@ -1,0 +1,8 @@
+{
+  "name": "one-rack",
+  "description": "One Premises node and one Rack node, joined by a HasRack edge. The Rack carries label \"R1\", height_u 42 and unit_numbering \"ascending\". Every value is a sample: a real design could give the rack any label, any height_u in Rack's declared range 1..100, and either unit_numbering.",
+  "node_count": 2,
+  "edge_count": 1,
+  "kinds": ["Premises", "Rack"],
+  "edges": ["HasRack"]
+}

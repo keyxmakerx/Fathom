@@ -450,9 +450,13 @@ dependencies = [
  "deadpool-postgres",
  "ecdsa",
  "fathom-canon",
+ "fathom-corpus",
  "fathom-graph",
  "fathom-id",
+ "fathom-ingest",
+ "fathom-ir",
  "fathom-schema",
+ "fathom-workspace",
  "getrandom",
  "hkdf",
  "hmac",
@@ -460,6 +464,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -478,6 +483,7 @@ dependencies = [
  "fathom-layout",
  "fathom-wasm",
  "fathom-weld",
+ "fathom-workspace",
 ]
 
 [[package]]

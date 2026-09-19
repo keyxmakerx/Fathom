@@ -118,6 +118,13 @@ pub async fn migration_pool() -> Pool {
 /// role. Panics with a message naming what to do, rather than silently
 /// skipping -- the brief this crate's tests answer to is explicit that these
 /// must run against a real database, not be quietly optional.
+///
+/// `#[allow(dead_code)]`: `mod support;` is compiled fresh into every test
+/// binary in this crate, and `tests/operators.rs` uses only
+/// [`isolated_deployment`] — §6.3's first operator is minted once per
+/// deployment, and the shared database is one deployment several binaries
+/// write `operators` rows to.
+#[allow(dead_code)]
 pub async fn migrated_pool() -> Pool {
     let migrate_url = migrate_test_database_url();
     let migrate_config =
@@ -143,6 +150,17 @@ pub async fn migrated_pool() -> Pool {
     // `src/main.rs` applies, and `pg_advisory_lock` is session-level and
     // re-entrant, so `run`'s own acquisition nests inside this one without
     // deadlocking against it.
+    //
+    // **That lock covers this database and no other, and the comment above
+    // used to imply otherwise — corrected 2026-09-14.** Advisory locks are
+    // scoped to the database: measured on PostgreSQL 16 that day, the same key
+    // held in database A is still free in database B on one cluster. `ALTER
+    // ROLE` writes the cluster-wide `pg_authid`, so two test runs in two
+    // databases — which is exactly what `docs/NEXT.md` rule 3 asks builders to
+    // do — still collide, and did, with "tuple concurrently updated". The fix
+    // lives in `db::provision_runtime_login` as a bounded retry, because the
+    // two-container deployment races there at startup for the same reason and
+    // a test-only fix would have left that standing.
     client
         .execute(
             "SELECT pg_advisory_lock($1)",
@@ -564,6 +582,20 @@ async fn migration_lock_on_the_shared_database() -> tokio_postgres::Client {
 #[allow(dead_code)]
 pub fn isolated_database_name(tag: &str) -> String {
     format!("fathom_isolated_{tag}")
+}
+
+/// The RUNTIME role's connection string for one isolated deployment's own
+/// database.
+///
+/// For the one test that has to run the SHIPPED BINARY rather than call into
+/// this library: `tests/bootstrap_reissue.rs` proves that
+/// `fathom-server reissue-bootstrap-token` never prints the token it mints,
+/// and the only honest way to prove what a program prints is to run it and
+/// read what it printed. That needs a `DATABASE_URL` to hand the child
+/// process, which is this.
+#[allow(dead_code)]
+pub fn isolated_database_url(tag: &str) -> String {
+    url_for_database(&test_database_url(), &isolated_database_name(tag))
 }
 
 /// A superuser connection to one isolated deployment's own database -- for the

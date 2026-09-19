@@ -67,7 +67,14 @@ ALLOW="${CLAIMS_ALLOW:-docs/decisions/adr-0040-the-server-holds-the-keys-and-say
 
 # The surfaces a reader actually sees. Add to this list when a new one appears --
 # a marketing site, a landing page, a product help file.
-SURFACES="${CLAIMS_SURFACES:-README.md crates/fathom-artifact/html design/prototype}"
+#
+# `client/src` and `client/index.html` joined the list on 2026-09-14, when the
+# new browser client landed. It is the surface a customer reads; the gate was
+# written before it existed and would have passed over every string in it. Only
+# `src` and the entry page, never `client/` whole: `node_modules` lives there
+# and is not ours to police, and scanning it would make this gate slow and
+# noisy for no gain.
+SURFACES="${CLAIMS_SURFACES:-README.md crates/fathom-artifact/html design/prototype client/src client/index.html}"
 
 # One pattern per forbidden sentence. Deliberately tight: `end-to-end` alone is
 # an ordinary phrase ("an end-to-end test", "one service record end-to-end") and

@@ -1,0 +1,298 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .key { font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .tab { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; white-space: nowrap; }
+    .tab.on { border-bottom: 4px solid #14171A; font-weight: 700; color: #14171A; }
+    .tog { border: 1px solid #14171A; padding: 2px 6px; font-size: 11px; white-space: nowrap; }
+    .tog.off { border-color: #D2D7DD; color: #5C6772; }
+    .chip { border: 1px solid #14171A; padding: 2px 6px; font-size: 11px; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+    .trow { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 42px; border-bottom: 1px solid #D2D7DD; position: relative; }
+    .trow .t { width: 42px; flex-shrink: 0; }
+    .trow .w { width: 76px; flex-shrink: 0; font-size: 12px; }
+    .trow .a { flex-grow: 1; min-width: 0; }
+    .trow .y { width: 214px; flex-shrink: 0; font-size: 12px; color: #5C6772; }
+    .trow .s { width: 66px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; }
+    .seal { width: 8px; height: 8px; background: #14171A; flex-shrink: 0; }
+    .btn { border: 1px solid #14171A; background: #FFFFFF; color: #14171A; padding: 5px 12px; font-size: 12px; }
+    .svgnum { font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 8px; fill: #5C6772; text-anchor: end; }
+
+    /* ---------------------------------------------------------------------
+       One cycle is 8 s: 2.4 s of sequence, then 5.6 s held on the settled
+       state. Every animated element's BASE state is the FINAL state, so with
+       animation off this board is the still frame AFTER the undo.
+       --------------------------------------------------------------------- */
+    .b2-undo   { animation: b2-undo   8s cubic-bezier(0.2, 0, 0, 1) infinite; background: #FFFFFF; }
+    .b2-redo   { animation: b2-redo   8s cubic-bezier(0.2, 0, 0, 1) infinite; }
+    .b2-cable  { animation: b2-cable  8s cubic-bezier(0.2, 0, 0, 1) infinite; opacity: 0; }
+    .b2-port-lit { fill: #FFFFFF; animation: b2-port 8s cubic-bezier(0.2, 0, 0, 1) infinite; }
+    .b2-rowin  { animation: b2-rowin  8s cubic-bezier(0.2, 0, 0, 1) infinite; overflow: hidden; max-height: 43px; }
+    .b2-mark   { animation: b2-mark   8s cubic-bezier(0.2, 0, 0, 1) infinite; }
+
+    /* the key is pressed: one pulse, 110 ms, then it settles */
+    @keyframes b2-undo  { 0%, 10%     { background: #FFFFFF; }
+                          10.7%       { background: #F2F4F6; }
+                          11.4%, 100% { background: #FFFFFF; } }
+    /* the cable leaves the drawing: one state change, phantom then gone */
+    @keyframes b2-cable { 0%, 13.7%  { opacity: 1; }
+                          15.6%      { opacity: 0.28; }
+                          19.4%      { opacity: 0.28; }
+                          23.1%,100% { opacity: 0; } }
+    @keyframes b2-port  { 0%, 19.4%  { fill: #E9C21C; }
+                          23.1%,100% { fill: #FFFFFF; } }
+    /* the reversing entry lands on the trail: a selection mark, 110 ms */
+    @keyframes b2-rowin { 0%, 25%     { max-height: 0px; opacity: 0; }
+                          26.4%, 100% { max-height: 43px; opacity: 1; } }
+    @keyframes b2-mark  { 0%, 25%     { opacity: 0; transform: scaleY(0.15); }
+                          26.4%, 100% { opacity: 1; transform: scaleY(1); } }
+    /* redo becomes available: one state change */
+    @keyframes b2-redo  { 0%, 28.7%   { border-color: #D2D7DD; color: #5C6772; background: #FFFFFF; }
+                          29.4%       { background: #F2F4F6; }
+                          30%, 100%   { border-color: #14171A; color: #14171A; background: #FFFFFF; } }
+
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <!-- ============================ MASTHEAD ============================
+       The approved shell (design/rebuild/Main.dc.html), with ADR-0046 SS1's
+       two places named and the current one marked, and undo/redo where the
+       keys are.
+       ================================================================== -->
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 10px; gap: 6px; flex-shrink: 0; overflow: hidden;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;">Fathom</div>
+    <div style="display: flex; align-self: stretch; align-items: stretch;">
+      <div class="tab on">Racks</div>
+      <div class="tab">Inventory</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; white-space: nowrap;">
+      <span>Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span><span>HQ</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Building A</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">IDF-2</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lbl">Cables</span>
+      <span class="tog">&#10003; Copper</span>
+      <span class="tog">&#10003; Fibre</span>
+      <span class="tog">&#10003; Power</span>
+      <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 4px;"></span>
+      <span class="lbl" style="white-space: nowrap;">Colour ports by</span>
+      <span class="tog">Link</span>
+      <span class="tog off">VLAN</span>
+      <span class="tog off">Subnet</span>
+      <span class="tog off">Owner</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip b2-undo">Undo</span>
+      <span class="chip b2-redo">Redo</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772; white-space: nowrap;">
+      <span style="border: 1px solid #14171A; padding: 2px 8px; color: #14171A;">Maria P.</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">&minus;</span>
+      <span style="min-width: 32px; text-align: center;">96%</span>
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">+</span>
+    </div>
+    <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">RK</div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- ============ LEFT: the drawing the undo acts on ============ -->
+    <div style="width: 468px; border-right: 1px solid #D2D7DD; flex-shrink: 0; display: flex; flex-direction: column; background: #FFFFFF;">
+      <div style="padding: 9px 16px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">The drawing</span>
+        <span style="font-size: 10px; color: #5C6772;">rack A-04 &middot; U40 &ndash; U30 &middot; 16 px per U</span>
+      </div>
+
+      <svg width="468" height="262" viewBox="0 0 468 262" style="flex-shrink: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <pattern id="hatch2" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#D2D7DD" stroke-width="1"/></pattern>
+        </defs>
+        <text x="76" y="20" font-size="9" fill="#5C6772" letter-spacing="1">A-04 &middot; 42U &middot; SHOWING U40 &ndash; U30</text>
+        <rect x="76" y="30" width="300" height="176" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+        <rect x="76" y="30" width="28" height="176" fill="#F2F4F6" stroke="#D2D7DD"/>
+        <rect x="348" y="30" width="28" height="176" fill="#F2F4F6" stroke="#D2D7DD"/>
+        <g class="svgnum"><text x="98" y="41">40</text><text x="98" y="73">38</text><text x="98" y="105">36</text><text x="98" y="137">34</text><text x="98" y="169">32</text><text x="98" y="201">30</text></g>
+
+        <rect x="104" y="94" width="244" height="16" fill="url(#hatch2)"/>
+        <rect x="104" y="158" width="244" height="32" fill="url(#hatch2)"/>
+
+        <g stroke="#14171A" stroke-width="0.7">
+          <rect x="104" y="30" width="244" height="32" fill="#FFFFFF" stroke-width="1"/>
+          <rect x="104" y="62" width="244" height="16" fill="#FFFFFF" stroke-width="1"/>
+          <rect x="104" y="78" width="244" height="16" fill="#FFFFFF" stroke-width="1"/>
+          <rect x="104" y="110" width="244" height="16" fill="#F2F4F6" stroke-width="1"/>
+          <rect x="104" y="126" width="244" height="16" fill="#FFFFFF" stroke-width="1"/>
+          <rect x="104" y="142" width="244" height="16" fill="#FFFFFF" stroke-width="1"/>
+          <rect x="104" y="190" width="244" height="16" fill="#F2F4F6" stroke-width="1"/>
+        </g>
+        <g font-size="9" font-weight="700" fill="#14171A">
+          <text x="110" y="42">hq-fw-01</text>
+          <text x="110" y="73">core-01</text>
+          <text x="110" y="89">core-02</text>
+          <text x="110" y="121">patch-01</text>
+          <text x="110" y="137">acc-01</text>
+          <text x="110" y="153">acc-02</text>
+          <text x="110" y="201">fibre-01</text>
+        </g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="150" y="38" width="5" height="8" fill="#14171A"/><rect x="157" y="38" width="5" height="8" fill="#14171A"/><rect x="164" y="38" width="5" height="8" fill="#FFFFFF"/><rect x="171" y="38" width="5" height="8" fill="#FFFFFF"/><rect x="178" y="38" width="5" height="8" fill="#FFFFFF"/><rect x="185" y="38" width="5" height="8" fill="#FFFFFF"/><rect x="192" y="38" width="5" height="8" fill="#FFFFFF"/><rect x="199" y="38" width="5" height="8" fill="#14171A"/></g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="150" y="66" width="4" height="8" fill="#14171A"/><rect x="155" y="66" width="4" height="8" fill="#14171A"/><rect x="160" y="66" width="4" height="8" fill="#14171A"/><rect x="165" y="66" width="4" height="8" fill="#14171A"/><rect x="170" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="175" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="180" y="66" width="4" height="8" fill="#14171A"/><rect x="185" y="66" width="4" height="8" class="b2-port-lit"/><rect x="190" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="195" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="200" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="205" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="216" y="66" width="4" height="8" fill="#14171A"/><rect x="221" y="66" width="4" height="8" fill="#14171A"/><rect x="226" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="231" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="236" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="241" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="246" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="251" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="256" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="261" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="266" y="66" width="4" height="8" fill="#FFFFFF"/><rect x="271" y="66" width="4" height="8" fill="#FFFFFF"/></g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="150" y="82" width="4" height="8" fill="#14171A"/><rect x="155" y="82" width="4" height="8" fill="#14171A"/><rect x="160" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="165" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="170" y="82" width="4" height="8" fill="#14171A"/><rect x="175" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="180" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="185" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="190" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="195" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="200" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="205" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="216" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="221" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="226" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="231" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="236" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="241" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="246" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="251" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="256" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="261" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="266" y="82" width="4" height="8" fill="#FFFFFF"/><rect x="271" y="82" width="4" height="8" fill="#FFFFFF"/></g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="140" y="114" width="4" height="8" fill="#14171A"/><rect x="145" y="114" width="4" height="8" fill="#14171A"/><rect x="150" y="114" width="4" height="8" fill="#14171A"/><rect x="155" y="114" width="4" height="8" fill="#14171A"/><rect x="160" y="114" width="4" height="8" fill="#14171A"/><rect x="165" y="114" width="4" height="8" fill="#14171A"/><rect x="170" y="114" width="4" height="8" class="b2-port-lit"/><rect x="175" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="180" y="114" width="4" height="8" fill="#14171A"/><rect x="185" y="114" width="4" height="8" fill="#14171A"/><rect x="190" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="195" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="206" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="211" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="216" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="221" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="226" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="231" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="236" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="241" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="246" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="251" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="256" y="114" width="4" height="8" fill="#FFFFFF"/><rect x="261" y="114" width="4" height="8" fill="#FFFFFF"/></g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="150" y="130" width="4" height="8" fill="#14171A"/><rect x="155" y="130" width="4" height="8" fill="#14171A"/><rect x="160" y="130" width="4" height="8" fill="#14171A"/><rect x="165" y="130" width="4" height="8" fill="#14171A"/><rect x="170" y="130" width="4" height="8" fill="#14171A"/><rect x="175" y="130" width="4" height="8" fill="#14171A"/><rect x="180" y="130" width="4" height="8" fill="#14171A"/><rect x="185" y="130" width="4" height="8" fill="#14171A"/><rect x="190" y="130" width="4" height="8" fill="#14171A"/><rect x="195" y="130" width="4" height="8" fill="#14171A"/><rect x="200" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="205" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="216" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="221" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="226" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="231" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="236" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="241" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="246" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="251" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="256" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="261" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="266" y="130" width="4" height="8" fill="#FFFFFF"/><rect x="271" y="130" width="4" height="8" fill="#FFFFFF"/></g>
+        <g stroke="#14171A" stroke-width="0.6"><rect x="150" y="146" width="4" height="8" fill="#14171A"/><rect x="155" y="146" width="4" height="8" fill="#14171A"/><rect x="160" y="146" width="4" height="8" fill="#14171A"/><rect x="165" y="146" width="4" height="8" fill="#14171A"/><rect x="170" y="146" width="4" height="8" fill="#14171A"/><rect x="175" y="146" width="4" height="8" fill="#14171A"/><rect x="180" y="146" width="4" height="8" fill="#14171A"/><rect x="185" y="146" width="4" height="8" fill="#14171A"/><rect x="190" y="146" width="4" height="8" fill="#14171A"/><rect x="195" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="200" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="205" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="216" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="221" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="226" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="231" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="236" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="241" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="246" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="251" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="256" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="261" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="266" y="146" width="4" height="8" fill="#FFFFFF"/><rect x="271" y="146" width="4" height="8" fill="#FFFFFF"/></g>
+        <g><rect x="150" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="153" cy="200" r="1.5" fill="#14171A"/><circle cx="157" cy="200" r="1.5" fill="#14171A"/><rect x="164" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="167" cy="200" r="1.5" fill="#14171A"/><circle cx="171" cy="200" r="1.5" fill="#14171A"/><rect x="178" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="181" cy="200" r="1.5" fill="#14171A"/><circle cx="185" cy="200" r="1.5" fill="#14171A"/><rect x="192" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="195" cy="200" r="1.5" fill="#FFFFFF"/><circle cx="199" cy="200" r="1.5" fill="#FFFFFF"/><rect x="206" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="209" cy="200" r="1.5" fill="#FFFFFF"/><circle cx="213" cy="200" r="1.5" fill="#FFFFFF"/><rect x="220" y="196" width="10" height="8" fill="none" stroke="#14171A" stroke-width="0.7"/><circle cx="223" cy="200" r="1.5" fill="#FFFFFF"/><circle cx="227" cy="200" r="1.5" fill="#FFFFFF"/></g>
+
+        <!-- Maria's cable of 14:01, untouched by this undo -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M 192 146 C 214 142, 208 126, 182 122" stroke="#9FA4A9" stroke-width="1.8"/>
+        </g>
+
+        <!-- the cable Jordan drew at 14:02: yellow copper, a hairline outline
+             because the sheath sits within a hairline of the page -->
+        <g class="b2-cable" fill="none" stroke-linecap="round">
+          <path d="M 187 74 C 206 92, 202 120, 172 114" stroke="#D2D7DD" stroke-width="3"/>
+          <path d="M 187 74 C 206 92, 202 120, 172 114" stroke="#E9C21C" stroke-width="1.8"/>
+        </g>
+
+        <g font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">
+          <text x="390" y="74">ge-0/0/15</text>
+          <text x="390" y="121">p7</text>
+        </g>
+        <line x1="376" y1="70" x2="386" y2="70" stroke="#D2D7DD"/>
+        <line x1="376" y1="118" x2="386" y2="118" stroke="#D2D7DD"/>
+
+        <text x="76" y="228" font-size="10" fill="#5C6772">Undo takes the cable off the drawing.</text>
+        <text x="76" y="242" font-size="10" fill="#5C6772">It does not take it off the record: both entries stand on the trail.</text>
+        <text x="76" y="256" font-size="10" fill="#5C6772">Maria's cable of 14:01 is hers, and this undo cannot reach it.</text>
+      </svg>
+
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 16px; display: flex; flex-direction: column; gap: 6px;">
+        <div class="lbl">In order</div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="mono" style="color: #5C6772; width: 14px; flex-shrink: 0;">1</span><span style="font-size: 12px;">Undo &middot; Ctrl Z pulses once &mdash; <span style="color: #5C6772;">110 ms</span></span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="mono" style="color: #5C6772; width: 14px; flex-shrink: 0;">2</span><span style="font-size: 12px;">the cable drops to 28%, then off the drawing &mdash; <span style="color: #5C6772;">one state change, 450 ms</span></span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="mono" style="color: #5C6772; width: 14px; flex-shrink: 0;">3</span><span style="font-size: 12px;">the reversing entry lands at the top of the trail &mdash; <span style="color: #5C6772;">110 ms</span></span></div>
+        <div style="display: flex; gap: 10px; align-items: baseline;"><span class="mono" style="color: #5C6772; width: 14px; flex-shrink: 0;">4</span><span style="font-size: 12px;">Redo &middot; Ctrl Shift Z becomes live</span></div>
+        <div style="font-size: 11px; color: #5C6772; line-height: 16px; padding-top: 2px;">The 14:02 entry does not move, change or disappear. Nothing on the trail ever does.</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 16px; font-size: 10px; color: #5C6772; line-height: 15px;">One editor: this trail is the same change history the device's page in Inventory shows. Comments, maintenance records and notes are schema additions and do not exist until the schema says so.</div>
+    </div>
+
+    <!-- ============ RIGHT: the trail ============ -->
+    <div style="flex-grow: 1; background: #FAFBFC; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="padding: 9px 16px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Trail &middot; A-04</span>
+        <span style="font-size: 10px; color: #5C6772;">append-only &middot; sealed &middot; nothing here is ever rewritten</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 26px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6;">
+        <span class="key" style="width: 42px; flex-shrink: 0;">When</span>
+        <span class="key" style="width: 76px; flex-shrink: 0;">Who</span>
+        <span class="key" style="flex-grow: 1; min-width: 0;">What changed</span>
+        <span class="key" style="width: 214px; flex-shrink: 0;">Why</span>
+        <span class="key" style="width: 66px; flex-shrink: 0;">Seal</span>
+      </div>
+
+      <!-- the undo's own entry, landing -->
+      <div class="b2-rowin">
+        <div class="trow" style="background: #FFFFFF;">
+          <span class="b2-mark" style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #14171A;"></span>
+          <span class="mono t">14:03</span>
+          <span class="w">Rowan K.</span>
+          <span class="mono a">uncabled core-01 ge-0/0/15 &rarr; patch-01 p7</span>
+          <span class="y">undo of 14:02</span>
+          <span class="s"><span class="seal"></span>sealed</span>
+        </div>
+      </div>
+
+      <div class="trow">
+        <span class="mono t">14:02</span>
+        <span class="w">Rowan K.</span>
+        <span class="mono a">cabled core-01 ge-0/0/15 &rarr; patch-01 p7 &middot; yellow</span>
+        <span class="y">&ldquo;moving the AP uplink&rdquo;</span>
+        <span class="s"><span class="seal"></span>sealed</span>
+      </div>
+
+      <div class="trow">
+        <span class="mono t">14:01</span>
+        <span class="w">Maria P.</span>
+        <span class="mono a">moved acc-02 ge-0/0/17 &rarr; patch-01 p9</span>
+        <span class="y"></span>
+        <span class="s"><span class="seal"></span>sealed</span>
+      </div>
+
+      <div class="trow">
+        <span class="mono t">13:47</span>
+        <span class="w">Maria P.</span>
+        <span class="mono a">note on patch-01 &middot; typed, not redacted</span>
+        <span class="y">&ldquo;p13&ndash;p18 are the AV run to 2F&rdquo;</span>
+        <span class="s"><span class="seal"></span>sealed</span>
+      </div>
+
+      <div class="trow">
+        <span class="mono t">13:32</span>
+        <span class="w">Jordan T.</span>
+        <span class="mono a">set acc-02 ge-0/0/19 description &rarr; ap-2f-04</span>
+        <span class="y"></span>
+        <span class="s"><span class="seal"></span>sealed</span>
+      </div>
+
+      <div style="padding: 8px 16px; font-size: 11px; color: #5C6772; line-height: 16px; border-bottom: 1px solid #D2D7DD;">14:03 reverses 14:02. Both stand. The drawing shows the estate as it is now; the trail shows how it got there, and the seal is what makes the second claim worth anything.</div>
+
+      <!-- the comment sealed with the change -->
+      <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #D2D7DD;">
+        <div class="lbl">Comment on the pending change</div>
+        <div style="display: flex; gap: 10px; align-items: stretch;">
+          <div style="flex-grow: 1; border: 1px solid #14171A; background: #FFFFFF; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 10px; color: #5C6772;">Why? (optional &mdash; sealed with the change)</span>
+            <span class="mono">moving the AP uplink</span>
+          </div>
+          <div style="width: 210px; flex-shrink: 0; font-size: 11px; color: #5C6772; line-height: 16px;">Written by the person, sealed into the same entry as the change, so it cannot be edited later without breaking the seal.</div>
+        </div>
+      </div>
+
+      <!-- the conflict case: a colleague changed the same thing in between -->
+      <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;">
+        <div class="lbl">If a colleague changed it in between</div>
+        <div style="border: 1px solid #A8571B; background: #FBF3EA; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="color: #A8571B; font-size: 13px; line-height: 20px;">Maria P. changed patch-01 p7 at 14:02. Your undo would overwrite it. Reload to see her change, or keep yours and it is recorded as a second change.</div>
+          <div style="display: flex; gap: 10px;">
+            <span class="btn">Reload and see her change</span>
+            <span class="btn">Keep mine &mdash; record it as a second change</span>
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #5C6772; line-height: 16px;">A conflict is shown, never resolved quietly. Who wins when two people hold the same thing is parked with live editing (UI-SPEC, Presence) and this board does not settle it.</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 10px 16px; display: flex; flex-direction: column; gap: 2px;">
+        <div style="font-size: 11px; line-height: 16px; color: #14171A;">Undo never erases. Both the change and its undoing are on the trail. You undo your own changes, never a colleague's.</div>
+        <div style="font-size: 10px; line-height: 15px; color: #5C6772;">Replays every 8 s for demonstration; in the product each of these happens once, on its event.</div>
+        <div style="font-size: 10px; line-height: 15px; color: #5C6772;">Every value on this board is a sample &mdash; Northwind &rsaquo; HQ &rsaquo; Building A &rsaquo; IDF-2, rack A-04, and the people in it.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

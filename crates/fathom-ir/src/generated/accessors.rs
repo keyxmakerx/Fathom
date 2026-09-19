@@ -1113,14 +1113,20 @@ mod body {
         pub fn position<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PortPosition, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(209))
         }
-        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }`, card `0..1`, emit `—`.
+        /// `PhysicalPort.connector` — `enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r, nema515p, other }`, card `0..1`, emit `—`.
+        /// c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md "Power"). ADR-0051 §1 adds nema515r and nema515p beside them: the North American household outlet and plug a tower UPS and many PDUs carry (NEMA 5-15), receptacle and plug the same pairing c13/c14 already model.
         pub fn connector<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortConnector, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(210))
         }
-        /// `PhysicalPort.service` — `enum { ethernet, pon, rf, serial, console, management, other }`, card `0..1`, emit `—`.
-        /// What the cage is for.
+        /// `PhysicalPort.service` — `enum { ethernet, pon, rf, serial, console, management, power, other }`, card `0..1`, emit `—`.
+        /// What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md "Power"); Cable.media already carries power for the run between them.
         pub fn service<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortService, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(211))
+        }
+        /// `PhysicalPort.face` — `enum { front, rear }`, card `0..1`, emit `—`.
+        /// ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now.
+        pub fn face<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortFace, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(325))
         }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
@@ -1191,6 +1197,11 @@ mod body {
         pub fn last_confirmed<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Date, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(224))
         }
+        /// `Cable.sheath` — `enum { grey, blue, red, yellow, green, orange, purple, black, white, aqua, erika }`, card `0..1`, emit `—`.
+        /// The lead actually used, never a status (docs/UI-SPEC.md "Cables"). Copper: the nine stock lead colours; fibre adds aqua (OM3/OM4) and erika (violet OM4, some makers) per TIA-598-C — orange and yellow are shared with copper, the line style (Cable.media) is what tells them apart. Deliberately closed, no other/unknown variant: each token is a `--sheath-*` CSS custom property, not an open taxonomy.
+        pub fn sheath<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::CableSheath, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(312))
+        }
     }
     /// Typed reads for `PassiveNode` fields.
     pub mod passive_node {
@@ -1199,7 +1210,18 @@ mod body {
         pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(225))
         }
-        /// `PassiveNode.form` — `enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, other }`, card `1`, emit `—`.
+        /// `PassiveNode.form` — `enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, shelf, outlet, board, other }`, card `1`, emit `—`.
+        /// ADR-0051 §1 adds shelf, outlet, board, each declared before `other` per that
+        /// variant's own convention (Device.role's doc). A shelf is a passive that takes U:
+        /// it occupies rack units exactly as a Chassis does, but the equipment on it is
+        /// placed by SitsOn's left-to-right slot rather than by a unit position, because
+        /// the shelf itself already answers "where in the rack". An outlet is a wall jack
+        /// with a front face (the jacks a patch cord plugs into) and a rear face (the
+        /// punchdown where the horizontal run lands) — the same front/rear split
+        /// PhysicalPort.face now names. A board is plywood fixed to a wall that other
+        /// things are fixed to: a backboard carries an ONT, a splitter, an outlet, each
+        /// FixedTo the board rather than the wall, and a thing FixedTo a board measures
+        /// from the board's own edges (FixedTo's own doc).
         pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PassiveNodeForm, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(226))
         }
@@ -1535,6 +1557,18 @@ mod body {
         pub fn unit_numbering<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::RackUnitNumbering, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(304))
         }
+        /// `Rack.row` — `Text`, card `0..1`, emit `—`.
+        /// The row the rack stands in, as the room names it: "Row A". A rack with no row is its own row (ADR-0050 §2).
+        pub fn row<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(313))
+        }
+        /// `Rack.bay` — `u16`, card `0..1`, emit `—`.
+        /// The rack's place in its row, counted left to right as seen from the front, 1
+        /// first (ADR-0050 §2). The closet stop arranges racks by row on this number; the
+        /// row's rear elevation reverses the order, because you have walked round.
+        pub fn bay<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(314))
+        }
     }
     /// Typed reads for `DhcpRelay` fields.
     pub mod dhcp_relay {
@@ -1557,6 +1591,87 @@ mod body {
         /// `minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut.
         pub fn minimum_wait_time<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(311))
+        }
+    }
+    /// Typed reads for `PowerSupply` fields.
+    pub mod power_supply {
+        /// `PowerSupply.slot` — `Text`, card `1`, emit `—`.
+        /// The slot's name in the vendor's own words: "PSU 0", "PSU 1", "PEM A".
+        pub fn slot<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(315))
+        }
+        /// `PowerSupply.serial` — `Identifier`, card `0..1`, emit `—`.
+        /// Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc.
+        pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(316))
+        }
+        /// `PowerSupply.model` — `Identifier`, card `0..1`, emit `—`.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(317))
+        }
+    }
+    /// Typed reads for `Surface` fields.
+    pub mod surface {
+        /// `Surface.label` — `Text`, card `1`, emit `—`.
+        /// The name a person gave it: "North wall", "Desk 4", "Riser closet floor". No hostname -- nothing addresses a surface.
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(319))
+        }
+        /// `Surface.form` — `enum { wall, floor, desk, ceiling }`, card `1`, emit `—`.
+        /// What kind of surface this is. Deliberately no `other`: a surface a person cannot name as one of these four is not yet a surface worth fixing anything to.
+        pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::SurfaceForm, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(320))
+        }
+        /// `Surface.width_mm` — `u32`, card `0..1`, emit `—`.
+        /// The surface's extent left to right, millimetres. Optional: a surface recorded before it was measured has said something true.
+        pub fn width_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(321))
+        }
+        /// `Surface.height_mm` — `u32`, card `0..1`, emit `—`.
+        /// The surface's extent floor to ceiling (or, for a floor, its other horizontal extent), millimetres. Optional for the same reason width_mm is.
+        pub fn height_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(322))
+        }
+    }
+    /// Typed reads for `Capture` fields.
+    pub mod capture {
+        /// `Capture.text` — `Text`, card `1`, emit `—`.
+        /// The capture after the gate. Every credential the gate found is destroyed at the gate before this value exists -- never the original text, ADR-0052 §2.
+        pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(326))
+        }
+        /// `Capture.platform` — `PlatformId`, card `1`, emit `—`.
+        /// junos-srx, panos, ios-xe. FK into schema/platforms.yaml -- Device.platform's own scalar, stamped by the same dictionary that parsed this capture.
+        pub fn platform<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::PlatformId, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(327))
+        }
+        /// `Capture.line_count` — `u32`, card `1`, emit `—`.
+        /// Line count of the redacted text (ADR-0052 §2) -- one gutter row per line.
+        pub fn line_count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(328))
+        }
+        /// `Capture.shape` — `Text`, card `0..1`, emit `—`.
+        /// The shape the frame recognised (`fathom_ingest::shape`), where one was. Absent means the frame found no shape to name.
+        pub fn shape<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(329))
+        }
+    }
+    /// Typed reads for `Note` fields.
+    pub mod note {
+        /// `Note.text` — `Text`, card `1`, emit `—`.
+        /// The note as stored. For a pasted note this is the text OP_REDACT_TEXT returned, after the gate ran and destroyed any credential it found (ADR-0053 §6) -- never the original. For a typed note this is exactly what was typed.
+        pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(330))
+        }
+        /// `Note.how` — `enum { typed, pasted }`, card `1`, emit `—`.
+        /// How the note arrived. A pasted note passed the gate first; a typed one is stored as typed (ADR-0053 §6) and the editor says so.
+        pub fn how<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::NoteHow, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(331))
+        }
+        /// `Note.line_count` — `u32`, card `0..1`, emit `—`.
+        /// A paste's line count -- present only when how is pasted, absent for a typed note, which has no gutter to count.
+        pub fn line_count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(332))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -1876,6 +1991,27 @@ mod body {
             309 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             310 => Some((core::any::TypeId::of::<u32>(), "u32")),
             311 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            312 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableSheath>(), "crate::generated::ir_types::CableSheath")),
+            313 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            314 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            315 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            316 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            317 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            318 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            319 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            320 => Some((core::any::TypeId::of::<crate::generated::ir_types::SurfaceForm>(), "crate::generated::ir_types::SurfaceForm")),
+            321 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            322 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            323 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            324 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            325 => Some((core::any::TypeId::of::<crate::generated::ir_types::PhysicalPortFace>(), "crate::generated::ir_types::PhysicalPortFace")),
+            326 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            327 => Some((core::any::TypeId::of::<crate::scalar::PlatformId>(), "crate::scalar::PlatformId")),
+            328 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            329 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            330 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            331 => Some((core::any::TypeId::of::<crate::generated::ir_types::NoteHow>(), "crate::generated::ir_types::NoteHow")),
+            332 => Some((core::any::TypeId::of::<u32>(), "u32")),
             _ => None,
         }
     }
@@ -2195,6 +2331,27 @@ mod body {
             309 => crate::canon::slot_to::<crate::scalar::Identifier>(309, "crate::scalar::Identifier", value),
             310 => crate::canon::slot_to::<u32>(310, "u32", value),
             311 => crate::canon::slot_to::<u32>(311, "u32", value),
+            312 => crate::canon::slot_to::<crate::generated::ir_types::CableSheath>(312, "crate::generated::ir_types::CableSheath", value),
+            313 => crate::canon::slot_to::<crate::scalar::Text>(313, "crate::scalar::Text", value),
+            314 => crate::canon::slot_to::<u16>(314, "u16", value),
+            315 => crate::canon::slot_to::<crate::scalar::Text>(315, "crate::scalar::Text", value),
+            316 => crate::canon::slot_to::<crate::scalar::Identifier>(316, "crate::scalar::Identifier", value),
+            317 => crate::canon::slot_to::<crate::scalar::Identifier>(317, "crate::scalar::Identifier", value),
+            318 => crate::canon::slot_to::<u8>(318, "u8", value),
+            319 => crate::canon::slot_to::<crate::scalar::Text>(319, "crate::scalar::Text", value),
+            320 => crate::canon::slot_to::<crate::generated::ir_types::SurfaceForm>(320, "crate::generated::ir_types::SurfaceForm", value),
+            321 => crate::canon::slot_to::<u32>(321, "u32", value),
+            322 => crate::canon::slot_to::<u32>(322, "u32", value),
+            323 => crate::canon::slot_to::<u32>(323, "u32", value),
+            324 => crate::canon::slot_to::<u32>(324, "u32", value),
+            325 => crate::canon::slot_to::<crate::generated::ir_types::PhysicalPortFace>(325, "crate::generated::ir_types::PhysicalPortFace", value),
+            326 => crate::canon::slot_to::<crate::scalar::Text>(326, "crate::scalar::Text", value),
+            327 => crate::canon::slot_to::<crate::scalar::PlatformId>(327, "crate::scalar::PlatformId", value),
+            328 => crate::canon::slot_to::<u32>(328, "u32", value),
+            329 => crate::canon::slot_to::<crate::scalar::Text>(329, "crate::scalar::Text", value),
+            330 => crate::canon::slot_to::<crate::scalar::Text>(330, "crate::scalar::Text", value),
+            331 => crate::canon::slot_to::<crate::generated::ir_types::NoteHow>(331, "crate::generated::ir_types::NoteHow", value),
+            332 => crate::canon::slot_to::<u32>(332, "u32", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2512,6 +2669,27 @@ mod body {
             309 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             310 => crate::canon::slot_from::<u32>(j),
             311 => crate::canon::slot_from::<u32>(j),
+            312 => crate::canon::slot_from::<crate::generated::ir_types::CableSheath>(j),
+            313 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            314 => crate::canon::slot_from::<u16>(j),
+            315 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            316 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            317 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            318 => crate::canon::slot_from::<u8>(j),
+            319 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            320 => crate::canon::slot_from::<crate::generated::ir_types::SurfaceForm>(j),
+            321 => crate::canon::slot_from::<u32>(j),
+            322 => crate::canon::slot_from::<u32>(j),
+            323 => crate::canon::slot_from::<u32>(j),
+            324 => crate::canon::slot_from::<u32>(j),
+            325 => crate::canon::slot_from::<crate::generated::ir_types::PhysicalPortFace>(j),
+            326 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            327 => crate::canon::slot_from::<crate::scalar::PlatformId>(j),
+            328 => crate::canon::slot_from::<u32>(j),
+            329 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            330 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            331 => crate::canon::slot_from::<crate::generated::ir_types::NoteHow>(j),
+            332 => crate::canon::slot_from::<u32>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

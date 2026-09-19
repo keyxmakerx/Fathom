@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod catalogue;
 pub mod concepts;
 pub mod detln;
 pub mod gates;
@@ -18,6 +19,11 @@ pub mod load;
 pub mod model;
 pub mod normalize;
 
+pub use catalogue::{
+    Catalogue, CatalogueError, CatalogueGate, Face, Faceplate, Layout, Model as CatalogueModel,
+    Port, PortGroup, PortKind, PortNumbering, PsuSlot, Role, Row, SlotPosition,
+    Source as CatalogueSource,
+};
 pub use gates::{Finding, Severity};
 pub use index::CorpusIndex;
 pub use load::LoadError;
@@ -43,7 +49,7 @@ mod tests {
             98,
             "the seed bundle is 98 entries"
         );
-        assert_eq!(idx.corpus.explainers.len(), 42);
+        assert_eq!(idx.corpus.explainers.len(), 55);
         assert!(!idx.terms.is_empty());
         assert!(idx.concepts.by_id.contains_key("concept:obj.tunnel"));
         // The flagship trace's own join: p2.installed is narrower of

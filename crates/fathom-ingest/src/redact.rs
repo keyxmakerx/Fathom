@@ -868,6 +868,46 @@ fn raw_walk(texts: &[String], at: usize) -> bool {
         .any(|t| dict::is_secret_word(t))
 }
 
+/// [`raw_walk`]'s own rule -- a [`SECRET_WORD_LIST`] word within the two
+/// whitespace tokens immediately before a value, with no `:`/`=` required --
+/// over a plain `&str` rather than `gate_unshaped`'s pre-collected
+/// `Vec<String>`. Not a second detector: same predicate
+/// (`dict::is_secret_word`), same two-token lookback, restated only because
+/// the caller below has no lexed token list to hand it.
+///
+/// [`looks_like_credential`] deliberately will not do this (its own doc, and
+/// `looks_like_credential_needs_the_delimiter_not_bare_adjacency` below) for
+/// its *existing* caller, which marks free-typed fields where a sentence
+/// like "replaced the KEY switch" must read clean. This function is for a
+/// second, narrower caller: a re-check over `Capture.text`/`Note.text`,
+/// which the schema promises hold pasted device output, not hand-typed
+/// prose. Real devices overwhelmingly write `keyword <secret>` with a bare
+/// space and no delimiter -- `snmp-server community s3cr3tR0 RO`, `enable
+/// secret cisco123`, `crypto isakmp key Sh4redS3cret address 10.0.0.1` --
+/// none of which `looks_like_credential` alone can see, and its own unit
+/// tests below pin these forms as `true` here and `false` there.
+///
+/// **Still a hint over unstructured text, not the bound-statement path.** A
+/// keyword `SECRET_WORD_LIST` does not carry whole or as a `-`/`.`/case
+/// component -- SNMPv3's `auth`/`priv`, matched only through the loaded
+/// per-platform `Dictionary` against a shaped statement -- is not caught
+/// here. That gap is recorded, not claimed closed.
+pub fn looks_like_credential_bare(text: &str) -> bool {
+    if looks_like_credential(text) {
+        return true;
+    }
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    (1..tokens.len()).any(|at| {
+        tokens
+            .get(..at)
+            .into_iter()
+            .flatten()
+            .rev()
+            .take(2)
+            .any(|t| dict::is_secret_word(t))
+    })
+}
+
 /// `14` §9.7's sketch: the first two tokens are kept only if neither trips a
 /// detector and both are in the dictionary's known segment set; every other
 /// token becomes `<word>` or `<quoted>`; no character of any token beyond the
@@ -1158,5 +1198,40 @@ mod tests {
         // — only a secret word immediately followed by `:`/`=` and a value
         // does.
         assert!(looks_like_credential("key: aB3xR9"));
+    }
+
+    #[test]
+    fn looks_like_credential_bare_catches_real_device_lines_with_no_delimiter() {
+        // Real-device, space-separated forms (CLAUDE.md rule 2): none of
+        // these carry a `:`/`=`, so `looks_like_credential` alone must miss
+        // them and `looks_like_credential_bare` must not.
+        for line in [
+            "snmp-server community s3cr3tR0 RO",
+            "enable secret cisco123",
+            "enable password 7 0822455D0A16",
+            "username admin password Str0ngP@ss",
+            "set system root-authentication plain-text-password-value Tr0ub4dor",
+            "crypto isakmp key Sh4redS3cret address 10.0.0.1",
+            "radius-server host 10.0.0.1 key R@d1usK3y99",
+            "tacacs-server key tac_plus_key1",
+        ] {
+            assert!(!looks_like_credential(line), "{line}");
+            assert!(looks_like_credential_bare(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn looks_like_credential_bare_inherits_raw_walks_own_false_positive_on_prose() {
+        // NOT a false-positive-free instrument: `raw_walk`'s own doc names
+        // exactly this sentence as the cost of bare adjacency ("switch sits
+        // one token after key"). `looks_like_credential_bare` is for
+        // `Capture.text`/`Note.text` re-checks, not for marking arbitrary
+        // typed prose, precisely because of this trade-off -- see its own
+        // doc comment.
+        assert!(looks_like_credential_bare(
+            "replaced the key switch in rack 4"
+        ));
+        assert!(!looks_like_credential_bare("uplink to core-sw-2, port 24"));
+        assert!(!looks_like_credential_bare(""));
     }
 }

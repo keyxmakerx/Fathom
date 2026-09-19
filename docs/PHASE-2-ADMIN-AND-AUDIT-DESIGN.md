@@ -527,6 +527,13 @@ whatever key the keyring currently holds — both wrong. Verification uses the k
 6. Check the quorum rule for the capability — met by one *qualifying* seconding (§3.5, 2026-09-13).
 7. Only then return `Capabilities`, and only then may the caller set `app.design_capability`.
 
+**One transaction, and until 2026-09-14 it was two.** Steps 1 to 7 and the session verification that
+precedes them now run in the caller's single transaction. They did not: session verification opened,
+committed and closed its own, so a key retired or an account disabled between the two was evaluated
+against a different snapshot than the grant walk. The window was milliseconds and no route yet
+carried design payload across it, which is why it survived review; the property this step describes
+simply did not hold.
+
 ```
 K_row       = HKDF-Expand(chain_key_epoch_e, info = "fathom/chain/kdf/row/v1", 32)
 
@@ -800,10 +807,95 @@ provenance, which damages the product's other co-equal goal by means of its own 
 
 ---
 
+> **The operator console as built — 2026-09-14.** Migration `0015` and `operators.rs`. Ten places
+> where this design was wrong, silent, or describes something not built. The first three change what
+> the design says; the rest are gaps, named so they are not mistaken for finished work.
+>
+> 1. **An organisation shell is not a row in `organisations`.** §6.2 reads as though it is. It cannot
+>    be: §6.1 derives the organisation id from a root key that does not exist until the claim is
+>    redeemed. A shell is its own row, and it names the organisation its claim eventually produced.
+> 2. **§5.1's reset is an enrolment token, not `reset_link_sent`.** There is no password, so there is
+>    nothing to reset; the path is the invitation path. The entry type follows the act.
+> 3. **An operator signs in with their operator id**, because §4.5 gives operators no address of
+>    record. Accounts sign in with an address; operators do not have one to use.
+> 4. **§5.4 step 4 is not implemented.** It wants the delay measured against a chain receipt, and
+>    there is no `chain_receipts` table — `0009` defers receipts deliberately. The delay is therefore
+>    measured against *this server's clock*, which is the thing it was supposed not to trust. The
+>    column is absent rather than stubbed, so nothing reads a field that means less than its name.
+>    This is the weakest point in the interlock and it is not closed by anything below.
+> 5. **§4.4's steward co-signature on enrolment redemption is not built.** A redeemed token enrols a
+>    key on the token alone. This is where the build is weaker than this design, it is grant-shaped
+>    work, and it should be done before anybody relies on invitations at scale.
+> 6. **No notices are sent anywhere, because there is no mail path at all.** §1.1 and §5.5 both
+>    require them, and §5.5's second operator is supposed to learn of a request by being told. Today
+>    they learn by looking. The interlock's *refusals* all hold; its *notification* does not exist.
+> 7. **§1.1's rate limit on account-shell creation is not built.**
+> 8. **§1.3's read-only pool is not used.** `fathom_operator` is `NOLOGIN` (`0005`) and `planes.rs`
+>    asserts it cannot be connected to at all. Console reads run on the application role under
+>    `app.operator_custody`, with `design_capability` at its refusal. Giving that role a login is a
+>    deployment change, not a code change, and until it is made §1.3 describes an intent rather than
+>    a mechanism.
+> 9. **`OperatorHasNoAuthenticator` was retired.** Once operators can exist, answering "that one has
+>    no key" is an oracle over operator ids, which is the same defect §4's correction block records
+>    for account addresses.
+> 10. **`grant_suspended` is filed on BOTH chains**, like `rewrap`: the organisation's chain for the
+>    stewards who may lift it, the site chain because every operator act must be legible to whoever
+>    audits the operator plane. §7.2's two lists both carry it.
+>
+> **Two configuration values, neither with a default.** `FATHOM_SINGLE_OPERATOR` removes the second
+> signature and **not** the delay, and is recorded on the site chain at startup so the mode is
+> auditable rather than a local belief. `FATHOM_OPERATOR_NOTICE_ADDRESS` is where notices will go and
+> the address the first operator is created against; a guessed default would bootstrap an operator
+> nobody can reach.
+>
+> **The session's evidence key is under two foreign keys, not a trigger.** `0015` first replaced
+> `0013`'s foreign key with a `SECURITY DEFINER` trigger, because the reference is polymorphic: an
+> account's proving key and an operator's live in different keyrings. That trigger ran as a
+> NOSUPERUSER owner and so was subject to `FORCE ROW LEVEL SECURITY`, which made it ask *is this key
+> visible to me* rather than *does this key exist* — measured on PostgreSQL 16.13, an insert naming
+> an existing-but-invisible row was accepted and one naming a non-existent row was refused.
+> Referential integrity does not go through row security. It also passed its own tests by coincidence
+> of the ambient transaction, so nothing in the suite could tell. Two columns and two real foreign
+> keys now, with `CHECK`s tying each to its principal kind; the application still reads and writes one
+> value, so the row MAC covers the same bytes.
+
 ## 4. Sessions: the per-request proof
 
 The server decrypts designs to serve them. Nothing here changes that, so the only place to stand is
 *which session gets served*.
+
+> **Corrected 2026-09-14, after the first adversarial round on this layer.** Migration `0014` carries
+> the same list in its header. Six things this section said, or failed to say, were not true of what
+> was built. In order of how much they mattered:
+>
+> 1. **The refusal was not uniform and this section implied it was.** The rate limiter counted a
+>    failure only when the address resolved, so a real address answered "too many attempts" after the
+>    cap and an address belonging to nobody answered "refused" for ever. Eleven tries told an
+>    attacker which addresses exist. A sign-in now counts against a **keyed hash of the claimed
+>    address** when it resolves to nothing — labels `fathom/session/kdf/address/v1` and
+>    `fathom/session/address/v1`, storage §12.2 — so both answers move at the same attempt. The
+>    table never holds an address that is not an account in the clear.
+> 2. **Timing is not equalised, and this section must not be read as promising it.** A resolving
+>    address goes on to verify a row seal and an ES256 signature; an unknown one stops earlier, and
+>    the wall-clock difference is measurable. Closing it means verifying against a decoy key, which
+>    changes what sign-in *does* rather than what it *answers*. Not done, and stated rather than
+>    left to be assumed.
+> 3. **Verification and authorisation were two transactions**, so the disabled-account check, the
+>    evidence-key check and the grant evaluation never shared a snapshot. §3.4 step 7 and this
+>    section both read as one continuous act; they were describing something that was not the case.
+>    It is one transaction now, with the nonce still spent in its own committed transaction for the
+>    reason `0013` gave.
+> 4. **`request_counter` had no upper bound** (§4.3), so a client could send the largest possible
+>    integer and no later nonce could ever exceed it: the session was bricked until expiry. Bounded
+>    to a window above the mark, sized to the outstanding-nonce limit so the in-flight case `0013`
+>    requires still works.
+> 5. **Sign-out was a deletion** (§4.3). A deleted row restored from a backup verified again,
+>    silently undoing the sign-out. Sign-out is now a deletion **and** an append-only sealed record,
+>    bound to a new `account_signed_out` site entry.
+> 6. **The challenge route was not rate limited** and this section did not ask for it, so an
+>    unauthenticated caller could add rows for ever. It is counted now, which spends the source
+>    budget twice per sign-in and so **halves the effective attempts per source**. A deployment
+>    behind one address, which is most of them, must raise the limit rather than discover this.
 
 ### 4.1 The rule
 
@@ -915,6 +1007,15 @@ takeover with an extra step.
 drawer or a safe — at the moment the first is registered, and says why: the alternative to a spare is
 a steward-co-signed recovery every time a laptop dies, and the observed response to that friction is
 key escrow (§8.4).
+
+**The invitation token's text form — recorded 2026-09-16, found by the enrolment review.** A token
+leaves the server as 32 raw bytes in a length-prefixed field (`admin.rs`'s invitation answer) and
+nothing here said how a console or a mail renders it to a person. The one place the server does
+render such a token, `main.rs`'s `write_bootstrap_token`, writes **64 lowercase hexadecimal
+characters**, and the browser's enrolment screen reads that form, stripping whitespace, hyphens and
+the invisible characters an HTML mail can insert. That is the encoding, for every surface that
+shows a token to a person, until a server-side constant names it; a console that renders anything
+else breaks the screen without breaking the server.
 
 ### 4.5 The operator surface has no password path at all
 
@@ -1098,10 +1199,25 @@ chain.
 
 Both are written to the master-key volume, not mailed — because on a fresh install there is no mail.
 
-- At first start, if no operator exists, the server writes a single-use enrolment token to
-  `/var/lib/fathom/keys/first_operator.token`, 0400, and logs the path. Whoever can read that volume
-  is the legitimate installer. Redeeming it registers an authenticator and writes
+- At first start, if no operator exists, the server writes a single-use enrolment token to the path
+  `FATHOM_BOOTSTRAP_TOKEN_FILE` names, 0400, and logs the path and never the token. Whoever can read
+  that file is the legitimate installer. Redeeming it enrols a key and writes
   `operator_bootstrapped`.
+
+  **Corrected 2026-09-14. This paragraph said `/var/lib/fathom/keys/first_operator.token`, and it
+  was wrong twice over.** The filename was never that in code, and the master-key volume is the one
+  place the token must not go: `deploy/compose.yaml` mounts it read-only, correctly, so the first
+  start in a container could not write the token and the server refused to start. The path is now
+  the deployment's choice with its own writable volume, and the key volume stays read-only.
+
+- **A lost token used to brick the deployment.** If nobody redeemed it before a restart, the operator
+  row existed so nothing re-bootstrapped, and there was no way in again short of destroying the
+  database. `fathom-server reissue-bootstrap-token` is the way back, and its refusal is the design:
+  it works **only while no operator key has ever been enrolled**, counting retired ones, so it cannot
+  serve as a backdoor for anyone who can run a command on the host. Once a key exists it refuses and
+  names the remedy, which is another operator or a restore. It expires the token it replaces in the
+  same transaction, because two live bearer secrets is one too many and the one being replaced is
+  exactly the one nobody can account for.
 - The first organisation's enrolment claim is displayed once in that operator's own session and
   written to the same volume.
 
@@ -1160,13 +1276,18 @@ organisation chain; the site chain covers everything organisation-independent.
 
 **Site chain** — `deployment_started`, `schema_fingerprint`, `migration_applied`,
 `client_build_digest`, `operator_bootstrapped`, `operator_created|seconded|enrolled|disabled`,
-`operator_signin|signin_failed`, `account_created`, `account_disabled|enabled`, `reset_link_sent`,
+`operator_signin|signin_failed|signed_out`, `operator_read`, `account_signin|signin_failed`,
+`account_signed_out`,
+`account_created`, `account_disabled|enabled`, `reset_link_sent`,
 `password_changed`, `authenticator_registered|removed`, `enrolment_token_issued|redeemed|expired`,
 `contact_change_requested|seconded|applied|cancelled`,
 `setting_requested|seconded|applied|cancelled`, `setting_unresolvable`, `single_operator_mode`,
 `org_shell_created`, `backup_taken`, `restore_performed`, `rewrap`, `rotate_started|finished`,
 `shipper_config_changed`, `shipper_gap`, `spool_pressure`, `clock_step`, `epoch_opened`,
-`witness_receipt`, `verification_run`, `heartbeat`.
+`witness_receipt`, `verification_run`, `heartbeat`, and **`grant_suspended`** — on both lists from
+2026-09-14, for the same reason `rewrap` is: the organisation's chain carries it for the stewards who
+may lift it, and the site chain carries it because suspension is an operator act and every operator
+act has to be legible to whoever audits the operator plane.
 
 **Organisation chain** — `org_genesis`, `account_key_enrolled|superseded|retired`, `grant_signed`,
 `grant_seconded`, `grant_suspended|unsuspended`, `grant_revoked`, `auth_head_advanced`,
@@ -1871,7 +1992,15 @@ design does not pretend otherwise. The list it must satisfy:
    `kind = 'account'` **in the same transaction**, or the composite foreign keys make the account
    useless. It also adds that registration must answer `OPEN-QUESTIONS.md` B5 — whether a stranger
    may create an account and an organisation — because §6.2's shell path assumes the answer is no.
-7. **Rate limiting, lockout, and the sign-in surface itself**, which this design does not specify.
+7. **Rate limiting and the sign-in surface itself.** Specified and built as of `0013` and `0014`;
+   this item no longer describes missing work. **There is no lockout and there is not going to be
+   one — decided 2026-09-14.** Three places, this item among them, called the per-account counter a
+   lockout; the code never refused a correct sign-in because of it, and the wording was corrected
+   rather than the behaviour. The reasoning: on a surface anyone on the internet can reach, a real
+   lockout hands an attacker a denial of service against a named colleague at the cost of a few
+   requests, and there is no password here to brute force — sign-in is a signature by an enrolled
+   key. The per-account counter therefore bounds how fast the audit chain grows and nothing else.
+   The per-source counter is the rate limit that does the work.
 8. **`OPEN-QUESTIONS.md` C2 binds the operator surface too.** If device passwords are ever accepted
    for sign-in, §4.5's "no password path on `/admin`" is the line that must not move.
 9. **Directory sync is a provisioning source, not an authority** (§3.7, 2026-09-12). An LDAP or
@@ -2035,6 +2164,26 @@ over all 93 projected crates in both databases: every hit is against a version b
 **Constant-time is barely relevant to the server here and the design must not claim it is.** The
 server only verifies; there is no secret scalar in this process on this path. It matters for
 browser-side reconstruction and nothing else new.
+
+**Low-S is required on the wire, and `WebCrypto` does not produce it — added 2026-09-14.**
+`authority::verify_es256` refuses any signature whose `s` is above the curve order's halfway point,
+and `SoftwareKey::sign` normalises its own output so the server never trips its own rule. The
+browser has no such courtesy: `SubtleCrypto.sign` with `ECDSA`/`P-256` returns whichever of the two
+equivalent signatures the implementation happens to produce, so roughly half of all genuine
+browser signatures are high-S and would have been refused, at random, with the uniform refusal that
+says nothing about why. Nobody would have found that from the error message.
+
+The browser therefore applies the same normalisation before sending: `client/src/crypto/p256.ts`,
+proved by its own tests to be a no-op on an already-low-S value and to recover the same value from
+its high-S twin. Found on 2026-09-14 by the builder of the first client slice, not by a document —
+which is the argument for writing the client against the real byte construction rather than a
+description of it.
+
+**This applies to every future signer, not only this one.** WebAuthn assertions arrive from an
+authenticator over which Fathom has no normalisation hook at all, so §15.4's verification must
+decide explicitly whether a high-S assertion is refused or normalised before verification. That
+decision is open and belongs with the WebAuthn work; it is recorded here so it is not discovered
+the same way twice.
 
 ### 15.4 WebAuthn verification is hand-written, and that is allowed
 

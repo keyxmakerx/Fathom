@@ -5,6 +5,8 @@
 # RethInterface, `ae` -> AggregateInterface, anything else -> Interface.
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, description and disable (edit interfaces)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/interfaces.unit.family-inet-address
     path: [interfaces, "$if", unit, "$u", family, inet, address, "$a"]

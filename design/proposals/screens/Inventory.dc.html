@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .btn { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; line-height: 16px; color: #14171A; background: #FFFFFF; }
+    .chip { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; line-height: 16px; }
+    .chip.off { border-color: #D2D7DD; color: #5C6772; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; }
+    .row .k { width: 92px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+    .grid { display: grid; grid-template-columns: 30px 150px 132px 124px 84px 128px 96px 148px; }
+    .c { padding: 5px 10px; border-bottom: 1px solid #D2D7DD; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; overflow: hidden; white-space: nowrap; }
+    .c.sel { background: #F2F4F6; }
+    .cb { padding: 6px 0; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center; }
+    .box { width: 12px; height: 12px; border: 1px solid #5C6772; background: #FFFFFF; display: flex; align-items: center; justify-content: center; }
+    .box.on { background: #14171A; border-color: #14171A; }
+    .grp { grid-column: 1 / -1; padding: 8px 10px 4px; border-bottom: 1px solid #14171A; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .hatch { background: repeating-linear-gradient(135deg, #5C6772 0 2px, transparent 2px 5px); }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <!-- masthead: Main's, with Inventory current. No cable-kind or port-colour controls: they belong to the drawing. No zoom: that is Racks. -->
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="display: flex; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: stretch;">
+      <div class="place">Racks</div>
+      <div class="place on">Inventory</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span style="color: #14171A; font-weight: 700;">Northwind</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772;">
+      <span>2 others here</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Jordan T.</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Maria P.</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div style="width: 1px; height: 24px; background: #D2D7DD;"></div></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- LEFT RAIL: kinds, then saved filters -->
+    <div style="width: 232px; border-right: 1px solid #D2D7DD; background: #F2F4F6; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div class="lbl" style="padding: 10px 12px 6px; border-bottom: 1px solid #D2D7DD;">Kinds</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 5px 12px; background: #FFFFFF; border-left: 4px solid #14171A; display: flex; justify-content: space-between;"><span>Devices</span><span class="mono" style="color: #5C6772;">60</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>Racks</span><span class="mono" style="color: #5C6772;">9</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>Cables</span><span class="mono" style="color: #5C6772;">214</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>Closets</span><span class="mono" style="color: #5C6772;">4</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>Addresses</span><span class="mono" style="color: #5C6772;">118</span></div>
+      </div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 8px;">Saved filters</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 5px 16px;">Behind staged firmware</div>
+        <div style="padding: 5px 16px;">Single-fed</div>
+        <div style="padding: 5px 16px;">Free space</div>
+        <div style="padding: 5px 16px; color: #5C6772; border-top: 1px dashed #D2D7DD;">+ save this filter</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">A saved filter is a filter and a name. Nothing else.</div>
+    </div>
+
+    <!-- CENTRE: the list -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="height: 34px; border-bottom: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 10px; gap: 12px; flex-shrink: 0;">
+        <span class="mono" style="color: #14171A;">60 devices &middot; 9 racks &middot; 4 closets</span>
+        <span style="flex-grow: 1;"></span>
+        <span style="border: 1px solid #D2D7DD; background: #FFFFFF; padding: 3px 8px; display: flex; align-items: center; gap: 6px; width: 236px;">
+          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><circle cx="4.5" cy="4.5" r="3.5" fill="none" stroke="#5C6772"></circle><path d="M7.2 7.2 L10 10" stroke="#5C6772" fill="none"></path></svg>
+          <span style="font-size: 11px; color: #5C6772;">Filter these 60 devices</span>
+        </span>
+      </div>
+
+      <div style="height: 34px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 10px; gap: 6px; flex-shrink: 0;">
+        <span class="chip">All active</span>
+        <span class="chip off">Switches</span>
+        <span class="chip off">Firewalls</span>
+        <span class="chip off">Servers</span>
+        <span class="chip off">Panels</span>
+        <span class="chip off">Free space</span>
+      </div>
+
+      <!-- bulk bar, shown because two rows are checked -->
+      <div style="height: 32px; border-bottom: 1px solid #14171A; background: #F2F4F6; display: flex; align-items: center; padding: 0 10px; gap: 10px; flex-shrink: 0;">
+        <span style="font-size: 12px; font-weight: 700;">2 selected</span>
+        <span style="color: #D2D7DD;">&middot;</span>
+        <span class="btn">Edit</span>
+        <span class="btn">Export CSV</span>
+        <span class="btn">Clear</span>
+      </div>
+
+      <div class="grid" style="border-bottom: 1px solid #14171A; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; flex-shrink: 0;">
+        <div style="padding: 6px 0; display: flex; align-items: center; justify-content: center;"><span class="box"></span></div>
+        <div style="padding: 6px 10px;">name</div>
+        <div style="padding: 6px 10px;">model</div>
+        <div style="padding: 6px 10px;">where</div>
+        <div style="padding: 6px 10px;">ports</div>
+        <div style="padding: 6px 10px;">firmware</div>
+        <div style="padding: 6px 10px;">power</div>
+        <div style="padding: 6px 10px;">last change</div>
+      </div>
+
+      <div class="grid" style="flex-shrink: 0;">
+
+        <div class="grp">IDF-2 &rsaquo; rack A-04 &middot; 42U</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">hq-fw-01</div>
+        <div class="c">SRX340</div>
+        <div class="c">A-04 &middot; U40&ndash;41</div>
+        <div class="c">6 / 16</div>
+        <div class="c">21.4R3-S5</div>
+        <div class="c">A + B</div>
+        <div class="c">28 Aug 14:02</div>
+
+        <div class="cb sel" style="border-left: 4px solid #14171A;"><span class="box"></span></div>
+        <div class="c sel" style="font-weight: 700;">core-01</div>
+        <div class="c sel">EX4300-48P</div>
+        <div class="c sel">A-04 &middot; U38</div>
+        <div class="c sel">31 / 52</div>
+        <div class="c sel">21.4R3-S5</div>
+        <div class="c sel">A + B</div>
+        <div class="c sel">12 Sep 09:41</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">core-02</div>
+        <div class="c">EX4300-48P</div>
+        <div class="c">A-04 &middot; U37</div>
+        <div class="c">12 / 52</div>
+        <div class="c">23.4R2</div>
+        <div class="c">A + B</div>
+        <div class="c">12 Sep 09:44</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">patch-01</div>
+        <div class="c">24-port panel</div>
+        <div class="c">A-04 &middot; U35</div>
+        <div class="c">13 / 24</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c">29 Aug 11:20</div>
+
+        <div class="cb"><span class="box on"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1 4 L3 6 L7 1.5" fill="none" stroke="#FFFFFF" stroke-width="1.6"></path></svg></span></div>
+        <div class="c">acc-01</div>
+        <div class="c">EX2300-48P</div>
+        <div class="c">A-04 &middot; U34</div>
+        <div class="c">44 / 52</div>
+        <div class="c">21.4R3-S5</div>
+        <div class="c" style="font-family: 'Liberation Sans', Arial, sans-serif;"><span style="border: 1px solid #A8571B; background: #FBF3EA; color: #A8571B; font-size: 10px; padding: 0 5px;">single-fed</span></div>
+        <div class="c">03 Sep 16:10</div>
+
+        <div class="cb"><span class="box on"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1 4 L3 6 L7 1.5" fill="none" stroke="#FFFFFF" stroke-width="1.6"></path></svg></span></div>
+        <div class="c">acc-02</div>
+        <div class="c">EX2300-48P</div>
+        <div class="c">A-04 &middot; U33</div>
+        <div class="c">39 / 52</div>
+        <div class="c">21.4R3-S5</div>
+        <div class="c">A + B</div>
+        <div class="c">03 Sep 16:12</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">fibre-01</div>
+        <div class="c">12-port LC panel</div>
+        <div class="c">A-04 &middot; U30</div>
+        <div class="c">4 / 12</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c">29 Aug 11:26</div>
+
+        <!-- free space is inventory -->
+        <div class="cb hatch" style="border-bottom: 1px solid #D2D7DD;"></div>
+        <div class="c" style="color: #5C6772;">U20&ndash;U29</div>
+        <div class="c" style="color: #5C6772;">free &middot; 10U</div>
+        <div class="c" style="color: #5C6772;">A-04</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">vm-host-01</div>
+        <div class="c">4U server</div>
+        <div class="c">A-04 &middot; U16&ndash;19</div>
+        <div class="c">4 / 6</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c">A + B</div>
+        <div class="c">11 Sep 08:05</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">vm-host-02</div>
+        <div class="c">4U server</div>
+        <div class="c">A-04 &middot; U12&ndash;15</div>
+        <div class="c">4 / 6</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c">A + B</div>
+        <div class="c">11 Sep 08:07</div>
+
+        <div class="cb"><span class="box"></span></div>
+        <div class="c">pdu-a04</div>
+        <div class="c">8-outlet PDU</div>
+        <div class="c">A-04 &middot; U3</div>
+        <div class="c">7 / 8</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c">A</div>
+        <div class="c">29 Aug 10:02</div>
+
+        <div class="grp" style="padding-top: 12px;">IDF-2 &rsaquo; rack A-05 &middot; 24U &middot; landlord</div>
+
+        <div class="cb hatch" style="border-bottom: 1px solid #D2D7DD;"></div>
+        <div class="c" style="color: #5C6772;">U1&ndash;U24</div>
+        <div class="c" style="color: #5C6772;">free &middot; 24U</div>
+        <div class="c" style="color: #5C6772;">A-05</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+        <div class="c" style="color: #5C6772;">&mdash;</div>
+      </div>
+
+      <div style="padding: 10px 10px; font-size: 11px; color: #5C6772;">Free space is inventory: a free run of rack units is a row, because absent is drawn as absent. Twelve of 60 shown.</div>
+      <div style="flex-grow: 1;"></div>
+    </div>
+
+    <!-- RIGHT: the one editor, reading a device -->
+    <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">core-01</span>
+        <span style="font-size: 10px; color: #5C6772;">device &middot; switch</span>
+      </div>
+      <div style="padding: 6px 12px 8px; border-bottom: 1px solid #D2D7DD; font-size: 11px; color: #5C6772; line-height: 16px;">The device&rsquo;s page is this same panel given the full width. Same fields, same code &mdash; there is no second detail pane.</div>
+
+      <div class="row"><span class="k">model</span><span class="mono">EX4300-48P</span></div>
+      <div class="row"><span class="k">rack</span><span class="mono">A-04 &middot; U38</span></div>
+      <div class="row"><span class="k">role</span><span class="mono">switch &middot; core</span></div>
+      <div class="row"><span class="k">mgmt ip</span><span class="mono">10.10.0.2</span></div>
+      <div class="row"><span class="k">ports</span><span class="mono">31 of 52 cabled</span></div>
+      <div class="row"><span class="k">firmware</span><span class="mono">Junos 21.4R3-S5</span></div>
+      <div class="row"><span class="k">power</span><span class="mono">A + B &middot; dual fed</span></div>
+
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div style="border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Show on rack</div>
+      </div>
+
+      <!-- the credential mark, kept from the first pass -->
+      <div style="display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; align-items: flex-start;">
+        <span style="width: 92px; font-size: 11px; color: #5C6772; flex-shrink: 0;">description</span>
+        <span class="mono" style="display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap;">
+          <span>psk: Tr0ub4dour&amp;3</span>
+          <span style="background: #14171A; color: #FFFFFF; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; font-family: 'Liberation Sans', Arial, sans-serif;">!</span>
+        </span>
+      </div>
+      <div style="padding: 6px 12px 10px; font-size: 11px; color: #5C6772; line-height: 16px; border-bottom: 1px solid #D2D7DD; background: #F2F4F6;">
+        <strong style="color: #14171A;">Stored as typed.</strong> This looks like a password or key. Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.
+      </div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">Gaps &middot; 1</div>
+      <div style="padding: 6px 12px;">
+        <div style="border: 1px solid #A8571B; background: #FBF3EA; color: #A8571B; padding: 5px 8px; font-size: 12px;">serial &mdash; required, not set</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">First press selects a value. Second press edits it. Model, ports and position come from the catalogue and the rack; they are not typed here.</div>
+    </div>
+  </div>
+
+  <div style="height: 28px; border-top: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 16px; gap: 16px; font-size: 10px; color: #5C6772; flex-shrink: 0;">
+    <span>Nothing here is typed. Counts, models and positions come from the graph and the catalogue.</span>
+    <span style="flex-grow: 1;"></span>
+    <span>Every name, version, count and time on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

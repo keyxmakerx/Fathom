@@ -79,7 +79,68 @@ fn schema_version_is_the_trees() {
     // declarer, keys 308-311. 62 §16.2 prices a new kind, a new edge kind and a
     // field on a new declarer all MINOR: an old build keeps the unknown kind in
     // `unknown` rather than refusing the file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.5");
+    //
+    // 0.5 -> 0.6 on 2026-09-16: the cables session's schema half. One new
+    // optional field, `Cable.sheath` (key 312), and two enum variants each on
+    // two already-keyed fields -- `PhysicalPort.connector` gains `c13`/`c14`,
+    // `PhysicalPort.service` gains `power` (docs/UI-SPEC.md "Cables", "Power").
+    // 62 §16.2 prices a new optional field and a new enum variant both MINOR;
+    // an old build reads an unrecognised sheath or connector/service token
+    // into the generated unknown arm, which `enum_tokens_round_trip_including_unknown`
+    // below exercises. Nothing existing moved.
+    //
+    // 0.6 -> 0.7 on 2026-09-16: ADR-0050, the rear elevation. Two optional fields
+    // on the existing declarer `Rack` (`row`, `bay`), one new kind `PowerSupply`
+    // (joins the `PortHost` and `Placeable` classes), one new edge kind `FittedIn`
+    // seating a `PowerSupply` in its `Chassis` -- CONTAINMENT, not a reference like
+    // `MountedIn`, because `PowerSupply` has no competing containment parent the
+    // way `Chassis` does, and its identity `[owner(Chassis), slot]` needs the same
+    // containment convention `HasRack` and `HasPort` already use. Five new field
+    // keys, 313-317. 62 §16.2 prices a new optional field, a new node kind and a
+    // new edge kind all MINOR; an old build keeps the unrecognised kind in
+    // `unknown` rather than refusing the file. Nothing existing moved.
+    //
+    // 0.7 -> 0.8 on 2026-09-18: ADR-0051 §1, the shapes. Three enum variants on
+    // the existing declarer `PassiveNode.form` (`shelf`, `outlet`, `board`); one
+    // new edge kind `SitsOn` (reference, `[Chassis, PassiveNode] -> PassiveNode`,
+    // one field on its new declarer, `slot`) seating a box on a shelf's slot --
+    // reference, not containment, for `MountedIn`'s own reason: the thing seated
+    // already has a real containment parent. One new node kind `Surface` (joins
+    // `Placeable`, `Rack`'s own precedent) and its containment edge `HasSurface`
+    // (`Premises -> Surface`, `HasRack`'s own shape). One new edge kind `FixedTo`
+    // (reference, `[Chassis, PassiveNode] -> [Surface, PassiveNode]`, two fields
+    // on its new declarer, `x_mm`, `y_mm`) fixing a box to a surface or a board.
+    // One new optional field on the existing declarer `PhysicalPort` (`face`).
+    // Two enum variants on `PhysicalPort.connector` (`nema515r`, `nema515p`).
+    // Eight new field keys, 318-325. 62 §16.2 prices a new optional field, a new
+    // enum variant, a new node kind and a new edge kind all MINOR; an old build
+    // keeps the unrecognised kind or token in `unknown` rather than refusing the
+    // file. Nothing existing moved.
+    //
+    // 0.8 -> 0.9 on 2026-09-18: ADR-0052 §3, the config drawer. One new node kind
+    // `Capture` (joins `Placeable`, `Surface`'s own precedent) holding what the
+    // redaction gate let through -- `text`, `platform`, `line_count`, `shape`, four
+    // fields all on the new declarer. Its node id IS the weld's `CaptureId`
+    // (`crates/fathom-weld/src/apply.rs`), so every field's `Origin::Parsed` resolves
+    // its capture by id with no join; the declared identity tuple
+    // `[owner(Device), line_count, platform]` is 62 §4.2's required fallback, not
+    // what anything actually re-identifies by. One new containment edge `HasCapture`
+    // (`Device -> Capture`, `HasChassis`'s own shape). Four new field keys, 326-329.
+    // 62 §16.2 prices a new node kind, fields on a new declarer and a new edge kind
+    // all MINOR; an old build keeps the unrecognised kind in `unknown` rather than
+    // refusing the file. Nothing existing moved.
+    //
+    // 0.9 -> 0.10 on 2026-09-19: ADR-0053 §5, notes. One new node kind `Note`
+    // (joins `Placeable`, `Capture`'s own precedent) holding the text of a note on
+    // a device, port or rack -- `text`, `how`, `line_count`, three fields all on
+    // the new declarer. One new class `Notable` (`Device`, `PhysicalPort`, `Rack`),
+    // the owners of a note; Rack gains no `notes` field of its own. One new
+    // containment edge `HasNote` (`Notable -> Note`, `HasLayoutPin`'s own shape of
+    // a class on the `from:` side rather than a single kind). Three new field
+    // keys, 330-332. 62 §16.2 prices a new node kind, fields on a new declarer and
+    // a new edge kind all MINOR; an old build keeps the unrecognised kind in
+    // `unknown` rather than refusing the file. Nothing existing moved.
+    assert_eq!(SCHEMA_VERSION, "0.10");
 }
 
 #[test]
@@ -572,7 +633,30 @@ fn dispatch_names_every_registry_key() {
     // group_name, maximum_hop_count, minimum_wait_time) at 308-311, appended
     // after `MountedIn.face`. Grew, never shrank; the loop below proves each
     // new key reaches a generated arm.
-    assert_eq!(FIELD_KEYS.len(), 311, "the registry grew or shrank");
+    //
+    // 311 -> 312 on 2026-09-16: the cables session's one new field key,
+    // `Cable.sheath` at 312, appended after `DhcpRelay.minimum_wait_time`.
+    // `PhysicalPort.connector`/`.service` gained enum variants on their
+    // existing keys (210, 211) -- no new key, an enum variant is not a field.
+    //
+    // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `Rack.bay`
+    // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317) -- appended
+    // after `Cable.sheath`.
+    //
+    // 317 -> 325 on 2026-09-18: ADR-0051 §1's eight keys -- `SitsOn.slot` (318),
+    // `Surface.label`, `.form`, `.width_mm`, `.height_mm` (319-322), `FixedTo.x_mm`,
+    // `.y_mm` (323-324), `PhysicalPort.face` (325) -- appended after
+    // `PowerSupply.model`. `PassiveNode.form` and `PhysicalPort.connector`'s new
+    // variants land on already-keyed fields -- no new key, an enum variant is not
+    // a field.
+    //
+    // 325 -> 329 on 2026-09-18: ADR-0052 §3's four keys -- `Capture.text`,
+    // `.platform`, `.line_count`, `.shape` (326-329) -- appended after
+    // `PhysicalPort.face`.
+    //
+    // 329 -> 332 on 2026-09-19: ADR-0053 §5's three keys -- `Note.text`, `.how`,
+    // `.line_count` (330-332) -- appended after `Capture.shape`.
+    assert_eq!(FIELD_KEYS.len(), 332, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

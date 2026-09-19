@@ -180,3 +180,58 @@ pub struct ResidueEntry {
     pub span: frame::ByteSpan,
     pub outcome: frame::LineOutcome,
 }
+
+/// [`redact_only`]'s result: the gated text and what the gate destroyed, and
+/// nothing else — there is no fragment, no residue and no `uses_groups`
+/// because binding never ran.
+#[derive(Debug)]
+pub struct RedactOnlyOutput {
+    pub text: redact::RedactedCapture,
+    pub drops: redact::DropManifest,
+    /// A pagination marker was seen (`14` §4.4's last row) — the same flag
+    /// [`IngestOutput::truncated`] carries, read off the same framer.
+    pub truncated: bool,
+}
+
+/// Stages one through four, and no further (ADR-0053 §6): frame, lex, shape,
+/// **the gate** — then stop, before bind. `OP_REDACT_TEXT`'s only way into
+/// this crate: a pasted note goes through the same gate a pasted config
+/// does, built from the same four stages `ingest` runs above rather than a
+/// second pipeline that could drift from it.
+///
+/// Typed text is not this function's business — ADR-0053 §6's other half,
+/// *"Fathom does not redact what you type, only what you paste"*, is the
+/// caller's sentence to say, not a rule this crate enforces; a typed note is
+/// simply never handed to this door.
+pub fn redact_only(
+    paste: &[u8],
+    dict: &dict::Dictionary,
+) -> Result<RedactOnlyOutput, IngestRefusal> {
+    let framed = frame::frame(paste)?;
+    let mut capture = framed.capture.clone();
+    let truncated = framed.truncated;
+
+    let shaped = shape::shape(&capture, &framed);
+    let mut tree = shaped.tree;
+    let mut outcomes = shaped.outcomes;
+
+    let matches = dict.match_statements(&tree, &shaped.stmts);
+
+    let gated = redact::gate(
+        &mut capture,
+        &framed.lines,
+        &mut tree,
+        &mut outcomes,
+        &shaped.stmts,
+        &shaped.unshaped,
+        &shaped.noise,
+        &matches,
+        dict,
+    );
+
+    Ok(RedactOnlyOutput {
+        text: redact::RedactedCapture::seal(capture),
+        drops: gated.drops,
+        truncated,
+    })
+}

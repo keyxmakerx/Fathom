@@ -71,6 +71,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, policies (edit security policies)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   # The bare stanza. `14` §7.1: "the second creates the node with no fields."
   # `partial: true` because every entry below extends this same path with a

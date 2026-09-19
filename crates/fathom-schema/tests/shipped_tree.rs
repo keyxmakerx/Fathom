@@ -64,14 +64,20 @@ fn shipped_tree_declaration_counts_hold() {
     // hard ceiling, bought for a bound that 62 §3.2's per-field `constraints`
     // already expresses. The `Placeable` CLASS did move — it gained `Rack` —
     // and `every_kind_but_the_pin_itself_is_placeable` below is the noticer.
-    assert_eq!(tree.kinds.len(), 51, "kind count");
-    assert_eq!(tree.edges.len(), 95, "edge count (87 + 8 derived)");
+    // ADR-0053 (2026-09-19, schema 0.10) moved four: +1 kind (`Note`, 54 -> 55),
+    // +1 edge (`HasNote`, 100 -> 101), +1 CLASS (`Notable`, the first new class
+    // since the tree was pinned, 4 -> 5), +3 field keys (`Note.text`, `.how`,
+    // `.line_count`, 329 -> 332). `how` is an INLINE enum, so the enum FILE
+    // count does not move. The builder moved every other tripwire in the tree
+    // before the container restarted under it; this block was the one left.
+    assert_eq!(tree.kinds.len(), 55, "kind count");
+    assert_eq!(tree.edges.len(), 101, "edge count (93 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
-    assert_eq!(tree.classes.len(), 4, "class count");
+    assert_eq!(tree.classes.len(), 5, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 311, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 332, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -92,7 +98,42 @@ fn shipped_tree_declaration_counts_hold() {
     // classes and scopes are unmoved: `server` is the existing `IpAddr`,
     // `group_name` the existing `Identifier`, the two limits plain `u32`. The
     // `Placeable` CLASS gained `DhcpRelay` and the noticer below still holds.
-    assert_eq!(tree.version.as_deref(), Some("0.5"));
+    //
+    // 0.5 -> 0.6 (2026-09-16) is the cables session's schema half and moves
+    // exactly one count: +1 field key (`Cable.sheath`, 311 -> 312). No kind,
+    // no edge, no scalar, no enum FILE, no class, no import scope --
+    // `Cable.sheath` and `PhysicalPort.connector`/`.service`'s new variants
+    // are all INLINE enums, and the two variant additions land on already-
+    // keyed fields, so only the registry and the version move.
+    //
+    // 0.6 -> 0.7 (2026-09-16) is ADR-0050 (the rear elevation) and moves four of the
+    // counts above: +1 kind (`PowerSupply`, 51 -> 52), +1 edge (`FittedIn`, 95 -> 96),
+    // +5 field keys (313-317, 312 -> 317, two on Rack and three on PowerSupply). Scalars,
+    // enum FILE count and import scopes are unmoved: `row` is `Text`, `bay` and `slot`'s
+    // siblings are `u16`/`Text`/`Identifier`, all pre-existing types. The `class` count
+    // stays 4 -- no class added -- but two of the four existing classes widen their
+    // membership (`Placeable` gains `PowerSupply`, `PortHost` gains `PowerSupply`), which
+    // is why `every_kind_but_the_pin_itself_is_placeable` below is still the noticer for
+    // the first and there is no equivalent noticer for the second, per PortHost's own doc.
+    //
+    // 0.7 -> 0.8 (2026-09-18) is ADR-0051 §1 (the shapes) and moves five of the counts
+    // above: +1 kind (`Surface`, 52 -> 53), +3 edges (`SitsOn`, `HasSurface`, `FixedTo`,
+    // 96 -> 99), +8 field keys (318-325, 317 -> 325). Scalars, enum FILE count, class
+    // count and import scopes are unmoved: `PassiveNode.form`'s three new variants
+    // (`shelf`, `outlet`, `board`) and `PhysicalPort.connector`'s two (`nema515r`,
+    // `nema515p`) land on already-keyed, already-inline enums -- no new file, no new
+    // key. The `Placeable` CLASS gained `Surface` and the noticer below still holds;
+    // `PortHost` is untouched -- `Surface` hosts no ports.
+    //
+    // 0.8 -> 0.9 (2026-09-18) is ADR-0052 §3 (the config drawer) and moves three of the
+    // counts above: +1 kind (`Capture`, 53 -> 54), +1 edge (`HasCapture`, 99 -> 100),
+    // +4 field keys (326-329, 325 -> 329). Scalars, enum FILE count, class count and
+    // import scopes are unmoved: `Capture.platform` is the existing `PlatformId`
+    // (`Device.platform`'s own scalar), `line_count` is plain `u32`, `text` and `shape`
+    // are the existing `Text`. The `class` count stays 4 -- no class added -- but
+    // `Placeable` widens to include `Capture`, exactly as it widened for `Surface`, and
+    // the noticer below still holds. `PortHost` is untouched -- a capture hosts no ports.
+    assert_eq!(tree.version.as_deref(), Some("0.10"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

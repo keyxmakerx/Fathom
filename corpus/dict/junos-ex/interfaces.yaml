@@ -1,0 +1,84 @@
+# corpus/dict/junos-ex/interfaces.yaml — the `[edit interfaces]` slice for
+# the Junos EX switching platform. `junos-ex` is its own `Dictionary` from
+# `junos-srx` (see vlans.yaml's header for why nothing is inherited), so the
+# generic interface entries below are restated, not shared.
+#
+# `@interface_like` resolves the node kind from the captured interface name:
+# the prefix before the first ASCII digit — `ae` -> AggregateInterface,
+# anything else -> Interface (`corpus/dict/junos-srx/interfaces.yaml`'s own
+# header states the full four-way rule; EX switching configs use only these
+# two branches, `reth`/`st` being SRX-only). `reviewed_by: <named human>` is
+# a placeholder, not a name (invariant 10).
+platform: junos-ex
+source: { cite: "Juniper Junos CLI reference, interface-mode and vlan members (edit interfaces); read via web-search synthesis", read_on: "2026-09-19" }
+reviewed_by: <named human>
+entries:
+  # ---- generic interface facts, needed for any realistic EX capture ----
+  - id: junos-ex/interfaces.description
+    path: [interfaces, "$if", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-ex/interfaces.disable
+    path: [interfaces, "$if", disable]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- family ethernet-switching: the access/trunk switchport slice ----
+  #
+  # `family ethernet-switching vlan members <vlan>` — re-read 2026-09-19 via
+  # web search synthesis (direct fetch of juniper.net blocked; see
+  # ex2300-48p.yaml's header for the same failure this session). Corroborated
+  # against `family-ethernet-switching-edit-interfaces-qfx-series-els.html`,
+  # the ELS/EX-family page for this exact statement — a closer match for
+  # `junos-ex` than the branch Guided Setup page
+  # `corpus/dict/junos-srx/interfaces.yaml` cites for the same statement
+  # shape on SRX. Two facts, both kept: the unit runs ethernet-switching, and
+  # it is a member of a named Vlan — the `VlanMember` edge, resolved by name
+  # within the fragment (Pending otherwise, `14` §7.3).
+  - id: junos-ex/interfaces.unit.family-ethernet-switching.vlan-members
+    path: [interfaces, "$if", unit, "$u", family, ethernet-switching, vlan, members, "$vlan"]
+    binds:
+      nodes:
+        - { as: n0, kind: "@interface_like", key: "$if", fields: [ { field: name, from: "$if", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, key: "$u", fields: [ { field: index, from: "$u", scalar: u32 }, { field: families, append_enum: Family.ethernet_switching } ] }
+      edges:
+        - { kind: VlanMember, from: n1, to: { by_name: { kind: Vlan, from: "$vlan" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `interface-mode (access | trunk)` at `[edit interfaces interface-name
+  # unit logical-unit-number family ethernet-switching]` — read via search
+  # synthesis 2026-09-19:
+  # https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/interface-mode-edit-interfaces.html
+  #
+  # DELIBERATELY NOT BOUND. This is real, common EX syntax — every trunk or
+  # access port declares it — and it is left as visible residue rather than
+  # guessed onto a field, for a structural reason, not an oversight:
+  #
+  # The only schema field shaped for access/trunk is `VlanMember.mode`
+  # (schema/schema.yaml, edge VlanMember: "{ name: mode, type: enum { access,
+  # trunk }, card: 0..1 }") — a field on the EDGE between one LogicalUnit and
+  # ONE Vlan. `interface-mode` is stated once per UNIT, not once per VLAN
+  # membership, and a trunk unit typically has several `vlan members` lines
+  # (several VlanMember edges) sharing the one `interface-mode trunk`
+  # statement. Attaching the unit-level mode to one particular edge would
+  # mean picking one of possibly several VLANs to carry it and leaving the
+  # others silently unmarked, or writing every edge from that unit including
+  # ones this statement's own line never named — exactly the "quiet
+  # wrongness `14`'s refuse-to-guess rule exists to prevent" that
+  # `junos-srx/interfaces.yaml`'s own header already invokes for the mirror
+  # image of this problem (the vlan-members line not setting mode).
+  #
+  # LogicalUnit itself has no field for this either (schema/schema.yaml's
+  # LogicalUnit fields: index, description, vlan_id, families, family_mtu,
+  # encapsulation, admin_up — none of them a port mode). Adding one is a
+  # schema change, out of scope for a data-pack file. The statement stays
+  # visible, uncoupled, in the estate of record, rather than bound to a
+  # field the schema element it would need does not have.

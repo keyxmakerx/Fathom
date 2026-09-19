@@ -1,0 +1,113 @@
+# corpus/explainers/linux-fedora-basics.yaml — orientation for Fedora
+# Linux, written in the manner of corpus/explainers/linux-family-basics.yaml
+# (read first) and corpus/explainers/arista-eos-basics.yaml (full field
+# convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `dnf.readthedocs.io/en/latest/command_ref.html` (the DNF project's own
+#     documentation) — `dnf install`, `dnf remove`, `dnf search`, `dnf
+#     upgrade` (the whole-system update command; `dnf update` is documented
+#     as its alias).
+#   - `fedoraproject.org/wiki/Fedora_Release_Life_Cycle` (Fedora Project
+#     Wiki, primary) — a new Fedora release roughly every six months
+#     (targeted for the third Tuesday of April and October), each
+#     maintained with updates for roughly 13 months — long enough to skip
+#     one release and still land on a maintained one.
+#   - `fedoraproject.org/wiki/Tools/NetworkManager` — NetworkManager has been
+#     Fedora's default networking service since Fedora 20.
+#   - `redhat.com/en/blog/rhel-9-networking-say-goodbye-ifcfg-files-and-hello-
+#     keyfiles` and `fedoramagazine.org`'s own keyfile-migration article —
+#     NetworkManager's on-disk profile format moved from the legacy `ifcfg`
+#     files under `/etc/sysconfig/network-scripts/` to INI-style "keyfiles"
+#     under `/etc/NetworkManager/system-connections/`, landing in Fedora 33.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend a desktop spin,
+# Cockpit, or any GUI front end — `dnf` and NetworkManager's own command-line
+# tools (`nmcli`, `nmtui`) are the platform's own tools.
+entries:
+
+- id: explain:concept:linux-fedora.basics
+  class: concept
+  subject: { path: linux-fedora.basics }
+  title: "Fedora: dnf, a ~13-month-maintained release every 6 months, and NetworkManager as the default"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    Fedora releases roughly every six months and maintains each release for
+    about 13 months. `dnf` is the package manager. NetworkManager has been
+    the default networking service since Fedora 20, its profiles stored as
+    keyfiles since Fedora 33.
+
+  explained: >
+    Fedora moves faster than Debian or RHEL by design — a new version every
+    six months, each one maintained with updates for about 13 months, which
+    deliberately overlaps two releases so a system can skip a release and
+    still land on one that still receives updates. `dnf` is the package
+    manager (the successor to `yum`, which it replaced by default several
+    releases ago). NetworkManager is not one option among several here the
+    way it is on Debian — it has been Fedora's default networking service
+    since Fedora 20, and its own configuration format changed from the
+    legacy `ifcfg` files to INI-style keyfiles in Fedora 33, a detail that
+    matters when reading which directory a profile actually lives in on an
+    older vs. a current install.
+
+  teaching:
+    body: >
+      Package management: `dnf search <term>` searches package names and
+      descriptions; `dnf install <pkg>` installs; `dnf remove <pkg>`
+      removes; `dnf upgrade` (its documented alias `dnf update` does the
+      same thing) updates every installed package to the latest available
+      version — the whole-system update command.
+
+      Release model: a new Fedora version targets the third Tuesday of
+      April and October (roughly six months apart), and each version
+      receives maintenance updates for about 13 months from its release —
+      long enough that a system on the current release can skip the very
+      next one and upgrade directly to the one after, without a gap in
+      supported updates.
+
+      Network configuration: NetworkManager, by default, since Fedora 20 —
+      `nmcli device status` and `nmcli connection show` read the active
+      state from the command line; `nmtui` is the same information as a
+      text UI. Where a connection profile is stored on disk depends on the
+      release: Fedora 33 and later write INI-style keyfiles under
+      `/etc/NetworkManager/system-connections/`; an older release (or one
+      upgraded without profiles being converted) may still carry the legacy
+      `ifcfg-*` format under `/etc/sysconfig/network-scripts/`.
+
+      Service manager: systemd (`systemctl`, `journalctl`).
+
+      Logs: `journalctl` is the primary path on a current Fedora install;
+      `/var/log/` still holds anything a service writes directly rather
+      than through the journal.
+
+    breaks_if_wrong: >
+      Looking for `/etc/sysconfig/network-scripts/ifcfg-*` on a Fedora 33+
+      install and concluding NetworkManager is not configuring the
+      interface is the release-specific miss — the profile is there, just
+      in the newer keyfile location and format.
+
+    misdiagnosed_as: >
+      "NetworkManager isn't managing this interface" when the real state is
+      "the profile is a keyfile, and the directory being checked is the
+      legacy one" — `nmcli connection show` names the active profile
+      regardless of which on-disk format backs it, which is the faster
+      check than guessing a directory from an old habit.
+
+  sources:
+    - { vendor: "DNF project", doc: "DNF Command Reference", url: "https://dnf.readthedocs.io/en/latest/command_ref.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Fedora Project", doc: "Fedora Release Life Cycle", url: "https://fedoraproject.org/wiki/Fedora_Release_Life_Cycle", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Fedora Project", doc: "Tools/NetworkManager", url: "https://fedoraproject.org/wiki/Tools/NetworkManager", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Fedora Magazine", doc: "From ifcfg to keyfiles: modernizing NetworkManager configuration in Fedora Linux 36", url: "https://fedoramagazine.org/converting-networkmanager-from-ifcfg-to-keyfiles/", read_on: "2026-09-19", note: "direct read; corroborated by Red Hat's own RHEL 9 networking blog post for the same keyfile transition" }
+
+  terminal: true

@@ -90,9 +90,21 @@ fn slot_type_covers_every_registry_key() {
     // the two tables has silently lost a key.
     // 307 -> 311 on 2026-08-29: WO-10's four `DhcpRelay` keys at 308-311;
     // the loop below is what proves each reaches a slot type.
+    // 311 -> 312 on 2026-09-16: the cables session's `Cable.sheath` key at
+    // 312; `PhysicalPort.connector`/`.service` gained enum variants on their
+    // existing keys, not new ones.
+    // 312 -> 317 on 2026-09-16: ADR-0050's five keys -- `Rack.row`, `.bay`
+    // (313-314), `PowerSupply.slot`, `.serial`, `.model` (315-317).
+    // 317 -> 325 on 2026-09-18: ADR-0051 §1's eight keys -- `SitsOn.slot` (318),
+    // `Surface.label`, `.form`, `.width_mm`, `.height_mm` (319-322), `FixedTo.x_mm`,
+    // `.y_mm` (323-324), `PhysicalPort.face` (325).
+    // 325 -> 329 on 2026-09-18: ADR-0052 §3's four `Capture` keys -- `.text`,
+    // `.platform`, `.line_count`, `.shape` (326-329).
+    // 329 -> 332 on 2026-09-19: ADR-0053 §5's three `Note` keys -- `.text`,
+    // `.how`, `.line_count` (330-332).
     assert_eq!(
         FIELD_KEYS.len(),
-        311,
+        332,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

@@ -141,3 +141,22 @@ It does not make Fathom safe to install an engine from a stranger. An engine is 
 to *name* secrets; a malicious dictionary that omits them is caught only by the core floor and the
 redaction-unproven refusal, which catches *absence*, not *deliberate omission of one keyword*. Rule 3
 is the answer: know who signed it. The operator's register must say so in those words.
+
+## 7. Amended 2026-09-19, from the verification before the engines push
+
+- **`secret_exempt` is granted in core, not declared by a pack.** The loader accepted an
+  exemption on any entry with a written reason, and an entry over `plain-text-password` with one
+  let a cleartext SRX password bind into a stored field. That was Rule 2's "no engine can lower
+  it" being false in the shipped format. A dictionary may still ask, with its reason; only a path
+  shape named in `crates/fathom-ingest`'s allowlist is honoured, and a canary drives a real
+  device password through the rogue entry to keep it so.
+- **The redaction-unproven refusal is deferred, not overturned.** It is not built; the core floor
+  is the only fence today, and the OPNsense dictionary the client boots declares no secrets. The
+  refusal lands with the engine manager (Phase 5), computed from the installed dictionary. Until
+  then the paste sheet accepts OPNsense's rules CSV on the strength of the floor alone, which
+  destroyed every credential driven at it on 2026-09-19.
+- **Every dictionary file carries `source: { cite, read_on }` and `reviewed_by`**, refused when
+  empty. Citations were YAML comments no gate could see.
+- **Engines are files in the tree.** None of Phase 5 exists; `docs/STATE.md` says so in those
+  words, and owner-facing text does not call `corpus/` an engine until at least `engine.yaml` and
+  signature verification do.

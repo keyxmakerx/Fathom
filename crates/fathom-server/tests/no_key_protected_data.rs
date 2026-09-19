@@ -330,9 +330,115 @@ const TABLES: &[TableClaim] = &[
         name: "sign_in_attempts",
         protection: Protection::NoKeyProtectedMaterial,
         why: "§13 item 7's fixed-window counters: a bucket kind, a bucket key (an opaque \
-              account id or a source address, NEVER an address that was typed), a window \
-              start, a count and a latch. No credential, no key material, and nothing that \
-              was ever secret.",
+              account id, a source address, or since 0014 a KEYED HASH of a claimed address \
+              -- NEVER an address that was typed), a window start, a count and two latches. \
+              No credential, no key material, and nothing that was ever secret. The keyed \
+              hash's key is derived from the site chain key and is not in PostgreSQL, which \
+              is what makes the column a grouping rather than a list of addresses.",
+    },
+    // ---- 0014, sign-out recorded rather than only performed ---------------
+    TableClaim {
+        name: "session_revocations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one append-only row per signed-out session: the session id, the principal, a \
+              reason, the time, the site-chain seq of the `account_signed_out` entry, and the \
+              row MAC. A session id is not a secret and none of the rest ever was; the MAC's \
+              key is the site-scoped row key, behind ADR-0043's provider interface and never \
+              in PostgreSQL. It exists because deleting the session row left last night's \
+              backup holding bytes that verified for ever.",
+    },
+    // ---- 0015, the operator console and the enrolment path ----------------
+    TableClaim {
+        name: "operator_keys",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one operator's enrolled ES256 PUBLIC key, its fingerprint, the site-chain seq of \
+              the entry that enrolled it, and a row seal. `account_keys` carries the same claim \
+              for the account plane and for the same reason: a public key is public, and the \
+              private half never reaches this server at all.",
+    },
+    TableClaim {
+        name: "site_install",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row, written at first start: the install-time notice address §6.2 pins an \
+              organisation's enrolment claim to. An address is identity, not a credential -- \
+              `accounts.email` carries the same claim -- and no role may ever UPDATE this one.",
+    },
+    TableClaim {
+        name: "organisation_shells",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a name, the operator who created it, the chain seq that recorded it, and the \
+              organisation its claim eventually produced. §6.2's shell holds no data by \
+              definition: it exists precisely because there is nothing in it yet.",
+    },
+    TableClaim {
+        name: "enrolment_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a single-use enrolment token, never the token, plus which subject it \
+              names, who issued it, when it expires and whether it has been spent. The token \
+              itself is returned once and is gone from this server the moment it is handed \
+              out; the hash is useless to redeem with, exactly as `sessions.token_hash` is.",
+    },
+    TableClaim {
+        name: "site_settings_versions",
+        protection: Protection::KeyProtected {
+            columns: &["value_ct"],
+            under: "a subkey of the site chain key (`fathom/site/settings/v1`), which is derived \
+                  from the chain master behind ADR-0043's provider interface and is never in \
+                  PostgreSQL. §5.3: \"AEAD; SMTP credentials are credentials.\" `value_digest` \
+                  is a digest of the ciphertext and is what §5.4's sealed entry names.",
+        },
+        why: "one version of one site setting. The value is a credential often enough to be \
+              treated as one always, so it is stored only as ciphertext; everything else on the \
+              row -- who requested it, who seconded it, when it takes effect, which sealed \
+              entry applied it -- is the audit trail of the change and is meant to be read.",
+    },
+    TableClaim {
+        name: "operator_requests",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "§5.5's two operator assertions for creating an operator: a display name, the two \
+              operator ids, their two signatures over the change digest, the delay, and which \
+              operator the applied request produced. Signatures are not secrets -- they are \
+              what a later reader verifies -- and there is no free-text column a payload could \
+              hide in.",
+    },
+    TableClaim {
+        name: "operator_read_samples",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "§1.1's sampling latch: one row per (operator session, console surface), so that \
+              `operator_read` is written once per surface per session rather than once per \
+              poll. A session id and a surface name, and nothing else.",
+    },
+    TableClaim {
+        name: "firmware_images",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "ADR-0045's staging record: which scope an image was staged for, the operator's own \
+              name for the file, its length, the SHA-256 that was declared, the SHA-256 this \
+              server computed over the bytes it wrote, and the state machine between them. \
+              **The image itself is not here** -- one to two gigabytes goes to a directory, and \
+              `0017` §A says why. A firmware image is a public vendor artefact, not a secret; \
+              the two hashes are hashes of it. **No device credential can arrive on this table**: \
+              there is no column for a password, a key, a host key or a device address, which is \
+              CLAUDE.md rule 4's shape and ADR-0045 §4.1's decision made structural.",
+    },
+    TableClaim {
+        name: "firmware_upload_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a single-use upload token, never the token. It authorises exactly one \
+              thing -- sending the bytes of one already-declared image, at the length and hash \
+              that declaration named -- and it is returned once, to the steward who declared, \
+              and is gone from this server the moment it is handed out. The hash is useless to \
+              upload with, exactly as `sessions.token_hash` is useless to sign with.",
+    },
+    TableClaim {
+        name: "firmware_fetch_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of the one-time URL a switch collects an image from, plus who issued it, \
+              which sealed entry recorded that, when it expires, and whether and from where it \
+              was redeemed. **The URL is a credential and this table does not hold it** -- \
+              `H(LP(\"fathom/firmware/token/v1\") || LP(token))` and nothing more, so a database \
+              read hands an attacker a hash and a hash cannot be fetched with. It is not \
+              key-protected material either: it protects a public vendor image, it is single-use \
+              and minutes long, and it wraps no key.",
     },
 ];
 

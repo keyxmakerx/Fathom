@@ -28,9 +28,9 @@ use fathom_graph::{Actor, BatchId, Graph, Timestamp, UserId};
 use fathom_id::Ulid;
 use fathom_ingest::dict::Dictionary;
 use fathom_ir::scalar::PlatformId;
-use fathom_wasm::protocol::{decode_reply, ReplyView};
+use fathom_wasm::protocol::{decode_reply, ReplyView, FACE_DROP};
 use fathom_wasm::shell::Shell;
-use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_INV_ROWS, OP_PASTE};
+use fathom_wasm::{OP_ELEMENT, OP_EQUIPMENT, OP_INV_ROWS, OP_PASTE, OP_REDACT_TEXT};
 
 /// The dictionary is handed in over `OP_DICT` since 2026-08-15. See
 /// `common/mod.rs`.
@@ -226,4 +226,57 @@ fn the_sweep_actually_sees_the_estate() {
         joined.contains("REDACTED") || joined.contains("psk"),
         "no trace of the redaction itself appears; the gate should leave a marker"
     );
+}
+
+/// `OP_REDACT_TEXT` (ADR-0053 §6), beside the sweep above: no canary reaches
+/// its reply, and no `FACE_DROP` row carries `RedactionEntry::orig_len` — the
+/// one quantity `14` §9.5 says the persistence layer must not store, and the
+/// reason `write_plain`'s own capture is a redacted one and not the original.
+///
+/// The check is against each entry's OWN `orig_len`, matched by ordinal, not
+/// a blanket "no such number anywhere": a blanket search would be flaky, since
+/// a byte offset can coincidentally equal a length that has nothing to do
+/// with it.
+#[test]
+fn redact_text_reply_carries_no_canary_and_no_original_length() {
+    let dict = Dictionary::load(&repo_root()).expect("the shipped dictionary loads");
+    let text = fixture_bytes();
+    let expected =
+        fathom_ingest::redact_only(&text, &dict).expect("the fixture is within the caps");
+    assert!(
+        !expected.drops.entries.is_empty(),
+        "the fixture must actually be redacted for this test to prove anything"
+    );
+
+    let mut shell = common::booted_shell();
+    let reply = shell.handle(OP_REDACT_TEXT, &text);
+    let rows = match decode_reply(&reply).expect("a well-formed reply") {
+        ReplyView::FaceRows(rows) => rows,
+        other => panic!("OP_REDACT_TEXT did not reply with face rows: {other:?}"),
+    };
+
+    for row in &rows {
+        for s in &row.strings {
+            assert!(
+                !s.contains(CANARY),
+                "a secret reached the OP_REDACT_TEXT reply, in: {s}"
+            );
+        }
+    }
+
+    let drop_rows: Vec<_> = rows.iter().filter(|r| r.role == FACE_DROP).collect();
+    assert_eq!(
+        drop_rows.len(),
+        expected.drops.entries.len(),
+        "one FACE_DROP row per destroyed value"
+    );
+    for (row, entry) in drop_rows.iter().zip(expected.drops.entries.iter()) {
+        let orig_len = entry.orig_len.to_string();
+        for s in &row.strings {
+            assert_ne!(
+                s, &orig_len,
+                "a FACE_DROP row carried the original secret's byte length"
+            );
+        }
+    }
 }

@@ -6,6 +6,8 @@
 # explained in README-routing.md §1 and §2.
 platform: junos-srx
 
+source: { cite: "Juniper Junos BGP CLI reference, neighbor and group (edit protocols bgp)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   # neighbor (Protocols BGP): `neighbor address { … }` at `[edit protocols bgp
   # group group-name ]`. group (Protocols BGP): `group group-name { … }` at

@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .nav { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .btn { border: 1px solid #14171A; padding: 5px 0; text-align: center; font-size: 12px; }
+    .btn2 { border: 1px solid #D2D7DD; color: #5C6772; padding: 5px 0; text-align: center; font-size: 12px; }
+    .chip { border: 1px solid #D2D7DD; padding: 1px 6px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .seal { width: 8px; height: 8px; background: #14171A; flex-shrink: 0; }
+    .grid { display: grid; grid-template-columns: 1fr 104px 152px 88px 96px; }
+    .cell { padding: 6px 10px; border-bottom: 1px solid #D2D7DD; font-size: 12px; }
+    .memb { padding: 5px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <!-- masthead: the approved shell. Two places named, neither current: People is reached from the account chip and is not a place. -->
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="nav">Racks</span>
+      <span class="nav">Inventory</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">People</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772;">
+      <span>1 other here</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Jordan T.</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="position: relative; width: 24px; height: 24px; flex-shrink: 0;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+      <div style="position: absolute; top: 30px; right: 0; width: 208px; border: 1px solid #D2D7DD; background: #FAFBFC; z-index: 20; display: flex; flex-direction: column;">
+        <div style="padding: 6px 10px; font-size: 12px; font-weight: 700; border-bottom: 1px solid #D2D7DD;">People and permissions</div>
+        <div style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #D2D7DD;">Site</div>
+        <div style="padding: 6px 10px; font-size: 12px;">Sign out</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- LEFT RAIL -->
+    <div style="width: 264px; border-right: 1px solid #D2D7DD; background: #F2F4F6; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div class="lbl" style="padding: 10px 12px 6px; border-bottom: 1px solid #D2D7DD;">Members &middot; 5</div>
+      <div style="display: flex; flex-direction: column;">
+        <div class="memb"><span>Jordan T.</span><span class="chip">steward</span></div>
+        <div class="memb"><span>Maria P.</span><span class="chip">draw</span></div>
+        <div class="memb"><span>Sam R.</span><span class="chip">read</span></div>
+        <div class="memb" style="background: #FFFFFF; border-left: 4px solid #14171A; padding-left: 8px; font-weight: 700;"><span>Priya K.</span><span class="chip">invited</span></div>
+        <div class="memb"><span>Lee W.</span><span class="chip">suspended</span></div>
+      </div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 8px;">Groups</div>
+      <div style="margin: 8px 12px; border: 1px dashed #D2D7DD; padding: 8px 10px; font-size: 11px; line-height: 17px; color: #5C6772;">later &mdash; synced groups hold read and draw only, never stewardship</div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 4px;">Add a person</div>
+      <div style="padding: 10px 12px;">
+        <div class="btn2">Invite someone</div>
+        <div style="font-size: 10px; line-height: 15px; color: #5C6772; margin-top: 6px;">by email, invitation only; nobody self-registers</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Capability is held per scope, never per person across the estate. A capability chip here is the strongest grant the person holds anywhere.</div>
+    </div>
+
+    <!-- CENTRE -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="padding: 10px 16px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: baseline; gap: 12px;">
+        <div style="font-size: 15px; font-weight: 700;">Priya K.</div>
+        <div class="mono" style="color: #5C6772;">priya.k@northwind.example</div>
+        <div style="flex-grow: 1;"></div>
+        <span class="chip">invited</span>
+        <span class="lbl">4 grants &middot; 1 pending</span>
+      </div>
+
+      <div class="lbl" style="padding: 12px 16px 6px;">Grants, over the scope tree</div>
+
+      <div class="grid" style="border-top: 1px solid #14171A;">
+        <div class="lbl" style="padding: 6px 10px; border-bottom: 1px solid #14171A;">scope</div>
+        <div class="lbl" style="padding: 6px 10px; border-bottom: 1px solid #14171A;">capability</div>
+        <div class="lbl" style="padding: 6px 10px; border-bottom: 1px solid #14171A;">granted by</div>
+        <div class="lbl" style="padding: 6px 10px; border-bottom: 1px solid #14171A;">since</div>
+        <div class="lbl" style="padding: 6px 10px; border-bottom: 1px solid #14171A;">until</div>
+
+        <!-- the pending steward appointment at the organisation root -->
+        <div style="grid-column: 1 / -1; padding: 10px; border-bottom: 1px solid #D2D7DD;">
+          <div style="border: 1px solid #A8571B; background: #FBF3EA; color: #A8571B; padding: 10px 12px; display: flex; align-items: center; gap: 14px;">
+            <div style="flex-grow: 1;">
+              <div style="font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase;">Northwind</div>
+              <div style="font-size: 13px; line-height: 20px;">steward &mdash; waiting for a second steward&rsquo;s seconding &middot; requested by Jordan T. &middot; you can second it</div>
+            </div>
+            <div class="btn" style="width: 196px; flex-shrink: 0; border-color: #14171A; color: #14171A;">Second this appointment</div>
+          </div>
+          <div style="font-size: 11px; line-height: 17px; color: #5C6772; margin-top: 6px;">One steward alone may still appoint; a single-steward act against another steward waits 24 hours.</div>
+        </div>
+
+        <div class="cell" style="padding-left: 26px;">Core Network</div>
+        <div class="cell"><span class="chip">read</span></div>
+        <div class="cell">Jordan T.</div>
+        <div class="cell mono">02 Sep</div>
+        <div class="cell mono" style="color: #5C6772;">&mdash;</div>
+
+        <div class="cell" style="padding-left: 42px;">HQ</div>
+        <div class="cell"><span class="chip">read</span></div>
+        <div class="cell" style="color: #5C6772;">inherited from Core Network</div>
+        <div class="cell mono" style="color: #5C6772;">&mdash;</div>
+        <div class="cell mono" style="color: #5C6772;">&mdash;</div>
+
+        <div class="cell" style="padding-left: 58px;">Building A</div>
+        <div class="cell"><span class="chip">draw</span></div>
+        <div class="cell">Maria P.</div>
+        <div class="cell mono">08 Sep</div>
+        <div class="cell mono">30 Sep</div>
+
+        <div class="cell" style="padding-left: 74px;">IDF-2</div>
+        <div class="cell"><span class="chip">draw</span></div>
+        <div class="cell" style="color: #5C6772;">inherited from Building A</div>
+        <div class="cell mono" style="color: #5C6772;">&mdash;</div>
+        <div class="cell mono" style="color: #5C6772;">&mdash;</div>
+
+        <div class="cell" style="padding-left: 90px;">A-04</div>
+        <div class="cell"><span class="chip">draw</span></div>
+        <div class="cell">Jordan T.</div>
+        <div class="cell mono">12 Sep</div>
+        <div class="cell mono">21 Sep</div>
+      </div>
+
+      <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px;">
+        <div class="btn" style="width: 116px;">Suspend</div>
+        <div style="border: 1px solid #8C2F2F; background: #F8EFEF; color: #8C2F2F; padding: 5px 0; text-align: center; font-size: 12px; width: 232px;">Revoke &mdash; takes effect at once</div>
+        <div style="font-size: 11px; line-height: 17px; color: #5C6772;">Suspend stops a grant acting and keeps the person in the steward count.</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+
+      <div style="margin: 0 16px 14px; border-top: 1px solid #D2D7DD; padding-top: 8px; font-size: 11px; line-height: 17px; color: #5C6772;">
+        A grant is signed by the steward who made it and is verified again at every use. Nothing here is a role: read, draw and steward are capabilities held on a scope, and a scope inherits downward.
+      </div>
+    </div>
+
+    <!-- RIGHT: the inspector's language, over a person -->
+    <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Trail &middot; Priya K.</span>
+        <span style="font-size: 10px; color: #5C6772;">append-only</span>
+      </div>
+
+      <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div class="mono" style="color: #5C6772; font-size: 11px;">14 Sep 16:05</div>
+        <div style="font-size: 12px; line-height: 18px;">grant proposed &mdash; steward at Northwind, by Jordan T.</div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;"><span class="seal"></span><span class="lbl">sealed</span><span class="mono" style="font-size: 11px; color: #5C6772;">8f2c&hellip;a19</span></div>
+      </div>
+
+      <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div class="mono" style="color: #5C6772; font-size: 11px;">12 Sep 08:22</div>
+        <div style="font-size: 12px; line-height: 18px;">key enrolled &mdash; software key, ES256, on first sign-in</div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;"><span class="seal"></span><span class="lbl">sealed</span><span class="mono" style="font-size: 11px; color: #5C6772;">4b91&hellip;07d</span></div>
+      </div>
+
+      <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div class="mono" style="color: #5C6772; font-size: 11px;">12 Sep 08:20</div>
+        <div style="font-size: 12px; line-height: 18px;">invitation redeemed &mdash; by priya.k@northwind.example</div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;"><span class="seal"></span><span class="lbl">sealed</span><span class="mono" style="font-size: 11px; color: #5C6772;">c730&hellip;5e2</span></div>
+      </div>
+
+      <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD;">
+        <div class="mono" style="color: #5C6772; font-size: 11px;">11 Sep 09:43</div>
+        <div style="font-size: 12px; line-height: 18px;">invitation issued &mdash; to the address of record, expires 18 Sep</div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;"><span class="seal"></span><span class="lbl">sealed</span><span class="mono" style="font-size: 11px; color: #5C6772;">1de6&hellip;bb4</span></div>
+      </div>
+
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; margin-top: 8px;">What a seconding is</div>
+      <div style="padding: 0 12px 10px; font-size: 11px; line-height: 17px; color: #5C6772;">
+        A fresh signature from a steward who is neither the granter nor the subject. Until one arrives the grant is inert. Seconding is a touch of your key, not a row in a table.
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Nothing on this trail can be edited or removed. A withdrawal would be a new sealed entry that reverses this one.</div>
+    </div>
+  </div>
+
+  <div style="height: 34px; border-top: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0; font-size: 10px; color: #5C6772; background: #FFFFFF;">
+    <span style="color: #14171A;">Operators cannot grant. Stewards do, and every grant is signed.</span>
+    <span style="flex-grow: 1;"></span>
+    <span>Every name, address, date and capability on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

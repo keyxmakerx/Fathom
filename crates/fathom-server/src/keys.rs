@@ -463,15 +463,30 @@ pub async fn tenant_key(
 
 /// The half of [`tenant_key`] that takes the organisation id directly.
 ///
-/// **Private, and it stays private.** §4's rule is that the tenant key is
+/// **`pub(crate)`, and the list of callers is the whole argument.** §4's rule is that the tenant key is
 /// pinned from the authenticated request context and never taken from the row
 /// being read, and [`TenantContext`] is that rule made into a type. This
-/// function is the one exception the product has: `rewrap_master_key` is
-/// deployment-wide, enumerates organisations from `tenant_keys` itself, and
-/// has no request context to pin from because no account is acting. Keeping it
-/// module-private means there is still no signature outside this file that
-/// could be handed an organisation id read out of a row.
-async fn tenant_key_for(
+/// function has exactly two callers, and both are acts with no account:
+///
+///  1. `rewrap_master_key`, which is deployment-wide, enumerates organisations
+///     from `tenant_keys` itself, and has no request context to pin from
+///     because no account is acting.
+///  2. `grants::suspend_grant_by_operator` — §1.1's operator suspend verb,
+///     added 2026-09-14. **This is a deliberate crossing of §4's pinning rule
+///     and it is stated rather than hidden.** An operator is not a member of
+///     the organisation and can never be one (`0004`'s composite keys), so
+///     there is no membership row to pin from and `TenantContext` is
+///     unbuildable for them; the organisation is named by the caller, which is
+///     exactly the shape §4 warns about. The compensations are named too:
+///     `app.design_capability` stays at its refusal for the whole transaction,
+///     the grant's own `organisation_id` is checked against the tenant that
+///     was named, the only rows the act writes are a suspension and its chain
+///     entries, and `0011`'s own `CHECK` refuses `unsuspend` for an operator
+///     principal so the verb is one-way.
+///
+/// It stays `pub(crate)`: nothing outside this crate gains a way to name a
+/// tenant that did not come from `repo::TenantContext`.
+pub(crate) async fn tenant_key_for(
     tx: &Transaction<'_>,
     ring: &KeyRing,
     tenant: &str,

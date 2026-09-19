@@ -117,6 +117,18 @@ ulid_id!(
     DesignId
 );
 
+ulid_id!(
+    /// A staged firmware image's id (ADR-0045, migration `0017`).
+    ///
+    /// **This id is also the file's name on disk**, which is why it is minted
+    /// here like every other id rather than anywhere near the filesystem: a
+    /// ULID's encoding is twenty-six characters of Crockford base32, so it can
+    /// hold no separator, no dot and no `..`. `firmware::storage_name`
+    /// re-validates that alphabet before it joins anything to a directory, and
+    /// `0017`'s own `CHECK` says the same thing a third time.
+    FirmwareImageId
+);
+
 // ---------------------------------------------------------------------------
 // Small enums
 // ---------------------------------------------------------------------------
@@ -157,7 +169,7 @@ pub enum ScopeKind {
 }
 
 impl ScopeKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Network => "network",
             Self::Building => "building",
@@ -165,7 +177,7 @@ impl ScopeKind {
         }
     }
 
-    fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s {
             "network" => Some(Self::Network),
             "building" => Some(Self::Building),
@@ -542,6 +554,28 @@ pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoEr
 /// `app.account_id` is set to the empty string, which every policy that reads
 /// it already treats as a refusal, so nothing an account may do becomes
 /// possible here.
+/// Point the tenant-scoped policies at one organisation for **§1.1's operator
+/// suspend verb**, which has no membership to open a context from.
+///
+/// `grants::suspend_grant_by_operator` is the only caller and the argument for
+/// the crossing is on `keys::tenant_key_for`. What this function adds over
+/// [`set_custody_tenant`] is the one line that matters: `app.design_capability`
+/// is set to its refusal FIRST and is never set to anything else on this path,
+/// so an operator transaction that names a tenant still reaches no design
+/// payload — §1.3's sightlessness, kept by the same mechanism that keeps it
+/// everywhere else rather than by this function being careful.
+pub(crate) async fn enter_operator_tenant_scope(
+    tx: &Transaction<'_>,
+    tenant: &str,
+) -> Result<(), RepoError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    set_custody_tenant(tx, tenant).await
+}
+
 pub(crate) async fn set_custody_tenant(
     tx: &Transaction<'_>,
     tenant: &str,
@@ -742,16 +776,22 @@ pub async fn list_members(
         .collect()
 }
 
-/// Every organisation `account` belongs to. Deliberately does **not** set a
-/// tenant context -- there is no single tenant to set before the caller knows
-/// which organisations it has. This is the query the `organisations` and
-/// `memberships` RLS policies' `account_id` branch exists for.
-pub async fn list_organisations_for_account(
-    pool: &Pool,
+/// The transaction half of [`list_organisations_for_account`], for
+/// `design_api`'s `GET /organisations` handler, which already has an open
+/// transaction -- a verified session's own -- and must not open a second
+/// one. `pub(crate)` because the caller sits outside this module but inside
+/// this crate.
+///
+/// Sets `app.account_id` and nothing else, same as the pool-based wrapper
+/// below, and for the same reason given there: this is the query the
+/// `organisations` and `memberships` RLS policies' `account_id` branch
+/// exists for, and there is no single tenant to pin before the caller knows
+/// which organisations it has. One copy of the SQL; [`list_organisations_for_account`]
+/// is this function plus the transaction around it.
+pub(crate) async fn list_organisations_for_account_in(
+    tx: &Transaction<'_>,
     account: AccountId,
 ) -> Result<Vec<Organisation>, RepoError> {
-    let mut client = pool.get().await?;
-    let tx = client.transaction().await?;
     tx.execute(
         "SELECT set_config('app.account_id', $1, true)",
         &[&account.to_string()],
@@ -767,7 +807,6 @@ pub async fn list_organisations_for_account(
             &[&account.to_string()],
         )
         .await?;
-    tx.commit().await?;
 
     rows.iter()
         .map(|row| {
@@ -780,6 +819,21 @@ pub async fn list_organisations_for_account(
             })
         })
         .collect()
+}
+
+/// Every organisation `account` belongs to. Deliberately does **not** set a
+/// tenant context -- there is no single tenant to set before the caller knows
+/// which organisations it has. This is the query the `organisations` and
+/// `memberships` RLS policies' `account_id` branch exists for.
+pub async fn list_organisations_for_account(
+    pool: &Pool,
+    account: AccountId,
+) -> Result<Vec<Organisation>, RepoError> {
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    let organisations = list_organisations_for_account_in(&tx, account).await?;
+    tx.commit().await?;
+    Ok(organisations)
 }
 
 // ---------------------------------------------------------------------------
@@ -871,9 +925,31 @@ pub async fn create_scope(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
     authorise(&tx, tenant, actor).await?;
+    let scope = create_scope_in_tx(&tx, tenant, parent, kind, display_name).await?;
+    tx.commit().await?;
+    Ok(scope)
+}
 
+/// The insert half of [`create_scope`], in a transaction the caller already
+/// has open.
+///
+/// `design_api`'s scope-creation route (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
+/// §6.4: a steward of the parent creates a scope) authorises the *steward*
+/// capability itself, through `grants::authorise_account` against the parent
+/// scope (or the organisation, for a new root network) -- a stronger, scope-aware
+/// check than [`create_scope`]'s own plain membership one, and one this
+/// function must not re-loosen by opening a second transaction in which that
+/// capability is no longer what is being asked about. `pub(crate)`: the only
+/// caller outside this module is `design_api`, in this same crate.
+pub(crate) async fn create_scope_in_tx(
+    tx: &Transaction<'_>,
+    tenant: OrganisationId,
+    parent: Option<ScopeId>,
+    kind: ScopeKind,
+    display_name: &str,
+) -> Result<Scope, RepoError> {
     let parent_info = match parent {
-        Some(p) => Some(fetch_scope_for_parent(&tx, tenant, p).await?),
+        Some(p) => Some(fetch_scope_for_parent(tx, tenant, p).await?),
         None => None,
     };
 
@@ -905,7 +981,6 @@ pub async fn create_scope(
     )
     .await?;
 
-    tx.commit().await?;
     Ok(Scope {
         id,
         organisation_id: tenant,

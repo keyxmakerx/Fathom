@@ -1,0 +1,210 @@
+/* ADR-0052, UI-SPEC "Config" — the drawer under the faceplate. Every
+   colour, rule and size below is a token from `design/tokens.css`: no hex,
+   no bare px font sizes, no radius (`--radius` is 0 and nothing here
+   overrides it) and no shadow. A destroyed line carries no risk colour at
+   all: the gate destroying a credential is the gate doing its job, not an
+   error, a warning, a recommendation or a confirmation, so it gets none of
+   the four uses colour is for. Its own block is ink and page: "gone, not
+   hidden" is a fact, stated in words, not painted as a risk. */
+
+.config-drawer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.config-drawer__handle {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.config-drawer__title {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.config-drawer__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.config-drawer__legend-mark {
+  margin-left: var(--s3);
+}
+.config-drawer__legend-mark:first-child {
+  margin-left: 0;
+}
+
+.config-drawer__summary {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.config-drawer__paste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+}
+
+.config-drawer__paste-input {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--ink);
+  padding: var(--s2);
+  resize: vertical;
+}
+
+.config-drawer__paste-button {
+  align-self: flex-start;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.config-drawer__paste-button:hover {
+  background: var(--surface);
+}
+
+/* An error — UI-SPEC "Look"'s four uses, and no others. */
+.config-drawer__refusal {
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+.config-drawer__empty {
+  padding: var(--s4);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.config-drawer__lines {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s1) 0;
+}
+
+.config-drawer__line {
+  display: grid;
+  grid-template-columns: var(--gutter-num) 16px 1fr;
+  /* s6g #2: "keep the ordinal and the gutter mark aligned at the line's
+     first row" — `start`, not `baseline`, so a wrapped line's ordinal and
+     gutter sit at the top of the row's box, level with the first visual
+     row of wrapped text, rather than centring across every wrapped row. */
+  align-items: start;
+  min-height: var(--row-min);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  cursor: pointer;
+}
+.config-drawer__line:hover {
+  background: var(--surface);
+}
+
+.config-drawer__line--selected {
+  background: var(--surface);
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: calc(-1 * var(--rule-hair));
+}
+
+/* A destroyed row carries no risk colour: the gate destroying a value here
+   is the gate working, not a warning to raise — the black block below (UI-
+   SPEC "Config": "a black block that says so") is this row's one visual,
+   drawn in ink and page the same as any other line. */
+
+.config-drawer__ordinal {
+  text-align: right;
+  padding-right: var(--s2);
+  color: var(--muted);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.config-drawer__gutter {
+  text-align: center;
+  color: var(--muted);
+}
+
+.config-drawer__text {
+  padding-left: var(--s2);
+  padding-right: var(--s3);
+  /* s6g #2: an ellipsis at `--cfg-cols` hid the black block whenever a
+     destroyed value's marker span fell past column 72 — "gone, not
+     hidden" (UI-SPEC "Config") applies to the block itself, not only to
+     the fact of destruction. The drawer has vertical room (`config-drawer`'s
+     own `overflow: auto`), so a long line wraps within `--cfg-cols` instead
+     of being cut: every block is on screen, never clipped. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: calc(var(--cfg-cols) * 1ch);
+}
+
+/* "gone, not hidden" — ink and page, deliberately not a risk colour. */
+.config-drawer__block {
+  background: var(--ink);
+  color: var(--page);
+  padding: 0 var(--s1);
+}
+
+.config-drawer__built-note {
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.config-drawer__cap {
+  padding: var(--s2) var(--s3);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.config-drawer__rules {
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding: var(--s3);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.config-drawer__rules-title {
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: var(--t-micro);
+  color: var(--muted);
+  margin-bottom: var(--s2);
+}
+
+.config-drawer__rules-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1) var(--s4);
+  font-size: var(--t-small);
+  color: var(--ink);
+}

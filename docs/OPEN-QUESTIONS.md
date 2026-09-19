@@ -317,6 +317,20 @@ Two very different products:
 
 The first is worth more and owes more.
 
+### C5. Two headers the browser expects and nothing sends
+
+*Found 2026-09-16 by the enrolment review, looking for them.* The server sends no
+`Content-Security-Policy`, and nothing in the tree sends `Strict-Transport-Security` or redirects
+plain HTTP; `deploy/compose.yaml` puts Caddy in front to terminate TLS and says nothing about
+either header. Two consequences: any script that runs on the origin can open the browser's key
+store and sign with an enrolled key — non-extractable stops the key leaving, not its being used —
+and over plain HTTP an invitation token crosses the wire in the clear.
+
+Both belong to whatever terminates TLS, so the question is only *where* they are set and *who
+verifies it*: Caddy's config in `deploy/`, or the binary itself so that a deployment without
+Caddy still has them. The second is safer and costs a few lines of `axum` middleware. **Could not
+establish** from this environment whether the Compose stack, never yet run, sends either.
+
 ---
 
 ## D. Cheap now, expensive later — the data model
@@ -450,6 +464,62 @@ Is an LTE card at a customer site **a service in its own right**, like an E-Line
 If LTE is its own service, every site with LTE backup shows up as two unrelated services someone
 has to link by hand, and you cannot ask the system which circuits actually have a backup path.
 
+### D10. A maintenance record that spans scopes — whose chain seals the outcome?
+
+*Raised 2026-09-15 while drawing the maintenance board (ADR-0046 §7).* A maintenance record names
+the devices it covers, and nothing stops those devices sitting in more than one scope. The outcome a
+person writes — succeeded, failed, partial — is sealed into an audit entry, and every audit entry is
+sealed by one scope's chain. Nothing yet says **which scope's chain seals the outcome** when the
+record spans several, nor what a reader with capability on only one of those scopes sees on a device
+whose outcome was sealed elsewhere.
+
+Two shapes, pick before the schema lands: the record belongs to the narrowest scope containing all
+its devices and is sealed there, with the entry visible to anyone who can read that scope; or the
+outcome is sealed once per scope touched, with the same words, so each chain is complete on its own.
+The first is one entry and one truth; the second keeps a scope's chain self-contained when it is
+exported or verified alone, which is what the verify endpoint promises today.
+
+### D11. A design has no name — is its scope its name?
+
+*Found 2026-09-16 while building Home.* The `designs` table carries an id, an organisation, a
+**scope**, a creation time and a creator. There is **no name column**, so the design list can only
+show an opaque identifier, and Home's board — which lists closets by name — cannot be built as
+drawn.
+
+Two readings, and they lead to different work:
+
+- **The scope is the name.** You do not name drawings; you open *IDF-2*. A design hangs under a
+  scope, the scope has a `display_name`, and the estate is what you navigate. This fits the camera
+  and the two places: nothing in the interface is a file list. The work it implies is **a route that
+  returns the scope tree** — which the shell's path control and its tree pop-over need anyway, and
+  which nothing exposes today (`scopes` has `display_name`, `kind`, `path`, `depth` and
+  `parent_scope_id`; `repo.rs` has only `create_scope`).
+- **A design needs a name of its own.** Then it is a schema addition, by `CLAUDE.md` rule 3, and one
+  scope can hold several named drawings.
+
+**Proceeding on the first reading**, because it is the one the rest of the design implies and it
+needs no schema change. Say so if the second is what you meant.
+
+### D12. An invitation redeemed but never received
+
+> **RESOLVED 2026-09-16, the same day.** The enrolment review found three ways to lose the key, not
+> one — a cut response, a body that will not parse, and an IndexedDB write failing, the last the
+> likeliest — so the order was reversed: the keypair is stored under a *pending* slot before the
+> request is sent, promoted on a confirmed answer, deleted only on a definite refusal, and left in
+> place on any unknown outcome, where sign-in then tries it and promotes it if the server accepts.
+> The text below is the question as first asked.
+
+*Found 2026-09-16 while building enrolment.* Redemption spends the token and enrols the key in one
+server transaction, and the browser stores its keypair only after reading the answer. If the network
+fails in between, the token is spent, the account has a key recorded against it, and the browser that
+generated it holds nothing. The person is locked out until an operator reissues the invitation, which
+`/admin/accounts/{account}/enrolment` already does.
+
+The alternative is for the browser to store the keypair *before* sending, and clear it on refusal,
+which trades a rare lockout for a key that exists locally without being enrolled. Neither is wrong;
+the current order is the one where nothing is stored that the server has not accepted. Worth a
+decision only if reissuing turns out to be painful in practice.
+
 ---
 
 ## E. Needs your time, not just your answer
@@ -556,12 +626,17 @@ halves with a test comparing them? Worth settling before a second vendor is taug
   never make ten standalone links look like a single port-channel.
 - **A scanned floor plan behind the drawing** — useful, but nothing can tell you it is current or
   even the right building, and it would be missing from every export. Plus: cap its size, in the
-  browser or on the server?
-- **Following a connection hop by hop:** light it up on the drawing you are looking at, or open
-  its own screen? (There are only six screens and all six are claimed.)
+  browser or on the server? *Live again from 2026-09-15: the building view was un-parked (ADR-0046
+  §4) and this is the question underneath it.*
+- **Following a connection hop by hop:** ~~light it up on the drawing you are looking at, or open
+  its own screen? (There are only six screens and all six are claimed.)~~ *Answered by
+  `docs/UI-SPEC.md` "Cables": the path lights hop by hop on the drawing and the far end is panned
+  into view. The six-screens premise belonged to the retired client; there are two places now
+  (ADR-0046 §1).*
 - **Named lists you build yourself** — "the Q3 firewall refresh", "PCI scope" — spanning several
   sites and customers, saved and handed on as one thing? Or is filtering the inventory each time
-  enough?
+  enough? *Narrowed 2026-09-15 (ADR-0046 §2): over one graph a named list is a saved filter and a
+  name, not a second dataset. Whether to build it is still open; what it is, is not.*
 - **Version bug lists** — "don't run that release, it has this bug." Worth paying a named person
   to write and re-check? A stale bug list is worse than none.
 
@@ -712,6 +787,73 @@ credential in the vault is gone permanently.
 > and losing the file destroys every Mode A entry permanently.
 
 ---
+
+## W. Places — raised 2026-09-18 (ADR-0051)
+
+### W1. Where does the places track sit after v0.1: before the vault, or after it?
+
+**DECIDED 2026-09-19 by the owner: after the vault**; the designer alone may come first because it writes a file and never touches the estate.
+
+The vault is the product's promise about stored data and is already designed; the places track
+(the designer, the room stop, blueprint import) is what the owner asked for on 2026-09-18. The
+recommendation is after the vault, because the vault changes storage and the places track does
+not, and building storage last means re-sealing what the places track wrote. The owner may
+decide the other way on merit.
+
+### W2. A real blueprint to test the DXF importer against.
+
+**DECIDED 2026-09-19: one DXF of a real floor when the importer is scheduled, not before.**
+
+A hand-made file proves the parser and not the world. One DXF of a real floor, with its layer
+names, from the owner when the importer is built. Until then the importer is not scheduled.
+
+### W3. DWG is not supported; is that acceptable?
+
+**DECIDED 2026-09-19: never read DWG; every CAD tool exports DXF.**
+
+Reading DWG means a large foreign dependency for a proprietary binary format. Every CAD tool
+exports DXF. Recommendation: say so in the import dialog and never read DWG.
+
+### W4. Four "look here" uses, three reserved colours: does recommendation get its own token?
+
+**DECIDED 2026-09-19 by the owner: three colours; a recommendation is a ring and a confirmation a wash, told apart by form. Warnings and errors keep their own colours. See UI-SPEC "Look" for the owner's clarification of the same day.**
+
+UI-SPEC "Look" names error, warning, recommendation and confirmation; `design/tokens.css` reserves
+three colours. The places boards use the safe colour for both recommendation and confirmation,
+told apart by form: a hairline ring is a recommendation, a bordered wash with words is a
+confirmation. Recommendation: keep three and tell them apart by form, since a fourth hue is one
+more thing to learn; the owner may want a fourth on merit.
+
+### W5. Three the lead decided while drawing the boards, recorded here so they can be overruled.
+
+**CONFIRMED 2026-09-19 by the owner.**
+
+A sketch's typed ports sit on the front face unless the person types a rear one; a surface's
+positions are millimetres from the floor and from the left edge, as the Surfaces board draws
+them; and a horizontal run is a cable like any other, so it carries a sheath colour when one is
+recorded and draws in ink when none is.
+
+### W6. D2's private-notes layer, reopened 2026-09-19 (ADR-0053 §7).
+
+**DECIDED 2026-09-19 by the owner: the private layer arrives with the vault, never as a flag in the shared payload.**
+
+A private note inside the shared sealed payload is not private. The schema carries notes from
+0.10; the private layer is a per-account side payload sealed under account keys and arrives with
+the vault. Decided by the lead on merit; the owner may overrule.
+
+### W7. The server stores what a signed session sends; how much of the gate belongs on the server?
+
+**DECIDED 2026-09-19 by the owner: the credential refusal now; the full server-side pass with the vault, as a deliberate change of stance.**
+
+CLAUDE.md rule 4 says credentials are protected by never arriving. The gate runs in the browser
+before a paste reaches the document (ADR-0052); the server validates the payload's shape and
+stores it. The Session 7 checker saved a payload carrying a real router credential from a hostile
+client and read it back. Session 7 adds the cheap half: the server runs the gate's own
+credential detector over every capture and note text in a payload and refuses the save, naming
+the kind and the line. The full half, running the redaction pipeline on the server so a hostile
+client's paste is destroyed rather than refused, costs the server an ingest dependency and a
+dictionary, and changes what the server sees. Recommendation: the refusal now, the full pass with
+the vault. The owner decides whether v0.1 ships with the refusal alone.
 
 ## What was dropped, and why that matters
 

@@ -37,3 +37,14 @@ docs/
 # Anything a previous run left behind.
 *.log
 scratch/
+
+# Client build state the image must not inherit from the host: `npm ci`
+# rebuilds node_modules/ and `npm run build` rebuilds dist/ inside the
+# `client-build` stage, and `public/engine/` is `scripts/build-wasm.sh`'s
+# gitignored output (`client/.gitignore`) -- shipping whichever of these
+# happen to exist on the machine running `docker build` would make the
+# image's contents depend on host state rather than the checkout (found
+# 2026-09-19: none of the three were excluded here).
+client/node_modules/
+client/dist/
+client/public/engine/

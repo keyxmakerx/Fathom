@@ -8,6 +8,49 @@ use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
 use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
 
+/// Where the first operator's enrolment token is written -- on a first start,
+/// and by `reissue-bootstrap-token`.
+///
+/// **The deployment chooses it; it is no longer derived from where the master
+/// key lives.** It was derived, until 2026-09-14, on the argument that the key
+/// volume is the place the operator has already been told to guard -- and that
+/// argument was right about the guarding and wrong about the filesystem. ADR-
+/// 0043 §3 gives the master key its own volume; `deploy/compose.yaml` mounts
+/// that volume READ-ONLY on the server, because the server reads the key and
+/// does not write it. So a first start in a container tried to write a bearer
+/// token into a read-only mount, failed, and exited -- with the operator row
+/// already committed, which meant nothing would ever re-bootstrap either. See
+/// `config::Config::bootstrap_token_file`.
+fn bootstrap_token_path(config: &Config) -> std::path::PathBuf {
+    std::path::PathBuf::from(&config.bootstrap_token_file)
+}
+
+/// Write the bootstrap token, readable by its owner and nobody else.
+///
+/// The mode is set **before** the bytes are written, not after, because a file
+/// created world-readable and then chmodded is world-readable for the length
+/// of that window, and this is a bearer token. Hex rather than raw bytes so an
+/// operator can read it out of a terminal without a hex dump, and a trailing
+/// newline so `cat` behaves.
+fn write_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut hex = String::with_capacity(65);
+    for byte in token {
+        hex.push_str(&format!("{byte:02x}"));
+    }
+    hex.push('\n');
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .open(path)?;
+    file.write_all(hex.as_bytes())?;
+    file.sync_all()
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // `43` §5.4: "distroless has no shell and no curl. The binary is its own
@@ -32,9 +75,25 @@ async fn main() -> ExitCode {
             }
         };
     }
+    // The second subcommand, and the one that has to be read carefully.
+    // `reissue_bootstrap_token` below carries the argument; the short version
+    // is that it mints a fresh first-operator enrolment token ONLY while no
+    // operator key has ever been enrolled, and refuses loudly afterwards.
+    //
+    // Unlike `healthcheck` it needs the full configuration, the database and
+    // the key material, so it is handled after the arguments are checked and
+    // not before.
+    if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
+        if args.len() > 1 {
+            eprintln!("fathom-server: reissue-bootstrap-token takes no arguments");
+            return ExitCode::from(2);
+        }
+        return reissue_bootstrap_token().await;
+    }
     if !args.is_empty() {
         eprintln!(
-            "fathom-server: the only subcommand is `healthcheck [--addr HOST:PORT]`;              with no arguments it runs the server"
+            "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]` and \
+             `reissue-bootstrap-token`; with no arguments it runs the server"
         );
         return ExitCode::from(2);
     }
@@ -423,14 +482,183 @@ async fn main() -> ExitCode {
     // §13 item 7's limits. `EpochWatch` is the one per-process value §3.4 step
     // 3 asks for, and this is the first thing in the server with a request
     // layer to hold it.
+    let sessions = Arc::new(fathom_server::sessions::SessionStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+        config.sign_in_limits,
+    ));
+    let watch = Arc::new(fathom_server::grants::EpochWatch::new());
     let api = fathom_server::api::ApiState {
-        sessions: Arc::new(fathom_server::sessions::SessionStore::new(
-            pool.clone(),
-            Arc::clone(&ring),
-            deployment.clone(),
-            config.sign_in_limits,
-        )),
-        watch: Arc::new(fathom_server::grants::EpochWatch::new()),
+        sessions: Arc::clone(&sessions),
+        watch: Arc::clone(&watch),
+        ring: Arc::clone(&ring),
+        trusted_client_ip_header: config.trusted_client_ip_header.clone(),
+    };
+
+    // The design routes share the session store and the epoch watch with the
+    // session routes deliberately: two `SessionStore`s would be two nonce
+    // tables' worth of state in one process, and two `EpochWatch`es would
+    // defeat the single per-process value §3.4 step 3 asks for. They are built
+    // once above and both routers hold the same `Arc`.
+    //
+    // The catalogue is read once, here, and never from a request: it is
+    // read-only reference data and a per-request filesystem read would be a
+    // way to make an authenticated caller do disk work. A catalogue that will
+    // not load is a startup failure with the file and the line, the same
+    // treatment `EngineState::load` gives a broken schema tree -- serving a
+    // faceplate the operator cannot see the source of is worse than not
+    // starting. `load_catalogue` wants the directory that holds both `corpus/`
+    // and `schema/`, which is `schema_root`'s parent.
+    let corpus_root = std::path::Path::new(&config.schema_root)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    let catalogue = match fathom_server::design_api::load_catalogue(&corpus_root) {
+        Ok(models) => {
+            tracing::info!(
+                models = models.len(),
+                root = %corpus_root.display(),
+                "equipment catalogue loaded"
+            );
+            Arc::new(models)
+        }
+        Err(e) => {
+            tracing::error!(
+                file = %e.file,
+                line = e.line,
+                gate = ?e.gate,
+                message = %e.message,
+                root = %corpus_root.display(),
+                "the equipment catalogue could not be loaded; refusing to start"
+            );
+            return ExitCode::from(8);
+        }
+    };
+    let sessions_for_firmware = Arc::clone(&sessions);
+    let watch_for_firmware = Arc::clone(&watch);
+    let designs = fathom_server::design_api::DesignApiState {
+        sessions: Arc::clone(&sessions),
+        watch,
+        ring: Arc::clone(&ring),
+        catalogue,
+    };
+
+    // The operator plane. `single_operator` is read from the configuration
+    // rather than decided here, and it removes the second signature without
+    // removing the delay -- admin design §5.3, and `config.rs` says why on the
+    // field itself.
+    let operators = Arc::new(fathom_server::operators::OperatorStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+        config.single_operator,
+    ));
+
+    // §5.3's mode is written to the site chain at startup rather than left as
+    // a belief held only by this process's environment. An auditor reading the
+    // chain can then see that the deployment was running with one operator,
+    // and when.
+    if config.single_operator {
+        match operators.record_single_operator_mode().await {
+            Ok(seq) => tracing::warn!(
+                site_chain_seq = seq,
+                "FATHOM_SINGLE_OPERATOR is set: settings changes need ONE operator's assertion                  instead of two. The delay is unchanged and is now the only thing standing                  between one compromised operator and a changed setting."
+            ),
+            Err(e) => {
+                tracing::error!(error = ?e, "could not record single-operator mode; refusing to start");
+                return ExitCode::from(9);
+            }
+        }
+    }
+
+    // First start mints the first operator and their enrolment token. The
+    // token is the one secret in this program that a human has to read, so it
+    // goes to a file the DEPLOYMENT names (`FATHOM_BOOTSTRAP_TOKEN_FILE`),
+    // mode 0400, and its PATH is logged while the token itself never is --
+    // logs are shipped off the box by design (`audit.rs`), and a token in a
+    // log is a token in whatever holds the logs.
+    let notice_address = config.operator_notice_address.clone().unwrap_or_default();
+    match operators
+        .bootstrap_first_operator("the first operator", &notice_address)
+        .await
+    {
+        Ok(bootstrap) => {
+            let path = bootstrap_token_path(&config);
+            match write_bootstrap_token(&path, &bootstrap.invitation.token) {
+                Ok(()) => tracing::warn!(
+                    operator_id = %bootstrap.operator_id,
+                    token_file = %path.display(),
+                    expires_at_unix = bootstrap.invitation.expires_at_unix,
+                    "FIRST START: an operator was created and an enrolment token written. Read                      the file, redeem it in a browser, then delete it. The token is not in this                      log and will not be shown again."
+                ),
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        token_file = %path.display(),
+                        "the first operator was created but their enrolment token could not be                          written, so nobody can redeem it; refusing to start. Point                          FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in --                          it must NOT be inside the read-only key volume -- and then run                          `fathom-server reissue-bootstrap-token` to mint a fresh one, which is                          still permitted because no operator key has been enrolled yet"
+                    );
+                    return ExitCode::from(10);
+                }
+            }
+        }
+        // Every start after the first. Not an error here: the deployment is
+        // already bootstrapped, which is the ordinary case.
+        Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {}
+        Err(e) => {
+            tracing::error!(
+                error = ?e,
+                notice_address_set = config.operator_notice_address.is_some(),
+                "could not bootstrap the first operator; refusing to start. On a first start, set                  FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator                  notices."
+            );
+            return ExitCode::from(9);
+        }
+    }
+
+    // Firmware staging (ADR-0045). Absent configuration means the routes are
+    // not mounted at all rather than mounted and failing: a route that answers
+    // is a route an attacker can probe, and most deployments will never stage
+    // an image. The directory is proved writable HERE, by writing and removing
+    // a probe file, so a deployment that cannot stage learns it at startup and
+    // not from an operator halfway through a maintenance window.
+    let firmware = match &config.firmware_dir {
+        None => None,
+        Some(dir) => {
+            let base = config
+                .firmware_fetch_base_url
+                .clone()
+                .expect("config refuses a firmware directory with no fetch base URL");
+            match fathom_server::firmware::FirmwareStore::open(
+                std::path::PathBuf::from(dir),
+                config.firmware_max_bytes,
+                base.clone(),
+                config.trusted_client_ip_header.clone(),
+            ) {
+                Ok(store) => {
+                    tracing::info!(
+                        directory = %dir,
+                        max_image_bytes = config.firmware_max_bytes,
+                        fetch_base_url = %base,
+                        "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
+                         can reach, which is often not the one a browser uses."
+                    );
+                    Some(Arc::new(store))
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        directory = %dir,
+                        "the firmware staging directory is unusable; refusing to start"
+                    );
+                    return ExitCode::from(11);
+                }
+            }
+        }
+    };
+
+    let admin = fathom_server::admin::AdminState {
+        sessions,
+        operators,
         ring: Arc::clone(&ring),
         trusted_client_ip_header: config.trusted_client_ip_header.clone(),
     };
@@ -464,7 +692,20 @@ async fn main() -> ExitCode {
     // §13 item 7's source bucket needs the peer address, and without this the
     // extension it reads is never populated, so every sign-in in the
     // deployment would count into one bucket named "unknown".
-    let app = router(AppState { health, engine }).merge(fathom_server::api::router(api));
+    let mut app = router(AppState { health, engine })
+        .merge(fathom_server::api::router(api))
+        .merge(fathom_server::design_api::router(designs))
+        .merge(fathom_server::admin::router(admin));
+    if let Some(store) = firmware {
+        app = app.merge(fathom_server::firmware::router(
+            fathom_server::firmware::FirmwareState {
+                sessions: Arc::clone(&sessions_for_firmware),
+                watch: Arc::clone(&watch_for_firmware),
+                ring: Arc::clone(&ring),
+                store,
+            },
+        ));
+    }
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -480,6 +721,182 @@ async fn main() -> ExitCode {
         Err(e) => {
             tracing::error!(error = %e, "stopped with an error");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// **The way back into a deployment whose first-operator token was lost**, and
+/// the one command in this binary that mints a bearer secret with no session
+/// behind it.
+///
+/// Read `operators::OperatorStore::reissue_bootstrap_token` before changing
+/// anything here: the gate is that no operator key has ever been enrolled, and
+/// it is what stops this being a way for anyone who can run a command on this
+/// host to mint themselves an operator session.
+///
+/// What this function adds around that gate:
+///
+/// - **The token goes to the file and nowhere else.** Not stdout, not the log,
+///   not an error message. The log line names the path, the operator, the
+///   expiry and the site-chain `seq`, which is everything an operator needs and
+///   nothing an attacker holding the logs can use.
+/// - **An existing file is refused, not overwritten.** The file that is already
+///   there may be the valid token this command was run because somebody could
+///   not find; replacing it would destroy the thing it is here to restore. The
+///   check happens twice -- once before the database is touched, so the common
+///   case fails before anything is minted, and once in `create_new` at the
+///   write, which is the one that is not a race.
+/// - **The key material is loaded but never created.** The server's own
+///   startup passes `create_if_missing: true`; this passes `false`, because a
+///   chain key invented here would make every entry ever sealed under the real
+///   one unverifiable, and the symptom would read as tampering.
+async fn reissue_bootstrap_token() -> ExitCode {
+    // Configuration BEFORE logging, exactly as the server does and for the
+    // same reason: a bad configuration fails on stderr rather than through a
+    // subscriber that has not been set up.
+    let config = match Config::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("fathom-server: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    tracing_subscriber::fmt()
+        .with_max_level(config.log_level.to_tracing())
+        .with_ansi(false)
+        .with_target(true)
+        .init();
+
+    let path = bootstrap_token_path(&config);
+
+    // Before the database, before the keys, before anything is minted. A
+    // token file that already exists may be the live one, and this command
+    // must never be the thing that destroys it.
+    if path.exists() {
+        tracing::error!(
+            token_file = %path.display(),
+            "refusing: a token file already exists at this path. It may be the valid token. \
+             Read it, or move it out of the way deliberately, and run this again"
+        );
+        return ExitCode::from(10);
+    }
+
+    tracing::info!(
+        database = %config.database_for_logging(),
+        token_file = %path.display(),
+        "re-issuing the first operator's enrolment token"
+    );
+
+    let pool = match db::pool(&config) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the connection pool");
+            return ExitCode::from(3);
+        }
+    };
+
+    let client = match pool.get().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(kind = %summarise(&e), "could not reach the database");
+            return ExitCode::from(5);
+        }
+    };
+
+    // The same gate the server refuses to start without, and for the same
+    // reason: this command writes rows and appends to the site chain through
+    // the runtime role, and a superuser connection would have every isolation
+    // policy in the database inert underneath it.
+    if let Err(e) = rls::assert_rls_binds(&client).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(8);
+    }
+
+    // `false`: load the keys, never create them. See this function's own doc.
+    let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, false) {
+        Ok(r) => Arc::new(r),
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                master_key = %config.master_key.describe(),
+                chain_key = %config.chain_key.describe(),
+                "refusing: the key material could not be loaded. This command seals a site-chain \
+                 entry like every other operator act, so it needs the same keys the server runs \
+                 with -- and it will not invent one"
+            );
+            return ExitCode::from(10);
+        }
+    };
+
+    // ADR-0043 §4's check, here for the reason it is there: a wrong key must
+    // report which key this database was encrypted under, not surface as an
+    // AEAD failure that reads like corruption.
+    if let Err(e) = keys::register_master_key(&client, &ring).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(11);
+    }
+    if let Err(e) = keys::register_chain_master_key(&client, &ring).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(11);
+    }
+
+    let deployment = match fathom_server::chains::deployment_id(&**client).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "this deployment has no identity, so it has never started and has no first \
+                 operator to re-issue for. Start the server once"
+            );
+            return ExitCode::from(12);
+        }
+    };
+    drop(client);
+
+    let operators = fathom_server::operators::OperatorStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment,
+        config.single_operator,
+    );
+
+    let reissued = match operators.reissue_bootstrap_token().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "the enrolment token was NOT re-issued");
+            return ExitCode::from(9);
+        }
+    };
+
+    match write_bootstrap_token(&path, &reissued.invitation.token) {
+        Ok(()) => {
+            tracing::warn!(
+                operator_id = %reissued.operator_id,
+                token_file = %path.display(),
+                expires_at_unix = reissued.invitation.expires_at_unix,
+                site_chain_seq = reissued.issued_seq,
+                expired_tokens = reissued.expired.len(),
+                "a fresh enrolment token was written for the first operator. Any previously \
+                 issued and unredeemed token for them is now dead. Read the file, redeem it in \
+                 a browser, then delete it. The token is not in this log and will not be shown \
+                 again"
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            // The database has already committed, so the old token is dead and
+            // the new one is unreadable. Running the command again is the
+            // remedy and still works -- no key has been enrolled, which is the
+            // only condition the gate cares about.
+            tracing::error!(
+                error = %e,
+                token_file = %path.display(),
+                "the token was minted but could not be written, so nobody can read it. Point \
+                 FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in and \
+                 run this again"
+            );
+            ExitCode::from(10)
         }
     }
 }

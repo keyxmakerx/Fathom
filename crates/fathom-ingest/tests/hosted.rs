@@ -106,7 +106,8 @@ fn the_host_path_runs_the_load_time_gates() {
     let keys = field_keys_text();
     let shadowing = vec![(
         "t.yaml".to_owned(),
-        "platform: junos-srx\nentries:\n  \
+        "platform: junos-srx\nsource: { cite: \"test fixture\", read_on: \"2026-09-19\" }\n\
+         reviewed_by: x\nentries:\n  \
          - { id: a, path: [security, ike], versions: \"*\", reviewed_by: x }\n  \
          - { id: b, path: [security, ike, mode], versions: \"*\", reviewed_by: x }\n"
             .to_owned(),

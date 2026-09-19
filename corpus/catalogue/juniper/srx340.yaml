@@ -1,0 +1,111 @@
+# corpus/catalogue/juniper/srx340.yaml — read by fathom-corpus's `catalogue`
+# module (crates/fathom-corpus/src/catalogue.rs), which see for the format's
+# rules.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+#
+# THIS MODEL IS DRAWN BY THE APPROVED DESIGN BOARD
+# `design/rebuild/Firewall.dc.html`, read directly on 2026-09-19: its rack
+# panel and chassis label name the device `hq-fw-01`, "Juniper SRX340 · 2U ·
+# firewall", and its interior view draws 4 RJ45 ports (`ge-0/0/0`..`ge-0/0/3`)
+# and 3 SFP-shaped ports (`xe-0/0/0`, `xe-1`, `xe-2`) inside a column labelled
+# "FRONT". PER THE TASK THAT PRODUCED THIS FILE, THE VENDOR PAGE WINS ON PORT
+# COUNTS where the two disagree, exactly as `ex4300-48p.yaml`'s header already
+# established the same rule for its own design board ("the catalogue is the
+# estate-of-record and is true first"). An internal design mock is not a
+# source for a hardware fact, and CLAUDE.md rule 1 requires a citation for
+# every device fact; the board is therefore used ONLY for the model name and
+# panel framing below, never for a number a vendor or a corroborated listing
+# can supply — this reconciliation was corrected on 2026-09-19, same session,
+# after the board's "2U" was found to be wrong (see point 1):
+#
+#   1. Rack height: the board's text label says "2U", but this is a design
+#      mock, not a hardware source. Independent corroboration (four listings,
+#      searched 2026-09-19): NetBox community devicetype-library's
+#      SRX340.yaml (`u_height: 1`, its own `comments:` citing Juniper's
+#      SRX300-line datasheet — raw.githubusercontent.com/netbox-community/
+#      devicetype-library, fetched 2026-09-19) and three independent retail/
+#      spec listings (networkhardwares.com, dcsupplies.net, and
+#      router-switch.com's mirror of the vendor SRX340 datasheet PDF) all
+#      agree: 1U, chassis height 1.72 in / 4.36 cm. `rack_units: 1`, not 2 —
+#      the board's figure is dropped, not kept.
+#   2. Port counts: the board draws 4 RJ45 + 3 SFP-shaped ports, a mockup
+#      illustration (as `ex4300-48p.yaml`'s header notes for its own board,
+#      "covering the real number of models was not its purpose"). The vendor
+#      datasheet, corroborated across three independent search queries all
+#      returning the same consolidated line from Juniper's own SRX340
+#      documentation (searched 2026-09-19), states: "eight 1GbE RJ-45 ports,
+#      eight 1GbE SFP ports, one management port, one console port, and four
+#      Mini-Physical Interface Module (Mini-PIM) slots." 8 RJ45 + 8 SFP wins
+#      over the board's 4 + 3.
+#
+# PortKind: the vendor's own word is "1GbE SFP ports", not "SFP+" — the same
+# gap `srx300.yaml`'s header documents for its own 2 SFP ports; recorded as
+# `SFP+`, the nearest existing kind, for the same stated reason.
+#
+# CONSOLE — searched 2026-09-19: "The SRX340 Firewall has two console ports:
+# an RJ-45 Ethernet port and a mini-USB Type-B port." Recorded as one named
+# RJ45 port (`con`); Mini-USB omitted for the same reason as every other
+# Mini-USB/USB-C port in this directory.
+#
+# MANAGEMENT — the same consolidated vendor line quoted above names "one
+# management port"; a further, independently corroborated search (two
+# queries, same underlying SRX340 Firewall Hardware Guide) found: "the
+# management port is labeled MGMT on the device" — a rear/back-panel Figure 3
+# per that search's own description ("Figure 3 shows the back panel of the
+# SRX340... Table 5 lists the components on the back panel"), which is why
+# this port is recorded on face `front` all the same: this file follows the
+# design board's own framing of the whole jack column as one "FRONT" panel
+# (see the note on `srx300.yaml`), and no photo was read to confirm the
+# board's single-panel framing is wrong for this specific port. Recorded as
+# `MGMT`, the vendor's own printed word, matching the corroborated quote.
+#
+# POWER — searched 2026-09-19, two independent queries: "The SRX340 Firewall
+# uses a fixed, internal AC power supply. The power supply is fixed in the
+# chassis and is not field-replaceable... a single AC appliance inlet."
+# Recorded as ONE `psu_slots` entry, `hot_swap: false` — an inlet that
+# exists but cannot be removed, the exact case
+# `crates/fathom-corpus/src/catalogue.rs`'s `PsuSlot` doc names ("a supply
+# that is not field-replaceable... the model still has an inlet, it just has
+# one fixed slot"). No vendor-printed slot name was found for this single
+# fixed inlet (unlike the numbered PSU0/PSU1 pairs on the EX-series switches
+# in this directory, which ARE named); recorded as `PWR`, a plain descriptive
+# label, not a vendor quote — flagged here rather than presented as cited.
+vendor: juniper
+model: SRX340
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    design/rebuild/Firewall.dc.html (this repository's approved design
+    board), read directly on 2026-09-19, for the model name and the fact
+    that every jack sits in one panel labelled "FRONT" only — NOT used for
+    rack height, see below. Juniper Networks' SRX340 Firewall Hardware Guide
+    and Quick Start (juniper.net/documentation/us/en/hardware/srx340/), read
+    via web search synthesis on 2026-09-19 (this environment's network
+    egress blocks a direct fetch of juniper.net; see file header) for the
+    port counts (8 RJ45 + 8 SFP + 1 MGMT + 1 console), the MGMT label, the
+    RJ-45/Mini-USB console pair and the fixed non-field-replaceable single AC
+    power supply. Rack height, `rack_units: 1`, is corroborated by NetBox
+    community devicetype-library's SRX340.yaml and three independent retail/
+    spec listings (networkhardwares.com, dcsupplies.net, router-switch.com's
+    mirror of the vendor datasheet PDF), all read 2026-09-19 — see file
+    header point 1; the design board's "2U" label was checked against these
+    and found wrong, so it is not used for this figure. The `PWR` psu_slots
+    name is a plain label, not a
+    vendor-quoted word — see file header. The 8 SFP ports are recorded as
+    this reader's `SFP+` kind though the vendor documents them as 1GbE SFP,
+    same nearest-kind reasoning as srx300.yaml. Port numbering (0- vs
+    1-based) is not independently confirmed by any photo; recorded 0-based
+    by the same EX-series-convention analogy srx300.yaml states.
+  read_on: "2026-09-19"
+faceplates:
+  - face: front
+    port_count: 18
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 8, start_number: 0 }
+      - { kind: "SFP+", role: uplink, layout: paired_rows, count: 8, start_number: 0 }
+      - { kind: "RJ45", role: management, layout: single_row, names: [MGMT] }
+      - { kind: "RJ45", role: console, layout: single_row, names: [con] }
+psu_slots:
+  - { name: "PWR", hot_swap: false, face: rear, position: { row: single, column: 0 } }

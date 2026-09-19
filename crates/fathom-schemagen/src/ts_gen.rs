@@ -14,6 +14,16 @@ pub fn ir_types_ts(x: &Extracted) -> String {
     let _ = writeln!(o, "// {HEADER}.");
     o.push_str("// The UI-boundary mirror only — never the wire format (62 §17.1).\n\n");
 
+    // ---- the schema version -------------------------------------------------
+    // `schema.yaml`'s declared version, mirrored from the same source as
+    // `crates/fathom-ir/src/generated/ir_types.rs`'s `SCHEMA_VERSION` — one
+    // constant, two emitters, never hand-copied.
+    o.push_str(
+        "/** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors\n\
+         \x20* `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */\n",
+    );
+    let _ = writeln!(o, "export const SCHEMA_VERSION = \"{}\";\n", x.version);
+
     // Kinds and edges.
     o.push_str("/** Node kinds, declaration order (62 §2.3). */\n");
     union(&mut o, "NodeKind", x.kinds.iter().map(|k| k.name.as_str()));

@@ -315,6 +315,12 @@ pub enum EntryType {
     /// rate-limit refusal — §13 item 7's lockout has its sealed record here
     /// rather than in a type of its own.
     AccountSigninFailed,
+    /// A session was signed out (migration `0014`). §7.2 names no type for it
+    /// — the same gap `0013` reported for the two above — and the act needs
+    /// one, because a sign-out is now RECORDED rather than only performed: the
+    /// sealed entry is what the `session_revocations` row's MAC binds to, so
+    /// stopping the log stops the act here as everywhere else.
+    AccountSignedOut,
     /// An attempt at the operator sign-in surface was refused. §4.5: an
     /// operator session is `A1` or it does not exist, there is no password
     /// path, and no operator key can be enrolled yet — so every attempt is
@@ -324,6 +330,74 @@ pub enum EntryType {
     AccountDisabled,
     /// An account was re-enabled.
     AccountEnabled,
+
+    // ---- The operator console (§1.1, §5, §6, migration 0015) -------------
+    //
+    // Twenty types, written by `operators.rs`. **Two are not in §7.2's list**
+    // — `operator_signed_out` and `operator_read` — and `0015` §J carries the
+    // report: §7.2 was written before §1.1's sampling rule and before sign-out
+    // was a recorded act, and an operator's acts must be legible as operator
+    // acts to a reader holding only the chain key.
+    /// An operator proved possession of a key enrolled in `operator_keys` over
+    /// a server challenge that also bound the fresh session public key (§4.2,
+    /// §4.5). There is no password path on this surface and there must never
+    /// be one.
+    OperatorSignin,
+    /// An operator session was signed out. Not §7.2's — see above.
+    OperatorSignedOut,
+    /// §1.1's first verb: an operator read some surface of the console.
+    /// **Sampled** — one entry per session per surface (`0015` §F's latch) —
+    /// because an unsampled read entry lets a caller choose how fast the
+    /// sealed audit grows. Not §7.2's — see above.
+    OperatorRead,
+    /// The first operator of a deployment redeemed the token written to the
+    /// master-key volume (§6.3).
+    OperatorBootstrapped,
+    /// Two operators' assertions and the delay produced a new operator (§5.5).
+    OperatorCreated,
+    /// A second operator seconded a pending operator creation (§5.5).
+    OperatorSeconded,
+    /// An operator enrolled their first key, which is what their first sign-in
+    /// must do (§5.5).
+    OperatorEnrolled,
+    /// An operator was disabled: their live sessions stop at their next
+    /// request. §4.5 — re-enrolment is two operators' work, not a form.
+    OperatorDisabled,
+    /// An operator created an account shell for an address (§1.1, §6.2).
+    AccountCreated,
+    /// An enrolment token was issued: §1.1's *"initiate an
+    /// authenticator-enrolment token"*, and §5.1's reset, **which are the same
+    /// act** because there is no password to reset.
+    EnrolmentTokenIssued,
+    /// A token was redeemed, once and only once.
+    EnrolmentTokenRedeemed,
+    /// A token was presented after its expiry and refused.
+    EnrolmentTokenExpired,
+    /// A key joined a keyring through the enrolment path — §7.2's
+    /// `authenticator_registered`, for the account whose first key cannot be
+    /// filed on any organisation's chain because it belongs to no
+    /// organisation yet (§6.2, §6.4).
+    AuthenticatorRegistered,
+    /// An operator created an organisation shell and its enrolment claim
+    /// (§6.2). The shell holds no data and permits nothing until the claim is
+    /// redeemed by an account with a registered key.
+    OrgShellCreated,
+    /// A change to a site setting was requested by one operator (§5.3).
+    SettingRequested,
+    /// A second operator seconded it (§5.3, §5.5).
+    SettingSeconded,
+    /// The delay elapsed and the change was applied. **This entry is the
+    /// interlock**: `site_settings_versions.sealed_seq` names it, and the
+    /// resolver refuses any row whose entry does not verify (§5.4).
+    SettingApplied,
+    /// A pending change was cancelled during its delay.
+    SettingCancelled,
+    /// §5.4 step 5: a candidate row failed a check and was NOT silently
+    /// skipped. An incident, and the deployment banners it.
+    SettingUnresolvable,
+    /// §5.3's declaration, written at every startup that runs without a second
+    /// operator, so nobody can later claim two-person control was in force.
+    SingleOperatorMode,
 
     // ---- Organisation chain (§7.2) ---------------------------------------
     /// The first entry on an organisation's chain.
@@ -372,6 +446,27 @@ pub enum EntryType {
     /// the operation that changes *who can decrypt everything* would be the
     /// only key operation in the product with no audit trail.
     ///
+    // ---- Firmware staging (ADR-0045, migration 0017) ---------------------
+    //
+    // Three types, written by `firmware.rs`. **None of them is in §7.2's
+    // list**, because §7.2 predates ADR-0045; `0017` §E carries the report,
+    // as `0013` §G and `0015` §J carried theirs.
+    /// An image arrived whole: the bytes were written to Fathom's disk, the
+    /// SHA-256 was computed over them as they were written, and it matched
+    /// the declaration. A truncated or altered upload writes nothing — it
+    /// deletes the partial file and refuses, which is trap 2 of
+    /// `docs/UPGRADING-A-JUNIPER.md`.
+    FirmwareStaged,
+    /// A one-time fetch URL was minted for a device to collect an image with.
+    /// ADR-0045 §8: this publishes bytes to anything that can reach this
+    /// server holding the token, so it is an act with a sealed record rather
+    /// than a read. **The entry names the token's id and never the token.**
+    FirmwareFetchIssued,
+    /// A fetch URL was spent: the bytes went somewhere. Written and committed
+    /// BEFORE the body is served, so a transfer that dies half way still
+    /// leaves the record that it started.
+    FirmwareFetchRedeemed,
+
     /// **The one type filed on two kinds.** A re-wrap is deployment-wide,
     /// because the master key is: one summary entry lands on the site chain
     /// naming both master identities and how many tenants moved, and one entry
@@ -393,9 +488,30 @@ impl EntryType {
             Self::SpoolPressure => "spool_pressure",
             Self::AccountSignin => "account_signin",
             Self::AccountSigninFailed => "account_signin_failed",
+            Self::AccountSignedOut => "account_signed_out",
             Self::OperatorSigninFailed => "operator_signin_failed",
             Self::AccountDisabled => "account_disabled",
             Self::AccountEnabled => "account_enabled",
+            Self::OperatorSignin => "operator_signin",
+            Self::OperatorSignedOut => "operator_signed_out",
+            Self::OperatorRead => "operator_read",
+            Self::OperatorBootstrapped => "operator_bootstrapped",
+            Self::OperatorCreated => "operator_created",
+            Self::OperatorSeconded => "operator_seconded",
+            Self::OperatorEnrolled => "operator_enrolled",
+            Self::OperatorDisabled => "operator_disabled",
+            Self::AccountCreated => "account_created",
+            Self::EnrolmentTokenIssued => "enrolment_token_issued",
+            Self::EnrolmentTokenRedeemed => "enrolment_token_redeemed",
+            Self::EnrolmentTokenExpired => "enrolment_token_expired",
+            Self::AuthenticatorRegistered => "authenticator_registered",
+            Self::OrgShellCreated => "org_shell_created",
+            Self::SettingRequested => "setting_requested",
+            Self::SettingSeconded => "setting_seconded",
+            Self::SettingApplied => "setting_applied",
+            Self::SettingCancelled => "setting_cancelled",
+            Self::SettingUnresolvable => "setting_unresolvable",
+            Self::SingleOperatorMode => "single_operator_mode",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
             Self::AccountKeyEnrolled => "account_key_enrolled",
@@ -407,6 +523,9 @@ impl EntryType {
             Self::GrantUnsuspended => "grant_unsuspended",
             Self::GrantRevoked => "grant_revoked",
             Self::AuthHeadAdvanced => "auth_head_advanced",
+            Self::FirmwareStaged => "firmware_staged",
+            Self::FirmwareFetchIssued => "firmware_fetch_issued",
+            Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
         }
     }
 
@@ -420,9 +539,30 @@ impl EntryType {
             "spool_pressure" => Some(Self::SpoolPressure),
             "account_signin" => Some(Self::AccountSignin),
             "account_signin_failed" => Some(Self::AccountSigninFailed),
+            "account_signed_out" => Some(Self::AccountSignedOut),
             "operator_signin_failed" => Some(Self::OperatorSigninFailed),
             "account_disabled" => Some(Self::AccountDisabled),
             "account_enabled" => Some(Self::AccountEnabled),
+            "operator_signin" => Some(Self::OperatorSignin),
+            "operator_signed_out" => Some(Self::OperatorSignedOut),
+            "operator_read" => Some(Self::OperatorRead),
+            "operator_bootstrapped" => Some(Self::OperatorBootstrapped),
+            "operator_created" => Some(Self::OperatorCreated),
+            "operator_seconded" => Some(Self::OperatorSeconded),
+            "operator_enrolled" => Some(Self::OperatorEnrolled),
+            "operator_disabled" => Some(Self::OperatorDisabled),
+            "account_created" => Some(Self::AccountCreated),
+            "enrolment_token_issued" => Some(Self::EnrolmentTokenIssued),
+            "enrolment_token_redeemed" => Some(Self::EnrolmentTokenRedeemed),
+            "enrolment_token_expired" => Some(Self::EnrolmentTokenExpired),
+            "authenticator_registered" => Some(Self::AuthenticatorRegistered),
+            "org_shell_created" => Some(Self::OrgShellCreated),
+            "setting_requested" => Some(Self::SettingRequested),
+            "setting_seconded" => Some(Self::SettingSeconded),
+            "setting_applied" => Some(Self::SettingApplied),
+            "setting_cancelled" => Some(Self::SettingCancelled),
+            "setting_unresolvable" => Some(Self::SettingUnresolvable),
+            "single_operator_mode" => Some(Self::SingleOperatorMode),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
@@ -434,6 +574,9 @@ impl EntryType {
             "grant_unsuspended" => Some(Self::GrantUnsuspended),
             "grant_revoked" => Some(Self::GrantRevoked),
             "auth_head_advanced" => Some(Self::AuthHeadAdvanced),
+            "firmware_staged" => Some(Self::FirmwareStaged),
+            "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
+            "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
             _ => None,
         }
     }
@@ -461,20 +604,51 @@ impl EntryType {
             | Self::SpoolPressure
             | Self::AccountSignin
             | Self::AccountSigninFailed
+            | Self::AccountSignedOut
             | Self::OperatorSigninFailed
             | Self::AccountDisabled
-            | Self::AccountEnabled => &[ChainKind::Site],
+            | Self::AccountEnabled
+            | Self::OperatorSignin
+            | Self::OperatorSignedOut
+            | Self::OperatorRead
+            | Self::OperatorBootstrapped
+            | Self::OperatorCreated
+            | Self::OperatorSeconded
+            | Self::OperatorEnrolled
+            | Self::OperatorDisabled
+            | Self::AccountCreated
+            | Self::EnrolmentTokenIssued
+            | Self::EnrolmentTokenRedeemed
+            | Self::EnrolmentTokenExpired
+            | Self::AuthenticatorRegistered
+            | Self::OrgShellCreated
+            | Self::SettingRequested
+            | Self::SettingSeconded
+            | Self::SettingApplied
+            | Self::SettingCancelled
+            | Self::SettingUnresolvable
+            | Self::SingleOperatorMode => &[ChainKind::Site],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded
             | Self::AccountKeyRetired
             | Self::GrantSigned
             | Self::GrantSeconded
-            | Self::GrantSuspended
             | Self::GrantUnsuspended
             | Self::GrantRevoked
-            | Self::AuthHeadAdvanced => &[ChainKind::Org],
-            Self::Rewrap => &[ChainKind::Site, ChainKind::Org],
+            | Self::AuthHeadAdvanced
+            | Self::FirmwareStaged
+            | Self::FirmwareFetchIssued
+            | Self::FirmwareFetchRedeemed => &[ChainKind::Org],
+            // **Two types are filed on two kinds.** `rewrap` because the
+            // master key is deployment-wide (§7.2's own note), and
+            // `grant_suspended` because §1.1 gives the operator plane one
+            // authority-adjacent verb: the organisation's chain records the act
+            // for the stewards who may lift it, and the site chain records that
+            // the machine side did it. An operator act that appeared only on a
+            // tenant's chain would be invisible to anyone auditing the operator
+            // plane, which is the surface §0 calls the takeover route.
+            Self::Rewrap | Self::GrantSuspended => &[ChainKind::Site, ChainKind::Org],
         }
     }
 

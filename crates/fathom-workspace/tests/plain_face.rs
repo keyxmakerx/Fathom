@@ -27,11 +27,19 @@ use std::collections::BTreeSet;
 /// Line 3 tracks `SCHEMA_VERSION` and is therefore the ONE line of this vector
 /// that is not a constant of the file format: the document typed it when the
 /// tree was at 0.1, ADR-0036 moved the tree to 0.2 on 2026-08-15, and ADR-0037
-/// moved it to 0.3 on 2026-08-16. The payload below is byte-identical across
-/// both bumps, which is the useful thing this vector proves — adding a kind and
-/// two edges changes the header and nothing else, and adding two enum variants
-/// does not even change the shape of a value, so no existing workspace's body
-/// is rewritten by either.
+/// moved it to 0.3 on 2026-08-16. Subsequent bumps (0.4 relaxed cardinality,
+/// 0.5 added `DhcpRelay`, 0.6 the cables session's `Cable.sheath` field and
+/// two enum variants, 0.7 ADR-0050's `Rack.row`/`Rack.bay`, the `PowerSupply`
+/// kind and the `FittedIn` edge, 0.8 ADR-0051 §1's `SitsOn`/`HasSurface`/`FixedTo`
+/// edges, the `Surface` kind, `PhysicalPort.face` and the enum variants on
+/// `PassiveNode.form`/`PhysicalPort.connector`, 0.9 ADR-0052 §3's `Capture` kind,
+/// its `text`/`platform`/`line_count`/`shape` fields and the `HasCapture` edge,
+/// 0.10 ADR-0053 §5's `Note` kind, its `text`/`how`/`line_count` fields, the
+/// `Notable` class and the `HasNote` edge) move only this line again. The payload below is
+/// byte-identical across every bump, which is the useful thing this vector
+/// proves — adding a kind and two edges changes the header and nothing else,
+/// and adding a field or an enum variant does not even change the shape of a
+/// value, so no existing workspace's body is rewritten by any of them.
 ///
 /// **THAT IS TRUE AND IT IS NOT THE WHOLE STORY**, so it is said here rather
 /// than left to be discovered: `read_plain` refuses a mismatched version on
@@ -44,7 +52,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.5\n",
+    "schema 0.10\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -327,6 +335,71 @@ fn worked_example_round_trips_byte_identical() {
     let reloaded = read_plain(&first).expect("reads");
     let second = write_plain(&reloaded).expect("writes again");
     assert_eq!(first, second, "write -> read -> write is byte-identical");
+}
+
+/// ADR-0053 §1 and §4: the fifth op, and the two optional batch keys, through
+/// the wire and back.
+#[test]
+fn revive_and_batch_fields_round_trip_byte_identical() {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    let device = g
+        .insert_node(NodeKind::Device, ulid(1), prov(1))
+        .expect("device");
+    g.end_batch().expect("close");
+
+    g.begin_batch(BatchId(ulid(2)), "remove device")
+        .expect("open");
+    g.tombstone(
+        ElementId::Node(device),
+        Timestamp(AT + 1),
+        Actor::User(UserId::LOCAL),
+    )
+    .expect("tombstone");
+    let removed = g.end_batch().expect("close");
+
+    g.begin_batch(BatchId(ulid(3)), "undo of remove device")
+        .expect("open");
+    g.set_batch_reverses(removed).expect("reverses");
+    g.set_batch_comment(Text("bring it back".to_owned()))
+        .expect("comment");
+    g.revive(
+        ElementId::Node(device),
+        Timestamp(AT + 2),
+        Actor::User(UserId::LOCAL),
+    )
+    .expect("revive");
+    g.end_batch().expect("close");
+
+    let first = write_plain(&g).expect("writes");
+    let reloaded = read_plain(&first).expect("reads");
+    let second = write_plain(&reloaded).expect("writes again");
+    assert_eq!(first, second, "write -> read -> write is byte-identical");
+
+    let text = String::from_utf8(first).expect("UTF-8");
+    assert!(
+        text.contains(r#"{"revive":"#),
+        "the fifth op has its own tag"
+    );
+    assert!(
+        text.contains(r#""comment":"bring it back""#),
+        "the comment is written when present"
+    );
+    assert!(
+        text.contains(r#""reverses":"#),
+        "reverses is written when present"
+    );
+}
+
+/// An ordinary batch sets neither key, and the wire says so by omission —
+/// `PINNED` itself already proves this for `minimal_estate`'s one batch, so
+/// this only pins the negative in words.
+#[test]
+fn a_batch_with_neither_key_omits_both() {
+    let bytes = write_plain(&minimal_estate()).expect("writes");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    assert!(!text.contains("\"comment\""));
+    assert!(!text.contains("\"reverses\""));
 }
 
 #[test]

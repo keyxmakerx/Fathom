@@ -1,0 +1,133 @@
+# corpus/explainers/arista-eos-basics.yaml — orientation for Arista EOS,
+# written in the manner of corpus/explainers/ipsec-concepts.yaml (see that
+# file's header for the full field-by-field convention; not repeated here).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders, not
+# names (invariant 10, OPEN-QUESTIONS E2): this entry is shown, clearly
+# labelled *unreviewed*, until a named human vouches for it. It was written
+# by an AI agent from vendor documentation, corroborated across independent
+# listings where a direct fetch was blocked, and that is not a substitute for
+# review.
+#
+# SOURCES — read 2026-09-19. Direct fetch of arista.com is blocked in this
+# environment (`EGRESS_BLOCKED`; see corpus/catalogue/arista/720xp-48zc2.yaml's
+# header for what was tried against the same domain in the same session), so
+# every claim below is web-search synthesis, corroborated across at least two
+# independent listings per CLAUDE.md rule 1, and is cited as such rather than
+# presented as a verbatim read.
+#
+#   - Arista Networks, EOS User Manual, "Introduction to EOS" and "Command
+#     Line Interface" chapters (arista.com/en/um-eos/eos-introduction-to-eos,
+#     .../eos-command-line-interface, .../eos-configuration-file-management)
+#     — search synthesis, read 2026-09-19: EOS runs a single Linux kernel with
+#     all switch agents as independent processes communicating through Sysdb,
+#     the shared state database; the CLI is session-based and modelled closely
+#     on the traditional Cisco IOS command structure (user EXEC, privileged
+#     EXEC / `enable`, global configuration, and per-context configuration
+#     sub-modes such as `configure terminal` then `interface Ethernet1`).
+#   - The same manual's "Managing the Startup and Running Configuration"
+#     material — search synthesis, read 2026-09-19: `show running-config`
+#     displays the active configuration; `write memory` (or `copy
+#     running-config startup-config`) saves it as the startup configuration,
+#     the file EOS reloads from at boot; `show running-config all` includes
+#     values left at their defaults, which the plain form omits.
+#   - A second, independent corroboration for the CLI's Cisco-IOS-style shape
+#     — community and reseller documentation pages describing EOS interface
+#     naming (`Ethernet1`, `Management1`, `Port-Channel1`, `Vlan10`), read via
+#     search synthesis 2026-09-19 (see corpus/catalogue/arista/720xp-48zc2.yaml's
+#     header for the EOS Interface Configuration manual citation this entry
+#     shares).
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: EOS's "set"-style scripting mode (`enable`/
+# `configure session` and Ansible-style declarative config, or EOS's JSON-RPC
+# eAPI) is real but is not what a person pastes off a terminal, so it is out
+# of scope for an orientation entry about reading and saving a running
+# configuration — the same scoping `ipsec-concepts.yaml` applies to its own
+# subject.
+entries:
+
+- id: explain:concept:arista.eos-basics
+  class: concept
+  subject: { path: arista.eos-basics }
+  title: "What EOS is, and how its configuration is structured"
+  entry_version: 1.0.0
+  status: active
+  platforms: [eos]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    EOS is Arista's switch operating system: a Cisco-IOS-shaped CLI over a
+    Linux base. `show running-config` shows it; `write memory` saves it.
+
+  explained: >
+    Arista Extensible Operating System (EOS) is the software every Arista
+    switch runs. Under the CLI sits a single Linux kernel, with each switch
+    function — routing, the CLI itself, SNMP, and so on — running as its own
+    process and sharing state through a central database (Sysdb) rather than
+    through one monolithic program. None of that is visible from the CLI,
+    which is deliberately shaped like traditional Cisco IOS: `enable` for
+    privileged mode, `configure terminal` for configuration mode, then a
+    sub-mode per object being configured (`interface Ethernet1`, `vlan 10`).
+    The active configuration is read with `show running-config` and made to
+    survive a reboot with `write memory`.
+
+  teaching:
+    body: >
+      Three things explain most of what a config paste from an Arista switch
+      looks like.
+
+      First, the CLI is intentionally close to Cisco IOS's, not because EOS
+      is built on IOS — it is a different operating system entirely — but
+      because Arista designed the command syntax to be familiar to anyone who
+      already knew IOS. So a running-config reads as blocks: a bare command
+      line (`interface Ethernet1`) opens a sub-mode, and the indented lines
+      under it (`description`, `switchport mode trunk`, `ip address …`)
+      configure that one object. `!` on its own line separates blocks. This
+      is the shape a person copies out of a terminal session, prompt and all.
+
+      Second, `show running-config` and `show startup-config` are two
+      different files and it matters which one a change lands in. Typing a
+      command changes the running configuration immediately — the switch
+      is live from that keystroke — but a reload reads only the startup
+      configuration. `write memory` (or, equivalently, `copy running-config
+      startup-config`) is what copies the first into the second; a change
+      made and never saved this way is gone at the next reload. `show
+      running-config all` is the same file with every value EOS is applying
+      by default made explicit, which the plain form leaves out because the
+      operator never typed it.
+
+      Third, EOS's own interface names are short and typed, not free text:
+      `Ethernet1` is a front-panel port, `Management1` is the dedicated
+      out-of-band management port, `Port-Channel1` is a LAG, `Vlan10` is a
+      switch virtual interface for VLAN 10. Reading a config a level at a
+      time — which object is this block about, and which of these four
+      shapes is its name — is most of what makes an unfamiliar EOS paste
+      legible.
+
+    breaks_if_wrong: >
+      Reading a running-config as flat, unstructured lines — rather than as
+      nested blocks under the command that opened them — loses which
+      sub-command belongs to which interface or VLAN, especially once two
+      objects are configured back to back with only a bare `!` between them.
+      Assuming a typed command took effect permanently, without a `write
+      memory`, is the other common miss: the box looks correctly configured
+      until the next reload discards everything since the last save.
+
+    misdiagnosed_as: >
+      "The switch reverted my change" reads as a switch bug or a second
+      administrator's conflicting edit. Usually it is neither: the change
+      was made to the running configuration only, never saved to startup,
+      and a reload (scheduled, crash, or power event) restored the last
+      saved state exactly as designed.
+
+  sources:
+    - { vendor: "Arista Networks", doc: "EOS User Manual — Introduction to EOS", url: "https://www.arista.com/en/um-eos/eos-introduction-to-eos", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked, see file header" }
+    - { vendor: "Arista Networks", doc: "EOS User Manual — Command Line Interface", url: "https://www.arista.com/en/um-eos/eos-command-line-interface", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked, see file header" }
+    - { vendor: "Arista Networks", doc: "EOS User Manual — Interface Configuration", url: "https://www.arista.com/en/um-eos/eos-interface-configuration", read_on: "2026-09-19", note: "search synthesis — direct fetch blocked, see file header" }
+
+  terminal: true

@@ -12,6 +12,7 @@ use tokio_postgres::NoTls;
 
 use crate::config::Config;
 use crate::secret::Secret;
+use std::time::Duration;
 
 /// Why the pool could not be built.
 ///
@@ -209,7 +210,57 @@ pub async fn provision_runtime_login(
         // whatever `pg_hba.conf` already decides for this role.
         None => format!("ALTER ROLE {} LOGIN", quote_ident(role)),
     };
-    client.batch_execute(&statement).await
+    // `ALTER ROLE` updates `pg_authid`, which is a CLUSTER-wide catalogue, and
+    // two backends updating the same role's row at once lose that race with
+    // `XX000 tuple concurrently updated`. This is not hypothetical and it is
+    // not only a test concern: this deployment runs **two interchangeable
+    // containers** (REBUILD-PLAN, operational foundations item 1), both of
+    // which provision the runtime login at startup, so a simultaneous start
+    // races exactly here and one container dies.
+    //
+    // **An advisory lock cannot fix this, and one was believed to.**
+    // `tests/support/mod.rs` held `MIGRATION_LOCK_KEY` across this call and
+    // said so in a comment. Advisory locks are scoped to the database: measured
+    // on PostgreSQL 16 on 2026-09-14, the same key taken in database A is
+    // still free in database B on the same cluster, while this catalogue row is
+    // shared by both. So the lock serialises callers inside one database and
+    // nothing across databases -- which is the arrangement `docs/NEXT.md`
+    // rule 3 asks every builder to use.
+    //
+    // The statement is idempotent, the conflict is transient, and a bounded
+    // retry is what PostgreSQL's own catalogue-update contention wants. Five
+    // attempts over roughly 750 ms is far past what a handful of concurrent
+    // starters needs, and a failure after that is a real one worth surfacing.
+    let mut backoff = Duration::from_millis(50);
+    for attempt in 1..=5 {
+        match client.batch_execute(&statement).await {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt < 5 && is_concurrent_catalogue_update(&e) => {
+                tokio::time::sleep(backoff).await;
+                backoff *= 2;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the loop returns on the fifth attempt either way")
+}
+
+/// Did this fail because another backend updated the same catalogue row?
+///
+/// Matched on the message rather than on `SqlState` alone: `XX000` is
+/// `internal_error` and covers a great deal more than this, so treating every
+/// `XX000` as retryable would retry genuine faults. PostgreSQL raises this one
+/// from `simple_heap_update` in `heapam.c` with a fixed wording.
+fn is_concurrent_catalogue_update(e: &tokio_postgres::Error) -> bool {
+    e.as_db_error()
+        .is_some_and(|db| is_concurrent_catalogue_update_message(db.message()))
+}
+
+/// The message half of [`is_concurrent_catalogue_update`], split out so it can
+/// be tested without manufacturing a `tokio_postgres::Error`, which has no
+/// public constructor.
+fn is_concurrent_catalogue_update_message(message: &str) -> bool {
+    message.contains("tuple concurrently updated")
 }
 
 #[cfg(test)]
@@ -219,6 +270,30 @@ mod tests {
 
     fn cfg(url: &str) -> ServerConfig {
         ServerConfig::from_lookup(|k| (k == "DATABASE_URL").then(|| url.to_string())).unwrap()
+    }
+
+    #[test]
+    fn only_a_concurrent_catalogue_update_is_retried() {
+        // The real wording PostgreSQL 16 raised from `simple_heap_update` on
+        // 2026-09-14, when two test runs in two databases on one cluster both
+        // provisioned the runtime login.
+        assert!(is_concurrent_catalogue_update_message(
+            "tuple concurrently updated"
+        ));
+        // Everything else is a real failure and must surface, not spin. These
+        // are all `XX000` too, which is why the class alone is not the test.
+        for other in [
+            "role \"fathom_app\" does not exist",
+            "permission denied to alter role",
+            "password authentication failed for user \"fathom_app\"",
+            "canceling statement due to statement timeout",
+            "tuple concurrently deleted",
+        ] {
+            assert!(
+                !is_concurrent_catalogue_update_message(other),
+                "must not retry: {other}"
+            );
+        }
     }
 
     #[test]

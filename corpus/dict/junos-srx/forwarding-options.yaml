@@ -93,6 +93,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, helpers, bootp, dhcp-relay (edit forwarding-options)", read_on: "2026-08-29" }
+reviewed_by: <named human>
 entries:
   # `set forwarding-options helpers bootp server <address>`
   # `partial: true` because the routing-instance entry below extends this path;

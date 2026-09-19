@@ -16,6 +16,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos Guided Setup, branch SRX IPsec VPN step 2 (step-2-p1-add-ipsec-vpn)", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/security.ipsec.proposal
     path: [security, ipsec, proposal, "$p"]

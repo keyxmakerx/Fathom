@@ -1,0 +1,30 @@
+# corpus/dict/edgeos/vpn.yaml — read by fathom-ingest's `Dictionary` loader.
+# See `corpus/dict/edgeos/system.yaml`'s header for the capture shape this
+# platform is built against and `corpus/dict/README-ubiquiti.md` for the
+# full citation trail.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+#
+# `set vpn ipsec site-to-site peer <addr> authentication pre-shared-secret
+# <secret>` — read 2026-09-19, corroborated across independent sources: the
+# UISP Help Center's "EdgeRouter - Route-Based Site-to-Site IPsec VPN" and
+# "EdgeRouter - Site-to-Site IPsec VPN to Cisco ASA" articles, both giving
+# this exact statement for a policy-based or route-based (VTI) tunnel alike
+# — the `authentication pre-shared-secret` suffix is identical in both
+# tunnel shapes, which is why one entry covers both.
+#
+# Secret-only: destroyed, not modelled. `IpsecVpn`/`IkeGateway` exist in the
+# schema (11 §6.7) but binding a full EdgeOS site-to-site tunnel into them
+# (proposal/policy/gateway/traffic-selector, four to five kinds deep) is a
+# separate, larger piece of work than "does this credential leave the
+# capture" — out of scope for what this file was written to establish, and
+# left unbound rather than modelled halfway with an invented topology.
+platform: edgeos
+source: { cite: "Ubiquiti EdgeOS CLI documentation and community sources; see corpus/dict/README-ubiquiti.md for the full citation trail", read_on: "2026-09-19" }
+reviewed_by: <named human>
+entries:
+  - id: edgeos/vpn.ipsec.site-to-site.peer.pre-shared-secret
+    path: [vpn, ipsec, site-to-site, peer, "$peer", authentication, pre-shared-secret, "$v"]
+    secret: { label: psk }
+    versions: "*"
+    reviewed_by: <named human>

@@ -1,0 +1,264 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .sep { width: 1px; height: 24px; background: #D2D7DD; flex-shrink: 0; }
+    .lens { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #14171A; }
+    .lens.on { background: #14171A; color: #FFFFFF; border-color: #14171A; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #5C6772; }
+    .chip.ink { border-color: #14171A; color: #14171A; }
+    .zb { width: 20px; height: 20px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #14171A; }
+    .pop { position: absolute; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 6px 0; display: flex; flex-direction: column; }
+    .pop .r { padding: 5px 12px; font-size: 12px; line-height: 18px; color: #14171A; white-space: nowrap; }
+    .notice { position: absolute; right: 16px; top: 12px; border: 1px solid #1F6F4A; background: #EEF5F1; padding: 3px 10px; font-size: 11px; line-height: 16px; color: #14171A; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; position: relative;">
+
+  <!-- THE BAR: the room stop, one below the building. Floor 2 of Building A. -->
+  <div style="height: 47px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 16px; gap: 12px; flex-shrink: 0;">
+    <div style="display: flex; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: stretch;">
+      <div class="place on">Racks</div>
+      <div class="place">Inventory</div>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Northwind</span><span>&rsaquo;</span><span>HQ</span><span>&rsaquo;</span><span>Building A</span><span>&rsaquo;</span><span style="color: #14171A; font-weight: 700;">Floor 2</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lens on">Cables</span>
+      <span class="lens">Links</span>
+      <span class="lens">Routing</span>
+      <span class="lens">Power</span>
+      <span class="lens">Owner</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center;">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#5C6772" stroke-width="1.2"><circle cx="4.5" cy="4.5" r="3.5"></circle><path d="M7.2 7.2 L10.5 10.5"></path></svg>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip">Jordan T.</span>
+      <span class="chip">Maria P.</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip ink">Undo</span>
+      <span class="chip ink">Redo</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="zb">&minus;</span>
+      <span class="mono" style="font-size: 11px; min-width: 36px; text-align: center; color: #14171A;">45%</span>
+      <span class="zb">+</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">RK</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- THE STRIP -->
+    <div style="width: 28px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding-top: 6px; gap: 12px;">
+      <div style="font-size: 11px; line-height: 16px; color: #5C6772;">&rsaquo;</div>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="2.5" y="1.5" width="11" height="13"></rect><path d="M4.5 1.5 V14.5 M11.5 1.5 V14.5 M4.5 5.5 H11.5 M4.5 8.5 H11.5 M4.5 11.5 H11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="5.5" width="9" height="9"></rect><path d="M6.5 5.5 V2.5 H9.5 V5.5 M5.5 14.5 V11.5 M8 14.5 V11.5 M10.5 14.5 V11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="2.5" width="9" height="12"></rect><path d="M5.5 5 H7.5 M8.5 5 H10.5 M5.5 8 H7.5 M8.5 8 H10.5 M7 14.5 V11.5 H9 V14.5"></path></svg>
+    </div>
+
+    <!-- THE DRAWING: the room stop. A plan image beneath at the phantom opacity; Fathom's ink over it. -->
+    <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF;">
+      <svg width="1412" height="819" viewBox="0 0 1412 819" style="position: absolute; left: 0; top: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+
+        <!-- the view control: the image on or off. One control, so what Fathom holds can be checked at any moment. -->
+        <g transform="translate(40,18)">
+          <rect x="0" y="0" width="40" height="18" fill="#14171A" stroke="#14171A"></rect>
+          <text x="20" y="12.5" font-size="10" fill="#FFFFFF" text-anchor="middle">plan</text>
+          <text x="50" y="12.5" font-size="9" fill="#5C6772">image shown at 28% &middot; click to hide it and see only what Fathom holds &middot; floor-2-plan.png &middot; scaled by two marked points</text>
+        </g>
+
+        <!-- ===== THE PLAN IMAGE. Drawn here as line work; in the product a scan, a photo, a PDF page. Never full black: the whole group sits at the phantom opacity. ===== -->
+        <g opacity="0.28" stroke="#14171A" fill="none" stroke-width="1" transform="translate(150,90)">
+          <!-- outer walls, double line -->
+          <rect x="0" y="0" width="1100" height="560" stroke-width="2.4"></rect>
+          <rect x="6" y="6" width="1088" height="548" stroke-width="0.8"></rect>
+          <!-- the corridor -->
+          <line x1="0" y1="240" x2="1100" y2="240" stroke-width="2"></line>
+          <line x1="0" y1="280" x2="1100" y2="280" stroke-width="2"></line>
+          <!-- north rooms -->
+          <line x1="270" y1="0" x2="270" y2="240" stroke-width="2"></line>
+          <line x1="540" y1="0" x2="540" y2="240" stroke-width="2"></line>
+          <line x1="810" y1="0" x2="810" y2="240" stroke-width="2"></line>
+          <!-- south rooms -->
+          <line x1="350" y1="280" x2="350" y2="560" stroke-width="2"></line>
+          <line x1="650" y1="280" x2="650" y2="560" stroke-width="2"></line>
+          <!-- stair and lift core, south-east -->
+          <rect x="960" y="280" width="140" height="150" stroke-width="2"></rect>
+          <g stroke-width="0.8">
+            <line x1="960" y1="300" x2="1030" y2="300"></line><line x1="960" y1="320" x2="1030" y2="320"></line><line x1="960" y1="340" x2="1030" y2="340"></line><line x1="960" y1="360" x2="1030" y2="360"></line><line x1="960" y1="380" x2="1030" y2="380"></line><line x1="960" y1="400" x2="1030" y2="400"></line>
+            <line x1="1030" y1="280" x2="1030" y2="430"></line>
+            <rect x="1040" y="300" width="50" height="50"></rect><line x1="1040" y1="300" x2="1090" y2="350"></line><line x1="1090" y1="300" x2="1040" y2="350"></line>
+          </g>
+          <!-- doors: a gap in the wall and a quarter-arc swing -->
+          <g stroke-width="0.9">
+            <path d="M 120 240 A 36 36 0 0 1 156 204"></path><line x1="120" y1="240" x2="120" y2="204"></line>
+            <path d="M 400 240 A 36 36 0 0 1 436 204"></path><line x1="400" y1="240" x2="400" y2="204"></line>
+            <path d="M 660 240 A 36 36 0 0 1 696 204"></path><line x1="660" y1="240" x2="660" y2="204"></line>
+            <path d="M 930 240 A 36 36 0 0 1 966 204"></path><line x1="930" y1="240" x2="930" y2="204"></line>
+            <path d="M 160 280 A 36 36 0 0 0 196 316"></path><line x1="160" y1="280" x2="160" y2="316"></line>
+            <path d="M 480 280 A 36 36 0 0 0 516 316"></path><line x1="480" y1="280" x2="480" y2="316"></line>
+            <path d="M 780 280 A 36 36 0 0 0 816 316"></path><line x1="780" y1="280" x2="780" y2="316"></line>
+            <path d="M 1100 250 A 30 30 0 0 0 1070 280" stroke-dasharray="2 2"></path>
+          </g>
+          <!-- windows on the north wall -->
+          <g stroke-width="0.7">
+            <line x1="40" y1="3" x2="120" y2="3"></line><line x1="160" y1="3" x2="240" y2="3"></line><line x1="310" y1="3" x2="390" y2="3"></line><line x1="430" y1="3" x2="510" y2="3"></line><line x1="580" y1="3" x2="660" y2="3"></line><line x1="700" y1="3" x2="780" y2="3"></line><line x1="850" y1="3" x2="930" y2="3"></line><line x1="970" y1="3" x2="1050" y2="3"></line>
+          </g>
+          <!-- furniture symbols the drafter left in -->
+          <g stroke-width="0.7">
+            <rect x="40" y="40" width="60" height="30"></rect><rect x="40" y="90" width="60" height="30"></rect><circle cx="130" cy="55" r="8"></circle><circle cx="130" cy="105" r="8"></circle>
+            <rect x="860" y="40" width="120" height="60"></rect><line x1="860" y1="70" x2="980" y2="70"></line><line x1="920" y1="40" x2="920" y2="100"></line>
+            <rect x="40" y="330" width="80" height="40"></rect><rect x="40" y="390" width="80" height="40"></rect><rect x="40" y="450" width="80" height="40"></rect>
+            <rect x="690" y="330" width="60" height="60"></rect><rect x="690" y="420" width="60" height="60"></rect>
+          </g>
+          <!-- dimension lines with ticks -->
+          <g stroke-width="0.6">
+            <line x1="0" y1="-30" x2="1100" y2="-30"></line><line x1="0" y1="-36" x2="0" y2="-24"></line><line x1="270" y1="-36" x2="270" y2="-24"></line><line x1="540" y1="-36" x2="540" y2="-24"></line><line x1="810" y1="-36" x2="810" y2="-24"></line><line x1="1100" y1="-36" x2="1100" y2="-24"></line>
+            <line x1="-30" y1="0" x2="-30" y2="560"></line><line x1="-36" y1="0" x2="-24" y2="0"></line><line x1="-36" y1="240" x2="-24" y2="240"></line><line x1="-36" y1="280" x2="-24" y2="280"></line><line x1="-36" y1="560" x2="-24" y2="560"></line>
+          </g>
+          <!-- the drafter's room numbers and dimensions, as scanned text -->
+          <g fill="#14171A" stroke="none" font-size="11" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="120" y="130" text-anchor="middle">212</text><text x="405" y="130" text-anchor="middle">214</text><text x="675" y="130" text-anchor="middle">216</text><text x="955" y="130" text-anchor="middle">218</text>
+            <text x="175" y="430" text-anchor="middle">211</text><text x="500" y="430" text-anchor="middle">213</text><text x="805" y="430" text-anchor="middle">215</text><text x="1030" y="460" text-anchor="middle" font-size="9">STAIR</text>
+            <text x="135" y="-36" text-anchor="middle" font-size="8">6 750</text><text x="405" y="-36" text-anchor="middle" font-size="8">6 750</text><text x="675" y="-36" text-anchor="middle" font-size="8">6 750</text><text x="955" y="-36" text-anchor="middle" font-size="8">7 250</text>
+            <text x="-40" y="124" text-anchor="end" font-size="8">6 000</text><text x="-40" y="424" text-anchor="end" font-size="8">7 000</text>
+            <text x="1090" y="548" text-anchor="end" font-size="8">LEVEL 2 &middot; 1:100 &middot; REV C</text>
+          </g>
+        </g>
+
+        <!-- ===== FATHOM'S INK. Told apart from the image by rules the drawing already has, never by colour. ===== -->
+        <g transform="translate(150,90)">
+
+          <!-- 212: a suggestion. Dashed, as a portal tray and an unfitted slot are. -->
+          <rect x="0" y="0" width="270" height="240" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect>
+          <text x="10" y="16" font-size="9" fill="#5C6772" letter-spacing="1">SUGGESTED</text>
+
+          <!-- 214: accepted. Solid, named, with its furniture and two wall outlets. -->
+          <rect x="270" y="0" width="270" height="240" fill="none" stroke="#14171A" stroke-width="1.5"></rect>
+          <text x="280" y="17" font-size="12" fill="#14171A" font-weight="700">214</text>
+          <text x="308" y="17" font-size="9" fill="#5C6772">&middot; 4 desks &middot; 4 cubicles &middot; 2 outlets, 4-port</text>
+          <!-- desks: labelled boxes, geometry on the premises, never a network fact -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <rect x="286" y="30" width="56" height="30"></rect><rect x="348" y="30" width="56" height="30"></rect><rect x="410" y="30" width="56" height="30"></rect><rect x="472" y="30" width="56" height="30"></rect>
+          </g>
+          <g font-size="8" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="314" y="49">214-1</text><text x="376" y="49">214-2</text><text x="438" y="49">214-3</text><text x="500" y="49">214-4</text>
+          </g>
+          <text x="286" y="74" font-size="8" fill="#5C6772">desks</text>
+          <!-- cubicles: a 2 x 2 block, each labelled -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <rect x="286" y="90" width="64" height="52"></rect><rect x="350" y="90" width="64" height="52"></rect><rect x="286" y="142" width="64" height="52"></rect><rect x="350" y="142" width="64" height="52"></rect>
+          </g>
+          <g font-size="8" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="318" y="119">214-5</text><text x="382" y="119">214-6</text><text x="318" y="171">214-7</text><text x="382" y="171">214-8</text>
+          </g>
+          <text x="424" y="104" font-size="8" fill="#5C6772">cubicles</text>
+          <!-- two wall outlets on the corridor wall: passives fixed to the wall surface -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <rect x="440" y="232" width="10" height="8"></rect>
+            <rect x="500" y="232" width="10" height="8"></rect>
+          </g>
+          <g font-size="8" fill="#14171A" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="445" y="226">214-A</text><text x="505" y="226">214-B</text>
+          </g>
+          
+          <!-- 216: the suggestion under the pointer. It carries the lit path's pale halo, and its accept affordance carries the ring. -->
+          <rect x="540" y="0" width="270" height="240" fill="none" stroke="#D2D7DD" stroke-width="9"></rect>
+          <rect x="540" y="0" width="270" height="240" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect>
+          <text x="550" y="16" font-size="9" fill="#5C6772" letter-spacing="1">SUGGESTED</text>
+          <g transform="translate(639,104)">
+            <!-- the ring: a hairline in the recommendation colour, 2px outside the button. The button itself is ink. -->
+            <rect x="-3" y="-3" width="78" height="28" fill="none" stroke="#1F6F4A" stroke-width="1"></rect>
+            <rect x="0" y="0" width="72" height="22" fill="#FFFFFF" stroke="#14171A"></rect>
+            <text x="36" y="15" font-size="11" fill="#14171A" text-anchor="middle">accept</text>
+          </g>
+          <g transform="translate(728,104)">
+            <!-- reject: plain ink, a hairline border, no colour -->
+            <rect x="0" y="0" width="72" height="22" fill="#FFFFFF" stroke="#D2D7DD"></rect>
+            <text x="36" y="15" font-size="11" fill="#14171A" text-anchor="middle">reject</text>
+          </g>
+          <text x="720" y="146" font-size="9" fill="#5C6772" text-anchor="middle"><tspan x="720" dy="0">accept takes the room and its walls</tspan><tspan x="720" dy="12">&middot; reject drops the suggestion</tspan><tspan x="720" dy="12">&middot; right-click for more</tspan></text>
+          <!-- the pointer -->
+          <path d="M 700 118 L 700 134 L 704 130 L 708 138 L 711 136.5 L 707 128.5 L 712.5 128 Z" fill="#FFFFFF" stroke="#14171A" stroke-width="1" stroke-linejoin="round"></path>
+
+          <!-- 218: nothing suggested here; the image alone. -->
+          <text x="1090" y="16" font-size="9" fill="#5C6772" text-anchor="end" letter-spacing="1">NO SUGGESTION</text>
+
+          <!-- 213: a suggestion with the right-click box open on it -->
+          <rect x="350" y="280" width="300" height="280" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect>
+          <text x="360" y="296" font-size="9" fill="#5C6772" letter-spacing="1">SUGGESTED</text>
+
+          <!-- 211 and 215: nothing suggested -->
+        </g>
+
+        <!-- legend of the rules, on the canvas -->
+        <g transform="translate(40,690)" font-size="10" fill="#5C6772">
+          <text x="0" y="0" font-size="9" letter-spacing="1">HOW THE IMAGE AND THE INK ARE TOLD APART &mdash; BY FORM, NEVER BY COLOUR, SO A BLACK AND WHITE SCAN WORKS</text>
+          <g transform="translate(0,14)">
+            <rect x="0" y="4" width="40" height="12" fill="none" stroke="#14171A" opacity="0.28"></rect><text x="50" y="14">the image &middot; beneath everything, at 28%, never full black</text>
+            <rect x="380" y="4" width="40" height="12" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect><text x="430" y="14">a suggestion &middot; dashed, as a portal tray or an unfitted slot</text>
+            <rect x="760" y="4" width="40" height="12" fill="none" stroke="#14171A" stroke-width="1.5"></rect><text x="810" y="14">a fact &middot; solid, named</text>
+          </g>
+          <g transform="translate(0,36)">
+            <rect x="0" y="4" width="40" height="12" fill="none" stroke="#D2D7DD" stroke-width="9"></rect><rect x="0" y="4" width="40" height="12" fill="none" stroke="#5C6772" stroke-width="1.2" stroke-dasharray="5 3"></rect><text x="50" y="14">under the pointer &middot; the lit path's pale halo</text>
+            <rect x="380" y="4" width="40" height="12" fill="#FFFFFF" stroke="#14171A"></rect><rect x="377" y="1" width="46" height="18" fill="none" stroke="#1F6F4A"></rect><text x="430" y="14">the accept affordance, ringed in the recommendation colour; reject beside it in ink</text>
+          </g>
+          <text x="0" y="74">Room names stay typed. The image cannot say it is current or the right building, so the plan control is always there to take it away and look at the facts alone.</text>
+        </g>
+
+        <text x="40" y="808" font-size="10" fill="#5C6772">Left-click a suggested room and it becomes fact with its walls. Right-click opens the one kind of box: reject &middot; split &middot; merge &middot; name. The notice top right pulsed once and settled.</text>
+      </svg>
+
+      <!-- THE RIGHT-CLICK POPOVER on suggested room 213: one kind of popover, one level. -->
+      <div class="pop" style="left: 520px; top: 440px; min-width: 132px;">
+        <div class="r">Reject</div>
+        <div class="r">Split</div>
+        <div class="r">Merge with&hellip;</div>
+        <div class="r">Name&hellip;</div>
+      </div>
+
+      <!-- THE CONFIRMATION NOTICE, top right of the canvas: a bordered wash with words. Motion, captioned: pulsed once and settled. -->
+      <div class="notice">Room 214 accepted</div>
+      <div style="position: absolute; right: 16px; top: 38px; font-size: 9px; color: #5C6772;">motion: pulsed once, settled &middot; goes on the next click</div>
+    </div>
+  </div>
+
+  <!-- THE CAPTION STRIP -->
+  <div style="height: 34px; border-top: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <span style="font-size: 12px;">Suggestions come as rooms: a room is one click, its walls are many. Dashed is a guess, solid is a fact, the image is never full black.</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="font-size: 11px; color: #5C6772;">Every name and count is a sample; the plan is drawn, not a real building.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,113 @@
+# corpus/explainers/linux-family-basics.yaml — orientation for "Linux" as a
+# family of distributions, written in the manner of
+# corpus/explainers/arista-eos-basics.yaml (see that file's header for the
+# full field-by-field convention; not repeated here).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders, not
+# names (invariant 10, OPEN-QUESTIONS E2): this entry is shown, clearly
+# labelled *unreviewed*, until a named human vouches for it. It was written
+# by an AI agent from each distribution's own documentation, corroborated by
+# web-search synthesis where a direct fetch was not attempted, and that is
+# not a substitute for review.
+#
+# WHAT THIS FILE IS: the one family-level entry, read before any of the
+# per-flavour entries (`corpus/explainers/linux-<flavour>-basics.yaml`) —
+# what makes "which Linux is this" the first question worth answering, and
+# what stays true across every flavour regardless of the answer. The per-
+# flavour facts — the package manager, the release model, where network
+# configuration lives, the service manager, where logs are — are each
+# flavour's own entry's job, not repeated here.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend a distribution, a
+# desktop environment, a control panel, or any third-party tool for managing
+# a box. Fathom's own rule (CLAUDE.md, and restated for this bundle by the
+# owner's instruction that shaped it): teach what the platform's own package
+# manager and init system do, never which particular application to run on
+# top of them.
+#
+# SOURCES for the one claim this entry makes that is not "distributions
+# differ" — that the kernel and the `/proc`, `/sys` interfaces it exposes are
+# the one thing every flavour shares — read 2026-09-19:
+#   - kernel.org's own kernel documentation index (docs.kernel.org),
+#     corroborated by a second independent source (the `man7.org`
+#     `proc(5)`/`sysfs(5)` manual pages), both describing `/proc` and `/sys`
+#     as kernel-exposed interfaces present regardless of the distribution or
+#     init system layered on top.
+entries:
+
+- id: explain:concept:linux.family-basics
+  class: concept
+  subject: { path: linux.family-basics }
+  title: "Why \"Linux\" is not one platform, and what to check first"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    "Linux" names a kernel, not a configuration platform. Every distribution
+    ("flavour") chooses its own package manager, release model, network
+    configuration tool and service manager — read the flavour's own entry
+    before assuming anything about a host from the word "Linux" alone.
+
+  explained: >
+    Every Linux distribution runs the same kernel family and exposes the
+    same kernel interfaces (`/proc`, `/sys`), but everything a person
+    interacts with above that — how software is installed and removed, how
+    the network is configured, how services are started and stopped, where
+    logs are written — is chosen separately by each distribution, and the
+    choices genuinely differ: `pacman` is not `apt` is not `dnf`, and
+    `systemd-networkd` is not `netplan` is not Alpine's `/etc/network/
+    interfaces`. Reading a host's own configuration is the reliable way to
+    know what it runs; guessing from "it's Linux" is not.
+
+  teaching:
+    body: >
+      Three questions separate the flavours, and asking them in this order
+      is what makes an unfamiliar host legible quickly.
+
+      First, which package manager. This is usually the fastest tell: a
+      config path under `/etc/pacman.d/` means Arch (or an Arch derivative);
+      `/etc/apt/` means Debian or Ubuntu (or a derivative); `/etc/dnf/` or
+      `/etc/yum.repos.d/` means Fedora, RHEL, or an RHEL rebuild;
+      `/etc/zypp/` means openSUSE; `/etc/nix/` or a `/etc/nixos/
+      configuration.nix` means NixOS; the presence of `apk` and an
+      `/etc/apk/` directory with no `dpkg`/`rpm` database means Alpine.
+
+      Second, which network configuration mechanism. This varies far more
+      than the package manager does, and often varies *within* one
+      distribution by install choice: the same Debian or Fedora host might
+      use `systemd-networkd`, `NetworkManager`, or (on Debian and its
+      derivatives) the older `ifupdown` scheme, depending entirely on what
+      was installed and enabled. There is no substitute for checking which
+      one is actually active on the box in front of you — each flavour's own
+      entry says how.
+
+      Third, which service manager. `systemd` (`systemctl`, `journalctl`) is
+      the default on every flavour in this bundle except Alpine, which uses
+      OpenRC — a real, load-bearing difference in how a service is
+      inspected, started, or read for logs, not a cosmetic one.
+
+    breaks_if_wrong: >
+      Assuming every Linux host uses `systemd` (Alpine does not), assuming
+      every Linux host uses `apt` because a past host did (a rebuild's
+      `dnf`/`yum` config directory looks nothing like Debian's), or reading
+      one distribution's documentation as if it applied verbatim to another
+      are the three most common misses. The kernel is shared; almost nothing
+      else on this list is guaranteed to be.
+
+    misdiagnosed_as: >
+      "This command doesn't exist on Linux" usually means "this command
+      doesn't exist on THIS distribution's package manager" — the same
+      capability exists under a different command name on nearly every
+      flavour here, and the fix is checking which flavour is actually
+      running, not concluding the capability is absent from Linux itself.
+
+  sources:
+    - { vendor: "The Linux Kernel", doc: "The Linux Kernel documentation — index", url: "https://docs.kernel.org/", read_on: "2026-09-19", note: "direct listing read; corroborated by man7.org's proc(5)/sysfs(5) pages for the shared-interfaces claim" }
+
+  terminal: false

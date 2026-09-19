@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.5"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.10"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -57,6 +57,135 @@ schema:
                     # owner changes. Whole change = MINOR. RelayServerIn is the third
                     # edge because the owner chose it (70 §18.5) over a string field
                     # that would have been invariant 7's natural-key reference.
+                    #
+                    # 0.6 is the cables session's schema half (docs/UI-SPEC.md "Cables",
+                    # "Power"): one new optional field, `Cable.sheath` (field key 312, the
+                    # next in `schema/field-keys.yaml`), and two enum variants each on two
+                    # already-keyed fields — `PhysicalPort.connector` gains `c13`/`c14`,
+                    # `PhysicalPort.service` gains `power` — so a PDU's outlets and a
+                    # device's PSU inlets are ports the way UI-SPEC "Power" draws them.
+                    # Priced against 62 §16.2 exactly as 0.2 and 0.3 were: "New optional
+                    # field" is minor (the field is new, its declarer — Cable — is not),
+                    # and "New enum variant | minor | Variant::Unknown(token)" three times.
+                    # No kind, no edge, no retype, no removal, no field key reused or
+                    # renumbered. Whole change = MINOR.
+                    #
+                    # 0.7 is ADR-0050 (the rear elevation, 2026-09-16), all additive: two
+                    # optional fields on the existing declarer Rack — row and bay, the
+                    # row a rack stands in and its place within it (62 §16.2: "New optional
+                    # field" is minor); one new node kind, PowerSupply, a field-replaceable
+                    # supply that occupies a chassis slot, joining the PortHost class
+                    # because a hot-swappable supply carries its own inlet port (62 §16.2:
+                    # "New node kind" is minor, and the Placeable/PortHost class widenings
+                    # are "New enum variant"-shaped in 62's table — a class member added,
+                    # nothing removed); one new edge kind, FittedIn, seating a PowerSupply
+                    # in its Chassis (62 §16.2: "New edge kind" is minor). FittedIn is
+                    # CONTAINMENT, not reference like MountedIn: MountedIn is forced to be
+                    # a reference because Chassis already has a containment parent (Device,
+                    # via HasChassis) and containment is a forest, so a rack cannot also
+                    # contain the chassis (MountedIn's own doc, ADR-0036). PowerSupply has
+                    # no such competing claim — nothing else contains it — so the same
+                    # forest rule that forces MountedIn to be a reference does not apply,
+                    # and containment is free to be the answer FittedIn gives. It is also
+                    # the answer PowerSupply's declared identity, `[owner(Chassis), slot]`,
+                    # needs: every `owner(X)` identity term elsewhere in this tree (Rack's
+                    # `owner(Premises)`, PhysicalPort's `owner(PortHost)`, PassiveNode's
+                    # `owner(Premises)`) is backed by a containment edge with `in: "1"` —
+                    # HasRack's own doc says so in as many words ("in: 1 keeps containment
+                    # a forest and makes owner(Premises) usable as Rack's identity term") —
+                    # and no `owner()` term in this schema is backed by a reference edge.
+                    # FittedIn follows that same, only, convention: HasPort's and HasRack's,
+                    # not MountedIn's. Five new field keys, 313-317 (Rack.row, Rack.bay,
+                    # PowerSupply.slot, PowerSupply.serial, PowerSupply.model), one new kind
+                    # (51 -> 52), one new edge (95 -> 96). No kind removed, no retype, no
+                    # tuple reordered, no containment moved for anything that already had
+                    # one. Whole change = MINOR.
+                    #
+                    # 0.8 is ADR-0051 §1 (the shapes, before v0.1, 2026-09-18), all additive.
+                    # Three new enum variants on the existing declarer PassiveNode.form —
+                    # shelf, outlet, board (62 §16.2: "New enum variant" is minor, three
+                    # times). One new edge kind, SitsOn, seating a Chassis or PassiveNode on
+                    # a shelf's slot (62 §16.2: "New edge kind" is minor); one field on its
+                    # new declarer, slot (62 §16.2: a field on a new declarer is minor). A
+                    # REFERENCE edge, and for MountedIn's own reason: a Chassis already has a
+                    # containment parent (Device, via HasChassis) and a PassiveNode already
+                    # has one (Premises, via HasPassiveNode), and containment is a forest, so
+                    # a shelf cannot also contain either — the schema cannot say the target's
+                    # form is shelf, and the doc says the client refuses anything else. One
+                    # new node kind, Surface — a wall, floor, desk or ceiling a device or
+                    # passive can be fixed to — joining the Placeable class exactly as Rack
+                    # did (ADR-0036), because a surface draws as a flat panel beside the rack
+                    # rows the same way a rack elevation is a separate renderer from the
+                    # topology diagram (62 §16.2: "New node kind" is minor, and the Placeable
+                    # class widening is "New enum variant"-shaped in 62's table). One new
+                    # edge kind, HasSurface, containing a Surface in its Premises, in the
+                    # manner of HasRack — CONTAINMENT, because Surface's declared identity,
+                    # `[owner(Premises), label]`, needs the same convention every other
+                    # `owner(X)` identity term in this tree already uses (HasRack's own doc:
+                    # "in: 1 keeps containment a forest and makes owner(Premises) usable as
+                    # Rack's identity term") (62 §16.2: "New edge kind" is minor). One new
+                    # edge kind, FixedTo, fixing a Chassis or PassiveNode to a Surface or a
+                    # PassiveNode of form board (62 §16.2: "New edge kind" is minor); two
+                    # fields on its new declarer, x_mm and y_mm (62 §16.2: fields on a new
+                    # declarer are minor). A REFERENCE edge, for the same forest reason SitsOn
+                    # is one: the schema cannot say a Chassis or PassiveNode carries at most
+                    # one of MountedIn, SitsOn and FixedTo, and the doc says the client
+                    # enforces it. One new optional field on the existing declarer
+                    # PhysicalPort, face (62 §16.2: "New optional field" is minor) — the
+                    # faceplate the port sits on, absent meaning front or the catalogue's.
+                    # Two new enum variants on PhysicalPort.connector, nema515r and
+                    # nema515p, beside c13 and c14 (62 §16.2: "New enum variant" is minor,
+                    # twice). Eight new field keys, 318-325 (SitsOn.slot, Surface.label,
+                    # Surface.form, Surface.width_mm, Surface.height_mm, FixedTo.x_mm,
+                    # FixedTo.y_mm, PhysicalPort.face), one new kind (52 -> 53), three new
+                    # edges (96 -> 99). No kind removed, no retype, no tuple reordered, no
+                    # containment moved for anything that already had one. Whole change =
+                    # MINOR.
+                    #
+                    # 0.9 is ADR-0052 §3 (the config drawer, 2026-09-18), all additive. One
+                    # new node kind, Capture — what the redaction gate let through, owned by
+                    # Device — joining the Placeable class exactly as Surface did (0.8), for
+                    # the same reason every declared kind but LayoutPin does: the class means
+                    # "every kind the diagram can draw as a box", stated as a full list, and
+                    # `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` is the
+                    # noticer if a new kind is left out (62 §16.2: "New node kind" is minor).
+                    # Four fields on the new declarer — text, platform, line_count, shape
+                    # (62 §16.2: fields on a new declarer are minor). One new edge kind,
+                    # HasCapture, containing a Capture in its Device, in the manner of
+                    # HasChassis (62 §16.2: "New edge kind" is minor). Four new field keys,
+                    # 326-329 (Capture.text, Capture.platform, Capture.line_count,
+                    # Capture.shape), one new kind (53 -> 54), two new edges — HasCapture and,
+                    # through Placeable, the extra HasLayoutPin pair — (99 -> 100 declared
+                    # edge count; HasLayoutPin itself is not a new edge KIND, only a wider
+                    # pair set). No kind removed, no retype, no tuple reordered, no
+                    # containment moved for anything that already had one. Whole change =
+                    # MINOR.
+                    #
+                    # 0.10 is ADR-0053 §5 (undo that records, notes and the private layer,
+                    # 2026-09-19), all additive. One new node kind, Note — the text of a note
+                    # on a device, port or rack, how it arrived and, for a paste, its line
+                    # count — joining the Placeable class exactly as Capture did (0.9), for
+                    # the same reason every declared kind but LayoutPin does (62 §16.2: "New
+                    # node kind" is minor). Three fields on the new declarer — text, how,
+                    # line_count (62 §16.2: fields on a new declarer are minor). One new
+                    # class, Notable — Device, PhysicalPort and Rack, the owners of a note
+                    # (62 §16.2 has no row for a class widening or addition because a class
+                    # is not itself wire data; ADR-0036 and ADR-0051 §1 already added members
+                    # to Placeable without moving the version by more than the kind or edge
+                    # that motivated it, and a new class is the same shape of change again —
+                    # nothing it names did not already exist). One new edge kind, HasNote,
+                    # containing a Note in whichever of Device, PhysicalPort or Rack owns it,
+                    # HasLayoutPin's own shape of a class on the `from:` side rather than
+                    # HasChassis's single kind (62 §16.2: "New edge kind" is minor). Three
+                    # new field keys, 330-332 (Note.text, Note.how, Note.line_count), one new
+                    # kind (54 -> 55), one new class (4 -> 5), one new edge — HasNote — plus,
+                    # through Placeable, the extra HasLayoutPin pair for Note (HasCapture's
+                    # own precedent: HasLayoutPin is not a new edge KIND, only a wider pair
+                    # set). No kind removed, no retype, no tuple reordered, no containment
+                    # moved for anything that already had one — Rack's own "no notes field"
+                    # stays literally true, because Rack still declares no `notes`-shaped
+                    # field of its own; a note is a node reached through HasNote, never a
+                    # field. Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -157,8 +286,12 @@ classes:
     doc: |
       Cross-vendor rules address this, never the kinds — 11 §12.1's reth/LAG split.
   - class: PortHost
-    members: [Chassis, PassiveNode]
-    doc: The two owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5.
+    members: [Chassis, PassiveNode, PowerSupply]
+    doc: |
+      The owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5. ADR-0050 added
+      PowerSupply: on a hot-swappable unit the inlet socket is on the supply, not the
+      chassis, so the supply is a PortHost exactly as Chassis and PassiveNode are. A
+      device whose supply is fixed keeps its inlet on the Chassis directly, unchanged.
   # ADR-0035. Every kind the diagram can draw as a box — which today is every declared kind,
   # because `fathom-layout` draws every live node and `56` §4.1's projection table leaves 23
   # kinds untabled and therefore drawn at every layer. The list is written out rather than
@@ -229,8 +362,45 @@ classes:
       # WO-10 (2026-08-29). A relay is drawn as a box like its NtpServer sibling; nothing
       # about it argues for being the first deliberately-unplaceable kind (WO-10 §11 item 1).
       - DhcpRelay
+      # ADR-0050. A power supply is a part with its own record, drawn on the rear
+      # elevation like any other PortHost — PhysicalPort's own precedent exactly.
+      - PowerSupply
+      # ADR-0051 §1. A surface draws as a flat panel beside the rack rows, a wall
+      # elevation — a separate renderer from the topology diagram, Rack's own
+      # precedent exactly.
+      - Surface
+      # ADR-0052 §3. A capture is drawn as a box like its DhcpRelay and NtpServer
+      # siblings — `fathom-layout` draws every live node the class membership
+      # test insists on, and a capture is not the first deliberately-unplaceable
+      # kind any more than a relay was. It DOES show up as a box on the topology
+      # diagram, at every layer — `crates/fathom-layout/src/layers.rs` leaves it
+      # UNTABLED beside DhcpRelay because it has no geometry of its own, which
+      # means drawn without a row in `56` §4.1's inventory table, not hidden.
+      # That is a layers.rs decision about WHICH layers draw it and whether it
+      # gets a table row, not a schema decision about whether it CAN be placed,
+      # and this class is the latter (ADR-0035's own division of labour, stated
+      # at the top of this class).
+      - Capture
+      # ADR-0053 §5. A note is drawn as a box like its Capture and DhcpRelay
+      # siblings — `fathom-layout` draws every live node the class membership
+      # test insists on, and a note is not the first deliberately-unplaceable
+      # kind any more than a capture was. `crates/fathom-layout/src/layers.rs`
+      # leaves it UNTABLED beside Capture because it has no geometry of its
+      # own: `56` predates the note entirely, so there is no row to read one
+      # out of. That is a layers.rs decision about which layers draw it, not
+      # a schema decision about whether it CAN be placed, and this class is
+      # the latter.
+      - Note
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
+  - class: Notable
+    members: [Device, PhysicalPort, Rack]
+    doc: |
+      The owners of Note (ADR-0053 §5). Device, not Chassis: the device has the page, the
+      hostname and the capture, so a note about the box belongs where those already live.
+      Rack joins Notable rather than gaining a `notes` field of its own — the rack's
+      deliberate "no notes field" (ADR-0053 §5) stays true, because a note reached
+      through Notable's containment edge is a node, never a field on Rack.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -959,8 +1129,9 @@ kinds:
       # exactly as tier-1 already behaves when position (0..1 since birth) is absent.
       - { name: label, type: Text, card: "0..1", emit: "—", doc: "The silkscreen: \"1\", \"PON 0/1\". Not the interface name. Absent means: the port exists and nobody has read the faceplate yet." }
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
-      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, other }", card: "0..1", emit: "—" }
-      - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, other }", card: "0..1", emit: "—", doc: What the cage is for. }
+      - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r, nema515p, other }", card: "0..1", emit: "—", doc: "c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md \"Power\"). ADR-0051 §1 adds nema515r and nema515p beside them: the North American household outlet and plug a tower UPS and many PDUs carry (NEMA 5-15), receptacle and plug the same pairing c13/c14 already model." }
+      - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, power, other }", card: "0..1", emit: "—", doc: "What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md \"Power\"); Cable.media already carries power for the run between them." }
+      - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
       - name: transceiver
         type: Transceiver
@@ -1009,6 +1180,7 @@ kinds:
       - { name: provider_circuit, type: Text, card: "0..1", emit: "—", doc: Free prose until Circuit exists — promotion trigger written in 19 §3.4.2. }
       - { name: notes, type: Text, card: "0..1", emit: "—" }
       - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "19 §6.10 — Origin::Hand only; rendered as ADR-0027's stamp, never evaluated." }
+      - { name: sheath, type: "enum { grey, blue, red, yellow, green, orange, purple, black, white, aqua, erika }", card: "0..1", emit: "—", doc: "The lead actually used, never a status (docs/UI-SPEC.md \"Cables\"). Copper: the nine stock lead colours; fibre adds aqua (OM3/OM4) and erika (violet OM4, some makers) per TIA-598-C — orange and yellow are shared with copper, the line style (Cable.media) is what tells them apart. Deliberately closed, no other/unknown variant: each token is a `--sheath-*` CSS custom property, not an open taxonomy." }
     identity:
       # NOTE (form vs content): 62 §8.1's term grammar has edge(E) with no end qualifier;
       # 19 §3.4 writes the tier with Terminates:A / Terminates:B (end field normalised by
@@ -1025,7 +1197,22 @@ kinds:
       Contained by Premises, not Site.
     fields:
       - { name: label, type: Text, card: "1", emit: "—", doc: "No hostname: nothing addresses it." }
-      - { name: form, type: "enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, other }", card: "1", emit: "—" }
+      - name: form
+        type: "enum { splitter, patch_panel, odf, wdm, media_converter, enclosure, shelf, outlet, board, other }"
+        card: "1"
+        emit: "—"
+        doc: |
+          ADR-0051 §1 adds shelf, outlet, board, each declared before `other` per that
+          variant's own convention (Device.role's doc). A shelf is a passive that takes U:
+          it occupies rack units exactly as a Chassis does, but the equipment on it is
+          placed by SitsOn's left-to-right slot rather than by a unit position, because
+          the shelf itself already answers "where in the rack". An outlet is a wall jack
+          with a front face (the jacks a patch cord plugs into) and a rear face (the
+          punchdown where the horizontal run lands) — the same front/rear split
+          PhysicalPort.face now names. A board is plywood fixed to a wall that other
+          things are fixed to: a backboard carries an ONT, a splitter, an outlet, each
+          FixedTo the board rather than the wall, and a thing FixedTo a board measures
+          from the board's own edges (FixedTo's own doc).
       - { name: split_ratio, type: SplitRatio, card: "0..1", emit: "—", doc: "{ inputs: u8, outputs: u16 } — 1:32." }
       - { name: model, type: Identifier, card: "0..1", emit: "—" }
       - { name: serial, type: Identifier, card: "0..1", emit: "—" }
@@ -1311,6 +1498,18 @@ kinds:
           an elevation drawn with the wrong direction is upside down and every position in it
           is wrong while looking entirely plausible, which is precisely the silent-wrongness
           56 §0 exists to prevent. A rack whose direction nobody stated is not drawn.
+      # ADR-0050 §2 (2026-09-16) — the row a rack stands in, and its bay within that row.
+      # Both optional, both appended at the tail: a rack recorded before its closet stop
+      # existed has said something true, and refusing it would lose the fact.
+      - { name: row, type: Text, card: "0..1", emit: "—", doc: "The row the rack stands in, as the room names it: \"Row A\". A rack with no row is its own row (ADR-0050 §2)." }
+      - name: bay
+        type: u16
+        card: "0..1"
+        emit: "—"
+        doc: |
+          The rack's place in its row, counted left to right as seen from the front, 1
+          first (ADR-0050 §2). The closet stop arranges racks by row on this number; the
+          row's rear elevation reverses the order, because you have walked round.
       # NO `notes` FIELD, deliberately, and it was here in the first draft. Every sibling
       # physical kind carries one, so copying it in felt like consistency -- but nothing
       # writes it, nothing reads it, and no face offers it. ADR-0008 makes a schema field a
@@ -1336,6 +1535,147 @@ kinds:
       - { name: maximum_hop_count, type: u32, card: "0..1", emit: O, doc: "`maximum-hop-count number` (Juniper, 2026-08-29). Units: hops. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
       - { name: minimum_wait_time, type: u32, card: "0..1", emit: O, doc: "`minimum-wait-time seconds` (Juniper, 2026-08-29). Units: seconds. Range not established -- WO-10 §5.4 item 3; residue in the first cut." }
     identity: []   # VERIFY: nothing in `11` states an identity tuple for a relay.
+
+  # ADR-0050 (the rear elevation, 2026-09-16). Appended at the tail because order is wire
+  # identity (62 §13) -- DhcpRelay's own precedent.
+  - kind: PowerSupply
+    layer: physical
+    emits: false
+    doc: |
+      A field-replaceable power supply that occupies a slot of a Chassis, populated or
+      empty (ADR-0050 §4) -- a part with its own serial, because a hot-swappable supply
+      is a unit an engineer pulls and replaces on its own, distinct from the chassis it
+      sits in.
+
+      It joins the PortHost class, because on a hot-swappable unit the inlet socket is
+      on the SUPPLY, not the chassis: its PhysicalPort (connector c14, service power) is
+      the inlet, and an empty slot has no inlet to cable -- there is nothing there to
+      plug into until a supply is fitted. A device whose supply is fixed (not
+      field-replaceable) keeps its inlet port on the Chassis directly, exactly as today;
+      it never gets a PowerSupply node, because there is no separate part to record.
+
+      NOTHING PARSES A POWER SUPPLY, the same property of the world Rack's doc already
+      states for itself: no vendor statement known to this project says which slot a
+      supply is in or what its serial is. Every PowerSupply and every FittedIn is
+      Origin::Hand.
+    fields:
+      - { name: slot, type: Text, card: "1", emit: "—", doc: "The slot's name in the vendor's own words: \"PSU 0\", \"PSU 1\", \"PEM A\"." }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—", doc: Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc. }
+      - { name: model, type: Identifier, card: "0..1", emit: "—" }
+    identity:
+      - [ owner(Chassis), slot ]   # tier 1 -- a physical coordinate, PhysicalPort's precedent exactly
+
+  # ADR-0051 §1 (the shapes, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- PowerSupply's own precedent.
+  - kind: Surface
+    layer: physical
+    emits: false
+    doc: |
+      A wall, floor, desk or ceiling a device or passive can be FixedTo (ADR-0051 §1) --
+      the room's own geometry, not a network fact: a floor-standing UPS is a Chassis
+      FixedTo a floor surface and needs nothing else, since it already has outlets, an
+      inlet and a management port; an ONT is a Chassis FixedTo a wall surface; a
+      backboard is a PassiveNode of form board FixedTo a wall surface, and things
+      screwed to the board are FixedTo the board rather than the wall (FixedTo's own
+      doc). Contained by Premises, exactly as Rack and PassiveNode are and for the same
+      reason (19 §3.6): a surface has no operational identity, it is only somewhere.
+
+      Joins the Placeable class (ADR-0035), exactly as Rack did (ADR-0036): a surface
+      draws as a flat panel beside the rack rows, a wall elevation, the same machinery
+      as a rack's elevation and a separate renderer from the topology diagram, and a
+      box the diagram could draw but not place would be the same arbitrary hole Rack's
+      own doc already named.
+
+      NOTHING PARSES A SURFACE, the same property of the world Rack's and PowerSupply's
+      docs already state for themselves: no vendor statement names a wall. Every
+      Surface and every HasSurface/FixedTo is Origin::Hand.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The name a person gave it: \"North wall\", \"Desk 4\", \"Riser closet floor\". No hostname -- nothing addresses a surface." }
+      - { name: form, type: "enum { wall, floor, desk, ceiling }", card: "1", emit: "—", doc: "What kind of surface this is. Deliberately no `other`: a surface a person cannot name as one of these four is not yet a surface worth fixing anything to." }
+      - { name: width_mm, type: u32, card: "0..1", emit: "—", doc: "The surface's extent left to right, millimetres. Optional: a surface recorded before it was measured has said something true." }
+      - { name: height_mm, type: u32, card: "0..1", emit: "—", doc: "The surface's extent floor to ceiling (or, for a floor, its other horizontal extent), millimetres. Optional for the same reason width_mm is." }
+    identity:
+      - [ owner(Premises), label ]   # tier 1 -- a physical coordinate, Rack's and PassiveNode's precedent exactly
+
+  # ADR-0052 §3 (the config drawer, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- Surface's own precedent.
+  - kind: Capture
+    layer: config
+    emits: false
+    doc: |
+      What the redaction gate let through (ADR-0052 §3): the pasted configuration text after
+      every credential the gate found is destroyed, never the original. Owned by Device,
+      config layer, because a capture is a fact about one box's configuration file — the same
+      layer Device itself declares, and the layer every kind a capture's fields resolve their
+      Origin::Parsed against already lives in.
+
+      ITS NODE ID IS THE WELD'S CaptureId, not a minted id of its own
+      (`crates/fathom-weld/src/apply.rs` -- `let capture = CaptureId(mint.next()?);` is the
+      mint's first id, before the batch opens). Every field the weld writes from this capture
+      carries `Origin::Parsed { capture, span }` with that same id
+      (`crates/fathom-graph/src/prov.rs`), so a field resolves the capture it came from BY ID,
+      with no join and no scan, and the weld never has to look this node up to know which one
+      it just wrote.
+
+      This is the first kind in the tree whose identity is genuinely its own node id rather
+      than a term the schema states. LAYOUTPIN IS THE NEAREST PRECEDENT AND IS NOT THE SAME
+      SHAPE: LayoutPin's `identity: []` says a pin is identified by what contains it and
+      nothing else — there is still no id-carries-identity story, only "at most one per
+      owner". A Capture does carry one: the id IS the identity, minted once, by the one writer
+      (the weld) that is ever allowed to mint it.
+
+      The tuple below is declared anyway, because 62 §4.2 still asks every kind for an
+      identity block and `identity: []` here would be borrowing LayoutPin's argument for a
+      kind it does not fit — a Capture is not singular under its owner the way a pin is
+      singular under its element (HasLayoutPin's `out: "0..1"`; HasCapture's `out: "0..n"`).
+      It is a WEAK tuple on purpose, and the weakness is the point being made: two pastes of
+      the same box, on the same platform, that happen to produce the same line count are
+      indistinguishable by this tuple and distinguishable only by the id the weld already
+      minted before either node existed. The tuple is the L0 declaration 62 requires; nothing
+      in this tree re-identifies a Capture by it, and nothing should — Origin::Parsed already
+      carries the real answer.
+    fields:
+      - { name: text, type: Text, card: "1", emit: "—", doc: "The capture after the gate. Every credential the gate found is destroyed at the gate before this value exists -- never the original text, ADR-0052 §2." }
+      - { name: platform, type: PlatformId, card: "1", emit: "—", doc: "junos-srx, panos, ios-xe. FK into schema/platforms.yaml -- Device.platform's own scalar, stamped by the same dictionary that parsed this capture." }
+      - { name: line_count, type: u32, card: "1", emit: "—", doc: "Line count of the redacted text (ADR-0052 §2) -- one gutter row per line." }
+      - { name: shape, type: Text, card: "0..1", emit: "—", doc: "The shape the frame recognised (`fathom_ingest::shape`), where one was. Absent means the frame found no shape to name." }
+    identity:
+      - [ owner(Device), line_count, platform ]   # weak by design -- see doc. The node id, not this tuple, is what
+                                                    # Origin::Parsed resolves against.
+
+  # ADR-0053 §5 (undo that records, notes and the private layer, 2026-09-19). Appended at
+  # the tail because order is wire identity (62 §13) -- Capture's own precedent.
+  - kind: Note
+    layer: physical
+    emits: false
+    doc: |
+      A note is a node, not a field (ADR-0053 §5). Owned through the Notable class --
+      Device, PhysicalPort and Rack -- by the containment edge HasNote. Device, not
+      Chassis: the device has the page, the hostname and the capture; the rack's
+      deliberate "no notes field" stays true because a note reached through HasNote is a
+      node, never a field Rack itself declares.
+
+      PASTED TEXT GOES THROUGH THE GATE FIRST, by the module door OP_REDACT_TEXT (ADR-0053
+      §6): the same pipeline framing, lexing, shaping and redaction a captured
+      configuration passes through, stopped before binding, so a pasted note can never
+      carry a credential a captured config would not have been allowed to. Typed text is
+      stored as typed -- Fathom does not redact what a person types, only what they paste
+      -- and `how` is what tells the two apart on the wire.
+
+      IDENTITY IS WEAK, DOCUMENTED THE WAY Capture's IS: the tuple below is 62 §4.2's
+      required L0 declaration, and it is weak on purpose. Two notes on the same owner
+      with the same text are indistinguishable by this tuple -- distinguishable only by
+      the node id itself, which nothing here re-identifies by. Who wrote a note and when
+      are not fields of Note at all: they come from the node's own existence provenance
+      (`asserted_by`, `asserted_at`), the same record every node already carries, so
+      answering "who and when" needs no field this kind declares.
+    fields:
+      - { name: text, type: Text, card: "1", doc: "The note as stored. For a pasted note this is the text OP_REDACT_TEXT returned, after the gate ran and destroyed any credential it found (ADR-0053 §6) -- never the original. For a typed note this is exactly what was typed.", emit: "—" }
+      - { name: how, type: "enum { typed, pasted }", card: "1", doc: "How the note arrived. A pasted note passed the gate first; a typed one is stored as typed (ADR-0053 §6) and the editor says so.", emit: "—" }
+      - { name: line_count, type: u32, card: "0..1", doc: "A paste's line count -- present only when how is pasted, absent for a typed note, which has no gutter to count.", emit: "—" }
+    identity:
+      - [ owner(Notable), text ]   # weak by design -- see doc. The node id, not this tuple, is what
+                                    # who-and-when (the existence provenance) is asked of.
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -1707,7 +2047,7 @@ edges:
     doc: 19 §5.1.
   - edge: HasPort
     class: containment
-    from: [Chassis, PassiveNode]
+    from: [Chassis, PassiveNode, PowerSupply]
     to: [PhysicalPort]
     out: "0..n"
     in: "1"
@@ -2372,7 +2712,7 @@ edges:
       owner(Premises) usable as Rack's identity term.
   - edge: MountedIn
     class: reference
-    from: [Chassis]
+    from: [Chassis, PassiveNode]
     to: [Rack]
     out: "0..1"
     in: "0..n"
@@ -2426,6 +2766,11 @@ edges:
       are first-class and carry typed fields (ADR-0007); Link, Terminates and Occupies already
       do.
 
+      ADR-0051 §1 widens `from:` to add PassiveNode: a shelf is a PassiveNode of form shelf
+      and occupies rack units exactly as a Chassis does, so it needs the same door into a
+      Rack. The reference argument above applies unchanged -- a PassiveNode already has a
+      containment parent, Premises, via HasPassiveNode, so MountedIn cannot also contain it.
+
   # WO-10 (2026-08-29). Three edges, appended at the tail (62 §13).
   - edge: HasDhcpRelay
     class: containment
@@ -2476,6 +2821,158 @@ edges:
       to `0..n`, a minor bump. Absent means the statement named none, which means the
       DEFAULT instance -- and absent must never be rendered as "unknown": the config
       stated a complete fact by saying nothing (19 §6.3's three states; do not collapse).
+
+  # ADR-0050 (the rear elevation, 2026-09-16). Appended at the tail because order is wire
+  # identity (62 §13) -- RelayServerIn's own precedent.
+  - edge: FittedIn
+    class: containment
+    from: [Chassis]
+    to: [PowerSupply]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0050 §4. Seats a PowerSupply in the Chassis whose slot it occupies.
+
+      CONTAINMENT, unlike MountedIn, and for the reason MountedIn's own doc gives:
+      MountedIn is forced to be a reference because Chassis already has a containment
+      parent (Device, via HasChassis) and containment is a forest, so a rack cannot also
+      contain the chassis. PowerSupply has no such competing claim -- nothing else
+      contains it -- so that rule does not force FittedIn's hand, and containment is free
+      to be the answer, exactly as HasPort's is for PhysicalPort, PhysicalPort's own
+      PortHost sibling. It is also the answer PowerSupply's identity needs:
+      `[owner(Chassis), slot]` reads `owner(Chassis)`, and every `owner(X)` identity term
+      elsewhere in this tree -- Rack's `owner(Premises)` via HasRack, PhysicalPort's
+      `owner(PortHost)` via HasPort, PassiveNode's `owner(Premises)` via HasPassiveNode --
+      is backed by a containment edge with `in: "1"`; HasRack's own doc names this
+      convention directly ("in: 1 keeps containment a forest and makes owner(Premises)
+      usable as Rack's identity term"). No `owner()` term in this schema is backed by a
+      reference edge, and FittedIn follows the one convention that exists: HasPort's and
+      HasRack's, not MountedIn's.
+
+  # ADR-0051 §1 (the shapes, 2026-09-18). Appended at the tail because order is wire
+  # identity (62 §13) -- FittedIn's own precedent.
+  - edge: SitsOn
+    class: reference
+    from: [Chassis, PassiveNode]
+    to: [PassiveNode]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - name: slot
+        type: u8
+        card: "1"
+        emit: "—"
+        constraints:
+          range: { min: 1, max: 64, platforms: [] }
+        doc: |
+          The place on the shelf counted left to right, 1 first.
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. Seats a Chassis or PassiveNode on the shelf it sits on -- a shelf
+      being a PassiveNode of form shelf, a passive that takes U in place of a device's
+      own. The schema cannot say the target's FORM is shelf -- `to:` names the kind,
+      PassiveNode, not one of its enum variants -- so the client refuses a SitsOn whose
+      target is not form shelf; the schema is not where that refusal lives.
+
+      A REFERENCE EDGE, and for MountedIn's own reason: a Chassis already has a
+      containment parent (Device, via HasChassis) and a PassiveNode already has one
+      (Premises, via HasPassiveNode), and containment is a forest, so a shelf cannot
+      also contain either without taking it from its real parent. MountedIn's own doc
+      makes this argument for Chassis; it applies to PassiveNode without change, since
+      HasPassiveNode is exactly as total a containment edge as HasChassis.
+
+  - edge: HasSurface
+    class: containment
+    from: [Premises]
+    to: [Surface]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. A surface hangs off the place it stands in, exactly as HasRack hangs
+      a rack off one. in: "1" keeps containment a forest and makes owner(Premises)
+      usable as Surface's identity term -- HasRack's own doc, unchanged.
+
+  - edge: FixedTo
+    class: reference
+    from: [Chassis, PassiveNode]
+    to: [Surface, PassiveNode]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: x_mm, type: u32, card: "0..1", emit: "—", doc: "Millimetres from the surface's left edge (docs/OPEN-QUESTIONS.md W5). Absent means fixed to that surface with the position not yet measured -- a surface recorded before it was measured has said something true, Surface.width_mm's own reason for being 0..1." }
+      - { name: y_mm, type: u32, card: "0..1", emit: "—", doc: "Millimetres from the floor (docs/OPEN-QUESTIONS.md W5), for a wall, board, desk or ceiling. On a floor Surface y_mm has no meaning -- a floor has only the one horizontal extent x_mm already names, the same axis Surface.height_mm's own doc concedes a floor lacks -- so a thing fixed to a floor states x_mm only, or neither. A thing fixed to a board -- a PassiveNode of form board -- measures x_mm and y_mm from the board's own edges, not the wall's: the board is what it is actually screwed to. Absent for the same reason x_mm can be absent." }
+    emit_dict: null
+    doc: |
+      ADR-0051 §1. Fixes a Chassis or PassiveNode to a Surface, or to a PassiveNode of
+      form board standing in for one -- a floor-standing UPS is a Chassis FixedTo a
+      floor Surface and needs nothing else, since x_mm and y_mm are both 0..1 and a
+      position not yet measured is still a true fact; a backboard's own occupants are
+      FixedTo the board.
+
+      A REFERENCE EDGE, for the same forest reason SitsOn is one: the thing being fixed
+      already has its real containment parent (HasChassis or HasPassiveNode), so FixedTo
+      cannot also contain it.
+
+      The schema cannot say the PassiveNode limb of `to:` is form board -- `to:` names
+      the kind, PassiveNode, not one of its enum variants -- so the client refuses a
+      FixedTo whose PassiveNode target is not form board; the schema is not where that
+      refusal lives, SitsOn's own target-form sentence, unchanged.
+
+      A Chassis or PassiveNode has AT MOST ONE of MountedIn, SitsOn and FixedTo -- one
+      box is in one place. The schema cannot say so: MountedIn and FixedTo are both
+      `out: "0..1"` on the SAME kinds and nothing in this grammar expresses "at most one
+      across these edges", only "at most one of THIS edge". The doc says the client
+      enforces it, the same division of labour SitsOn's target-form restriction uses.
+
+  - edge: HasCapture
+    class: containment
+    from: [Device]
+    to: [Capture]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0052 §3. A capture hangs off the device it configures, exactly as HasChassis hangs
+      a chassis off one -- in: "1" keeps containment a forest, HasRack's own convention,
+      unchanged. Unlike every other `owner(X)` identity term in this tree, this edge is NOT
+      what makes Capture's identity usable: Capture's real identity is its node id (the
+      weld's CaptureId, Capture's own doc), and `owner(Device)` in its declared tuple is only
+      62 §4.2's required fallback. This edge exists because 11 §7.2 requires every non-root
+      node to have exactly one containment parent, the same reason every other containment
+      edge in this tree exists.
+
+  - edge: HasNote
+    class: containment
+    from: [Notable]
+    to: [Note]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0053 §5. A note hangs off whichever of Device, PhysicalPort or Rack it is about --
+      HasLayoutPin's own shape of a class on the `from:` side, because a note's owner is not
+      one kind the way a capture's is. `in: "1"` keeps containment a forest, HasRack's and
+      HasCapture's own convention, unchanged. This edge exists because 11 §7.2 requires every
+      non-root node to have exactly one containment parent, the same reason every other
+      containment edge in this tree exists.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

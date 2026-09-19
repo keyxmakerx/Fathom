@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-12. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-19: 1311 server-side tests and 834 client tests, read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -9,7 +9,7 @@ This page records what exists. It is not a changelog — history lives in `docs/
 ## Working and keeping
 
 **The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate,
-the fragment-to-store weld, the finder, emitters, layout. 985 tests passing as of 2026-09-12. Zero external
+the fragment-to-store weld, the finder, emitters, layout. 1208 tests passing as of 2026-09-14. Zero external
 dependencies on the client side, deliberately.
 
 **The schema.** Real and enforced — roughly 51 kinds, 95 edges, 61 scalars at version 0.5. Read
@@ -97,10 +97,9 @@ one qualifying seconding with no depth limit; a fourth checker pass found nothin
 a MAC under the site-scoped row key, a browser-held session key, single-use nonces, a signed
 message on every request that reaches design payload or vault ciphertext, sign-in by proof of an
 enrolled account key with no password path, and routes for challenge, sign-in, sign-out and one
-protected demonstration route (`sessions.rs`, `api.rs`). **Every gate passed on a fresh database,
-but this layer has not been attacked by a checker** — the helper that built it was stopped
-before it could report, so its decisions where §4 was silent (rate limiting, lockout, token shape)
-live only in the code's comments and have not been read into the design.
+protected demonstration route (`sessions.rs`, `api.rs`). Every gate passed on a fresh database;
+this layer was attacked by an opus checker on 2026-09-13. The builder's decisions where §4 was
+silent (rate limiting, lockout, token shape) have been read into `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`.
 
 **Next session starts here** (the full plan is `docs/NEXT.md`): (1) a checker round on 0013, `sessions.rs` and `api.rs`, with the
 same posture as the four rounds on the authority layer; (2) read the builder's silent-spot
@@ -155,15 +154,112 @@ other.
 
 ---
 
-## Being replaced
+## The browser client
 
-**The browser client.** Currently a single large HTML file assembled by Rust. Four views work
-(diagram, inventory, finder, findings); two were never built (walkthrough, config). The gestures
-are proven — placing boxes, drawing links, cabling, drag-to-connect — each with browser tests
-behind it. **The interaction design is worth keeping; the implementation is not.**
+Built at `client/` in React, Vite and React Flow; typecheck, tests and build green, `gate-npm` green.
 
-**The layout engine.** Works, and is cubic — 36,481 nodes took 244 seconds when measured. Being
-replaced with a standard algorithm.
+- **Two doors.** Sign-in with a key this browser holds, and enrolment, which redeems an invitation
+  and generates a non-extractable account keypair stored under a pending slot *before* the request
+  goes out, promoted on a confirmed answer, so a key the server has accepted is never lost.
+- **The shell of ADR-0047**: the one-row bar, the path that opens the scope tree, the five lenses,
+  search that collapses to its magnifier, presence, undo and redo (disabled: nothing changes the
+  graph through them yet), zoom, the account menu; the rail folded to a strip that opens to the
+  palette; an editor absent when nothing is selected.
+- **Home**, listing your organisations and the designs you may open grouped under their closet's
+  name, landing an account with one place to go directly there.
+- **The Racks place** (Session 4). Opening a design fetches the catalogue and the payload, reads the
+  plain face (ADR-0049) into the browser's document, and draws it with React Flow: racks with rails,
+  U numbers and hatched free runs; device boxes with name and model; ports from the catalogue's
+  faceplates fading in toward the faceplate stop. The camera has seven stops named on the interface
+  page (UI-SPEC "The shape"); the client stops at four of them so far, derived from the approved
+  boards — closet 87.5%, rack 100% (one 42U rack fits), faceplate 200%, inside 300%. Dragging a palette
+  item onto a rack snaps to a unit, refuses an overlap with a shake, and places the device, its
+  chassis and its ports; a chassis drags within or between racks. Every change saves: one save in
+  flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces
+  all three Rust-made vectors byte for byte, and the server reads every payload back before storing it.
+
+- **Cables** (Session 5). Connect two ports by dragging: the live droop, only compatible ports stay
+  live, one cable per port, the colour picker on release with the last-used sheath preselected.
+  Cables draw with the sag, the sheath as the stroke, copper one stroke, fibre a pair, power heavy in
+  the opposite lane; a cable leaving the closet ends in a dashed portal tray naming where it goes.
+  Cables sharing both ends bundle with a count and fan open on hover; a hovered or selected cable
+  lights its whole path through a panel and a portal while the rest sits at the phantom opacity.
+  PSU inlets on the rail, filled when fed, the single-fed wash, a PDU's n of m used; a front | rear
+  flip at the rack stop and rear chassis stacked at the faceplate stop. The editor edits hostname,
+  role, management address and serial, first press selects, second edits, typed values marked and a
+  refused value said out loud. The catalogue has an APC PDU and two Panduit panels, cited.
+
+- **The rear elevation** (Session 6, first, ADR-0050). Schema 0.7: a rack in a row and bay, a
+  supply as a part in a slot with its own serial, hosting its inlet port. The catalogue records
+  each supply slot on its face at its position with a hot-swap flag, and management and console
+  ports by name; the EX4300's me0, con and both slots are on the rear, cited. The drawing has two
+  elevations of every rack, mirrored from behind with faceplates as the vendor draws them; the
+  closet stop lays racks out by row and a row flips as one camera, bays reversed; inlets draw in a
+  strip in three states and the marks *single-fed* and *one fitted* are derived; the editor fits or
+  removes a supply and sets a rack's row and bay.
+
+- **Shelves, surfaces and sketches** (Session 6(b), ADR-0051 §1–2, schema 0.8). A shelf takes
+  units and its occupants take slots; a device or passive is fixed to a wall, floor, desk or ceiling,
+  or to a board on a wall, at millimetres; a device with no catalogue entry carries ports typed by
+  hand and says so; a port records its face; an outlet box or panel gets its pass-through pairs at
+  placement and a lit path follows them. The drawing mounts the shelf plate in both elevations,
+  surfaces as flat panels beside the rows with a not-measured strip, the floor as a band; cables
+  resolve on occupants and fixtures; the editor shows either with the placed-on control. The
+  catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
+
+- **The config drawer, view-only, the inside stop** (Session 6(c), ADR-0052, schema 0.9). The
+  redaction module ships as a file and runs in the browser with no packages; a paste goes through
+  the gate before anything reaches the document, and a driven browser run proves seven
+  credentials of real device length absent from every save body. The drawer sits under the dimmed
+  faceplate with the three gutter marks, a black block where a value was destroyed, the six rules
+  printed, a lit port for a built line; the capture is a node on the device and the marks derive
+  from provenance on reopen. A reader sees a view-only chip and text only, and the server refuses
+  a read account's save. The inside stop draws a firewall's zones, interfaces, policy rail,
+  routes and tunnels from the module's own inside door, never a verdict.
+
+- **The inventory, notes, undo that records** (Session 6(d), ADR-0053, schema 0.10). Two places
+  over one opened design sharing the document and the save queue; the inventory's rail of kinds,
+  the device grid grouped per rack with the lens choosing the columns, the Gaps section, the page
+  as the one editor, Show on rack both ways. A note is a node on a device, port or rack, pasted
+  through the gate by its own door or stored as typed and saying so. An undo is a new batch of
+  reversing operations with a revive operation for what a tombstone removed; only your own
+  batches, a colleague's later change refuses by name; the trail beside the drawing with sealed
+  and pending, a comment on the next change, the chips and keys live.
+
+- **A save carries its base; a drawer creates a design; a steward creates a scope** (Session 7,
+  ADR-0054, schema unchanged). A save names the version it was based on; the server refuses a base
+  that is not the current version, naming both numbers, writes nothing, and the client keeps its
+  own base rather than adopting the server's. `POST .../scopes/{scope}/designs` (draw creates a
+  design) and `POST .../scopes` (a steward of the parent creates a scope) mean a design is
+  reachable from a fresh deployment. The refusal wash names the change and offers a Reload button.
+  From the checker's round on the whole surface: the server refuses a payload whose capture or note
+  text still looks like a credential; save, open, verify and create re-check the grant inside the
+  acting transaction; a body is capped at one mebibyte until the signature is checked; the list
+  handlers verify authority once per organisation; behind the proxy the client address is the
+  last entry of a header Caddy overwrites; the compose image copies the corpus and serves the
+  client through Caddy, unproven here where no daemon runs; the single-operator flag is read at
+  apply. A driven run from sign-in proved a scope and a design created from Home, a save, and a
+  second browser's stale save refused. The same day, from the owner: a cable's panel with the
+  colour selector and the ends, ports selectable with Select cable and Go to far end, a cables
+  view control by kind, and the wrong-drop shake on a port.
+
+**Carried:** the compose stack and the dependency-vulnerability gate need the owner's machine (no
+Docker daemon and no egress to the advisory database here), and the v0.1 tag waits on that run;
+the server's credential check is the detector only, with SNMPv3 auth and priv values a known
+residual until dictionary matching runs on the server (W7); nothing yet exercises two genuinely
+concurrent saves, which the row lock serialises by construction; the trail's sealed mark is an idle-time approximation until the session hook exposes
+save completion; the comment box should attach to the next batch, not an already-recorded one; a
+note's line count is taken before the gate; the new wire shapes have no cross-language vector
+yet; saved filters and the grids for racks, cables and ports are named and unbuilt; the private
+notes layer arrives with the vault (W6). Replacing a capture (a second paste into the same device
+is refused until then); the drawer tags every built line and should show them on hover only; a
+successful paste has no confirmation pulse yet; a Proxmox host needs a dictionary and guest and bridge kinds; unreachable-policy hatching and
+the assistant panel; dropping a board onto a surface is a no-op until the drawing has a surface
+drop zone; the opened occupant can sit under the editor; a panel's label pairing remains as the
+fallback when no pass-through edge exists. Optics (ADR-0047 §5). The left-right order of the
+EX4300's two supply slots could not be established. The "two people on a running server" proof,
+which tests and screenshots still stand in for. The old Rust-assembled HTML client is retired and still on disk under
+`crates/fathom-artifact/`; it is not served.
 
 ---
 
@@ -171,6 +267,7 @@ replaced with a standard algorithm.
 
 - Walkthrough view — the teaching half of the product.
 - Config view.
+- The building and room stops — decided (UI-SPEC "The building", ADR-0051), not built.
 - Engine manager — how equipment types are registered and kept current.
 - Automatic correlation across separately-pasted configs.
 - Anything that discovers a network live. Everything today comes from pasted text.
@@ -179,28 +276,99 @@ replaced with a standard algorithm.
 
 ## Known limits worth remembering
 
-**The compose stack has not been started end to end.** `deploy/compose.yaml` and
-`deploy/init-db/10-app-role.sh` were verified by mechanism on 2026-09-12 — the exact SQL was run
-against a real PostgreSQL 16, the resulting role and database were confirmed to let the server
-migrate and serve, and `docker compose config` renders correctly — but the pinned image could not be
-pulled in this environment (registry egress blocked). **Run `docker compose up` from a clean checkout
-somewhere with registry access before calling deployment proven.**
+**The compose stack has not been run end to end.** `deploy/compose.yaml` and the initial setup
+scripts were verified by mechanism on 2026-09-12. Two first-start faults were found by reading it:
+the first is fixed (the bootstrap token now has its own writable volume, separate from the read-only
+key volume); the second requires manual action (generate the two keys before the first `compose up`).
+Both are documented in `docs/RUNNING-IT.md`. **Run `docker compose up` from a clean checkout
+somewhere with the keys pre-generated before calling deployment proven.**
+
+**The test suite needs a fresh database, and that is now measured rather than assumed.** Every test
+running against one database shares its global state — triggers, rate-limit buckets, the site chain,
+the settings rows. See `docs/NEXT.md` rule 3 for the isolation requirements.
+
+On 2026-09-16 the suite was run repeatedly against a single database to see how far that goes. On a
+fresh database it passes; reused, it fails intermittently, and three separate causes were found:
+
+- **A rate-limit bucket at `127.0.0.1`.** `tests/sessions.rs`'s HTTP sign-in helper trusted no
+  forwarded-for header, so every sign-in it made counted against the peer address, and the counter
+  outlives a `cargo test`. The challenge answered `429` instead of `200`. **Fixed**: the helper now
+  takes a source of its own, as rule 3 requires of anything global.
+- **A one-second session lifetime** in `an_expired_session_is_refused_and_the_row_goes_with_it` had
+  to cover signing in *and* taking a nonce, both real round trips, so on a loaded machine the
+  session expired before the test reached the refusal it exists to check. **Fixed**: four seconds.
+- **`an_operator_cannot_be_seconded_by_the_operator_they_created`** read `captured` where it
+  expected `first`. Recorded on 2026-09-16 as a reused-database fault; on 2026-09-19 it failed
+  on a fresh database under a full workspace run, and the cause was read off the store: the
+  fixture ran in single-operator mode, under which an unseconded change applies alone once its
+  one-second delay passes, so the assertion raced the round trips. **Fixed**: the fixture
+  requires a second signature, as the two-operator control test already did.
+- **`past_the_bound_a_rotation_is_refused_and_drains_to_succeed`** fails only on a reused
+  database, confirmed to fail identically at the commit before 2026-09-16's work. **Not fixed.**
+  It costs nothing under rule 3, which gives every builder its own database, and CI creates one
+  per run.
+
+**`tests/operators.rs` leaves a database behind per test.** Its per-test fixture creates
+`fathom_isolated_*` databases and does not drop them; twelve were found after one run on
+2026-09-16 and dropped by hand. Harmless in CI, which discards the cluster, and a slow leak
+anywhere else. Not fixed; the fixture is the place.
 
 **The server refuses to start on a broken schema, deliberately.** `EngineState::load` runs every
-gate and will not serve a vocabulary that fails one. Before 2026-09-12 it started anyway, reported
-healthy, and served an empty kind list — an independent check reproduced that against a live
-database. A broken tree is now a startup failure naming the gate and the file, exit 7.
-
-`deploy/Dockerfile` copies `schema/` into the distroless runtime stage from the build stage, so the
-image ships exactly the tree it was built against. `FATHOM_SCHEMA_ROOT` overrides the path. Both
-landed 2026-09-12 after the same check found the image crash-looped with no schema beside the binary
-and no way for an operator to point it elsewhere.
+gate and will not serve a vocabulary that fails one. A broken tree is now a startup failure naming
+the gate and the file, exit 7. `deploy/Dockerfile` copies `schema/` into the distroless runtime
+stage from the build stage, so the image ships exactly the tree it was built against.
+`FATHOM_SCHEMA_ROOT` overrides the path.
 
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand into a
   field is stored and exported as written — it gets a warning mark beside it, and that is the
   decision, not a bug.
-- **Juniper is the only platform with real content behind it.** Five others are registered and
-  empty. A pasted Juniper branch config binds about 57% of its lines.
+- **Engines, as of 2026-09-19, are files in the tree.** ADR-0044 describes signed data packs;
+  none of its Phase 5 exists: no `engine.yaml`, no signature, no install, no chain entry, no
+  pinning. The server reads `corpus/catalogue/` from disk at start and the client compiles
+  `corpus/dict/` into its bundle. What the corpus carries for the owner's stack, every device fact
+  cited with its read date, every credential test at the length the device accepts:
+  - **Juniper.** `junos-srx` is the one dictionary with real depth (a branch config binds about
+    57% of its lines). `junos-ex` binds VLANs, ethernet-switching membership, LAG membership and
+    irb units; `interface-mode` is left unbound on purpose (per-edge fact, per-unit statement);
+    a virtual chassis has no schema representation. Catalogue: EX4300-48P, EX2300-48P,
+    EX4100-48P (its SFP28 uplinks recorded as SFP+ for want of a kind), SRX300, SRX340 (1U; the
+    vendor page wins over the design board).
+  - **OPNsense.** The rules-migration CSV (26.1 and later) is the only readable export and the
+    only one bound. Aliases export as JSON; `config.xml` needs an XML framer, and the fields it
+    must destroy are listed in `corpus/dict/opnsense/README-config-xml.md`. The dictionary
+    declares no secrets; the core floor destroyed every credential driven at it. No catalogue
+    entry: the catalogue has no form for "a box that runs OPNsense".
+  - **Ubiquiti.** Catalogue: UDM-SE, USW-24-PoE, USW-48-PoE (their 1G SFP cages recorded as
+    SFP+ for want of a kind). UniFi has no human-readable export, so no dictionary
+    (`corpus/dict/README-ubiquiti.md`). EdgeOS binds hostname, interface description and
+    disable, and `vif` sub-interfaces from `show configuration commands`; base interface
+    addresses, static routes, DHCP server and NAT are unbound for reasons written in the files.
+  - **Linux hosts.** A zero-entry dictionary. `ip` and `bridge` output is not verb-initial and
+    `shape.rs` shapes only `set` lines, so nothing binds until the core grows a record-shaped
+    front end (`corpus/dict/README-linux-host.md`); a pasted WireGuard private key is still
+    destroyed. Teaching: `linux-family-basics` and eight per-flavour explainers (Arch, Debian,
+    Ubuntu, Fedora, the RHEL family, openSUSE, NixOS, Alpine) cited from each distribution's
+    own documentation, recommending nothing beyond the platform's own package manager and init.
+  - **Arista.** Catalogue: 720XP-48ZC2, 7050SX3-48YC8; an EOS explainer. No dictionary: EOS
+    block config is the same shape gap as Linux, and the safety net destroys every credential
+    in a 120-line synthetic config (`crates/fathom-ingest/tests/arista_eos.rs`).
+
+  Every explainer written that day carries `reviewed_by: <named human>`, which means unreviewed;
+  no client surface shows that label yet (OPEN-QUESTIONS E2 is answered, not built).
+
+  **Gaps the verification found, carried:** the client boots one dictionary beside OPNsense
+  (`shell.rs` holds a single slot), so `junos-ex` and `edgeos` are compiled in but not booted,
+  listed in `engine.ts` as excluded with reasons and a test that refuses a silent omission; the
+  redaction-unproven refusal of ADR-0044 rule 2 is not built, the core floor is the only fence
+  (amended in the ADR); a credential typed into the free-text description cell of the OPNsense
+  CSV is not caught, pinned by a test in `opnsense_csv.rs`; the `<named human>` placeholder is
+  a warning, not a build failure, because the shipping gate does not exist; a dictionary cannot
+  bind `lacp_mode`, an interface form or a `NextHop` (`ValueTy` has no arm); the catalogue has
+  no plain SFP or SFP28 kind. **Closed the same day:** `secret_exempt` could be declared by any
+  dictionary with a free-text reason and let a cleartext password bind; it is now honoured only
+  for the path shapes a core-held allowlist names, with a canary that drives a real SRX password
+  through the rogue entry; empty citations and reviewers are refused; every dictionary file
+  carries a `source` header and a reviewer.
 - **Nothing creates cables or ports from a config.** Only by hand.
 
 ---

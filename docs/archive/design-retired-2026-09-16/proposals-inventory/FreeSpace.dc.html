@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #14171A; } a:hover { color: #5C6772; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .tog { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; }
+    .tog.off { border-color: #D2D7DD; color: #5C6772; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; }
+    .row .k { width: 80px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+    .grp { display: flex; align-items: baseline; gap: 12px; padding: 10px 12px 4px; border-bottom: 1px solid #14171A; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .grp b { color: #14171A; }
+    .t { display: grid; grid-template-columns: 96px 176px 1fr 200px; font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .c { padding: 5px 10px; border-bottom: 1px solid #D2D7DD; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sel { background: #F2F4F6; }
+    .free { background: repeating-linear-gradient(135deg, #5C6772 0 2px, transparent 2px 5px); }
+    .hd { display: grid; grid-template-columns: 96px 176px 1fr 200px; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; border-bottom: 1px solid #D2D7DD; background: #FAFBFC; }
+    .hd div { padding: 6px 10px; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; color: #5C6772; }
+    .chip.on { border-color: #14171A; color: #14171A; }
+    .warn { border: 1px solid #A8571B; background: #FBF3EA; color: #A8571B; padding: 0 5px; font-size: 11px; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px;">
+
+  <div style="height: 44px; border-bottom: 3px solid #14171A; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <div style="font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Northwind</span><span style="color: #D2D7DD;">&rsaquo;</span><span>HQ</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Building A</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="color: #14171A; font-weight: 700;">IDF-2</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lbl">View</span>
+      <span class="tog off">Drawn</span>
+      <span class="tog">Listed</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; opacity: 0.35;">
+      <span class="lbl">Cables</span>
+      <span class="tog">&#10003; Copper</span>
+      <span class="tog">&#10003; Fibre</span>
+      <span class="tog">&#10003; Power</span>
+      <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 4px;"></span>
+      <span class="lbl">Colour ports by</span>
+      <span class="tog">Link</span>
+      <span class="tog off">VLAN</span>
+      <span class="tog off">Subnet</span>
+      <span class="tog off">Owner</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #5C6772;">
+      <span>2 others here</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Jordan T.</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 8px;">Maria P.</span>
+    </div>
+    <div style="width: 1px; height: 24px; background: #D2D7DD;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772; font-variant-numeric: tabular-nums;">
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">&minus;</span>
+      <span style="min-width: 36px; text-align: center;">72%</span>
+      <span style="border: 1px solid #D2D7DD; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">+</span>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <div style="width: 224px; border-right: 1px solid #D2D7DD; background: #F2F4F6; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div class="lbl" style="padding: 10px 12px 6px; border-bottom: 1px solid #D2D7DD;">Racks in this closet</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 5px 12px; background: #FFFFFF; border-left: 4px solid #14171A; display: flex; justify-content: space-between;"><span>A-04</span><span style="color: #5C6772;" class="mono">42U &middot; 14 used</span></div>
+        <div style="padding: 5px 16px; display: flex; justify-content: space-between;"><span>A-05</span><span style="color: #5C6772;" class="mono">24U &middot; landlord</span></div>
+        <div style="padding: 5px 16px; color: #5C6772; border-top: 1px dashed #D2D7DD;">+ add a rack</div>
+      </div>
+      <div class="lbl" style="padding: 12px 12px 6px; border-top: 1px solid #D2D7DD; border-bottom: 1px solid #D2D7DD; margin-top: 8px;">Equipment &mdash; drag onto a free run</div>
+      <div style="font-size: 12px;">
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>Juniper EX4300-48P</div><div class="mono" style="font-size: 10px; color: #5C6772;">1U &middot; fits U20&ndash;U29, U18&ndash;U19, U4&ndash;U8</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>Generic server &middot; 4U</div><div class="mono" style="font-size: 10px; color: #5C6772;">4U &middot; fits U20&ndash;U29, U4&ndash;U8</div></div>
+        <div style="padding: 6px 12px; border-bottom: 1px solid #D2D7DD; background: #FFFFFF;"><div>Generic server &middot; 12U</div><div class="mono" style="font-size: 10px; color: #5C6772;">12U &middot; <span style="border: 1px solid #A8571B; background: #FBF3EA; color: #A8571B; padding: 0 4px;">no run this long in A-04</span></div></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">The palette already knows where each thing would fit. That is the question free space exists to answer.</div>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0; background: #FFFFFF;">
+      <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 12px; gap: 8px; font-size: 11px; color: #5C6772; background: #FAFBFC; flex-shrink: 0;">
+        <span style="color: #14171A; font-weight: 700;">A-04</span>
+        <span>&middot; 42U &middot; 28 free in 3 runs &middot; 41 free RJ45 &middot; 6 free SFP+ &middot; 2 free outlets</span>
+        <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 4px;"></span>
+        <span class="lbl">Show</span>
+        <span class="chip">All</span>
+        <span class="chip">Switches</span>
+        <span class="chip">Firewalls</span>
+        <span class="chip">Servers</span>
+        <span class="chip">Panels</span>
+        <span class="chip on">Free space</span>
+      </div>
+
+      <div class="hd"><div>where</div><div>what is free</div><div>detail</div><div>note</div></div>
+
+      <div class="grp"><b>Rack units</b><span>3 runs &middot; 28U</span></div>
+      <div class="t">
+        <div class="c sel" style="border-left: 4px solid #14171A; padding-left: 6px;">U20&ndash;U29</div><div class="c sel">10U free</div><div class="c sel free" style="color: #FFFFFF;"></div><div class="c sel" style="color: #5C6772;">longest run</div>
+        <div class="c">U18&ndash;U19</div><div class="c">2U free</div><div class="c free"></div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U4&ndash;U8</div><div class="c">5U free</div><div class="c free"></div><div class="c" style="color: #5C6772;">above the PDU</div>
+        <div class="c">U42</div><div class="c">1U free</div><div class="c free"></div><div class="c" style="color: #5C6772;">top of rack</div>
+      </div>
+
+      <div class="grp"><b>Ports</b><span>by device &middot; free of total</span></div>
+      <div class="t">
+        <div class="c">U38</div><div class="c">core-01</div><div class="c">17 / 48 rj45 &middot; 2 / 4 sfp+ &middot; 4 / 4 qsfp+ rear</div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U37</div><div class="c">core-02</div><div class="c">19 / 48 rj45 &middot; 2 / 4 sfp+ &middot; 4 / 4 qsfp+ rear</div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U35</div><div class="c">patch-01</div><div class="c">0 / 24 front</div><div class="c"><span class="warn">full</span></div>
+        <div class="c">U34</div><div class="c">acc-01</div><div class="c">4 / 48 rj45 &middot; 3 / 4 sfp+</div><div class="c" style="color: #5C6772;">nearly full</div>
+        <div class="c">U33</div><div class="c">acc-02</div><div class="c">8 / 48 rj45 &middot; 3 / 4 sfp+</div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U30</div><div class="c">fibre-01</div><div class="c">9 / 12 lc</div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U40&ndash;41</div><div class="c">hq-fw-01</div><div class="c">1 / 8 rj45 &middot; 6 / 8 sfp</div><div class="c" style="color: #5C6772;"></div>
+      </div>
+
+      <div class="grp"><b>Power</b><span>outlets and inlets</span></div>
+      <div class="t">
+        <div class="c">U3</div><div class="c">pdu-a04</div><div class="c">2 / 8 c13 free &middot; outlets 7, 8</div><div class="c" style="color: #5C6772;"></div>
+        <div class="c">U10&ndash;13</div><div class="c">vm-host-02</div><div class="c">PSU 2 inlet unfed</div><div class="c"><span class="warn">single-fed</span></div>
+        <div class="c">U34</div><div class="c">acc-01</div><div class="c">1 PSU &middot; fed</div><div class="c" style="color: #5C6772;">one inlet on the box</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 6px 12px; font-size: 10px; color: #5C6772; line-height: 15px; display: flex; justify-content: space-between;">
+        <span>Absent is drawn as absent. A free run, a free port and an unfed inlet are rows, not gaps between rows.</span>
+        <span>Same graph as the rack. Nothing here is typed.</span>
+      </div>
+    </div>
+
+    <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">A-04 &middot; U20&ndash;U29</span>
+        <span style="font-size: 10px; color: #5C6772;">free run</span>
+      </div>
+      <div class="row"><span class="k">length</span><span class="mono">10U &middot; the longest in this rack</span></div>
+      <div class="row"><span class="k">above</span><span class="mono">U30 &middot; fibre-01</span></div>
+      <div class="row"><span class="k">below</span><span class="mono">U17 &middot; vm-host-01</span></div>
+      <div class="row"><span class="k">power near</span><span class="mono">pdu-a04 &middot; outlets 7, 8 free</span></div>
+      <div class="row" style="align-items: flex-start;"><span class="k">would fit</span><span class="mono" style="line-height: 18px;">EX4300-48P &middot; 1U<br>generic server &middot; 4U<br><span>generic server &middot; 12U <span class="warn">does not fit</span></span></span></div>
+      <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;">
+        <div style="border: 1px solid #14171A; padding: 5px 0; text-align: center; font-size: 12px;">Go to rack A-04 &middot; U20</div>
+        <div style="border: 1px solid #D2D7DD; padding: 5px 0; text-align: center; font-size: 12px; color: #5C6772;">Drag equipment here from the rail</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">A free run is selectable like anything else. Selecting it is how you plan where the next box goes.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

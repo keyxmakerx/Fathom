@@ -13,8 +13,12 @@
 #
 #   image: ...@sha256:   never a tag. The digest is the artifact; the tag is a
 #                        pointer (`35` §7.4). Digests read 2026-09-03.
-#   read_only: true      the server writes nothing. If it ever needs a writable
-#                        path that is a design change, not a compose change.
+#   read_only: true      the ROOT filesystem. The server writes exactly one
+#                        path, and it is a volume of its own -- see THE
+#                        BOOTSTRAP TOKEN VOLUME below. This line said "the
+#                        server writes nothing" until 2026-09-14, which was
+#                        true when it was written and stopped being true when
+#                        the operator console landed.
 #   cap_drop: [ALL]      it binds a port above 1024 and opens a socket. Nothing
 #                        else.
 #   no-new-privileges    a setuid binary in the image could not gain anything;
@@ -65,6 +69,45 @@
 # password, which is what it has to be: the postgres image needs it to
 # initialise the cluster at all, and it is the credential the server must
 # never use, for either role.
+#
+# THE BOOTSTRAP TOKEN VOLUME, ADDED 2026-09-14, BECAUSE THIS FILE COULD NOT
+# START AT ALL.
+#
+# `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.3: a first start mints the first
+# operator and one single-use enrolment token, and writes that token to a file
+# for a human to read -- "whoever can read that volume is the legitimate
+# installer". It is the only way into a new deployment.
+#
+# The server used to derive that file's path from `FATHOM_MASTER_KEY`, so it
+# landed in the `keys` volume -- which is mounted READ-ONLY here, for the good
+# reason stated on the mount itself. So a first start in this stack wrote a
+# bearer token into a read-only filesystem, failed, and exited; and because
+# the operator row had already committed, the next start found a bootstrapped
+# deployment and never tried again. The stack could not be brought up, and the
+# failure was not recoverable by restarting it.
+#
+# Two changes, and both are needed:
+#
+#   1. `FATHOM_BOOTSTRAP_TOKEN_FILE` (new) names the path, so the DEPLOYMENT
+#      chooses it rather than the server deriving it. It points at `bootstrap`
+#      below -- a volume of its own, writable, holding one short-lived file.
+#      **The `keys` volume stays read-only and is untouched by this**: the two
+#      secrets have different lifetimes and different readers, and the token
+#      is deleted by hand within the hour while the master key is the thing
+#      the whole deployment rests on.
+#   2. `FATHOM_OPERATOR_NOTICE_ADDRESS` is set, because the bootstrap refuses
+#      without it and this file did not set it -- so even with (1) fixed, a
+#      first start still would not complete.
+#
+# AND THE WAY BACK IF THE TOKEN IS LOST. `fathom-server
+# reissue-bootstrap-token`, run in this container, mints a fresh one into the
+# same file -- but ONLY while no operator key has ever been enrolled. After
+# enrolment it refuses, and it has to: a re-issue that still worked would let
+# anyone who can run a command on this host mint themselves an operator
+# session without ever holding a key this deployment has seen. After that the
+# way back is another operator, or a restore.
+#
+#     docker compose run --rm server reissue-bootstrap-token
 #
 # AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
 # host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
@@ -140,6 +183,12 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      # Named explicitly now that this Dockerfile builds more than one final
+      # image (`client-build` and `caddy` are later stages in the same
+      # file) -- an unqualified build picks the LAST stage, which would
+      # otherwise silently become the caddy image the day these stages
+      # moved. See `deploy/Dockerfile`'s own comment on the `server` stage.
+      target: server
     # In a real deployment this is a digest, exactly like the two above:
     #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
     # `build:` is here so the stack can be brought up from a clean checkout
@@ -185,13 +234,67 @@ services:
       # is only real if nothing that serves a request ever holds this one.
       FATHOM_MIGRATE_DATABASE_URL: "postgres://fathom@db:5432/fathom"
       FATHOM_MIGRATE_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_migrate.pw"
+      # Where the first operator's enrolment token is written, on a first
+      # start and by `reissue-bootstrap-token`. See THE BOOTSTRAP TOKEN VOLUME
+      # in the header for why this is not inside the key volume. The path must
+      # match the mount below and the `ENV` in `deploy/Dockerfile`; all three
+      # say it so that no single one of them is load-bearing.
+      FATHOM_BOOTSTRAP_TOKEN_FILE: "/var/lib/fathom/bootstrap/first-operator-token"
+      # THE ADDRESS OPERATOR NOTICES GO TO -- admin design §5.5's "a settings
+      # change was requested" among them -- and the address the first operator
+      # is created against. **Set it before the first start and you cannot set
+      # it afterwards**: it is recorded once, into `site_install`, where no
+      # role can update it (`migrations/0015_operator_console.sql` §C withholds
+      # the privilege and raises in a trigger). §6.2 pins an organisation's
+      # enrolment claim to it, which is what stops an operator reseating an
+      # organisation through a channel they control -- and that pin is worth
+      # nothing if the address is one nobody chose.
+      #
+      # THE BINARY HAS NO DEFAULT FOR THIS AND MUST NOT: a deployment that
+      # bootstrapped against a guessed address would have an operator nobody
+      # can reach, permanently, with no way to correct it short of destroying
+      # the database.
+      #
+      # **So this file does not invent one either.** Read from the environment
+      # or a `.env` file, same shape and same reasoning as POSTGRES_PASSWORD
+      # above: a placeholder here would be an address that gets written into a
+      # write-once row by every deployment that did not read this comment, and
+      # the failure would not surface until somebody needed a notice. This
+      # refuses at `docker compose up`, before anything has been created.
+      FATHOM_OPERATOR_NOTICE_ADDRESS: ${FATHOM_OPERATOR_NOTICE_ADDRESS:?set FATHOM_OPERATOR_NOTICE_ADDRESS to the address operator notices should go to; it is recorded once, at first start, and cannot be changed afterwards}
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
+      # `src/config.rs`'s own doc on this field, in full: unset means the
+      # peer address, right on the open internet and wrong behind a proxy,
+      # "because behind a proxy every request arrives from the proxy — so
+      # with this unset in that deployment, the source bucket is one bucket
+      # for the whole site and a single attacker rate-limits everybody."
+      # This compose file puts Caddy in front (the `caddy` service, below),
+      # so it must set this, and it was the one line missing that made every
+      # sign-in in this stack share one rate-limit bucket regardless of who
+      # made it. **Safe only because `deploy/Caddyfile` overwrites this exact
+      # header on every request it proxies** (`header_up X-Forwarded-For
+      # {remote_host}`, in its own file) rather than trusting whatever a
+      # client sent -- setting this without that would let a client pick its
+      # own rate-limit bucket instead, which is the other failure mode
+      # `src/config.rs`'s comment names. `src/api.rs::source_of` also reads
+      # this header's LAST entry rather than its first, a second,
+      # independent defence against the same client-supplied-header risk.
+      FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
     volumes:
       # Read-only: the server reads the generated database password and, later,
-      # the master key. It writes neither.
+      # the master key. It writes neither. **Unchanged, and deliberately so** --
+      # the fix for the first-start failure was to stop writing here, not to
+      # make this writable.
       - keys:/var/lib/fathom/keys:ro
+      # Writable, and the only writable path this container has besides /tmp.
+      # One file lives here, for about as long as it takes an operator to read
+      # it. `deploy/Dockerfile` creates this directory owned by 65532 so that
+      # Docker seeds the fresh volume with that ownership -- a named volume
+      # whose mount point does not exist in the image is created root-owned,
+      # and this container does not run as root.
+      - bootstrap:/var/lib/fathom/bootstrap
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -206,7 +309,18 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
   caddy:
-    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    # Built, not pulled, as of this change: `deploy/Dockerfile`'s `caddy`
+    # stage bakes the built client into the same pinned Caddy image this
+    # used to pull directly (digest unchanged; see that stage's own
+    # comment). `image:` below still names a real, pinned upstream image
+    # once published -- exactly the `server` service's own pattern, and its
+    # comment explains why `build:` is what makes this stack runnable from a
+    # clean checkout before that publish exists.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: caddy
+    image: fathom-caddy:wo-11
     restart: unless-stopped
     depends_on:
       - server
@@ -230,5 +344,13 @@ volumes:
   # `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1's terms: if you copy it off
   # the machine, you have copied all three.
   keys:
+  # One short-lived file: the first operator's enrolment token (§6.3), written
+  # at first start and by `reissue-bootstrap-token`, mode 0400, and meant to be
+  # deleted by hand once it has been redeemed. **Separate from `keys` on
+  # purpose.** It is a bearer secret for as long as it exists, so it is not in
+  # the world-readable places; but it is also the one thing in this deployment
+  # the server has to WRITE, and the key volume is read-only to the server by
+  # design. Two volumes is what keeps both of those true at once.
+  bootstrap:
   caddy_data:
   caddy_config:

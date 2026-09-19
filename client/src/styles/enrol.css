@@ -1,0 +1,110 @@
+.enrol {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.enrol__card {
+  width: var(--col);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s6);
+  background: var(--surface);
+}
+
+.enrol__title {
+  font-size: var(--t-title);
+  margin: 0 0 var(--s2) 0;
+  letter-spacing: var(--track-head);
+}
+
+.enrol__subtitle {
+  font-size: var(--t-body);
+  color: var(--muted);
+  margin: 0 0 var(--s5) 0;
+}
+
+.enrol__body {
+  font-size: var(--t-body);
+  margin: 0 0 var(--s5) 0;
+}
+
+.enrol__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-bottom: var(--s4);
+}
+
+.enrol__label {
+  font-size: var(--t-small);
+  color: var(--muted);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.enrol__input {
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-body);
+}
+
+.enrol__input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.enrol__input:focus-visible {
+  border-color: var(--ink);
+}
+
+.enrol__submit {
+  width: 100%;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--ink);
+  color: var(--page);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+
+.enrol__submit:disabled {
+  cursor: not-allowed;
+  opacity: var(--phantom);
+}
+
+.enrol__refusal {
+  margin-top: var(--s4);
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+.enrol__note {
+  margin-top: var(--s5);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* The other door — see `signin.css`'s note on why this is a button. */
+.enrol__switch {
+  margin-top: var(--space-3, 12px);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.enrol__switch:hover {
+  color: var(--ink);
+}

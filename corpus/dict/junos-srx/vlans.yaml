@@ -34,6 +34,8 @@
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
+source: { cite: "Juniper Junos CLI reference, vlan-id and l3-interface (edit vlans, QFX/ELS series); Guided Setup step-1-p2-secure_local", read_on: "2026-08-15" }
+reviewed_by: <named human>
 entries:
   - id: junos-srx/vlans.vlan-id
     path: [vlans, "$v", vlan-id, "$id"]

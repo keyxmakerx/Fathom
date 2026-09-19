@@ -839,3 +839,47 @@ fn the_shape_sketch_carries_no_numbers() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0053 §6 — `redact_only`, the door `OP_REDACT_TEXT` stands behind.
+// ---------------------------------------------------------------------------
+
+/// **No second pipeline.** `redact_only` and `ingest` must produce the exact
+/// same gated text and the exact same drop manifest for the exact same
+/// bytes — this is what "runs the pipeline's framing, lexing, shaping and
+/// redaction" (ADR-0053 §6) means as a proof rather than a sentence: if the
+/// two ever diverged, a paste and a pasted note would be redacted by two
+/// different gates and only one of them would be exercised by this crate's
+/// other several hundred tests.
+#[test]
+fn redact_only_matches_the_gate_stage_of_ingest() {
+    let text = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/junos-srx-s0-synthetic.txt"),
+    )
+    .expect("the fixture is checked in");
+    let d = dict();
+    let full = ingest(&text, &d).expect("within the caps");
+    let only = fathom_ingest::redact_only(&text, &d).expect("within the caps");
+
+    assert_eq!(only.text.text(), full.capture.text());
+    assert_eq!(only.drops, full.drops);
+    assert_eq!(only.truncated, full.truncated);
+}
+
+/// The same sweep `no_canary_survives_anywhere` runs, over `redact_only`'s
+/// smaller output — no fragment, no ledger, no residue, because binding never
+/// ran, but the gated text and the drop manifest are exactly the two things a
+/// pasted note carries forward.
+#[test]
+fn redact_only_output_carries_no_canary() {
+    let text = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/junos-srx-s0-synthetic.txt"),
+    )
+    .expect("the fixture is checked in");
+    let out = fathom_ingest::redact_only(&text, &dict()).expect("within the caps");
+    let serialised = format!("{out:?}");
+    assert!(
+        !serialised.contains(CANARY),
+        "a canary survived into redact_only's output"
+    );
+}

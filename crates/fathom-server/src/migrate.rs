@@ -91,6 +91,21 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0013_sessions.sql",
         sql: include_str!("../migrations/0013_sessions.sql"),
     },
+    Migration {
+        version: 14,
+        name: "0014_session_hardening.sql",
+        sql: include_str!("../migrations/0014_session_hardening.sql"),
+    },
+    Migration {
+        version: 15,
+        name: "0015_operator_console.sql",
+        sql: include_str!("../migrations/0015_operator_console.sql"),
+    },
+    Migration {
+        version: 17,
+        name: "0017_firmware_staging.sql",
+        sql: include_str!("../migrations/0017_firmware_staging.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

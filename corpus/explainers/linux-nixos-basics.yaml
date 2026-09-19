@@ -1,0 +1,134 @@
+# corpus/explainers/linux-nixos-basics.yaml — orientation for NixOS, written
+# in the manner of corpus/explainers/linux-family-basics.yaml (read first)
+# and corpus/explainers/arista-eos-basics.yaml (full field convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `nixos.org/manual/nixos/stable/` (the NixOS Manual, primary) —
+#     `/etc/nixos/configuration.nix` is the declarative description of the
+#     system, including its networking settings (e.g. `networking.hostName`,
+#     interface and firewall options); the documented workflow to apply an
+#     edited configuration is `nixos-rebuild switch`, which builds the new
+#     configuration, activates it immediately, and makes it the default at
+#     the next boot.
+#   - `wiki.nixos.org/wiki/Nixos-rebuild` (NixOS Wiki, primary project wiki)
+#     — `nixos-rebuild`'s other subcommands include `boot` (build and set as
+#     next boot's default without activating now) and `test` (activate
+#     without changing the boot default); `nix-env` operates on a per-user
+#     package profile rather than the system configuration.
+#   - `wiki.nixos.org/wiki/Channel_branches` and the NixOS RFC 0080 release
+#     schedule document (`github.com/NixOS/rfcs`) — stable channels release
+#     roughly every six months, named `YY.MM` (e.g. `nixos-25.05`), and
+#     receive conservative bug-fix and security updates only after release;
+#     `nixos-unstable` tracks Nixpkgs' master branch on a rolling basis and
+#     is not a supported/stable channel.
+#   - `nix.dev`'s FAQ and the NixOS Manual, corroborating each other: because
+#     the whole system (packages, services, network configuration) is
+#     described declaratively in one file and built from it, there is no
+#     separate "package search/install" step that mutates system state the
+#     way `apt install` does — `nix search nixpkgs <term>` finds a package
+#     name to add to `configuration.nix`, and the actual install happens at
+#     the next `nixos-rebuild switch`.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend flakes, home-manager,
+# or any particular NixOS module beyond the core workflow the manual itself
+# documents.
+entries:
+
+- id: explain:concept:linux-nixos.basics
+  class: concept
+  subject: { path: linux-nixos.basics }
+  title: "NixOS: the whole system is one declarative file, applied by nixos-rebuild"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    NixOS describes the whole system — packages, services, network
+    configuration — in one file, `/etc/nixos/configuration.nix`, and applies
+    it with `nixos-rebuild switch`. There is no separate step that mutates
+    running system state the way installing a package does elsewhere; the
+    file IS the source of truth, and the running system is built from it.
+
+  explained: >
+    NixOS inverts the usual order: on most distributions, commands mutate a
+    running system's state (install this, edit that file) and the
+    configuration is whatever state that history left behind. On NixOS, the
+    configuration is written first, as one declarative file, and the system
+    is built to match it — reading a NixOS host means reading
+    `/etc/nixos/configuration.nix` (and any files it imports), not
+    inspecting scattered state files the way one would on another
+    distribution, because that file is what produced the running state.
+    Network settings live in the same file as everything else, under the
+    `networking.*` options the manual documents.
+
+  teaching:
+    body: >
+      Package management, reframed: `nix search nixpkgs <term>` finds a
+      package's attribute name; it is added to the `environment.
+      systemPackages` list (or a more specific option) inside
+      `configuration.nix`, and installing it means running
+      `nixos-rebuild switch` afterward, not a separate install command.
+      `nix-env -iA nixpkgs.<pkg>` installs into a single user's own profile
+      instead of the system configuration — a genuinely different, narrower
+      operation, documented as such rather than as an equivalent shortcut.
+      Removing something system-wide means deleting it from
+      `configuration.nix` and running `nixos-rebuild switch` again, the
+      same command that installs.
+
+      The rebuild command itself has three documented modes worth telling
+      apart: `nixos-rebuild switch` builds and activates the new
+      configuration immediately AND sets it as the default for the next
+      boot; `nixos-rebuild boot` builds and sets the next-boot default
+      without activating now; `nixos-rebuild test` activates now without
+      changing what the next boot uses — useful for a network change that
+      might lock a remote session out, since a bad `test` reverts on
+      reboot.
+
+      Release model: stable channels (`nixos-25.05`, `nixos-25.11`, …)
+      release roughly every six months and receive only conservative
+      bug-fix and security updates afterward — no new features land in a
+      stable channel post-release. `nixos-unstable` tracks Nixpkgs'
+      development branch continuously and is explicitly not a
+      stable/supported channel in the way the numbered releases are.
+
+      Network configuration: read directly from `configuration.nix`'s
+      `networking.*` options — there is no separate systemd-networkd/
+      NetworkManager choice to check first, because either can itself be
+      selected as a NixOS module, but the *configuration* is always this
+      one file regardless of which backend is chosen underneath.
+
+      Service manager: systemd (`systemctl`, `journalctl`) — NixOS
+      generates systemd unit files FROM the Nix configuration rather than
+      having them hand-edited, but `systemctl`/`journalctl` read and
+      control them the same as on any other systemd distribution.
+
+      Logs: `journalctl`.
+
+    breaks_if_wrong: >
+      Editing a generated file under `/etc/systemd/` or a package's runtime
+      state directly, rather than `configuration.nix`, is the NixOS-specific
+      miss — the next `nixos-rebuild switch` regenerates the system from
+      the Nix file and silently discards a direct edit that was never
+      recorded there.
+
+    misdiagnosed_as: >
+      "My change didn't stick after a rebuild" almost always means the
+      change was made to a generated file instead of `configuration.nix` (or
+      a file it imports) — the generated file is an output, not an input,
+      on this platform.
+
+  sources:
+    - { vendor: "NixOS", doc: "NixOS Manual", url: "https://nixos.org/manual/nixos/stable/", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "NixOS Wiki", doc: "nixos-rebuild", url: "https://wiki.nixos.org/wiki/Nixos-rebuild", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "NixOS Wiki", doc: "Channel branches", url: "https://wiki.nixos.org/wiki/Channel_branches", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "NixOS", doc: "RFC 0080 — NixOS release schedule", url: "https://github.com/NixOS/rfcs/blob/master/rfcs/0080-nixos-release-schedule.md", read_on: "2026-09-19", note: "direct read" }
+
+  terminal: true

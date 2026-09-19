@@ -1,0 +1,88 @@
+# corpus/catalogue/arista/7050sx3-48yc8.yaml — read by fathom-corpus's
+# `catalogue` module (crates/fathom-corpus/src/catalogue.rs); see that file
+# for the format's rules. `reviewed_by: <named human>` is a placeholder, not
+# a name (invariant 10), the same convention
+# `corpus/catalogue/juniper/ex4300-48p.yaml` and this directory's sibling
+# `720xp-48zc2.yaml` use.
+#
+# WHERE EVERY NUMBER BELOW CAME FROM.
+#
+# Direct fetch of arista.com was blocked (`EGRESS_BLOCKED`) on 2026-09-19, the
+# same constraint `720xp-48zc2.yaml`'s header records in full for this same
+# session — see that file for what was tried. What follows is web-search
+# synthesis, corroborated across independent listings, read 2026-09-19
+# (CLAUDE.md rule 1).
+#
+#   Arista Networks, "7050X3 Series 10G | 25G | 40G | 50G | 100G Data Center
+#   Switches" datasheet (title/URL read: arista.com/assets/data/pdf/
+#   Datasheets/7050X3-Datasheet.pdf) and router-switch.com's listing of the
+#   `-R` airflow variant ("DCS-7050SX3-48YC8-R, Arista 7050X3 Switch,
+#   48x25GbE SFP/8x100GbE QSFP") — two independent listings, both read via
+#   search synthesis 2026-09-19: the DCS-7050SX3-48YC8 carries 48 wire-speed
+#   25G SFP28 ports and 8 configurable 40/100G QSFP28 uplinks, in a 1RU
+#   chassis, 6.4 Tbps aggregate. The 48 SFP28 ports face servers/hosts and
+#   are recorded `role: access`; the 8 QSFP28 ports face the spine and are
+#   recorded `role: uplink` — the standard leaf/ToR role split, not stated
+#   in so many words by either source but implied by "48x25GbE SFP" being
+#   the host-facing density and "8x100GbE QSFP" the aggregation density on a
+#   leaf switch of this class.
+#
+#   A third, independent listing — dedicatednetworksinc.com's and
+#   serverorbit.com's product pages for the same SKU, both read via search
+#   synthesis 2026-09-19 — corroborates the rear panel: "1 x Management
+#   (gigabit Lan) RJ-45, 1 x Management (RS-232) RJ-45, and 1 x USB", and
+#   "redundant hot-swap PSU/fans" with "2 x 500W Hot-Swap PSUs". The
+#   RS-232-over-RJ-45 port is the console port (the same RJ-45-to-DB-9
+#   adapter convention `720xp-48zc2.yaml`'s header cites for the 720XP
+#   family); the gigabit RJ-45 is the EOS `Management1` out-of-band
+#   interface, per the same EOS Interface Configuration manual read
+#   `720xp-48zc2.yaml`'s header cites.
+#
+# WHAT IS NOT INDEPENDENTLY CONFIRMED, AND THE CONSERVATIVE READING USED:
+#
+#   No photograph or diagram of this model's physical port arrangement was
+#   read (same egress block). `layout: paired_columns` on the 48-port SFP28
+#   bank and `layout: single_row` on the 8-port QSFP28 uplink bank follow
+#   this catalogue's own established conventions — see `720xp-48zc2.yaml`'s
+#   header for the identical reasoning, not repeated here. PSU1/PSU2's
+#   left-right order is assigned by listing order, the same conservative
+#   rule used throughout this catalogue.
+#
+#   The front-panel USB port some 7050X3 variants carry is not recorded
+#   here for the same `PortKind`-has-no-USB-member reason
+#   `720xp-48zc2.yaml`'s header states for its own model.
+vendor: arista
+model: DCS-7050SX3-48YC8
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Arista Networks, "7050X3 Series 10G | 25G | 40G | 50G | 100G Data Center
+    Switches" datasheet (title/URL read; body not fetchable — see file
+    header) for the 48x25G SFP28 + 8x100G QSFP28 port counts and 1RU form
+    factor; router-switch.com's listing of the `-R` variant for the same
+    counts, independently; dedicatednetworksinc.com's and serverorbit.com's
+    listings of the same SKU for the rear management RJ-45, rear console
+    RJ-45 (RS-232) and dual 500W hot-swap PSUs; Arista's EOS Interface
+    Configuration manual for the `Management1` interface name. All read via
+    web-search synthesis on 2026-09-19 because this environment's network
+    egress blocked a direct fetch of arista.com and every reseller mirror
+    tried (see `720xp-48zc2.yaml`'s header, same session, for what was
+    tried). Port layout and PSU order are this catalogue's own conservative
+    convention, not independently confirmed by a photograph — see this
+    file's "not independently confirmed" section.
+  read_on: "2026-09-19"
+faceplates:
+  - face: front
+    port_count: 56
+    port_groups:
+      - { kind: "SFP+", role: access, layout: paired_columns, count: 48, start_number: 1 }
+      - { kind: "QSFP+", role: uplink, layout: single_row, count: 8, start_number: 1 }
+  - face: rear
+    port_count: 2
+    port_groups:
+      - { kind: "RJ45", role: management, layout: single_row, names: [Management1] }
+      - { kind: "RJ45", role: console, layout: single_row, names: [Console] }
+psu_slots:
+  - { name: "PSU1", hot_swap: true, face: rear, position: { row: single, column: 0 } }
+  - { name: "PSU2", hot_swap: true, face: rear, position: { row: single, column: 1 } }

@@ -242,6 +242,60 @@ pub const FACE_RACK_CLASH: u8 = 14;
 /// number out of this file rather than out of a memory of it.
 pub const FACE_INV_KEY: u8 = 29;
 
+// --- the config drawer's two line faces (ADR-0052 §2) -------------------------
+//
+// Two more roles on the same stride-72 record, for the reason every face
+// block above already gives: the reply is a list of labelled string rows,
+// which is what `KIND_FACE_ROW` already is. 30 and 31 are the next free
+// numbers after `FACE_INV_KEY`'s own note about how that number was chosen —
+// read the next free number out of THIS file, never out of a memory of it.
+
+/// One line's fate on a paste, one row per ledger line, in ledger order:
+/// `ordinal · outcome token · byte start · byte end · display id it built,
+/// or empty · built fields (comma-joined names), or empty · reason or label`.
+///
+/// **The outcome token is one of four words — `built`, `kept`, `noise`,
+/// `quarantined` — never the Rust variant name.** `shell::line_rows` owns the
+/// mapping; a page rendering a gutter mark must not pattern-match a debug
+/// string, the same discipline [`FACE_PASTE_LINE`]'s neighbours already hold
+/// for every other closed set on this wire.
+///
+/// `built` is `LineOutcome::Bound`; `quarantined` is `LineOutcome::Quarantined`;
+/// `noise` covers `LineOutcome::Noise` and `LineOutcome::Blank` — text a
+/// terminal added or nothing at all, neither of which the operator composed;
+/// `kept` covers everything else the gate did not destroy and the binder did
+/// not use (`Unmapped`, `Unshaped`, `Header`) — the drawer's "kept as text"
+/// mark.
+///
+/// **A line can carry both this row and a [`FACE_DROP`] row.** A statement the
+/// dictionary knows AND whose value the gate destroyed — the PSK line — still
+/// binds: the field lands as a `SecretPlaceholder`, which is a successful
+/// parse of an absence, not a parse failure, so the line's own fate here is
+/// `built` while the destroyed value gets its own row on the second face.
+///
+/// Named `FACE_PASTE_LINE`, not `FACE_LINE` — code 10 already carries that
+/// name for the diagram's routed line, and a second Rust constant of the
+/// same name would not compile; a wire discriminant collision is exactly
+/// what `FACE_INV_KEY`'s own note above warns against.
+pub const FACE_PASTE_LINE: u8 = 30;
+/// One value the gate destroyed, one row per [`fathom_ingest::redact::DropManifest`]
+/// entry: `ordinal · marker byte start · marker byte end, both in the
+/// POST-GATE capture · label · detectors, comma-joined`.
+///
+/// **No slot carries the original value's length, and that is the whole point
+/// of this face existing separately from [`FACE_PASTE_LINE`].**
+/// `RedactionEntry::orig_len` is declared "for the in-session report only;
+/// the persistence layer must not store it" (`14` §9.5) and this row is what
+/// crosses the wire into a page a browser can inspect, so it is never read
+/// here — `shell::drop_rows` does not even look at the field.
+///
+/// The marker span IS on the wire, and that is safe rather than an
+/// oversight: `redact::marker` writes a fixed string per label —
+/// `<REDACTED:psk>` and so on — so the span's width is a property of the
+/// LABEL, never of the secret it replaced. Two PSKs of different lengths
+/// produce identical-width marker spans; only the label ever varies it.
+pub const FACE_DROP: u8 = 31;
+
 // --- the shape reply (`49` §19 phase 0, item 3) -------------------------------
 
 /// The held estate's shape digest — one row, slot 0, 16 lowercase hex
@@ -506,6 +560,14 @@ pub const ERR_CABLE_END: u16 = 19;
 
 /// `OP_CABLE`'s cut named something that does not resolve to a live `Cable`.
 pub const ERR_NO_CABLE: u16 = 20;
+
+/// `OP_LOAD_PLAIN` or `OP_EXPORT_PLAIN` refused: `fathom_workspace::read_plain`
+/// or `write_plain` returned an error, carried whole (ADR-0052 §4) — wrong
+/// magic, an unsupported face version, a missing plaintext banner, a schema
+/// version this build does not match, or a malformed body. The detail is the
+/// store's own words, for the same reason `ERR_WELD_REFUSED` carries them
+/// whole rather than paraphrasing.
+pub const ERR_PLAIN_REFUSED: u16 = 21;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
@@ -1212,6 +1274,12 @@ pub struct PasteReply<'a> {
     pub capture: &'a str,
     /// The shape digest of the estate this paste built — [`FACE_SHAPE`].
     pub shape: &'a str,
+    /// [`FACE_PASTE_LINE`] rows, one per ledger line, in ledger order. Empty for
+    /// replies this face does not apply to (`equip_reply_text` and the door
+    /// opcodes' own tiny summaries reuse this encoder with none of it).
+    pub lines: &'a [[String; 7]],
+    /// [`FACE_DROP`] rows, one per destroyed value.
+    pub drops: &'a [[String; 5]],
 }
 
 /// The diagram, as face rows. Numbers travel as decimal strings for the same
@@ -1616,11 +1684,54 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         extra += 1;
     }
 
+    for row in reply.lines {
+        let slots: [&str; 7] = std::array::from_fn(|i| row[i].as_str());
+        let rec = face_slots(&mut blob, FACE_PASTE_LINE, 7, &slots);
+        write_face_record(&mut records, &rec);
+    }
+    for row in reply.drops {
+        let slots: [&str; 5] = std::array::from_fn(|i| row[i].as_str());
+        let rec = face_slots(&mut blob, FACE_DROP, 5, &slots);
+        write_face_record(&mut records, &rec);
+    }
+
     face_reply(
         records,
-        1 + reply.residue.len() + reply.unresolved.len() + extra,
+        1 + reply.residue.len()
+            + reply.unresolved.len()
+            + extra
+            + reply.lines.len()
+            + reply.drops.len(),
         blob,
     )
+}
+
+/// `OP_REDACT_TEXT`'s reply (ADR-0053 §6): the gated text, then what the gate
+/// destroyed. No summary row, no lines, no shape — those belong to a paste
+/// that reached the binder, and this door stops before it.
+pub struct RedactReply<'a> {
+    /// The post-redaction text — [`FACE_CAPTURE`], always present, even when
+    /// the gate touched nothing.
+    pub capture: &'a str,
+    /// [`FACE_DROP`] rows, one per destroyed value — the same shape
+    /// `PasteReply::drops` carries.
+    pub drops: &'a [[String; 5]],
+}
+
+pub fn encode_redact_reply(reply: &RedactReply<'_>) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+
+    let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
+    write_face_record(&mut records, &rec);
+
+    for row in reply.drops {
+        let slots: [&str; 5] = std::array::from_fn(|i| row[i].as_str());
+        let rec = face_slots(&mut blob, FACE_DROP, 5, &slots);
+        write_face_record(&mut records, &rec);
+    }
+
+    face_reply(records, 1 + reply.drops.len(), blob)
 }
 
 // --- decoding ----------------------------------------------------------------

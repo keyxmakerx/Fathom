@@ -78,6 +78,25 @@ the entry's `reviewed_by`. Not a style preference — the build fails on the lit
 `<named human>`. If you contribute a command or a rule, you are asserting you ran it on real
 equipment and it behaved as written. If you did not, do not put your name on it.
 
+**Every dictionary file carries a `source: { cite, read_on }` header**, alongside its own
+file-level `reviewed_by` — required on every file under `corpus/dict/`, not only the ones with
+`token_maps`. `cite` names what you read (a vendor CLI reference, a manual page, or, honestly,
+`"could not establish"` when there was nothing to cite); `read_on` is the date you read it,
+`YYYY-MM-DD`. Citations used to live as YAML comments, which is prose no gate can see — the loader
+now refuses a missing header, an empty `cite`, or a `read_on` that is not date-shaped
+(`crates/fathom-ingest/src/dict.rs`'s `DictGate::SourceMissing`).
+
+**`secret_exempt` is a grant your dictionary can ask for, never one it can make.** Writing
+`secret_exempt: { reason: "…" }` on an entry is a request with a reason attached; whether it is
+*honoured* is decided by `SECRET_EXEMPT_ALLOWLIST` in `crates/fathom-ingest/src/dict.rs`, against
+the entry's exact path shape, and refused at load (`DictGate::SecretCoupling`) for every shape not
+on that list — however good the reason reads. This is deliberate: a corpus file is reviewed
+content, never an authority over the redaction gate (ADR-0044 §7). If your entry needs an
+exemption a review agrees is sound, the allowlist entry is added in a reviewed change to
+`fathom-ingest` itself, not in your dictionary PR, and the field it binds the exempted capture to
+must be a closed scalar (a fixed enum, a number, a structured address) — never `Text`, `Identifier`,
+`InterfaceName`, `Fqdn` or `TzName`, each of which can carry a credential verbatim.
+
 ## 6. Developer Certificate of Origin 1.1
 
 ```

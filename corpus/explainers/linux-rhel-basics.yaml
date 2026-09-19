@@ -1,0 +1,144 @@
+# corpus/explainers/linux-rhel-basics.yaml — orientation for Red Hat
+# Enterprise Linux and its binary-compatible rebuilds (Rocky Linux,
+# AlmaLinux), written in the manner of
+# corpus/explainers/linux-family-basics.yaml (read first) and
+# corpus/explainers/arista-eos-basics.yaml (full field convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `access.redhat.com/support/policy/updates/errata` (Red Hat's own
+#     lifecycle policy page) — RHEL 8, 9 and 10 each carry a ten-year life
+#     cycle: five years of Full Support (bug fixes, security patches,
+#     hardware enablement), five more years of Maintenance Support (security
+#     and bug fixes released as needed), then an Extended Life Phase with no
+#     further updates issued as part of the base subscription.
+#   - `docs.redhat.com/.../red_hat_enterprise_linux/9/html-single/
+#     configuring_and_managing_networking/` — NetworkManager is RHEL's
+#     default networking service and stores connection profiles as
+#     INI-style keyfiles under `/etc/NetworkManager/system-connections/`;
+#     `nmcli` configures and reads them from the command line, `nmtui`
+#     offers the same as a text UI.
+#   - the same source — the legacy `ifcfg` file format and
+#     `/etc/sysconfig/network-scripts/` are deprecated starting in RHEL 8
+#     (present for compatibility, no longer the default write format).
+#   - `dnf.readthedocs.io/en/latest/command_ref.html` — `dnf` is RHEL's
+#     package manager from RHEL 8 onward, replacing `yum` (RHEL 7 and
+#     earlier used `yum`; `yum` on RHEL 8+ is kept as a compatibility alias
+#     for `dnf`).
+#   - `github.com/rocky-linux/rocky` (Rocky Linux's own project repository,
+#     direct read, 2026-09-19) — Rocky Linux is "designed to be 100%
+#     bug-for-bug compatible with Enterprise Linux," a downstream rebuild of
+#     RHEL's published source, no Red Hat subscription required.
+#   - CORRECTION, same session: an earlier draft cited two third-party
+#     comparison blogs (OpenLogic, golinuxcloud) for AlmaLinux carrying the
+#     same "binary-compatible" claim as Rocky Linux. That is stale: AlmaLinux
+#     itself announced in July 2023 that it would drop the aim of 1:1 binary
+#     compatibility with RHEL in favour of ABI compatibility, following
+#     Red Hat's restriction of RHEL source access that month (AlmaLinux's
+#     own blog, "The Future of AlmaLinux is Bright," almalinux.org/blog/
+#     future-of-almalinux/ — direct fetch EGRESS_BLOCKED, checked
+#     2026-09-19). Read as search synthesis instead, corroborated by two
+#     independent outlets reporting that same AlmaLinux announcement
+#     (Phoronix, "AlmaLinux No Longer Aims For 1:1 Compatibility With RHEL,"
+#     and Linux Magazine's equivalent report, both read 2026-09-19): ABI
+#     compatibility means software built for RHEL runs on AlmaLinux, which
+#     is a narrower guarantee than Rocky Linux's bug-for-bug claim — the two
+#     rebuilds are not interchangeable on this point, and the entry below no
+#     longer says they are.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend Cockpit, Satellite,
+# or any specific subscription or management tool.
+entries:
+
+- id: explain:concept:linux-rhel.basics
+  class: concept
+  subject: { path: linux-rhel.basics }
+  title: "RHEL (and its rebuilds): dnf, a ten-year support life cycle, NetworkManager keyfiles"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    RHEL 8/9/10 carry a ten-year support life cycle (five years Full
+    Support, five years Maintenance Support). `dnf` is the package manager;
+    NetworkManager is the default, storing profiles as keyfiles since RHEL
+    8. Rocky Linux and AlmaLinux are community rebuilds of the same
+    platform under a different support model; Rocky Linux claims
+    bug-for-bug compatibility, AlmaLinux ABI compatibility only (since
+    2023) — not the same guarantee, see teaching body.
+
+  explained: >
+    RHEL is built for a support commitment measured in years, not months:
+    a decade per major version, split into a five-year Full Support phase
+    and a five-year Maintenance Support phase with a narrower update scope,
+    followed by an Extended Life Phase with no further included updates.
+    Rocky Linux and AlmaLinux exist to offer the same platform — same
+    package manager, same tooling, same NetworkManager default — without a
+    Red Hat subscription, but they do not make the same compatibility
+    promise as each other: Rocky Linux still targets bug-for-bug parity
+    with RHEL, while AlmaLinux moved to a narrower ABI-compatibility target
+    in 2023. For everything this entry covers (tooling, defaults, life
+    cycle model), reading either is close enough to RHEL; for a workload
+    that depends on exact behavioural parity, that difference matters and
+    reading either one is not automatically the same as reading RHEL.
+
+  teaching:
+    body: >
+      Package management: `dnf` from RHEL 8 onward (`dnf search <term>`,
+      `dnf install <pkg>`, `dnf remove <pkg>`, `dnf upgrade` for the whole
+      system); RHEL 7 and earlier use `yum` with the same command shapes
+      (`yum search`/`install`/`remove`/`update`), and `yum` remains
+      available on RHEL 8+ as a compatibility alias for `dnf`.
+
+      Release model: a RHEL major version (8, 9, 10) is supported for ten
+      years total — five years of Full Support (bug fixes, security
+      patches, hardware enablement, backports), five more of Maintenance
+      Support (security and bug fixes released as needed, not every
+      component). After that, the version enters an Extended Life Phase:
+      previously published content remains accessible, but the base
+      subscription does not include further updates.
+
+      Network configuration: NetworkManager is the default networking
+      service; `nmcli device status` and `nmcli connection show` read the
+      active state, `nmtui` is the same as a text UI. Connection profiles
+      are INI-style keyfiles under `/etc/NetworkManager/system-connections/`
+      since RHEL 8 — the older `ifcfg-*` format under
+      `/etc/sysconfig/network-scripts/` is deprecated from RHEL 8 onward,
+      present mainly for systems carried forward from RHEL 7.
+
+      Service manager: systemd (`systemctl`, `journalctl`).
+
+      Logs: `journalctl` is the primary path; `/var/log/` holds anything a
+      service writes directly.
+
+    breaks_if_wrong: >
+      Treating "Maintenance Support" (years 6-10) as identical to "Full
+      Support" (years 1-5) is the life-cycle-specific miss — the update
+      scope narrows at year five even though the major version is still
+      within its ten-year window, so a host well inside its RHEL life cycle
+      can still be missing a fix that only Full Support would have
+      shipped for a less widely used component.
+
+    misdiagnosed_as: >
+      "This RHEL box is still supported, so why hasn't this been patched"
+      often means the host is in Maintenance Support, where fixes are
+      "released as needed" for a narrower set of packages rather than on
+      the fuller cadence Full Support carries — checking which phase the
+      installed major version is currently in (against Red Hat's own
+      lifecycle page) answers it directly.
+
+  sources:
+    - { vendor: "Red Hat", doc: "Red Hat Enterprise Linux Life Cycle", url: "https://access.redhat.com/support/policy/updates/errata", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Red Hat", doc: "Configuring and managing networking — RHEL 9", url: "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/configuring_and_managing_networking/index", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "DNF project", doc: "DNF Command Reference", url: "https://dnf.readthedocs.io/en/latest/command_ref.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Rocky Linux", doc: "rocky-linux/rocky project repository", url: "https://github.com/rocky-linux/rocky", read_on: "2026-09-19", note: "direct read; Rocky Linux's own bug-for-bug compatibility claim" }
+    - { vendor: "Phoronix", doc: "AlmaLinux No Longer Aims For 1:1 Compatibility With RHEL", url: "https://www.phoronix.com/news/AlmaLinux-No-1-1-RHEL", read_on: "2026-09-19", note: "search synthesis (almalinux.org direct fetch EGRESS_BLOCKED), corroborated by a second independent report of the same AlmaLinux announcement (Linux Magazine)" }
+
+  terminal: true

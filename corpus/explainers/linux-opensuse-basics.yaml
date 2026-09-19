@@ -1,0 +1,128 @@
+# corpus/explainers/linux-opensuse-basics.yaml — orientation for openSUSE
+# (Leap and Tumbleweed), written in the manner of
+# corpus/explainers/linux-family-basics.yaml (read first) and
+# corpus/explainers/arista-eos-basics.yaml (full field convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `doc.opensuse.org/documentation/leap/reference/html/book-reference/
+#     cha-sw-cl.html` (openSUSE's own Reference guide, current Leap) —
+#     zypper's short forms: `zypper in <pkg>` (install), `zypper rm <pkg>`
+#     (remove), `zypper se <term>` (search); `zypper ref` refreshes
+#     repositories.
+#   - the same guide, contrasting the two flavours' own documented update
+#     workflow: Leap's is `zypper ref && zypper update` (apply available
+#     patches/updates within the same release); Tumbleweed's is `zypper ref
+#     && zypper dup` ("distribution upgrade" — the command Tumbleweed's own
+#     documentation names for moving to the latest rolling snapshot, since a
+#     plain `update` does not handle package replacements a rolling release
+#     produces).
+#   - `en.opensuse.org/Portal:Leap` and `en.opensuse.org/Portal:Tumbleweed`
+#     (openSUSE Wiki, primary) — Leap is a versioned release built from SUSE
+#     Linux Enterprise sources and binaries, released roughly annually, each
+#     major version supported until its successor ships; Tumbleweed is a
+#     rolling release with no versioned support window, tested through
+#     openQA before packages reach it.
+#   - `en.opensuse.org` search results on the wicked → NetworkManager
+#     transition, corroborated by two independent listings (openSUSE
+#     Kubic's own migration blog post and the Leap 15.x "Using
+#     NetworkManager" reference chapter, both describing the same
+#     switch/coexistence): openSUSE has shipped both `wicked` and
+#     NetworkManager for years, selectable at install and afterward via
+#     YaST's "Network Setup Method"; NetworkManager is documented as the
+#     default for laptop/desktop use, wicked as the traditional default for
+#     server use, and either can be switched to the other.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend YaST modules beyond
+# naming YaST as openSUSE's own configuration tool, nor any third-party
+# panel.
+entries:
+
+- id: explain:concept:linux-opensuse.basics
+  class: concept
+  subject: { path: linux-opensuse.basics }
+  title: "openSUSE: zypper, Leap vs Tumbleweed, and wicked/NetworkManager as coexisting defaults"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    openSUSE ships two release models under one name: Leap, versioned and
+    built from SUSE Linux Enterprise sources, and Tumbleweed, rolling with
+    no versioned support window. `zypper` is the package manager for both.
+    Network configuration is either wicked or NetworkManager, chosen at
+    install or switched afterward — check which is active rather than
+    assume one.
+
+  explained: >
+    "openSUSE" names two distributions with different release models
+    sharing one package manager. Leap follows SUSE Linux Enterprise's
+    binaries and sources, releases roughly annually, and each major version
+    is supported until its successor ships. Tumbleweed is a rolling
+    release with no version numbers to support or retire — a package moves
+    into it once it has passed openQA testing, continuously. `zypper` is
+    the command-line package manager for either, but the documented
+    whole-system update command differs between them, because a rolling
+    release routinely needs package replacements a point-release "apply
+    the available updates" command does not handle.
+
+  teaching:
+    body: >
+      Package management: `zypper se <term>` searches; `zypper in <pkg>`
+      installs; `zypper rm <pkg>` removes. Updating the whole system is
+      where Leap and Tumbleweed diverge: Leap's documented workflow is
+      `zypper ref && zypper update` (refresh repositories, then apply
+      available updates within the current release); Tumbleweed's is
+      `zypper ref && zypper dup` ("distribution upgrade" — reconciles
+      package replacements between snapshots, which a rolling release
+      produces routinely and a plain `update` is not designed to handle).
+
+      Release model: Leap releases roughly once a year and each major
+      version (a "15.x" or "16.x" line) is supported until its successor is
+      available — a fixed point, not an open-ended window. Tumbleweed has
+      no release version and no support window in that sense: it is
+      continuously current, and "supported" means "running the latest
+      snapshot".
+
+      Network configuration: two real, documented defaults coexist —
+      `wicked` (the traditional default, more common on server
+      installations) and NetworkManager (documented as the default for
+      desktop/laptop use). Which one a given box runs is chosen at install
+      time via YaST's "Network Setup Method" and can be changed afterward.
+      Reading the active state: `systemctl status wicked NetworkManager`
+      shows which service is running; if wicked, `wicked show all` reads
+      its view; if NetworkManager, `nmcli device status`.
+
+      Service manager: systemd (`systemctl`, `journalctl`).
+
+      Logs: `journalctl`; `/var/log/` for anything still writing there
+      directly (YaST's own logs, for instance, are file-based under
+      `/var/log/YaST2/`, not only in the journal).
+
+    breaks_if_wrong: >
+      Running Leap's `zypper update` workflow on Tumbleweed (or the reverse)
+      is the release-model-specific miss: `update` on a rolling release can
+      leave a system with an inconsistent package set, because it is not
+      designed to reconcile the replacements a rolling snapshot introduces
+      — that is exactly what `dup` is documented to do instead.
+
+    misdiagnosed_as: >
+      "zypper won't update everything" on Tumbleweed is usually "the wrong
+      subcommand was used" — `update` intentionally does not perform a
+      distribution upgrade; `dup` is the one Tumbleweed's own documentation
+      names for that.
+
+  sources:
+    - { vendor: "openSUSE", doc: "Managing software with command line tools — Leap Reference", url: "https://doc.opensuse.org/documentation/leap/reference/html/book-reference/cha-sw-cl.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "openSUSE", doc: "Portal:Leap", url: "https://en.opensuse.org/Portal:Leap", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "openSUSE", doc: "Portal:Tumbleweed", url: "https://en.opensuse.org/Portal:Tumbleweed", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "openSUSE Kubic", doc: "Switching from wicked to NetworkManager", url: "https://kubic.opensuse.org/blog/2022-05-05-NetworkManager-Wicked/", read_on: "2026-09-19", note: "search synthesis, corroborated by the Leap 15.x \"Using NetworkManager\" reference chapter describing the same coexistence" }
+
+  terminal: true

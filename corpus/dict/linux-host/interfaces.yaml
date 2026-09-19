@@ -1,0 +1,24 @@
+# corpus/dict/linux-host/interfaces.yaml — deliberately zero entries.
+#
+# THE REASONING IS IN corpus/dict/README-linux-host.md, NOT IN THESE COMMENTS
+# (the same convention corpus/dict/opnsense/firewall-rules.yaml's header
+# states for itself): a comment here costs artifact bytes rather than module
+# bytes once this file is handed to the module over OP_DICT.
+#
+# One sentence of the reasoning anyway, because a reader who never opens the
+# README should not be able to mistake silence for an oversight: `ip -d link
+# show`, `ip -4 -6 addr show`, `ip route show` and `bridge vlan show` all
+# print numbered, indented multi-line records that fail
+# `shape::ShapeError::NotVerbInitial` on every line, so no `path:` this file
+# could declare would ever be reached by `crates/fathom-ingest/src/shape.rs`'s
+# unconditional verb check — this is a core front-end gap, not a missing
+# entry. This file exists so `platform: linux-host` is a real, loadable
+# dictionary (Dictionary::load_platform("linux-host")` succeeds, zero
+# entries, zero token maps) that the ingest test in
+# `crates/fathom-ingest/tests/linux_host.rs` can run the gate against, and so
+# the directory is ready the day the record-shaped front end
+# README-linux-host.md describes exists.
+platform: linux-host
+source: { cite: "corpus/dict/README-linux-host.md — why this platform binds nothing; no vendor documentation page applies (zero entries)", read_on: "2026-09-19" }
+reviewed_by: <named human>
+entries: []

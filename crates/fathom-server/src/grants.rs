@@ -38,8 +38,8 @@
 //!   `account_keys.key_source` records that as a fact rather than leaving it
 //!   to be assumed.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{LazyLock, Mutex};
 
 use deadpool_postgres::Transaction;
 use fathom_canon::Json;
@@ -401,15 +401,34 @@ pub(crate) async fn site_row_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
 ) -> Result<Key32, AuthorityError> {
+    Ok(authority::row_key(&site_chain_key(tx, ring).await?))
+}
+
+/// **The site chain key itself** — the one key in this deployment that is the
+/// same for every organisation, and the input every site-scoped subkey is
+/// expanded from.
+///
+/// `pub(crate)` since `0014`: `sessions.rs` expands a second subkey from it,
+/// for the keyed hash of a claimed sign-in address, in exactly the shape
+/// [`authority::row_key`] expands `K_row_site`. It needs the key and not the
+/// row subkey, because a KDF label separates uses of ONE key and hashing an
+/// address is not a row seal.
+///
+/// Nothing outside this crate gains a way to reach it, and nothing inside it
+/// may return it to a caller who has not already been trusted with
+/// `chain_master`.
+pub(crate) async fn site_chain_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+) -> Result<Key32, AuthorityError> {
     let deployment = chains::deployment_id(&**tx).await?;
-    let chain_key = chain::chain_key(
+    Ok(chain::chain_key(
         ring.chain_master(),
         ChainRef::Site {
             deployment: &deployment,
         },
         CHAIN_KEY_EPOCH,
-    );
-    Ok(authority::row_key(&chain_key))
+    ))
 }
 
 /// `K_seal` for one organisation — the chain's own sealing subkey, which §3.4
@@ -571,12 +590,86 @@ pub async fn enrol_software_key(
     )
     .await?;
 
+    insert_account_key(tx, ring, &id, &account, public_key, appended.seq).await
+}
+
+/// Enrol an account's **first** software key, on the site chain, at the moment
+/// an enrolment token is redeemed (§1.1, §5.1, §6.2, migration `0015`).
+///
+/// # Why this exists beside [`enrol_software_key`], which does not change
+///
+/// [`enrol_software_key`] files `account_key_enrolled` on an ORGANISATION's
+/// chain, and needs an [`Authority`] to do it — which needs a
+/// [`repo::TenantContext`], which needs a membership row. That is right for a
+/// key enrolled by somebody who is already in an organisation, and impossible
+/// for the case this build is about: **§6.4 says a steward may only grant to a
+/// subject who already has a registered key, and §6.2 says an organisation
+/// shell is redeemed by an account that already has one.** So the first key of
+/// an invited person is enrolled before any organisation knows their name, and
+/// there is no organisation chain it could be filed on.
+///
+/// §7.1 answers what to do with it: *"the site chain covers everything
+/// organisation-independent."* §7.2 already names the type —
+/// `authenticator_registered` — on the site chain, which is where this files
+/// it.
+///
+/// **The row, its seal and the keyring's shape are identical.** Both paths go
+/// through `insert_account_key`, so a key enrolled at invitation and one
+/// enrolled inside an organisation are the same row sealed the same way, and
+/// `live_signing_key` cannot tell them apart — which is the property that
+/// makes sign-in work for both.
+pub async fn enrol_software_key_at_invitation(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    deployment: &str,
+    account: &str,
+    public_key: &[u8],
+) -> Result<AccountKey, AuthorityError> {
+    let fpr = authority::key_fingerprint(public_key);
+    let id = ids::new_ulid().to_string();
+
+    let appended = chains::append_site(
+        tx,
+        ring,
+        deployment,
+        EntryType::AuthenticatorRegistered,
+        &entry_metadata(
+            EntryType::AuthenticatorRegistered,
+            &[
+                ("account", Json::Str(account.to_string())),
+                ("key", Json::Str(id.clone())),
+                ("fpr", Json::Str(hex(&fpr))),
+                ("key_source", Json::Str("software".to_string())),
+                ("principal_kind", Json::Str("steward".to_string())),
+            ],
+        ),
+    )
+    .await?;
+
+    insert_account_key(tx, ring, &id, account, public_key, appended.seq).await
+}
+
+/// The row every enrolment path writes, sealed the one way.
+///
+/// **One function, so the two chains cannot drift into two row shapes.** The
+/// seal is `authority::row_seal` under the site-scoped row key, which is what
+/// `verify_key_row` recomputes at every use — an account's keyring is
+/// account-scoped, not organisation-scoped, and `site_row_key`'s own doc
+/// carries that argument.
+async fn insert_account_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    id: &str,
+    account: &str,
+    public_key: &[u8],
+    chain_seq: i64,
+) -> Result<AccountKey, AuthorityError> {
     let key = AccountKey {
-        id: id.clone(),
-        account_id: account.clone(),
+        id: id.to_string(),
+        account_id: account.to_string(),
         public_key: public_key.to_vec(),
-        fpr,
-        enrolled_seq: appended.seq,
+        fpr: authority::key_fingerprint(public_key),
+        enrolled_seq: chain_seq,
         row_version: 1,
         superseded_by: None,
         retired_at_unix: 0,
@@ -585,8 +678,8 @@ pub async fn enrol_software_key(
         &site_row_key(tx, ring).await?,
         &RowFacts {
             table: "account_keys",
-            row_id: &id,
-            chain_seq: appended.seq,
+            row_id: id,
+            chain_seq,
             row_version: 1,
             row_state: &account_key_row_state(&key),
         },
@@ -602,8 +695,8 @@ pub async fn enrol_software_key(
             &account,
             &public_key.to_vec(),
             &ALG_ES256,
-            &fpr.to_vec(),
-            &appended.seq,
+            &key.fpr.to_vec(),
+            &chain_seq,
             &seal.to_vec(),
         ],
     )
@@ -1796,7 +1889,8 @@ pub async fn set_suspension(
 
     write_suspension(
         tx,
-        auth,
+        auth.ring,
+        auth.tenant_key,
         &grant,
         suspend,
         "steward",
@@ -1863,7 +1957,8 @@ fn weakening_act_takes_effect_at(grant: &Grant, actor: &str, weakening: bool, at
 #[allow(clippy::too_many_arguments)]
 async fn write_suspension(
     tx: &Transaction<'_>,
-    auth: &Authority<'_>,
+    ring: &KeyRing,
+    tenant_key: &DataKey,
     grant: &Grant,
     suspend: bool,
     actor_kind: &str,
@@ -1873,17 +1968,17 @@ async fn write_suspension(
     at_unix: i64,
     takes_effect_unix: i64,
 ) -> Result<(), AuthorityError> {
-    let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
     let organisation = grant.organisation_id.clone();
     let entry_type = if suspend {
         EntryType::GrantSuspended
     } else {
         EntryType::GrantUnsuspended
     };
-    let appended = chains::append_org(
+    let appended = chains::append_org_as(
         tx,
         ring,
-        ctx,
+        &organisation,
+        actor_id,
         tenant_key,
         entry_type,
         &entry_metadata(
@@ -1953,8 +2048,94 @@ async fn write_suspension(
     )
     .await?;
 
-    advance_head(tx, auth.ring, auth.ctx, auth.tenant_key).await?;
+    advance_head_as(tx, ring, &organisation, actor_id, tenant_key).await?;
     Ok(())
+}
+
+/// **§1.1's operator suspend verb, made real.**
+///
+/// *"Suspend a scope grant (immediate) | operator session; any steward of that
+/// organisation may lift it; if no steward is live, the recovery key lifts
+/// it."* This is the one authority-adjacent act the operator plane has, and it
+/// is deliberately one-way: there is no operator unsuspend here, and `0011`'s
+/// own `CHECK` refuses `action = 'unsuspend'` for an `actor_kind = 'operator'`
+/// row, so a second opinion is needed to restore what one operator stopped.
+///
+/// # What an operator does NOT gain by holding this
+///
+/// * **No capability anywhere.** Suspension only ever removes a grant from the
+///   live set; `authorise_account` skips a suspended grant and nothing about
+///   this act can add one. An operator who suspends every grant in an
+///   organisation has locked its stewards out and has still read nothing.
+/// * **No design payload.** `repo::enter_operator_tenant_scope` sets
+///   `app.design_capability` to its refusal and never to anything else.
+/// * **No signature.** `actor_sig` is `NULL` for an operator, because there is
+///   nothing an operator could sign that a steward would honour — their
+///   authority for this act is the operator session, and the session is what
+///   the site chain records. The organisation's own chain records the act with
+///   `actor_kind = 'operator'`, so a steward reading their own trail can see
+///   that the machine side did this and who to ask.
+/// * **No immediacy against a steward's own protections.** §3.5's delay on a
+///   weakening act is a rule about a *steward* acting alone; §1.1 makes the
+///   operator's suspension immediate on purpose, because the case it exists
+///   for is a steward who must be stopped now. That asymmetry is the design's,
+///   is written down there, and is why the act is one-way and loudly recorded.
+///
+/// # Why this takes an organisation id, which §4's pinning rule would rather it
+/// did not
+///
+/// `scope_grants` is behind `organisation_id = app.tenant_id`, so the grant row
+/// cannot be read until a tenant is named — and the tenant cannot be read off
+/// the grant row that cannot be read. An earlier draft of this function took
+/// only a grant id for exactly the reason §4 gives, and it could not read
+/// anything.
+///
+/// So the caller names both, and **the pair is checked**: the organisation
+/// scopes the transaction, the grant is read inside that scope, and a grant
+/// whose own `organisation_id` is not the one named is refused. An operator who
+/// guesses a grant id from another tenant gets `NotAuthorised` rather than a
+/// suspension in the organisation they named. The alternative — widening
+/// `scope_grants`' read policy to any transaction that sets
+/// `app.operator_custody` — would give the application role a way to read every
+/// grant in the estate, which is a larger door than this one.
+pub async fn suspend_grant_by_operator(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator_id: &str,
+    organisation: &str,
+    grant_id: &str,
+    at_unix: i64,
+) -> Result<String, AuthorityError> {
+    let organisation = organisation.to_string();
+    repo::enter_operator_tenant_scope(tx, &organisation).await?;
+
+    let grant = read_grant(tx, grant_id)
+        .await?
+        .ok_or(AuthorityError::NotAuthorised)?;
+    if grant.organisation_id != organisation {
+        return Err(AuthorityError::NotAuthorised);
+    }
+
+    let tenant_key = keys::tenant_key_for(tx, ring, &organisation).await?;
+
+    write_suspension(
+        tx,
+        ring,
+        &tenant_key,
+        &grant,
+        true,
+        "operator",
+        operator_id,
+        None,
+        None,
+        at_unix,
+        // Immediate, which is the whole point of the verb (§1.1). §3.5's delay
+        // is a rule about one steward weakening another, and an operator is
+        // not a steward.
+        at_unix,
+    )
+    .await?;
+    Ok(organisation)
 }
 
 /// Revoke a grant — the positive, append-only fact §3.2 requires.
@@ -2070,7 +2251,33 @@ pub async fn advance_head(
     ctx: &TenantContext,
     tenant_key: &DataKey,
 ) -> Result<i32, AuthorityError> {
-    let organisation = ctx.tenant().to_string();
+    advance_head_as(
+        tx,
+        ring,
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        tenant_key,
+    )
+    .await
+}
+
+/// The half of [`advance_head`] that takes the organisation and the actor
+/// directly, for §1.1's operator suspend verb — which has no tenant context
+/// because an operator can never be a member (`0004`).
+///
+/// **The head MUST advance for every act that changes the authority state**,
+/// operator acts included: §3.4 step 4 recomputes the digest over the whole
+/// state and refuses the organisation outright if it disagrees with the head.
+/// An operator suspension that skipped this would not weaken one grant, it
+/// would make every authorisation in that organisation an integrity alarm.
+pub(crate) async fn advance_head_as(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    organisation: &str,
+    actor: &str,
+    tenant_key: &DataKey,
+) -> Result<i32, AuthorityError> {
+    let organisation = organisation.to_string();
     let epoch = next_epoch(tx, &organisation).await?;
     let state = read_authority_state(tx, &organisation).await?;
     let live = state.digest_entries(&row_key_for(ring, &organisation));
@@ -2081,10 +2288,11 @@ pub async fn advance_head(
         &live,
     );
 
-    let appended = chains::append_org(
+    let appended = chains::append_org_as(
         tx,
         ring,
-        ctx,
+        &organisation,
+        actor,
         tenant_key,
         EntryType::AuthHeadAdvanced,
         &entry_metadata(
@@ -3258,48 +3466,55 @@ async fn row_verifies<'a>(
     Ok(verdict)
 }
 
-/// **Authorise, from scratch, every time** (§3.4).
-///
-/// 1. the scope's ancestors, so a grant above it counts;
-/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
-/// 3. the epoch against this process's high-water mark;
-/// 4. the whole authority state, digested and compared against the head —
-///    grants, secondings, suspensions and revocations, not grants alone;
-/// 5. the organisation id recomputed from the root key, and the genesis set
-///    compared against what the sealed `org_genesis` entry names;
-/// 6. each candidate grant: its row seal, both key bindings, the granter's
-///    signature over recomputed bytes, its times, and §3.5's quorum — which is
-///    met by **one qualifying seconding**, walked with a visited set so that a
-///    seconder whose own stewardship depends on the grant under evaluation
-///    does not qualify;
-/// 7. only then the answer.
-///
-/// Step 4 is why a hand-inserted grant grants nothing, why editing
-/// `capability` on a real one grants nothing, why deleting a revocation row
-/// does not restore the grant, and — since the digest covers the whole state
-/// rather than the grants alone — why a seconding nobody was entitled to make
-/// does not make a steward.
-///
-/// # Nothing is cached, and there is nowhere to put a verdict
-///
-/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
-/// read inside the call and recomputed from sealed rows. Two authorisations in
-/// one process, one second apart, do the same work — which is what makes
-/// tampering between them visible.
-pub async fn authorise_account(
+/// Steps 2-5 of [`authorise_account`]'s seven, done once: the head and its
+/// seal, the rollback watch, the whole authority state digested against the
+/// head, and the genesis set. None of this depends on the scope or the
+/// capability being asked for -- only on the organisation -- so a caller
+/// that is about to ask the same organisation the same question for many
+/// rows (a list route, one row per design or per scope) calls this once and
+/// [`authorise_in_verified_state`] per row, rather than re-reading the head,
+/// re-digesting the whole authority state and re-verifying genesis for every
+/// row in the list. `authorise_account` itself is unchanged in behaviour: it
+/// still does all seven steps, every time, by calling this and then that in
+/// sequence, for every caller that authorises a single act.
+pub(crate) struct VerifiedAuthorityState {
+    organisation: String,
+    auth_epoch: i32,
+    root_fpr: [u8; 32],
+    state: AuthorityState,
+}
+
+/// Test-only instrumentation, always compiled (an integration test binary
+/// does not see `#[cfg(test)]` items in the library it links, so this cannot
+/// be gated behind one): how many times [`verify_authority_state`] has run
+/// to completion for `organisation`, this process's lifetime. Keyed by
+/// organisation, not one process-wide total, so that a test asserting "ran
+/// once" is not made flaky by every *other* test's own authorisations
+/// running concurrently against their own, different, organisations — each
+/// test in `tests/design_api.rs` bootstraps a fresh organisation, so its own
+/// count is its own. Read nowhere outside tests; carries no secret (an
+/// organisation id and a count).
+static VERIFY_AUTHORITY_STATE_CALLS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// See [`VERIFY_AUTHORITY_STATE_CALLS`].
+pub fn verify_authority_state_calls(organisation: &str) -> u64 {
+    VERIFY_AUTHORITY_STATE_CALLS
+        .lock()
+        .expect(POISON)
+        .get(organisation)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// §3.4 steps 2-5. See [`VerifiedAuthorityState`]'s doc for why this is its
+/// own function rather than inline in [`authorise_account`].
+pub(crate) async fn verify_authority_state(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
-    scope: Option<ScopeId>,
-    needed: Capability,
-) -> Result<Capabilities, AuthorityError> {
+) -> Result<VerifiedAuthorityState, AuthorityError> {
     let (ring, ctx, watch) = (auth.ring, auth.ctx, auth.watch);
     let organisation = auth.organisation();
-    let account = auth.actor();
-
-    // 1. The scope and its ancestors. `None` is the organisation itself, which
-    //    every grant in the organisation is at or above.
-    let scope_text = scope.map(|s| s.to_string());
-    let covering = covering_scopes(tx, &organisation, scope_text.as_deref()).await?;
 
     // 2. The head, and its seal.
     let head = tx
@@ -3364,6 +3579,44 @@ pub async fn authorise_account(
     let root_fpr = organisation_root_fpr(tx, ring, &organisation).await?;
     verify_genesis_set(tx, ring, ctx, &state).await?;
 
+    *VERIFY_AUTHORITY_STATE_CALLS
+        .lock()
+        .expect(POISON)
+        .entry(organisation.clone())
+        .or_insert(0) += 1;
+
+    Ok(VerifiedAuthorityState {
+        organisation,
+        auth_epoch,
+        root_fpr,
+        state,
+    })
+}
+
+/// §3.4 steps 1, 6 and 7, against a [`VerifiedAuthorityState`] steps 2-5
+/// already settled. Scope-dependent (step 1's ancestors) and
+/// capability-dependent (step 6's `covers` and quorum checks), so this is
+/// the part a list route still runs once per row -- see
+/// [`VerifiedAuthorityState`]'s doc.
+pub(crate) async fn authorise_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
+    let ring = auth.ring;
+    let account = auth.actor();
+    let organisation = &verified.organisation;
+    let auth_epoch = verified.auth_epoch;
+    let root_fpr = &verified.root_fpr;
+    let state = &verified.state;
+
+    // 1. The scope and its ancestors. `None` is the organisation itself, which
+    //    every grant in the organisation is at or above.
+    let scope_text = scope.map(|s| s.to_string());
+    let covering = covering_scopes(tx, organisation, scope_text.as_deref()).await?;
+
     // 6. The candidates.
     let now = now_unix();
     let mut best: Option<Capabilities> = None;
@@ -3399,13 +3652,13 @@ pub async fn authorise_account(
 
         // The row: a hard question, because this is the grant the answer
         // would rest on. `Unverifiable` here is the alarm §3.4 asks for.
-        verify_grant_row(tx, ring, &root_fpr, grant).await?;
+        verify_grant_row(tx, ring, root_fpr, grant).await?;
         // The quorum: a soft one. A `steward` grant with no qualifying
         // seconding is not a broken store, it is a grant that is not yet
         // usable -- so it is passed over and another candidate may still
         // answer. Each candidate gets its own pass, discarded with it.
         let pass = Mutex::new(QuorumPass::default());
-        if !grant_quorum_met(tx, ring, &state, &root_fpr, grant, &pass).await? {
+        if !grant_quorum_met(tx, ring, state, root_fpr, grant, &pass).await? {
             short_of_quorum = true;
             continue;
         }
@@ -3430,6 +3683,52 @@ pub async fn authorise_account(
         None if short_of_quorum => Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 }),
         None => Err(AuthorityError::NotAuthorised),
     }
+}
+
+/// **Authorise, from scratch, every time** (§3.4).
+///
+/// 1. the scope's ancestors, so a grant above it counts;
+/// 2. the head, and **its seal verified** — `Unverifiable`, never "no grants";
+/// 3. the epoch against this process's high-water mark;
+/// 4. the whole authority state, digested and compared against the head —
+///    grants, secondings, suspensions and revocations, not grants alone;
+/// 5. the organisation id recomputed from the root key, and the genesis set
+///    compared against what the sealed `org_genesis` entry names;
+/// 6. each candidate grant: its row seal, both key bindings, the granter's
+///    signature over recomputed bytes, its times, and §3.5's quorum — which is
+///    met by **one qualifying seconding**, walked with a visited set so that a
+///    seconder whose own stewardship depends on the grant under evaluation
+///    does not qualify;
+/// 7. only then the answer.
+///
+/// Step 4 is why a hand-inserted grant grants nothing, why editing
+/// `capability` on a real one grants nothing, why deleting a revocation row
+/// does not restore the grant, and — since the digest covers the whole state
+/// rather than the grants alone — why a seconding nobody was entitled to make
+/// does not make a steward.
+///
+/// Steps 2-5 live in [`verify_authority_state`] and steps 1, 6 and 7 in
+/// [`authorise_in_verified_state`]; this function is the two of them in
+/// sequence, for every caller that authorises one act at a time.
+/// [`list_designs_handler`](crate::design_api) and
+/// [`list_scopes_handler`](crate::design_api) call the two separately
+/// instead, once and many times, for the reason given on
+/// [`VerifiedAuthorityState`].
+///
+/// # Nothing is cached, and there is nowhere to put a verdict
+///
+/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
+/// read inside the call and recomputed from sealed rows. Two authorisations in
+/// one process, one second apart, do the same work — which is what makes
+/// tampering between them visible.
+pub async fn authorise_account(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    authorise_in_verified_state(tx, auth, &verified, scope, needed).await
 }
 
 #[cfg(test)]

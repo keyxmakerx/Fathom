@@ -304,6 +304,16 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     `56` has not made it. The rack ELEVATION is a separate renderer
         //     and is unaffected by this table — there, a rack is the frame.
         | NodeKind::Rack
+        //     `PowerSupply` (ADR-0050) joins them by the same rule: `56` has no
+        //     row for it either, and the rear elevation — a separate renderer,
+        //     like the rack elevation — is where a fitted supply actually draws.
+        | NodeKind::PowerSupply
+        //     `Surface` (ADR-0051 §1) joins them by the same rule again: `56`
+        //     has no row for a wall, floor, desk or ceiling either, and a
+        //     surface's elevation — a flat panel beside the rack rows — is,
+        //     like the rack and rear elevations, a separate renderer this
+        //     table does not govern.
+        | NodeKind::Surface
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service
@@ -337,6 +347,22 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     geometry of its own. `56` §4.1 has no row for it, so it is drawn
         //     UNTABLED beside its `NtpServer` sibling rather than hidden.
         | NodeKind::DhcpRelay
+        //     ADR-0052 §3 (2026-09-18): a capture is a per-device fact with no
+        //     geometry of its own, the same shape as `DhcpRelay` above. `56`
+        //     has no row for it — it predates the config drawer entirely — so
+        //     it is drawn UNTABLED beside its `DhcpRelay` sibling rather than
+        //     hidden. It joins `Placeable` (schema.yaml's own class) because
+        //     that test admits every kind but the pin, not because anything
+        //     in this build actually drags a capture around a diagram.
+        | NodeKind::Capture
+        //     ADR-0053 §5 (2026-09-19): a note is a per-owner fact with no
+        //     geometry of its own, the same shape as `Capture` above. `56`
+        //     has no row for it — it predates the note entirely — so it is
+        //     drawn UNTABLED beside its `Capture` sibling rather than hidden.
+        //     It joins `Placeable` (schema.yaml's own class) because that
+        //     test admits every kind but the pin, not because anything in
+        //     this build actually drags a note around a diagram.
+        | NodeKind::Note
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a

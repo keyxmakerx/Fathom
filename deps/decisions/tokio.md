@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Job** | The async runtime. `49` §6 names it *"unavoidable and universal"*, and the reason is structural rather than fashionable: the HTTP layer (`axum`), the PostgreSQL driver (`tokio-postgres`) and the WebSocket transport the collaborative editor needs are all written against tokio's traits. Choosing a different runtime does not mean writing different glue; it means having no HTTP server and no database driver |
-| **Version** | `1.53.1`, **`default-features = false`**, features `rt-multi-thread`, `net`, `macros`, `signal`, `time` |
+| **Version** | `1.53.1`, **`default-features = false`**, features `rt-multi-thread`, `net`, `macros`, `signal`, `time`, `fs` |
 | **Publisher** | The Tokio project (`tokio-rs`). Repository `https://github.com/tokio-rs/tokio` — read from the crate's own metadata 2026-09-03. **Not the crates.io owner list**, which needs the JSON API; see `00-CLOSURE-SERVER.md` on what that column can and cannot say |
 | **Licence** | MIT — compatible with ADR-0004, and on `deny.toml`'s allow list |
 | **Ships or tooling** | **Ships.** Linked into the `fathom-server` binary. It is **not** in the WASM module and must never be: the browser side has no runtime and no sockets, which is invariant 1's whole point for the client |
@@ -36,9 +36,33 @@ The five enabled features are the ones the skeleton actually uses:
 | `signal` | graceful shutdown on SIGTERM — a container's stop signal, `43` §5.4 |
 | `time` | timeouts, including the health check's own |
 
-Notably **absent**: `fs`, `process`, and `io-std`. A server that never reads a file and never
-spawns a process is a smaller thing to reason about, and the day one of them is needed is the day
-someone writes down why.
+Notably **absent**: `process` and `io-std`. A server that never spawns a process is a smaller thing
+to reason about, and the day one of them is needed is the day someone writes down why.
+
+## `fs`, added 2026-09-14, and this is the writing-down
+
+The line above said `fs` was absent too. It is now enabled, so here is the why it asked for.
+
+`GET /firmware/fetch/{token}` serves a staged firmware image, up to two gibibytes, to a network
+device (ADR-0045). The first build read the whole file into memory to answer the request, which on a
+route that carries **no session** — the URL is the credential, because a switch cannot sign a request
+— is a denial-of-service surface. Streaming it needs `tokio_util::io::ReaderStream`
+(`deps/decisions/tokio-util.md`, owner-approved the same day), `ReaderStream` needs an `AsyncRead`,
+and the only `AsyncRead` over a file is `tokio::fs::File`.
+
+**It is a feature, not a dependency.** tokio's own manifest has `fs = []`: it pulls nothing. The
+lockfile is byte-identical with and without it and gate-zero counts the same 141 packages, both
+checked on 2026-09-14.
+
+What it actually adds is a wrapper that hands file operations to the blocking pool — the same
+mechanism the firmware upload path already hand-rolls with `spawn_blocking` around `std::fs`. So the
+sentence this replaces is no longer quite true in a second way: the server had already begun reading
+and writing files, through `std::fs` on a blocking thread, before this feature existed. Enabling
+`fs` makes that explicit rather than introducing it.
+
+Measured after the change, serving a one-gibibyte image: **315,392 bytes of resident growth**, about
+one read buffer. A control that reinstated the buffered read grew the same process by the full image
+size, which is how the measurement was shown to be capable of failing.
 
 ## Advisories
 

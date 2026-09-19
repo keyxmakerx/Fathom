@@ -1,0 +1,140 @@
+# corpus/explainers/linux-ubuntu-basics.yaml — orientation for Ubuntu,
+# written in the manner of corpus/explainers/linux-family-basics.yaml (read
+# first) and corpus/explainers/arista-eos-basics.yaml (full field convention).
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders (invariant
+# 10): unreviewed until a named human vouches for it.
+#
+# SOURCES — read 2026-09-19:
+#   - `manpages.ubuntu.com/manpages/xenial/man8/apt.8.html` and
+#     `wiki.debian.org/AptCLI` (Ubuntu inherits apt from Debian unmodified in
+#     its basic command surface) — `apt search`/`install`/`remove`/`update`/
+#     `upgrade`/`full-upgrade`, same semantics as Debian's own entry in this
+#     bundle.
+#   - `ubuntu.com/about/release-cycle` (Canonical's own page) — two release
+#     types: LTS, published every two years in April, receiving 5 years of
+#     standard security maintenance (extendable to 10 years total via Ubuntu
+#     Pro's Expanded Security Maintenance); interim releases, published every
+#     six months between LTS versions, supported for 9 months.
+#   - `manpages.ubuntu.com/manpages/jammy/man5/netplan.5.html` (direct read,
+#     2026-09-19) — Netplan is Ubuntu's own YAML configuration layer
+#     (`/etc/netplan/*.yaml`) that generates configuration for one of two
+#     backends ("renderers"): NetworkManager or systemd-networkd, and the
+#     man page states the `renderer` key "Defaults to networkd if not
+#     defined." CORRECTION, same session: an earlier draft of this entry
+#     cited `documentation.ubuntu.com/core/.../networkmanager-and-netplan/`
+#     for a claim that page does not make — it is Ubuntu Core documentation
+#     (a third install target, not Server or Desktop) and its body never
+#     says "Server" or "Desktop." Direct fetch of that claim on
+#     documentation.ubuntu.com's Server/Desktop pages did not surface a
+#     single page stating the Server/Desktop split explicitly (checked
+#     2026-09-19); the split (Server installs ship no renderer override, so
+#     they take the networkd default above; Desktop installs ship
+#     `/etc/netplan/01-network-manager-all.yaml`, which sets the renderer to
+#     NetworkManager) is recorded as search-synthesis, corroborated across
+#     independent listings from separate publishers returned by two separate
+#     search queries on 2026-09-19, per this repository's citation
+#     convention for a claim a primary source could not be read for.
+#   - `manpages.ubuntu.com/manpages/jammy/man8/netplan-try.8.html` (direct
+#     read, 2026-09-19) — "netplan try takes a netplan configuration,
+#     applies it, and automatically rolls it back if the user does not
+#     confirm the configuration within a time limit," default 120 seconds;
+#     `netplan generate` renders the backend config, `netplan apply`
+#     activates it without the revert-on-timeout behaviour `netplan try` has.
+#
+# WHAT THIS ENTRY DOES NOT CLAIM: it does not recommend Ubuntu Pro, a
+# desktop environment, or any specific tool beyond apt and netplan.
+entries:
+
+- id: explain:concept:linux-ubuntu.basics
+  class: concept
+  subject: { path: linux-ubuntu.basics }
+  title: "Ubuntu: apt over Debian's base, LTS vs interim releases, and Netplan's two renderers"
+  entry_version: 1.0.0
+  status: active
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-09-19
+  voice_reviewed_by: <named human>
+  tab: "read this first"
+
+  terse: >
+    Ubuntu uses Debian's `apt` unmodified. Two release types exist: LTS
+    (every two years, 5 years of standard support) and interim (every six
+    months, 9 months of support). Network configuration is written once as
+    Netplan YAML and rendered into either systemd-networkd (Server default)
+    or NetworkManager (Desktop default).
+
+  explained: >
+    Ubuntu is built on Debian's package base and its package management is
+    the same `apt` a Debian box uses — nothing distribution-specific to
+    learn there. What Ubuntu adds is its own release cadence, with two
+    tracks that carry different commitments, and its own network
+    configuration layer, Netplan, which is a YAML front end over one of two
+    backends rather than a backend in its own right: the YAML a person edits
+    under `/etc/netplan/` is not itself what reads packets, it is translated
+    into configuration for systemd-networkd or NetworkManager, whichever
+    Netplan is set to render for.
+
+  teaching:
+    body: >
+      Package management: identical to Debian's entry in this bundle —
+      `apt search <term>`, `apt install <pkg>`, `apt remove <pkg>` (or
+      `apt purge <pkg>` to remove its configuration too), and whole-system
+      updates as `apt update` (refresh indexes) then `apt upgrade` (install
+      available upgrades without removing packages) or `apt full-upgrade`
+      (may remove a package if the upgrade as a whole needs it).
+
+      Release model: LTS releases arrive every two years (April, even-year),
+      each with 5 years of standard security maintenance from Canonical —
+      extendable to 10 years total under Ubuntu Pro's Expanded Security
+      Maintenance, a paid/registered option, not a default. Interim releases
+      arrive every six months between LTS versions and are supported for 9
+      months each — enough to bridge to the next release but not meant to be
+      run indefinitely the way an LTS is.
+
+      Network configuration: read `/etc/netplan/*.yaml` first — this is
+      where the declared configuration lives regardless of which backend
+      renders it. `networkctl status` (systemd-networkd) or `nmcli device
+      status` (NetworkManager) shows the ACTIVE state depending on which
+      renderer Netplan is configured to use; Netplan's own `renderer` key
+      defaults to systemd-networkd when nothing overrides it (the man
+      page's own words), and a Desktop install ships a netplan file that
+      sets NetworkManager as the renderer instead — either install can be
+      configured to use the other (search-synthesis for the Server/Desktop
+      split, see file header). `netplan apply` activates an edited YAML
+      file; `netplan try` applies it with an automatic revert (120 seconds
+      by default) if not confirmed within that timeout — documented
+      Netplan behaviour, not a Fathom recommendation of a workflow.
+
+      Service manager: systemd (`systemctl`, `journalctl`), the same as
+      Debian's.
+
+      Logs: `journalctl`, plus `/var/log/` for services still writing there
+      directly.
+
+    breaks_if_wrong: >
+      Editing a rendered backend file directly (a systemd-networkd `.network`
+      file under `/run/systemd/network/`, or a NetworkManager connection
+      profile) instead of the Netplan YAML under `/etc/netplan/` is the
+      Ubuntu-specific miss: Netplan regenerates those files from the YAML on
+      the next `netplan apply`, silently discarding a direct edit. Confusing
+      an interim release's 9-month support window with an LTS's 5-year one
+      is the other — an interim release reaching end of support looks
+      identical to a supported one until updates stop applying.
+
+    misdiagnosed_as: >
+      "My network settings keep reverting" is usually "something edited the
+      rendered backend file directly instead of the Netplan YAML that
+      generates it" — checking `/etc/netplan/` for the actual source of
+      truth resolves it faster than suspecting a bug in the renderer.
+
+  sources:
+    - { vendor: "Canonical", doc: "Ubuntu release cycle", url: "https://ubuntu.com/about/release-cycle", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Ubuntu", doc: "apt(8) manual page", url: "https://manpages.ubuntu.com/manpages/xenial/man8/apt.8.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Ubuntu", doc: "netplan(5) manual page", url: "https://manpages.ubuntu.com/manpages/jammy/man5/netplan.5.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "Ubuntu", doc: "netplan-try(8) manual page", url: "https://manpages.ubuntu.com/manpages/jammy/man8/netplan-try.8.html", read_on: "2026-09-19", note: "direct read" }
+    - { vendor: "linuxconfig.org", doc: "Netplan network configuration tutorial for beginners", url: "https://linuxconfig.org/netplan-network-configuration-tutorial-for-beginners", read_on: "2026-09-19", note: "search synthesis (direct fetch EGRESS_BLOCKED) for the Server/Desktop default-renderer split; no single documentation.ubuntu.com page states this split directly, see file header. Corroborated by a second, independent listing (chns.tech's Ubuntu Server netplan guide, also EGRESS_BLOCKED, read via search synthesis same session)." }
+
+  terminal: true

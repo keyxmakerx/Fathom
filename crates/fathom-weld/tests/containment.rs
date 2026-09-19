@@ -22,28 +22,41 @@ fn admitting(owner: NodeKind, child: NodeKind) -> Vec<EdgeKind> {
         .collect()
 }
 
-/// G5. All 49 × 49 = 2,401 pairs: no pair is carried by two containment edge
+/// G5. All 54 × 54 = 2,916 pairs: no pair is carried by two containment edge
 /// kinds, and `containment_edge` returns exactly what an independent scan of
 /// the same tables returns.
 ///
-/// The pair count this pins is 96, and it is 47 + 49.
+/// The pair count this pins is 104, and it is 51 real containment pairs plus
+/// 53 `HasLayoutPin` pairs.
 ///
-/// **47** is the original set plus one, and the original 46 is not WO-09 §3's
-/// 51: the five root-containment kinds (`HasTunnel`, `HasPremises`,
-/// `HasCable`, `HasTenant`, `HasServiceType`) declare `from: [root]`, and the
-/// workspace root is not a node kind, so `from_kinds()` is empty for each and
-/// no (NodeKind, NodeKind) pair names them. 51 − 5 = 46. ADR-0036 adds the
-/// 47th: `HasRack` (`Premises -> Rack`). `MountedIn` is NOT here and must
-/// never be — it is a `reference`, because `Chassis` already has a
-/// containment parent (`Device`) and this test's own `<= 1` property is what
-/// would have caught the mistake of making a rack contain a box.
+/// **51** is every non-root containment edge kind's own pairs, one bucket:
+/// the five root-containment kinds (`HasTunnel`, `HasPremises`, `HasCable`,
+/// `HasTenant`, `HasServiceType`) declare `from: [root]`, and the workspace
+/// root is not a node kind, so `from_kinds()` is empty for each and no
+/// (NodeKind, NodeKind) pair names them — that is where 51 (WO-09 §3) becomes
+/// 46. ADR-0036 adds `HasRack` (`Premises -> Rack`), WO-10 adds `HasDhcpRelay`
+/// (`Device -> DhcpRelay`), ADR-0050 adds `FittedIn` (`Chassis ->
+/// PowerSupply`) — 46 + 3 = 49. ADR-0051 §1 adds `HasSurface` (`Premises ->
+/// Surface`) — 49 + 1 = 50. ADR-0052 §3 adds `HasCapture` (`Device ->
+/// Capture`) — 50 + 1 = 51. `MountedIn` is NOT here and must never be — it is
+/// a `reference`, because `Chassis` already has a containment parent
+/// (`Device`) and this test's own `<= 1` property is what would have caught
+/// the mistake of making a rack contain a box. `FittedIn` IS here, unlike
+/// `MountedIn`: `PowerSupply` has no competing containment parent, so nothing
+/// forces it to be a reference the way `Chassis` is forced. `SitsOn` and
+/// `FixedTo` are NOT here for the identical reason `MountedIn` is not: both
+/// are `reference` edges, because the `Chassis` or `PassiveNode` they seat or
+/// fix already has a real containment parent (`HasChassis` or
+/// `HasPassiveNode`).
 ///
-/// **49** is `HasLayoutPin` (ADR-0035), whose `from:` is the `Placeable` class —
-/// every kind but `LayoutPin` itself, which is 49 once `Rack` joins the class.
-/// One edge kind, forty-nine pairs, all with the same child. That is what makes
-/// a position storable on anything the diagram draws without forty-nine edge
-/// declarations, and the count moving by exactly the kind count is the
-/// arithmetic to check if it ever moves again.
+/// **53** is `HasLayoutPin` (ADR-0035), whose `from:` is the `Placeable` class —
+/// every kind but `LayoutPin` itself, which is 53 once `Capture` joins the
+/// class (ADR-0052 §3) atop `Surface` (ADR-0051 §1), `PowerSupply` (ADR-0050),
+/// `Rack` (ADR-0036) and `DhcpRelay` (WO-10). One edge kind, fifty-three pairs,
+/// all with the same child. That is what makes a position storable on
+/// anything the diagram draws without fifty-one edge declarations, and the
+/// count moving by exactly the kind count is the arithmetic to check if it
+/// ever moves again.
 #[test]
 fn every_kind_pair_has_at_most_one_containment_edge() {
     let mut resolved = 0usize;
@@ -77,7 +90,34 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // here, never one. A count that moved by one would mean the kind was
     // declared but left out of the class, which is exactly the drift
     // `shipped_tree.rs::every_kind_but_the_pin_itself_is_placeable` guards.
-    assert_eq!(resolved, 98, "the containment pair set moved");
+    //
+    // 98 -> 100 on 2026-09-16 (ADR-0050, schema 0.7), the same shape of move
+    // again: `FittedIn` adds (Chassis, PowerSupply) — CONTAINMENT, unlike
+    // `MountedIn`, because `PowerSupply` has no other containment parent to
+    // conflict with, unlike `Chassis` — and joining `Placeable` adds
+    // (PowerSupply, LayoutPin) through `HasLayoutPin`. Two pairs for one new
+    // kind, the same arithmetic WO-10 established.
+    //
+    // 100 -> 101 the same day: `HasPort`'s own `from` list gains
+    // `PowerSupply`, which the `PortHost` class already named — a supply
+    // hosts its inlet port (ADR-0050 §4) — adding (PowerSupply, PhysicalPort).
+    //
+    // 101 -> 103 on 2026-09-18 (ADR-0051 §1, schema 0.8), the same shape of
+    // move WO-10 and ADR-0050 both made: `HasSurface` adds (Premises,
+    // Surface) — CONTAINMENT, in the manner of `HasRack` — and joining
+    // `Placeable` adds (Surface, LayoutPin) through `HasLayoutPin`. `SitsOn`
+    // and `FixedTo` add nothing here: both are REFERENCE edges, `MountedIn`'s
+    // own shape, because the `Chassis` or `PassiveNode` they name already has
+    // a real containment parent.
+    //
+    // 103 -> 105 on 2026-09-18 (ADR-0052 §3, schema 0.9), the same shape of
+    // move again: `HasCapture` adds (Device, Capture) — CONTAINMENT, in the
+    // manner of `HasChassis` — and joining `Placeable` adds (Capture,
+    // LayoutPin) through `HasLayoutPin`.
+    // 105 -> 109 on 2026-09-19 (ADR-0053, schema 0.10): `HasNote` from the
+    // `Notable` class resolves to three pairs (Device, PhysicalPort, Rack)
+    // -> Note, and `Note` joining `Placeable` adds (Note, LayoutPin).
+    assert_eq!(resolved, 109, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -93,7 +133,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
         .filter(|k| k.class() == EdgeClass::Containment)
         .count();
     // 44 as of 2026-08-29: `HasDhcpRelay` (WO-10, schema 0.5), Device -> DhcpRelay.
-    assert_eq!(containment, 44);
+    // 45 as of 2026-09-16: `FittedIn` (ADR-0050, schema 0.7), Chassis -> PowerSupply.
+    // 46 as of 2026-09-18: `HasSurface` (ADR-0051 §1, schema 0.8), Premises -> Surface.
+    // `SitsOn` and `FixedTo` are REFERENCE and do not count here.
+    // 47 as of 2026-09-18: `HasCapture` (ADR-0052 §3, schema 0.9), Device -> Capture.
+    assert_eq!(containment, 48); // `HasNote` is containment (2026-09-19)
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
