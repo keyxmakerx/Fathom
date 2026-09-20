@@ -656,6 +656,31 @@ async fn main() -> ExitCode {
         }
     };
 
+    // The web client, served by this binary (`src/client.rs`, 2026-09-20:
+    // one published port behind the operator's own reverse proxy, like every
+    // other service they run). A root that names no `index.html` is refused
+    // at startup, not discovered as a 404 on the first visit.
+    let client_root = match &config.client_root {
+        None => {
+            tracing::info!("no FATHOM_CLIENT_ROOT; serving the API only");
+            None
+        }
+        Some(dir) => match fathom_server::client::ClientRoot::open(dir) {
+            Ok(root) => {
+                tracing::info!(directory = %root.path().display(), "serving the web client");
+                Some(root)
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    directory = %dir,
+                    "FATHOM_CLIENT_ROOT is not a built client; refusing to start"
+                );
+                return ExitCode::from(13);
+            }
+        },
+    };
+
     let admin = fathom_server::admin::AdminState {
         sessions,
         operators,
@@ -705,6 +730,10 @@ async fn main() -> ExitCode {
                 store,
             },
         ));
+    }
+    // Last, so that every API route above wins over a file of the same name.
+    if let Some(root) = client_root {
+        app = root.attach(app);
     }
     let served = axum::serve(
         listener,

@@ -1,12 +1,12 @@
 # compose.yaml — WO-11 §4 deliverable 7, following `43` §5.4. At the
 # repository root since 2026-09-19 so that `docker compose up` here is the
-# whole instruction, and self-contained since the same day: the Caddyfile,
-# the key-generation script and the database init script are inline
-# `configs` at the bottom, so this file can be pasted into a compose front
-# end on its own. `deploy/` keeps the Dockerfile the `build:` sections use.
+# whole instruction, and self-contained since the same day: the
+# key-generation script and the database init script are inline `configs`
+# at the bottom, so this file can be pasted into a compose front end on its
+# own. `deploy/` keeps the Dockerfile the `build:` sections use.
 #
 # WHAT THIS IS AND IS NOT. It brings up the WO-11 skeleton: PostgreSQL, the
-# server, and Caddy terminating TLS in front. There are no accounts, no tenants
+# server (and, until 2026-09-20, a Caddy in front). There are no accounts, no tenants
 # and no data — WO-11 §6 G8 forbids any table but the migrations table until
 # ADR-0040's key boundary is decided.
 #
@@ -18,16 +18,15 @@
 #
 #   image: ...@sha256:   never a tag, for every image somebody else builds. The
 #                        digest is the artifact; the tag is a pointer (`35`
-#                        §7.4). Digests read 2026-09-03. FATHOM'S OWN TWO
-#                        IMAGES ARE THE ONE EXCEPTION, since 2026-09-19: they
-#                        are named `ghcr.io/keyxmakerx/fathom-server` and
-#                        `fathom-caddy` at the tag `FATHOM_TAG` (default
-#                        `latest`), which `.github/workflows/publish.yml`
-#                        pushes from every merge to `main` with provenance
-#                        attested per image, after the same gate floor
-#                        `ci.yml` runs. `docker compose up -d` PULLS them; the
-#                        `build:` beside each is what `--build` uses to build
-#                        the same two stages from this checkout instead
+#                        §7.4). Digests read 2026-09-03. FATHOM'S OWN IMAGE
+#                        IS THE ONE EXCEPTION, since 2026-09-19: it is named
+#                        `ghcr.io/keyxmakerx/fathom-server` at the tag
+#                        `FATHOM_TAG` (default `latest`), which
+#                        `.github/workflows/publish.yml` pushes from every
+#                        merge to `main` with provenance attested, after the
+#                        same gate floor `ci.yml` runs. `docker compose up -d`
+#                        PULLS it; the `build:` beside it is what `--build`
+#                        uses to build the same stage from this checkout instead
 #                        (compose-spec 05-services.md, read 2026-09-19: with a
 #                        build section present, pulling is still the default,
 #                        `pull_policy: missing` says so explicitly, and a
@@ -130,11 +129,14 @@
 #
 #     docker compose run --rm server reissue-bootstrap-token
 #
-# AND THE ONE THAT MATTERS MOST HERE: **the server is not published to the
-# host.** Only Caddy is. `49` §6 keeps C7 — no C or C++ in the shipped closure —
-# only because TLS terminates in front of the binary; a server reachable
-# directly would be a plaintext HTTP endpoint on the network, and it would work,
-# which is how that kind of mistake survives.
+# AND THE ONE THAT MATTERS MOST HERE, REVERSED ON 2026-09-20: **the server is
+# the one published port.** Until then only a Caddy of our own was published,
+# terminating TLS in front of the binary so that `49` §6's C7 (no C or C++ in
+# the shipped closure) held without a TLS stack in the server. It still
+# holds, the same way: TLS terminates in the operator's own reverse proxy,
+# which every other service they run already sits behind. The server speaks
+# plain HTTP to that proxy and to nothing else -- see the `ports:` comment on
+# the service for what that requires of the deployment.
 
 name: fathom
 
@@ -256,11 +258,10 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-      # Named explicitly now that this Dockerfile builds more than one final
-      # image (`client-build` and `caddy` are later stages in the same
-      # file) -- an unqualified build picks the LAST stage, which would
-      # otherwise silently become the caddy image the day these stages
-      # moved. See `deploy/Dockerfile`'s own comment on the `server` stage.
+      # Named explicitly: an unqualified build picks the LAST stage, and
+      # this Dockerfile has intermediate stages (`client-build`, `wasm-build`)
+      # that must never silently become the image the day they move. See
+      # `deploy/Dockerfile`'s own comment on the `server` stage.
       target: server
     # In a real deployment this is a digest, exactly like the two above:
     #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
@@ -279,8 +280,18 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
-    expose:
-      - "8080"
+    # THE ONE PUBLISHED PORT, since 2026-09-20. Plain HTTP; the operator's
+    # reverse proxy in front does HTTPS and sets X-Forwarded-For, like it
+    # does for every other service they run (until this date a Caddy of our
+    # own did both, and it is gone). Two consequences to know: the browser's
+    # WebCrypto, which generates the sign-in key, needs a secure context, so
+    # plain HTTP works only on localhost; and `FATHOM_TRUSTED_CLIENT_IP_HEADER`
+    # below means the server believes X-Forwarded-For, so this port must be
+    # reachable only through that proxy (publish on 127.0.0.1, or on a
+    # Docker network the proxy shares) or a client could name its own
+    # rate-limit bucket. `FATHOM_PUBLISH_ADDRESS` chooses the interface.
+    ports:
+      - "${FATHOM_PUBLISH_ADDRESS:-0.0.0.0}:${FATHOM_PORT:-8080}:8080"
     environment:
       # 0.0.0.0 INSIDE the container, which is reachable only from this
       # network. The BINARY's default is loopback, deliberately, so that a
@@ -346,16 +357,15 @@ services:
       # "because behind a proxy every request arrives from the proxy — so
       # with this unset in that deployment, the source bucket is one bucket
       # for the whole site and a single attacker rate-limits everybody."
-      # This compose file puts Caddy in front (the `caddy` service, below),
-      # so it must set this, and it was the one line missing that made every
-      # sign-in in this stack share one rate-limit bucket regardless of who
-      # made it. **Safe only because the `caddyfile` config below overwrites this exact
-      # header on every request it proxies** (`header_up X-Forwarded-For
-      # {remote_host}`, in its own file) rather than trusting whatever a
-      # client sent -- setting this without that would let a client pick its
-      # own rate-limit bucket instead, which is the other failure mode
-      # `src/config.rs`'s comment names. `src/api.rs::source_of` also reads
-      # this header's LAST entry rather than its first, a second,
+      # This stack sits behind the operator's own reverse proxy (since
+      # 2026-09-20; a Caddy of our own before that), so it must set this, or
+      # every sign-in shares one rate-limit bucket regardless of who made it.
+      # **Safe only while that proxy sets this header itself and the port is
+      # reachable through nothing else** (the `ports:` comment above): a
+      # client that can reach the port directly could pick its own bucket,
+      # which is the other failure mode `src/config.rs`'s comment names.
+      # `src/api.rs::source_of` reads this header's LAST entry rather than
+      # its first, the entry a proxy that appends writes, a second,
       # independent defence against the same client-supplied-header risk.
       FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
     volumes:
@@ -384,39 +394,8 @@ services:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
-  caddy:
-    # Built, not pulled, as of this change: `deploy/Dockerfile`'s `caddy`
-    # stage bakes the built client into the same pinned Caddy image this
-    # used to pull directly (digest unchanged; see that stage's own
-    # comment). `image:` below still names a real, pinned upstream image
-    # once published -- exactly the `server` service's own pattern, and its
-    # comment explains why `build:` is what makes this stack runnable from a
-    # clean checkout before that publish exists.
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
-      target: caddy
-    image: ghcr.io/keyxmakerx/fathom-caddy:${FATHOM_TAG:-latest}
-    pull_policy: missing
-    restart: unless-stopped
-    depends_on:
-      - server
-    ports:
-      - "${FATHOM_HTTPS_PORT:-8443}:8443"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    configs:
-      - source: caddyfile
-        target: /etc/caddy/Caddyfile
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options: { max-size: "20m", max-file: "5" }
-
 # ---------------------------------------------------------------------------
-# THE THREE FILES THIS STACK USED TO READ FROM THE CHECKOUT, INLINE SINCE
+# THE TWO FILES THIS STACK USED TO READ FROM THE CHECKOUT, INLINE SINCE
 # 2026-09-19, so that this one file is the whole deployment: paste it into a
 # compose front end (Arcane and the like) with the one variable in its
 # environment, and nothing else has to exist on the host. Compose writes each
@@ -426,107 +405,6 @@ services:
 # are the only copies: `deploy/` no longer carries them.
 # ---------------------------------------------------------------------------
 configs:
-  # Caddy's own configuration. Every path `fathom-server` routes on, and
-  # nothing else; the client from `/srv/www`, baked into the image by
-  # `deploy/Dockerfile`'s `caddy` stage.
-  caddyfile:
-    content: |
-      # Caddy terminates TLS in front of fathom-server, and serves the built
-      # client -- the same site, the same certificate, the same port.
-      #
-      # THIS FILE IS WHY C7 SURVIVES. `49` §6 keeps "no C or C++ in the shipped
-      # closure" only if TLS is terminated in front of the binary, because rustls's
-      # crypto provider (`ring` or `aws-lc-sys`) brings C and assembly back in.
-      # `deny.toml` bans all four carriers by name; this file is the other half of
-      # that decision — the part that makes the ban survivable.
-      #
-      # `tls internal` uses Caddy's own CA, which is right for a local bring-up and
-      # for the WO-11 §6 G7 drive. A real deployment replaces this block with a real
-      # host name and lets Caddy get a certificate, or points at files.
-
-      {
-      	auto_https disable_redirects
-      	admin off
-      }
-
-      # `localhost:8443`, not a bare `:8443`. With `tls internal` and no host name in
-      # the site address, Caddy has no name to issue a certificate FOR, and the
-      # handshake fails with a TLS internal error rather than anything that names the
-      # cause -- found 2026-09-03 by running this file. A real deployment replaces
-      # `localhost` with the real host name and drops `tls internal` so Caddy gets a
-      # publicly trusted certificate.
-      localhost:8443 {
-      	tls internal
-
-      	header {
-      		# Nothing here served HTML when this line was first written; it does
-      		# now (the client, below), which is exactly why a header that applies
-      		# to the whole site rather than one handler is worth having.
-      		Strict-Transport-Security "max-age=31536000"
-      		X-Content-Type-Options "nosniff"
-      		-Server
-      	}
-
-      	log {
-      		output stdout
-      		format json
-      	}
-
-      	# EVERY PATH FATHOM-SERVER ACTUALLY ROUTES ON, AND NOTHING ELSE.
-      	# Enumerated from its own routers -- `crates/fathom-server/src/api.rs`,
-      	# `design_api.rs`, `admin.rs`, `firmware.rs`, and `lib.rs`'s own
-      	# `router()` (`lib.rs` ~L126, `/health` and `/schema/kinds`) -- rather
-      	# than a wildcard, for the same reason `client/vite.config.ts`'s dev-time
-      	# proxy gives for making the identical choice: "a wildcard proxy here
-      	# would silently forward requests to endpoints that do not exist yet."
-      	# Widen this the same day that list is widened, from the same source.
-      	@api path /session /session/* /organisations /organisations/* /catalogue/* /admin/* /enrolment/* /firmware/* /health /schema/kinds
-
-      	# `handle` blocks are mutually exclusive in Caddy's own routing model --
-      	# the first whose matcher fires wins and the rest are skipped, which is
-      	# what makes a matcher-less `handle` below a true catch-all rather than a
-      	# second thing that always also runs.
-      	handle @api {
-      		reverse_proxy server:8080 {
-      			# WITHOUT THIS LINE, CADDY ALREADY DISCARDS AN INCOMING
-      			# X-Forwarded-For -- this line is belt and braces, not the only
-      			# guard. Caddy's own doc: "For these X-Forwarded-* headers, by
-      			# default, the proxy will ignore their values from incoming
-      			# requests, to prevent spoofing"
-      			# (caddyserver.com/docs/caddyfile/directives/reverse_proxy, read
-      			# 2026-09-19; an earlier version of this comment misquoted this
-      			# page and said the opposite). With no `trusted_proxies`
-      			# configured here, Caddy's own source
-      			# (`addForwardedHeaders`, modules/caddyhttp/reverseproxy/reverseproxy.go,
-      			# read the same day) deletes an incoming X-Forwarded-For outright
-      			# and sets it fresh from the connection's own peer address, so
-      			# this `header_up` is a second, independent way to guarantee the
-      			# same outcome for a deployment that is a single hop (client →
-      			# Caddy → server, `compose.yaml`'s own header: "the server
-      			# is not published to the host; only Caddy is"), not a fix for a
-      			# default that appends. `fathom-server` reads the LAST entry of a
-      			# trusted header regardless (`crates/fathom-server/src/api.rs::source_of`
-      			# gives the fuller reasoning, including why last is also right on
-      			# a deployment that does append).
-      			header_up X-Forwarded-For {remote_host}
-      		}
-      	}
-
-      	# The client. Built by `deploy/Dockerfile`'s `client-build` stage and
-      	# baked into this image's `/srv/www` by its `caddy` stage -- see that
-      	# file for why baked in rather than a bind mount (the build needs `npm`,
-      	# and this image does not carry one).
-      	#
-      	# No `try_files … /index.html` fallback yet: the client has no
-      	# client-side router as of this change (`docs/RUNNING-IT.md`'s Compose
-      	# section says so), so there is no second URL that should ever resolve to
-      	# `index.html`. A later slice that adds client-side routing adds the
-      	# fallback here in the same change.
-      	handle {
-      		root * /srv/www
-      		file_server
-      	}
-      }
   # Run once per start by `keys-init` above, as root, with the `keys` volume
   # at /keys: generates whatever secret is missing and sets every owner and
   # mode; never regenerates a file that exists.
@@ -646,5 +524,3 @@ volumes:
   # the server has to WRITE, and the key volume is read-only to the server by
   # design. Two volumes is what keeps both of those true at once.
   bootstrap:
-  caddy_data:
-  caddy_config:
