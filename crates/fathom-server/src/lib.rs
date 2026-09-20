@@ -47,12 +47,14 @@
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
 pub mod admin;
+pub mod admin_exposure;
 pub mod api;
 pub mod audit;
 pub mod authority;
 pub mod chain;
 pub mod chains;
 pub mod client;
+pub mod client_address;
 pub mod config;
 pub mod crypto;
 pub mod db;

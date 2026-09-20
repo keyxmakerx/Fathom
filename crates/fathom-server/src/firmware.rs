@@ -100,7 +100,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes, HttpBody};
-use axum::extract::{ConnectInfo, FromRequest, Path as PathExtractor, Request, State};
+use axum::extract::{FromRequest, Path as PathExtractor, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -212,7 +212,7 @@ pub struct FirmwareStore {
     directory: PathBuf,
     max_image_bytes: u64,
     fetch_base_url: String,
-    trusted_client_ip_header: Option<String>,
+    client_address: crate::client_address::ClientAddress,
 }
 
 impl FirmwareStore {
@@ -228,7 +228,7 @@ impl FirmwareStore {
         directory: PathBuf,
         max_image_bytes: u64,
         fetch_base_url: String,
-        trusted_client_ip_header: Option<String>,
+        client_address: crate::client_address::ClientAddress,
     ) -> Result<Self, StoreUnusable> {
         let meta = std::fs::metadata(&directory).map_err(|e| StoreUnusable {
             directory: directory.clone(),
@@ -258,7 +258,7 @@ impl FirmwareStore {
             directory,
             max_image_bytes,
             fetch_base_url: fetch_base_url.trim_end_matches('/').to_string(),
-            trusted_client_ip_header,
+            client_address,
         })
     }
 
@@ -1649,28 +1649,16 @@ async fn fetch_handler(
     Ok((StatusCode::OK, headers, body).into_response())
 }
 
-/// Which address this server will record the bytes as having gone to.
-///
-/// `api::source_of`'s shape: the peer address unless a trusted forwarding
-/// header is configured, because a header a caller can set is a record a
-/// caller can write.
+/// The request's address as the store's policy decides it, the one rule
+/// every route shares (`crate::client_address`), which also caps the string
+/// at 255 characters because it is stored. Until 2026-09-20 this was a copy
+/// that read the header's FIRST entry, the one a client can write.
 fn source_of(
     state: &FirmwareState,
     headers: &HeaderMap,
     extensions: &axum::http::Extensions,
 ) -> String {
-    if let Some(name) = &state.store.trusted_client_ip_header {
-        if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
-            let first = value.split(',').next().unwrap_or("").trim();
-            if !first.is_empty() {
-                return first.chars().take(255).collect();
-            }
-        }
-    }
-    extensions
-        .get::<ConnectInfo<std::net::SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    state.store.client_address.of(headers, extensions)
 }
 
 // ---------------------------------------------------------------------------
@@ -2119,7 +2107,7 @@ mod tests {
             directory: PathBuf::from("/srv/fathom/firmware"),
             max_image_bytes: 1,
             fetch_base_url: "https://example.invalid".to_string(),
-            trusted_client_ip_header: None,
+            client_address: crate::client_address::ClientAddress::peer(),
         };
         let path = store.image_path(FirmwareImageId::new());
         assert!(

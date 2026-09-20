@@ -38,6 +38,7 @@ use fathom_server::api::{
 use fathom_server::audit;
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
+use fathom_server::client_address::ClientAddress;
 use fathom_server::crypto::Key32;
 use fathom_server::design_api::{self, DesignApiState};
 use fathom_server::designs;
@@ -435,7 +436,7 @@ async fn app(
         sessions: Arc::clone(&sessions),
         watch: Arc::clone(&watch),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: Some(TEST_SOURCE_HEADER.to_string()),
+        client_address: ClientAddress::header(TEST_SOURCE_HEADER),
     };
     let design_state = DesignApiState {
         sessions,

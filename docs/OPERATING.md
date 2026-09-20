@@ -146,6 +146,18 @@ between a compromised operator and a changed setting. Fathom records that the de
 in this mode on the site chain at startup, with a warning in the log, rather than leaving it as
 something only your environment file remembers.
 
+## Where the operator console answers
+
+Since 2026-09-20 the console (`/admin/*` and `/enrolment/operator`) can be confined to host names
+(`FATHOM_ADMIN_HOSTS`) and to source addresses or ranges (`FATHOM_ADMIN_SOURCES`), enforced by the
+server, not the proxy (`crates/fathom-server/src/admin_exposure.rs`). A request that fails a
+configured check is answered 404: on that host, from that address, the console does not exist.
+The site is unaffected on every host. Two facts the proxy must get right for this to hold, the
+same two the rate limiter needs: it forwards the original `Host`, and it is named in
+`FATHOM_TRUSTED_PROXIES`, which is what lets its `X-Forwarded-For` be believed and nobody else's
+(`crates/fathom-server/src/client_address.rs`). With neither variable set the console answers everywhere, and the
+server logs a warning saying so at every start.
+
 ## What to check after an upgrade
 
 - The startup log line naming `master_key_id` and `chain_key_id` — the same ids as before the

@@ -489,11 +489,36 @@ async fn main() -> ExitCode {
         config.sign_in_limits,
     ));
     let watch = Arc::new(fathom_server::grants::EpochWatch::new());
+    // One address policy for every route that counts one
+    // (`src/client_address.rs`). Parsed again here from text the config
+    // already validated, so the `expect` cannot fire.
+    let client_address = fathom_server::client_address::ClientAddress::new(
+        config.trusted_client_ip_header.clone(),
+        fathom_server::client_address::parse_trusted_proxies(&config.trusted_proxies.join(","))
+            .expect("config refuses an unparseable FATHOM_TRUSTED_PROXIES"),
+    );
+    match (
+        client_address.header_name(),
+        client_address.trusted_proxies().is_empty(),
+    ) {
+        (None, _) => tracing::info!("client addresses: the peer, no forwarding header trusted"),
+        (Some(header), true) => tracing::warn!(
+            header,
+            "client addresses: the forwarding header is believed from EVERY peer; set \
+             FATHOM_TRUSTED_PROXIES to the proxy's address so a client reaching this port \
+             directly cannot choose its own"
+        ),
+        (Some(header), false) => tracing::info!(
+            header,
+            trusted_proxies = ?config.trusted_proxies,
+            "client addresses: the forwarding header, believed only from the trusted proxies"
+        ),
+    }
     let api = fathom_server::api::ApiState {
         sessions: Arc::clone(&sessions),
         watch: Arc::clone(&watch),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: config.trusted_client_ip_header.clone(),
+        client_address: client_address.clone(),
     };
 
     // The design routes share the session store and the epoch watch with the
@@ -632,7 +657,7 @@ async fn main() -> ExitCode {
                 std::path::PathBuf::from(dir),
                 config.firmware_max_bytes,
                 base.clone(),
-                config.trusted_client_ip_header.clone(),
+                client_address.clone(),
             ) {
                 Ok(store) => {
                     tracing::info!(
@@ -685,16 +710,12 @@ async fn main() -> ExitCode {
         sessions,
         operators,
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: config.trusted_client_ip_header.clone(),
+        client_address: client_address.clone(),
     };
     tracing::info!(
         window_seconds = config.sign_in_limits.window.as_secs(),
         max_per_account = config.sign_in_limits.max_per_account,
         max_per_source = config.sign_in_limits.max_per_source,
-        trusted_client_ip_header = config
-            .trusted_client_ip_header
-            .as_deref()
-            .unwrap_or("(none: the peer address is the bucket)"),
         "sign-in limits"
     );
 
@@ -717,10 +738,39 @@ async fn main() -> ExitCode {
     // §13 item 7's source bucket needs the peer address, and without this the
     // extension it reads is never populated, so every sign-in in the
     // deployment would count into one bucket named "unknown".
+    // Where the operator console answers (`src/admin_exposure.rs`): confined
+    // to the configured hosts and source addresses, or open, which the log
+    // says in so many words so that nobody assumes otherwise.
+    let exposure = fathom_server::admin_exposure::AdminExposure::new(
+        config.admin_hosts.clone(),
+        config
+            .admin_sources
+            .iter()
+            .filter_map(|s| fathom_server::admin_exposure::Cidr::parse(s)),
+        client_address.clone(),
+    );
+    let admin_router = if exposure.is_open() {
+        tracing::warn!(
+            "the operator console (/admin, /enrolment/operator) answers on every host and from \
+             every address; set FATHOM_ADMIN_HOSTS and/or FATHOM_ADMIN_SOURCES to confine it"
+        );
+        fathom_server::admin::router(admin)
+    } else {
+        tracing::info!(
+            hosts = ?exposure.hosts(),
+            sources = ?config.admin_sources,
+            "the operator console answers only on these hosts and from these addresses; \
+             elsewhere its paths are 404"
+        );
+        fathom_server::admin::router(admin).layer(axum::middleware::from_fn_with_state(
+            exposure,
+            fathom_server::admin_exposure::gate,
+        ))
+    };
     let mut app = router(AppState { health, engine })
         .merge(fathom_server::api::router(api))
         .merge(fathom_server::design_api::router(designs))
-        .merge(fathom_server::admin::router(admin));
+        .merge(admin_router);
     if let Some(store) = firmware {
         app = app.merge(fathom_server::firmware::router(
             fathom_server::firmware::FirmwareState {
