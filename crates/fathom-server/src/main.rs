@@ -717,10 +717,39 @@ async fn main() -> ExitCode {
     // §13 item 7's source bucket needs the peer address, and without this the
     // extension it reads is never populated, so every sign-in in the
     // deployment would count into one bucket named "unknown".
+    // Where the operator console answers (`src/admin_exposure.rs`): confined
+    // to the configured hosts and source addresses, or open, which the log
+    // says in so many words so that nobody assumes otherwise.
+    let exposure = fathom_server::admin_exposure::AdminExposure::new(
+        config.admin_hosts.clone(),
+        config
+            .admin_sources
+            .iter()
+            .filter_map(|s| fathom_server::admin_exposure::Cidr::parse(s)),
+        config.trusted_client_ip_header.clone(),
+    );
+    let admin_router = if exposure.is_open() {
+        tracing::warn!(
+            "the operator console (/admin, /enrolment/operator) answers on every host and from \
+             every address; set FATHOM_ADMIN_HOSTS and/or FATHOM_ADMIN_SOURCES to confine it"
+        );
+        fathom_server::admin::router(admin)
+    } else {
+        tracing::info!(
+            hosts = ?exposure.hosts(),
+            sources = ?config.admin_sources,
+            "the operator console answers only on these hosts and from these addresses; \
+             elsewhere its paths are 404"
+        );
+        fathom_server::admin::router(admin).layer(axum::middleware::from_fn_with_state(
+            exposure,
+            fathom_server::admin_exposure::gate,
+        ))
+    };
     let mut app = router(AppState { health, engine })
         .merge(fathom_server::api::router(api))
         .merge(fathom_server::design_api::router(designs))
-        .merge(fathom_server::admin::router(admin));
+        .merge(admin_router);
     if let Some(store) = firmware {
         app = app.merge(fathom_server::firmware::router(
             fathom_server::firmware::FirmwareState {

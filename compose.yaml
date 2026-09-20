@@ -368,6 +368,17 @@ services:
       # its first, the entry a proxy that appends writes, a second,
       # independent defence against the same client-supplied-header risk.
       FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
+      # Where the operator console (/admin/*, /enrolment/operator) answers,
+      # since 2026-09-20 (`src/admin_exposure.rs`): host names, comma-separated
+      # -- a subdomain of the site's or a different domain altogether -- and
+      # addresses or CIDR ranges it may be used from, judged the way the rate
+      # limiter judges an address (the trusted header above, else the peer).
+      # On any other host, or from any other address, those paths are 404;
+      # the site itself is served everywhere. Both empty means the console
+      # answers everywhere, which the server says at startup. Set them in
+      # `.env`.
+      FATHOM_ADMIN_HOSTS: ${FATHOM_ADMIN_HOSTS:-}
+      FATHOM_ADMIN_SOURCES: ${FATHOM_ADMIN_SOURCES:-}
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --

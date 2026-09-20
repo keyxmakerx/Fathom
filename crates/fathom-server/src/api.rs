@@ -623,7 +623,7 @@ fn source_of(state: &ApiState, headers: &HeaderMap, extensions: &axum::http::Ext
 /// whole [`ApiState`] -- so a test can drive it without a [`SessionStore`],
 /// an [`EpochWatch`] and a [`keys::KeyRing`], none of which the address
 /// choice below touches.
-fn source_of_with(
+pub fn source_of_with(
     trusted_header: Option<&str>,
     headers: &HeaderMap,
     extensions: &axum::http::Extensions,

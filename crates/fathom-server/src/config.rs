@@ -250,6 +250,18 @@ pub struct Config {
     /// The image sets it to `/srv/www`. **Absent means the API only**: a
     /// developer running the Vite dev server wants exactly that.
     pub client_root: Option<String>,
+    /// `FATHOM_ADMIN_HOSTS`. Host names, comma-separated, on which the
+    /// operator console (`/admin/*`, `/enrolment/operator`) answers; on any
+    /// other host those paths are 404 (`src/admin_exposure.rs`). Empty means
+    /// every host. A subdomain of the site's, or a different domain
+    /// altogether: the site itself is served on all of them.
+    pub admin_hosts: Vec<String>,
+    /// `FATHOM_ADMIN_SOURCES`. Addresses and CIDR ranges, comma-separated,
+    /// the operator console may be used from, judged the way the rate
+    /// limiter judges a client's address (`FATHOM_TRUSTED_CLIENT_IP_HEADER`,
+    /// else the peer). Empty means every address. Refused at startup if an
+    /// entry does not parse.
+    pub admin_sources: Vec<String>,
 
     /// `FATHOM_FIRMWARE_MAX_BYTES`. The largest image that may be staged, and
     /// also the worst case a single fetch holds in memory until the streaming
@@ -508,6 +520,26 @@ impl Config {
         let client_root = get("FATHOM_CLIENT_ROOT")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
+        let admin_hosts: Vec<String> = get("FATHOM_ADMIN_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|h| h.trim().to_ascii_lowercase())
+            .filter(|h| !h.is_empty())
+            .collect();
+        let admin_sources: Vec<String> = get("FATHOM_ADMIN_SOURCES")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if admin_sources
+            .iter()
+            .any(|s| crate::admin_exposure::Cidr::parse(s).is_none())
+        {
+            return Err(ConfigError::Unparseable {
+                variable: "FATHOM_ADMIN_SOURCES",
+            });
+        }
         let firmware_fetch_base_url = get("FATHOM_FIRMWARE_FETCH_BASE_URL")
             .map(|v| v.trim().trim_end_matches('/').to_string())
             .filter(|v| !v.is_empty());
@@ -612,6 +644,8 @@ impl Config {
             bootstrap_token_file,
             firmware_dir,
             client_root,
+            admin_hosts,
+            admin_sources,
             firmware_max_bytes,
             firmware_fetch_base_url,
         })

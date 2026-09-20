@@ -182,6 +182,15 @@ the server's uid) and the three database passwords (bootstrap, migration, runtim
 restart keeps what exists. **Copy that volume somewhere your database backups are not before the
 first design goes in**; there is no recovery path without it, by design (`docs/OPERATING.md`).
 
+**Where the operator console answers.** `/admin/*` and `/enrolment/operator` are the operator
+console; the rest is the site. `FATHOM_ADMIN_HOSTS` confines the console to host names (a subdomain
+of the site's, or a different domain altogether; your proxy forwards the `Host` header, which
+most do by default) and `FATHOM_ADMIN_SOURCES` to addresses or ranges (judged like the rate
+limiter's: the trusted forwarding header, else the peer). Set one or both. Elsewhere those paths
+are 404, as if the console were not there; the site is served on every host, so an operator on
+the admin host has the whole site too. Both unset means the console answers everywhere, which
+the server says at startup.
+
 **What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, and nothing else. It is recorded
 once, at first start, and cannot be changed afterwards; a default would create an operator nobody
 can reach.
