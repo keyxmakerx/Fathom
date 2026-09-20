@@ -190,8 +190,8 @@ can reach. `FATHOM_HTTPS_PORT` moves Caddy off 8443 if you need to.
 
 **What runs.** Three containers plus the one-shot: PostgreSQL 16, the server (distroless,
 read-only root, unprivileged, not published to the host), and Caddy terminating TLS and serving
-the client, routing exactly the paths the server serves and nothing else (`deploy/Caddyfile`
-enumerates them from the server's own routers). Every image is pinned by digest. The server reads
+the client, routing exactly the paths the server serves and nothing else (the Caddyfile, inline in
+`compose.yaml`, enumerates them from the server's own routers). Every image is pinned by digest. The server reads
 the client's address from the `X-Forwarded-For` header Caddy overwrites on every proxied request,
 so the sign-in rate limit counts per client rather than per proxy.
 
@@ -204,6 +204,24 @@ environment it was written in has no Docker daemon; three first-start faults wer
 reading it, and the fourth (the database container could not write into a root-owned volume) by
 reading it again when the first three were fixed. The published images
 (`.github/workflows/publish.yml`, on every merge to `main`) are the same two stages.
+
+**In a compose front end (Arcane and the like).** `compose.yaml` is self-contained: the Caddyfile
+and the two first-start scripts ride inside it as inline `configs`, so nothing has to exist on the
+host beside it. Two ways in, read from Arcane's source on 2026-09-19 (it drives Compose through
+the `docker/compose` library, v5, which knows inline configs):
+
+- **From the repository.** A GitOps sync pointed at this repository with the compose path
+  `compose.yaml`; the repository carries no `.env`, so put `FATHOM_OPERATOR_NOTICE_ADDRESS` in the
+  project's environment in Arcane, which it writes beside the compose file as `project.env` and
+  merges into `.env`.
+- **Pasted.** Create a project, paste this file's contents as the compose file, and put
+  `FATHOM_OPERATOR_NOTICE_ADDRESS=you@example.com` in its environment. Leave `FATHOM_TAG` unset for
+  the newest published build, or pin `sha-<commit>`. The `build:` sections are ignored unless a
+  build is asked for; the images are pulled.
+
+Either way the first-operator token is read the same way as above; a front end's console on the
+`server` container will not do, because the image has no shell, so use `docker compose cp` from a
+terminal on the host.
 
 **Backups and everything after.** `docs/OPERATING.md`.
 
