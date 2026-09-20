@@ -160,12 +160,31 @@ builds from the checkout instead. To freeze a deployment on one build, set
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
 The server takes the client's address from `X-Forwarded-For`, and believes that header only when
-the connection comes from one of `FATHOM_TRUSTED_PROXIES` (`private`, every private range, by
-default; set it to your proxy's own address to be exact). From any other peer the header is ignored
-and the peer is the address, so a client reaching the port directly cannot choose its own rate-limit
-bucket. That address is what the sign-in limits count and what the audit trail records. Still
-publish the port where only the proxy reaches it: `FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy
-runs on the same machine outside Docker, or unpublished on a Docker network the proxy shares.
+the connection comes from one of `FATHOM_TRUSTED_PROXIES` (`private` by default: every private,
+loopback and link-local range, and `100.64.0.0/10`; set it to your proxy's own address to be
+exact). The entries are read from the right across every line of the header, skipping trusted
+proxies, so a proxy that adds its own line under the client's, or appends to it, is read the same
+way and the client's own entries never count. From any other peer the header is ignored and the
+peer is the address, so a client reaching the port directly cannot choose its own rate-limit bucket.
+That address is what the sign-in limits count and what the audit trail records. Still publish the
+port where only the proxy reaches it: `FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy runs on the
+same machine outside Docker, or unpublished on a Docker network the proxy shares.
+
+What that means for the proxies checked on 2026-09-20 (NetBird's and F5's own documentation,
+nginx's and Caddy's; every one of them does the same rightmost-trusted reading on its own inbound
+side):
+
+- **NetBird reverse proxy** (HTTP service): it reaches the server over the tunnel from its NetBird
+  address in `100.64.0.0/10`, which the default covers, and that address changes on restart, so
+  never name one address. Turn on *Pass Host Header* for the console's host check. In L4 mode it
+  can send PROXY protocol instead, which the server does not speak; use HTTP mode.
+- **F5 BIG-IP**: with SNAT on, the peer is the SNAT or self IP, so list it (or the range it is
+  in) and enable *Insert X-Forwarded-For* in the HTTP profile; a client's own header line is left
+  in front, and is ignored as above.
+- **nginx / Caddy / Traefik / Nginx Proxy Manager**: the default `X-Forwarded-For` handling of
+  each is right; if your proxy sets only `X-Real-IP`, name that header in
+  `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
+  balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
 To sign in the first time, read the one-time token the first start wrote and paste it into the
 enrolment screen:

@@ -110,15 +110,20 @@ fn mask(addr: IpAddr, prefix: u8) -> IpAddr {
     }
 }
 
-/// What `FATHOM_TRUSTED_PROXIES=private` means: RFC 1918, loopback,
-/// link-local, and their IPv6 counterparts. Right for a proxy on the same
-/// machine or the same private network, which is where one usually is, and
-/// too wide the day something else on that network can reach the port --
+/// What `FATHOM_TRUSTED_PROXIES=private` means: RFC 1918, the RFC 6598
+/// shared address space (`100.64.0.0/10`, which the NetBird and Tailscale
+/// overlays number their peers from; NetBird's reverse-proxy documentation,
+/// read 2026-09-20, says to trust that whole range because the proxy's own
+/// address in it changes on restart), loopback, link-local, and their IPv6
+/// counterparts. Right for a proxy on the same machine, the same private
+/// network or the same overlay, which is where one usually is, and too wide
+/// the day something else on that network can reach the port --
 /// `docs/RUNNING-IT.md` says to name the proxy's own address instead.
 pub const PRIVATE_RANGES: &[&str] = &[
     "10.0.0.0/8",
     "172.16.0.0/12",
     "192.168.0.0/16",
+    "100.64.0.0/10",
     "127.0.0.0/8",
     "169.254.0.0/16",
     "fc00::/7",
@@ -202,16 +207,24 @@ impl ClientAddress {
         let Some(name) = &self.header else {
             return peer_text();
         };
-        let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) else {
+        // Every line of the header, in arrival order, is one list (RFC 9110
+        // §5.3): a proxy that adds its own line instead of appending to the
+        // client's has still written last. So the entries are read from the
+        // right across all lines, and only the first line is never enough.
+        let mut entries = headers
+            .get_all(name)
+            .iter()
+            .rev()
+            .filter_map(|line| line.to_str().ok())
+            .flat_map(|line| line.rsplit(',').map(str::trim))
+            .filter(|entry| !entry.is_empty())
+            .peekable();
+        if entries.peek().is_none() {
             return peer_text();
-        };
+        }
+        let bounded = |entry: &str| entry.chars().take(255).collect::<String>();
         if self.trusted_proxies.is_empty() {
-            let last = value.rsplit(',').next().unwrap_or("").trim();
-            return if last.is_empty() {
-                peer_text()
-            } else {
-                last.chars().take(255).collect()
-            };
+            return entries.next().map(bounded).unwrap_or_else(peer_text);
         }
         let Some(peer_ip) = peer else {
             return peer_text();
@@ -219,10 +232,10 @@ impl ClientAddress {
         if !self.trusted(peer_ip) {
             return peer_text();
         }
-        for entry in value.rsplit(',').map(str::trim).filter(|e| !e.is_empty()) {
+        for entry in entries {
             match entry.parse::<IpAddr>() {
                 Ok(ip) if self.trusted(ip) => continue,
-                _ => return entry.chars().take(255).collect(),
+                _ => return bounded(entry),
             }
         }
         peer_text()
@@ -371,6 +384,31 @@ mod tests {
         assert_eq!(p.of(&xff("6.6.6.6"), &from("203.0.113.1")), "203.0.113.1");
         // No peer known at all: nothing can be vouched for.
         assert_eq!(p.of(&xff("6.6.6.6"), &Extensions::new()), "unknown");
+    }
+
+    /// A proxy that adds its own `X-Forwarded-For` line instead of
+    /// appending to the client's (RFC 9110 §5.3 makes the lines one list).
+    /// The first line is the client's to write; the last is the proxy's.
+    #[test]
+    fn every_header_line_is_read_and_the_last_one_is_the_proxys() {
+        let mut h = HeaderMap::new();
+        h.append("x-forwarded-for", HeaderValue::from_static("6.6.6.6"));
+        h.append(
+            "x-forwarded-for",
+            HeaderValue::from_static("198.51.100.4, 10.0.0.3"),
+        );
+        let p = policy(&["10.0.0.0/8"]);
+        assert_eq!(p.of(&h, &from("10.0.0.2")), "198.51.100.4");
+        assert_eq!(
+            ClientAddress::header("x-forwarded-for").of(&h, &from("10.0.0.2")),
+            "10.0.0.3",
+            "the legacy rule takes the last entry of the last line"
+        );
+        // Blank lines and stray commas do not stand in for an entry.
+        let mut h = HeaderMap::new();
+        h.append("x-forwarded-for", HeaderValue::from_static("198.51.100.4,"));
+        h.append("x-forwarded-for", HeaderValue::from_static(" , "));
+        assert_eq!(p.of(&h, &from("10.0.0.2")), "198.51.100.4");
     }
 
     #[test]

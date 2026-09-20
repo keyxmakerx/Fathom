@@ -119,6 +119,40 @@ async fn the_console_answers_only_on_its_host_and_from_its_addresses() {
     )
     .await;
     assert!(status(&head).starts_with("HTTP/1.1 404"), "{head}");
+    // A proxy that adds its own header line below the client's (as F5's
+    // "Insert X-Forwarded-For" and an nginx `add_header` do) rather than
+    // appending to it: the proxy's line is the last one, and it is what
+    // counts, whichever way round the two are.
+    let (head, _) = request(
+        addr,
+        "GET",
+        "/admin/ping",
+        &[
+            ("Host", "admin.example.test"),
+            ("X-Forwarded-For", "10.20.30.40"),
+            ("X-Forwarded-For", "203.0.113.9"),
+        ],
+    )
+    .await;
+    assert!(
+        status(&head).starts_with("HTTP/1.1 404"),
+        "the client's own line must not open the console: {head}"
+    );
+    let (head, _) = request(
+        addr,
+        "GET",
+        "/admin/ping",
+        &[
+            ("Host", "admin.example.test"),
+            ("X-Forwarded-For", "203.0.113.9"),
+            ("X-Forwarded-For", "10.20.30.40"),
+        ],
+    )
+    .await;
+    assert!(
+        status(&head).starts_with("HTTP/1.1 200"),
+        "the proxy's line is the last one and it counts: {head}"
+    );
 
     // The rest of the site is untouched everywhere.
     let (head, body) = request(
