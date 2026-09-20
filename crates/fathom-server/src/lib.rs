@@ -52,6 +52,7 @@ pub mod audit;
 pub mod authority;
 pub mod chain;
 pub mod chains;
+pub mod client;
 pub mod config;
 pub mod crypto;
 pub mod db;

@@ -143,40 +143,38 @@ restart                                   one operator, no re-bootstrap
 
 ## Docker Compose
 
-From a clean checkout, on a machine with Docker:
+Fathom is one published port, plain HTTP, for your reverse proxy to point at, like any other
+service. From a clean checkout, on a machine with Docker:
 
 ```sh
 cp .env.example .env         # then set FATHOM_OPERATOR_NOTICE_ADDRESS in it
 docker compose up -d
 ```
 
-That pulls the two images GitHub built from the last merge to `main`
-(`ghcr.io/keyxmakerx/fathom-server` and `fathom-caddy`, pushed by `.github/workflows/publish.yml`
-after the same gate floor CI runs, with provenance attested per image). `docker compose up -d
---build` builds the same two stages from the checkout instead, which is what CI does and what to
-do on a machine that cannot reach the registry. To freeze a deployment on one build, set
+That pulls the image GitHub built from the last merge to `main` (`ghcr.io/keyxmakerx/fathom-server`,
+pushed by `.github/workflows/publish.yml` after the same gate floor CI runs, provenance attested)
+and publishes the server on port 8080 (`FATHOM_PORT` moves it). `docker compose up -d --build`
+builds from the checkout instead. To freeze a deployment on one build, set
 `FATHOM_TAG=sha-<the 40-hex commit>` in `.env`; `latest` follows `main`.
 
-**If a pull is refused, the package is private.** GitHub's documentation says a package first
-published under a personal account is private whatever the repository's visibility ("Configuring
-a package's access control and visibility", read 2026-09-19); in practice the first publish on
-2026-09-19 came out public, both images listable anonymously from `ghcr.io` within minutes.
-Should a pull ever be refused, either make the package public from its page under the
-repository's Packages (not reversible) or `docker login ghcr.io` with a personal access token
-that can read packages.
+**Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
+browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
+The server reads the client's address from `X-Forwarded-For`, which your proxy sets; because it
+believes that header, the port must be reachable only through the proxy. Publish on
+`FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy runs on the same machine outside Docker, or leave
+the port unpublished on a Docker network the proxy shares.
 
-Then open <https://localhost:8443/>. The certificate is Caddy's own local one, so the browser will
-warn once. To sign in the first time, read the one-time token the first start wrote and paste it
-into the enrolment screen:
+To sign in the first time, read the one-time token the first start wrote and paste it into the
+enrolment screen:
 
 ```sh
 docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
 cat ./first-operator-token
 ```
 
-The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before that,
-`docker compose run --rm server reissue-bootstrap-token` mints another, and refuses the moment any
-operator key has ever been enrolled.
+The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before
+that, `docker compose run --rm server reissue-bootstrap-token` mints another, and refuses the
+moment any operator key has ever been enrolled.
 
 **What the stack does for itself.** A one-shot `keys-init` container runs first and generates,
 into the `keys` volume, whatever is missing: the master key and the chain key (mode 0400, owned by
@@ -186,29 +184,18 @@ first design goes in**; there is no recovery path without it, by design (`docs/O
 
 **What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, and nothing else. It is recorded
 once, at first start, and cannot be changed afterwards; a default would create an operator nobody
-can reach. `FATHOM_HTTPS_PORT` moves Caddy off 8443 if you need to.
+can reach.
 
-**What runs.** Three containers plus the one-shot: PostgreSQL 16, the server (distroless,
-read-only root, unprivileged, not published to the host), and Caddy terminating TLS and serving
-the client, routing exactly the paths the server serves and nothing else (the Caddyfile, inline in
-`compose.yaml`, enumerates them from the server's own routers). Every image is pinned by digest. The server reads
-the client's address from the `X-Forwarded-For` header Caddy overwrites on every proxied request,
-so the sign-in rate limit counts per client rather than per proxy.
+**What runs.** Two containers plus the one-shot: PostgreSQL 16, and the server (distroless,
+read-only root, unprivileged), which serves the web client itself from the files baked into its
+image. Every image is pinned by digest. Until 2026-09-20 a Caddy of our own sat in front, serving
+the client and terminating TLS; it went because every other service you run is one port behind
+your own proxy, and this one should be too.
 
-**Proven where.** `.github/workflows/ci.yml`'s `compose` job builds every image from the checkout
-on every push and pull request (under a tag no registry holds, so it never pulls a published image
-in place of the one it built), brings the stack up, waits for the server's healthcheck, asks
-Caddy for `/health` and the client over TLS, reads the first-operator token, restarts the server
-and checks the keys were kept. Before 2026-09-19 nobody had run this file at all, because the
-environment it was written in has no Docker daemon; three first-start faults were found by
-reading it, and the fourth (the database container could not write into a root-owned volume) by
-reading it again when the first three were fixed. The published images
-(`.github/workflows/publish.yml`, on every merge to `main`) are the same two stages.
-
-**In a compose front end (Arcane and the like).** `compose.yaml` is self-contained: the Caddyfile
-and the two first-start scripts ride inside it as inline `configs`, so nothing has to exist on the
-host beside it. Two ways in, read from Arcane's source on 2026-09-19 (it drives Compose through
-the `docker/compose` library, v5, which knows inline configs):
+**In a compose front end (Arcane and the like).** `compose.yaml` is self-contained: the two
+first-start scripts ride inside it as inline `configs`, so nothing has to exist on the host beside
+it. Two ways in, read from Arcane's source on 2026-09-19 (it drives Compose through the
+`docker/compose` library, v5, which knows inline configs):
 
 - **From the repository.** A GitOps sync pointed at this repository with the compose path
   `compose.yaml`; the repository carries no `.env`, so put `FATHOM_OPERATOR_NOTICE_ADDRESS` in the
@@ -216,12 +203,27 @@ the `docker/compose` library, v5, which knows inline configs):
   merges into `.env`.
 - **Pasted.** Create a project, paste this file's contents as the compose file, and put
   `FATHOM_OPERATOR_NOTICE_ADDRESS=you@example.com` in its environment. Leave `FATHOM_TAG` unset for
-  the newest published build, or pin `sha-<commit>`. The `build:` sections are ignored unless a
-  build is asked for; the images are pulled.
+  the newest published build, or pin `sha-<commit>`. The `build:` section is ignored unless a
+  build is asked for; the image is pulled.
 
 Either way the first-operator token is read the same way as above; a front end's console on the
 `server` container will not do, because the image has no shell, so use `docker compose cp` from a
 terminal on the host.
+
+**Proven where.** `.github/workflows/ci.yml`'s `compose` job builds the image from the checkout
+on every push and pull request (under a tag no registry holds, so it never pulls a published image
+in place of the one it built), brings the stack up, waits for the server's healthcheck, fetches
+`/health` and the client on the published port, reads the first-operator token, restarts the
+server and checks the keys were kept. Before 2026-09-19 nobody had run this file at all, because
+the environment it was written in has no Docker daemon; four first-start faults were found by
+reading it and two more by that job's first runs.
+
+**If a pull is refused, the package is private.** GitHub's documentation says a package first
+published under a personal account is private whatever the repository's visibility ("Configuring
+a package's access control and visibility", read 2026-09-19); in practice the first publish on
+2026-09-19 came out public. Should a pull ever be refused, either make the package public from
+its page under the repository's Packages (not reversible) or `docker login ghcr.io` with a
+personal access token that can read packages.
 
 **Backups and everything after.** `docs/OPERATING.md`.
 

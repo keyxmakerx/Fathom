@@ -3,11 +3,13 @@
 # can only run images, not build them -- there is no `build:` in the Cosmos
 # container schema -- so without this there is nothing for them to pull.
 #
-# WHAT SHIPS, since 2026-09-19: the two final stages of `deploy/Dockerfile`,
-# as two images. `fathom-server` is the distroless server binary with the
-# schema and corpus beside it; `fathom-caddy` is Caddy with the built client
-# baked in. `compose.yaml` builds the same two stages from a checkout; these
-# are the same images, published, for a host that can only pull. Until this
+# WHAT SHIPS, since 2026-09-20: one image, `deploy/Dockerfile`'s `server`
+# stage: the distroless server binary with the schema, the corpus and the
+# built web client beside it, served by the binary itself. (For one day,
+# 2026-09-19, a second image carried Caddy with the client; the operator's
+# own reverse proxy does that job now.) `compose.yaml` builds the same stage
+# from a checkout; this is the same image, published, for a host that can
+# only pull. Until this
 # date the workflow built the root Dockerfile, which packaged the retired
 # single-file client behind nginx, and it had never published anything since
 # the client was rebuilt: its inline gate floor ran the server's tests with no
@@ -78,7 +80,6 @@ env:
   # attest-build-provenance does not, so one spelling used everywhere is safer
   # than relying on one action's normalisation and not the other's.
   SERVER_IMAGE: ghcr.io/keyxmakerx/fathom-server
-  CADDY_IMAGE: ghcr.io/keyxmakerx/fathom-caddy
 
 concurrency:
   # A second merge should supersede the first rather than race it to `latest`.
@@ -155,7 +156,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tags and labels, server
+      - name: Tags and labels
         id: meta_server
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -168,22 +169,9 @@ jobs:
           labels: |
             org.opencontainers.image.title=Fathom server
             org.opencontainers.image.description=The Fathom server. A security-first network documentation tool; configs pass a redaction gate before anything is stored.
-      - name: Tags and labels, caddy
-        id: meta_caddy
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.CADDY_IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,format=long
-          labels: |
-            org.opencontainers.image.title=Fathom caddy
-            org.opencontainers.image.description=Caddy terminating TLS in front of the Fathom server, with the Fathom client baked in.
       # `file` and `target` are inputs of build-push-action at this pin
       # (action.yml, read 2026-09-19), the same way `compose.yaml` names them.
-      - name: Build and push, server
+      - name: Build and push
         id: build_server
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -196,30 +184,11 @@ jobs:
           labels: ${{ steps.meta_server.outputs.labels }}
           provenance: false
           sbom: false
-      - name: Build and push, caddy
-        id: build_caddy
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: caddy
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta_caddy.outputs.tags }}
-          labels: ${{ steps.meta_caddy.outputs.labels }}
-          provenance: false
-          sbom: false
-      - name: Attest build provenance, server
+      - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.SERVER_IMAGE }}
           subject-digest: ${{ steps.build_server.outputs.digest }}
-          push-to-registry: true
-      - name: Attest build provenance, caddy
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ env.CADDY_IMAGE }}
-          subject-digest: ${{ steps.build_caddy.outputs.digest }}
           push-to-registry: true
       - name: Record what shipped
         run: |
@@ -229,7 +198,6 @@ jobs:
             echo
             echo '```'
             echo "server  ${SERVER_IMAGE}@${{ steps.build_server.outputs.digest }}"
-            echo "caddy   ${CADDY_IMAGE}@${{ steps.build_caddy.outputs.digest }}"
             echo "commit  ${GITHUB_SHA}"
             echo '```'
             echo

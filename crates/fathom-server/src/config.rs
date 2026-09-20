@@ -245,6 +245,11 @@ pub struct Config {
     /// attacker can probe, and a deployment that never stages firmware should
     /// not carry one.
     pub firmware_dir: Option<String>,
+    /// `FATHOM_CLIENT_ROOT`. A directory of built web client files, served
+    /// by this binary for every path no API route claims (`src/client.rs`).
+    /// The image sets it to `/srv/www`. **Absent means the API only**: a
+    /// developer running the Vite dev server wants exactly that.
+    pub client_root: Option<String>,
 
     /// `FATHOM_FIRMWARE_MAX_BYTES`. The largest image that may be staged, and
     /// also the worst case a single fetch holds in memory until the streaming
@@ -500,6 +505,9 @@ impl Config {
         let firmware_dir = get("FATHOM_FIRMWARE_DIR")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
+        let client_root = get("FATHOM_CLIENT_ROOT")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
         let firmware_fetch_base_url = get("FATHOM_FIRMWARE_FETCH_BASE_URL")
             .map(|v| v.trim().trim_end_matches('/').to_string())
             .filter(|v| !v.is_empty());
@@ -603,6 +611,7 @@ impl Config {
             operator_notice_address,
             bootstrap_token_file,
             firmware_dir,
+            client_root,
             firmware_max_bytes,
             firmware_fetch_base_url,
         })

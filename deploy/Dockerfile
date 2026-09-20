@@ -102,74 +102,6 @@ FROM toolchain AS wasm-build
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo build --release --locked -p fathom-wasm --target wasm32-unknown-unknown
 
-# ---- run --------------------------------------------------------------
-# Named `server` (not left anonymous) because this Dockerfile now builds
-# more than one final image from one file -- `compose.yaml` names
-# this stage with `target: server` for exactly that reason, so that adding
-# the stages below can never silently change what an unqualified
-# `docker build .` produces.
-# debian13, not debian12, since 2026-09-19: the build stage's pinned `rust`
-# image is `1.94.1-slim-trixie` (Debian 13, glibc 2.41 -- Docker Hub tag
-# listing read that day), so the binary it produces asks the runtime for a
-# glibc at least that new. The first real start of this stack (CI's
-# `compose` job) died on `GLIBC_2.39' not found` against the Debian 12
-# runtime that was here. The two FROM lines must move together: a newer
-# Debian in `rust` needs at least as new a Debian here. Digest read from
-# gcr.io's manifest for `cc-debian13:latest`, 2026-09-19.
-FROM gcr.io/distroless/cc-debian13@sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750 AS server
-
-COPY --from=build /src/target/server/fathom-server /fathom-server
-
-# The schema/ tree, at a fixed absolute path — NOT embedded in the binary.
-# `main.rs` loaded it from `"schema"`, relative to the working directory; this
-# stage copies only the binary, so a container run from anywhere but a
-# checkout crash-looped on exit 7 with no `schema/` beside it and no override
-# to point elsewhere (Finding 1). Copied from the build stage's checkout
-# rather than the host context directly, so it is exactly the tree that was
-# built against, byte for byte — the same reason the binary itself is copied
-# `--from=build` rather than rebuilt here.
-#
-# Not compiled in: the crates that embed a tree in the binary are external
-# dependencies, and 49 §20's dependency budget is guarded deliberately (see
-# `crates/fathom-server/Cargo.toml`'s own comments on that budget) — a schema
-# update should not require a new binary.
-COPY --from=build /src/schema /schema
-ENV FATHOM_SCHEMA_ROOT=/schema
-
-# `corpus/`, beside `schema/`, for the SAME reason `schema/` is copied above
-# rather than embedded: `main.rs` (~L513) loads the equipment catalogue from
-# `FATHOM_SCHEMA_ROOT`'s PARENT, expecting `corpus/catalogue/` to sit next to
-# `schema/` there (`design_api::load_catalogue`'s own doc). Without this line
-# the schema tree loads, the catalogue does not, and the process refuses to
-# start with a catalogue error naming the missing directory -- found running
-# `compose.yaml` rather than reading it, same as the note above this
-# one.
-COPY --from=build /src/corpus /corpus
-
-# THE ONE PATH THIS SERVER WRITES, and the one reason this image is not
-# entirely read-only. Admin design §6.3's first start mints the first operator
-# and writes their single-use enrolment token to a file for a human to read;
-# `FATHOM_BOOTSTRAP_TOKEN_FILE` names where. It is NOT in the key volume --
-# that volume is mounted read-only on the server, deliberately, and deriving
-# this path from the master key's is what stopped `compose.yaml` from
-# ever completing a first start (see its header).
-#
-# **Owned by 65532 here so that the named volume inherits it.** Docker seeds a
-# fresh named volume from whatever is at the mount point in the image,
-# ownership included; a mount point that does not exist in the image is created
-# root-owned, and this container does not run as root, so the server could not
-# create the file at all. `--chown` on `COPY` is how a distroless stage sets
-# ownership without a shell to `chown` with.
-COPY --from=build --chown=65532:65532 /bootstrap-seed /var/lib/fathom/bootstrap
-ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
-
-# 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
-# say it so that neither alone is load-bearing.
-USER 65532:65532
-
-EXPOSE 8080
-ENTRYPOINT ["/fathom-server"]
-
 # ---- client build -------------------------------------------------------
 # Owner: this stack served no client at all until this stage existed --
 # `compose.yaml` brought up a server and a proxy with nothing for the
@@ -215,21 +147,79 @@ COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wa
 
 RUN npm run build
 
-# ---- caddy, with the client baked in -------------------------------------
-# Owner: this is the SAME pinned Caddy image `compose.yaml` used to
-# pull directly -- digest unchanged, read 2026-09-03 per the file header
-# above -- now as a build stage so the client's built files can be copied
-# into it. Caddy's own official image has no `npm`, so the client cannot be
-# built inside it; it is only ever copied in, already built, from the stage
-# above.
-FROM caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS caddy
+# ---- run --------------------------------------------------------------
+# Named `server` (not left anonymous) because this Dockerfile now builds
+# more than one final image from one file -- `compose.yaml` names
+# this stage with `target: server` for exactly that reason, so that adding
+# the stages below can never silently change what an unqualified
+# `docker build .` produces.
+# debian13, not debian12, since 2026-09-19: the build stage's pinned `rust`
+# image is `1.94.1-slim-trixie` (Debian 13, glibc 2.41 -- Docker Hub tag
+# listing read that day), so the binary it produces asks the runtime for a
+# glibc at least that new. The first real start of this stack (CI's
+# `compose` job) died on `GLIBC_2.39' not found` against the Debian 12
+# runtime that was here. The two FROM lines must move together: a newer
+# Debian in `rust` needs at least as new a Debian here. Digest read from
+# gcr.io's manifest for `cc-debian13:latest`, 2026-09-19.
+FROM gcr.io/distroless/cc-debian13@sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750 AS server
 
-# `/srv/www`, matching the Caddyfile's `root * /srv/www` (inline in `compose.yaml`); the two say
-# the same path so that neither alone is load-bearing, the same convention
-# `compose.yaml`'s bootstrap-token path uses across three files.
+COPY --from=build /src/target/server/fathom-server /fathom-server
+
+# The schema/ tree, at a fixed absolute path — NOT embedded in the binary.
+# `main.rs` loaded it from `"schema"`, relative to the working directory; this
+# stage copies only the binary, so a container run from anywhere but a
+# checkout crash-looped on exit 7 with no `schema/` beside it and no override
+# to point elsewhere (Finding 1). Copied from the build stage's checkout
+# rather than the host context directly, so it is exactly the tree that was
+# built against, byte for byte — the same reason the binary itself is copied
+# `--from=build` rather than rebuilt here.
+#
+# Not compiled in: the crates that embed a tree in the binary are external
+# dependencies, and 49 §20's dependency budget is guarded deliberately (see
+# `crates/fathom-server/Cargo.toml`'s own comments on that budget) — a schema
+# update should not require a new binary.
+COPY --from=build /src/schema /schema
+ENV FATHOM_SCHEMA_ROOT=/schema
+
+# `corpus/`, beside `schema/`, for the SAME reason `schema/` is copied above
+# rather than embedded: `main.rs` (~L513) loads the equipment catalogue from
+# `FATHOM_SCHEMA_ROOT`'s PARENT, expecting `corpus/catalogue/` to sit next to
+# `schema/` there (`design_api::load_catalogue`'s own doc). Without this line
+# the schema tree loads, the catalogue does not, and the process refuses to
+# start with a catalogue error naming the missing directory -- found running
+# `compose.yaml` rather than reading it, same as the note above this
+# one.
+COPY --from=build /src/corpus /corpus
+
+# The web client, built by the `client build` stage above and served by the
+# binary itself (`src/client.rs`, 2026-09-20). Until this date a separate
+# Caddy image carried these files and terminated TLS in front; now the stack
+# is one published port behind the operator's own reverse proxy, like every
+# other service they run, and HTTPS is that proxy's job.
 COPY --from=client-build /src/client/dist /srv/www
+ENV FATHOM_CLIENT_ROOT=/srv/www
 
-# The Caddyfile itself is delivered by `compose.yaml`, as an inline config
-# -- deliberately not copied in here -- so that a TLS or host-name change
-# (this file's own "a real deployment replaces this block" comments) does
-# not need an image rebuild to take effect.
+# THE ONE PATH THIS SERVER WRITES, and the one reason this image is not
+# entirely read-only. Admin design §6.3's first start mints the first operator
+# and writes their single-use enrolment token to a file for a human to read;
+# `FATHOM_BOOTSTRAP_TOKEN_FILE` names where. It is NOT in the key volume --
+# that volume is mounted read-only on the server, deliberately, and deriving
+# this path from the master key's is what stopped `compose.yaml` from
+# ever completing a first start (see its header).
+#
+# **Owned by 65532 here so that the named volume inherits it.** Docker seeds a
+# fresh named volume from whatever is at the mount point in the image,
+# ownership included; a mount point that does not exist in the image is created
+# root-owned, and this container does not run as root, so the server could not
+# create the file at all. `--chown` on `COPY` is how a distroless stage sets
+# ownership without a shell to `chown` with.
+COPY --from=build --chown=65532:65532 /bootstrap-seed /var/lib/fathom/bootstrap
+ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
+
+# 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
+# say it so that neither alone is load-bearing.
+USER 65532:65532
+
+EXPOSE 8080
+ENTRYPOINT ["/fathom-server"]
+
