@@ -285,11 +285,11 @@ services:
     # does for every other service they run (until this date a Caddy of our
     # own did both, and it is gone). Two consequences to know: the browser's
     # WebCrypto, which generates the sign-in key, needs a secure context, so
-    # plain HTTP works only on localhost; and `FATHOM_TRUSTED_CLIENT_IP_HEADER`
-    # below means the server believes X-Forwarded-For, so this port must be
-    # reachable only through that proxy (publish on 127.0.0.1, or on a
-    # Docker network the proxy shares) or a client could name its own
-    # rate-limit bucket. `FATHOM_PUBLISH_ADDRESS` chooses the interface.
+    # plain HTTP works only on localhost; and X-Forwarded-For is believed
+    # only from FATHOM_TRUSTED_PROXIES (below), so name the proxy there and
+    # publish this port where only the proxy reaches it (127.0.0.1, or a
+    # Docker network the proxy shares). `FATHOM_PUBLISH_ADDRESS` chooses the
+    # interface.
     ports:
       - "${FATHOM_PUBLISH_ADDRESS:-0.0.0.0}:${FATHOM_PORT:-8080}:8080"
     environment:
@@ -352,27 +352,25 @@ services:
       FATHOM_LOG: "info"
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
-      # `src/config.rs`'s own doc on this field, in full: unset means the
-      # peer address, right on the open internet and wrong behind a proxy,
-      # "because behind a proxy every request arrives from the proxy — so
-      # with this unset in that deployment, the source bucket is one bucket
-      # for the whole site and a single attacker rate-limits everybody."
-      # This stack sits behind the operator's own reverse proxy (since
-      # 2026-09-20; a Caddy of our own before that), so it must set this, or
-      # every sign-in shares one rate-limit bucket regardless of who made it.
-      # **Safe only while that proxy sets this header itself and the port is
-      # reachable through nothing else** (the `ports:` comment above): a
-      # client that can reach the port directly could pick its own bucket,
-      # which is the other failure mode `src/config.rs`'s comment names.
-      # `src/api.rs::source_of` reads this header's LAST entry rather than
-      # its first, the entry a proxy that appends writes, a second,
-      # independent defence against the same client-supplied-header risk.
+      # WHERE A CLIENT'S ADDRESS COMES FROM (`src/client_address.rs`, the
+      # rule since 2026-09-20). Behind a proxy every request arrives from the
+      # proxy, so the client's address can only arrive in a header the proxy
+      # writes; with nothing trusted, every sign-in shares one rate-limit
+      # bucket. The header is believed ONLY when the connection comes from
+      # one of FATHOM_TRUSTED_PROXIES; its entries are read from the right,
+      # skipping trusted proxies, so a proxy that overwrites and one that
+      # appends both come out right, and from any other peer the header is
+      # ignored and the peer is the address -- a client reaching this port
+      # directly gains nothing by forging it. `private` is every private,
+      # loopback and link-local range, right for a proxy on this machine or
+      # this network; name the proxy's own address in `.env` to be exact.
       FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
+      FATHOM_TRUSTED_PROXIES: ${FATHOM_TRUSTED_PROXIES:-private}
       # Where the operator console (/admin/*, /enrolment/operator) answers,
       # since 2026-09-20 (`src/admin_exposure.rs`): host names, comma-separated
       # -- a subdomain of the site's or a different domain altogether -- and
-      # addresses or CIDR ranges it may be used from, judged the way the rate
-      # limiter judges an address (the trusted header above, else the peer).
+      # addresses or CIDR ranges it may be used from, judged by the same
+      # address rule as above.
       # On any other host, or from any other address, those paths are 404;
       # the site itself is served everywhere. Both empty means the console
       # answers everywhere, which the server says at startup. Set them in

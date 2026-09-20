@@ -30,6 +30,7 @@ use fathom_server::api::{
 };
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
+use fathom_server::client_address::ClientAddress;
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
 use fathom_server::keys::{self, KeyRing};
@@ -976,7 +977,7 @@ async fn an_address_that_belongs_to_no_account_gets_the_same_answer_as_one_that_
         sessions: Arc::new(store),
         watch: Arc::new(EpochWatch::new()),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+        client_address: ClientAddress::header("x-forwarded-for"),
     };
     let addr = serve(api::router(state)).await;
 
@@ -1184,7 +1185,7 @@ async fn the_operator_sign_in_surface_accepts_no_password_shaped_input() {
         sessions: Arc::new(store),
         watch: Arc::new(EpochWatch::new()),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        client_address: ClientAddress::peer(),
     };
     let addr = serve(api::router(state)).await;
 
@@ -1662,8 +1663,8 @@ async fn the_demonstration_route_answers_read_draw_steward_and_not_authorised_fr
         // bucket of its own; see its doc comment for what happens without
         // one. This is a test driving its own router, not advice: the header
         // is only safe to trust where a proxy you control overwrites it, as
-        // `ApiState::trusted_client_ip_header` says.
-        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+        // `ApiState::client_address` says.
+        client_address: ClientAddress::header("x-forwarded-for"),
     };
     let addr = serve(api::router(state)).await;
 
@@ -1698,7 +1699,7 @@ async fn the_demonstration_route_answers_read_draw_steward_and_not_authorised_fr
 
 /// Sign in, take a nonce and sign one request, all over the real HTTP surface.
 /// `source` is the value sent as `x-forwarded-for`, which the state this
-/// helper is driven against must trust (`ApiState::trusted_client_ip_header`).
+/// helper is driven against must trust (`ApiState::client_address`).
 ///
 /// **It has to be a source of the caller's own.** Without it every request
 /// here counts against the peer address — `127.0.0.1` for every test in this
@@ -2049,7 +2050,7 @@ async fn the_timestamp_header_at_i64_min_answers_rather_than_dropping_the_connec
         sessions: Arc::new(store(&pool, Arc::clone(&ring)).await),
         watch: Arc::new(EpochWatch::new()),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        client_address: ClientAddress::peer(),
     };
     let addr = serve(api::router(state)).await;
 
@@ -2419,7 +2420,7 @@ async fn an_account_disabled_before_the_request_arrives_is_refused_by_the_route(
         )),
         watch: Arc::new(EpochWatch::new()),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        client_address: ClientAddress::peer(),
     };
     let addr = serve(api::router(state)).await;
     let path = format!("/organisations/{}/capability", estate.organisation);

@@ -44,10 +44,9 @@
 //! wrong rather than having it quietly dropped. `tests/operators.rs` greps this
 //! file, `api.rs` and `operators.rs` for the shape of one.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::{ConnectInfo, FromRequest, Path, Request, State};
+use axum::extract::{FromRequest, Path, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -65,15 +64,10 @@ pub struct AdminState {
     pub sessions: Arc<SessionStore>,
     pub operators: Arc<OperatorStore>,
     pub ring: Arc<keys::KeyRing>,
-    /// Which header, if any, carries the real client address for the two
-    /// unauthenticated redemption routes' source bucket.
-    ///
-    /// `ApiState::trusted_client_ip_header`'s own field, exactly: `None`
-    /// means the peer address, right for a server on the open internet and
-    /// wrong behind a reverse proxy that does not overwrite this header on
-    /// every request. Wired from the same configuration value in `main.rs`,
-    /// because a deployment behind one proxy is behind it for every route.
-    pub trusted_client_ip_header: Option<String>,
+    /// How a request's address is decided, for the two unauthenticated
+    /// redemption routes' source bucket: the same policy as every other
+    /// route, built once in `main.rs` (`crate::client_address`).
+    pub client_address: crate::client_address::ClientAddress,
 }
 
 impl FromRequest<AdminState> for Signed {
@@ -584,33 +578,16 @@ async fn verify(
     Ok(session)
 }
 
-/// Which bucket a redemption attempt is counted against.
-///
-/// `api::source_of`'s shape exactly, repeated here rather than shared,
-/// because it reads one field off a different state type — `firmware.rs`
-/// already made the same choice for the same reason, and its own doc comment
-/// names `api::source_of` as the shape it mirrors. The peer address unless
-/// [`AdminState::trusted_client_ip_header`] is configured: a header a client
-/// can set is a rate limit a client can evade.
+/// The request's address as [`AdminState::client_address`] decides it, the
+/// one rule every route shares (`crate::client_address`). Until 2026-09-20
+/// this was a copy that read the header's FIRST entry, the one a client can
+/// write; the shared rule reads from the right.
 fn source_of(
     state: &AdminState,
     headers: &HeaderMap,
     extensions: &axum::http::Extensions,
 ) -> String {
-    if let Some(name) = &state.trusted_client_ip_header {
-        if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
-            // The first entry of a comma-separated list is the client in
-            // every forwarding convention; the rest are proxies.
-            let first = value.split(',').next().unwrap_or("").trim();
-            if !first.is_empty() {
-                return first.to_string();
-            }
-        }
-    }
-    extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    state.client_address.of(headers, extensions)
 }
 
 /// Read exactly `n` length-prefixed fields, and refuse anything else.

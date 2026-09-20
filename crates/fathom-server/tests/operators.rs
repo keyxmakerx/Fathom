@@ -30,6 +30,7 @@ use fathom_server::api::{
 };
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
+use fathom_server::client_address::ClientAddress;
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant};
 use fathom_server::keys::{self, KeyRing};
@@ -996,7 +997,7 @@ async fn repeated_refused_redemptions_reach_the_cap_and_other_sources_are_unaffe
         sessions: admin_sessions,
         operators: Arc::clone(&operators_store),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+        client_address: ClientAddress::header("x-forwarded-for"),
     };
     let addr = serve(admin::router(state)).await;
 
@@ -1094,7 +1095,7 @@ async fn the_operator_redemption_route_is_also_rate_limited_by_source() {
         sessions: admin_sessions,
         operators: operators_store,
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: Some("x-forwarded-for".to_string()),
+        client_address: ClientAddress::header("x-forwarded-for"),
     };
     let addr = serve(admin::router(state)).await;
 
@@ -1204,7 +1205,7 @@ async fn a_refused_redemption_leaves_a_sealed_entry_and_the_refusal_is_unchanged
         sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
         operators: Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        client_address: ClientAddress::peer(),
     };
     let addr = serve(admin::router(state)).await;
     let (status, answer) = raw_request(
@@ -2220,7 +2221,7 @@ async fn an_operator_route_refuses_a_body_carrying_a_field_it_does_not_read() {
         sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
         operators: Arc::new(store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: None,
+        client_address: ClientAddress::peer(),
     };
     let addr = serve(admin::router(state)).await;
 

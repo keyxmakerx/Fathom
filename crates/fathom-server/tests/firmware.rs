@@ -30,6 +30,7 @@ use fathom_server::api::{
 };
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
+use fathom_server::client_address::ClientAddress;
 use fathom_server::crypto::Key32;
 use fathom_server::firmware::{self, FirmwareState, FirmwareStore, HEADER_UPLOAD_TOKEN};
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
@@ -351,7 +352,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
         sessions: Arc::clone(&sessions),
         watch: Arc::clone(&watch),
         ring: Arc::clone(&ring),
-        trusted_client_ip_header: Some(TEST_SOURCE_HEADER.to_string()),
+        client_address: ClientAddress::header(TEST_SOURCE_HEADER),
     };
     let firmware_state = FirmwareState {
         sessions,
@@ -362,7 +363,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
                 directory,
                 64 * 1024 * 1024,
                 "https://fathom.test.invalid".to_string(),
-                Some(TEST_SOURCE_HEADER.to_string()),
+                ClientAddress::header(TEST_SOURCE_HEADER),
             )
             .expect("this test's staging directory is usable"),
         ),
@@ -1716,7 +1717,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
         missing.clone(),
         1024,
         "https://example.invalid".to_string(),
-        None,
+        ClientAddress::peer(),
     ) {
         Ok(_) => panic!("a directory that does not exist cannot be staged into"),
         Err(e) => e,
@@ -1729,7 +1730,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
         file.clone(),
         1024,
         "https://example.invalid".to_string(),
-        None,
+        ClientAddress::peer(),
     ) {
         Ok(_) => panic!("a file is not a directory"),
         Err(e) => e,
@@ -1743,7 +1744,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
             good.clone(),
             1024,
             "https://example.invalid".to_string(),
-            None,
+            ClientAddress::peer(),
         )
         .is_ok(),
         "a real, writable directory is accepted"

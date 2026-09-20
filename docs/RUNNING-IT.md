@@ -159,10 +159,13 @@ builds from the checkout instead. To freeze a deployment on one build, set
 
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
-The server reads the client's address from `X-Forwarded-For`, which your proxy sets; because it
-believes that header, the port must be reachable only through the proxy. Publish on
-`FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy runs on the same machine outside Docker, or leave
-the port unpublished on a Docker network the proxy shares.
+The server takes the client's address from `X-Forwarded-For`, and believes that header only when
+the connection comes from one of `FATHOM_TRUSTED_PROXIES` (`private`, every private range, by
+default; set it to your proxy's own address to be exact). From any other peer the header is ignored
+and the peer is the address, so a client reaching the port directly cannot choose its own rate-limit
+bucket. That address is what the sign-in limits count and what the audit trail records. Still
+publish the port where only the proxy reaches it: `FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy
+runs on the same machine outside Docker, or unpublished on a Docker network the proxy shares.
 
 To sign in the first time, read the one-time token the first start wrote and paste it into the
 enrolment screen:
@@ -185,8 +188,8 @@ first design goes in**; there is no recovery path without it, by design (`docs/O
 **Where the operator console answers.** `/admin/*` and `/enrolment/operator` are the operator
 console; the rest is the site. `FATHOM_ADMIN_HOSTS` confines the console to host names (a subdomain
 of the site's, or a different domain altogether; your proxy forwards the `Host` header, which
-most do by default) and `FATHOM_ADMIN_SOURCES` to addresses or ranges (judged like the rate
-limiter's: the trusted forwarding header, else the peer). Set one or both. Elsewhere those paths
+most do by default) and `FATHOM_ADMIN_SOURCES` to addresses or ranges (judged by the same address rule as
+above). Set one or both. Elsewhere those paths
 are 404, as if the console were not there; the site is served on every host, so an operator on
 the admin host has the whole site too. Both unset means the console answers everywhere, which
 the server says at startup.

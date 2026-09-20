@@ -16,15 +16,11 @@
 //! proxy is the operator's and can be misconfigured; this is the part of the
 //! fence Fathom can vouch for. It reads the same two facts the rate limiter
 //! reads -- the `Host` header the proxy forwards, and the client address as
-//! `api::source_of_with` derives it (the trusted forwarding header's last
-//! entry when one is configured, else the peer) -- so what the proxy has to
-//! get right is the same short list `compose.yaml` already states.
-//!
-//! No crate arrives with this. CIDR matching over `std::net::IpAddr` is a
-//! mask and a compare; an `ipnet` would be one more package in the closure
-//! gate-zero measures for thirty lines.
+//! `client_address::ClientAddress` derives it (the forwarding header, believed
+//! only from a trusted proxy) -- so what the proxy has to get right is the
+//! same short list `compose.yaml` already states.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -32,76 +28,8 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-use crate::api;
-
-/// An address or a range: `10.0.0.5`, `10.0.0.0/8`, `::1`, `fd00::/8`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Cidr {
-    network: IpAddr,
-    prefix: u8,
-}
-
-impl Cidr {
-    /// Parses one entry. A bare address is a range of one. Refuses a prefix
-    /// longer than the family allows and anything that is not an address.
-    pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim();
-        let (addr, prefix) = match text.split_once('/') {
-            None => (text, None),
-            Some((a, p)) => (a, Some(p)),
-        };
-        let addr: IpAddr = addr.parse().ok()?;
-        let max = match addr {
-            IpAddr::V4(_) => 32,
-            IpAddr::V6(_) => 128,
-        };
-        let prefix = match prefix {
-            None => max,
-            Some(p) => p.parse::<u8>().ok().filter(|p| *p <= max)?,
-        };
-        Some(Self {
-            network: mask(addr, prefix),
-            prefix,
-        })
-    }
-
-    /// Is `ip` inside? An IPv4-mapped IPv6 address (`::ffff:10.0.0.5`, which
-    /// a dual-stack listener reports for a v4 peer) is matched as the v4
-    /// address it carries.
-    pub fn contains(&self, ip: IpAddr) -> bool {
-        let ip = match ip {
-            IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-                Some(v4) if matches!(self.network, IpAddr::V4(_)) => IpAddr::V4(v4),
-                _ => IpAddr::V6(v6),
-            },
-            v4 => v4,
-        };
-        mask(ip, self.prefix) == self.network
-    }
-}
-
-fn mask(addr: IpAddr, prefix: u8) -> IpAddr {
-    match addr {
-        IpAddr::V4(a) => {
-            let bits = u32::from(a);
-            let m = if prefix == 0 {
-                0
-            } else {
-                u32::MAX << (32 - u32::from(prefix))
-            };
-            IpAddr::V4(Ipv4Addr::from(bits & m))
-        }
-        IpAddr::V6(a) => {
-            let bits = u128::from(a);
-            let m = if prefix == 0 {
-                0
-            } else {
-                u128::MAX << (128 - u32::from(prefix))
-            };
-            IpAddr::V6(Ipv6Addr::from(bits & m))
-        }
-    }
-}
+pub use crate::client_address::Cidr;
+use crate::client_address::ClientAddress;
 
 /// The policy: empty lists mean "no restriction of that kind". Both empty
 /// is the open console every deployment had before this module, and
@@ -110,19 +38,19 @@ fn mask(addr: IpAddr, prefix: u8) -> IpAddr {
 pub struct AdminExposure {
     hosts: Vec<String>,
     sources: Vec<Cidr>,
-    trusted_client_ip_header: Option<String>,
+    client_address: ClientAddress,
 }
 
 impl AdminExposure {
     pub fn new(
         hosts: impl IntoIterator<Item = String>,
         sources: impl IntoIterator<Item = Cidr>,
-        trusted_client_ip_header: Option<String>,
+        client_address: ClientAddress,
     ) -> Self {
         Self {
             hosts: hosts.into_iter().map(|h| normalise_host(&h)).collect(),
             sources: sources.into_iter().collect(),
-            trusted_client_ip_header,
+            client_address,
         }
     }
 
@@ -158,11 +86,7 @@ impl AdminExposure {
             }
         }
         if !self.sources.is_empty() {
-            let source = api::source_of_with(
-                self.trusted_client_ip_header.as_deref(),
-                headers,
-                extensions,
-            );
+            let source = self.client_address.of(headers, extensions);
             let Ok(ip) = source.parse::<IpAddr>() else {
                 return false;
             };
@@ -209,11 +133,7 @@ pub async fn gate(
                 .get(header::HOST)
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("-"),
-            source = %api::source_of_with(
-                policy.trusted_client_ip_header.as_deref(),
-                request.headers(),
-                request.extensions()
-            ),
+            source = %policy.client_address.of(request.headers(), request.extensions()),
             "operator console request outside FATHOM_ADMIN_HOSTS / FATHOM_ADMIN_SOURCES; answered 404"
         );
         return StatusCode::NOT_FOUND.into_response();
@@ -224,54 +144,6 @@ pub async fn gate(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ip(s: &str) -> IpAddr {
-        s.parse().expect("ip")
-    }
-
-    #[test]
-    fn a_bare_address_is_a_range_of_one() {
-        let c = Cidr::parse("10.0.0.5").expect("parses");
-        assert!(c.contains(ip("10.0.0.5")));
-        assert!(!c.contains(ip("10.0.0.6")));
-    }
-
-    #[test]
-    fn a_v4_range_contains_its_members_and_nothing_else() {
-        let c = Cidr::parse("192.168.1.0/24").expect("parses");
-        assert!(c.contains(ip("192.168.1.1")));
-        assert!(c.contains(ip("192.168.1.254")));
-        assert!(!c.contains(ip("192.168.2.1")));
-        assert!(!c.contains(ip("::1")));
-        assert!(
-            c.contains(ip("::ffff:192.168.1.7")),
-            "a mapped v4 peer is the v4 address"
-        );
-    }
-
-    #[test]
-    fn a_v6_range_and_a_zero_prefix() {
-        let c = Cidr::parse("fd00::/8").expect("parses");
-        assert!(c.contains(ip("fd12:3456::1")));
-        assert!(!c.contains(ip("2001:db8::1")));
-        assert!(Cidr::parse("0.0.0.0/0")
-            .expect("parses")
-            .contains(ip("203.0.113.9")));
-    }
-
-    #[test]
-    fn nonsense_is_refused() {
-        for bad in [
-            "",
-            "10.0.0.0/33",
-            "::1/129",
-            "example.com",
-            "10.0.0/8",
-            "10.0.0.0/x",
-        ] {
-            assert!(Cidr::parse(bad).is_none(), "{bad}");
-        }
-    }
 
     #[test]
     fn hosts_compare_without_port_or_case() {
@@ -298,6 +170,8 @@ mod tests {
     #[test]
     fn an_open_policy_mounts_nothing() {
         assert!(AdminExposure::default().is_open());
-        assert!(!AdminExposure::new(["a.example".to_string()], [], None).is_open());
+        assert!(
+            !AdminExposure::new(["a.example".to_string()], [], ClientAddress::peer()).is_open()
+        );
     }
 }

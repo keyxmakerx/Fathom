@@ -4,6 +4,7 @@
 use axum::routing::{get, post};
 use axum::Router;
 use fathom_server::admin_exposure::{gate, AdminExposure, Cidr};
+use fathom_server::client_address::ClientAddress;
 
 async fn serve(policy: AdminExposure) -> std::net::SocketAddr {
     let admin = Router::new()
@@ -37,7 +38,11 @@ async fn the_console_answers_only_on_its_host_and_from_its_addresses() {
     let policy = AdminExposure::new(
         ["Admin.Example.test".to_string()],
         [Cidr::parse("10.0.0.0/8").expect("cidr")],
-        Some("X-Forwarded-For".to_string()),
+        // The test's peer is loopback; it is the trusted proxy here.
+        ClientAddress::new(
+            Some("X-Forwarded-For".to_string()),
+            [Cidr::parse("127.0.0.1").expect("cidr")],
+        ),
     );
     let addr = serve(policy).await;
 
@@ -137,7 +142,7 @@ async fn hosts_alone_and_sources_alone_each_confine_on_their_own() {
     let addr = serve(AdminExposure::new(
         ["console.other-domain.test".to_string()],
         [],
-        None,
+        ClientAddress::peer(),
     ))
     .await;
     let (head, _) = request(
@@ -162,7 +167,7 @@ async fn hosts_alone_and_sources_alone_each_confine_on_their_own() {
     let addr = serve(AdminExposure::new(
         [],
         [Cidr::parse("127.0.0.1").expect("cidr")],
-        None,
+        ClientAddress::peer(),
     ))
     .await;
     let (head, _) = request(addr, "GET", "/admin/ping", &[("Host", "anything.test")]).await;
@@ -170,7 +175,7 @@ async fn hosts_alone_and_sources_alone_each_confine_on_their_own() {
     let addr = serve(AdminExposure::new(
         [],
         [Cidr::parse("10.0.0.0/8").expect("cidr")],
-        None,
+        ClientAddress::peer(),
     ))
     .await;
     let (head, _) = request(
@@ -183,6 +188,30 @@ async fn hosts_alone_and_sources_alone_each_confine_on_their_own() {
     assert!(
         status(&head).starts_with("HTTP/1.1 404"),
         "an untrusted forwarding header must not open the console: {head}"
+    );
+
+    // The header IS configured, but only a proxy in 10/8 may vouch for it,
+    // and the peer is loopback: the forged entry is ignored, the peer is
+    // judged, and the peer is not in the range.
+    let addr = serve(AdminExposure::new(
+        [],
+        [Cidr::parse("10.0.0.0/8").expect("cidr")],
+        ClientAddress::new(
+            Some("X-Forwarded-For".to_string()),
+            [Cidr::parse("10.0.0.0/8").expect("cidr")],
+        ),
+    ))
+    .await;
+    let (head, _) = request(
+        addr,
+        "GET",
+        "/admin/ping",
+        &[("Host", "anything.test"), ("X-Forwarded-For", "10.0.0.1")],
+    )
+    .await;
+    assert!(
+        status(&head).starts_with("HTTP/1.1 404"),
+        "a header from an untrusted peer must not open the console: {head}"
     );
 }
 

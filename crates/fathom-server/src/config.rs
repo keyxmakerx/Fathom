@@ -186,6 +186,14 @@ pub struct Config {
     /// chooses which one it is not in, and this comment is the place that says
     /// so.
     pub trusted_client_ip_header: Option<String>,
+    /// `FATHOM_TRUSTED_PROXIES`. Addresses and ranges, comma-separated, or
+    /// the word `private`, from which the header above is believed; from
+    /// any other peer it is ignored and the peer is the address
+    /// (`src/client_address.rs`). Empty with the header set is the older
+    /// rule -- the header believed from every peer -- and `main.rs` warns
+    /// at startup that it is in force. Setting this and not the header
+    /// selects `X-Forwarded-For`.
+    pub trusted_proxies: Vec<String>,
 
     /// `FATHOM_SINGLE_OPERATOR`. Admin design §5.3's documented escape for a
     /// deployment that genuinely has one operator.
@@ -587,6 +595,22 @@ impl Config {
         let trusted_client_ip_header = get("FATHOM_TRUSTED_CLIENT_IP_HEADER")
             .map(|v| v.trim().to_ascii_lowercase())
             .filter(|v| !v.is_empty());
+        let trusted_proxies: Vec<String> = get("FATHOM_TRUSTED_PROXIES")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if crate::client_address::parse_trusted_proxies(&trusted_proxies.join(",")).is_err() {
+            return Err(ConfigError::Unparseable {
+                variable: "FATHOM_TRUSTED_PROXIES",
+            });
+        }
+        let trusted_client_ip_header = match (trusted_client_ip_header, trusted_proxies.is_empty())
+        {
+            (None, false) => Some("X-Forwarded-For".to_string()),
+            (h, _) => h,
+        };
 
         // Trailing newline trimmed: the file is written by a shell script and
         // a newline is what a shell script writes. Only the ends are trimmed
@@ -639,6 +663,7 @@ impl Config {
             audit_spool_bounds,
             sign_in_limits,
             trusted_client_ip_header,
+            trusted_proxies,
             single_operator,
             operator_notice_address,
             bootstrap_token_file,

@@ -153,8 +153,9 @@ Since 2026-09-20 the console (`/admin/*` and `/enrolment/operator`) can be confi
 server, not the proxy (`crates/fathom-server/src/admin_exposure.rs`). A request that fails a
 configured check is answered 404: on that host, from that address, the console does not exist.
 The site is unaffected on every host. Two facts the proxy must get right for this to hold, the
-same two the rate limiter needs: it forwards the original `Host`, and it sets the trusted
-forwarding header itself. With neither variable set the console answers everywhere, and the
+same two the rate limiter needs: it forwards the original `Host`, and it is named in
+`FATHOM_TRUSTED_PROXIES`, which is what lets its `X-Forwarded-For` be believed and nobody else's
+(`crates/fathom-server/src/client_address.rs`). With neither variable set the console answers everywhere, and the
 server logs a warning saying so at every start.
 
 ## What to check after an upgrade
