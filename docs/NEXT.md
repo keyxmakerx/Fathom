@@ -250,6 +250,13 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
 
 ---
 
+**Two gaps the upgrade adoption left (2026-09-21).** An operator row with no address binding
+(one the old console created beside the first operator) still counts in `live_independent_operators`,
+so it suppresses the sole-operator banner and makes the quorum ask for a signature nobody can give;
+the start logs such rows and the fix is to count only bound, enabled operators. And there is no
+host command that binds an existing operator to an address, so the only way to give such a row a
+seat is to disable it and add the colleague again through the console.
+
 ## Decisions an executing session must not reopen
 
 Each binds until overruled on merit in writing (`CLAUDE.md` rule 6):
