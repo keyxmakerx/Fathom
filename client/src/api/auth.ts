@@ -16,6 +16,7 @@ import { sessionChallenge } from '../crypto/session';
 import { setSession } from '../state/sessionState';
 import {
   keySlot,
+  looksLikeOperatorId,
   OPERATOR_PENDING_SLOT,
   PRINCIPAL_KIND_OPERATOR,
   PRINCIPAL_KIND_STEWARD,
@@ -55,6 +56,17 @@ export class NoEnrolledKeyError extends Error {
  * operator whose id `address` is (`./constants.ts`: the operator plane's
  * address is the operator id).
  *
+ * **`kind` omitted means: whichever plane this browser holds a key for.**
+ * Nobody chooses a plane on the sign-in screen (the owner's rule,
+ * 2026-09-21: *"if they have access they have access, it shouldn't be a
+ * selection"*). The key is the access, and it was filed under one plane's
+ * slot when it was enrolled, so the slot decides: the account slots for
+ * `address` are tried first, then the operator slots, then -- only when
+ * `address` has an operator id's shape -- the sentinel slot an operator's
+ * key waits in before its owner was named. No network call is made until a
+ * key is found, so a wrong guess costs nothing and the server is never
+ * asked about a plane the browser has no key for.
+ *
  * Generates a fresh, non-extractable session keypair; asks the server for a
  * challenge bound to its public half; signs that challenge with the
  * principal's enrolled key; and exchanges the result for a session.
@@ -75,26 +87,17 @@ export class NoEnrolledKeyError extends Error {
  * uniform wording, unchanged — for every refusal the server itself can
  * produce.
  */
-export async function signIn(address: string, kind: PrincipalKind = PRINCIPAL_KIND_STEWARD): Promise<void> {
-  const slot = keySlot(kind, address);
-  let enrolledKeyPair = await getEnrolledKeyPair(slot);
-  // Which pending slot the fallback key came from, so success can promote
-  // exactly that one into `slot`.
-  let pendingSlot: string | null = null;
-  if (!enrolledKeyPair) {
-    enrolledKeyPair = await getPendingKeyPair(slot);
-    if (enrolledKeyPair) {
-      pendingSlot = slot;
-    } else if (kind === PRINCIPAL_KIND_OPERATOR) {
-      enrolledKeyPair = await getPendingKeyPair(OPERATOR_PENDING_SLOT);
-      if (enrolledKeyPair) {
-        pendingSlot = OPERATOR_PENDING_SLOT;
-      }
-    }
-    if (!enrolledKeyPair) {
-      throw new NoEnrolledKeyError(address, kind);
-    }
+export async function signIn(address: string, kind?: PrincipalKind): Promise<void> {
+  const found = await findKey(address, kind);
+  if (!found) {
+    throw new NoEnrolledKeyError(address, kind ?? (looksLikeOperatorId(address) ? PRINCIPAL_KIND_OPERATOR : PRINCIPAL_KIND_STEWARD));
   }
+  kind = found.kind;
+  const slot = keySlot(kind, address);
+  const enrolledKeyPair = found.pair;
+  // Which pending slot the key came from, if any, so success can promote
+  // exactly that one into `slot`.
+  const pendingSlot = found.pendingSlot;
 
   const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
@@ -156,6 +159,40 @@ export async function signIn(address: string, kind: PrincipalKind = PRINCIPAL_KI
     address,
     accountId,
   });
+}
+
+interface FoundKey {
+  kind: PrincipalKind;
+  pair: CryptoKeyPair;
+  /** The pending slot the pair was read from, or `null` for an enrolled one. */
+  pendingSlot: string | null;
+}
+
+/** The key this browser holds for `address` on `kind`'s plane, or on
+ * whichever plane has one when `kind` is not given -- see `signIn`. */
+async function findKey(address: string, kind: PrincipalKind | undefined): Promise<FoundKey | null> {
+  const kinds: PrincipalKind[] = kind ? [kind] : [PRINCIPAL_KIND_STEWARD, PRINCIPAL_KIND_OPERATOR];
+  for (const candidate of kinds) {
+    const slot = keySlot(candidate, address);
+    const enrolled = await getEnrolledKeyPair(slot);
+    if (enrolled) {
+      return { kind: candidate, pair: enrolled, pendingSlot: null };
+    }
+    const pending = await getPendingKeyPair(slot);
+    if (pending) {
+      return { kind: candidate, pair: pending, pendingSlot: slot };
+    }
+  }
+  // The operator sentinel: a key enrolled for an operator the answer never
+  // named. Only worth trying for something shaped like an operator id, and
+  // only when the operator plane is in question at all.
+  if ((kind === undefined || kind === PRINCIPAL_KIND_OPERATOR) && looksLikeOperatorId(address)) {
+    const waiting = await getPendingKeyPair(OPERATOR_PENDING_SLOT);
+    if (waiting) {
+      return { kind: PRINCIPAL_KIND_OPERATOR, pair: waiting, pendingSlot: OPERATOR_PENDING_SLOT };
+    }
+  }
+  return null;
 }
 
 /**

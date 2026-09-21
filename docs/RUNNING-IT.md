@@ -115,14 +115,18 @@ your server is elsewhere.
 
 ### 5. Sign in
 
-Open the client, choose **An operator token** on the enrolment screen, paste the token from step 3,
-and let the browser generate your key. The answer names your **operator id**, which the console
-shows beside "Signed in as" and the server's first-start log line carries as `operator_id=`: it is
-what you sign in with from then on (choose **An operator** on the sign-in screen), and it is not a
-secret. There is no password anywhere in this product, and no self-registration: every account
-arrives by invitation, and the operator console is where invitations are made — create an account,
-read its token off the board, hand it over, and the person redeems it on the same enrolment screen
-with **An invitation to an account** and their address.
+Open the client, paste the token from step 3 on the enrolment screen, and let the browser generate
+your key. The token says what it is for: the file starts with `op_`, so the screen asks for nothing
+else; an account invitation from the console starts with `inv_`, and the screen asks for the address
+it was sent to. (A token file written before 2026-09-21 is bare hex: leave the address empty and it
+is read as an operator's.) The answer names your **operator id**, which the console shows beside
+"Signed in as" and the server's first-start log line carries as `operator_id=`; the first operator
+is named after `FATHOM_OPERATOR_NOTICE_ADDRESS`. Nobody chooses a plane at sign-in: the key in the
+browser is the access, the sign-in screen lists the identities this browser holds a key for, and
+whatever is typed instead is looked up on both planes before anything is sent. There is no password
+anywhere in this product, and no self-registration: every account arrives by invitation, and the
+operator console is where invitations are made — create an account, read its `inv_` token off the
+board, hand it over.
 
 **What an operator cannot do yet from the console:** turn an organisation shell into an
 organisation. The shell and its claim token are minted, but the steward-side route that redeems the
@@ -198,7 +202,7 @@ side):
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
 To sign in the first time, read the one-time token the first start wrote and paste it into the
-enrolment screen under **An operator token** (§5 above says what follows):
+enrolment screen (§5 above says what follows):
 
 ```sh
 docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token

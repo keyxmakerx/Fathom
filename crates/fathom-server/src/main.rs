@@ -30,13 +30,15 @@ fn bootstrap_token_path(config: &Config) -> std::path::PathBuf {
 /// The mode is set **before** the bytes are written, not after, because a file
 /// created world-readable and then chmodded is world-readable for the length
 /// of that window, and this is a bearer token. Hex rather than raw bytes so an
-/// operator can read it out of a terminal without a hex dump, and a trailing
-/// newline so `cat` behaves.
+/// operator can read it out of a terminal without a hex dump,
+/// [`fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX`] in front, and a
+/// trailing newline so `cat` behaves.
 fn write_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<()> {
     use std::io::Write as _;
     use std::os::unix::fs::OpenOptionsExt as _;
 
-    let mut hex = String::with_capacity(65);
+    let mut hex = String::with_capacity(69);
+    hex.push_str(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX);
     for byte in token {
         hex.push_str(&format!("{byte:02x}"));
     }
@@ -603,9 +605,12 @@ async fn main() -> ExitCode {
     // mode 0400, and its PATH is logged while the token itself never is --
     // logs are shipped off the box by design (`audit.rs`), and a token in a
     // log is a token in whatever holds the logs.
+    // The first operator is named after the notice address: the one thing
+    // the installer already knows about themselves, and what the console
+    // then shows beside their operator id (the owner's ask, 2026-09-21).
     let notice_address = config.operator_notice_address.clone().unwrap_or_default();
     match operators
-        .bootstrap_first_operator("the first operator", &notice_address)
+        .bootstrap_first_operator(&notice_address, &notice_address)
         .await
     {
         Ok(bootstrap) => {

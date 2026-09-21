@@ -460,7 +460,13 @@ async fn the_command_writes_the_token_to_the_file_and_never_to_its_output() {
     );
 
     let written = std::fs::read_to_string(&token_file).expect("the token file must exist");
-    let token = hex_to_32(written.trim());
+    // `write_bootstrap_token`: the prefix that names the door, then the hex.
+    let token = hex_to_32(
+        written
+            .trim()
+            .strip_prefix(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX)
+            .expect("the token file starts with the operator prefix"),
+    );
 
     // THE CLAIM. Every form the token could take in a log line: the hex the
     // file holds, upper case, and the `Debug` of the byte array.

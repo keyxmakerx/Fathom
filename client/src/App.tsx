@@ -13,6 +13,7 @@ import { DesignPlace } from './components/design/DesignPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
+import { listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
 import { getSession, subscribe } from './state/sessionState';
 
@@ -41,6 +42,24 @@ export default function App() {
   const session = useSyncExternalStore(subscribe, getSession);
   const [door, setDoor] = useState<Door>('sign-in');
   const [view, setView] = useState<View>({ kind: 'home' });
+
+  // A browser holding no key at all has nothing to sign in with, so it
+  // starts at the enrolment door; one that holds a key starts at sign-in,
+  // which lists it. Decided once, from storage, and never over a choice the
+  // visitor has already made.
+  useEffect(() => {
+    let cancelled = false;
+    listKeySlots()
+      .then(({ enrolled, pending }) => {
+        if (!cancelled && enrolled.length === 0 && pending.length === 0) {
+          setDoor('enrol');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The camera's state. It lives here rather than in `Shell` because the
   // drawing Session 4 builds will read it too, and two copies would drift.
