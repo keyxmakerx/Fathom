@@ -2832,6 +2832,9 @@ fn exactly_one_route_in_this_server_has_a_field_a_password_could_arrive_in() {
         "pub async fn sign_in_with_credentials",
         "async fn attempt_sign_in",
         "async fn check_second_factor",
+        // The setup-only gate's predicate (2026-09-21 fix round, S1): reads
+        // whether a stored hash exists, never the password itself.
+        "fn a_stored_credential",
     ];
 
     let files = [
@@ -3448,19 +3451,36 @@ async fn recover_operator_refuses_an_unknown_address_and_mints_nothing() {
 #[tokio::test]
 async fn the_seat_hold_refuses_a_key_and_another_operator_clears_it() {
     const TAG: &str = "ops_seat_hold";
-    let (_pool, operators, sessions_store, _ring) =
+    let (_pool, operators, sessions_store, ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let operator = a_lone_operator(&operators, &sessions_store).await;
     let colleague = a_second_operator(&operators, &sessions_store, &operator).await;
 
     let account = account_of_operator(&operators, &colleague.id).await;
     let su = support::superuser_on_isolated(TAG).await;
-    su.execute(
-        "UPDATE accounts SET operator_key_hold_until = now() + interval '24 hours' WHERE id = $1",
-        &[&account],
-    )
-    .await
-    .expect("what stream (a)'s reset redemption writes");
+    // Written the way stream (a)'s reset redemption writes it: on the runtime
+    // role under `app.reset_custody`, and -- because the hold is inside the
+    // credential seal (migration 0025) -- resealed in the same transaction.
+    // A superuser write would bypass the seal's constraint trigger and prove
+    // nothing about the row the runtime later reads.
+    {
+        let mut client = operators.pool().get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
+            .await
+            .expect("reset custody");
+        tx.execute(
+            "UPDATE accounts SET operator_key_hold_until = now() + interval '24 hours' \
+              WHERE id = $1",
+            &[&account],
+        )
+        .await
+        .expect("what stream (a)'s reset redemption writes");
+        credentials::reseal_credentials(&tx, &ring, &account, None)
+            .await
+            .expect("seal the hold");
+        tx.commit().await.expect("commit");
+    }
 
     // A second browser for the same person: a real second key, not a
     // malformed one, so that what refuses it is the hold and not the shape.
@@ -3547,7 +3567,7 @@ async fn the_seat_hold_refuses_a_key_and_another_operator_clears_it() {
     )
     .await
     .expect("operator custody");
-    let live = operators::live_operator_keys(&tx, &ring(), &colleague.id, now_unix())
+    let live = operators::live_operator_keys(&tx, &ring, &colleague.id, now_unix())
         .await
         .expect("the operator keyring resolves");
     assert_eq!(
@@ -4147,11 +4167,26 @@ async fn mark_first_independent_signin_records_once_and_keeps_the_row_verifying(
     )
     .await
     .expect("operator custody");
+    // The sign-in path already records it through this same function
+    // (`sessions.rs`, the operator arm), so by the time a test holds a
+    // signed-in operator there is nothing left to record: the call says so.
     assert!(
-        operators::mark_first_independent_signin(&tx, &ring, &operator.id)
+        !operators::mark_first_independent_signin(&tx, &ring, &operator.id)
             .await
             .expect("the row key opens"),
-        "the first call records it"
+        "the sign-in recorded it, so an explicit call records nothing"
+    );
+    let recorded: bool = tx
+        .query_one(
+            "SELECT first_independent_signin_at IS NOT NULL FROM operators WHERE id = $1",
+            &[&operator.id],
+        )
+        .await
+        .expect("the row")
+        .get(0);
+    assert!(
+        recorded,
+        "the sign-in recorded the first independent sign-in"
     );
     assert!(
         !operators::mark_first_independent_signin(&tx, &ring, &operator.id)

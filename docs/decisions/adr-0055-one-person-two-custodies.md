@@ -132,7 +132,9 @@ instead of silent. Keep two.
    the console; until then the only recovery is `fathom-server recover-operator`"*.
 8. **Break-glass is a host command, loud.** `fathom-server recover-operator <address>` runs where
    the key volume is mounted, for an operator who already exists, and prints a one-shot ten-minute
-   setup code that lets that person set a new password and enrol a new app code. It refuses to mint
+   setup code that lets that person set a new password and enrol a new app code. It dispossesses
+   the seat's current holder as it does so: operator keys retired, both principals' sessions
+   ended, the app code, its backup codes and any seat hold cleared. It refuses to mint
    a new operator. Every use appends a sealed `operator_recovered_from_host` entry, notifies every
    operator, and banners every operator session for seven days. No delay: the host already holds
    every key (ADR-0043 §2), so a delay here is theatre, and Entra's model is the same, custody plus

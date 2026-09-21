@@ -2512,9 +2512,30 @@ async fn adr55_set_password(pool: &Pool, person: &Person, password: &str) {
     tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
         .await
         .expect("reset custody");
+    // Migration 0025 §B: a row image that carries a credential and no seal is
+    // refused at commit whichever statement left it behind, so a FIRST
+    // credential and its seal go into the table in ONE statement — the shape
+    // `credentials::seal_for_write` documents and `set_password` takes.
+    let account = person.account.to_string();
+    let mut next = credentials::read_credentials(&tx, &ring(), &account)
+        .await
+        .expect("read the row")
+        .expect("the account exists");
+    next.password_hash = Some(hash.clone());
+    let seal = credentials::seal_for_write(&tx, &ring(), &account, &mut next, None)
+        .await
+        .expect("seal the credential");
     tx.execute(
-        "UPDATE accounts SET password_hash = $2 WHERE id = $1",
-        &[&person.account.to_string(), &hash],
+        "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                credential_row_version = $4, credential_seq = $5 \
+          WHERE id = $1",
+        &[
+            &account,
+            &hash,
+            &seal,
+            &next.credential_row_version,
+            &next.seq_column(),
+        ],
     )
     .await
     .expect("set the credential");

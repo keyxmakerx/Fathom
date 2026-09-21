@@ -242,8 +242,8 @@ async function main() {
 
   const flagBefore = await flagAs(OLD_HOST);
   check(
-    'GET /placement/flag answers "yes" on a fresh install, and says nothing about which decided',
-    flagBefore.verdict === 'yes' && flagBefore.decidedBy === null,
+    'GET /placement/flag answers "yes" on a fresh install, and says the console is open (no environment, no placement)',
+    flagBefore.verdict === 'yes' && flagBefore.decidedBy === 'open',
     `${flagBefore.fieldCount} field(s): ${JSON.stringify(flagBefore)}`,
   );
 

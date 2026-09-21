@@ -188,8 +188,12 @@ ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* 
 recover-operator <address>`, run where the key volume is mounted, works for an operator who
 **already exists** and is not disabled. It prints a one-shot ten-minute setup code to stdout — and
 only to stdout, never to the log, never to a file — that lets that person set a new password and
-enrol a new app code. **It mints no new operator**: an address nobody is bound to gets a refusal
-and nothing is written. There is no delay, on purpose — the host already holds every key
+enrol a new app code. **It also dispossesses whoever holds that seat right now**: every operator
+key on the seat is retired, every live session of both the account and the operator is ended
+(as sealed revocations, which a restore does not undo), the app code and its backup codes are
+cleared, and any seat hold from a mailed reset is cleared — so a stolen browser loses its access
+the moment the command runs. **It mints no new operator**: an address nobody is bound to gets a
+refusal and nothing is written. There is no delay, on purpose — the host already holds every key
 (ADR-0043 §2), so a delay here would be theatre, not protection; what protects this act is custody
 of the host plus the record that it happened, the same shape Microsoft Entra uses for emergency
 access accounts. Every use appends a sealed `operator_recovered_from_host` entry to the site chain,
