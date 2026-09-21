@@ -33,6 +33,7 @@ use fathom_server::api::{
 use fathom_server::authority::SoftwareKey;
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
+use fathom_server::credentials::{self, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants;
 use fathom_server::keys::KeyRing;
@@ -149,6 +150,10 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
                     // is registered on the account and then, from an account
                     // session, as the operator key every act is signed with.
                     an_account_browser_key(operators, &bootstrap.account_id, &key).await;
+                    // ADR-0055 decision 10 and fix (g): an account holding the
+                    // operator custody confirms its app code before it may
+                    // register the operator key every act is signed with.
+                    a_confirmed_app_code(operators, sessions, &bootstrap.account_id, &key).await;
                     let account = an_account_session(
                         sessions,
                         &bootstrap.account_id,
@@ -217,6 +222,65 @@ async fn an_account_browser_key(operators: &OperatorStore, account: &str, key: &
         .await
         .expect("the browser registers a key on its own account");
     tx.commit().await.expect("commit");
+}
+
+/// Enrol and confirm the app code, with a code a real authenticator would be
+/// showing: `credentials::totp_code` over the secret the server sealed and the
+/// live 30-second step. Six digits, RFC 6238, not a fixture string.
+async fn a_confirmed_app_code(
+    operators: &OperatorStore,
+    sessions_store: &SessionStore,
+    account: &str,
+    key: &SoftwareKey,
+) {
+    let creds = CredentialStore::new(
+        operators.pool().clone(),
+        ring(),
+        operators.deployment().to_string(),
+    );
+    let session = an_account_session(sessions_store, account, key, "/credentials/totp/enrol").await;
+    creds
+        .enrol_totp(&session)
+        .await
+        .expect("an account with the operator custody enrols an app code");
+
+    let secret = {
+        let mut client = operators.pool().get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await
+            .expect("session custody");
+        let row = credentials::read_credentials(&tx, account)
+            .await
+            .expect("read")
+            .expect("the account exists");
+        let totp_key = credentials::totp_key_for(&tx, &ring())
+            .await
+            .expect("the credential key");
+        let secret = row
+            .totp_secret(&totp_key, operators.deployment(), account)
+            .expect("open the secret")
+            .expect("a secret is enrolled");
+        tx.rollback().await.expect("rollback");
+        secret
+    };
+
+    let session =
+        an_account_session(sessions_store, account, key, "/credentials/totp/confirm").await;
+    creds
+        .confirm_totp(
+            &session,
+            &credentials::totp_code(&secret, credentials::totp_step(now_seconds())),
+        )
+        .await
+        .expect("a real six-digit code confirms it");
+}
+
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 async fn account_address(sessions_store: &SessionStore, account: &str) -> String {
@@ -954,6 +1018,131 @@ async fn the_host_can_clear_a_placement_and_says_so_on_the_chain() {
     )
     .await;
     assert_eq!(status, "200");
+}
+
+/// **`console-placement --reset` reaches a server that is already running** —
+/// ADR-0055 fix (b), the second half of decision 11's only way back from a
+/// console lockout.
+///
+/// # What was wrong
+///
+/// `reset_from_host` reverted the rows and called `self.refresh()` on the CLI
+/// process's own `PlacementStore`. The serving process holds a different
+/// `Arc<RwLock<Placement>>` in a different process and nothing invalidated it,
+/// so the gate went on enforcing the dead placement until somebody restarted
+/// the server — while the CLI's log line said the console now answered
+/// everywhere. Reproduced by the checker on a throwaway deployment on
+/// 2026-09-21: `/admin/operators` was still 404 on `127.0.0.1` and
+/// `/placement/flag` still `no` after a `reverted=1 reason="host_reset"`.
+///
+/// # Why the old tests could not catch it
+///
+/// Every existing test here calls `placement.reset_from_host()` on the SAME
+/// in-process store the router was handed — a relationship the CLI can never
+/// have. **So this one uses two stores over one pool**, which is the shape two
+/// processes actually have: `serving` is the one the gate reads, `host` is the
+/// CLI's. Only the refresher connects them.
+#[tokio::test]
+async fn a_reset_from_another_process_reaches_a_running_server_within_the_ttl() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let operators = operators_store(&pool, Arc::clone(&ring)).await;
+    let operator = an_operator(&operators, &sessions).await;
+
+    // The SERVING process's store, with the snapshot refresher `main.rs`
+    // starts beside it.
+    let serving = placement_store(&pool, Arc::clone(&ring)).await;
+    serving.reset_from_host().await.expect("start from open");
+    let (addr, store) = serve(&pool, Arc::clone(&ring), Arc::clone(&serving)).await;
+    let deployment_id = deployment_id(&pool).await;
+
+    // A placement that locks the console to a host nobody can reach.
+    let body = placement_body(
+        &operator,
+        &deployment_id,
+        "gone.example.test",
+        "127.0.0.1/32",
+        600,
+    );
+    let (status, _) = signed_request(
+        addr,
+        "POST",
+        "/admin/placement",
+        "anything.example.test",
+        &body,
+        &operator,
+        &store,
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (status, _) = signed_request(
+        addr,
+        "GET",
+        "/admin/organisations/list",
+        "anything.example.test",
+        b"",
+        &operator,
+        &store,
+    )
+    .await;
+    assert_eq!(
+        status, "404",
+        "the console is locked to a host that is gone"
+    );
+
+    // **A SECOND store over the same pool** — the CLI's, in what is a second
+    // process in production. It shares nothing with `serving` but the
+    // database.
+    let host = Arc::new(PlacementStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment_id.clone(),
+    ));
+    assert!(
+        !Arc::ptr_eq(&host.view(), &serving.view()),
+        "two stores, two snapshots -- otherwise this test proves nothing"
+    );
+
+    let refresher = PlacementStore::spawn_snapshot_refresher(Arc::clone(&serving));
+    let cleared = host
+        .reset_from_host()
+        .await
+        .expect("the host clears the placement that locked everyone out");
+    assert_eq!(cleared, 1);
+
+    // The claim, with the TTL the CLI's own log line now quotes and a margin
+    // for the poll landing just after a tick.
+    tokio::time::sleep(placement::SNAPSHOT_TTL + Duration::from_secs(2)).await;
+    let (status, _) = signed_request(
+        addr,
+        "GET",
+        "/admin/organisations/list",
+        "anything.example.test",
+        b"",
+        &operator,
+        &store,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the running server must honour a reset made by another process without a restart; \
+         before ADR-0055 fix (b) this stayed 404 until the server was restarted"
+    );
+    let (status, flag) = raw_request(
+        addr,
+        "GET",
+        "/placement/flag",
+        "anything.example.test",
+        &[],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(read_lp_fields(&flag, 1)[0], b"yes");
+
+    refresher.abort();
 }
 
 /// The refusals: a placement nobody signed, a window outside the schema's

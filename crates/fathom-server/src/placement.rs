@@ -28,19 +28,36 @@
 //! confirmed one, so a window that runs out takes effect on the next request
 //! without anything having to refresh it — the clock decides, not the cache.
 //!
-//! **One process.** A second server process would not see this one's
-//! placement until its own refresh. Fathom ships as a single binary behind the
-//! operator's proxy (`docs/RUNNING-IT.md`), so that case does not exist today;
-//! it is written down rather than assumed away, and the fix when it does is a
-//! `LISTEN`/`NOTIFY` on the write, not a query per request.
+//! **More than one process, and that case is not hypothetical.** A snapshot
+//! refreshed only by its own process's writes is a snapshot that never hears
+//! about anybody else's. Until 2026-09-21 this header said Fathom ships as a
+//! single binary so the case did not arise; that was wrong twice over. This
+//! same binary ships a CLI — `fathom-server console-placement --reset`,
+//! decision 11's only way back from a console lockout — which runs in a
+//! second process against the same database, and `sessions.rs` and
+//! `operators.rs` both state as fact that the deployment is two
+//! interchangeable containers. The reset printed success and the running
+//! server kept enforcing the dead placement until it was restarted.
+//!
+//! So the snapshot re-reads on a timer: [`SNAPSHOT_TTL`], five seconds,
+//! driven by [`PlacementStore::spawn_snapshot_refresher`], which `main.rs`
+//! starts beside the server. Still no query per request — the gate reads the
+//! same `Arc<RwLock<Placement>>` it always did — and a write by any process
+//! is honoured by every process within the TTL. A `LISTEN`/`NOTIFY` would be
+//! faster and is still the better end state; a five-second poll of two small
+//! indexed rows is what this build carries, and the CLI's log line now says
+//! the true thing.
 //!
 //! # The flag, and why it is not under `/admin`
 //!
 //! `GET /placement/flag` is unauthenticated and outside `/admin` on purpose:
 //! the answer a client needs on a NON-console host is "no", and a route under
-//! `/admin` is 404 exactly there. It answers `LP("yes"|"no")`, and when the
+//! `/admin` is 404 exactly there. It answers `LP("yes"|"no")`; when the
 //! answer is yes and a placement is still waiting to be confirmed, a second
-//! field with the deadline. It discloses whether this host is the console
+//! field with the deadline; and then a third field naming **which rule
+//! decided** — `environment`, `console` or `open`, so that decision 11's
+//! read-only form is told rather than left to infer it. It discloses whether
+//! this host is the console
 //! host, which is a fact anybody can establish by asking `/admin` for a status
 //! code; it never names the other hosts or the sources.
 //!
@@ -57,6 +74,7 @@
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -144,6 +162,20 @@ pub const MAX_WINDOW_SECONDS: i64 = 3600;
 /// One SMTP test-send per operator per five minutes (the contracts' own
 /// number), in the bucket [`take_test_send_budget`] describes.
 pub const TEST_SEND_WINDOW_SECONDS: i64 = 300;
+
+/// **How stale this process's placement snapshot may be** — five seconds.
+///
+/// The number is the gap between another process writing a placement (the
+/// `console-placement --reset` CLI, or the other of two containers) and this
+/// process honouring it. Five seconds because the act on the other end is a
+/// human on a host console who then reloads a page, and because the read is
+/// two indexed rows: shorter buys nothing a person would notice, longer makes
+/// decision 11's way back from a lockout feel broken.
+///
+/// It is not a security boundary in either direction. Loosening a placement
+/// already needs an operator session or the key volume; tightening one is
+/// honoured by the writing process at once and by every other within the TTL.
+pub const SNAPSHOT_TTL: Duration = Duration::from_secs(5);
 
 // ---------------------------------------------------------------------------
 // The snapshot
@@ -286,6 +318,40 @@ impl PlacementStore {
         );
         self.publish(placement.clone());
         Ok(placement)
+    }
+
+    /// **Re-read the snapshot every [`SNAPSHOT_TTL`], for ever.**
+    ///
+    /// The half of decision 11 that was missing: a placement written by
+    /// ANOTHER process — `fathom-server console-placement --reset` on the
+    /// host, or the other of two containers — reached the database and never
+    /// reached this process's `Arc<RwLock<Placement>>`, so the reset printed
+    /// success and the gate went on enforcing the placement that had locked
+    /// everybody out until somebody restarted the server. See this module's
+    /// header.
+    ///
+    /// Returns the task's handle. Dropping it does not stop the task;
+    /// `main.rs` keeps it for the life of the process and aborts it on
+    /// shutdown. A failed read is logged and the loop continues: the old
+    /// snapshot is the safe thing to keep enforcing, and a database that is
+    /// briefly unreachable must not turn the console open.
+    pub fn spawn_snapshot_refresher(store: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(SNAPSHOT_TTL);
+            // The first tick is immediate and `main.rs` has already refreshed
+            // once; skipping it keeps the startup path to one read.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                if let Err(e) = store.refresh().await {
+                    tracing::warn!(
+                        error = %e,
+                        "the console placement snapshot could not be re-read; this process \
+                         keeps enforcing the placement it already has"
+                    );
+                }
+            }
+        })
     }
 
     fn publish(&self, placement: Placement) {
@@ -534,6 +600,12 @@ impl PlacementStore {
     /// the placement that locked everyone out is cleared **from the host**,
     /// sealed, for the case where the window was confirmed and the host later
     /// died.
+    ///
+    /// **It runs in a second process, and that is the whole point.** The
+    /// `refresh()` at the end of `revert_all` updates the CLI's own snapshot,
+    /// which nothing reads; what makes the reset take effect on the RUNNING
+    /// server is [`PlacementStore::spawn_snapshot_refresher`] there, within
+    /// [`SNAPSHOT_TTL`].
     pub async fn reset_from_host(&self) -> Result<usize, OperatorError> {
         self.revert_all("host_reset").await
     }
@@ -1242,7 +1314,8 @@ pub fn router(state: PlacementState) -> Router {
 /// Answer: `LP("yes"|"no")`, and when the answer is "yes" and a placement is
 /// still waiting for its confirmation, `LP(confirm_by as text)` — empty text
 /// when the placement is already confirmed, so the shape of the answer does
-/// not depend on which of the two it is.
+/// not depend on which of the two it is. **Then a third field**,
+/// `LP("environment"|"console"|"open")`, in both branches — see [`flag`].
 ///
 /// **It asks the console's own gate, not the placement table**, and the
 /// difference matters: `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` win over a
@@ -1258,6 +1331,22 @@ pub fn flag_router(exposure: crate::admin_exposure::AdminExposure) -> Router {
         .with_state(exposure)
 }
 
+/// The three fields, in order:
+///
+/// 1. `LP("yes"|"no")` — would a console request from this host be answered?
+/// 2. `LP(confirm_by as text)`, **only when the first is "yes"**, empty when
+///    nothing is waiting to be confirmed. Unchanged.
+/// 3. `LP("environment"|"console"|"open")` — **which of the three decided**
+///    ([`crate::admin_exposure::AdminExposure::decided_by`]).
+///
+/// The third field is decision 11's *"the form says so and is read-only
+/// then"*, told rather than inferred: the console's placement form has to
+/// know whether `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` are deciding,
+/// and the only signal it had was the absence of a deadline, which is also
+/// what a confirmed placement looks like. It discloses no host, no source
+/// and no deadline it was not already disclosing — only which of three rules
+/// is in force, on a host that has just been told it is the console host (or
+/// that it is not).
 async fn flag(
     State(exposure): State<crate::admin_exposure::AdminExposure>,
     request: Request<Body>,
@@ -1265,12 +1354,13 @@ async fn flag(
     let now = now_unix();
     let yes = exposure.allows(request.headers(), request.extensions());
     let confirm_by = if yes { exposure.confirm_by(now) } else { None };
-    let mut out = Vec::with_capacity(32);
+    let mut out = Vec::with_capacity(48);
     crypto::lp(&mut out, if yes { b"yes" } else { b"no" });
     if yes {
         let deadline = confirm_by.map(|t| t.to_string()).unwrap_or_default();
         crypto::lp(&mut out, deadline.as_bytes());
     }
+    crypto::lp(&mut out, exposure.decided_by().as_bytes());
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/octet-stream")],

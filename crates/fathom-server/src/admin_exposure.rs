@@ -131,6 +131,28 @@ impl AdminExposure {
         guard.confirm_by(now_unix)
     }
 
+    /// **Which of the three things decided where the console is** — the
+    /// flag's third field (ADR-0055 decision 11).
+    ///
+    /// `"environment"` when `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` are
+    /// set, which is the case decision 11 says the console's own form is
+    /// read-only in; `"console"` when a placement an operator set is in
+    /// force; `"open"` when neither confines anything. The console form was
+    /// left to INFER the first of those from a 404 it could not see, which is
+    /// not a thing a form can do — so it is told.
+    ///
+    /// It names no host and no source: the same disclosure line
+    /// [`AdminExposure::allows`] already draws for the first field.
+    pub fn decided_by(&self) -> &'static str {
+        if self.environment_wins() {
+            return "environment";
+        }
+        match self.placed() {
+            Some(_) => "console",
+            None => "open",
+        }
+    }
+
     /// The placement in force, or `None` for "open". Cloned out of the
     /// snapshot: the lock is held for the length of a `clone` and never
     /// across an `await`.

@@ -918,6 +918,10 @@ impl From<AdminRefusal> for Refusal {
                 Refusal::from(SessionError::SignInRefused)
             }
             OperatorError::SecondedByTheRequester
+            // ADR-0055 fix (c): `0015` §G's trigger refusing a seconder is a
+            // rule this deployment is applying, not a sign that a stored row
+            // is lying. It used to reach the console as a 500.
+            | OperatorError::SeconderNotIndependent
             | OperatorError::NotYetEffective
             | OperatorError::AlreadyBootstrapped => {
                 tracing::info!(reason = %e.0, "operator act refused");

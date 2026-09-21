@@ -2014,7 +2014,7 @@ impl SessionStore {
         // the console because what §5.5 is asking about is a sign-in, and this
         // is the only place one happens.
         if kind == PrincipalKind::Operator {
-            operators::note_first_signin(tx, &account)
+            operators::mark_first_independent_signin(tx, &self.ring, &account)
                 .await
                 .map_err(|_| {
                     (
@@ -2157,7 +2157,16 @@ impl SessionStore {
                 &[&account, &step],
             )
             .await?;
-        Ok(advanced == 1)
+        if advanced != 1 {
+            return Ok(false);
+        }
+        // The credential seal (migration 0025) covers whether the step is set,
+        // so the advance that confirms a code at sign-in is re-sealed in the
+        // same transaction; the hook checks the row really is at `step`.
+        credentials::reseal_after_totp_step(tx, &self.ring, account, step)
+            .await
+            .map_err(|_| SessionError::Corrupt("credential seal"))?;
+        Ok(true)
     }
 
     /// Count a failure against its account bucket, write the sealed entry if

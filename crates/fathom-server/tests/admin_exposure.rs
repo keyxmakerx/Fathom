@@ -317,6 +317,92 @@ fn read_flag(body: &str) -> (String, Option<String>) {
     (flag, deadline)
 }
 
+/// ADR-0055 fix (h): the THIRD field, `LP("environment"|"console"|"open")`.
+/// It is the last field in both branches — after the deadline when the answer
+/// is "yes", straight after the verdict when it is "no".
+fn read_decider(body: &str) -> String {
+    let bytes = body.as_bytes();
+    let (first, rest) = fathom_server::crypto::read_lp(bytes).expect("a length-prefixed answer");
+    let rest = if first == b"yes" {
+        fathom_server::crypto::read_lp(rest)
+            .expect("the deadline field, present whenever the answer is yes")
+            .1
+    } else {
+        rest
+    };
+    let (decider, tail) = fathom_server::crypto::read_lp(rest).expect("the decider field");
+    assert!(
+        tail.is_empty(),
+        "the flag has exactly three fields at most and nothing after them"
+    );
+    String::from_utf8_lossy(decider).into_owned()
+}
+
+/// **The console form is told which rule decided, not left to infer it** —
+/// ADR-0055 decision 11's *"the form says so and is read-only then"*, fix (h).
+///
+/// Before this field the only signal a client had for "the environment is
+/// deciding, your form is read-only" was the absence of a deadline — which is
+/// also what a confirmed placement and an open console look like. Three
+/// different states, one observation.
+#[tokio::test]
+async fn the_flag_says_which_of_the_three_rules_decided() {
+    // 1. The environment. A placement is set AND ignored, which is the case
+    //    the form must be read-only for.
+    let policy = AdminExposure::new(["env.example.test".to_string()], [], ClientAddress::peer())
+        .with_placement(snapshot(Placement::from_parts(
+            Some(placed("console.example.test", "127.0.0.1")),
+            None,
+        )));
+    assert_eq!(policy.decided_by(), "environment");
+    let addr = serve_with_flag(policy).await;
+    let (_, body) = request(
+        addr,
+        "GET",
+        "/placement/flag",
+        &[("Host", "env.example.test")],
+    )
+    .await;
+    assert_eq!(read_flag(&body).0, "yes");
+    assert_eq!(read_decider(&body), "environment");
+    // And on a host the environment does not name: still "environment",
+    // because that is what a client on the wrong host has to be told.
+    let (_, body) = request(
+        addr,
+        "GET",
+        "/placement/flag",
+        &[("Host", "console.example.test")],
+    )
+    .await;
+    assert_eq!(read_flag(&body).0, "no");
+    assert_eq!(read_decider(&body), "environment");
+
+    // 2. The console's own placement.
+    let policy = AdminExposure::new([], [], ClientAddress::peer()).with_placement(snapshot(
+        Placement::from_parts(Some(placed("console.example.test", "127.0.0.1")), None),
+    ));
+    assert_eq!(policy.decided_by(), "console");
+    let addr = serve_with_flag(policy).await;
+    let (_, body) = request(
+        addr,
+        "GET",
+        "/placement/flag",
+        &[("Host", "console.example.test")],
+    )
+    .await;
+    assert_eq!(read_flag(&body), ("yes".to_string(), Some(String::new())));
+    assert_eq!(read_decider(&body), "console");
+
+    // 3. Nothing confines anything: the console answers everywhere.
+    let policy = AdminExposure::new([], [], ClientAddress::peer())
+        .with_placement(snapshot(Placement::default()));
+    assert_eq!(policy.decided_by(), "open");
+    let addr = serve_with_flag(policy).await;
+    let (_, body) = request(addr, "GET", "/placement/flag", &[("Host", "anything.test")]).await;
+    assert_eq!(read_flag(&body).0, "yes");
+    assert_eq!(read_decider(&body), "open");
+}
+
 #[tokio::test]
 async fn a_placement_set_in_the_console_confines_the_console_like_the_environment_does() {
     let policy = AdminExposure::new([], [], ClientAddress::peer()).with_placement(snapshot(

@@ -144,6 +144,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0023_operator_quorum_and_the_operator_key.sql",
         sql: include_str!("../migrations/0023_operator_quorum_and_the_operator_key.sql"),
     },
+    // ADR-0055 fix (a): `recover_operator` retires the lost browser's key,
+    // which needs a privilege `0015` §I deliberately took away and said would
+    // come back in a migration somebody had to write down.
+    Migration {
+        version: 24,
+        name: "0024_operator_key_retirement.sql",
+        sql: include_str!("../migrations/0024_operator_key_retirement.sql"),
+    },
     // ADR-0055 fix (S3), the credential plane. **24 is left free on purpose**:
     // the fix stream working on the operator plane lands one there, and a
     // migration's number is its apply order, so these two must not collide.

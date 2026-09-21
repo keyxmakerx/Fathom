@@ -2631,7 +2631,7 @@ async fn adr55_totp_secret(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8
         .await
         .expect("this deployment is stamped at startup")
         .get(0);
-    let row = credentials::read_credentials(&tx, account)
+    let row = credentials::read_credentials(&tx, ring, account)
         .await
         .expect("read")
         .expect("the account exists");

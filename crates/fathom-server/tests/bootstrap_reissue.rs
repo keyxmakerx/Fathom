@@ -46,11 +46,15 @@ use deadpool_postgres::Pool;
 use fathom_server::authority::SoftwareKey;
 use fathom_server::chain::EntryType;
 use fathom_server::chains;
+use fathom_server::credentials::{self, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants;
 use fathom_server::keys::KeyRing;
 use fathom_server::operators::{OperatorError, OperatorStore, Purpose};
-use fathom_server::sessions::{self, PrincipalKind, SessionStore, SignInLimits, VerifiedSession};
+use fathom_server::sessions::{
+    self, PrincipalKind, SessionError, SessionStore, SignInAttempt, SignInLimits, SignedIn,
+    VerifiedSession,
+};
 
 /// The same master key every other suite in this crate uses: ADR-0043 §4
 /// stamps the configured key's id per database and refuses a second.
@@ -158,7 +162,7 @@ async fn an_operator_with_a_key(
     sessions_store: &SessionStore,
     ring: &KeyRing,
     address: &str,
-) -> (String, SoftwareKey) {
+) -> Enrolled {
     let bootstrap = operators
         .bootstrap_first_operator(address, address)
         .await
@@ -192,12 +196,101 @@ async fn an_operator_with_a_key(
     tx.commit().await.expect("commit");
     drop(client);
 
+    // **ADR-0055 decision 10 and fix (g): the app code comes first.** An
+    // account that holds the operator custody may not register the operator
+    // key every act is signed with until it has confirmed one, and the gate
+    // is the account's `totp_last_step`, not the session's assurance -- the
+    // old `A0` gate let exactly this fixture through with no app code at all.
+    let backup_codes = a_confirmed_app_code(
+        operators,
+        sessions_store,
+        ring,
+        &bootstrap.account_id,
+        address,
+        &key,
+    )
+    .await;
+
     let session = an_account_session(sessions_store, address, &key).await;
     operators
         .register_own_operator_key(&session, &key.public_key())
         .await
         .expect("the account holding the operator custody registers its browser key");
-    (bootstrap.operator_id, key)
+    Enrolled {
+        operator: bootstrap.operator_id,
+        account: bootstrap.account_id,
+        key,
+        backup_codes,
+    }
+}
+
+/// What [`an_operator_with_a_key`] hands back: the seat, the account under it,
+/// the browser key, and the ten backup codes confirming the app code minted.
+struct Enrolled {
+    operator: String,
+    account: String,
+    key: SoftwareKey,
+    backup_codes: Vec<String>,
+}
+
+/// Enrol and confirm the app code, with a code a real authenticator would be
+/// showing: `credentials::totp_code` over the secret the server sealed and the
+/// live 30-second step. Six digits, RFC 6238, not a fixture string.
+async fn a_confirmed_app_code(
+    operators: &OperatorStore,
+    sessions_store: &SessionStore,
+    ring: &KeyRing,
+    account: &str,
+    address: &str,
+    key: &SoftwareKey,
+) -> Vec<String> {
+    let creds = CredentialStore::new(
+        operators.pool().clone(),
+        Arc::new(KeyRing::from_keys(
+            Key32::from_bytes(MASTER),
+            Key32::from_bytes(support::SITE_CHAIN_MASTER),
+        )),
+        operators.deployment().to_string(),
+    );
+    let session = an_account_session(sessions_store, address, key).await;
+    creds
+        .enrol_totp(&session)
+        .await
+        .expect("an account with the operator custody enrols an app code");
+
+    let secret = {
+        let mut client = operators.pool().get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await
+            .expect("session custody");
+        let row = credentials::read_credentials(&tx, &ring(), account)
+            .await
+            .expect("read")
+            .expect("the account exists");
+        let totp_key = credentials::totp_key_for(&tx, ring)
+            .await
+            .expect("the credential key");
+        let secret = row
+            .totp_secret(&totp_key, operators.deployment(), account)
+            .expect("open the secret")
+            .expect("a secret is enrolled");
+        tx.rollback().await.expect("rollback");
+        secret
+    };
+
+    let session = an_account_session(sessions_store, address, key).await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    creds
+        .confirm_totp(
+            &session,
+            &credentials::totp_code(&secret, credentials::totp_step(now)),
+        )
+        .await
+        .expect("a real six-digit code confirms it")
 }
 
 async fn an_account_session(
@@ -280,8 +373,8 @@ async fn recovery_after_a_key_is_enrolled_works_and_is_recorded() {
     let (_pool, operators, sessions_store) = deployment(TAG, Arc::clone(&ring)).await;
 
     let address = unique("owner@example.org");
-    let (operator_id, _key) =
-        an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+    let enrolled = an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+    let operator_id = enrolled.operator.clone();
     assert!(
         site_entries_of(TAG, "operator_key_enrolled").await >= 1,
         "the ordinary thing that happens within minutes of a first start"
@@ -687,4 +780,449 @@ fn hex_to_32(hex: &str) -> [u8; 32] {
         *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hex");
     }
     out
+}
+
+/// Sign in on the OPERATOR plane, the way the browser that holds the operator
+/// key does. Hands back what a later request needs, so a test can ask whether
+/// that session is still alive.
+async fn sign_in_as_operator(
+    sessions_store: &SessionStore,
+    operator: &str,
+    key: &SoftwareKey,
+) -> (SignedIn, SoftwareKey) {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Operator, operator, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let signed_in = sessions_store
+        .sign_in(
+            PrincipalKind::Operator,
+            &pubkey,
+            &challenge.nonce,
+            &key.sign(&digest),
+            &source,
+        )
+        .await
+        .expect("an operator with an enrolled key signs in");
+    (signed_in, session_key)
+}
+
+/// Sign in on the ACCOUNT plane with a password and whatever second factor is
+/// handed over — `tests/credentials.rs`'s shape, for the one test here that
+/// needs a session the recovery has to end.
+async fn sign_in_with_password(
+    sessions_store: &SessionStore,
+    address: &str,
+    password: &str,
+    code: &str,
+) -> (SignedIn, SoftwareKey) {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Steward, address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let signed_in = sessions_store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password,
+            totp_code: code,
+            source: &source,
+        })
+        .await
+        .expect("an account with a password signs in");
+    (signed_in, session_key)
+}
+
+/// One signed request, **returning the refusal instead of panicking on it**:
+/// the question this file's recovery test asks is whether a session that
+/// worked a moment ago still does.
+async fn try_verify(
+    sessions_store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<VerifiedSession, SessionError> {
+    let nonce = sessions_store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await?;
+    let unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let counter = {
+        use std::sync::atomic::{AtomicI64, Ordering};
+        static NEXT: AtomicI64 = AtomicI64::new(1);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    };
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        method,
+        path,
+        &sessions::body_digest(body),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    sessions_store
+        .verify_request(&sessions::SignedRequest {
+            session_id: &signed_in.session_id,
+            method,
+            path,
+            body,
+            nonce,
+            unix_ms,
+            counter,
+            signature: session_key.sign(&message),
+        })
+        .await
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 fixes (a), (e) and (f), 2026-09-21
+// ---------------------------------------------------------------------------
+
+/// **Break-glass dispossesses the lost browser.** ADR-0055 fix (a).
+///
+/// # What was wrong
+///
+/// `recover-operator <address>` plus a redemption of its setup code changed
+/// exactly one thing: `accounts.password_hash`. The lost browser kept its
+/// operator session, kept its operator key, and the old app code and backup
+/// codes still worked. `grep -rn retired_at src/` found no code path anywhere
+/// that retired an `operator_keys` row, and a sole operator can neither
+/// disable themselves nor be disabled (`0019` §C's floor) — so on the
+/// deployment shape ADR-0055 decision 4 calls standing, a stolen browser was
+/// permanent even after break-glass. The quiet mailed path was strictly
+/// stronger than the loud host path, which is backwards.
+///
+/// # What this test drives
+///
+/// Everything a real person has: a real 18-character password, a real
+/// six-digit app code over the secret the server sealed, ten real backup
+/// codes, a browser key, an account session and an operator-plane session —
+/// the last of which IS the lost browser. Then the host command, and then the
+/// question the finding asked: is that session dead?
+#[tokio::test]
+async fn a_recovery_dispossesses_the_lost_browser() {
+    const TAG: &str = "ops_recover_dispossesses";
+    let ring = ring();
+    let (pool, operators, sessions_store) = deployment(TAG, Arc::clone(&ring)).await;
+
+    let address = unique("owner@example.org");
+    let enrolled = an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        operators.deployment().to_string(),
+    );
+
+    // A password a person would actually type: eighteen characters, no
+    // composition rules, not the address, not on the bundled list.
+    const PASSWORD: &str = "harbour-crane-1987";
+    assert!((15..=20).contains(&PASSWORD.len()));
+    let session = an_account_session(&sessions_store, &address, &enrolled.key).await;
+    creds
+        .set_password(&session, PASSWORD)
+        .await
+        .expect("the operator sets a password (ADR-0055 decision 10)");
+
+    // **The lost browser**: an operator-plane session, signed in with the
+    // operator key, verifying its own signed requests.
+    let (lost_browser, lost_key) =
+        sign_in_as_operator(&sessions_store, &enrolled.operator, &enrolled.key).await;
+    try_verify(
+        &sessions_store,
+        &lost_browser,
+        &lost_key,
+        "GET",
+        "/admin/operators",
+        b"",
+    )
+    .await
+    .expect("the lost browser holds a live operator session before the recovery");
+
+    // And an account session of the same person, in the same browser: the
+    // real password and a real second factor. A backup code rather than a
+    // six-digit one because `confirm_totp` has just spent this 30-second step
+    // (`totp_last_step`, decision 10's "a code accepted once"), and a test
+    // that waited out a step to prove something about recovery would be
+    // testing the clock.
+    let (account_signed_in, account_session_key) = sign_in_with_password(
+        &sessions_store,
+        &address,
+        PASSWORD,
+        enrolled.backup_codes.last().expect("ten were minted"),
+    )
+    .await;
+    try_verify(
+        &sessions_store,
+        &account_signed_in,
+        &account_session_key,
+        "GET",
+        "/credentials",
+        b"",
+    )
+    .await
+    .expect("and a live account session");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let live_keys_before: i64 = su
+        .query_one(
+            "SELECT count(*) FROM operator_keys WHERE operator_id = $1 AND retired_at IS NULL",
+            &[&enrolled.operator],
+        )
+        .await
+        .expect("count keys")
+        .get(0);
+    assert_eq!(live_keys_before, 1);
+
+    // ---- the host command --------------------------------------------
+    operators
+        .recover_operator(&address)
+        .await
+        .expect("ADR-0055 decision 8: from the host, recorded and noticed");
+
+    // 1. The lost browser's operator session is dead.
+    let after = try_verify(
+        &sessions_store,
+        &lost_browser,
+        &lost_key,
+        "GET",
+        "/admin/operators",
+        b"",
+    )
+    .await;
+    assert!(
+        after.is_err(),
+        "the whole point of break-glass is that the browser that was lost stops working: {after:?}"
+    );
+    // 2. And so is the account session.
+    let after = try_verify(
+        &sessions_store,
+        &account_signed_in,
+        &account_session_key,
+        "GET",
+        "/credentials",
+        b"",
+    )
+    .await;
+    assert!(
+        after.is_err(),
+        "every session of both principals ends: {after:?}"
+    );
+    // Recorded, not merely deleted (`0014` §D): a deleted session row is
+    // undone by a restore and a revocation row is not.
+    let left: i64 = su
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE principal_id = $1 OR principal_id = $2",
+            &[&enrolled.account, &enrolled.operator],
+        )
+        .await
+        .expect("count sessions")
+        .get(0);
+    assert_eq!(left, 0, "no session of either principal survives");
+    for principal in [&enrolled.account, &enrolled.operator] {
+        let revoked: i64 = su
+            .query_one(
+                "SELECT count(*) FROM session_revocations WHERE principal_id = $1",
+                &[principal],
+            )
+            .await
+            .expect("count revocations")
+            .get(0);
+        assert!(
+            revoked >= 1,
+            "one revocation row per session ended, on BOTH planes --              `credentials::end_every_session_of` filters principal_kind = 'steward' and would              have left the operator principal's session alone"
+        );
+    }
+
+    // 3. Every operator key is retired.
+    let live_keys: i64 = su
+        .query_one(
+            "SELECT count(*) FROM operator_keys WHERE operator_id = $1 AND retired_at IS NULL",
+            &[&enrolled.operator],
+        )
+        .await
+        .expect("count keys")
+        .get(0);
+    assert_eq!(
+        live_keys, 0,
+        "the key the lost browser signs every operator act with leaves service"
+    );
+
+    // 4. The app code is gone, so the setup code this command printed enrols a
+    //    new one -- which is what decision 8 already promised it did.
+    let row = su
+        .query_one(
+            "SELECT totp_secret_ct IS NULL, totp_last_step IS NULL, \
+                    totp_enrolled_at IS NULL FROM accounts WHERE email = $1",
+            &[&address],
+        )
+        .await
+        .expect("the account row");
+    assert!(
+        row.get::<_, bool>(0) && row.get::<_, bool>(1) && row.get::<_, bool>(2),
+        "all four columns 0018 §B's CHECK correlates, together"
+    );
+
+    // 5. And the ten backup codes that stand beside it: spent, not deleted
+    //    (0018 §C gives fathom_app no DELETE), so the record survives.
+    let unspent: i64 = su
+        .query_one(
+            "SELECT count(*) FROM backup_codes WHERE account_id = $1 AND used_at IS NULL",
+            &[&enrolled.account],
+        )
+        .await
+        .expect("count codes")
+        .get(0);
+    assert_eq!(
+        unspent, 0,
+        "an app code that is gone beside codes that still open the account \
+                            is not a cleared second factor"
+    );
+
+    // Driven through the real spender with a real code the person was shown,
+    // not read off a column: this is the act an attacker would attempt.
+    let code = enrolled
+        .backup_codes
+        .first()
+        .expect("ten were minted")
+        .clone();
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+        .await
+        .expect("session custody");
+    let spent = credentials::spend_backup_code(
+        &tx,
+        &ring,
+        operators.deployment(),
+        &enrolled.account,
+        &code,
+    )
+    .await
+    .expect("the spender answers");
+    assert!(
+        !spent,
+        "a backup code the lost browser's holder wrote down must not still open this account"
+    );
+    tx.rollback().await.expect("rollback");
+}
+
+/// **The seven-day banner survives a `created_at` moved eight days into the
+/// past.** ADR-0055 fix (e).
+///
+/// `notices()` filtered on `chain_entries.created_at` BEFORE it verified
+/// anything, and `created_at` is not in the entry's content hash or seal — so
+/// a row moved out of the window was simply not selected, the verification
+/// never ran, and the banner went quiet with nothing raised, while the
+/// comment above the function promised the opposite. The window is measured
+/// against the time inside the entry's own seal now.
+#[tokio::test]
+async fn the_recovery_banner_is_not_silenced_by_moving_an_unsealed_timestamp() {
+    const TAG: &str = "ops_banner_unsealed_time";
+    let ring = ring();
+    let (_pool, operators, sessions_store) = deployment(TAG, Arc::clone(&ring)).await;
+    let address = unique("owner@example.org");
+    let _enrolled = an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+
+    operators
+        .recover_operator(&address)
+        .await
+        .expect("the host recovers the seat");
+    assert!(
+        operators
+            .notices()
+            .await
+            .expect("the notices are derived")
+            .iter()
+            .any(|n| n.starts_with("recovered_from_host ")),
+        "the banner is up for seven days"
+    );
+
+    // The move. `fathom_app` holds only SELECT and INSERT on `chain_entries`,
+    // so this needs a database owner -- tier 3 -- which is why the finding was
+    // a note and not a blocker. What it must not do is pass unnoticed.
+    // `0009`'s `chain_entries_append_only` trigger refuses UPDATE at every
+    // privilege level, so this takes an owner who turns the trigger off
+    // first -- a stronger capability than the finding assumed, and still
+    // inside tier 3. What must not happen is that it passes unnoticed.
+    let su = support::superuser_on_isolated(TAG).await;
+    su.batch_execute(
+        "ALTER TABLE chain_entries DISABLE TRIGGER chain_entries_append_only; \
+         UPDATE chain_entries SET created_at = now() - interval '8 days' \
+           WHERE chain_kind = 'site' AND entry_type = 'operator_recovered_from_host'; \
+         ALTER TABLE chain_entries ENABLE TRIGGER chain_entries_append_only;",
+    )
+    .await
+    .expect("a database owner moves an unsealed column");
+
+    let notices = operators.notices().await.expect("the notices are derived");
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.starts_with("recovered_from_host ")),
+        "the window is the SEALED time, so moving created_at cannot silence the banner: \
+         {notices:?}"
+    );
+}
+
+/// **A recovery clears a seat hold the only operator could not clear.**
+/// ADR-0055 fix (f).
+///
+/// `confirm_recovery` refuses `acting == target`, correctly — so on a
+/// sole-operator deployment there is nobody to clear a hold, and
+/// `recover_operator` deliberately did not set one but also never cleared
+/// one. A redeemed mailed reset therefore parked the only operator seat for
+/// 24 hours with no way back from the host, while decision 8's whole argument
+/// is that a delay on the host path is theatre: the host already holds every
+/// key (ADR-0043 §2).
+#[tokio::test]
+async fn a_recovery_clears_a_seat_hold_no_second_operator_exists_to_clear() {
+    const TAG: &str = "ops_recover_clears_hold";
+    let ring = ring();
+    let (_pool, operators, sessions_store) = deployment(TAG, Arc::clone(&ring)).await;
+    let address = unique("owner@example.org");
+    let enrolled = an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+
+    // What `credentials::redeem_reset` writes (`0021`), on the only operator's
+    // account.
+    let su = support::superuser_on_isolated(TAG).await;
+    su.execute(
+        "UPDATE accounts SET operator_key_hold_until = now() + interval '24 hours' WHERE id = $1",
+        &[&enrolled.account],
+    )
+    .await
+    .expect("what a redeemed reset writes");
+
+    operators
+        .recover_operator(&address)
+        .await
+        .expect("the host recovers the seat");
+
+    let held: Option<i64> = su
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM operator_key_hold_until)::bigint FROM accounts \
+              WHERE id = $1",
+            &[&enrolled.account],
+        )
+        .await
+        .expect("the account row")
+        .get(0);
+    assert!(
+        held.is_none(),
+        "the host holds every key already, so it does not have to wait out a hold it cannot \
+         ask anybody to clear"
+    );
 }
