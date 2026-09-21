@@ -198,7 +198,7 @@ export function SignIn({
             disabled={busy !== null}
           />
           <p className="signin__hint">
-            Six digits from your app. Lost the phone? Type one of your backup codes here instead — each works once.
+            Six digits from your app. Leave it empty until you have enrolled one. Lost the phone? Type one of your backup codes here instead — each works once.
           </p>
         </div>
 
