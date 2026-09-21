@@ -30,6 +30,7 @@ import {
   buildRedeemOperatorBody,
   EnrolmentNotAttemptedError,
   EnrolmentOutcomeUnknownError,
+  formatToken,
   MalformedTokenError,
   parseRedeemAccountResponse,
   parseRedeemOperatorResponse,
@@ -141,12 +142,12 @@ describe('parseRedeemOperatorResponse (admin.rs redeem_operator\'s answer)', () 
 describe('parseToken (this screen\'s own local format check, not a server refusal)', () => {
   it('accepts a 64-character lowercase hex token', () => {
     const hex = '00'.repeat(32);
-    expect(toHex(parseToken(hex))).toBe(hex);
+    expect(toHex(parseToken(hex).bytes)).toBe(hex);
   });
 
   it('accepts surrounding whitespace and mixed case', () => {
     const hex = 'AB'.repeat(32);
-    expect(toHex(parseToken(`  ${hex}  `))).toBe(hex.toLowerCase());
+    expect(toHex(parseToken(`  ${hex}  `).bytes)).toBe(hex.toLowerCase());
   });
 
   it('strips an interior non-breaking space (U+00A0), invisible to the eye', () => {
@@ -155,7 +156,7 @@ describe('parseToken (this screen\'s own local format check, not a server refusa
     // HTML email's line-wrapping can silently substitute one for an
     // ordinary space without it ever being visible in a rendered message.
     const withNbsp = `${hex.slice(0, 40)} ${hex.slice(40)}`;
-    expect(toHex(parseToken(withNbsp))).toBe(hex);
+    expect(toHex(parseToken(withNbsp).bytes)).toBe(hex);
   });
 
   it('strips hyphens grouping the token, anywhere in the string', () => {
@@ -163,7 +164,21 @@ describe('parseToken (this screen\'s own local format check, not a server refusa
     // A token rendered in visually-grouped chunks, e.g. by a mail client or
     // a terminal that inserts a hyphen every 8 characters.
     const grouped = hex.match(/.{1,8}/g)!.join('-');
-    expect(toHex(parseToken(grouped))).toBe(hex);
+    expect(toHex(parseToken(grouped).bytes)).toBe(hex);
+  });
+
+  it('reads the door off the prefix, and reads none off a bare token', () => {
+    const hex = '5a'.repeat(32);
+    expect(parseToken(`op_${hex}`)).toEqual({ bytes: fromHex(hex), kind: 'operator' });
+    expect(parseToken(`OP-${hex.toUpperCase()}`).kind).toBe('operator');
+    expect(parseToken(`inv_${hex}`)).toEqual({ bytes: fromHex(hex), kind: 'steward' });
+    expect(parseToken(`org_${hex}`).kind).toBe('organisation');
+    expect(parseToken(hex).kind).toBeNull();
+    expect(formatToken(fromHex(hex), 'operator')).toBe(`op_${hex}`);
+    expect(formatToken(fromHex(hex), 'steward')).toBe(`inv_${hex}`);
+    // A prefix on its own, or a prefix on a short token, is still malformed.
+    expect(() => parseToken('op_')).toThrow(MalformedTokenError);
+    expect(() => parseToken(`inv_${'ab'.repeat(31)}`)).toThrow(MalformedTokenError);
   });
 
   it('rejects anything that is not exactly 32 bytes of hex once noise is stripped', () => {

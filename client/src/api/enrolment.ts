@@ -13,7 +13,7 @@
 // never durably kept is then a key the server trusts that nobody can use.
 // See `../../docs/OPEN-QUESTIONS.md` D12.
 
-import { concatBytes, fromHex, lp, readLp, utf8 } from '../crypto/bytes';
+import { concatBytes, fromHex, lp, readLp, toHex, utf8 } from '../crypto/bytes';
 import {
   deletePendingKeyPair,
   exportPublicKeyRaw,
@@ -37,7 +37,7 @@ import { refusalFrom } from './errors';
  */
 export class MalformedTokenError extends Error {
   constructor() {
-    super('That does not look like an invitation token: paste the 64-character code as given.');
+    super('That does not look like a token: paste the code exactly as it was given to you.');
     this.name = 'MalformedTokenError';
   }
 }
@@ -89,23 +89,50 @@ export class EnrolmentOutcomeUnknownError extends Error {
 // remembered.
 const TOKEN_NOISE_RE = /[\s ­-]/gu;
 const TOKEN_HEX_RE = /^[0-9a-f]{64}$/;
+/** The prefixes a token is shown with, and what each says about the door
+ * it is for: `op_` is `operators::BOOTSTRAP_TOKEN_PREFIX` on the file the
+ * server writes at first start; `inv_` is what the console puts in front
+ * of an account invitation; `org_` an organisation claim, which no screen
+ * redeems yet. The underscore is noise like a hyphen, so `op-…` and `op…`
+ * read the same. The bytes on the wire never carry a prefix. */
+const TOKEN_PREFIX_RE = /^(op|inv|org)_?/;
 
-/** Parse a pasted token into the 32 raw bytes the wire body carries. Accepts
- * surrounding whitespace, either case, and the whitespace/hyphen/NBSP/soft-
- * hyphen noise described above anywhere inside the string, since a person
- * copying a token out of an email or a terminal may pick any of that up
- * without seeing it.
+/** What kind of token was pasted, when the token says. `null` is a bare
+ * 64-hex token from before the prefixes (the token file a first start wrote
+ * before 2026-09-21), which the screen reads by whether an address was
+ * typed. */
+export type TokenKind = 'operator' | 'steward' | 'organisation' | null;
+
+export interface ParsedToken {
+  bytes: Uint8Array;
+  kind: TokenKind;
+}
+
+/** Parse a pasted token into the 32 raw bytes the wire body carries and
+ * the door it names. Accepts surrounding whitespace, either case, and the
+ * whitespace/hyphen/NBSP/soft-hyphen noise described above anywhere inside
+ * the string, since a person copying a token out of an email or a terminal
+ * may pick any of that up without seeing it.
  *
  * This is this client's own reading of the shape
  * `crates/fathom-server/src/main.rs`'s `write_bootstrap_token` writes --
- * 64 lowercase hex characters, no separators -- pending a shared constant on
- * the server side naming that shape explicitly. */
-export function parseToken(input: string): Uint8Array {
+ * the prefix, then 64 lowercase hex characters, no separators. */
+export function parseToken(input: string): ParsedToken {
   const cleaned = input.replace(TOKEN_NOISE_RE, '').toLowerCase();
-  if (!TOKEN_HEX_RE.test(cleaned)) {
+  const prefix = TOKEN_PREFIX_RE.exec(cleaned);
+  const hex = prefix ? cleaned.slice(prefix[0].length) : cleaned;
+  if (!TOKEN_HEX_RE.test(hex)) {
     throw new MalformedTokenError();
   }
-  return fromHex(cleaned);
+  const kind: TokenKind =
+    prefix === null ? null : prefix[1] === 'op' ? 'operator' : prefix[1] === 'inv' ? 'steward' : 'organisation';
+  return { bytes: fromHex(hex), kind };
+}
+
+/** The prefix a token is shown with (`parseToken` reads it back). */
+export function formatToken(token: Uint8Array, kind: Exclude<TokenKind, null>): string {
+  const prefix = kind === 'operator' ? 'op_' : kind === 'steward' ? 'inv_' : 'org_';
+  return prefix + toHex(token);
 }
 
 /**

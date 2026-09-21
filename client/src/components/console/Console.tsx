@@ -12,7 +12,7 @@ import {
   type OrganisationRow,
 } from '../../api/console';
 import { ApiRefusal } from '../../api/errors';
-import { toHex } from '../../crypto/bytes';
+import { formatToken } from '../../api/enrolment';
 import './console.css';
 
 /**
@@ -180,7 +180,9 @@ export function Console({ operatorId }: ConsoleProps) {
           </h2>
           <p className="console__note">
             Shown here only until you sign out or reload. The server holds a hash of each token and cannot show it
-            again; a lost invitation is replaced by issuing a new one.
+            again; a lost invitation is replaced by issuing a new one. The prefix says what the token is for
+            (<code>inv_</code> an account invitation, <code>org_</code> an organisation claim); the enrolment
+            screen reads it, so the person just pastes the token and their address.
           </p>
           <ul className="console__minted">
             {minted.map((m) => (
@@ -190,7 +192,9 @@ export function Console({ operatorId }: ConsoleProps) {
                   {m.kind === 'organisation' ? 'shell' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
                   {formatUnix(m.invitation.expiresAtUnix)}
                 </div>
-                <code className="console__token">{toHex(m.invitation.token)}</code>
+                <code className="console__token">
+                  {formatToken(m.invitation.token, m.kind === 'organisation' ? 'organisation' : 'steward')}
+                </code>
               </li>
             ))}
           </ul>

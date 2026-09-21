@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { NoEnrolledKeyError, signIn } from '../api/auth';
-import { PRINCIPAL_KIND_OPERATOR, PRINCIPAL_KIND_STEWARD, type PrincipalKind } from '../api/constants';
+import { identityOfSlot, OPERATOR_PENDING_SLOT, type SlotIdentity } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
+import { listKeySlots } from '../crypto/keys';
 import '../styles/signin.css';
 
 export interface SignInProps {
@@ -18,87 +19,117 @@ export interface SignInProps {
  * (`docs/OPEN-QUESTIONS.md` B5), so this screen signs in with a key this
  * browser already holds and sends anyone without one to `Enrol`.
  *
- * Two planes (`../api/constants.ts`): an account signs in at its address;
- * an operator with the operator id the enrolment answer handed them, which
- * the console shows beside their name and the server's first-start log line
- * names. Same key, same challenge, one word different on the wire.
+ * **No choice of plane.** The key is the access, and it was filed under
+ * one plane's slot when it was enrolled (`../api/constants.ts`), so this
+ * screen lists the identities this browser holds a key for and signs in as
+ * whichever is pressed; the field below is for typing one instead, and
+ * `signIn` (`../api/auth.ts`) finds the key the same way. The owner's rule,
+ * 2026-09-21: *"if they have access they have access, it shouldn't be a
+ * selection"*.
  */
 export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
-  const [principalKind, setPrincipalKind] = useState<PrincipalKind>(PRINCIPAL_KIND_STEWARD);
+  const [identities, setIdentities] = useState<SlotIdentity[] | null>(null);
   const [address, setAddress] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const isOperator = principalKind === PRINCIPAL_KIND_OPERATOR;
+  useEffect(() => {
+    let cancelled = false;
+    listKeySlots()
+      .then(({ enrolled, pending }) => {
+        if (cancelled) return;
+        // Enrolled first, then pending ones not already listed; never the
+        // operator sentinel, whose owner is unknown until they type the id.
+        const seen = new Set<string>();
+        const rows: SlotIdentity[] = [];
+        for (const slot of [...enrolled, ...pending]) {
+          if (slot === OPERATOR_PENDING_SLOT || seen.has(slot)) continue;
+          seen.add(slot);
+          rows.push(identityOfSlot(slot));
+        }
+        setIdentities(rows);
+      })
+      .catch(() => {
+        // Storage unavailable (a private window, cleared site data): the
+        // typed field below still works, and says so honestly when it
+        // finds nothing.
+        if (!cancelled) setIdentities([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
+  async function attempt(id: string, kind?: SlotIdentity['kind']) {
+    setBusy(id);
     setRefusal(null);
     try {
-      await signIn(address.trim(), principalKind);
+      await signIn(id, kind);
     } catch (error) {
       console.error(error);
       setRefusal(describe(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await attempt(address.trim());
+  }
+
+  const hasIdentities = identities !== null && identities.length > 0;
 
   return (
     <div className="signin">
       <form className="signin__card" onSubmit={handleSubmit}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">Sign in with your enrolled key.</p>
+        <p className="signin__subtitle">
+          {hasIdentities ? 'Sign in with a key this browser holds.' : 'Sign in with your enrolled key.'}
+        </p>
 
-        <div className="signin__kinds" role="radiogroup" aria-label="Sign in as">
-          <label className={isOperator ? 'signin__kind' : 'signin__kind signin__kind--on'}>
-            <input
-              type="radio"
-              name="signin-kind"
-              value={PRINCIPAL_KIND_STEWARD}
-              checked={!isOperator}
-              onChange={() => setPrincipalKind(PRINCIPAL_KIND_STEWARD)}
-              disabled={busy}
-            />
-            An account
-          </label>
-          <label className={isOperator ? 'signin__kind signin__kind--on' : 'signin__kind'}>
-            <input
-              type="radio"
-              name="signin-kind"
-              value={PRINCIPAL_KIND_OPERATOR}
-              checked={isOperator}
-              onChange={() => setPrincipalKind(PRINCIPAL_KIND_OPERATOR)}
-              disabled={busy}
-            />
-            An operator
-          </label>
-        </div>
+        {hasIdentities && (
+          <div className="signin__identities">
+            {identities.map((who) => (
+              <button
+                key={`${who.kind}:${who.id}`}
+                type="button"
+                className="signin__identity"
+                disabled={busy !== null}
+                onClick={() => attempt(who.id, who.kind)}
+              >
+                <span className="signin__identity-id">{who.id}</span>
+                <span className="signin__identity-kind">
+                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'operator' : 'account'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="signin-address">
-            {isOperator ? 'Operator id' : 'Address'}
+            {hasIdentities ? 'Or another address or operator id' : 'Address or operator id'}
           </label>
           <input
             id="signin-address"
-            className={isOperator ? 'signin__input signin__input--mono' : 'signin__input'}
+            className="signin__input"
             type="text"
-            autoComplete={isOperator ? 'off' : 'username'}
+            autoComplete="username"
             spellCheck={false}
             value={address}
             onChange={(event) => setAddress(event.target.value)}
-            disabled={busy}
-            required
+            disabled={busy !== null}
+            required={!hasIdentities}
           />
         </div>
 
         <button
           className="signin__submit"
           type="submit"
-          disabled={busy || address.trim().length === 0}
+          disabled={busy !== null || address.trim().length === 0}
         >
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy !== null && busy === address.trim() ? 'Signing in…' : 'Sign in'}
         </button>
 
         {refusal && (
@@ -107,15 +138,11 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
           </div>
         )}
 
-        <p className="signin__note">
-          {isOperator
-            ? 'There is no password. The operator id was shown when your key was enrolled, and the console shows it.'
-            : 'There is no password. Enrolment is by invitation.'}
-        </p>
+        <p className="signin__note">There is no password. The key in this browser is the access.</p>
 
         {onRedeemInvitation && (
           <button type="button" className="signin__switch" onClick={onRedeemInvitation}>
-            No key in this browser? Redeem an invitation or an operator token.
+            No key in this browser? Redeem a token.
           </button>
         )}
       </form>

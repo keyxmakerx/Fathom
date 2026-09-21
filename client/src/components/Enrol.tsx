@@ -10,6 +10,7 @@ import {
   parseToken,
   redeemAccountEnrolment,
   redeemOperatorEnrolment,
+  type TokenKind,
 } from '../api/enrolment';
 import '../styles/enrol.css';
 
@@ -31,14 +32,16 @@ type Stage =
   | { kind: 'outcome-unknown-operator'; detail: string };
 
 /**
- * Redeem a token: paste it, say which kind it is, and end with an enrolled
- * key in this browser and a live session -- or the server's own refusal.
+ * Redeem a token: paste it, and end with an enrolled key in this browser
+ * and a live session -- or the server's own refusal.
  *
- * Two kinds of token, two planes (`../api/constants.ts`): an **invitation**
- * to an account, redeemed with the address it was issued to, which is the
- * door every steward arrives by; and an **operator token** -- the one the
- * server wrote to a file at first start, or one a second operator's request
- * produced -- which names its operator itself and takes no address.
+ * **No choice of plane.** The token says which door it is for
+ * (`../api/enrolment.ts`'s `parseToken`: `op_` an operator's, `inv_` an
+ * account's invitation), and the address field appears only when an
+ * invitation needs it. A bare token from before the prefixes is read by
+ * whether an address was typed: none, and it is taken for an operator's.
+ * The owner's rule, 2026-09-21: *"if they have access they have access, it
+ * shouldn't be a selection"*.
  *
  * No password field: there is nowhere one could go
  * (`crates/fathom-server/src/admin.rs`'s module header, "no password field
@@ -55,29 +58,59 @@ export interface EnrolProps {
   onUseExistingKey?: () => void;
 }
 
+/** What the token field says about itself as it is typed: which door, or
+ * nothing yet (empty, malformed, or a bare token). Read live so the address
+ * field can come and go with it. */
+function kindOfTyped(token: string): TokenKind {
+  try {
+    return parseToken(token).kind;
+  } catch {
+    return null;
+  }
+}
+
 export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
-  const [principalKind, setPrincipalKind] = useState<PrincipalKind>(PRINCIPAL_KIND_STEWARD);
   const [token, setToken] = useState('');
   const [address, setAddress] = useState('');
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const busy = stage.kind === 'enrolling' || stage.kind === 'signing-in';
-  const isOperator = principalKind === PRINCIPAL_KIND_OPERATOR;
+  const typedKind = kindOfTyped(token);
+  // The address is asked for unless the token has said it is an operator's.
+  const wantsAddress = typedKind !== 'operator';
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRefusal(null);
 
-    let tokenBytes: Uint8Array;
+    let parsed: ReturnType<typeof parseToken>;
     try {
-      tokenBytes = parseToken(token);
+      parsed = parseToken(token);
     } catch (error) {
       setRefusal(error instanceof MalformedTokenError ? error.message : 'That token could not be read.');
       return;
     }
+    if (parsed.kind === 'organisation') {
+      setRefusal(
+        'That is an organisation claim, not a sign-in token. Nothing redeems one yet (docs/NEXT.md); keep it.',
+      );
+      return;
+    }
 
     const trimmedAddress = address.trim();
+    // The door: what the token says, else what was typed. An invitation
+    // needs its address; a bare token with none typed is an operator's.
+    const principalKind: PrincipalKind =
+      parsed.kind === 'operator' || (parsed.kind === null && trimmedAddress.length === 0)
+        ? PRINCIPAL_KIND_OPERATOR
+        : PRINCIPAL_KIND_STEWARD;
+    const isOperator = principalKind === PRINCIPAL_KIND_OPERATOR;
+    if (!isOperator && trimmedAddress.length === 0) {
+      setRefusal('An invitation is redeemed with the address it was sent to.');
+      return;
+    }
+
     setStage({ kind: 'enrolling' });
 
     // Whether redemption's outcome was confirmed at all -- distinct from
@@ -91,9 +124,9 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
     let principal = trimmedAddress;
     try {
       if (isOperator) {
-        principal = (await redeemOperatorEnrolment(tokenBytes)).operatorId;
+        principal = (await redeemOperatorEnrolment(parsed.bytes)).operatorId;
       } else {
-        await redeemAccountEnrolment(tokenBytes, trimmedAddress);
+        await redeemAccountEnrolment(parsed.bytes, trimmedAddress);
       }
     } catch (error) {
       console.error(error);
@@ -105,7 +138,7 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
         // exactly as usable as before this attempt, so the field is left
         // as typed rather than cleared.
         setStage({ kind: 'form' });
-        setRefusal(describeRefusal(error));
+        setRefusal(describeRefusal(error, parsed.kind === null && isOperator));
         return;
       }
     }
@@ -217,8 +250,8 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
           <p className="enrol__subtitle">Could not confirm the operator token was accepted.</p>
           <p className="enrol__body">
             {stage.detail} The key this browser generated is kept. If the server did accept the token, sign in
-            as an operator with the operator id from the server&apos;s first-start log line (
-            <code>operator_id=</code>) and that key will be used; if it did not, redeem the token again.
+            with the operator id from the server&apos;s first-start log line (<code>operator_id=</code>) and that
+            key will be used; if it did not, redeem the token again.
           </p>
           {onUseExistingKey && (
             <button type="button" className="enrol__submit" onClick={onUseExistingKey}>
@@ -237,36 +270,11 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
     <div className="enrol">
       <form className="enrol__card" onSubmit={handleSubmit}>
         <h1 className="enrol__title">Fathom</h1>
-        <p className="enrol__subtitle">{isOperator ? 'Redeem an operator token.' : 'Redeem your invitation.'}</p>
-
-        <div className="enrol__kinds" role="radiogroup" aria-label="What kind of token">
-          <label className={isOperator ? 'enrol__kind' : 'enrol__kind enrol__kind--on'}>
-            <input
-              type="radio"
-              name="enrol-kind"
-              value={PRINCIPAL_KIND_STEWARD}
-              checked={!isOperator}
-              onChange={() => setPrincipalKind(PRINCIPAL_KIND_STEWARD)}
-              disabled={busy}
-            />
-            An invitation to an account
-          </label>
-          <label className={isOperator ? 'enrol__kind enrol__kind--on' : 'enrol__kind'}>
-            <input
-              type="radio"
-              name="enrol-kind"
-              value={PRINCIPAL_KIND_OPERATOR}
-              checked={isOperator}
-              onChange={() => setPrincipalKind(PRINCIPAL_KIND_OPERATOR)}
-              disabled={busy}
-            />
-            An operator token
-          </label>
-        </div>
+        <p className="enrol__subtitle">Redeem your token.</p>
 
         <div className="enrol__field">
           <label className="enrol__label" htmlFor="enrol-token">
-            {isOperator ? 'Operator token' : 'Invitation token'}
+            Token
           </label>
           <input
             id="enrol-token"
@@ -284,10 +292,10 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
           />
         </div>
 
-        {!isOperator && (
+        {wantsAddress && (
           <div className="enrol__field">
             <label className="enrol__label" htmlFor="enrol-address">
-              Address
+              {typedKind === 'steward' ? 'Address' : 'Address (for an invitation; leave empty for an operator token)'}
             </label>
             <input
               id="enrol-address"
@@ -297,16 +305,12 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
               value={address}
               onChange={(event) => setAddress(event.target.value)}
               disabled={busy}
-              required
+              required={typedKind === 'steward'}
             />
           </div>
         )}
 
-        <button
-          className="enrol__submit"
-          type="submit"
-          disabled={busy || token.trim().length === 0 || (!isOperator && address.trim().length === 0)}
-        >
+        <button className="enrol__submit" type="submit" disabled={busy || token.trim().length === 0}>
           {stage.kind === 'enrolling'
             ? 'Enrolling…'
             : stage.kind === 'signing-in'
@@ -321,10 +325,11 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
         )}
 
         <p className="enrol__note">
-          {isOperator
-            ? 'The first operator token is in the file the server wrote at first start; later ones come from ' +
-              'the console. The token names its operator and can only be used once.'
-            : 'The address must be the one the invitation was sent to. The token can only be used once.'}
+          {typedKind === 'operator'
+            ? 'An operator token: the one the server wrote at first start, or one the console issued. It names ' +
+              'its operator and works once.'
+            : 'An invitation is redeemed with the address it was sent to. Every token works once. There is no ' +
+              'password: the key this browser generates is the access.'}
         </p>
 
         {onUseExistingKey && (
@@ -349,12 +354,17 @@ function describePrincipal(principal: string, kind: PrincipalKind): string {
  * their own honest wording ("nothing was sent" versus "may have been
  * accepted") and are returned unchanged -- collapsing either into the
  * generic fallback below would be exactly the "refused" / "accepted and
- * lost" conflation this function exists to avoid. */
-function describeRefusal(error: unknown): string {
+ * lost" conflation this function exists to avoid.
+ *
+ * `guessedOperator`: a bare token with no address was taken for an
+ * operator's, and the server refused it. The refusal is the server's own
+ * words; the one thing this screen can add without guessing at the cause is
+ * that the other reading exists. */
+function describeRefusal(error: unknown, guessedOperator = false): string {
   if (error instanceof ApiRefusal) {
-    return error.retryAfterSeconds != null
-      ? `${error.message} Try again in ${error.retryAfterSeconds}s.`
-      : error.message;
+    const base =
+      error.retryAfterSeconds != null ? `${error.message} Try again in ${error.retryAfterSeconds}s.` : error.message;
+    return guessedOperator ? `${base} If this is an invitation to an account, add the address it was sent to.` : base;
   }
   if (error instanceof EnrolmentNotAttemptedError || error instanceof EnrolmentOutcomeUnknownError) {
     return error.message;

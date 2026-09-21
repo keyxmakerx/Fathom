@@ -152,6 +152,16 @@ pub const SETTINGS_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// machinery §5.3 exists to slow down.
 pub const ENROLMENT_TOKEN_LIFETIME: Duration = Duration::from_secs(72 * 60 * 60);
 
+/// The prefix the bootstrap token file carries before the hex
+/// (`main.rs`'s `write_bootstrap_token`): it says which door the token is
+/// for, so the enrolment screen needs no choice made on it. The client's
+/// `parseToken` reads `op_` as the operator plane and `inv_`, which the
+/// console puts in front of account invitations, as the account plane; the
+/// bytes on the wire carry no prefix. A file written before 2026-09-21 is
+/// bare hex, and the client treats a bare token with no address typed as an
+/// operator's.
+pub const BOOTSTRAP_TOKEN_PREFIX: &str = "op_";
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------

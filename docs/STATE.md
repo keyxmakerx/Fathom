@@ -158,14 +158,19 @@ other.
 
 Built at `client/` in React, Vite and React Flow; typecheck, tests and build green, `gate-npm` green.
 
-- **Two doors, on both planes.** Sign-in with a key this browser holds, and enrolment, which redeems
-  a token and generates a non-extractable keypair stored under a pending slot *before* the request
-  goes out, promoted on a confirmed answer, so a key the server has accepted is never lost. **As of
-  2026-09-21 each door takes the operator plane too**: an operator token (`/enrolment/operator`,
-  whose answer now carries the operator id) and sign-in with that id. Until then the client hard-coded
-  the steward plane, so a fresh install's only credential, the first-operator token, could not be
-  redeemed anywhere. `.github/workflows/ci.yml`'s compose job now redeems it and reads the operator
-  register over HTTP with a dependency-free Node script (`scripts/ci/first-operator-signin.mjs`).
+- **Two doors, on both planes, and no choice of plane on either.** Sign-in with a key this
+  browser holds, and enrolment, which redeems a token and generates a non-extractable keypair stored
+  under a pending slot *before* the request goes out, promoted on a confirmed answer, so a key the
+  server has accepted is never lost. **As of 2026-09-21 each door takes the operator plane too**: an
+  operator token (`/enrolment/operator`, whose answer now carries the operator id) and sign-in with
+  that id. Until then the client hard-coded the steward plane, so a fresh install's only credential,
+  the first-operator token, could not be redeemed anywhere. `.github/workflows/ci.yml`'s compose job
+  now redeems it and reads the operator register over HTTP with a dependency-free Node script
+  (`scripts/ci/first-operator-signin.mjs`). **The plane is never a selection** (the owner's rule, same
+  day): a token carries a prefix that names its door (`op_` on the file the server writes, `inv_`
+  on the console's invitations; `operators::BOOTSTRAP_TOKEN_PREFIX`), and sign-in lists the
+  identities this browser holds a key for, or looks a typed one up on both planes before any request.
+  The first operator is named after the notice address.
 - **The operator console** (`client/src/components/console/`): create an account and its
   invitation, reissue one, disable or re-enable an account, create an organisation shell and its
   claim, list operators and organisations; every minted token shown once. Not on it: the two-person

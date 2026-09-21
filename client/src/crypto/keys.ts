@@ -118,6 +118,29 @@ function deleteFromStore(db: IDBDatabase, store: string, address: string): Promi
   });
 }
 
+function keysOfStore(db: IDBDatabase, store: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const request = tx.objectStore(store).getAllKeys();
+    request.onsuccess = () => resolve((request.result as IDBValidKey[]).map(String));
+    request.onerror = () => reject(request.error as Error);
+  });
+}
+
+/** Every slot this browser holds a key under, per store -- the address or
+ * `operator:<id>` strings `../api/constants.ts`'s `keySlot` makes, plus the
+ * operator sentinel in the pending store. What the sign-in screen lists as
+ * "who this browser can sign in as", so nobody has to say which plane they
+ * are on: the slot already knows. */
+export async function listKeySlots(): Promise<{ enrolled: string[]; pending: string[] }> {
+  const db = await openDb();
+  try {
+    return { enrolled: await keysOfStore(db, STORE_ENROLLED), pending: await keysOfStore(db, STORE_PENDING) };
+  } finally {
+    db.close();
+  }
+}
+
 /** The account's enrolled keypair for `address`, or `null` if this browser
  * holds none. */
 export async function getEnrolledKeyPair(address: string): Promise<CryptoKeyPair | null> {

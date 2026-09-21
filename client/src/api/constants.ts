@@ -42,3 +42,24 @@ export function keySlot(kind: PrincipalKind, id: string): string {
  * enrolment outcome could not be confirmed (`../api/enrolment.ts`).
  */
 export const OPERATOR_PENDING_SLOT = 'operator:?';
+
+/** The two halves of a key slot, read back: which plane, and the address
+ * or operator id. The inverse of [`keySlot`]. */
+export interface SlotIdentity {
+  kind: PrincipalKind;
+  id: string;
+}
+
+export function identityOfSlot(slot: string): SlotIdentity {
+  return slot.startsWith('operator:')
+    ? { kind: PRINCIPAL_KIND_OPERATOR, id: slot.slice('operator:'.length) }
+    : { kind: PRINCIPAL_KIND_STEWARD, id: slot };
+}
+
+/** An operator id is a ULID: 26 characters of Crockford base32
+ * (`crates/fathom-server/src/ids.rs`). The one shape an address can never
+ * take, which is what lets sign-in try the operator plane for it without
+ * being told to. */
+export function looksLikeOperatorId(text: string): boolean {
+  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(text);
+}

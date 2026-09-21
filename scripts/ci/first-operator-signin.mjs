@@ -65,8 +65,10 @@ function readLp(bytes) {
 }
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 function fromHex(s) {
-  const clean = s.replace(/[^0-9a-fA-F]/g, '');
-  if (clean.length !== 64) throw new Error(`token file holds ${clean.length} hex digits, not 64`);
+  // `main.rs`'s `write_bootstrap_token`: `op_` and 64 hex digits. The prefix
+  // names the door; the bytes are what the wire carries.
+  const clean = s.trim().replace(/^op[_-]/i, '');
+  if (!/^[0-9a-fA-F]{64}$/.test(clean)) throw new Error(`token file is not op_ and 64 hex digits: ${JSON.stringify(s.trim().slice(0, 8))}…`);
   return Uint8Array.from(clean.match(/../g), (h) => parseInt(h, 16));
 }
 
