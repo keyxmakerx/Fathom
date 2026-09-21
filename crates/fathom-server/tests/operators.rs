@@ -1558,7 +1558,15 @@ async fn single_operator_is_re_evaluated_at_apply_not_remembered_from_the_reques
     let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
 
     // Requested while this deployment is configured single-operator.
-    let store_when_requested = store(&pool, Arc::clone(&ring), true, Duration::from_secs(1)).await;
+    //
+    // Two seconds, not one: `effective_at` is whole seconds, so a delay of
+    // one second is anything from zero to one, and a request that straddles
+    // a second boundary is due the moment it is made -- which, in
+    // single-operator mode, applies it in the requesting transaction and
+    // the assertion below sees a sealed row. Two seconds is never less than
+    // one. (Publish run 18 failed here, 2026-09-21, and it reproduces at
+    // will by parking the request a few milliseconds before a boundary.)
+    let store_when_requested = store(&pool, Arc::clone(&ring), true, Duration::from_secs(2)).await;
     let operator = a_bootstrapped_operator(&store_when_requested, &sessions_store).await;
 
     // A colleague, minted here (using the single-operator store, before the
@@ -1613,9 +1621,9 @@ async fn single_operator_is_re_evaluated_at_apply_not_remembered_from_the_reques
 
     // The restart: the same deployment, the same database, single-operator
     // mode now off.
-    let store_after_restart = store(&pool, Arc::clone(&ring), false, Duration::from_secs(1)).await;
+    let store_after_restart = store(&pool, Arc::clone(&ring), false, Duration::from_secs(2)).await;
 
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    tokio::time::sleep(Duration::from_millis(2200)).await;
 
     assert_eq!(
         store_after_restart
@@ -1839,8 +1847,9 @@ async fn a_second_operator(
         .expect("an operator may request a colleague (§5.5)");
 
     // The delay is the store's, and it is short in tests and 24 hours in
-    // production. It is never zero.
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    // production. It is never zero. Read from the store rather than assumed,
+    // so a test that asks for a longer delay gets a colleague at all.
+    tokio::time::sleep(operators_store.settings_delay() + Duration::from_millis(200)).await;
     let invitations = operators_store
         .apply_due_operator_requests()
         .await
