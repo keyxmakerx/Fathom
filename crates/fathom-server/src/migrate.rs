@@ -144,6 +144,18 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0023_operator_quorum_and_the_operator_key.sql",
         sql: include_str!("../migrations/0023_operator_quorum_and_the_operator_key.sql"),
     },
+    // ADR-0055 fix (S3), the credential plane. **24 is left free on purpose**:
+    // the fix stream working on the operator plane lands one there, and a
+    // migration's number is its apply order, so these two must not collide.
+    // If 24 is absent when this merges, the lead renumbers this file rather
+    // than leaving a hole -- `migrate::run`'s gate is the ORDER of this list
+    // and the checksum of each file, not a dense sequence (0016 is already
+    // missing, see the note above).
+    Migration {
+        version: 25,
+        name: "0025_credential_seal.sql",
+        sql: include_str!("../migrations/0025_credential_seal.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -128,9 +128,18 @@ const TABLES: &[TableClaim] = &[
                 NIST describe, and wrapping it in this server's AEAD would add a second key an \
                 attacker who has the database does not need -- and would suggest a property \
                 (recoverability) a password hash must never have.\n\
-              * `operator_key_hold_until` (`0021`) is a timestamp. `0021`'s own header says \
-                why it is not sealed: the seal on an operator's authority is the \
-                `operator_keys` row the hold prevents being written.\n\
+              * `operator_key_hold_until` (`0021`) is a timestamp, and `credential_seal`, \
+                `credential_row_version` and `credential_seq` (`0025`) are the integrity cover \
+                over it and over the four columns above. A seal is a MAC — it holds no \
+                plaintext, it opens nothing, and it is not key-PROTECTED material any more \
+                than `backup_codes.row_seal` or `account_keys.row_seal` is; it is computed \
+                under `grants::site_row_key`, which is derived from the chain master behind \
+                ADR-0043's provider interface and is likewise never in PostgreSQL. `0021`'s \
+                own header said the hold did not need sealing, because the seal on an \
+                operator's authority is the `operator_keys` row the hold prevents being \
+                written; that argument still holds and `0025` covers the column anyway, so \
+                clearing it outside this server is the same kind of unverifiable as clearing \
+                the app code.\n\
               \n\
               **No device credential arrives here either** (CLAUDE.md rule 4): this is the \
               PERSON's credential, which is a different noun, and `0018`'s header draws the \
@@ -558,7 +567,8 @@ const TABLES: &[TableClaim] = &[
 /// above, and the function it calls raises an exception and returns nothing.
 /// Both are still read off the SQL by [`created_objects`] and reported by
 /// name, so one appearing on a table that is not in [`TABLES`] is visible in a
-/// diff.
+/// diff. A `CONSTRAINT TRIGGER` (`migrations/0025_credential_seal.sql`) is a
+/// trigger with a firing time, and holds no rows either.
 const NON_STORAGE_KINDS: &[&str] = &["index", "policy", "role", "function", "trigger"];
 
 /// Every migration file on disk, read from the directory rather than from
@@ -681,6 +691,9 @@ fn created_objects(sql: &str) -> Vec<(String, String)> {
         "if",
         "not",
         "exists",
+        // `CREATE CONSTRAINT TRIGGER` (`0025`) is a trigger; without this the
+        // reader files it as a thing of kind `constraint` called `trigger`.
+        "constraint",
     ];
     let (cleaned, _literals) = strip_string_literals(&strip_comments(sql));
     let cleaned = cleaned.to_ascii_lowercase();
