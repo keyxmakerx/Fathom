@@ -321,15 +321,16 @@ The first is worth more and owes more.
 
 *Found 2026-09-16 by the enrolment review, looking for them.* The server sends no
 `Content-Security-Policy`, and nothing in the tree sends `Strict-Transport-Security` or redirects
-plain HTTP; `compose.yaml` puts Caddy in front to terminate TLS and says nothing about
-either header. Two consequences: any script that runs on the origin can open the browser's key
-store and sign with an enrolled key — non-extractable stops the key leaving, not its being used —
-and over plain HTTP an invitation token crosses the wire in the clear.
+plain HTTP; since 2026-09-20 `compose.yaml` publishes the server's own plain-HTTP port and TLS
+terminates in the operator's proxy, which Fathom cannot vouch for. Two consequences: any script
+that runs on the origin can open the browser's key store and sign with an enrolled key —
+non-extractable stops the key leaving, not its being used — and over plain HTTP an invitation
+token crosses the wire in the clear.
 
-Both belong to whatever terminates TLS, so the question is only *where* they are set and *who
-verifies it*: Caddy's config in `deploy/`, or the binary itself so that a deployment without
-Caddy still has them. The second is safer and costs a few lines of `axum` middleware. **Could not
-establish** from this environment whether the Compose stack, never yet run, sends either.
+The server serves the client itself and sets neither header (`crates/fathom-server/src/client.rs`),
+and no proxy of ours remains to set them, so the answer is the binary: a few lines of `axum`
+middleware for CSP, and HSTS gated on `X-Forwarded-Proto: https` from a trusted proxy, checked by
+the `compose` job in `ci.yml`. Until then `docs/RUNNING-IT.md` asks the operator's proxy for HSTS.
 
 ---
 

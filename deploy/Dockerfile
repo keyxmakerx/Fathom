@@ -134,7 +134,10 @@ WORKDIR /src/client
 # refuses to touch it. `client/package.json` names no new package for this
 # change to have reviewed; it is `react`, `react-dom` and `@xyflow/react`,
 # already in the tree.
-RUN npm ci
+# `--ignore-scripts` as `docs/RUNNING-IT.md` insists for a developer's
+# machine, and for the same reason here, where the result is the published
+# image: no package's install script runs in this build.
+RUN npm ci --ignore-scripts
 
 # `scripts/build-wasm.sh`'s destination, staged from `wasm-build` above
 # rather than left for `npm run build` to discover missing: without this,

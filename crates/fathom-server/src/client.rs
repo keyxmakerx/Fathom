@@ -15,36 +15,103 @@
 //! code, and `tower-http`'s would be a new package in the closure gate-zero
 //! measures (WO-11 §5).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
 
-/// The directory, resolved once at startup and shared by every request.
+/// The built client, read into memory once at startup and shared by every
+/// request: a dozen files, two megabytes, immutable for the life of the
+/// image. Serving from memory is what keeps an unauthenticated `GET` of the
+/// engine module from costing a file read and a fresh 1.3 MB buffer per
+/// request (found by the 2026-09-21 review); a response body here is a
+/// refcount on bytes every request shares.
 #[derive(Clone, Debug)]
-pub struct ClientRoot(Arc<PathBuf>);
+pub struct ClientRoot {
+    dir: Arc<PathBuf>,
+    files: Arc<HashMap<PathBuf, Bytes>>,
+}
+
+/// The most a built client may weigh, in bytes, before startup refuses it:
+/// a bound on what this process holds resident for the files, and far
+/// above what Vite emits (about 2 MB with the engine).
+const MAX_CLIENT_BYTES: u64 = 64 * 1024 * 1024;
 
 impl ClientRoot {
-    /// Refuses a root without an `index.html`. A deployment that names a
-    /// directory and then answers `/` with 404 is half-working, and startup
-    /// is where to say so (`main.rs` exits on `Err`, like every other
-    /// refusal to run with a piece missing).
+    /// Reads every file under `dir` whose path `safe_relative_path` would
+    /// accept. Refuses a root without an `index.html`: a deployment that
+    /// names a directory and then answers `/` with 404 is half-working, and
+    /// startup is where to say so (`main.rs` exits on `Err`, like every
+    /// other refusal to run with a piece missing).
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self, String> {
         let dir: PathBuf = dir.into();
         let index = dir.join("index.html");
         match std::fs::metadata(&index) {
-            Ok(m) if m.is_file() => Ok(Self(Arc::new(dir))),
-            Ok(_) => Err(format!("{} is not a file", index.display())),
-            Err(e) => Err(format!("{}: {e}", index.display())),
+            Ok(m) if m.is_file() => {}
+            Ok(_) => return Err(format!("{} is not a file", index.display())),
+            Err(e) => return Err(format!("{}: {e}", index.display())),
         }
+        let mut files = HashMap::new();
+        let mut total: u64 = 0;
+        let mut pending = vec![PathBuf::new()];
+        while let Some(rel_dir) = pending.pop() {
+            let entries = std::fs::read_dir(dir.join(&rel_dir))
+                .map_err(|e| format!("{}: {e}", dir.join(&rel_dir).display()))?;
+            for entry in entries {
+                let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                let rel = rel_dir.join(name);
+                // Only names a request could ever ask for are read at all;
+                // a dotfile or an odd name in the directory is not served
+                // and not held.
+                if safe_relative_path(&format!("/{}", rel.display())).as_deref()
+                    != Some(rel.as_path())
+                {
+                    continue;
+                }
+                let kind = entry
+                    .file_type()
+                    .map_err(|e| format!("{}: {e}", entry.path().display()))?;
+                if kind.is_dir() {
+                    pending.push(rel);
+                } else if kind.is_file() {
+                    let bytes = std::fs::read(entry.path())
+                        .map_err(|e| format!("{}: {e}", entry.path().display()))?;
+                    total += bytes.len() as u64;
+                    if total > MAX_CLIENT_BYTES {
+                        return Err(format!(
+                            "{} holds more than {MAX_CLIENT_BYTES} bytes of client files; that is \
+                             not a built client",
+                            dir.display()
+                        ));
+                    }
+                    files.insert(rel, Bytes::from(bytes));
+                }
+            }
+        }
+        Ok(Self {
+            dir: Arc::new(dir),
+            files: Arc::new(files),
+        })
     }
 
-    /// The directory being served.
+    /// The directory the files were read from.
     pub fn path(&self) -> &Path {
-        &self.0
+        &self.dir
+    }
+
+    /// How many files are held.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
     }
 
     /// `router` with this root as its fallback: every path no route claims
@@ -64,19 +131,25 @@ impl ClientRoot {
         let Some(rel) = safe_relative_path(uri.path()) else {
             return StatusCode::NOT_FOUND.into_response();
         };
-        // A directory, a missing file and an unreadable one all read as
-        // "not here"; the difference is the operator's to see in the
-        // filesystem, not a client's to learn from the status.
-        let bytes = match tokio::fs::read(self.0.join(&rel)).await {
-            Ok(b) => b,
-            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        // A directory, a missing file and one that was unreadable at startup
+        // all read as "not here"; the difference is the operator's to see
+        // in the filesystem, not a client's to learn from the status.
+        let Some(bytes) = self.files.get(&rel) else {
+            return StatusCode::NOT_FOUND.into_response();
         };
-        let mut response = Response::new(Body::from(bytes));
+        let length = bytes.len();
+        let body = if method == Method::HEAD {
+            Body::empty()
+        } else {
+            Body::from(bytes.clone())
+        };
+        let mut response = Response::new(body);
         let headers = response.headers_mut();
         headers.insert(
             header::CONTENT_TYPE,
             HeaderValue::from_static(content_type(&rel)),
         );
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
         headers.insert(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

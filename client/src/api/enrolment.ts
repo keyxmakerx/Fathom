@@ -18,6 +18,7 @@ import {
   deletePendingKeyPair,
   exportPublicKeyRaw,
   generateKeyPair,
+  getPendingKeyPair,
   promotePendingKeyPair,
   putPendingKeyPair,
 } from '../crypto/keys';
@@ -370,12 +371,37 @@ export function parseRedeemOperatorResponse(bytes: Uint8Array): OperatorEnrolmen
  * the server's own first-start log line names (`operator_id=`), and that
  * sign-in is what confirms the enrolment after the fact.
  *
- * One browser holds one such waiting key: a second operator enrolment
- * attempted from the same browser while the first's outcome is unknown
- * replaces it, which is the same "retype the token" cost as before, and is
- * said here rather than guarded against.
+ * **A waiting key is never overwritten by accident.** If the server did
+ * accept the earlier token, the key in the sentinel slot is the only key it
+ * holds for that operator, and the first operator cannot be re-bootstrapped
+ * once any key is enrolled (`operators.rs`, `reissue_bootstrap_token`); a
+ * retry with the same token would be refused, and a refusal deletes the
+ * pending key -- so the retry would throw away the one key that works. This
+ * function therefore refuses to start while one waits, with
+ * [`OperatorKeyWaitingError`], unless `replaceWaitingKey` says the person
+ * has read that and chose to discard it (the enrolment screen offers both
+ * ways out). Found by the 2026-09-21 review; the earlier comment here said
+ * the retry cost nothing, which was wrong.
  */
-export async function redeemOperatorEnrolment(token: Uint8Array): Promise<OperatorEnrolment> {
+export class OperatorKeyWaitingError extends Error {
+  constructor() {
+    super(
+      'A key from an earlier operator enrolment is waiting in this browser, and its outcome was never ' +
+        'confirmed. If the server accepted it, that key is the only one that can sign in: go to sign-in ' +
+        'and use the operator id from the server\'s first-start log line (operator_id=). Discard it only ' +
+        'if you are sure the token was never accepted.',
+    );
+    this.name = 'OperatorKeyWaitingError';
+  }
+}
+
+export async function redeemOperatorEnrolment(
+  token: Uint8Array,
+  options: { replaceWaitingKey?: boolean } = {},
+): Promise<OperatorEnrolment> {
+  if (!options.replaceWaitingKey && (await getPendingKeyPair(OPERATOR_PENDING_SLOT))) {
+    throw new OperatorKeyWaitingError();
+  }
   const keyPair = await generateKeyPair();
   const publicKey = await exportPublicKeyRaw(keyPair.publicKey);
 

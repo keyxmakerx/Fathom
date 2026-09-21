@@ -1,9 +1,10 @@
-# Running Fathom — 2026-09-19
+# Running Fathom — 2026-09-21
 
-Two ways to start it: **from source**, which is verified below and is what you want today, and
-**Docker Compose**, which nobody has yet run end to end and which needs one thing done by hand
-first. Both end in the same place: a server, a browser client, and one operator who can invite
-people.
+Two ways to start it: **Docker Compose**, one published port behind your own reverse proxy, which
+CI runs end to end on every push (image built, stack up, the first-operator token redeemed over
+HTTP, keys kept across a restart) and which needs one variable set first; and **from source**, for
+development. Both end in the same place: a server, a browser client, and one operator who can
+invite people.
 
 **Read `docs/STATE.md` for what is and is not built.** The short version, current as of
 2026-09-19 (read the actual page for the rest; this paragraph is corrected here because an
@@ -174,25 +175,29 @@ builds from the checkout instead. To freeze a deployment on one build, set
 
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
-The server takes the client's address from `X-Forwarded-For`, and believes that header only when
-the connection comes from one of `FATHOM_TRUSTED_PROXIES` (`private` by default: every private,
-loopback and link-local range, and `100.64.0.0/10`; set it to your proxy's own address to be
-exact). The entries are read from the right across every line of the header, skipping trusted
-proxies, so a proxy that adds its own line under the client's, or appends to it, is read the same
-way and the client's own entries never count. From any other peer the header is ignored and the
-peer is the address, so a client reaching the port directly cannot choose its own rate-limit bucket.
-That address is what the sign-in limits count and what the audit trail records. Still publish the
-port where only the proxy reaches it: `FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy runs on the
-same machine outside Docker, or unpublished on a Docker network the proxy shares.
+Set `Strict-Transport-Security: max-age=31536000` on the proxy and redirect plain HTTP to HTTPS
+there; the binary speaks plain HTTP and cannot send it.
+
+**Name your proxy** in `FATHOM_TRUSTED_PROXIES` (its address or range) and the server reads each
+client's address from the `X-Forwarded-For` it writes: the last entry, the one the proxy appended,
+across every line of the header; `FATHOM_FORWARDED_HOPS=2` if the proxy itself sits behind a CDN or
+edge that appends. From any other peer the header is ignored and the peer is the address. Unset,
+every client counts as the proxy, so all sign-ins share one rate-limit bucket and one address in the
+audit trail; the server warns at startup. `private` trusts every private, loopback, link-local and
+`100.64.0.0/10` peer, so a host in those ranges that reaches the port directly is trusted too: use
+it only where nothing but the proxy can reach the port, and publish the port accordingly:
+`FATHOM_PUBLISH_ADDRESS=127.0.0.1` if the proxy runs on the same machine outside Docker, this host's
+NetBird address if the proxy is NetBird's, or unpublished on a Docker network the proxy shares.
 
 What that means for the proxies checked on 2026-09-20 (NetBird's and F5's own documentation,
 nginx's and Caddy's; every one of them does the same rightmost-trusted reading on its own inbound
 side):
 
 - **NetBird reverse proxy** (HTTP service): it reaches the server over the tunnel from its NetBird
-  address in `100.64.0.0/10`, which the default covers, and that address changes on restart, so
-  never name one address. Turn on *Pass Host Header* for the console's host check. In L4 mode it
-  can send PROXY protocol instead, which the server does not speak; use HTTP mode.
+  address in `100.64.0.0/10`, and that address changes on restart, so set
+  `FATHOM_TRUSTED_PROXIES=100.64.0.0/10` and publish the port on this host's NetBird address only.
+  Turn on *Pass Host Header* for the console's host check. In L4 mode it can send PROXY protocol
+  instead, which the server does not speak; use HTTP mode.
 - **F5 BIG-IP**: with SNAT on, the peer is the SNAT or self IP, so list it (or the range it is
   in) and enable *Insert X-Forwarded-For* in the HTTP profile; a client's own header line is left
   in front, and is ignored as above.
@@ -245,7 +250,7 @@ the server says at startup.
 once, at first start, and cannot be changed afterwards; a default would create an operator nobody
 can reach.
 
-**What runs.** Two containers plus the one-shot: PostgreSQL 16, and the server (distroless,
+**What runs.** Two containers plus the one-shot: PostgreSQL 18, and the server (distroless,
 read-only root, unprivileged), which serves the web client itself from the files baked into its
 image. Every image is pinned by digest. Until 2026-09-20 a Caddy of our own sat in front, serving
 the client and terminating TLS; it went because every other service you run is one port behind

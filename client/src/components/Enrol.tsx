@@ -7,6 +7,7 @@ import {
   EnrolmentNotAttemptedError,
   EnrolmentOutcomeUnknownError,
   MalformedTokenError,
+  OperatorKeyWaitingError,
   parseToken,
   redeemAccountEnrolment,
   redeemOperatorEnrolment,
@@ -29,7 +30,11 @@ type Stage =
   // to retry a sign-in with, because the id is what the answer would have
   // carried. The key waits in `OPERATOR_PENDING_SLOT`; sign-in with the id
   // from the server's first-start log line finds it.
-  | { kind: 'outcome-unknown-operator'; detail: string };
+  | { kind: 'outcome-unknown-operator'; detail: string }
+  // A waiting key from an earlier unconfirmed operator enrolment stopped
+  // this attempt before anything was sent (`OperatorKeyWaitingError`):
+  // the person decides whether to keep it or discard it.
+  | { kind: 'operator-key-waiting'; detail: string };
 
 /**
  * Redeem a token: paste it, and end with an enrolled key in this browser
@@ -80,7 +85,7 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
   // The address is asked for unless the token has said it is an operator's.
   const wantsAddress = typedKind !== 'operator';
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>, replaceWaitingKey = false) {
     event.preventDefault();
     setRefusal(null);
 
@@ -124,7 +129,7 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
     let principal = trimmedAddress;
     try {
       if (isOperator) {
-        principal = (await redeemOperatorEnrolment(parsed.bytes)).operatorId;
+        principal = (await redeemOperatorEnrolment(parsed.bytes, { replaceWaitingKey })).operatorId;
       } else {
         await redeemAccountEnrolment(parsed.bytes, trimmedAddress);
       }
@@ -132,6 +137,10 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
       console.error(error);
       if (error instanceof EnrolmentOutcomeUnknownError) {
         outcomeUnknown = true;
+      } else if (error instanceof OperatorKeyWaitingError) {
+        // Nothing was sent. The token stays as typed; the person chooses.
+        setStage({ kind: 'operator-key-waiting', detail: error.message });
+        return;
       } else {
         // A definite refusal (`ApiRefusal`), or nothing was sent at all
         // (`EnrolmentNotAttemptedError`) -- either way, the token is
@@ -145,8 +154,9 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
 
     if (outcomeUnknown && isOperator) {
       // No id to sign in with: the answer that would have carried it was
-      // never read. The token is left as typed, for the same reason as the
-      // account case below.
+      // never read. The token is left as typed; a retry is guarded by
+      // `OperatorKeyWaitingError`, because the waiting key may be the only
+      // one the server will ever accept for this operator.
       setStage({ kind: 'outcome-unknown-operator', detail: describeRefusal(new EnrolmentOutcomeUnknownError(null)) });
       return;
     }
@@ -160,7 +170,10 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
     }
     // If the outcome was unknown, the token is deliberately left as typed:
     // if it was never accepted, retyping it costs nothing; if it was, the
-    // server's own uniform refusal on a retry says so and nothing is lost.
+    // server's own uniform refusal on a retry says so, and the pending key
+    // that refusal deletes is one an operator can replace by reissuing the
+    // invitation (an account's key, unlike the first operator's, is not the
+    // last of its kind).
 
     setStage({ kind: 'signing-in' });
     try {
@@ -242,26 +255,39 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
     );
   }
 
-  if (stage.kind === 'outcome-unknown-operator') {
+  if (stage.kind === 'outcome-unknown-operator' || stage.kind === 'operator-key-waiting') {
+    const waiting = stage.kind === 'operator-key-waiting';
     return (
       <div className="enrol">
-        <div className="enrol__card">
+        <form className="enrol__card" onSubmit={(event) => handleSubmit(event, true)}>
           <h1 className="enrol__title">Fathom</h1>
-          <p className="enrol__subtitle">Could not confirm the operator token was accepted.</p>
+          <p className="enrol__subtitle">
+            {waiting ? 'A key from an earlier attempt is waiting.' : 'Could not confirm the operator token was accepted.'}
+          </p>
           <p className="enrol__body">
-            {stage.detail} The key this browser generated is kept. If the server did accept the token, sign in
-            with the operator id from the server&apos;s first-start log line (<code>operator_id=</code>) and that
-            key will be used; if it did not, redeem the token again.
+            {waiting ? (
+              stage.detail
+            ) : (
+              <>
+                {stage.detail} The key this browser generated is kept. If the server did accept the token, it is
+                the only key that can sign in as that operator: go to sign-in and use the operator id from the
+                server&apos;s first-start log line (<code>operator_id=</code>). Only if you are sure the token was
+                never accepted, discard that key and redeem again.
+              </>
+            )}
           </p>
           {onUseExistingKey && (
             <button type="button" className="enrol__submit" onClick={onUseExistingKey}>
               Go to sign-in
             </button>
           )}
-          <button type="button" className="enrol__switch" onClick={() => setStage({ kind: 'form' })}>
-            Redeem the token again
+          <button type="submit" className="enrol__switch" disabled={busy || token.trim().length === 0}>
+            Discard the waiting key and redeem the token again
           </button>
-        </div>
+          <button type="button" className="enrol__switch" onClick={() => setStage({ kind: 'form' })}>
+            Back
+          </button>
+        </form>
       </div>
     );
   }

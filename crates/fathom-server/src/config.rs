@@ -189,11 +189,17 @@ pub struct Config {
     /// `FATHOM_TRUSTED_PROXIES`. Addresses and ranges, comma-separated, or
     /// the word `private`, from which the header above is believed; from
     /// any other peer it is ignored and the peer is the address
-    /// (`src/client_address.rs`). Empty with the header set is the older
-    /// rule -- the header believed from every peer -- and `main.rs` warns
-    /// at startup that it is in force. Setting this and not the header
-    /// selects `X-Forwarded-For`.
+    /// (`src/client_address.rs`). Setting this and not the header selects
+    /// `X-Forwarded-For`; setting the header and not this is refused, since
+    /// 2026-09-21 -- a header believed from every peer is a rate limit any
+    /// client can evade, and until then the server ran that way and only
+    /// warned.
     pub trusted_proxies: Vec<String>,
+    /// `FATHOM_FORWARDED_HOPS`, default `1`: which entry of the forwarding
+    /// header, counted from the right, is the client. `1` is the last, the
+    /// one the trusted proxy appended; `2` when that proxy sits behind one
+    /// more hop that appends (`src/client_address.rs`).
+    pub forwarded_hops: usize,
 
     /// `FATHOM_SINGLE_OPERATOR`. Admin design §5.3's documented escape for a
     /// deployment that genuinely has one operator.
@@ -362,6 +368,10 @@ pub enum ConfigError {
     /// A variable was set to something this program cannot parse. The variable
     /// is named; **its value is not**.
     Unparseable { variable: &'static str },
+    /// `FATHOM_TRUSTED_CLIENT_IP_HEADER` without `FATHOM_TRUSTED_PROXIES`: a
+    /// header believed from every peer is an address any client chooses, and
+    /// until 2026-09-21 the server ran that way and only warned.
+    HeaderWithoutProxies,
     /// `FATHOM_DB_PASSWORD_FILE` is set and the file could not be read, or
     /// held nothing. **Refusing to start is the only correct shape**: the
     /// alternative is a server that silently falls back to whatever password
@@ -381,6 +391,11 @@ impl fmt::Display for ConfigError {
             Self::NoDatabaseUrl => f.write_str(
                 "DATABASE_URL is not set. There is no default: a server that starts \
                  against the wrong database is worse than one that does not start.",
+            ),
+            Self::HeaderWithoutProxies => f.write_str(
+                "FATHOM_TRUSTED_CLIENT_IP_HEADER is set but FATHOM_TRUSTED_PROXIES is not. A \
+                 forwarding header believed from every peer is an address any client chooses; \
+                 name the proxy that writes it, or unset the header and the peer is the address.",
             ),
             Self::Unparseable { variable } => write!(
                 f,
@@ -609,7 +624,19 @@ impl Config {
         let trusted_client_ip_header = match (trusted_client_ip_header, trusted_proxies.is_empty())
         {
             (None, false) => Some("X-Forwarded-For".to_string()),
+            (Some(_), true) => return Err(ConfigError::HeaderWithoutProxies),
             (h, _) => h,
+        };
+        let forwarded_hops = match get("FATHOM_FORWARDED_HOPS").filter(|v| !v.trim().is_empty()) {
+            None => 1,
+            Some(v) => match v.trim().parse::<usize>() {
+                Ok(n) if n >= 1 => n,
+                _ => {
+                    return Err(ConfigError::Unparseable {
+                        variable: "FATHOM_FORWARDED_HOPS",
+                    })
+                }
+            },
         };
 
         // Trailing newline trimmed: the file is written by a shell script and
@@ -664,6 +691,7 @@ impl Config {
             sign_in_limits,
             trusted_client_ip_header,
             trusted_proxies,
+            forwarded_hops,
             single_operator,
             operator_notice_address,
             bootstrap_token_file,

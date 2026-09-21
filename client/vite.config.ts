@@ -40,6 +40,9 @@ export default defineConfig({
     proxy: {
       '/session': { target: apiTarget, changeOrigin: true },
       '/organisations': { target: apiTarget, changeOrigin: true },
+      '/enrolment': { target: apiTarget, changeOrigin: true },
+      '/admin': { target: apiTarget, changeOrigin: true },
+      '/catalogue': { target: apiTarget, changeOrigin: true },
     },
   },
 })

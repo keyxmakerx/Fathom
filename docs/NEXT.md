@@ -218,6 +218,10 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
    foundations item 1) already forbids in-process state.
 4. **Receipts, witness, break-glass, WebAuthn** — admin §7.4–§7.6, §8, §15.4; §15.2's Shamir.
 5. **Inventory, teaching, the config checker** — Phases 5 and 6. **LDAP** after groups.
+   **Asked by the owner 2026-09-21, for after the items above:** sign-in recovery by mail (admin
+   §5.1 reset over the SMTP setting §5.3 stores, once a mail path exists), a second factor (admin
+   §15.4's WebAuthn is the designed one), and LDAP proven against a real directory, which the
+   owner cannot do today.
 6. **Engines as artefacts** — ADR-0044 Phase 5, ordered 2026-09-19 from the verification: a
    `Shell`-side keyed dictionary store so the browser gate boots every platform's dictionary at
    once; a record-shaped front end in `crates/fathom-ingest` for EOS block config and Linux `ip`

@@ -5,10 +5,10 @@
 # at the bottom, so this file can be pasted into a compose front end on its
 # own. `deploy/` keeps the Dockerfile the `build:` sections use.
 #
-# WHAT THIS IS AND IS NOT. It brings up the WO-11 skeleton: PostgreSQL, the
-# server (and, until 2026-09-20, a Caddy in front). There are no accounts, no tenants
-# and no data — WO-11 §6 G8 forbids any table but the migrations table until
-# ADR-0040's key boundary is decided.
+# WHAT THIS IS. The whole server stack: PostgreSQL and the Fathom server,
+# which migrates the schema and serves the client. The volumes hold the
+# master key, the database and the bootstrap token -- `docs/OPERATING.md`
+# for backup and restore.
 #
 # `43` §5.4 was written for `fathom-sync`, the zero-knowledge blob service that
 # the 2026-08-18 pivot replaced (`49`). Its SHAPE is carried over line for line
@@ -353,19 +353,20 @@ services:
       FATHOM_HEALTH_TIMEOUT_MS: "2000"
       FATHOM_DB_POOL_SIZE: "8"
       # WHERE A CLIENT'S ADDRESS COMES FROM (`src/client_address.rs`, the
-      # rule since 2026-09-20). Behind a proxy every request arrives from the
-      # proxy, so the client's address can only arrive in a header the proxy
-      # writes; with nothing trusted, every sign-in shares one rate-limit
-      # bucket. The header is believed ONLY when the connection comes from
-      # one of FATHOM_TRUSTED_PROXIES; its entries are read from the right,
-      # skipping trusted proxies, so a proxy that overwrites and one that
-      # appends both come out right, and from any other peer the header is
-      # ignored and the peer is the address -- a client reaching this port
-      # directly gains nothing by forging it. `private` is every private,
-      # loopback and link-local range, right for a proxy on this machine or
-      # this network; name the proxy's own address in `.env` to be exact.
-      FATHOM_TRUSTED_CLIENT_IP_HEADER: "X-Forwarded-For"
-      FATHOM_TRUSTED_PROXIES: ${FATHOM_TRUSTED_PROXIES:-private}
+      # rule since 2026-09-20, the hop count since 2026-09-21). Behind a
+      # proxy every request arrives from the proxy, so the client's address
+      # can only arrive in a header the proxy writes. With nothing trusted
+      # (the default) the peer is the address: every sign-in shares one
+      # rate-limit bucket, nothing is forgeable, and the server warns at
+      # startup. Name the proxy in `.env` and the header is believed from it
+      # and nobody else: the last entry, the one the proxy appended, is the
+      # client (FATHOM_FORWARDED_HOPS=2 when the proxy sits behind one more
+      # hop that appends). `private` trusts every private, loopback,
+      # link-local and 100.64.0.0/10 peer -- right when only the proxy can
+      # reach this port, which is what FATHOM_PUBLISH_ADDRESS is for.
+      FATHOM_TRUSTED_PROXIES: ${FATHOM_TRUSTED_PROXIES:-}
+      FATHOM_TRUSTED_CLIENT_IP_HEADER: ${FATHOM_TRUSTED_CLIENT_IP_HEADER:-}
+      FATHOM_FORWARDED_HOPS: ${FATHOM_FORWARDED_HOPS:-1}
       # Where the operator console (/admin/*, /enrolment/operator) answers,
       # since 2026-09-20 (`src/admin_exposure.rs`): host names, comma-separated
       # -- a subdomain of the site's or a different domain altogether -- and
