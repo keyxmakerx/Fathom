@@ -109,7 +109,20 @@ guesses.
 ## Rekey
 
 **There is no `rekey` verb in the binary today.** `fathom-server`'s only subcommands are
-`healthcheck [--addr HOST:PORT]` and `reissue-bootstrap-token` (`crates/fathom-server/src/main.rs`).
+`healthcheck [--addr HOST:PORT]` and `recover-operator <address>`
+(`crates/fathom-server/src/main.rs`). `reissue-bootstrap-token` is kept as a deprecated alias for
+the second and prints a line saying so: ADR-0055 decision 8 folded it in on 2026-09-21. The alias
+takes an optional address and falls back to `FATHOM_OPERATOR_NOTICE_ADDRESS`.
+
+**What changed with the name.** `reissue-bootstrap-token` refused the moment any operator key had
+ever been enrolled, wrote its token to `FATHOM_BOOTSTRAP_TOKEN_FILE`, and worked only for the
+bootstrap seat. `recover-operator <address>` works for any operator who already exists and is not
+disabled, **prints a one-shot ten-minute setup code to stdout** (its log goes to stderr, so
+`fathom-server recover-operator someone@example.org > code` is a working sentence and the code is
+not in the collected log stream), and writes no file. It still refuses to mint an operator: an
+address no operator is bound to gets a refusal and nothing is written. Every use appends a sealed
+`operator_recovered_from_host` entry and banners every operator session for seven days
+(`GET /admin/notices`).
 ADR-0043 §9's operator text says to "run `fathom rekey`" if you suspect the host was compromised —
 that command does not exist yet, under that name or any other, and nothing in this repository wires
 one up.

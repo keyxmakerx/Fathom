@@ -137,6 +137,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 22,
         name: "0022_setup_token_subject.sql",
         sql: include_str!("../migrations/0022_setup_token_subject.sql"),
+    // ADR-0055 stream (b).
+    Migration {
+        version: 23,
+        name: "0023_operator_quorum_and_the_operator_key.sql",
+        sql: include_str!("../migrations/0023_operator_quorum_and_the_operator_key.sql"),
     },
 ];
 

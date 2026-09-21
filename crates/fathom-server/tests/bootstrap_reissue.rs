@@ -1,28 +1,41 @@
-//! **The way back into a deployment whose first-operator token was lost, and
-//! the refusal that stops it being a backdoor.**
+//! **The way back into a deployment whose operator lost their browser, and
+//! what it is still not allowed to do.**
 //!
-//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.3, §7.2;
-//! `operators::OperatorStore::reissue_bootstrap_token`.
+//! `docs/decisions/adr-0055-one-person-two-custodies.md` decision 8;
+//! `operators::OperatorStore::recover_operator`; §6.3 and §7.2 for the shape
+//! it grew out of.
 //!
-//! §6.3's enrolment token is handed out once, into a file, and it is the only
-//! way into a new deployment. Lose it and nothing re-bootstraps: an operator
-//! row exists, so the first-start path is closed, and the token is gone. The
-//! re-issue closes that hole — and the whole of its safety is one condition,
-//! which is what most of this file is about:
+//! # What this file used to claim, and why it does not any more
 //!
-//! > **once any operator key is enrolled, a re-issue is refused.**
+//! Until 2026-09-21 this suite was about `reissue_bootstrap_token` and its one
+//! gate: **any** row in `operator_keys` and it refused. The argument was that
+//! a re-issue that worked after enrolment would let whoever can run a command
+//! on this host mint themselves an operator session without holding a key this
+//! deployment had ever seen.
 //!
-//! Without that, anybody who can run a command on the host could mint
-//! themselves an operator enrolment token, redeem it with a key of their own,
-//! and hold an operator session, without ever holding a key this deployment
-//! has seen. [`reissue_is_refused_once_an_operator_key_is_enrolled`] is the
-//! test that matters here; the rest prove the thing works at all and that it
-//! does not leak what it mints.
+//! ADR-0055 decision 8 reopens that on the owner's decision, and answers the
+//! argument rather than ignoring it: *"the host already holds every key
+//! (ADR-0043 §2), so a delay here is theatre."* A host-level attacker is tier 3
+//! in `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and already holds the
+//! master key, the chain key and the database. What the gate cost was real —
+//! a sole operator who lost their browser had no way back that was not a
+//! restore — and every product the ADR surveyed recovers from the host.
+//!
+//! **So the control moved from refusal to record**, and that is what this file
+//! tests now:
+//!
+//! - it mints no operator, ever, for any address
+//!   ([`recovery_before_a_first_start_creates_nothing`]);
+//! - it kills the tokens it replaces, so one seat never has two live bearer
+//!   secrets ([`a_recovery_code_replaces_the_token_it_could_not_find`]);
+//! - every use is a sealed `operator_recovered_from_host` entry
+//!   ([`recovery_after_a_key_is_enrolled_works_and_is_recorded`]);
+//! - and the code it prints goes to stdout and never into the log
+//!   ([`the_command_prints_the_code_to_stdout_and_never_to_the_log`]).
 //!
 //! **Every test gets a deployment of its own**, for `tests/operators.rs`'s
-//! reason and one more: the state under test is "a deployment with a first
-//! operator and NO enrolled key", which exists for about one second in the
-//! life of a real installation and cannot be shared between tests.
+//! reason and one more: the state under test is a whole operator register, and
+//! it is not shareable.
 
 mod support;
 
@@ -34,8 +47,10 @@ use fathom_server::authority::SoftwareKey;
 use fathom_server::chain::EntryType;
 use fathom_server::chains;
 use fathom_server::crypto::Key32;
+use fathom_server::grants;
 use fathom_server::keys::KeyRing;
-use fathom_server::operators::{OperatorError, OperatorStore};
+use fathom_server::operators::{OperatorError, OperatorStore, Purpose};
+use fathom_server::sessions::{self, PrincipalKind, SessionStore, SignInLimits, VerifiedSession};
 
 /// The same master key every other suite in this crate uses: ADR-0043 §4
 /// stamps the configured key's id per database and refuses a second.
@@ -49,16 +64,25 @@ fn ring() -> Arc<KeyRing> {
 }
 
 /// A fresh deployment with its identity stamped, exactly as `main.rs` does at
-/// startup, and an operator store over it.
-async fn deployment(tag: &str, ring: Arc<KeyRing>) -> (Pool, OperatorStore) {
+/// startup, and the two stores over it.
+///
+/// **No `single_operator` argument**: ADR-0055 decision 3 retires the switch
+/// and derives the quorum from the register, so there is nothing to configure.
+async fn deployment(tag: &str, ring: Arc<KeyRing>) -> (Pool, OperatorStore, SessionStore) {
     let pool = support::isolated_deployment(tag).await;
     let client = pool.get().await.expect("connection");
     let id = chains::register_deployment(&**client)
         .await
         .expect("stamp the deployment id, exactly as main.rs does at startup");
     drop(client);
-    let store = OperatorStore::with_delay(pool.clone(), ring, id, true, Duration::from_secs(1));
-    (pool, store)
+    let operators = OperatorStore::with_delay(
+        pool.clone(),
+        Arc::clone(&ring),
+        id.clone(),
+        Duration::from_secs(1),
+    );
+    let sessions = SessionStore::new(pool.clone(), ring, id, SignInLimits::defaults());
+    (pool, operators, sessions)
 }
 
 fn unique(prefix: &str) -> String {
@@ -69,6 +93,16 @@ fn unique(prefix: &str) -> String {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
+    )
+}
+
+fn a_source_of_its_own() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "203.0.113.11-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
     )
 }
 
@@ -96,207 +130,295 @@ async fn enrolment_token_rows(tag: &str) -> i64 {
         .get(0)
 }
 
+async fn operator_rows(tag: &str) -> i64 {
+    support::superuser_on_isolated(tag)
+        .await
+        .query_one("SELECT count(*) FROM operators", &[])
+        .await
+        .expect("count operators")
+        .get(0)
+}
+
 // ---------------------------------------------------------------------------
-// The refusal that matters
+// Getting an operator with a key, ADR-0055 decision 1's way
 // ---------------------------------------------------------------------------
 
-/// **Once an operator key is enrolled, the first operator's enrolment token
-/// cannot be re-issued.**
+/// **What stream (a)'s `POST /credentials/key` does**, stood in for by the
+/// production function it calls.
 ///
-/// This is the test the whole subcommand has to earn. A re-issue that still
-/// worked here would be a way for anyone who can run a command on this host —
-/// a backup operator, a CI runner, anybody who talks their way onto the box —
-/// to mint an operator enrolment token, redeem it with a keypair they
-/// generated, and hold an operator session. Every other control on the
-/// operator plane (§4.5's "an operator session is `A1` or it does not exist",
-/// §5.5's two assertions, §5.3's delay) assumes the keyring is the fence. This
-/// would go round all of them at once.
-///
-/// The refusal is asserted three ways, because any one of them alone could be
-/// true while the act still happened: the error, the absence of a new token
-/// row, and the absence of a new sealed entry.
-#[tokio::test]
-async fn reissue_is_refused_once_an_operator_key_is_enrolled() {
-    const TAG: &str = "reissue_after_enrolment";
-    let ring = ring();
-    let (_pool, store) = deployment(TAG, Arc::clone(&ring)).await;
-
-    let bootstrap = store
-        .bootstrap_first_operator(&unique("Installer"), &unique("notice@example.org"))
+/// ADR-0055 decision 1 gives the operator custody to an ACCOUNT, and the
+/// browser key an operator act is signed with is registered from an account
+/// session through `POST /admin/operators/self/key`. The two steps between the
+/// bootstrap and that session are stream (a)'s — redeem the `setup` token, set
+/// a credential, sign in — and are stood in for here by the same call
+/// `operators::redeem_account_enrolment` makes plus the existing key sign-in.
+/// Everything after is the production path.
+async fn an_operator_with_a_key(
+    operators: &OperatorStore,
+    sessions_store: &SessionStore,
+    ring: &KeyRing,
+    address: &str,
+) -> (String, SoftwareKey) {
+    let bootstrap = operators
+        .bootstrap_first_operator(address, address)
         .await
         .expect("a deployment with no operator bootstraps one");
-
-    // The first operator enrols a key, which is the ordinary thing that
-    // happens within minutes of a first start.
     let key = SoftwareKey::random().expect("a keypair");
-    store
-        .redeem_operator_enrolment(&bootstrap.invitation.token, &key.public_key())
+
+    let deployment = operators.deployment().to_string();
+    let mut client = operators.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.enrolment_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("enrolment custody");
+    tx.execute(
+        "SELECT set_config('app.account_id', $1, true)",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("name the account");
+    grants::enrol_software_key_at_invitation(
+        &tx,
+        ring,
+        &deployment,
+        &bootstrap.account_id,
+        &key.public_key(),
+    )
+    .await
+    .expect("the browser registers a key on its own account");
+    tx.commit().await.expect("commit");
+    drop(client);
+
+    let session = an_account_session(sessions_store, address, &key).await;
+    operators
+        .register_own_operator_key(&session, &key.public_key())
         .await
-        .expect("the first operator redeems the token from the token file");
-
-    let tokens_before = enrolment_token_rows(TAG).await;
-    let issued_before = site_entries_of(TAG, "enrolment_token_issued").await;
-
-    match store.reissue_bootstrap_token().await {
-        Err(OperatorError::AlreadyEnrolled) => {}
-        Err(other) => panic!("refused, but for the wrong reason: {other}"),
-        Ok(_) => panic!(
-            "A RE-ISSUE AFTER ENROLMENT IS A BACKDOOR. Whoever can run a command on this host \
-             just minted themselves an operator enrolment token."
-        ),
-    }
-
-    // The refusal says what the way back in actually is, because an operator
-    // reading it at three in the morning is the person this message is for.
-    let said = OperatorError::AlreadyEnrolled.to_string();
-    assert!(
-        said.contains("another operator") && said.contains("restore"),
-        "the refusal must name the remedy: {said}"
-    );
-
-    assert_eq!(
-        enrolment_token_rows(TAG).await,
-        tokens_before,
-        "a refused re-issue must not leave a token row behind"
-    );
-    assert_eq!(
-        site_entries_of(TAG, "enrolment_token_issued").await,
-        issued_before,
-        "a refused re-issue must not append an issuance to the site chain"
-    );
+        .expect("the account holding the operator custody registers its browser key");
+    (bootstrap.operator_id, key)
 }
 
-/// **A disabled key is still a key.** The gate counts every row in
-/// `operator_keys`, live or retired, and this is why: a deployment where the
-/// only operator's key was retired is a deployment with a key history, and the
-/// way back in is another operator or a restore — not a command on the host
-/// that mints a fresh one.
-#[tokio::test]
-async fn reissue_is_refused_even_when_the_enrolled_key_is_no_longer_in_service() {
-    const TAG: &str = "reissue_retired_key";
-    let ring = ring();
-    let (_pool, store) = deployment(TAG, Arc::clone(&ring)).await;
+async fn an_account_session(
+    sessions_store: &SessionStore,
+    address: &str,
+    key: &SoftwareKey,
+) -> VerifiedSession {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Steward, address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let signed_in = sessions_store
+        .sign_in(
+            PrincipalKind::Steward,
+            &pubkey,
+            &challenge.nonce,
+            &key.sign(&digest),
+            &source,
+        )
+        .await
+        .expect("an account with a registered key signs in");
 
-    let bootstrap = store
-        .bootstrap_first_operator(&unique("Installer"), &unique("notice@example.org"))
+    let nonce = sessions_store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
         .await
-        .expect("bootstrap");
-    let key = SoftwareKey::random().expect("a keypair");
-    store
-        .redeem_operator_enrolment(&bootstrap.invitation.token, &key.public_key())
-        .await
-        .expect("enrol");
-
-    // Retired in the database directly: there is no console verb that retires
-    // an operator key without a second operator, and what is under test is the
-    // COUNT, not the path that got the row into that state.
-    support::superuser_on_isolated(TAG)
-        .await
-        .execute("UPDATE operator_keys SET retired_at = now()", &[])
-        .await
-        .expect("retire the key");
-
-    assert!(
-        matches!(
-            store.reissue_bootstrap_token().await,
-            Err(OperatorError::AlreadyEnrolled)
-        ),
-        "a key that was enrolled and then retired is still an enrolment that happened"
+        .expect("a nonce");
+    let unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let path = "/admin/operators/self/key";
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        "POST",
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        1,
     );
+    sessions_store
+        .verify_request(&sessions::SignedRequest {
+            session_id: &signed_in.session_id,
+            method: "POST",
+            path,
+            body: b"",
+            nonce,
+            unix_ms,
+            counter: 1,
+            signature: session_key.sign(&message),
+        })
+        .await
+        .expect("a live session verifies its own signed request")
 }
 
 // ---------------------------------------------------------------------------
-// That it works at all, before enrolment
+// The claim that replaced the old one
 // ---------------------------------------------------------------------------
 
-/// **A re-issued token enrols the first operator, lands on the site chain, and
-/// kills the token it replaces.**
+/// **Recovery works after a key is enrolled, and every use is on the chain.**
 ///
-/// The deployment this describes is the one the change exists for: a first
-/// start happened, an operator row exists, and nobody can find the token file.
+/// This test is the exact inverse of the one it replaces, and the inversion is
+/// ADR-0055 decision 8's, made on the owner's decision and argued in the ADR's
+/// "What it gives up": *"§6.3's 'never from the host once a credential exists'
+/// becomes 'from the host, recorded and noticed'. What it protected against
+/// was already inside tier 3."*
+///
+/// So the assertions are about the record, which is now the whole control: a
+/// sealed `operator_recovered_from_host` entry, a ten-minute code and not a
+/// three-day one, the same operator and not a new one, and a banner every
+/// operator session will show for seven days.
 #[tokio::test]
-async fn a_reissued_token_enrols_the_first_operator_and_the_old_one_stops_working() {
-    const TAG: &str = "reissue_before_enrolment";
+async fn recovery_after_a_key_is_enrolled_works_and_is_recorded() {
+    const TAG: &str = "ops_recover_after_enrolment";
     let ring = ring();
-    let (pool, store) = deployment(TAG, Arc::clone(&ring)).await;
+    let (_pool, operators, sessions_store) = deployment(TAG, Arc::clone(&ring)).await;
 
-    let bootstrap = store
-        .bootstrap_first_operator(&unique("Installer"), &unique("notice@example.org"))
+    let address = unique("owner@example.org");
+    let (operator_id, _key) =
+        an_operator_with_a_key(&operators, &sessions_store, &ring, &address).await;
+    assert!(
+        site_entries_of(TAG, "operator_key_enrolled").await >= 1,
+        "the ordinary thing that happens within minutes of a first start"
+    );
+
+    let operators_before = operator_rows(TAG).await;
+    let recovered = operators
+        .recover_operator(&address)
         .await
-        .expect("bootstrap");
-    let lost = bootstrap.invitation.token;
+        .expect("ADR-0055 decision 8: from the host, recorded and noticed");
+
+    assert_eq!(
+        recovered.operator_id, operator_id,
+        "the seat that already existed, not a new one"
+    );
+    assert_eq!(
+        operator_rows(TAG).await,
+        operators_before,
+        "IT MINTS NO OPERATOR. That is the line decision 8 draws and the one this command \
+         must never cross"
+    );
+    assert_eq!(
+        recovered.invitation.purpose,
+        Purpose::Setup,
+        "the code opens the setup screen -- set a credential, enrol the app code -- and not a \
+         browser-key enrolment"
+    );
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let life = recovered.invitation.expires_at_unix - now;
+    assert!(
+        (540..=600).contains(&life),
+        "decision 8 says ten minutes, and this is read off a terminal by the person who just \
+         typed the command. Got {life}s"
+    );
+
+    assert_eq!(
+        site_entries_of(TAG, "operator_recovered_from_host").await,
+        1,
+        "every use appends a sealed entry: the record IS the control now"
+    );
+
+    let notices = operators.notices().await.expect("the notices are derived");
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.starts_with("recovered_from_host ")),
+        "and every operator session banners it for seven days: {notices:?}"
+    );
+
+    // The hold `0021` adds is NOT set by this path, and that is decision 8's
+    // own sentence: *"No delay: the host already holds every key."* The hold
+    // exists because a MAILED reset is a route an attacker who controls the
+    // mail server can walk; the key volume is not.
+    let held: Option<i64> = support::superuser_on_isolated(TAG)
+        .await
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM operator_key_hold_until)::bigint FROM accounts \
+              WHERE email = $1",
+            &[&address],
+        )
+        .await
+        .expect("the account row")
+        .get(0);
+    assert!(
+        held.is_none(),
+        "a host recovery takes no delay: decision 8 calls one here theatre"
+    );
+}
+
+/// **A recovery kills the token it could not find**, so one seat never has two
+/// live bearer secrets.
+///
+/// `reissue_bootstrap_token`'s own rule, kept for its own reason: the token
+/// this command is run because nobody can find is exactly the one nobody can
+/// account for, and leaving it live would mean a deployment where the operator
+/// believes they hold the only way in while a lost file still holds another.
+#[tokio::test]
+async fn a_recovery_code_replaces_the_token_it_could_not_find() {
+    const TAG: &str = "ops_recover_replaces";
+    let ring = ring();
+    let (pool, operators, _sessions) = deployment(TAG, Arc::clone(&ring)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start, whose token file this operator then lost");
+    let lost = bootstrap.invitation.id.clone();
 
     let expired_before = site_entries_of(TAG, "enrolment_token_expired").await;
-    let reissued = store
-        .reissue_bootstrap_token()
+    let recovered = operators
+        .recover_operator(&address)
         .await
-        .expect("no operator key is enrolled, so the token can be re-issued");
+        .expect("the operator exists, so the seat is recoverable");
 
     assert_eq!(
-        reissued.operator_id, bootstrap.operator_id,
-        "the token is for the operator the first start created, not for a new one"
-    );
-    assert_ne!(
-        reissued.invitation.token, lost,
-        "a fresh token, not the same one read back"
-    );
-    assert_eq!(
-        reissued.expired,
-        vec![bootstrap.invitation.id.clone()],
-        "the token it replaces is expired in the same transaction: two live tokens for one \
-         enrolment is two bearer secrets"
+        recovered.expired,
+        vec![lost],
+        "the token it replaces is expired in the same transaction"
     );
     assert_eq!(
         site_entries_of(TAG, "enrolment_token_expired").await,
         expired_before + 1,
         "expiring the old token is a sealed act like every other (§7.2)"
     );
-
-    // The lost token is dead. If it turned up in a backup, in a terminal
-    // buffer or in whatever the operator was worried about, it is no longer a
-    // way in.
-    let someone_else = SoftwareKey::random().expect("a keypair");
-    assert!(
-        matches!(
-            store
-                .redeem_operator_enrolment(&lost, &someone_else.public_key())
-                .await,
-            Err(OperatorError::EnrolmentRefused)
-        ),
-        "the replaced token must not still enrol"
+    assert_ne!(
+        recovered.invitation.token, bootstrap.invitation.token,
+        "a fresh code, not the same one read back"
     );
 
-    // And the new one works, which is the point of the exercise.
-    let key = SoftwareKey::random().expect("a keypair");
-    store
-        .redeem_operator_enrolment(&reissued.invitation.token, &key.public_key())
-        .await
-        .expect("the re-issued token enrols the first operator's key");
-
-    // The issuance is on the site chain, sealed, and its metadata says how it
-    // came about — `bootstrap_reissue`, not `bootstrap` — so an auditor
-    // holding the chain key can tell a token minted from the host command line
-    // from one minted by a console the deployment was already using.
+    // The act is on the site chain, sealed, and its metadata names the
+    // operator — so an auditor holding the chain key can tell a recovery from
+    // the host command line from anything the console did.
     let mut client = pool.get().await.expect("connection");
     let tx = client.transaction().await.expect("transaction");
-    let entry = chains::read_site_entry_verified(&tx, &ring, reissued.issued_seq)
+    let entry = chains::read_site_entry_verified(&tx, &ring, recovered.issued_seq)
         .await
         .expect("read the entry")
-        .expect("the seq the re-issue reported must hold an entry");
-    assert_eq!(entry.entry_type, EntryType::EnrolmentTokenIssued);
+        .expect("the seq the recovery reported must hold an entry");
+    assert_eq!(entry.entry_type, EntryType::OperatorRecoveredFromHost);
     let metadata = String::from_utf8_lossy(&entry.metadata).to_string();
     assert!(
-        metadata.contains("bootstrap_reissue"),
-        "the sealed metadata must say this was a re-issue: {metadata}"
+        metadata.contains(&recovered.operator_id),
+        "the sealed metadata must name the operator: {metadata}"
     );
     assert!(
-        metadata.contains(&reissued.operator_id),
-        "and which operator it was for: {metadata}"
+        metadata.contains(&address),
+        "and the address it was recovered at: {metadata}"
     );
 
     // The whole chain still verifies afterwards, which is the claim every
-    // sealed act in this product makes and the one a new writer is most likely
-    // to break.
+    // sealed act in this product makes and the one a new writer is most
+    // likely to break.
     let report = chains::verify_site(&tx, &ring, true)
         .await
         .expect("verification runs");
@@ -305,25 +427,27 @@ async fn a_reissued_token_enrols_the_first_operator_and_the_old_one_stops_workin
             report.outcome,
             fathom_server::chain::Outcome::Verified { .. }
         ),
-        "the site chain must still verify after a re-issue: {}",
+        "the site chain must still verify after a recovery: {}",
         report.summary()
     );
 }
 
-/// **A deployment that has never started has nothing to re-issue for.** The
-/// command must not be a second way to create the first operator — that is
-/// §6.3's first start, under its own advisory lock, writing its own
+/// **A deployment that has never started has nothing to recover.** The command
+/// must not be a second way to create the first operator — that is §6.3's
+/// first start, under its own advisory lock, writing its own
 /// `operator_bootstrapped` entry.
 #[tokio::test]
-async fn there_is_nothing_to_reissue_before_a_first_start() {
-    const TAG: &str = "reissue_never_started";
+async fn recovery_before_a_first_start_creates_nothing() {
+    const TAG: &str = "ops_recover_never_started";
     let ring = ring();
-    let (_pool, store) = deployment(TAG, Arc::clone(&ring)).await;
+    let (_pool, operators, _sessions) = deployment(TAG, Arc::clone(&ring)).await;
 
     assert!(
         matches!(
-            store.reissue_bootstrap_token().await,
-            Err(OperatorError::NotFound("first operator"))
+            operators
+                .recover_operator(&unique("owner@example.org"))
+                .await,
+            Err(OperatorError::NotFound("operator"))
         ),
         "with no operator row, this refuses rather than creating one"
     );
@@ -332,15 +456,17 @@ async fn there_is_nothing_to_reissue_before_a_first_start() {
         0,
         "and it certainly does not bootstrap"
     );
+    assert_eq!(operator_rows(TAG).await, 0);
+    assert_eq!(enrolment_token_rows(TAG).await, 0);
 }
 
 // ---------------------------------------------------------------------------
 // The shipped binary, run as an operator would run it
 // ---------------------------------------------------------------------------
 
-/// A directory of this test's own, mode 0700, for the key files and the token
-/// file. No `tempfile` crate: `scripts/gate-zero.sh` fails on an unapproved
-/// dependency, and this is a `mkdir` and an `rm -r`.
+/// A directory of this test's own, mode 0700, for the key files. No `tempfile`
+/// crate: `scripts/gate-zero.sh` fails on an unapproved dependency, and this
+/// is a `mkdir` and an `rm -r`.
 struct Scratch(std::path::PathBuf);
 
 impl Scratch {
@@ -388,14 +514,17 @@ impl Drop for Scratch {
 }
 
 /// Run the shipped binary's subcommand with a deliberately empty environment,
-/// and hand back everything it exited with and everything it printed.
-fn run_reissue(
+/// and hand back its exit status, its stdout and its stderr **separately** —
+/// which is the whole point here, because the claim is about which of the two
+/// the code lands in.
+fn run(
+    subcommand: &[&str],
     database_url: &str,
     keys: (&std::path::Path, &std::path::Path),
     token: &std::path::Path,
-) -> (std::process::Output, String) {
+) -> (std::process::Output, String, String) {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_fathom-server"))
-        .arg("reissue-bootstrap-token")
+        .args(subcommand)
         // Cleared, not extended: this test binary's own environment holds a
         // DATABASE_URL pointing at a different database, and a subcommand that
         // silently picked it up would be a test proving nothing about the
@@ -408,26 +537,29 @@ fn run_reissue(
         .env("FATHOM_LOG", "info")
         .output()
         .expect("run the shipped binary");
-    let said = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    (output, said)
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    let err = String::from_utf8_lossy(&output.stderr).to_string();
+    (output, out, err)
 }
 
-/// **`fathom-server reissue-bootstrap-token`, run as an operator would run
-/// it**: it writes the token to the file the deployment named, it never prints
-/// it, it refuses to overwrite a file that is already there, and once a key is
-/// enrolled it refuses outright.
+/// **`fathom-server recover-operator <address>`, run as an operator would run
+/// it**: the code goes to stdout, the log goes to stderr, and the code is in
+/// neither the log nor any error message.
 ///
 /// This one runs the SHIPPED BINARY rather than calling into the library,
-/// because two of those four claims are about what a program prints and what
-/// it exits with, and the only honest way to prove that is to run it and read
+/// because the claim is about what a program prints, on which stream, and what
+/// it exits with — and the only honest way to prove that is to run it and read
 /// what it printed.
+///
+/// **Two streams, deliberately.** Logs are shipped off the box by design
+/// (`audit.rs`), and a token in a log is a token in whatever holds the logs.
+/// Everywhere else in the binary the subscriber writes to stdout, which is
+/// what a container runtime collects; this subcommand writes its log to
+/// stderr so that `fathom-server recover-operator a@b > code` is a working
+/// sentence and the code is not in the collected stream.
 #[tokio::test]
-async fn the_command_writes_the_token_to_the_file_and_never_to_its_output() {
-    const TAG: &str = "reissue_cli";
+async fn the_command_prints_the_code_to_stdout_and_never_to_the_log() {
+    const TAG: &str = "ops_recover_cli";
     let scratch = Scratch::new(TAG);
 
     // The binary loads its keys from files; this test's own store has to be
@@ -443,89 +575,108 @@ async fn the_command_writes_the_token_to_the_file_and_never_to_its_output() {
         Key32::from_bytes(master),
         Key32::from_bytes(chain),
     ));
-    let (_pool, store) = deployment(TAG, Arc::clone(&ring)).await;
-    store
-        .bootstrap_first_operator(&unique("Installer"), &unique("notice@example.org"))
+    let (_pool, operators, _sessions) = deployment(TAG, Arc::clone(&ring)).await;
+    let address = unique("owner@example.org");
+    operators
+        .bootstrap_first_operator(&address, &address)
         .await
         .expect("a first start, whose token file this operator then lost");
 
     let url = support::isolated_database_url(TAG);
     let keys = (master_file.as_path(), chain_file.as_path());
 
-    // ---- the re-issue itself ------------------------------------------
-    let (output, said) = run_reissue(&url, keys, &token_file);
-    assert!(
-        output.status.success(),
-        "the re-issue must succeed before any key is enrolled: {said}"
+    // ---- an address nobody is bound to --------------------------------
+    let before = operator_rows(TAG).await;
+    let (refused, _out, err) = run(
+        &["recover-operator", "nobody@example.org"],
+        &url,
+        keys,
+        &token_file,
     );
-
-    let written = std::fs::read_to_string(&token_file).expect("the token file must exist");
-    // `write_bootstrap_token`: the prefix that names the door, then the hex.
-    let token = hex_to_32(
-        written
-            .trim()
-            .strip_prefix(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX)
-            .expect("the token file starts with the operator prefix"),
-    );
-
-    // THE CLAIM. Every form the token could take in a log line: the hex the
-    // file holds, upper case, and the `Debug` of the byte array.
-    for form in [
-        written.trim().to_string(),
-        written.trim().to_uppercase(),
-        format!("{token:?}"),
-    ] {
-        assert!(
-            !said.contains(&form),
-            "the token appeared in what the command printed. Logs are shipped off the box by \
-             design (audit.rs), and a token in a log is a token in whatever holds the logs.\n\
-             output was:\n{said}"
-        );
-    }
-    // The path is named, though: an operator has to be told where to look.
     assert!(
-        said.contains(&token_file.display().to_string()),
-        "the path must be in the output even though the token never is: {said}"
+        !refused.status.success(),
+        "an address no operator is bound to must not recover anything"
     );
-
-    let mode = std::os::unix::fs::PermissionsExt::mode(
-        &std::fs::metadata(&token_file).expect("stat").permissions(),
-    ) & 0o777;
-    assert_eq!(mode, 0o400, "a bearer token is readable by its owner alone");
-
-    // ---- a file that is already there is not overwritten ---------------
-    let (again, said_again) = run_reissue(&url, keys, &token_file);
     assert!(
-        !again.status.success(),
-        "a token file that already exists may be the valid one: {said_again}"
+        err.contains("nothing was minted") || err.contains("no operator is bound"),
+        "and it must say that nothing was written: {err}"
     );
     assert_eq!(
-        std::fs::read_to_string(&token_file).expect("read"),
-        written,
-        "and it must be exactly as it was"
+        operator_rows(TAG).await,
+        before,
+        "IT MINTS NO OPERATOR, whatever it is handed"
     );
 
-    // ---- the token in the file is real ---------------------------------
-    let key = SoftwareKey::random().expect("a keypair");
-    store
-        .redeem_operator_enrolment(&token, &key.public_key())
-        .await
-        .expect("the token the command wrote must actually enrol the first operator");
-
-    // ---- and now the gate closes, for good ------------------------------
-    std::fs::remove_file(&token_file).expect("clear the way, so the refusal is the gate's");
-    let (after, said_after) = run_reissue(&url, keys, &token_file);
+    // ---- the recovery itself -------------------------------------------
+    let (output, out, err) = run(&["recover-operator", &address], &url, keys, &token_file);
     assert!(
-        !after.status.success(),
-        "AFTER ENROLMENT THIS MUST REFUSE. It succeeded: {said_after}"
+        output.status.success(),
+        "an operator who exists is recoverable from the host: {err}"
     );
+
+    let code = out.trim().to_string();
+    let token = hex_to_32(
+        code.strip_prefix(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX)
+            .unwrap_or_else(|| panic!("the code carries the operator prefix: {code:?}")),
+    );
+
+    // THE CLAIM. Every form the code could take in a log line: the hex, upper
+    // case, and the `Debug` of the byte array.
+    for form in [code.clone(), code.to_uppercase(), format!("{token:?}")] {
+        assert!(
+            !err.contains(&form),
+            "the code appeared in what the command LOGGED. Logs are shipped off the box by \
+             design (audit.rs), and a token in a log is a token in whatever holds the logs.\n\
+             stderr was:\n{err}"
+        );
+    }
     assert!(
-        said_after.contains("already enrolled"),
-        "and say why: {said_after}"
+        err.contains("ten minutes"),
+        "the log must tell the operator how long they have: {err}"
     );
     assert!(
         !token_file.exists(),
-        "a refused re-issue writes no token file"
+        "a recovery writes no token file: it is read off the terminal, not out of a volume"
+    );
+
+    // ---- the deprecated alias still works, and says so ------------------
+    let (aliased, alias_out, alias_err) = run(
+        &["reissue-bootstrap-token", &address],
+        &url,
+        keys,
+        &token_file,
+    );
+    assert!(
+        aliased.status.success(),
+        "`reissue-bootstrap-token` folds into `recover-operator` (ADR-0055 decision 8): \
+         {alias_err}"
+    );
+    assert!(
+        alias_err.contains("deprecated"),
+        "and the alias says it is deprecated: {alias_err}"
+    );
+    assert!(
+        alias_out
+            .trim()
+            .starts_with(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX),
+        "and prints a code on stdout like the command it aliases: {alias_out:?}"
+    );
+
+    // ---- the code the command printed is real ---------------------------
+    let spent = support::superuser_on_isolated(TAG)
+        .await
+        .query_one(
+            "SELECT count(*) FROM enrolment_tokens WHERE purpose = 'setup' \
+               AND redeemed_at IS NULL AND expired_at IS NULL",
+            &[],
+        )
+        .await
+        .expect("count live setup tokens")
+        .get::<_, i64>(0);
+    assert_eq!(
+        spent, 1,
+        "exactly one live setup token: the alias's recovery killed the first command's code, \
+         which is the same rule that killed the bootstrap's"
     );
 }
 
