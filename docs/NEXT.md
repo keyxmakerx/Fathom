@@ -79,7 +79,17 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-21)
 
-**The first thing to build now: the organisation claim over HTTP.** On 2026-09-21 the owner's
+**Proposed 2026-09-21, waiting on the owner: ADR-0055, one person, two custodies.** The owner's
+asks of that day, in their words: their account is the operator, or whoever holds the address in
+`.env`; more than one operator, a handoff, and no lockout; the log says to set SMTP up. The ADR
+makes the notice address the first operator's own account, sign-in by address, operator quorum
+`min(2, live)` with the delay (a sole operator cannot add a second today: `FATHOM_SINGLE_OPERATOR`
+is off and not in compose), a second computer added from a signed-in browser by an on-screen code,
+recovery by mail for the account custody only, and re-keying an operator from the host, sealed and
+noticed. **If accepted it is built before the claim route below.** Three calls are the owner's,
+`docs/OPEN-QUESTIONS.md` C6.
+
+**The first thing to build after that: the organisation claim over HTTP.** On 2026-09-21 the owner's
 first real install could not sign in: the client offered the steward door only, and a fresh install
 holds one credential, the first-operator token. That is fixed (operator enrolment, operator sign-in,
 the operator console; `docs/STATE.md`, "The browser client"), and `ci.yml`'s compose job now proves
@@ -218,10 +228,10 @@ colleague with `read` sees it and cannot change it. ~400k tokens per session.
    foundations item 1) already forbids in-process state.
 4. **Receipts, witness, break-glass, WebAuthn** — admin §7.4–§7.6, §8, §15.4; §15.2's Shamir.
 5. **Inventory, teaching, the config checker** — Phases 5 and 6. **LDAP** after groups.
-   **Asked by the owner 2026-09-21, for after the items above:** sign-in recovery by mail (admin
-   §5.1 reset over the SMTP setting §5.3 stores, once a mail path exists), a second factor (admin
-   §15.4's WebAuthn is the designed one), and LDAP proven against a real directory, which the
-   owner cannot do today.
+   **Asked by the owner 2026-09-21, for after the items above:** sign-in recovery by mail (now
+   ADR-0055 decision 7, once a mail path exists), a second factor (admin §15.4's WebAuthn is the
+   designed one; ADR-0055 decision 10 keeps passwords out), and LDAP proven against a real
+   directory, which the owner cannot do today.
 6. **Engines as artefacts** — ADR-0044 Phase 5, ordered 2026-09-19 from the verification: a
    `Shell`-side keyed dictionary store so the browser gate boots every platform's dictionary at
    once; a record-shaped front end in `crates/fathom-ingest` for EOS block config and Linux `ip`
