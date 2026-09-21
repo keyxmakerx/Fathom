@@ -399,6 +399,25 @@ pub enum EntryType {
     /// operator, so nobody can later claim two-person control was in force.
     SingleOperatorMode,
 
+    // ---- ADR-0055 stream (a): the person's credential (migration 0018 §F) --
+    //
+    // Five site-chain types, written by `credentials.rs` and by
+    // `sessions.rs`'s widened sign-in. Added at the END of the site block so
+    // that the other two ADR-0055 streams' additions land beside them and the
+    // merge is mechanical.
+    /// A password was set or changed. First set and every later change are one
+    /// type; "first" is recoverable from whether a prior entry exists.
+    PasswordSet,
+    /// The app code was enrolled — confirmed by a real code — together with the
+    /// ten backup codes in the same transaction.
+    TotpEnrolled,
+    /// A password-reset token was issued.
+    ResetRequested,
+    /// A reset token was redeemed and the password changed.
+    ResetSpent,
+    /// One backup code was spent, in place of the app code.
+    BackupCodeUsed,
+
     // ---- Organisation chain (§7.2) ---------------------------------------
     /// The first entry on an organisation's chain.
     OrgGenesis,
@@ -512,6 +531,12 @@ impl EntryType {
             Self::SettingCancelled => "setting_cancelled",
             Self::SettingUnresolvable => "setting_unresolvable",
             Self::SingleOperatorMode => "single_operator_mode",
+            // ADR-0055 stream (a).
+            Self::PasswordSet => "password_set",
+            Self::TotpEnrolled => "totp_enrolled",
+            Self::ResetRequested => "reset_requested",
+            Self::ResetSpent => "reset_spent",
+            Self::BackupCodeUsed => "backup_code_used",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
             Self::AccountKeyEnrolled => "account_key_enrolled",
@@ -563,6 +588,12 @@ impl EntryType {
             "setting_cancelled" => Some(Self::SettingCancelled),
             "setting_unresolvable" => Some(Self::SettingUnresolvable),
             "single_operator_mode" => Some(Self::SingleOperatorMode),
+            // ADR-0055 stream (a).
+            "password_set" => Some(Self::PasswordSet),
+            "totp_enrolled" => Some(Self::TotpEnrolled),
+            "reset_requested" => Some(Self::ResetRequested),
+            "reset_spent" => Some(Self::ResetSpent),
+            "backup_code_used" => Some(Self::BackupCodeUsed),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
@@ -627,7 +658,15 @@ impl EntryType {
             | Self::SettingApplied
             | Self::SettingCancelled
             | Self::SettingUnresolvable
-            | Self::SingleOperatorMode => &[ChainKind::Site],
+            | Self::SingleOperatorMode
+            // ADR-0055 stream (a): migration 0018 §F files all five on the
+            // site chain, because a credential act is an act of the account
+            // plane and not of any one organisation.
+            | Self::PasswordSet
+            | Self::TotpEnrolled
+            | Self::ResetRequested
+            | Self::ResetSpent
+            | Self::BackupCodeUsed => &[ChainKind::Site],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded

@@ -708,6 +708,22 @@ async fn main() -> ExitCode {
         },
     };
 
+    // ---- ADR-0055 stream (a): the credential routes ----------------------
+    //
+    // Built before `AdminState` takes `sessions` and `operators` by value, and
+    // merged below. Its own state rather than a widened `ApiState`, for the
+    // reason `api::CredentialApiState`'s own doc gives.
+    let credential_api = fathom_server::api::CredentialApiState {
+        sessions: Arc::clone(&sessions),
+        credentials: Arc::new(fathom_server::credentials::CredentialStore::new(
+            pool.clone(),
+            Arc::clone(&ring),
+            deployment.clone(),
+        )),
+        operators: Arc::clone(&operators),
+        client_address: client_address.clone(),
+    };
+
     let admin = fathom_server::admin::AdminState {
         sessions,
         operators,
@@ -771,6 +787,10 @@ async fn main() -> ExitCode {
     };
     let mut app = router(AppState { health, engine })
         .merge(fathom_server::api::router(api))
+        // ADR-0055 stream (a). Account-plane, on every host, exactly like
+        // `/session` — deliberately NOT inside `admin_router` and so not
+        // behind `admin_exposure`, per the lead's resolution 8.
+        .merge(fathom_server::api::credential_router(credential_api))
         .merge(fathom_server::design_api::router(designs))
         .merge(admin_router);
     if let Some(store) = firmware {

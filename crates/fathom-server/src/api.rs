@@ -298,8 +298,11 @@ async fn challenge_handler(
 
 /// `POST /session` — sign-in.
 ///
-/// Body: `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)`.
-/// Answer: `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
+/// Body, **six fields since ADR-0055 decision 10**:
+/// `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)
+///  ‖ LP(password) ‖ LP(totp_code)`.
+/// Answer, unchanged:
+/// `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
 ///
 /// **`account_id` is appended, not inserted.** ADR-0053 §3: the client
 /// stamps it as the actor on every change it makes from here on, so undo can
@@ -307,12 +310,17 @@ async fn challenge_handler(
 /// client built before this change reads the first three fields and never
 /// looks past them, so it keeps working unchanged.
 ///
-/// **There is no password field and there is nowhere one could go.** §4.5 and
-/// `docs/OPEN-QUESTIONS.md` C2: the operator surface has no password path, and
-/// this build's account surface has none either — the factor is a signature by
-/// an enrolled key. A body with a fifth field is refused as malformed rather
-/// than ignored, so a client that thinks it is sending a password is told it
-/// is wrong.
+/// **This is the one route in this server a password may arrive on**, and
+/// §4.5's rule that it may not is reopened by the owner's own decision,
+/// recorded in ADR-0055's header and nowhere else. `tests/operators.rs`
+/// allowlists exactly this handler and `credentials.rs`'s routes, and still
+/// fails the build if a password-shaped field appears in any other handler in
+/// `api.rs`, `admin.rs` or `operators.rs`.
+///
+/// **The count is still exact.** `read_fields(&body, 6)` refuses a body with
+/// five fields and a body with seven, so a client built against either shape
+/// is told it is wrong rather than having a field silently dropped — which is
+/// the same rule that used to be the reason there were four.
 async fn sign_in_handler(
     State(state): State<ApiState>,
     request: Request,
@@ -321,13 +329,23 @@ async fn sign_in_handler(
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
-    let fields = read_fields(&body, 4)?;
+    let fields = read_fields(&body, 6)?;
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
+    let password = text(&fields[4], "credential")?;
+    let totp_code = text(&fields[5], "app code")?;
 
     let signed_in = state
         .sessions
-        .sign_in(kind, &fields[1], &nonce, &fields[3], &source)
+        .sign_in_with_credentials(&sessions::SignInAttempt {
+            kind,
+            session_pubkey: &fields[1],
+            nonce: &nonce,
+            evidence_sig: &fields[3],
+            password: &password,
+            totp_code: &totp_code,
+            source: &source,
+        })
         .await?;
 
     let mut out = Vec::with_capacity(96);
@@ -487,6 +505,330 @@ async fn capability(
 }
 
 // ---------------------------------------------------------------------------
+// ADR-0055 stream (a) — the credential routes
+//
+// Added at the END of this file's handlers, with their own state and their own
+// router, so the other two ADR-0055 streams' additions land beside them and the
+// merge is mechanical.
+//
+// **Their own state rather than a widened `ApiState`.** `admin.rs` already set
+// the precedent and the argument is the same: `ApiState` is constructed in
+// seven places, none of which has any use for a `CredentialStore`, and the
+// alternative to a second state type is either seven edits or an `Option` field
+// that a route has to unwrap at request time.
+//
+// **They are NOT behind `admin_exposure`.** Every route below is account-plane
+// and answers on every host, exactly like `/session` — `AdminExposure::covers`
+// matches `/admin*` and the exact path `/enrolment/operator`, and
+// `/enrolment/operator/setup` is neither. The lead's resolution 8 is explicit
+// that `admin_exposure` is not widened by this stream, and a setup screen a
+// person reaches from the address the token file was handed to them at is the
+// account plane's, not the console's. **Reported as a judgement, not a
+// certainty**: a reader who thinks the first operator's setup belongs on the
+// console host should reopen it with stream (c), which owns that module.
+// ---------------------------------------------------------------------------
+
+/// Everything the credential routes need.
+#[derive(Clone)]
+pub struct CredentialApiState {
+    pub sessions: Arc<SessionStore>,
+    pub credentials: Arc<crate::credentials::CredentialStore>,
+    /// For `POST /enrolment/operator/setup` only, which spends a
+    /// `purpose = 'setup'` enrolment token through the operator plane's own
+    /// seal and expiry checks rather than a second copy of them.
+    pub operators: Arc<crate::operators::OperatorStore>,
+    pub client_address: crate::client_address::ClientAddress,
+}
+
+/// The credential routes, ready to `merge` into the main router.
+pub fn credential_router(state: CredentialApiState) -> Router {
+    Router::new()
+        .route("/credentials/password", post(set_password_handler))
+        .route("/credentials/key", post(register_key_handler))
+        .route("/credentials/totp/enrol", post(enrol_totp_handler))
+        .route("/credentials/totp/confirm", post(confirm_totp_handler))
+        .route("/credentials/reset", post(request_reset_handler))
+        .route("/credentials/reset/redeem", post(redeem_reset_handler))
+        .route("/enrolment/operator/setup", post(operator_setup_handler))
+        .with_state(state)
+}
+
+impl FromRequest<CredentialApiState> for Signed {
+    type Rejection = Refusal;
+
+    async fn from_request(
+        request: Request,
+        state: &CredentialApiState,
+    ) -> Result<Self, Self::Rejection> {
+        signed_from_request(request, &state.sessions).await
+    }
+}
+
+/// Verify a credential route's session inside one transaction, run the act,
+/// and commit — the shape every signed route in this server uses.
+async fn verified(state: &CredentialApiState, signed: &Signed) -> Result<VerifiedSession, Refusal> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    // The advanced `request_counter` is committed whatever the act does next,
+    // for the reason `capability` above states: rolling it back would leave
+    // the mark where it was while the browser's own tally moved on.
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    Ok(session)
+}
+
+/// `POST /credentials/password` — set or change this session's own password.
+///
+/// Body: `LP(new_credential)`. Answer: 200, empty.
+async fn set_password_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verified(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let chosen = text(&fields[0], "credential")?;
+    state
+        .credentials
+        .set_password(&session, &chosen)
+        .await
+        .map_err(CredentialRefusal)?;
+    Ok(empty_response())
+}
+
+/// `POST /credentials/key` — register this browser's long-term key.
+///
+/// Body: `LP(public_key)`. Answer: `LP(key_id)`.
+async fn register_key_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verified(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let id = state
+        .credentials
+        .register_key(&session, &fields[0])
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(40);
+    crypto::lp(&mut out, id.as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /credentials/totp/enrol` — draw an app-code secret.
+///
+/// Body: empty. Answer: `LP(otpauth_uri) ‖ LP(secret_base32)`.
+async fn enrol_totp_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verified(&state, &signed).await?;
+    let _ = read_fields(&signed.body, 0)?;
+    let enrolment = state
+        .credentials
+        .enrol_totp(&session)
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(256);
+    crypto::lp(&mut out, enrolment.otpauth_uri.as_bytes());
+    crypto::lp(&mut out, enrolment.secret_base32.as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /credentials/totp/confirm` — prove the app code works.
+///
+/// Body: `LP(app_code)`. Answer: ten `LP(backup_code)` fields, once.
+async fn confirm_totp_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verified(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let code = text(&fields[0], "app code")?;
+    let codes = state
+        .credentials
+        .confirm_totp(&session, &code)
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(256);
+    for code in &codes {
+        crypto::lp(&mut out, code.as_bytes());
+    }
+    Ok(bytes_response(out))
+}
+
+/// `POST /credentials/reset` — *"forgot my password"*.
+///
+/// Body: `LP(address)`. Answer: **200, empty, always** — ADR-0055 decision 7
+/// and OWASP ASVS 5.0.0 6.3.8 as the ADR read them on 2026-09-21. The refusal
+/// paths above it are the rate limits, which answer the same way for every
+/// address.
+async fn request_reset_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, Refusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
+    let fields = read_fields(&body, 1)?;
+    let address = text(&fields[0], "address")?;
+
+    // The same `sign_in_attempts` source bucket `/session` spends, reached
+    // through the function §13 item 7 already built for callers that are not a
+    // sign-in. A source that has spent its budget guessing addresses at
+    // `/session` has spent it here too.
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Steward, &source)
+        .await?;
+    state
+        .credentials
+        .request_reset(&address, &source)
+        .await
+        .map_err(CredentialRefusal)?;
+    Ok(empty_response())
+}
+
+/// `POST /credentials/reset/redeem` — spend a reset token, set a password.
+///
+/// Body: `LP(token) ‖ LP(new_credential)`. Answer: 200, empty. **No session**:
+/// decision 7's *"no automatic sign-in"*, from the OWASP Forgot Password Cheat
+/// Sheet as ADR-0055 read it.
+async fn redeem_reset_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, Refusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
+    let fields = read_fields(&body, 2)?;
+    let chosen = text(&fields[1], "credential")?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Steward, &source)
+        .await?;
+    state
+        .credentials
+        .redeem_reset(&fields[0], &chosen)
+        .await
+        .map_err(CredentialRefusal)?;
+    Ok(empty_response())
+}
+
+/// `POST /enrolment/operator/setup` — the first operator's setup screen.
+///
+/// Body: `LP(token) ‖ LP(new_credential)`. Answer: **200, empty, and no
+/// session** — the lead's resolution 4: the client signs in with `POST
+/// /session` immediately afterwards, which is one more round trip and one
+/// fewer way for a token to become a session without the password being
+/// checked.
+async fn operator_setup_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, Refusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
+    let fields = read_fields(&body, 2)?;
+    let chosen = text(&fields[1], "credential")?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Operator, &source)
+        .await?;
+    state
+        .credentials
+        .redeem_setup(&state.operators, &fields[0], &chosen)
+        .await
+        .map_err(CredentialRefusal)?;
+    Ok(empty_response())
+}
+
+/// One credential-plane refusal, on its way to a status code and a sentence.
+///
+/// **The password policy explains itself and nothing else does.** A policy
+/// refusal is a statement about a password the caller just chose and already
+/// holds, so it discloses nothing; every other refusal here goes through
+/// [`Refusal`], whose sentence is fixed per status for the reason its own doc
+/// gives.
+pub struct CredentialRefusal(pub crate::credentials::CredentialError);
+
+impl IntoResponse for CredentialRefusal {
+    fn into_response(self) -> Response {
+        use crate::credentials::CredentialError as E;
+        match self.0 {
+            e @ (E::PasswordTooShort
+            | E::PasswordTooLong
+            | E::PasswordIsCommon
+            | E::PasswordContainsAddress) => {
+                // Not logged at all: the sentence is about a password the
+                // caller supplied, and a log line naming which rule it broke
+                // is a log line about somebody's password.
+                (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response()
+            }
+            E::TotpRequired => {
+                tracing::info!(reason = "totp_required", "credential act refused");
+                Refusal::from(SessionError::TotpRequired).into_response()
+            }
+            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::TotpAlreadyEnrolled => {
+                tracing::info!(reason = %self.0, "credential act refused");
+                Refusal::from(SessionError::SignInRefused).into_response()
+            }
+            E::NotAnAccountSession => {
+                tracing::info!(reason = %self.0, "not an account session");
+                Refusal::from(SessionError::NotATenantPrincipal).into_response()
+            }
+            E::Malformed(what) => Refusal::from(SessionError::Malformed(what)).into_response(),
+            E::Session(e) => Refusal::from(e).into_response(),
+            // An integrity alarm is NOT a permission error (§3.4 step 2).
+            E::Unverifiable(what) => {
+                tracing::error!(reason = %self.0, "integrity check failed");
+                Refusal::from(SessionError::Unverifiable(what)).into_response()
+            }
+            other => {
+                tracing::error!(reason = %other, "credential request failed");
+                Refusal::from(SessionError::Corrupt("credential plane")).into_response()
+            }
+        }
+    }
+}
+
+impl From<CredentialRefusal> for Refusal {
+    fn from(e: CredentialRefusal) -> Self {
+        Refusal::from(SessionError::Corrupt(match e.0 {
+            crate::credentials::CredentialError::Unverifiable(what) => what,
+            _ => "credential plane",
+        }))
+    }
+}
+
+fn empty_response() -> Response {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        Vec::new(),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
 // Message framing
 // ---------------------------------------------------------------------------
 
@@ -617,6 +959,22 @@ impl IntoResponse for Refusal {
             SessionError::SignInRefused => {
                 tracing::info!(reason = %self.0, "sign-in refused");
                 (StatusCode::UNAUTHORIZED, "sign-in refused\n")
+            }
+            // ADR-0055 stream (a). A password that does not verify answers
+            // EXACTLY as a wrong signature and an unknown address do — the
+            // same status, the same body, the same absent headers — which is
+            // decision 7's anti-enumeration rule and what
+            // `tests/credentials.rs` asserts over the wire.
+            SessionError::PasswordRefused => {
+                tracing::info!(reason = %self.0, "sign-in refused");
+                (StatusCode::UNAUTHORIZED, "sign-in refused\n")
+            }
+            // A setup session reaching a route it may not. **403 and not 401**:
+            // the holder IS authenticated, and telling them to authenticate
+            // again would send them round a loop that cannot end.
+            SessionError::TotpRequired => {
+                tracing::info!(reason = %self.0, "an app code must be enrolled first");
+                (StatusCode::FORBIDDEN, "enrol an app code first\n")
             }
             SessionError::NotSigned
             | SessionError::NoSuchSession
