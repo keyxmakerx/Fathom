@@ -125,6 +125,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0020_console_placement.sql",
         sql: include_str!("../migrations/0020_console_placement.sql"),
     },
+    Migration {
+        version: 21,
+        name: "0021_operator_seat_hold.sql",
+        sql: include_str!("../migrations/0021_operator_seat_hold.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
