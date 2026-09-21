@@ -66,6 +66,35 @@ fn write_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::R
     file.sync_all()
 }
 
+/// [`write_bootstrap_token`], but **replacing a file that is already there** —
+/// the adoption path only, added 2026-09-21.
+///
+/// `write_bootstrap_token` is `create_new(true)`, which is `O_EXCL`, and on a
+/// FIRST start that is right: a file already at that path was written by
+/// something else, and clobbering it would destroy a live bearer secret
+/// nobody has read yet.
+///
+/// On the upgrade path it is wrong, and it was fatal. The deployment this
+/// runs on did its first start under the build before ADR-0055, so
+/// `FATHOM_BOOTSTRAP_TOKEN_FILE` still holds THAT start's token — and the
+/// adoption that has just committed is the act which expired it. The write
+/// failed with `AlreadyExists`, the process exited 10, and the next start
+/// found the binding and adopted nothing, so the token this one minted was
+/// never shown to anybody. The file can only hold a token this very act has
+/// already expired, so replacing it destroys nothing that still works.
+///
+/// The mode is still set before the bytes are written, because the create is
+/// still [`write_bootstrap_token`]'s. Returns `true` when a file was replaced.
+fn replace_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<bool> {
+    let replaced = match std::fs::remove_file(path) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(e),
+    };
+    write_bootstrap_token(path, token)?;
+    Ok(replaced)
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // `43` §5.4: "distroless has no shell and no curl. The binary is its own
@@ -692,6 +721,43 @@ async fn main() -> ExitCode {
     // the installer already knows about themselves, and what the console
     // then shows beside their operator id (the owner's ask, 2026-09-21).
     let notice_address = config.operator_notice_address.clone().unwrap_or_default();
+
+    // **Before either of them**: every `operators` row sealed by a build older
+    // than ADR-0055's fix round is brought up to this build's seal
+    // (2026-09-21).
+    //
+    // `6d1b5de` put `first_independent_signin_at` inside the operator row
+    // seal, because decision 3 had just made that column decide whether a
+    // second signature is required at all. Every row written before that
+    // fails `verify_operator_row` under this build — which is the sign-in
+    // path, the seconding path, and the adoption below, all of which verify
+    // the row before they do anything with it. A deployment that upgrades
+    // into this build would refuse to start at all, having started perfectly
+    // well the day before, so this runs first and on every start.
+    //
+    // It is idempotent: a row already sealed under the current shape is left
+    // alone and the next start re-seals nothing.
+    match operators.reseal_legacy_operator_rows().await {
+        Ok(0) => {}
+        Ok(rows) => tracing::warn!(
+            rows,
+            "re-sealed {rows} operator row(s) written by a build before ADR-0055's fix \
+             round. Their seal did not cover first_independent_signin_at; it does now, \
+             and nothing else about the rows changed"
+        ),
+        Err(e) => {
+            tracing::error!(
+                error = ?e,
+                "an operator row verifies under neither this build's row seal nor the one \
+                 every build before ADR-0055's fix round wrote, so it was not written by \
+                 this server; refusing to start. This is an integrity alarm and not a \
+                 permission error: the row named in the error was edited in the database, \
+                 and the way back is a restore"
+            );
+            return ExitCode::from(9);
+        }
+    }
+
     match operators
         .bootstrap_first_operator(&notice_address, &notice_address)
         .await
@@ -723,40 +789,58 @@ async fn main() -> ExitCode {
         // record and no binding, so the bootstrap answers here and, until
         // 2026-09-21, nothing else happened: nobody could sign in and
         // `recover-operator` refused, because it resolves an address through
-        // the binding. `adopt_first_operator_from_install` answers `None` on
-        // every deployment that does not have that shape, which is every
-        // ADR-0055-native one and every start after an adoption.
+        // the binding. `adopt_first_operator_from_install` answers
+        // `Adoption::Nothing` on every deployment that does not have that
+        // shape, which is every ADR-0055-native one and every start after an
+        // adoption -- and, since 2026-09-21, a NAMED refusal on the shapes
+        // that have something to adopt and cannot.
         Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {
+            use fathom_server::operators::{Adoption, AdoptionRefusal};
             match operators.adopt_first_operator_from_install().await {
-                Ok(None) => {}
-                Ok(Some(adopted)) => match adopted.invitation {
+                // The ADR-0055-native case, and the only silent one: every
+                // operator on this deployment already holds a binding, or the
+                // first start has not run yet. Every other shape says
+                // something, because "nothing happened" and "nothing needed to
+                // happen" looked identical here until 2026-09-21.
+                Ok(Adoption::Nothing) => {}
+                Ok(Adoption::Adopted(adopted)) => match adopted.invitation {
                     Some(invitation) => {
                         let path = bootstrap_token_path(&config);
-                        match write_bootstrap_token(&path, &invitation.token) {
-                            Ok(()) => tracing::warn!(
+                        // **Replacing, not `O_EXCL`** — see
+                        // `replace_bootstrap_token`. The file at this path on
+                        // an upgrading deployment holds the OLD build's first-
+                        // start token, which the adoption that has just
+                        // committed expired.
+                        match replace_bootstrap_token(&path, &invitation.token) {
+                            Ok(replaced) => tracing::warn!(
                                 operator_id = %adopted.operator_id,
                                 notice_address = %adopted.notice_address,
                                 retired_keys = adopted.retired_keys,
                                 ended_sessions = adopted.ended_sessions,
                                 token_file = %path.display(),
+                                replaced_an_existing_token_file = replaced,
                                 expires_at_unix = invitation.expires_at_unix,
                                 "UPGRADE: the operator created before this build was bound \
                                  to the install address; a one-shot setup token was written \
-                                 to the token file. Read the file, redeem it in a browser, \
-                                 then delete it. The token is not in this log and will not \
-                                 be shown again."
+                                 to the token file, replacing the first-start token file if \
+                                 one was still there -- that token was expired by this same \
+                                 act. Read the file, redeem it in a browser, then delete it. \
+                                 The token is not in this log and will not be shown again."
                             ),
                             Err(e) => {
                                 tracing::error!(
                                     error = %e,
                                     token_file = %path.display(),
-                                    "the operator created before this build was bound to \
-                                     the install address, but their setup token could not \
-                                     be written, so nobody can redeem it; refusing to \
-                                     start. Point FATHOM_BOOTSTRAP_TOKEN_FILE at a path \
-                                     this process can create a file in -- it must NOT be \
-                                     inside the read-only key volume -- and then run \
-                                     `fathom-server recover-operator <address>`, which \
+                                    "the operator created before this build WAS bound to the \
+                                     install address -- that part is committed -- but their \
+                                     setup token could not be written, so nobody can redeem \
+                                     it; refusing to start. The cause is this path: a \
+                                     directory that does not exist, a filesystem with no \
+                                     room, or a mount this process cannot write (the master \
+                                     key volume is mounted read-only by design, and \
+                                     FATHOM_BOOTSTRAP_TOKEN_FILE must not point inside it). \
+                                     The way in does not depend on fixing it in this process: \
+                                     run `fathom-server recover-operator <address>`, which \
                                      works now that the binding exists"
                                 );
                                 return ExitCode::from(10);
@@ -772,19 +856,88 @@ async fn main() -> ExitCode {
                         notice_address = %adopted.notice_address,
                         retired_keys = adopted.retired_keys,
                         ended_sessions = adopted.ended_sessions,
-                        "UPGRADE: the operator created before this build was bound to the install \
-                         address. No token was issued and none is needed: that account already \
-                         holds a credential and a confirmed app code, so it signs in with those \
-                         and registers an operator key from the console."
+                        "UPGRADE: the operator created before this build was bound to the \
+                         install address, and WHOEVER HOLDS THE ACCOUNT AT THAT ADDRESS NOW \
+                         HOLDS THE OPERATOR CUSTODY. No token was written and none is needed: \
+                         that account already holds a credential and a confirmed app code, so \
+                         it signs in with those and registers an operator key from the \
+                         console. Its own sessions were not ended -- only the operator \
+                         principal's were -- so a browser already signed in to that account \
+                         stays signed in."
                     ),
                 },
+                // ---- the refusals ------------------------------------------
+                //
+                // None of these is a reason to take a running site down: the
+                // deployment served requests yesterday and will serve them
+                // now. Each is said once per start, distinctly, until somebody
+                // acts on it.
+                Ok(Adoption::Refused(AdoptionRefusal::AccountDisabled {
+                    operator_id,
+                    account_id,
+                    address,
+                })) => tracing::error!(
+                    operator_id = %operator_id,
+                    account_id = %account_id,
+                    notice_address = %address,
+                    "the account at the install address is disabled, so the operator was not \
+                     bound; enable it or restore. Binding it would have been permanent -- a \
+                     binding cannot be rewritten at any privilege level -- and the token it \
+                     would have minted would redeem into a sign-in that refuses"
+                ),
+                Ok(Adoption::Refused(AdoptionRefusal::AccountAlreadyBound {
+                    operator_id,
+                    account_id,
+                    address,
+                    bound_to,
+                })) => tracing::error!(
+                    operator_id = %operator_id,
+                    already_bound_to_operator_id = %bound_to,
+                    account_id = %account_id,
+                    notice_address = %address,
+                    "the account at the install address already holds the custody of another \
+                     operator, so the operator created before this build was not bound: one \
+                     account holds one operator custody and a binding cannot be moved. \
+                     Whoever is meant to hold this seat needs an account at an address of \
+                     their own, or a restore"
+                ),
+                Ok(Adoption::Refused(AdoptionRefusal::OperatorDisabled {
+                    operator_id,
+                    address,
+                })) => tracing::warn!(
+                    operator_id = %operator_id,
+                    notice_address = %address,
+                    "the operator created before this build is disabled, so it was not bound \
+                     to the install address and nobody gained a way in from it. Nothing here \
+                     re-enables an operator; if this deployment has no other live operator, \
+                     the way back is a restore"
+                ),
+                Ok(Adoption::Refused(AdoptionRefusal::NoInstallRecord { operators })) => {
+                    tracing::warn!(
+                        operators,
+                        "this deployment has operators and no site_install row, so there is no \
+                         notice address to bind one to and nothing was adopted. That row is \
+                         written on the first start and no role can rewrite it, so this is a \
+                         restore that left it behind"
+                    )
+                }
+                Ok(Adoption::Refused(AdoptionRefusal::SeveralCandidates {
+                    operator_ids,
+                    address,
+                })) => tracing::error!(
+                    operator_ids = ?operator_ids,
+                    notice_address = %address,
+                    "more than one operator has no creator and no binding, so which of them \
+                     the install address belongs to is not this server's to guess; none was \
+                     bound. Disable the ones that are not the seat, and this start will adopt \
+                     the one that is"
+                ),
                 Err(e) => {
                     tracing::error!(
                         error = ?e,
                         "the operator created before this build could not be bound to the install \
                          address; refusing to start rather than running a deployment nobody can \
-                         sign in to. Read the site chain: nothing was written unless the sealed \
-                         `operator_adopted` entry was"
+                         sign in to"
                     );
                     return ExitCode::from(9);
                 }
@@ -797,6 +950,43 @@ async fn main() -> ExitCode {
                 "could not bootstrap the first operator; refusing to start. On a first start, set                  FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator                  notices."
             );
             return ExitCode::from(9);
+        }
+    }
+
+    // ---- the colleagues a pre-ADR-0055 build created (2026-09-21) --------
+    //
+    // The adoption above binds exactly one operator: the one with no
+    // `created_by`, which is the one a first start minted. An operator created
+    // through the console by a build before ADR-0055 has a `created_by` and no
+    // binding, and decision 1 gives it no way to acquire one -- sign-in
+    // resolves the operator custody THROUGH the binding, so that person cannot
+    // get in and no act on any surface can give them a route.
+    //
+    // They still count towards the quorum, because the count asks `disabled_at`
+    // and `first_independent_signin_at` and not the binding. That is left
+    // exactly as it is -- changing what a second signature means on a live
+    // deployment is a decision and not a fix -- and the ids are named here
+    // instead, at every start, so an operator can disable them from the
+    // console, which is the supported way to make the count right.
+    match operators.operators_without_a_binding().await {
+        Ok(ids) if ids.is_empty() => {}
+        Ok(ids) => tracing::warn!(
+            operator_ids = ?ids,
+            count = ids.len(),
+            "these operators hold no account custody, so nobody can sign in as them: they were \
+             created by a build before ADR-0055 and only the first operator can be adopted. \
+             They still count towards the operator quorum. Disable them from the console, or \
+             the number of signatures this deployment thinks it has is not the number it has"
+        ),
+        Err(e) => {
+            // Not fatal. This is a warning about a shape somebody has to act
+            // on by hand; failing to compute it is no reason to refuse a start
+            // that everything else has just agreed to.
+            tracing::error!(
+                error = ?e,
+                "could not check for operators with no account custody; the start continues \
+                 and this check runs again at the next one"
+            )
         }
     }
 
