@@ -810,12 +810,29 @@ impl IntoResponse for CredentialRefusal {
     }
 }
 
+/// The same verdicts `IntoResponse` above gives, for the handlers that reach a
+/// credential error through `?`. A spent setup token is a refusal, not an
+/// integrity alarm: mapping every credential error to `Corrupt` here made a
+/// second use of the token answer 500 and log an integrity failure, which the
+/// end-to-end run of 2026-09-21 caught.
 impl From<CredentialRefusal> for Refusal {
     fn from(e: CredentialRefusal) -> Self {
-        Refusal::from(SessionError::Corrupt(match e.0 {
-            crate::credentials::CredentialError::Unverifiable(what) => what,
-            _ => "credential plane",
-        }))
+        use crate::credentials::CredentialError as E;
+        Refusal::from(match e.0 {
+            E::PasswordTooShort
+            | E::PasswordTooLong
+            | E::PasswordIsCommon
+            | E::PasswordContainsAddress => SessionError::Malformed("credential"),
+            E::TotpRequired => SessionError::TotpRequired,
+            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::TotpAlreadyEnrolled => {
+                SessionError::SignInRefused
+            }
+            E::NotAnAccountSession => SessionError::NotATenantPrincipal,
+            E::Malformed(what) => SessionError::Malformed(what),
+            E::Session(e) => e,
+            E::Unverifiable(what) => SessionError::Unverifiable(what),
+            _ => SessionError::Corrupt("credential plane"),
+        })
     }
 }
 

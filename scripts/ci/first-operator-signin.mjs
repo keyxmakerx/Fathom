@@ -299,8 +299,10 @@ console.log('setup: the first operator set a password');
 // leaving it to the suite, because a token file that still works after setup
 // is a token file sitting on a volume being a standing credential.
 const again = await post('/enrolment/operator/setup', concat(lp(token), lp(utf8(CREDENTIAL))));
-if (again.status === 200) fail('setup', 'the setup token was accepted a second time');
-console.log(`setup: the token is spent (${again.status} on a second use)`);
+if (again.status !== 401) {
+  fail('setup', `a spent setup token must be refused with 401, got ${again.status}: ${again.text.trim()}`);
+}
+console.log('setup: the token is spent (401 on a second use)');
 
 // 2 and 3. Sign in with the address and the password. No app code yet, so this
 // is the `A0` setup session decision 10 describes: good for `/credentials/*`
@@ -347,27 +349,76 @@ const { value: keyIdBytes } = readLp(registered.bytes);
 console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
 
 // The whole point of the app code: the session is no longer setup-only, and a
-// sign-in now needs the password AND a code.
+// sign-in now needs the password AND a code. **A backup code, not another app
+// code**: the confirm above spent this 30-second step, and a code is accepted
+// once per step (ADR-0055 decision 10, the replay rule), so a second app code
+// inside the same step is refused on purpose. The backup code proves the lost
+// phone path at the same time, and its single use is asserted right after.
 const withCode = await signIn('steward', address, {
   credential: CREDENTIAL,
-  appCode: await totpCode(secret, currentStep()),
+  appCode: backupCodes[0],
 });
-console.log(`two factors: signed in again as ${withCode.principal} with a password and a code`);
+console.log(`two factors: signed in again as ${withCode.principal} with a password and a backup code`);
+{
+  const sessionKey = await keyPair();
+  const sessionPub = await publicRaw(sessionKey);
+  const ch = await post(
+    '/session/challenge',
+    concat(lp(utf8('steward')), lp(utf8(address)), lp(sessionPub)),
+  );
+  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
+  const { value: nonce } = readLp(ch.bytes);
+  const again = await post(
+    '/session',
+    concat(
+      lp(utf8('steward')),
+      lp(sessionPub),
+      lp(nonce),
+      lp(EMPTY),
+      lp(utf8(CREDENTIAL)),
+      lp(utf8(backupCodes[0])),
+    ),
+  );
+  if (again.status === 200) fail('backup-code', 'a spent backup code signed in a second time');
+  console.log(`backup code: spent, a second use is refused (${again.status})`);
+}
 
-// 8. The operator half. Stream (b) of the ADR-0055 build contracts owns the
-// route that registers an operator's key under `/admin`; without it there is
-// no operator key to sign in with, and so no operator session to read the
-// register from. **Not guessed at**: probing for a route by a name this stream
-// invented would pass or fail on the guess rather than on the product.
-const required = process.env.FATHOM_REQUIRE_OPERATOR_KEY_ROUTE === '1';
-const missing =
-  'the route that registers an operator key under /admin is not in this build ' +
-  '(ADR-0055 build contracts, stream (b)), so the operator sign-in and the signed ' +
-  'GET /admin/operators are NOT exercised by this run. Set ' +
-  'FATHOM_REQUIRE_OPERATOR_KEY_ROUTE=1 once stream (b) has landed, and finish step 8.';
-if (required) fail('operator-key', missing);
-console.log(`SKIPPED: ${missing}`);
+// 8. The operator key. From the account session -- the person, with their
+// password and their code behind them -- on the console host: this build
+// confines nothing, so every host is the console host. The answer names the
+// operator the custody is bound to, which is the id the operator signs in as.
+const opKey = await signedPost(
+  withCode,
+  '/admin/operators/self/key',
+  lp(await publicRaw(browserKey)),
+);
+if (opKey.status !== 200) fail('operator-key', `status ${opKey.status}: ${opKey.text.trim()}`);
+const { value: opKeyIdBytes, rest: afterOpKeyId } = readLp(opKey.bytes);
+const { value: operatorIdBytes } = readLp(afterOpKeyId);
+const operatorId = dec.decode(operatorIdBytes);
+console.log(`operator key: ${dec.decode(opKeyIdBytes)} registered for operator ${operatorId}`);
+
+// 9. The operator sign-in: the operator custody is still a key sign-in
+// (resolution 8), with the browser's key as the evidence and no password.
+const op = await signIn('operator', operatorId, { evidenceKey: browserKey });
+if (op.principal !== operatorId) {
+  fail('operator-sign-in', `the session names ${op.principal}, not ${operatorId}`);
+}
+console.log(`operator: signed in as ${operatorId} with the browser key`);
+
+// 10. One signed read of the register, which must name this operator and
+// the notice address the first start bound the custody to.
+const registerPath = '/admin/operators';
+const registerHeaders = await signedHeaders(op, 'GET', registerPath, EMPTY);
+const list = await fetch(baseUrl + registerPath, { method: 'GET', headers: registerHeaders });
+const listText = await list.text();
+if (list.status !== 200) fail('register', `status ${list.status}: ${listText.trim()}`);
+const row = listText.split('\n').find((line) => line.startsWith(`${operatorId} `));
+if (!row) fail('register', `the register does not name ${operatorId}:\n${listText}`);
+if (!row.includes(address)) fail('register', `the register's row does not carry ${address}: ${row}`);
+console.log(`the register names the operator and their address: ${row}`);
 console.log(
   'OK: the first operator set a password, enrolled an app code, signed in with both ' +
-    'factors and registered a browser key',
+    'factors, registered a browser key, registered it as their operator key, signed in ' +
+    'as the operator and read the register over HTTP',
 );

@@ -890,7 +890,7 @@ async fn the_host_can_clear_a_placement_and_says_so_on_the_chain() {
         "127.0.0.1/32",
         600,
     );
-    let (status, _) = signed_request(
+    let (status, answer) = signed_request(
         addr,
         "POST",
         "/admin/placement",
@@ -901,6 +901,8 @@ async fn the_host_can_clear_a_placement_and_says_so_on_the_chain() {
     )
     .await;
     assert_eq!(status, "200");
+    let placement_id =
+        String::from_utf8(read_lp_fields(&answer, 1)[0].clone()).expect("the placement id");
     // The host it moved to does not exist any more: nobody can confirm, and
     // nobody can reach the console to move it back.
     let (status, _) = signed_request(
@@ -926,11 +928,14 @@ async fn the_host_can_clear_a_placement_and_says_so_on_the_chain() {
         reverted_before + 1,
         "clearing a placement from the host is sealed, and loudly"
     );
+    // By id, not by "the newest reverted row": `reverted_at` is whole
+    // seconds, and a window another test left to expire can be swept in the
+    // same second this reset runs, which made the newest row a coin flip.
     let reason: Option<String> = superuser()
         .await
         .query_one(
-            "SELECT revert_reason FROM console_placements ORDER BY reverted_at DESC LIMIT 1",
-            &[],
+            "SELECT revert_reason FROM console_placements WHERE id = $1",
+            &[&placement_id],
         )
         .await
         .expect("the row")
