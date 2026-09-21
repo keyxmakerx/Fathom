@@ -3,17 +3,26 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   createAccountShell,
   createOrganisationShell,
+  fetchNotices,
   issueAccountEnrolment,
   listOperators,
   listOrganisations,
   setAccountDisabled,
   type Invitation,
+  type Notice,
   type OperatorRow,
   type OrganisationRow,
 } from '../../api/console';
-import { ApiRefusal } from '../../api/errors';
+import { useConsoleHost } from '../../api/placement';
 import { formatToken } from '../../api/enrolment';
+import { describeConsoleError } from './describeConsoleError';
+import { NoticesBanner } from './NoticesBanner';
+import { Operators } from './Operators';
+import { PlacementForm } from './PlacementForm';
+import { SmtpForm } from './SmtpForm';
+import { secondsLeft } from './placementCopy';
 import './console.css';
+import '../../styles/console.css';
 
 /**
  * The operator console -- `docs/UI-SPEC.md`'s "Operator console" row and
@@ -47,6 +56,11 @@ export function Console({ operatorId }: ConsoleProps) {
   const [operators, setOperators] = useState<Loaded<OperatorRow[]>>({ status: 'loading' });
   const [organisations, setOrganisations] = useState<Loaded<OrganisationRow[]>>({ status: 'loading' });
   const [minted, setMinted] = useState<Minted[]>([]);
+  // ADR-0055 decision 9: whether the console answers on the host this page
+  // was served from. Read once per page load, before a control is rendered.
+  const consoleHost = useConsoleHost();
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   const refresh = useCallback(() => {
     setOperators({ status: 'loading' });
@@ -57,21 +71,89 @@ export function Console({ operatorId }: ConsoleProps) {
     listOrganisations()
       .then((value) => setOrganisations({ status: 'ready', value }))
       .catch((error: unknown) => setOrganisations({ status: 'error', message: describe(error) }));
+    // A notice that cannot be fetched is not a notice that does not exist,
+    // but there is nothing honest to show in its place: the banner stays
+    // empty and the section errors below say what failed.
+    fetchNotices()
+      .then(setNotices)
+      .catch(() => {});
   }, []);
 
+  // **Nothing is asked of the console on a host the console does not answer
+  // on.** Decision 9's "absent, not hidden" covers the requests too: three
+  // 404s in the network log would be three operator requests this client
+  // made from a host where it had been told not to.
+  const answersHere = consoleHost.status === 'ready' && consoleHost.flag.consoleHost;
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (answersHere) refresh();
+  }, [answersHere, refresh]);
+
+  // The one clock the pending-placement banner counts down on.
+  const pendingConfirmBy =
+    consoleHost.status === 'ready' ? consoleHost.flag.confirmByUnix : null;
+  useEffect(() => {
+    if (pendingConfirmBy === null) return;
+    const tick = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(tick);
+  }, [pendingConfirmBy]);
+
+  const host = typeof window === 'undefined' ? '' : window.location.host;
+
+  // Decision 9, literally: on a host the console does not answer on, every
+  // operator control is ABSENT. Not disabled, not hidden — this component
+  // returns before any of them is created.
+  if (consoleHost.status === 'loading') {
+    return (
+      <div className="console">
+        <p className="console__muted">Asking the server whether this host answers for the console…</p>
+      </div>
+    );
+  }
+  if (consoleHost.status === 'ready' && !consoleHost.flag.consoleHost) {
+    return (
+      <div className="console console__absent">
+        <h1 className="console__title">Site</h1>
+        <p>
+          The operator console does not answer on <code>{host}</code>. Nothing operator-side is offered here, and
+          nothing here would be answered if it were: the server replies 404 to every console path on this host.
+        </p>
+        <p>
+          The console is confined either by <code>FATHOM_ADMIN_HOSTS</code> / <code>FATHOM_ADMIN_SOURCES</code> on
+          the server, or by a placement set in the console itself. Go to the host it was moved to and sign in
+          there.
+        </p>
+      </div>
+    );
+  }
+  if (consoleHost.status === 'error') {
+    return (
+      <div className="console console__absent">
+        <h1 className="console__title">Site</h1>
+        <p>
+          This browser could not establish whether the console answers on <code>{host}</code>:{' '}
+          {consoleHost.message} Nothing operator-side is offered until it can — an unanswered question is not a
+          yes.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="console">
       <header className="console__head">
         <h1 className="console__title">Site</h1>
         <p className="console__who">
-          Signed in as <code className="console__id">{operatorId}</code> · operator. That id is what you sign in with;
-          the key that proves it is in this browser.
+          Signed in as <code className="console__id">{operatorId}</code> · operator, on <code>{host}</code>. The key
+          that proves it is in this browser, and every operator act below is signed with it.
         </p>
       </header>
+
+      <NoticesBanner
+        notices={notices}
+        pendingConfirmByUnix={pendingConfirmBy}
+        pendingSecondsLeft={pendingConfirmBy === null ? null : secondsLeft(pendingConfirmBy, now)}
+        host={host}
+      />
 
       <section className="console__section" aria-labelledby="console-accounts">
         <h2 id="console-accounts" className="console__h2">
@@ -133,44 +215,24 @@ export function Console({ operatorId }: ConsoleProps) {
         <ListBlock
           loaded={operators}
           empty="No operator is registered, which cannot be: you are one."
-          render={(rows) => (
-            <table className="console__table">
-              <thead>
-                <tr>
-                  <th>id</th>
-                  <th>name</th>
-                  <th>created by</th>
-                  <th>state</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className={row.disabled ? 'console__row--disabled' : undefined}>
-                    <td>
-                      <code>{row.id}</code>
-                    </td>
-                    <td>{row.displayName}</td>
-                    <td>{row.createdBy ? <code>{row.createdBy}</code> : 'first start'}</td>
-                    <td>
-                      {row.disabled
-                        ? 'disabled'
-                        : row.neverIndependentlySignedIn
-                          ? 'never independently signed in'
-                          : 'active'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          render={(rows) => <Operators actingOperatorId={operatorId} rows={rows} onChanged={refresh} />}
         />
-        <p className="console__note">
-          Requesting a colleague, and every settings change, needs a second operator and the delay, and an assertion
-          signed by your enrolled key. Neither is on this board yet.
-        </p>
         <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
           Refresh
         </button>
+      </section>
+
+      <section className="console__section" aria-labelledby="console-settings">
+        <h2 id="console-settings" className="console__h2">
+          Settings
+        </h2>
+        <p className="console__note">
+          Two settings live here rather than in a file, on the owner's instruction: mail, because an install with
+          no mail path cannot tell anybody anything; and where this console answers, because moving it from a file
+          means a restart, and a restart in the middle of a move is how a lockout happens.
+        </p>
+        <SmtpForm actingOperatorId={operatorId} />
+        <PlacementForm actingOperatorId={operatorId} currentHost={host} />
       </section>
 
       {minted.length > 0 && (
@@ -453,24 +515,10 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
   );
 }
 
-/** The server's own wording where it gave one (`../../api/errors.ts`), with
- * one addition this board can stand behind: a 404 on a console route is
- * what `admin_exposure.rs` answers when the console is confined to other
- * hosts or addresses than this request's, and an operator who sees it
- * needs to be told which door to try. */
+/** The server's own wording where it gave one, in one place now that four
+ * components need it: `./describeConsoleError.ts`. */
 function describe(error: unknown): string {
-  if (error instanceof ApiRefusal) {
-    if (error.status === 404) {
-      return 'The console does not answer on this host or from this address (FATHOM_ADMIN_HOSTS, FATHOM_ADMIN_SOURCES).';
-    }
-    return error.retryAfterSeconds != null
-      ? `${error.message} Try again in ${error.retryAfterSeconds}s.`
-      : error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return 'That request did not complete.';
+  return describeConsoleError(error);
 }
 
 function formatUnix(unixSeconds: number): string {
