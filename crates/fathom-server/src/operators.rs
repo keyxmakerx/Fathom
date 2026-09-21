@@ -1993,6 +1993,10 @@ impl OperatorStore {
             .await?
             .is_none();
 
+        // Whole seconds, both terms: the delay is kept to within a second of
+        // what was configured, never more. A test that needs a delay it can
+        // rely on asks for at least two seconds, because one is anything from
+        // zero to one.
         let now = now_unix();
         let effective_at = if first_version {
             now
