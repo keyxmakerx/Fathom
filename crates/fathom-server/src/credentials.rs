@@ -1964,6 +1964,52 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0055 fix (a) -- appended 2026-09-21 by the operators/placement stream
+//
+// The one thing `operators::recover_operator` needs from this module and
+// cannot honestly build for itself: the seal on a `backup_codes` row.
+//
+// Decision 8's break-glass now clears the second factor as well as the
+// password, because the ADR says the code *"lets that person set a new
+// password AND enrol a new app code"* and because ten live backup codes
+// beside a cleared app code is not a cleared second factor. `0018` §C gives
+// `fathom_app` no DELETE on this table -- a spent code stays as the record
+// that it was spent -- so the retirement is the same guarded `UPDATE` and the
+// same version-2 seal `spend_backup_code` writes.
+//
+// **A thin wrapper and not a second seal**: it calls `backup_code_seal`, so
+// there is one definition of what a `backup_codes` row's seal covers and one
+// place to change it. Put at the END of the file, in its own block, because
+// this file belongs to another stream in this build.
+// ---------------------------------------------------------------------------
+
+/// [`backup_code_seal`], for `operators::recover_operator`.
+///
+/// `chain_seq` is the `operator_recovered_from_host` entry's seq and
+/// `row_version` is 2, exactly as a spend writes them, so a code retired by a
+/// recovery reads back as a spent code rather than as a forged one -- and
+/// clearing `used_at` in the database leaves a row that does not verify.
+pub fn backup_code_seal_for(
+    row_key: &Key32,
+    id: &str,
+    account: &str,
+    code_hash: &[u8; 32],
+    chain_seq: i64,
+    row_version: i32,
+    used_at_unix: i64,
+) -> [u8; 32] {
+    backup_code_seal(
+        row_key,
+        id,
+        account,
+        code_hash,
+        chain_seq,
+        row_version,
+        used_at_unix,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

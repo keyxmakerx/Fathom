@@ -31,13 +31,15 @@ use fathom_server::api::{
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
+use fathom_server::credentials::{self, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant};
 use fathom_server::keys::{self, KeyRing};
 use fathom_server::operators::{self, OperatorError, OperatorStore, Purpose};
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
-    self, PrincipalKind, SessionError, SessionStore, SignInLimits, SignedIn, VerifiedSession,
+    self, Assurance, PrincipalKind, SessionError, SessionStore, SignInLimits, SignedIn,
+    VerifiedSession,
 };
 
 /// The same master key every other suite in this crate uses: ADR-0043 §4
@@ -174,11 +176,20 @@ async fn store(pool: &Pool, ring: Arc<KeyRing>, delay: Duration) -> OperatorStor
 /// window**, so that they count towards `min(2, live independent operators)`
 /// and so that `0015` §G's trigger will accept them as a seconder.
 ///
-/// Legitimate here and nowhere else, for the reason the pre-existing tests
-/// already give: the column is deliberately outside the row seal
-/// (`operators::note_first_signin` carries the argument), and what it stands
-/// for is time passing.
+/// **And it re-seals the row**, because ADR-0055 fix (d) brought
+/// `first_independent_signin_at` inside `operators::operator_row_seal`: the
+/// column decides whether a second signature is required at all (decision 3),
+/// and `0015`:162 grants the application role `UPDATE` on it, so a count that
+/// trusted it would hand a quorum of 1 to anything that could write it. This
+/// helper therefore does what `operators::mark_first_independent_signin`
+/// does — the write and the seal at `row_version + 1` — with a time thirty
+/// days ago instead of now, which is what "seven days passed" looks like in a
+/// test that cannot wait seven days.
+///
+/// [`a_backdate_without_a_reseal_is_an_alarm`] is the same write WITHOUT the
+/// seal, and it is refused.
 async fn counts_towards_quorum(operators: &OperatorStore, operator: &str) {
+    let ring = ring();
     let mut client = operators.pool().get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
     tx.execute(
@@ -187,11 +198,41 @@ async fn counts_towards_quorum(operators: &OperatorStore, operator: &str) {
     )
     .await
     .expect("operator custody");
+    let row = tx
+        .query_one(
+            "SELECT display_name, created_by, created_seq, \
+                    COALESCE(EXTRACT(EPOCH FROM disabled_at)::bigint, 0), row_version \
+               FROM operators WHERE id = $1",
+            &[&operator],
+        )
+        .await
+        .expect("that operator is in this deployment's register");
+    let display_name: String = row.get(0);
+    let created_by: Option<String> = row.get(1);
+    let created_seq: i64 = row.get(2);
+    let disabled_at: i64 = row.get(3);
+    let version: i32 = row.get::<_, i32>(4) + 1;
+    let at = now_unix() - 30 * 24 * 60 * 60;
+    let seal = operators::operator_row_seal(
+        &tx,
+        &ring,
+        operator,
+        &display_name,
+        created_by.as_deref(),
+        disabled_at,
+        at,
+        created_seq,
+        version,
+    )
+    .await
+    .expect("the row key opens");
     let changed = tx
         .execute(
-            "UPDATE operators SET first_independent_signin_at = now() - interval '30 days' \
+            "UPDATE operators \
+                SET first_independent_signin_at = to_timestamp($2::bigint), \
+                    row_version = $3, row_seal = $4 \
               WHERE id = $1",
-            &[&operator],
+            &[&operator, &at, &version, &seal.to_vec()],
         )
         .await
         .expect("backdate a first independent sign-in");
@@ -261,6 +302,11 @@ async fn a_bootstrapped_operator(operators: &OperatorStore, sessions: &SessionSt
                     // session. Everything after that is the production path
                     // under test.
                     an_account_browser_key(operators, &bootstrap.account_id, &key).await;
+                    // ADR-0055 decision 10 and fix (g): the app code comes
+                    // first, because an account holding the operator custody
+                    // may not register the operator key without one.
+                    a_confirmed_app_code(operators, sessions, &ring(), &bootstrap.account_id, &key)
+                        .await;
                     let account = an_account_session(
                         sessions,
                         &bootstrap.account_id,
@@ -374,6 +420,72 @@ async fn an_account_session(
     verify(sessions_store, &signed_in, &session_key, "POST", path, b"").await
 }
 
+/// **The app code ADR-0055 decision 10 calls Required for any account holding
+/// the operator custody**, enrolled and confirmed with a code a real
+/// authenticator would be showing.
+///
+/// Needed by every fixture that calls `register_own_operator_key`, because
+/// ADR-0055 fix (g) makes that route refuse an account whose `totp_last_step`
+/// is NULL: the old `assurance == A0` gate let an account with one live
+/// browser key register the operator key every act is signed with, having
+/// never enrolled an app code at all.
+///
+/// The code is `credentials::totp_code` over the secret the server sealed and
+/// the live 30-second step — six digits, RFC 6238, the same function
+/// `tests/credentials.rs` drives — and not a fixture string.
+async fn a_confirmed_app_code(
+    operators: &OperatorStore,
+    sessions_store: &SessionStore,
+    ring: &Arc<KeyRing>,
+    account: &str,
+    key: &SoftwareKey,
+) {
+    let creds = CredentialStore::new(
+        operators.pool().clone(),
+        Arc::clone(ring),
+        operators.deployment().to_string(),
+    );
+    let session = an_account_session(sessions_store, account, key, "/credentials/totp/enrol").await;
+    creds
+        .enrol_totp(&session)
+        .await
+        .expect("an account with the operator custody enrols an app code");
+
+    let secret = totp_secret_of(operators.pool(), ring, operators.deployment(), account).await;
+    let session =
+        an_account_session(sessions_store, account, key, "/credentials/totp/confirm").await;
+    creds
+        .confirm_totp(
+            &session,
+            &credentials::totp_code(&secret, credentials::totp_step(now_unix())),
+        )
+        .await
+        .expect("a real six-digit code confirms it");
+}
+
+/// The secret an authenticator would be computing from, opened the way the
+/// server opens it.
+async fn totp_secret_of(pool: &Pool, ring: &KeyRing, deployment: &str, account: &str) -> Vec<u8> {
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+        .await
+        .expect("session custody");
+    let row = credentials::read_credentials(&tx, account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    let key = credentials::totp_key_for(&tx, ring)
+        .await
+        .expect("the credential key");
+    let secret = row
+        .totp_secret(&key, deployment, account)
+        .expect("open the secret")
+        .expect("a secret is enrolled");
+    tx.rollback().await.expect("rollback");
+    secret
+}
+
 /// Which account holds this operator's custody, read through the store's own
 /// pool (this binary has more than one deployment in play).
 async fn account_of_operator(operators: &OperatorStore, operator: &str) -> String {
@@ -413,6 +525,15 @@ async fn a_lone_operator(operators: &OperatorStore, sessions_store: &SessionStor
         .expect("a first start with no operator mints one");
     let key = SoftwareKey::random().expect("a keypair");
     an_account_browser_key(operators, &bootstrap.account_id, &key).await;
+    // ADR-0055 fix (g): the app code before the operator key.
+    a_confirmed_app_code(
+        operators,
+        sessions_store,
+        &ring(),
+        &bootstrap.account_id,
+        &key,
+    )
+    .await;
     let account = an_account_session(
         sessions_store,
         &bootstrap.account_id,
@@ -1503,21 +1624,37 @@ async fn after_a_reissue_the_first_token_is_refused_and_the_second_redeems() {
 /// the real requesting operator — everything a determined operator would
 /// actually have — and it is refused before the statement is issued and again
 /// by the `CHECK` if it ever were.
+///
+/// **ADR-0055 fix (c) changed who requests here, and the change is the
+/// point.** The requester is the COLLEAGUE, because the quorum is now per
+/// requester: `operator` is this deployment's bootstrap and created the
+/// colleague, so `0015` §G's fourth clause means nobody can second
+/// `operator` and a request of theirs stands alone after its delay. A
+/// colleague's request is the one a second signature is genuinely available
+/// for, and therefore the one that must not apply unseconded.
 #[tokio::test]
 async fn the_interlock_cannot_be_satisfied_by_one_operator_asserting_twice() {
     const TAG: &str = "ops_interlock";
     // **A register where a second signature is actually required**, which is
     // what "NOT single-operator mode" used to mean and what ADR-0055
     // decision 3 turns into a fact about the operators: two of them, both
-    // past `0015` §G's independence window, so the quorum is 2. A deployment
-    // of its own, because seeding that register is moving a number the tests
-    // around this one read.
+    // past `0015` §G's independence window, and a requester somebody is
+    // eligible to second. A deployment of its own, because seeding that
+    // register is moving a number the tests around this one read.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let operator = a_lone_operator(&operators_store, &sessions_store).await;
     let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
     counts_towards_quorum(&operators_store, &operator.id).await;
     counts_towards_quorum(&operators_store, &colleague.id).await;
+    assert_eq!(
+        operators_store
+            .quorum_for(&colleague.id)
+            .await
+            .expect("the register answers"),
+        2,
+        "the bootstrap did not create itself, so it can second the colleague it created"
+    );
 
     // A first version applies immediately (§5.3's first-version rule), so this
     // test changes a setting that already has one.
@@ -1526,9 +1663,12 @@ async fn the_interlock_cannot_be_satisfied_by_one_operator_asserting_twice() {
 
     let value = b"second";
     let message =
-        operators::setting_request_bytes(operators_store.deployment(), &operator.id, &key, value);
+        operators::setting_request_bytes(operators_store.deployment(), &colleague.id, &key, value);
+    let acting = colleague
+        .session_for(&sessions_store, "POST", "/admin/settings", b"")
+        .await;
     let pending = operators_store
-        .request_setting(&operator.session, &key, value, &operator.key.sign(&message))
+        .request_setting(&acting, &key, value, &colleague.key.sign(&message))
         .await
         .expect("a second version is requested");
     assert!(pending.sealed_seq.is_none(), "it must not be applied yet");
@@ -1536,17 +1676,16 @@ async fn the_interlock_cannot_be_satisfied_by_one_operator_asserting_twice() {
     // The same operator now seconds their own change, with a genuine signature.
     let second_message = operators::setting_second_bytes(
         operators_store.deployment(),
-        &operator.id,
+        &colleague.id,
         &pending.id,
         &key,
         &value_digest_of(&operators_store, &pending.id).await,
     );
+    let acting = colleague
+        .session_for(&sessions_store, "POST", "/admin/settings/second", b"")
+        .await;
     let refused = operators_store
-        .second_setting(
-            &operator.session,
-            &pending.id,
-            &operator.key.sign(&second_message),
-        )
+        .second_setting(&acting, &pending.id, &colleague.key.sign(&second_message))
         .await;
     assert!(
         matches!(refused, Err(OperatorError::SecondedByTheRequester)),
@@ -2129,6 +2268,8 @@ async fn a_second_operator(
     let account = account_of_operator(operators_store, &invitation.subject).await;
     let key = SoftwareKey::random().expect("a keypair");
     an_account_browser_key(operators_store, &account, &key).await;
+    // ADR-0055 fix (g): the app code before the operator key.
+    a_confirmed_app_code(operators_store, sessions_store, &ring(), &account, &key).await;
     let account_session =
         an_account_session(sessions_store, &account, &key, "/admin/operators/self/key").await;
     operators_store
@@ -3784,4 +3925,314 @@ fn a_genesis_grant(
         expires_at_unix: now + 365 * 24 * 3600,
         signature: root.sign(&authority::grant_bytes(&facts)),
     }]
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 fixes (c), (d) and (g), 2026-09-21
+// ---------------------------------------------------------------------------
+
+/// **The standing deployment could not add a third operator.** ADR-0055
+/// fix (c).
+///
+/// Decision 5 calls this shape the standing one: bootstrap operator A, and
+/// colleague B whom A added. Once both had been independently signed in for
+/// seven days the quorum read 2 and B was A's only candidate seconder — but
+/// `0015` §G's fourth clause refuses a seconder the requester created, so B's
+/// signature raised `P0001`, the request sat pending for ever, and
+/// `apply_operator_request` kept returning `None`.
+///
+/// The quorum is per requester now: nobody can second A, so A's request stands
+/// alone **after its delay**, which decision 3 says quorum 1 never removes.
+#[tokio::test]
+async fn the_bootstrap_adds_a_third_operator_when_its_only_colleague_cannot_second_it() {
+    const TAG: &str = "ops_quorum_per_requester";
+    let (_pool, operators_store, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(2)).await;
+    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    // Seven days pass for both. This is the exact state the checker
+    // reproduced in SQL against the live schema.
+    counts_towards_quorum(&operators_store, &operator.id).await;
+    counts_towards_quorum(&operators_store, &colleague.id).await;
+
+    assert_eq!(
+        operators_store
+            .live_independent_operators()
+            .await
+            .expect("the register answers"),
+        2,
+        "two operators could second SOMEBODY -- which is what the old count asked"
+    );
+    assert_eq!(
+        operators_store
+            .quorum_for(&operator.id)
+            .await
+            .expect("the register answers"),
+        1,
+        "and nobody at all can second the bootstrap, because it created the only other one"
+    );
+    assert_eq!(
+        operators_store
+            .quorum_for(&colleague.id)
+            .await
+            .expect("the register answers"),
+        2,
+        "the colleague, the other way round, has a seconder the trigger will accept"
+    );
+
+    // The act the deadlock blocked: the bootstrap asks for a third operator.
+    let name = unique("Third");
+    let address = unique("third@example.org");
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/operators", b"")
+        .await;
+    let message = operators::operator_request_bytes(
+        operators_store.deployment(),
+        &operator.id,
+        &name,
+        &address,
+    );
+    let pending = operators_store
+        .request_operator(&acting, &name, &address, &operator.key.sign(&message))
+        .await
+        .expect("an operator may request a colleague");
+    assert!(
+        pending.single_operator,
+        "the row records a quorum of 1 for THIS requester, which is the fix"
+    );
+    assert_eq!(
+        pending.applied_at_unix, 0,
+        "quorum 1 removes the second signature and never the delay"
+    );
+
+    tokio::time::sleep(Duration::from_millis(2400)).await;
+    let issued = operators_store
+        .apply_due_operator_requests()
+        .await
+        .expect("the delay elapsed");
+    assert!(
+        issued.iter().any(|i| i.purpose == Purpose::Setup),
+        "before fix (c) this returned nothing, for ever: the quorum demanded a signature the \
+         database refuses to store"
+    );
+}
+
+/// **The trigger's refusal is a rule, not a 500.** ADR-0055 fix (c).
+///
+/// `fathom_seconder_is_independent` raises `P0001`, which arrived as a plain
+/// `tokio_postgres::Error`, fell into `admin.rs`'s `other` arm and became
+/// `SessionError::Corrupt("operator plane")` — an integrity alarm for a rule
+/// the deployment was correctly applying.
+#[tokio::test]
+async fn a_seconder_the_requester_created_is_a_typed_refusal_and_not_an_alarm() {
+    const TAG: &str = "ops_seconder_typed";
+    // Two seconds, not six hundred: `a_second_operator` waits out the delay
+    // to mint the colleague, and the rest of this test happens inside it.
+    let (_pool, operators_store, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(2)).await;
+    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    counts_towards_quorum(&operators_store, &operator.id).await;
+    counts_towards_quorum(&operators_store, &colleague.id).await;
+
+    // A first version applies at once, so the second takes the interlock.
+    let key = unique("seconder-typed");
+    request_and_expect_applied(&operators_store, &operator, &key, b"first").await;
+
+    let value = b"second";
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/settings", b"")
+        .await;
+    let message =
+        operators::setting_request_bytes(operators_store.deployment(), &operator.id, &key, value);
+    let pending = operators_store
+        .request_setting(&acting, &key, value, &operator.key.sign(&message))
+        .await
+        .expect("a second version is requested");
+
+    // The colleague -- whom this requester created -- tries to second it,
+    // with a genuine signature over the genuine bytes. Everything is real
+    // except the two-humans rule.
+    let second_message = operators::setting_second_bytes(
+        operators_store.deployment(),
+        &colleague.id,
+        &pending.id,
+        &key,
+        &value_digest_of(&operators_store, &pending.id).await,
+    );
+    let acting = colleague
+        .session_for(&sessions_store, "POST", "/admin/settings/second", b"")
+        .await;
+    let refused = operators_store
+        .second_setting(&acting, &pending.id, &colleague.key.sign(&second_message))
+        .await;
+    assert!(
+        matches!(refused, Err(OperatorError::SeconderNotIndependent)),
+        "0015 §G's refusal must name the rule, not raise an integrity alarm: {refused:?}"
+    );
+}
+
+/// **`first_independent_signin_at` is inside the row seal, and the count that
+/// reads it verifies the seal.** ADR-0055 fix (d).
+///
+/// Decision 3 made that column decide whether a second signature is required
+/// at all, and `0015_operator_console.sql`:162 grants the APPLICATION role
+/// `UPDATE` on it with a write policy whose `WITH CHECK` is only the two
+/// custodies. So the write below is one the runtime role can make — this test
+/// makes it through `OperatorStore::pool()`, not as the superuser — and before
+/// fix (d) it moved the quorum with nothing raised.
+#[tokio::test]
+async fn a_backdate_without_a_reseal_is_an_alarm_and_not_a_quorum_of_one() {
+    const TAG: &str = "ops_signin_sealed";
+    let (_pool, operators_store, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(2)).await;
+    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    counts_towards_quorum(&operators_store, &operator.id).await;
+    counts_towards_quorum(&operators_store, &colleague.id).await;
+    assert_eq!(
+        operators_store
+            .quorum_for(&colleague.id)
+            .await
+            .expect("the register answers"),
+        2,
+        "the colleague has a seconder, so this is a register a second signature is real in"
+    );
+
+    // The unsealed write, through the application pool, under the custody the
+    // policy names -- everything an application-role attacker has.
+    let mut client = operators_store.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let moved = tx
+        .execute(
+            "UPDATE operators SET first_independent_signin_at = NULL WHERE id = $1",
+            &[&operator.id],
+        )
+        .await
+        .expect("0015:162 grants this column to fathom_app");
+    assert_eq!(
+        moved, 1,
+        "the write itself is permitted; the seal is the fence"
+    );
+    tx.commit().await.expect("commit");
+
+    let answer = operators_store.quorum_for(&colleague.id).await;
+    assert!(
+        matches!(answer, Err(OperatorError::Unverifiable(_))),
+        "a row whose sealed sign-in time was edited must be an alarm, not a quorum of 1: \
+         {answer:?}"
+    );
+}
+
+/// **The sealing writer records once, and the row still verifies afterwards.**
+/// ADR-0055 fix (d), the other half.
+#[tokio::test]
+async fn mark_first_independent_signin_records_once_and_keeps_the_row_verifying() {
+    const TAG: &str = "ops_mark_first_signin";
+    let (_pool, operators_store, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(2)).await;
+    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+
+    let mut client = operators_store.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    assert!(
+        operators::mark_first_independent_signin(&tx, &ring, &operator.id)
+            .await
+            .expect("the row key opens"),
+        "the first call records it"
+    );
+    assert!(
+        !operators::mark_first_independent_signin(&tx, &ring, &operator.id)
+            .await
+            .expect("the row key opens"),
+        "and the second does not: §5.5 wants the FIRST independent sign-in"
+    );
+    // The row still verifies, which is the thing a write without a re-seal
+    // would have broken -- and `verify_operator_row` is on the sign-in path,
+    // so a broken row is an operator who can never sign in again.
+    operators::verify_operator_row(&tx, &ring, &operator.id)
+        .await
+        .expect("the row verifies at its new version");
+    tx.commit().await.expect("commit");
+}
+
+/// **An account with a browser key and no app code cannot register the
+/// operator key every operator act is signed with.** ADR-0055 fix (g), and
+/// decision 10's *"Required for any account holding the operator custody"*.
+///
+/// The old gate was `assurance == A0`. An account that holds the operator
+/// custody and has one live account key signs in at `A1` — password plus a key
+/// signature — so `verify_request`'s setup-only check does not run and the old
+/// gate here passed. The state needs no database access at all:
+/// `account_for_address` reuses an account that already exists at the address,
+/// and an ordinary steward may register a browser key.
+#[tokio::test]
+async fn an_account_with_a_key_and_no_app_code_cannot_register_the_operator_key() {
+    const TAG: &str = "ops_app_code_required";
+    let (_pool, operators_store, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(2)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let key = SoftwareKey::random().expect("a keypair");
+    // A real browser key on the account, and no app code: the state the
+    // product itself produces for a keyed steward who is then promoted.
+    an_account_browser_key(&operators_store, &bootstrap.account_id, &key).await;
+    let account = an_account_session(
+        &sessions_store,
+        &bootstrap.account_id,
+        &key,
+        "/admin/operators/self/key",
+    )
+    .await;
+    assert_eq!(
+        account.assurance(),
+        Assurance::A1,
+        "a key signature is A1, which is exactly how this escaped the old gate"
+    );
+
+    let refused = operators_store
+        .register_own_operator_key(&account, &key.public_key())
+        .await;
+    assert!(
+        matches!(refused, Err(OperatorError::SetupSessionOnly)),
+        "decision 10 makes the app code Required for an account holding the operator custody, \
+         and this is the route that hands out the operator key: {refused:?}"
+    );
+
+    // And once the app code is confirmed -- a real six-digit code -- it works.
+    a_confirmed_app_code(
+        &operators_store,
+        &sessions_store,
+        &ring(),
+        &bootstrap.account_id,
+        &key,
+    )
+    .await;
+    let account = an_account_session(
+        &sessions_store,
+        &bootstrap.account_id,
+        &key,
+        "/admin/operators/self/key",
+    )
+    .await;
+    operators_store
+        .register_own_operator_key(&account, &key.public_key())
+        .await
+        .expect("with an app code on the account, the browser registers its operator key");
 }

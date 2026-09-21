@@ -646,8 +646,11 @@ async fn main() -> ExitCode {
 
     // ADR-0055 stream (c) -- where the console answers, as the console itself
     // set it (`src/placement.rs`). Loaded once here; refreshed on every
-    // placement write and by the sweep, so `admin_exposure` never runs a
-    // query per request.
+    // placement write, by the sweep, and every `placement::SNAPSHOT_TTL` by
+    // the task started below -- so `admin_exposure` never runs a query per
+    // request AND a placement written by another process (the
+    // `console-placement --reset` CLI, or the other container) is honoured
+    // here without a restart.
     let placement = Arc::new(fathom_server::placement::PlacementStore::new(
         pool.clone(),
         Arc::clone(&ring),
@@ -664,6 +667,20 @@ async fn main() -> ExitCode {
             return ExitCode::from(14);
         }
     }
+    // ADR-0055 fix (b): the snapshot re-reads on a timer, so
+    // `fathom-server console-placement --reset` -- decision 11's only way
+    // back from a console lockout -- takes effect on THIS process without a
+    // restart. Before 2026-09-21 the CLI reverted the rows, refreshed its own
+    // process's snapshot and exited, and the server kept enforcing the dead
+    // placement.
+    let placement_refresher =
+        fathom_server::placement::PlacementStore::spawn_snapshot_refresher(Arc::clone(&placement));
+    tracing::info!(
+        ttl_seconds = fathom_server::placement::SNAPSHOT_TTL.as_secs(),
+        "the console placement snapshot re-reads on this interval, so a placement written by \
+         another process -- `console-placement --reset` on the host, or the other container -- \
+         is honoured here without a restart"
+    );
 
     // First start mints the first operator and their enrolment token. The
     // token is the one secret in this program that a human has to read, so it
@@ -994,6 +1011,10 @@ async fn main() -> ExitCode {
     .with_graceful_shutdown(shutdown())
     .await;
 
+    // ADR-0055 fix (b): the placement refresher outlives nothing. Stopped
+    // here so a shutdown does not leave a task holding a pooled connection.
+    placement_refresher.abort();
+
     match served {
         Ok(()) => {
             tracing::info!("stopped cleanly");
@@ -1203,7 +1224,9 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
 /// sealed `console_placement_reverted` entry for each (`revert_reason =
 /// 'host_reset'`), and leaves the console answering wherever
 /// `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` say, or everywhere if they say
-/// nothing. It is loud on purpose: ADR-0043 §2 already puts the host inside
+/// nothing -- on a RUNNING server within `placement::SNAPSHOT_TTL`, because
+/// the serving process holds its own snapshot and this command runs in a
+/// second process. It is loud on purpose: ADR-0043 §2 already puts the host inside
 /// tier 3, so what protects this is custody of the host plus the record that
 /// it happened -- the same argument decision 8 makes for `recover-operator`.
 ///
@@ -1290,12 +1313,20 @@ async fn reset_console_placement() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(cleared) => {
+            // ADR-0055 fix (b): this sentence used to say the console
+            // answered everywhere AS OF THIS COMMAND, which was false -- a
+            // running server held its own snapshot and kept enforcing the
+            // dead placement until it was restarted. It now says what is
+            // true, and the server re-reads on `placement::SNAPSHOT_TTL`.
             tracing::warn!(
                 cleared,
+                takes_effect_within_seconds = fathom_server::placement::SNAPSHOT_TTL.as_secs(),
                 "the console placement was cleared FROM THE HOST and the act is on the site \
-                 chain. The console now answers wherever FATHOM_ADMIN_HOSTS / \
-                 FATHOM_ADMIN_SOURCES say, or everywhere if they are unset. Set it again from \
-                 the console as soon as there is somewhere to set it to"
+                 chain. A running server picks this up within the seconds named above, \
+                 without a restart; after that the console answers wherever \
+                 FATHOM_ADMIN_HOSTS / FATHOM_ADMIN_SOURCES say, or everywhere if they are \
+                 unset. Set it again from the console as soon as there is somewhere to set \
+                 it to"
             );
             ExitCode::SUCCESS
         }
