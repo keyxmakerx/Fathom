@@ -79,15 +79,19 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-21)
 
-**Accepted 2026-09-21, building now: ADR-0055, one person, two custodies.** The owner's asks of
-that day, in their words: their account is the operator, or whoever holds the address in `.env`;
-a password they can reset; more than one operator, a handoff, no lockout; the console on its own
-URL with every operator control gone elsewhere; SMTP and that URL set from the console, not
-`.env`, with a warning, a redirect and a timer that reverts the URL if nobody signs in. The ADR
-holds the decisions and the five-session order: server credentials (password, app code, reset
-tokens), the operator plane (account binding, quorum `min(2, live)`, warnings, host recovery),
-settings and headers (SMTP form, console placement with the confirm-or-revert window, CSP and
-HSTS), the client, then mail and docs. **It is built before the claim route below.**
+**Built 2026-09-21: ADR-0055, one person, two custodies.** The owner's asks of that day are in:
+their account is the operator, or whoever holds the address in `.env`; a password they can reset
+(argon2id, 15–128 characters, an app code beside it — no email as a factor); more than one operator,
+with `FATHOM_SINGLE_OPERATOR` retired in favour of a quorum `min(2, live independent operators)` a
+sole operator satisfies alone; the console can place itself on its own host from inside itself, with
+a warning, a redirect and a window that reverts if nobody signs in; break-glass is `fathom-server
+recover-operator <address>` on the host, sealed and bannered for seven days, with
+`reissue-bootstrap-token` kept as a deprecated alias. **What is left, in the order the ADR's own
+cost list gives it (item 5, "mail and docs"):** sending mail at all, and so reset by mail and
+notices by mail, both designed and waiting on a client; a passkey as the phishing-resistant second
+factor NIST asks for, in place of the app code that ships today; the console UI for a colleague's
+own signature on a request that needs one; and a route that hands a newly requested colleague their
+own setup token, rather than minting and discarding it as today's build does.
 
 **The first thing to build after that: the organisation claim over HTTP.** On 2026-09-21 the owner's
 first real install could not sign in: the client offered the steward door only, and a fresh install

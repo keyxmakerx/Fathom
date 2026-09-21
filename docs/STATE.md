@@ -153,6 +153,28 @@ a master key, custody switched by re-wrapping keys rather than re-encrypting dat
 rotation have separate columns and separate words, and no setting accepts one as a synonym for the
 other.
 
+**The operator plane, as of 2026-09-21 (ADR-0055).** The address is the identity: the first start
+creates an account for `FATHOM_OPERATOR_NOTICE_ADDRESS` and binds the operator custody to it
+(`operator_account_bindings`); a person signs in with that address, a password (argon2id, 15 to 128
+characters) and a TOTP app code (RFC 6238, SHA-1, six digits, ten hashed backup codes for the lost
+phone) — `credentials.rs`, migration 0018. `FATHOM_SINGLE_OPERATOR` is retired; the quorum is
+`min(2, live independent operators)`, counted off the register at every act, so a sole operator adds
+a colleague alone after the 24-hour delay with no switch to ask for (migration 0019,
+`operators.rs`). With one live operator the server warns at every start, and the console banners it,
+never blocking work. Break-glass is `fathom-server recover-operator <address>` on the host: no
+delay, a sealed `operator_recovered_from_host` entry, every operator session banners it for seven
+days; `reissue-bootstrap-token` is kept as a deprecated alias. The console can place itself on its
+own host from inside the console (confirm-or-revert, a five-minute default window) as well as from
+`FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES`, which win when set (migration 0020, `placement.rs`);
+`fathom-server console-placement --reset` clears a placement that locked everyone out. SMTP is a
+console setting with a form (host, port, TLS mode, user, password, from-address) and no client
+behind it yet — every start says so when it is unset. Two response headers, CSP and HSTS, are on
+every response. **Not built**: sending mail, so no reset by mail and no notices by mail yet; a
+passkey as the phishing-resistant second factor NIST asks for (the app code is what ships); the
+console UI for a second operator's own signature on a request that needs one; and a way for the
+console to hand a newly requested colleague their own setup token (today it is minted and
+discarded — finish from the host with `recover-operator` once their account exists).
+
 ---
 
 ## The browser client
@@ -172,6 +194,16 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   on the console's invitations; `operators::BOOTSTRAP_TOKEN_PREFIX`), and sign-in lists the
   identities this browser holds a key for, or looks a typed one up on both planes before any request.
   The first operator is named after the notice address.
+- **Superseded 2026-09-21 by ADR-0055, decision 10: no operator door is a key-only redemption any
+  more.** `Setup.tsx` is what the first-operator token opens now — a password, a TOTP app code shown
+  as an `otpauth://` URI and secret (no QR code, OPEN-QUESTIONS A3), ten backup codes shown once —
+  and `SignIn.tsx` is address, password and app code (or a backup code) for anyone with an account,
+  operator custody included; a browser key is evidence sent alongside a session, not the only way
+  in. `PlacementForm.tsx` sets the console's own host and sources, warns first, redirects, and
+  confirms or reverts inside a window; `SmtpForm.tsx` writes the `smtp` setting (no mail client
+  behind it) and asks for a test send to the requesting operator's own address. `Operators.tsx` adds
+  and disables operators and carries the one-operator warning, but a newly requested colleague's own
+  setup token is minted and discarded — there is no route that hands it over yet.
 - **The operator console** (`client/src/components/console/`): create an account and its
   invitation, reissue one, disable or re-enable an account, create an organisation shell and its
   claim, list operators and organisations; every minted token shown once. Not on it: the two-person

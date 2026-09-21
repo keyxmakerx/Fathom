@@ -82,9 +82,11 @@ FATHOM_BIND="127.0.0.1:8080" \
 created against, and a guessed default would bootstrap an operator nobody can reach.
 
 A first start applies every migration, loads both keys, writes `deployment_started` to the audit
-chain, loads the equipment catalogue, and **creates the first operator with a one-time enrolment
-token**. The token is written to a file and never to the log, because logs get shipped off the
-machine and a token in a log is a token in whatever holds the logs. The log names the path.
+chain, loads the equipment catalogue, and **creates the first operator's account with a one-time
+setup token** (ADR-0055 decision 10). The token opens a setup screen in the browser rather than
+enrolling a browser key — see §5 below. It is written to a file and never to the log, because logs
+get shipped off the machine and a token in a log is a token in whatever holds the logs. The log
+names the path.
 
 Startup refuses rather than half-working. A catalogue that will not parse, a key it cannot read, a
 schema tree that fails a gate, a database role that turns out to be a superuser: each one is an exit
@@ -116,24 +118,40 @@ your server is elsewhere.
 
 ### 5. Sign in
 
-Open the client, paste the token from step 3 on the enrolment screen, and let the browser generate
-your key. The token says what it is for: the file starts with `op_`, so the screen asks for nothing
-else; an account invitation from the console starts with `inv_`, and the screen asks for the address
-it was sent to. (A token file written before 2026-09-21 is bare hex: leave the address empty and it
-is read as an operator's.) The answer names your **operator id**, which the console shows beside
-"Signed in as" and the server's first-start log line carries as `operator_id=`; the first operator
-is named after `FATHOM_OPERATOR_NOTICE_ADDRESS`. Nobody chooses a plane at sign-in: the key in the
-browser is the access, the sign-in screen lists the identities this browser holds a key for, and
-whatever is typed instead is looked up on both planes before anything is sent. There is no password
-anywhere in this product, and no self-registration: every account arrives by invitation, and the
-operator console is where invitations are made — create an account, read its `inv_` token off the
-board, hand it over.
+**The first sign-in.** Open the client with the token file from step 3 in hand (`op_` and 64 hex
+digits); it opens the setup screen the client shows for exactly that shape of token (ADR-0055
+decision 10). Setup asks for the address (`FATHOM_OPERATOR_NOTICE_ADDRESS` — the token file does not
+carry it, because the first start bound the operator custody to that address, not to the file) and a
+password: 15 to 128 characters, no composition rules and no expiry, refused only if it is on the
+bundled common-password list or contains the address. Setting it signs you in to a setup-only
+session and moves straight to the app code: the screen shows the `otpauth://` URI and the secret as
+text (no QR code yet — OPEN-QUESTIONS A3), and asks for the six-digit code your app produces to
+confirm it. Confirming hands back **ten backup codes, shown once** — save them before leaving the
+screen; each is good for one sign-in in place of an app code, for a lost phone.
+
+**Every sign-in after that** is the same three things, at the same door, on any browser: your
+address, your password and your app code (or one of the ten backup codes). No key is copied and no
+device is paired — decision 6.
+
+**The console can live on its own host.** Set it from inside the console itself (decision 11: a
+warning, a countdown, and a window that reverts the move if nobody signs in on the new host in
+time), or from `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES` in the environment, which win over
+whatever the console has set and make its form read-only when they do. See "Where the operator
+console answers" below.
+
+**Recovery**, until SMTP is set in the console (the mail client itself is not built — see "What does
+not work yet"): `fathom-server recover-operator <address>`, run on the host where the key volume is
+mounted. It works for an operator who already exists — it mints no new operator — prints a one-shot
+ten-minute setup code to stdout, and every use is sealed on the site chain and banners every
+operator's session for seven days. `docs/OPERATING.md` has the drill. `reissue-bootstrap-token` is
+kept as a deprecated alias.
 
 **What an operator cannot do yet from the console:** turn an organisation shell into an
 organisation. The shell and its claim token are minted, but the steward-side route that redeems the
 claim is not built (`docs/NEXT.md`, first item), so no organisation exists for a steward to draw in
-until it is. Until 2026-09-21 the client could not redeem an operator token at all, so a fresh
-install had no way in; `.github/workflows/ci.yml`'s compose job now proves the way in over HTTP.
+until it is. Adding a second operator is also incomplete end to end: the request is signed, delayed
+and recorded, but nothing yet hands the colleague their own setup token — finish it from the host
+with `recover-operator` once their account exists (`docs/NEXT.md`).
 
 ### Verified on 2026-09-14, from source
 
@@ -206,8 +224,8 @@ side):
   `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
-To sign in the first time, read the one-time token the first start wrote and paste it into the
-enrolment screen (§5 above says what follows):
+To sign in the first time, read the one-time token the first start wrote and open the setup screen
+with it (§5 above says what follows):
 
 ```sh
 docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
@@ -215,8 +233,10 @@ cat ./first-operator-token
 ```
 
 The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before
-that, `docker compose run --rm server reissue-bootstrap-token` mints another, and refuses the
-moment any operator key has ever been enrolled.
+that, `docker compose run --rm server recover-operator <address>` prints a fresh ten-minute setup
+code to stdout for the operator already bound to that address — it mints nothing new, and it works
+whether or not the first operator ever finished setup. `reissue-bootstrap-token` is kept as a
+deprecated alias.
 
 **A blank page under uBlock Origin, and only "Loading failed for the module".** EasyPrivacy, on by
 default in uBlock Origin, carries the filter `/fathom.$domain=~fathom.care|~fathom.co.za|…` for the
@@ -238,13 +258,18 @@ restart keeps what exists. **Copy that volume somewhere your database backups ar
 first design goes in**; there is no recovery path without it, by design (`docs/OPERATING.md`).
 
 **Where the operator console answers.** `/admin/*` and `/enrolment/operator` are the operator
-console; the rest is the site. `FATHOM_ADMIN_HOSTS` confines the console to host names (a subdomain
-of the site's, or a different domain altogether; your proxy forwards the `Host` header, which
-most do by default) and `FATHOM_ADMIN_SOURCES` to addresses or ranges (judged by the same address rule as
-above). Set one or both. Elsewhere those paths
-are 404, as if the console were not there; the site is served on every host, so an operator on
-the admin host has the whole site too. Both unset means the console answers everywhere, which
-the server says at startup.
+console; the rest is the site. Two ways to confine it (ADR-0055 decision 11), and they do not mix:
+`FATHOM_ADMIN_HOSTS` (host names — a subdomain of the site's, or a different domain altogether; your
+proxy forwards the `Host` header, which most do by default) and `FATHOM_ADMIN_SOURCES` (addresses or
+ranges, judged by the same address rule as above), set in the environment, **win outright** over
+anything set from the console and make the console's own placement form read-only, saying so. Set
+one or both, or set neither and place the console from inside itself instead, with a warning, a
+redirect and a window that reverts the move if nobody signs in on the new host in time. Elsewhere
+those paths are 404, as if the console were not there; the site is served on every host, so an
+operator on the admin host has the whole site too. Nothing set, on either side, means the console
+answers everywhere, which the server says at startup. If a placement locks everyone out and the
+host that confirmed it is gone, `fathom-server console-placement --reset` on the host clears it,
+sealed, back to whatever the environment variables say (or open, if neither is set).
 
 **What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, and nothing else. It is recorded
 once, at first start, and cannot be changed afterwards; a default would create an operator nobody

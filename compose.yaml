@@ -94,9 +94,11 @@
 # START AT ALL.
 #
 # `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.3: a first start mints the first
-# operator and one single-use enrolment token, and writes that token to a file
-# for a human to read -- "whoever can read that volume is the legitimate
-# installer". It is the only way into a new deployment.
+# operator's account and one single-use setup token, and writes that token to
+# a file for a human to read -- "whoever can read that volume is the
+# legitimate installer". Redeeming it opens the setup screen (a password, an
+# app code, ten backup codes -- ADR-0055 decision 10), not a browser key. It
+# is the only way into a new deployment.
 #
 # The server used to derive that file's path from `FATHOM_MASTER_KEY`, so it
 # landed in the `keys` volume -- which is mounted READ-ONLY here, for the good
@@ -119,15 +121,17 @@
 #      without it and this file did not set it -- so even with (1) fixed, a
 #      first start still would not complete.
 #
-# AND THE WAY BACK IF THE TOKEN IS LOST. `fathom-server
-# reissue-bootstrap-token`, run in this container, mints a fresh one into the
-# same file -- but ONLY while no operator key has ever been enrolled. After
-# enrolment it refuses, and it has to: a re-issue that still worked would let
-# anyone who can run a command on this host mint themselves an operator
-# session without ever holding a key this deployment has seen. After that the
-# way back is another operator, or a restore.
+# AND THE WAY BACK IF THE TOKEN IS LOST, OR A PASSWORD OR PHONE IS.
+# `fathom-server recover-operator <address>`, run in this container, works
+# for an operator who ALREADY EXISTS (it mints no new operator) and prints a
+# one-shot ten-minute setup code to STDOUT, not to this file -- it does not
+# refuse once the first operator has finished setup, because that is the
+# ordinary case break-glass exists for (ADR-0055 decision 8). Every use is
+# sealed on the site chain and banners every operator's session for seven
+# days; `docs/OPERATING.md` has the drill. `reissue-bootstrap-token` is kept
+# as a deprecated alias, folding into the same command.
 #
-#     docker compose run --rm server reissue-bootstrap-token
+#     docker compose run --rm server recover-operator you@example.com
 #
 # AND THE ONE THAT MATTERS MOST HERE, REVERSED ON 2026-09-20: **the server is
 # the one published port.** Until then only a Caddy of our own was published,
@@ -321,11 +325,13 @@ services:
       # is only real if nothing that serves a request ever holds this one.
       FATHOM_MIGRATE_DATABASE_URL: "postgres://fathom@db:5432/fathom"
       FATHOM_MIGRATE_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_migrate.pw"
-      # Where the first operator's enrolment token is written, on a first
-      # start and by `reissue-bootstrap-token`. See THE BOOTSTRAP TOKEN VOLUME
-      # in the header for why this is not inside the key volume. The path must
-      # match the mount below and the `ENV` in `deploy/Dockerfile`; all three
-      # say it so that no single one of them is load-bearing.
+      # Where the first operator's one-time setup token is written, on a
+      # first start only -- `recover-operator` (`reissue-bootstrap-token`'s
+      # replacement, ADR-0055 decision 8) prints its code to stdout, not to
+      # this file. See THE BOOTSTRAP TOKEN VOLUME in the header for why this
+      # is not inside the key volume. The path must match the mount below and
+      # the `ENV` in `deploy/Dockerfile`; all three say it so that no single
+      # one of them is load-bearing.
       FATHOM_BOOTSTRAP_TOKEN_FILE: "/var/lib/fathom/bootstrap/first-operator-token"
       # THE ADDRESS OPERATOR NOTICES GO TO -- admin design §5.5's "a settings
       # change was requested" among them -- and the address the first operator
@@ -526,9 +532,11 @@ volumes:
   # `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1's terms: if you copy it off
   # the machine, you have copied all three.
   keys:
-  # One short-lived file: the first operator's enrolment token (§6.3), written
-  # at first start and by `reissue-bootstrap-token`, mode 0400, and meant to be
-  # deleted by hand once it has been redeemed. **Separate from `keys` on
+  # One short-lived file: the first operator's one-time setup token (§6.3),
+  # written at first start only, mode 0400, and meant to be deleted by hand
+  # once it has been redeemed. `recover-operator` (`reissue-bootstrap-token`'s
+  # replacement) prints its code to stdout instead, so it never writes here.
+  # **Separate from `keys` on
   # purpose.** It is a bearer secret for as long as it exists, so it is not in
   # the world-readable places; but it is also the one thing in this deployment
   # the server has to WRITE, and the key volume is read-only to the server by
