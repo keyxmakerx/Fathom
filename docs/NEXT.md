@@ -79,15 +79,15 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-21)
 
-**Proposed 2026-09-21, waiting on the owner: ADR-0055, one person, two custodies.** The owner's
-asks of that day, in their words: their account is the operator, or whoever holds the address in
-`.env`; more than one operator, a handoff, and no lockout; the log says to set SMTP up. The ADR
-makes the notice address the first operator's own account, sign-in by address, operator quorum
-`min(2, live)` with the delay (a sole operator cannot add a second today: `FATHOM_SINGLE_OPERATOR`
-is off and not in compose), a second computer added from a signed-in browser by an on-screen code,
-recovery by mail for the account custody only, and re-keying an operator from the host, sealed and
-noticed. **If accepted it is built before the claim route below.** Three calls are the owner's,
-`docs/OPEN-QUESTIONS.md` C6.
+**Accepted 2026-09-21, building now: ADR-0055, one person, two custodies.** The owner's asks of
+that day, in their words: their account is the operator, or whoever holds the address in `.env`;
+a password they can reset; more than one operator, a handoff, no lockout; the console on its own
+URL with every operator control gone elsewhere; SMTP and that URL set from the console, not
+`.env`, with a warning, a redirect and a timer that reverts the URL if nobody signs in. The ADR
+holds the decisions and the five-session order: server credentials (password, app code, reset
+tokens), the operator plane (account binding, quorum `min(2, live)`, warnings, host recovery),
+settings and headers (SMTP form, console placement with the confirm-or-revert window, CSP and
+HSTS), the client, then mail and docs. **It is built before the claim route below.**
 
 **The first thing to build after that: the organisation claim over HTTP.** On 2026-09-21 the owner's
 first real install could not sign in: the client offered the steward door only, and a fresh install

@@ -332,21 +332,20 @@ and no proxy of ours remains to set them, so the answer is the binary: a few lin
 middleware for CSP, and HSTS gated on `X-Forwarded-Proto: https` from a trusted proxy, checked by
 the `compose` job in `ci.yml`. Until then `docs/RUNNING-IT.md` asks the operator's proxy for HSTS.
 
-### C6. Three calls in ADR-0055, one person, two custodies
+### C6. Three calls in ADR-0055, one person, two custodies — answered
 
-*Proposed 2026-09-21, from the owner's asks of that day.* The rest of the ADR is the project's to
-decide; these three are yours.
+*Proposed 2026-09-21 from the owner's asks of that day; answered the same day ("overall sounds
+good … please proceed").*
 
-1. **A sole operator adding a second waits 24 hours** (admin §3.5's rule, ported). Accept, or
-   waive the wait for the very first colleague of a fresh install? The wait is what lets a real
-   operator cancel an addition made with a stolen key; on a fresh install it is also the first
-   thing you will hit.
-2. **Re-keying an operator from the host has no delay.** Every use is sealed, every operator is
-   notified, and every operator session shows it for seven days. The host already holds every key,
-   so a delay would only slow you down. Accept?
-3. **Passwords stay out.** The browser key stays the credential and passkeys are the next step. A
-   password is the weakest option every source read lists, and it would put a factor the server can
-   re-issue on the admin surface. Accept, or reopen?
+1. **A sole operator adding a second waits 24 hours** (admin §3.5's rule, ported). Stands.
+2. **Re-keying an operator from the host has no delay**, sealed and noticed. Stands.
+3. **Passwords.** Reopened by the owner: *"I really would prefer a password reset though … I want
+   high security."* The answer is ADR-0055 decision 10: a password with an app code beside it,
+   reset by mail for the password only, email never a factor, a passkey as the stronger second
+   factor in the WebAuthn step later. Two further asks landed with it: the console on its own
+   host with every operator control absent elsewhere (decision 9), and SMTP and the console
+   placement set from the console, the placement guarded by a confirm-or-revert window that
+   cannot be turned off (decision 11).
 
 ---
 
