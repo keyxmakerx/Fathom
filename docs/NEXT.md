@@ -77,7 +77,24 @@ comparable amount again.
 
 ---
 
-## Handoff — read this first (updated 2026-09-18)
+## Handoff — read this first (updated 2026-09-21)
+
+**The first thing to build now: the organisation claim over HTTP.** On 2026-09-21 the owner's
+first real install could not sign in: the client offered the steward door only, and a fresh install
+holds one credential, the first-operator token. That is fixed (operator enrolment, operator sign-in,
+the operator console; `docs/STATE.md`, "The browser client"), and `ci.yml`'s compose job now proves
+the way in over HTTP. **What is still missing between an install and a drawing** is the step after
+it: an operator mints an organisation shell and its claim token, and `operators::redeem_organisation_claim`
+— the steward's genesis, admin §6.1 — has no route (`admin.rs` says why: it needs a root public
+key, an id salt and root-signed genesis grants to cross a real HTTP boundary, §3.8's standing
+question). The work is one route in `admin.rs` or `api.rs` taking `LP(token) ‖ LP(notice_address)
+‖ LP(root_pubkey) ‖ LP(id_salt) ‖ grants…` from a steward session, and the client half: generate
+the root keypair in the browser, derive nothing (the server derives the id), sign one genesis grant
+for the redeeming account over `authority::grant_bytes` with `auth_epoch = 1`, send, **and then
+decide what happens to the root private key** — admin §15.2 defers Shamir and names wrapping it to
+recovery holders as the weaker stand-in; discarding it forecloses break-glass for that organisation.
+*That last decision is the owner's* (`docs/OPEN-QUESTIONS.md`); the route and the signing are not.
+Until it lands, a steward who enrols sees "You belong to no organisations yet" and nothing else.
 
 Sessions 1 to 5 are done; Session 6(a), the rear elevation, 6(b), schema 0.8 with shelves,
 surfaces and sketches, and 6(c), the config drawer with the gate in the browser, view-only and the

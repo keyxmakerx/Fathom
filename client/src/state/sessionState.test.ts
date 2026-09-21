@@ -4,6 +4,7 @@ import { getSession, nextRequestCounter, setSession, subscribe } from './session
 
 function aSession(accountId: string) {
   return {
+    kind: 'steward' as const,
     sessionId: '01JXSESSIONIDEXAMPLE00000A',
     token: new Uint8Array(32),
     // Never exercised as a real key pair here; `setSession` stores it

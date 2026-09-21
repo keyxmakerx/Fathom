@@ -14,7 +14,13 @@ import {
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
 import { setSession } from '../state/sessionState';
-import { PRINCIPAL_KIND_STEWARD } from './constants';
+import {
+  keySlot,
+  OPERATOR_PENDING_SLOT,
+  PRINCIPAL_KIND_OPERATOR,
+  PRINCIPAL_KIND_STEWARD,
+  type PrincipalKind,
+} from './constants';
 import { refusalFrom } from './errors';
 import { signedFetch } from './signedFetch';
 
@@ -33,19 +39,25 @@ import { signedFetch } from './signedFetch';
 export class NoEnrolledKeyError extends Error {
   readonly address: string;
 
-  constructor(address: string) {
-    super(`No account key found in this browser for ${address}.`);
+  constructor(address: string, kind: PrincipalKind = PRINCIPAL_KIND_STEWARD) {
+    super(
+      kind === PRINCIPAL_KIND_OPERATOR
+        ? `No operator key found in this browser for operator ${address}.`
+        : `No account key found in this browser for ${address}.`,
+    );
     this.name = 'NoEnrolledKeyError';
     this.address = address;
   }
 }
 
 /**
- * Sign in as a steward at `address`.
+ * Sign in as a steward at `address`, or -- `kind` `'operator'` -- as the
+ * operator whose id `address` is (`./constants.ts`: the operator plane's
+ * address is the operator id).
  *
  * Generates a fresh, non-extractable session keypair; asks the server for a
  * challenge bound to its public half; signs that challenge with the
- * address's account key; and exchanges the result for a session.
+ * principal's enrolled key; and exchanges the result for a session.
  *
  * Uses the enrolled key if this browser has one. If it does not, it falls
  * back to a PENDING key for the address (`../crypto/keys.ts`) -- the state
@@ -54,22 +66,34 @@ export class NoEnrolledKeyError extends Error {
  * pending key the server never actually enrolled costs exactly one refused
  * sign-in here and nothing else; a pending key the server did enrol lets
  * this call succeed, and success promotes it to the enrolled slot so the
- * next sign-in does not need this fallback.
+ * next sign-in does not need this fallback. An operator has one more place
+ * to look: `OPERATOR_PENDING_SLOT`, where `redeemOperatorEnrolment` leaves
+ * a key whose owner the server never got to say.
  *
  * Throws [`NoEnrolledKeyError`] before any network call if this browser
  * holds neither, and an [`ApiRefusal`](./errors.ts) — the server's own
  * uniform wording, unchanged — for every refusal the server itself can
  * produce.
  */
-export async function signIn(address: string): Promise<void> {
-  let enrolledKeyPair = await getEnrolledKeyPair(address);
-  let usingPendingKey = false;
+export async function signIn(address: string, kind: PrincipalKind = PRINCIPAL_KIND_STEWARD): Promise<void> {
+  const slot = keySlot(kind, address);
+  let enrolledKeyPair = await getEnrolledKeyPair(slot);
+  // Which pending slot the fallback key came from, so success can promote
+  // exactly that one into `slot`.
+  let pendingSlot: string | null = null;
   if (!enrolledKeyPair) {
-    enrolledKeyPair = await getPendingKeyPair(address);
-    if (!enrolledKeyPair) {
-      throw new NoEnrolledKeyError(address);
+    enrolledKeyPair = await getPendingKeyPair(slot);
+    if (enrolledKeyPair) {
+      pendingSlot = slot;
+    } else if (kind === PRINCIPAL_KIND_OPERATOR) {
+      enrolledKeyPair = await getPendingKeyPair(OPERATOR_PENDING_SLOT);
+      if (enrolledKeyPair) {
+        pendingSlot = OPERATOR_PENDING_SLOT;
+      }
     }
-    usingPendingKey = true;
+    if (!enrolledKeyPair) {
+      throw new NoEnrolledKeyError(address, kind);
+    }
   }
 
   const sessionKeyPair = await generateKeyPair();
@@ -77,7 +101,7 @@ export async function signIn(address: string): Promise<void> {
 
   // Body: LP(principal_kind) || LP(address) || LP(session_pubkey)
   const challengeBody = concatBytes(
-    lp(utf8(PRINCIPAL_KIND_STEWARD)),
+    lp(utf8(kind)),
     lp(utf8(address)),
     lp(sessionPubkey),
   );
@@ -99,7 +123,7 @@ export async function signIn(address: string): Promise<void> {
 
   // Body: LP(principal_kind) || LP(session_pubkey) || LP(nonce) || LP(evidence_sig)
   const signInBody = concatBytes(
-    lp(utf8(PRINCIPAL_KIND_STEWARD)),
+    lp(utf8(kind)),
     lp(sessionPubkey),
     lp(serverNonce),
     lp(evidenceSig),
@@ -115,16 +139,17 @@ export async function signIn(address: string): Promise<void> {
     new Uint8Array(await signInResponse.arrayBuffer()),
   );
 
-  if (usingPendingKey) {
+  if (pendingSlot !== null) {
     // The server just accepted a signature made with the pending key, so it
     // was enrolled after all -- move it to the enrolled slot. Best effort:
     // if this local write fails, the pending key is simply tried again next
     // time, at the cost of nothing beyond repeating this promotion.
-    await promotePendingKeyPair(address).catch(() => {});
+    await promotePendingKeyPair(pendingSlot, slot).catch(() => {});
   }
 
   setSession({
     sessionId,
+    kind,
     token,
     sessionKeyPair,
     expiresAtUnix,

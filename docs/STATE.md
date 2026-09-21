@@ -158,9 +158,20 @@ other.
 
 Built at `client/` in React, Vite and React Flow; typecheck, tests and build green, `gate-npm` green.
 
-- **Two doors.** Sign-in with a key this browser holds, and enrolment, which redeems an invitation
-  and generates a non-extractable account keypair stored under a pending slot *before* the request
-  goes out, promoted on a confirmed answer, so a key the server has accepted is never lost.
+- **Two doors, on both planes.** Sign-in with a key this browser holds, and enrolment, which redeems
+  a token and generates a non-extractable keypair stored under a pending slot *before* the request
+  goes out, promoted on a confirmed answer, so a key the server has accepted is never lost. **As of
+  2026-09-21 each door takes the operator plane too**: an operator token (`/enrolment/operator`,
+  whose answer now carries the operator id) and sign-in with that id. Until then the client hard-coded
+  the steward plane, so a fresh install's only credential, the first-operator token, could not be
+  redeemed anywhere. `.github/workflows/ci.yml`'s compose job now redeems it and reads the operator
+  register over HTTP with a dependency-free Node script (`scripts/ci/first-operator-signin.mjs`).
+- **The operator console** (`client/src/components/console/`): create an account and its
+  invitation, reissue one, disable or re-enable an account, create an organisation shell and its
+  claim, list operators and organisations; every minted token shown once. Not on it: the two-person
+  verbs (operators, settings), which need an assertion by the enrolled key this client does not
+  build yet; the site trail; and an account list, for which no route exists. **The organisation
+  claim cannot be redeemed**: the steward-side genesis route is not built (`docs/NEXT.md`).
 - **The shell of ADR-0047**: the one-row bar, the path that opens the scope tree, the five lenses,
   search that collapses to its magnifier, presence, undo and redo (disabled: nothing changes the
   graph through them yet), zoom, the account menu; the rail folded to a strip that opens to the
