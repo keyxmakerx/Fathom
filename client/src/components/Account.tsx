@@ -8,6 +8,7 @@ import {
   type TotpEnrolment,
 } from '../api/credentials';
 import { ApiRefusal } from '../api/errors';
+import { describeAppCodeRefusal } from './appCodeRefusal';
 import '../styles/signin.css';
 
 export interface AccountProps {
@@ -190,7 +191,10 @@ export function AppCodeEnrolment({ address, onDone }: AppCodeEnrolmentProps) {
     } catch (error) {
       console.error(error);
       setStage({ kind: 'idle' });
-      setRefusal(describe(error));
+      // ADR-0055 decision 10: an account that already has an app code is
+      // refused here, and the server's own sentence for that case is what
+      // this screen shows (`./appCodeRefusal.ts`).
+      setRefusal(describeAppCodeRefusal(error));
     }
   }
 
@@ -210,7 +214,7 @@ export function AppCodeEnrolment({ address, onDone }: AppCodeEnrolmentProps) {
     } catch (error) {
       console.error(error);
       setStage({ kind: 'enrolled', enrolment });
-      setRefusal(describe(error));
+      setRefusal(describeAppCodeRefusal(error));
     }
   }
 

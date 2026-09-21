@@ -62,9 +62,14 @@ export function Console({ operatorId }: ConsoleProps) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
+  // **A refresh does not put the lists back to `loading`.** `ListBlock`
+  // renders nothing but a word while a list is loading, so doing that would
+  // unmount the register — and with it the add-a-colleague form that has
+  // just asked for this refresh and is holding the server's answer about
+  // what it requested. Observed in the ADR-0055 drive: the request applied,
+  // the confirmation vanished. The first load still shows `loading`,
+  // because that is the state the component starts in.
   const refresh = useCallback(() => {
-    setOperators({ status: 'loading' });
-    setOrganisations({ status: 'loading' });
     listOperators()
       .then((value) => setOperators({ status: 'ready', value }))
       .catch((error: unknown) => setOperators({ status: 'error', message: describe(error) }));

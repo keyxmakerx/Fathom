@@ -326,3 +326,35 @@
   cursor: not-allowed;
   opacity: var(--phantom);
 }
+
+/* The server's own sentence when opening the console was refused — an
+   account that holds no operator custody is the ordinary reason. */
+.console-entry__refusal {
+  margin-bottom: var(--s5);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* The way back to Home from the console, ADR-0055 decision 1: the account
+   session is still open, so this is a change of plane and not a sign-in. A
+   text button, the same shape `account-entry` takes. */
+.console-home {
+  display: block;
+  margin-bottom: var(--s4);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.console-home:hover,
+.console-home:focus-visible {
+  color: var(--ink);
+}

@@ -7,7 +7,13 @@
 import { readLp, toHex } from '../crypto/bytes';
 import { signMessage } from '../crypto/keys';
 import { bodyDigest, requestBytes } from '../crypto/session';
-import { getSession, nextRequestCounter } from '../state/sessionState';
+import {
+  getSessionOn,
+  nextRequestCounter,
+  sessionForPath,
+  type ActiveSession,
+  type Plane,
+} from '../state/sessionState';
 import { HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN } from './constants';
 import { refusalFrom } from './errors';
 
@@ -39,11 +45,44 @@ export async function signedFetchWithHeaders(
   path: string,
   body: Uint8Array = EMPTY_BODY,
 ): Promise<SignedResponse> {
-  const session = getSession();
-  if (!session) {
+  // **Which session signs this** is the path's own question since ADR-0055
+  // decision 1 put two of them in the browser at once: anything under
+  // `/admin` is the operator's and everything else is the account's
+  // (`../state/sessionState.ts`'s `planeForPath`). The counter spent is that
+  // plane's counter, because the server's is monotone per session row.
+  const held = sessionForPath(path);
+  if (!held) {
     throw new Error('no active session: sign in first');
   }
+  return send(held.plane, held.session, method, path, body);
+}
 
+/**
+ * The same request, on a plane the caller names rather than one the path
+ * implies. For `signOut`, which has to end **both** sessions and would
+ * otherwise send `DELETE /session` twice under whichever one the path rule
+ * picked.
+ */
+export async function signedFetchOn(
+  plane: Plane,
+  method: string,
+  path: string,
+  body: Uint8Array = EMPTY_BODY,
+): Promise<Uint8Array> {
+  const session = getSessionOn(plane);
+  if (!session) {
+    throw new Error(`no active session on the ${plane} plane`);
+  }
+  return (await send(plane, session, method, path, body)).bytes;
+}
+
+async function send(
+  plane: Plane,
+  session: ActiveSession,
+  method: string,
+  path: string,
+  body: Uint8Array,
+): Promise<SignedResponse> {
   // §4.1: a signature needs a nonce and the caller has none yet, so one is
   // drawn per request from the bearer-token-authenticated endpoint. The
   // token buys exactly this and nothing more (`sessions::token_hash`'s own
@@ -61,7 +100,7 @@ export async function signedFetchWithHeaders(
   const { value: nonce } = readLp(new Uint8Array(await nonceResponse.arrayBuffer()));
 
   const unixMs = Date.now();
-  const counter = nextRequestCounter();
+  const counter = nextRequestCounter(plane);
   const digest = await bodyDigest(body);
   const message = requestBytes(session.sessionId, method, path, digest, nonce, unixMs, counter);
   const signature = await signMessage(session.sessionKeyPair.privateKey, message);

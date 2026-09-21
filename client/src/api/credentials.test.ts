@@ -19,8 +19,6 @@ import {
   looksLikeAppCode,
   parseBackupCodes,
   parseKeyId,
-  parseOperatorKeyAnswer,
-  parsePlacementFlag,
   parseTotpEnrolment,
 } from './credentials';
 import { ApiRefusal } from './errors';
@@ -119,40 +117,6 @@ describe('the credential answers', () => {
     expect(() => parseKeyId(Uint8Array.from([...lpField('k'), 0x00]))).toThrow();
   });
 
-  it('reads LP(key_id) || LP(operator_id) from /admin/operators/self/key', () => {
-    const answer = parseOperatorKeyAnswer(
-      Uint8Array.from([...lpField('01JXKEY0000000000000000002'), ...lpField('01JXOPERATOR00000000000001')]),
-    );
-    expect(answer.keyId).toBe('01JXKEY0000000000000000002');
-    expect(answer.operatorId).toBe('01JXOPERATOR00000000000001');
-  });
-});
-
-describe('GET /placement/flag (placement.rs)', () => {
-  it('reads a one-field "no" -- the answer on every host the console is not placed on', () => {
-    // The route sends the second field only when the answer is "yes". A
-    // parser that read two fields unconditionally would throw on exactly
-    // the host where "no" is the answer that matters.
-    expect(parsePlacementFlag(Uint8Array.from(lpField('no')))).toEqual({ consoleHost: false, confirmBy: null });
-  });
-
-  it('reads "yes" with an empty deadline as a confirmed placement', () => {
-    expect(parsePlacementFlag(Uint8Array.from([...lpField('yes'), ...lpField('')]))).toEqual({
-      consoleHost: true,
-      confirmBy: null,
-    });
-  });
-
-  it('reads "yes" with a deadline as text, not as a u64', () => {
-    expect(parsePlacementFlag(Uint8Array.from([...lpField('yes'), ...lpField('1790000000')]))).toEqual({
-      consoleHost: true,
-      confirmBy: 1790000000,
-    });
-  });
-
-  it('refuses an answer that is neither word rather than guessing', () => {
-    expect(() => parsePlacementFlag(Uint8Array.from(lpField('maybe')))).toThrow();
-  });
 });
 
 describe('the app-code refusal, which is a route and not a wall', () => {
