@@ -250,7 +250,7 @@ async fn a_confirmed_app_code(
         tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
             .await
             .expect("session custody");
-        let row = credentials::read_credentials(&tx, account)
+        let row = credentials::read_credentials(&tx, &ring(), account)
             .await
             .expect("read")
             .expect("the account exists");
