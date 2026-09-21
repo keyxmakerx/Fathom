@@ -504,6 +504,7 @@ const TABLES: &[TableClaim] = &[
               relay), when it expires, whether it was spent, and the seal. Every one of those \
               is the audit trail of a reset and is meant to be read. No key, no design payload \
               and no device credential lands here.",
+    },
     // ---- ADR-0055 stream (b) --------------------------------------------
     //
     // Added at the END of the list so that the three parallel ADR-0055 streams
@@ -521,6 +522,21 @@ const TABLES: &[TableClaim] = &[
               and carries no payload. What the seal gives it is tamper evidence, which \
               `0019`'s own header argues a column on `operators` could not have had without \
               re-sealing every existing row under a key the migration role does not hold.",
+    },
+    // ADR-0055 stream (c) -- migration `0020_console_placement.sql`.
+    TableClaim {
+        name: "console_placements",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "where the operator console answers: host names, address ranges, the window the \
+              change was made under, which operator asked and their signature over it, which \
+              operator confirmed it on the new host, and whether it reverted and why. **Host \
+              names and CIDR ranges are configuration, not credentials** -- the same values \
+              FATHOM_ADMIN_HOSTS and FATHOM_ADMIN_SOURCES carry in the environment, where they \
+              are also in the clear, and a reader who has this table already has the \
+              environment. There is no free-text column a payload could hide in, and the \
+              signature is what a later reader verifies rather than something to keep. **No \
+              SMTP value lands here**: `smtp` is one more sealed `site_settings_versions` row \
+              (`0015` §F), which is where its ciphertext claim already is.",
     },
 ];
 

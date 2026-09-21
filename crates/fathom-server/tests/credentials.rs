@@ -165,7 +165,7 @@ async fn operator_store(pool: &Pool, ring: Arc<KeyRing>) -> OperatorStore {
     let deployment = chains::deployment_id(&**client)
         .await
         .expect("this deployment is stamped at startup");
-    OperatorStore::with_delay(pool.clone(), ring, deployment, true, Duration::from_secs(1))
+    OperatorStore::with_delay(pool.clone(), ring, deployment, Duration::from_secs(1))
 }
 
 /// One account and the key it would sign with if it had one enrolled.

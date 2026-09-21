@@ -523,6 +523,24 @@ pub enum EntryType {
     /// column; the fact that somebody lifted it early is an act, and an act on
     /// the operator plane is a sealed entry.
     OperatorSeatHoldCleared,
+    // ADR-0055 stream (c) -- console placement (decision 11, migration
+    // `0020_console_placement.sql` section C). Three types, written by
+    // `placement.rs`. **None is in §7.2's list**, which predates ADR-0055;
+    // `0020`'s own header carries the report, as `0013` §G and `0015` §J
+    // carried theirs.
+    /// An operator moved the console to a host and a set of sources. It
+    /// applies AT ONCE (`0020`: `sealed_seq NOT NULL` from the `INSERT`), so
+    /// this entry records a change that has already happened; what the window
+    /// after it decides is whether the change STAYS.
+    ConsolePlacementRequested,
+    /// An operator reached the console on the new host inside the window. The
+    /// confirmation is not a route: it is the first `/admin` request that
+    /// verifies there.
+    ConsolePlacementConfirmed,
+    /// The window ran out with no confirmation, or `fathom-server
+    /// console-placement --reset` cleared a placement from the host. The
+    /// entry's `reason` says which.
+    ConsolePlacementReverted,
 }
 
 impl EntryType {
@@ -584,6 +602,10 @@ impl EntryType {
             Self::FirmwareStaged => "firmware_staged",
             Self::FirmwareFetchIssued => "firmware_fetch_issued",
             Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
+            // ADR-0055 stream (c)
+            Self::ConsolePlacementRequested => "console_placement_requested",
+            Self::ConsolePlacementConfirmed => "console_placement_confirmed",
+            Self::ConsolePlacementReverted => "console_placement_reverted",
         }
     }
 
@@ -645,6 +667,10 @@ impl EntryType {
             "firmware_staged" => Some(Self::FirmwareStaged),
             "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
             "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
+            // ADR-0055 stream (c)
+            "console_placement_requested" => Some(Self::ConsolePlacementRequested),
+            "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
+            "console_placement_reverted" => Some(Self::ConsolePlacementReverted),
             _ => None,
         }
     }
@@ -708,6 +734,10 @@ impl EntryType {
             | Self::OperatorRecoveredFromHost
             | Self::OperatorKeyEnrolled
             | Self::OperatorSeatHoldCleared => &[ChainKind::Site],
+            // ADR-0055 stream (c)
+            | Self::ConsolePlacementRequested
+            | Self::ConsolePlacementConfirmed
+            | Self::ConsolePlacementReverted => &[ChainKind::Site],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded

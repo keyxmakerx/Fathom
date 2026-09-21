@@ -220,6 +220,146 @@ fn cache_control(rel: &Path) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (c) -- decision 12's two headers
+// ---------------------------------------------------------------------------
+
+/// **A content security policy on every response, and HSTS when a trusted
+/// proxy says the request arrived over TLS.** ADR-0055 decision 12, which
+/// closes `docs/OPEN-QUESTIONS.md` C5.
+///
+/// # Where these values come from, and why they are not from memory
+///
+/// CLAUDE.md rule 1: a CSP named from memory is a security answer from
+/// memory. Both values were looked up at build time, on **2026-09-21**, from
+/// the OWASP Cheat Sheet Series' own source:
+///
+/// * <https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/HTTP_Headers_Cheat_Sheet.md>
+///   -- HSTS: *"`Strict-Transport-Security: max-age=63072000; includeSubDomains;
+///   preload`"*, with its own NOTE that a misconfigured header or a bad
+///   certificate locks legitimate users out;
+/// * <https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Content_Security_Policy_Cheat_Sheet.md>
+///   -- the HTTP-headers sheet defers the directive values to this one, whose
+///   tightened basic policy is *"`default-src 'none'; script-src 'self';
+///   connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors
+///   'self'; form-action 'self';`"*.
+///
+/// # The places this policy differs from that line, each with a reason
+///
+/// 1. **`'wasm-unsafe-eval'` in `script-src`.** The client loads the Fathom
+///    engine as a WebAssembly module. W3C CSP Level 3
+///    (<https://raw.githubusercontent.com/w3c/webappsec-csp/main/index.bs>,
+///    read 2026-09-21) says of `script-src`: *"The following WebAssembly
+///    execution sinks are gated on the `wasm-unsafe-eval` or the
+///    `unsafe-eval` source expressions: `new WebAssembly.Module()`,
+///    `WebAssembly.compile()`, `WebAssembly.compileStreaming()`,
+///    `WebAssembly.instantiate()`, `WebAssembly.instantiateStreaming()`"*,
+///    and the same section notes that `wasm-unsafe-eval` *"only permits
+///    WebAssembly and does not affect JavaScript"*. So it is the narrower of
+///    the two, and `'unsafe-eval'` is NOT here.
+/// 2. **`style-src-attr 'unsafe-inline'`, with `style-src` left at `'self'`.**
+///    React Flow positions every node with an inline `style` ATTRIBUTE
+///    (`transform: translate(...)`), which `style-src` blocks. CSP Level 3
+///    splits attributes out: `style-src-attr` governs style attributes,
+///    `style-src-elem` governs `<style>` elements and stylesheet links. So
+///    inline `<style>` blocks and injected stylesheets stay refused while the
+///    diagram keeps working -- the narrowest shape that runs the product, and
+///    what `scripts/drive-csp.mjs` proves against the real built client
+///    rather than against a belief about it.
+/// 3. **`frame-ancestors 'none'` rather than `'self'`.** Nothing in Fathom
+///    frames Fathom, and the console is the surface an attacker would want
+///    framed.
+///
+/// `img-src` carries `data:` because Vite inlines small assets as data URIs
+/// at build time; `connect-src 'self'` is what the signed-request client
+/// needs and no more.
+///
+/// # What has been PROVEN and what has only been derived
+///
+/// `scripts/drive-csp.mjs` runs the built client behind this binary in a real
+/// Chromium and fails on one violation: the enrolment door, the sign-in form
+/// and the port gallery all render with no CSP refusal (run 2026-09-21).
+/// **The rack view and the WebAssembly engine are behind a signed-in session
+/// and were not in that run**, so `style-src-attr` and `'wasm-unsafe-eval'`
+/// rest on the specification and on React Flow's documented behaviour rather
+/// than on a drive. That is said here rather than left to be assumed, and the
+/// script's own header names the next step.
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self' \
+     'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' data:; style-src 'self'; \
+     style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'self'; \
+     frame-ancestors 'none'";
+
+/// OWASP's recommendation **without `preload`**, and the omission is a
+/// decision rather than an oversight: preloading is a submission to a
+/// browser-vendor list that applies to a whole domain and is slow to undo, so
+/// it is the deployment's call and not this binary's. Two years and
+/// `includeSubDomains` are OWASP's own numbers, read 2026-09-21 at the URL
+/// above.
+pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000; includeSubDomains";
+
+/// What the header layer needs: how this deployment decides who a request
+/// came from, which is the same rule the rate limiter and `admin_exposure`
+/// read (`crate::client_address`).
+#[derive(Clone, Debug, Default)]
+pub struct SecurityHeaders {
+    client_address: crate::client_address::ClientAddress,
+}
+
+impl SecurityHeaders {
+    pub fn new(client_address: crate::client_address::ClientAddress) -> Self {
+        Self { client_address }
+    }
+
+    /// Whether this request arrived over TLS **as a proxy this deployment
+    /// trusts says it did**.
+    ///
+    /// `X-Forwarded-Proto` is a header any client can write, so it is read
+    /// only from a peer inside `FATHOM_TRUSTED_PROXIES` -- the same rule
+    /// `ClientAddress` applies to `X-Forwarded-For`, and for the same reason:
+    /// HSTS from a forged header would pin a browser to HTTPS for a
+    /// deployment that has none, which is a denial of service the person at
+    /// the browser cannot undo.
+    fn arrived_over_tls(
+        &self,
+        headers: &axum::http::HeaderMap,
+        extensions: &axum::http::Extensions,
+    ) -> bool {
+        if !crate::placement::from_a_trusted_proxy(&self.client_address, extensions) {
+            return false;
+        }
+        headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            // The last entry, as with `X-Forwarded-For`: the nearest proxy
+            // wrote it.
+            .and_then(|line| line.rsplit(',').map(str::trim).find(|e| !e.is_empty()))
+            .map(|proto| proto.eq_ignore_ascii_case("https"))
+            .unwrap_or(false)
+    }
+}
+
+/// The layer `main.rs` mounts over the whole application.
+pub async fn security_headers(
+    axum::extract::State(policy): axum::extract::State<SecurityHeaders>,
+    request: axum::extract::Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let over_tls = policy.arrived_over_tls(request.headers(), request.extensions());
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    if over_tls {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static(STRICT_TRANSPORT_SECURITY),
+        );
+    }
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

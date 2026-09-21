@@ -1679,28 +1679,43 @@ impl SessionStore {
                         SessionError::SignInRefused,
                     ));
                 }
-                match operators::live_operator_key(tx, &self.ring, &account, now).await {
-                    Ok(key) => {
+                match operators::live_operator_keys(tx, &self.ring, &account, now).await {
+                    Ok(keys) if !keys.is_empty() => {
                         // **The operator plane verifies here**, where the
                         // account plane now does too: resolution 8 keeps
                         // `kind = 'operator'` a key sign-in, so there is one
-                        // key and one signature and no password to fall back
-                        // to. `§4.5`: an operator session is `A1` or it does
-                        // not exist.
-                        if let Err(refused) =
+                        // signature and no password to fall back to. `§4.5`:
+                        // an operator session is `A1` or it does not exist.
+                        //
+                        // **Any live key, not the newest** (ADR-0055 decision
+                        // 6 and the lead's resolution 1): an operator who
+                        // registered a second browser's key keeps the first
+                        // browser's. The signature names which one by
+                        // verifying under it.
+                        let Some(key) = keys.into_iter().find(|key| {
                             authority::verify_es256(&key.public_key, &challenge, evidence_sig)
-                        {
-                            let _ = refused;
+                                .is_ok()
+                        }) else {
                             return Err((
                                 Some(AccountBucket::Account(account)),
                                 "evidence_signature",
                                 SessionError::SignInRefused,
                             ));
-                        }
+                        };
                         Some(SignInKey {
                             id: key.id,
                             fpr: key.fpr,
                         })
+                    }
+                    Ok(_) => {
+                        // §4.5: an operator session is `A1` or it does not
+                        // exist. No key, no session, and no weaker factor to
+                        // fall back to.
+                        return Err((
+                            Some(AccountBucket::Account(account)),
+                            "no_signing_key",
+                            SessionError::SignInRefused,
+                        ));
                     }
                     Err(operators::OperatorError::Unverifiable(what)) => {
                         return Err((
@@ -2503,14 +2518,15 @@ impl SessionStore {
                     }
                 }
                 PrincipalKind::Operator => {
-                    match operators::live_operator_key(tx, &self.ring, &row.principal_id, now).await
+                    match operators::live_operator_keys(tx, &self.ring, &row.principal_id, now)
+                        .await
                     {
-                        // The operator's LIVE key must still be the one that
-                        // proved this session. An operator who enrolled a
-                        // second key does not keep a session the first one
-                        // established, for §8.4's reason: a session dies with
-                        // the key that made it.
-                        Ok(key) if &key.id == key_id => {}
+                        // The key that proved this session must still be LIVE.
+                        // Any live key, not the newest (ADR-0055 decision 6):
+                        // registering a second browser's key does not end the
+                        // first browser's session; retiring the key that made
+                        // it does, for §8.4's reason.
+                        Ok(keys) if keys.iter().any(|key| &key.id == key_id) => {}
                         Ok(_) => return Err(SessionError::EvidenceKeyNotInService),
                         Err(operators::OperatorError::Unverifiable(what)) => {
                             return Err(SessionError::Unverifiable(what))

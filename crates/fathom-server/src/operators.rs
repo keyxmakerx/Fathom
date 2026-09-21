@@ -4551,7 +4551,14 @@ impl OperatorStore {
         enter_enrolment_custody(&tx).await?;
         self.check_operator_live(&tx, operator).await?;
         let invitation = self
-            .issue_token(&tx, Purpose::Setup, operator, operator, "setup")
+            .issue_token(
+                &tx,
+                Purpose::Setup,
+                operator,
+                operator,
+                "setup",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
             .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
