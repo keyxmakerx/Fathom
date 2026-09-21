@@ -34,6 +34,7 @@ use fathom_server::authority::SoftwareKey;
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
 use fathom_server::crypto::Key32;
+use fathom_server::grants;
 use fathom_server::keys::KeyRing;
 use fathom_server::operators::{OperatorError, OperatorStore};
 use fathom_server::placement::{self, PlacementState, PlacementStore, TlsMode};
@@ -142,10 +143,23 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
                 .await
             {
                 Ok(bootstrap) => {
+                    // ADR-0055 decision 1's path, as `tests/operators.rs` walks
+                    // it: the bootstrap wrote an account for the notice
+                    // address and bound the custody to it; the browser's key
+                    // is registered on the account and then, from an account
+                    // session, as the operator key every act is signed with.
+                    an_account_browser_key(operators, &bootstrap.account_id, &key).await;
+                    let account = an_account_session(
+                        sessions,
+                        &bootstrap.account_id,
+                        &key,
+                        "/admin/operators/self/key",
+                    )
+                    .await;
                     operators
-                        .redeem_operator_enrolment(&bootstrap.invitation.token, &key.public_key())
+                        .register_own_operator_key(&account, &key.public_key())
                         .await
-                        .expect("the first operator redeems the token from the key volume");
+                        .expect("the account holding the operator custody registers its key");
                     bootstrap.operator_id
                 }
                 Err(OperatorError::AlreadyBootstrapped) => operator_holding(&key).await,
@@ -182,6 +196,71 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
         session_key,
         session,
     }
+}
+
+/// The browser's key on the account itself, the act `POST /credentials/key`
+/// performs, stood in for by the function it calls.
+async fn an_account_browser_key(operators: &OperatorStore, account: &str, key: &SoftwareKey) {
+    let deployment = operators.deployment().to_string();
+    let mut client = operators.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.enrolment_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("enrolment custody");
+    tx.execute("SELECT set_config('app.account_id', $1, true)", &[&account])
+        .await
+        .expect("name the account");
+    grants::enrol_software_key_at_invitation(&tx, &ring(), &deployment, account, &key.public_key())
+        .await
+        .expect("the browser registers a key on its own account");
+    tx.commit().await.expect("commit");
+}
+
+async fn account_address(sessions_store: &SessionStore, account: &str) -> String {
+    let mut client = sessions_store.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+        .await
+        .expect("account custody");
+    let address: String = tx
+        .query_one("SELECT email FROM accounts WHERE id = $1", &[&account])
+        .await
+        .expect("the account row")
+        .get(0);
+    tx.commit().await.expect("commit");
+    address
+}
+
+/// An `A1` account session for `path`, by the existing key sign-in.
+async fn an_account_session(
+    sessions_store: &SessionStore,
+    account: &str,
+    key: &SoftwareKey,
+    path: &str,
+) -> VerifiedSession {
+    let address = account_address(sessions_store, account).await;
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Steward, &address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let signed_in = sessions_store
+        .sign_in(
+            PrincipalKind::Steward,
+            &pubkey,
+            &challenge.nonce,
+            &key.sign(&digest),
+            &source,
+        )
+        .await
+        .expect("an account with a registered key signs in");
+    verify(sessions_store, &signed_in, &session_key, "POST", path, b"").await
 }
 
 async fn operator_holding(key: &SoftwareKey) -> String {
