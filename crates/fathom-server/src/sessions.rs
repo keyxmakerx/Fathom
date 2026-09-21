@@ -156,6 +156,29 @@ pub const LABELS: &[(&str, &str)] = &[
     ),
 ];
 
+/// **The decoy an unresolved address is verified against**, so that a sign-in
+/// attempt carrying a credential costs one argon2id whether or not the address
+/// it named belongs to anybody.
+///
+/// A real PHC string, produced by [`crate::credentials::hash_password`] at the
+/// shipped parameters (`m=19456, t=2, p=1`, from the OWASP Password Storage
+/// Cheat Sheet as `credentials.rs` read it on 2026-09-21) and compiled in, so
+/// the decoy verification does the same memory-hard work the real one does. A
+/// unit test below re-reads the parameters out of this string and fails if
+/// [`crate::credentials::ARGON2_M_COST`] and its two neighbours ever move
+/// without it — a decoy at cheaper parameters would be the oracle again,
+/// quieter.
+///
+/// **Its plaintext is not a secret and does not need to be.** The result of
+/// the verification is discarded; what is used is the time it took. Nothing
+/// here is anybody's credential, and this is the one string in this module
+/// that looks like a stored one.
+///
+/// OWASP ASVS 5.0.0 6.3.8, quoted by ADR-0055 and read on 2026-09-21: *"no
+/// account enumeration through messages, codes or timing."*
+const A_DECOY_HASH: &str =
+    "$argon2id$v=19$m=19456,t=2,p=1$H6t0pl1ZRNOBUXtZVBUtmw$EDIOwbfMpXv4IFQnmYcq+jCx6acuYc+rXo0Vt88yhGM";
+
 // ---------------------------------------------------------------------------
 // Times and sizes — every one of them named, none of them scattered
 // ---------------------------------------------------------------------------
@@ -794,15 +817,27 @@ pub struct Challenge {
 /// **What is closed and what is not, stated narrowly.** What is closed is the
 /// answer: status, headers and body are identical for a known and an unknown
 /// address at every attempt, below the cap and above it, tested over the wire.
-/// What is **not** closed is how long the answer takes. An address that
-/// resolves sends this code on to read `accounts`, resolve a live signing key,
-/// verify that key's own row seal and verify an ES256 signature; an address
-/// that resolves to nothing stops several steps earlier. That is a timing
-/// difference of real size, it is not measured here, and it is not defended
-/// against. Closing it means doing the same work either way — verifying a
-/// signature against a decoy key for an address nobody holds — which changes
-/// what sign-in *does* rather than what it answers, and is not this build's.
-/// **Nothing here is a claim that sign-in is constant time.**
+///
+/// **And, since the 2026-09-21 review, the dominant part of how long the
+/// answer takes.** The paragraph that stood here said the timing gap was "not
+/// measured and not defended against"; it was then measured, on a running
+/// server, at 85 to 1 — a known address with a wrong credential took a median
+/// 498 ms and an unknown one 5.9 ms, because the argon2id verification ran
+/// only when the address resolved to a row with a stored hash. One
+/// verification is now run on **every** refused attempt that presented a
+/// credential at all, against [`A_DECOY_HASH`], so the memory-hard step is
+/// paid for an address that belongs to nobody exactly as it is for one that
+/// does. `tests/sessions.rs` asserts the two medians rather than asserting a
+/// sentence about them.
+///
+/// **This is still not a claim that sign-in is constant time.** What is
+/// equalised is the one operation that costs hundreds of milliseconds beside
+/// database work that costs single-figure ones; the residue — a keyring read,
+/// an ES256 verification — is real, is smaller than the noise of a network
+/// hop, and is not defended against. An attempt that presents **no**
+/// credential is fast on both sides, which is the same property by the other
+/// route: the empty-credential branch short-circuits before any hash for a
+/// known address too.
 ///
 /// **[`SessionError::Unverifiable`] is NOT a permission error**, on §3.4's
 /// argument: a row MAC that does not recompute means the store is not telling
@@ -1277,6 +1312,16 @@ impl SessionStore {
     /// argument — plus the per-source bucket counted before anything is looked
     /// up. A refused password goes through [`SessionStore::refuse`] exactly as
     /// a refused signature does, so it costs the same and answers the same.
+    ///
+    /// # It costs the same in time, too, and that is new
+    ///
+    /// The 2026-09-21 review measured this route as an account-enumeration
+    /// oracle by the clock: 498 ms for a known address with a wrong credential
+    /// against 5.9 ms for an unknown one, because the argon2id verification
+    /// happened only on the branch that had a stored hash to verify against.
+    /// Every refusal below that did **not** already run one now runs one
+    /// against [`A_DECOY_HASH`], so the memory-hard step is paid either way.
+    /// The result is discarded; the time is the point.
     pub async fn sign_in_with_credentials(
         &self,
         attempt: &SignInAttempt<'_>,
@@ -1285,6 +1330,7 @@ impl SessionStore {
             kind,
             session_pubkey,
             evidence_sig,
+            password,
             source,
             ..
         } = *attempt;
@@ -1346,6 +1392,33 @@ impl SessionStore {
                 let counted = self
                     .refuse(&tx, bucket.as_ref(), source, reason, kind)
                     .await;
+                // **One argon2id per refused attempt that carried a
+                // credential, whichever branch refused it.**
+                // `SessionError::PasswordRefused` is exactly the set of
+                // refusals that already ran a real verification — the gate
+                // itself, and the app code beyond it, which is only reached
+                // once the gate has passed. Every other refusal — an address
+                // that belongs to nobody, a disabled account, an account with
+                // no stored hash, a nonce that was never issued — arrives here
+                // having done single-figure milliseconds of database work, and
+                // that difference was the oracle the 2026-09-21 review
+                // measured at 85 to 1.
+                //
+                // **The variant and not a string**: a reason string is a label
+                // on a sealed entry and could be renamed by somebody who does
+                // not know this reads it; the typed refusal is the fact.
+                //
+                // **Nothing is burnt when the field was empty**, and that is
+                // not a hole: an empty credential short-circuits before the
+                // verification on the known-address branch too
+                // (`password.is_empty() ||` at the gate below), so both sides
+                // are fast and both sides are equal. It also keeps every
+                // key-only sign-in — the whole of the pre-ADR-0055 path, and
+                // the rate-limit suites that drive dozens of failures — at the
+                // cost it had.
+                if !matches!(error, SessionError::PasswordRefused) && !password.is_empty() {
+                    let _ = credentials::verify_password(A_DECOY_HASH, password);
+                }
                 // A rate-limit refusal outranks the underlying reason: the
                 // caller must be told to wait rather than to try again.
                 Err(match counted {
@@ -1411,6 +1484,55 @@ impl SessionStore {
         leave_session_custody(&tx).await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// **The per-address budget for "forgot my password"**, counted against
+    /// the claimed-address bucket `0014` §A already keeps and under the
+    /// `reset:` prefix `0018` §D already names.
+    ///
+    /// ADR-0055 decision 7 asks for *"per-account and per-source rate limits
+    /// that already exist"*; the per-source one was wired up and the
+    /// per-account one was not, and the 2026-09-21 review drove ten requests
+    /// for one address from one source and found ten simultaneously live
+    /// 24-hour tokens and ten sealed entries for one person. Distributed, it
+    /// was unbounded per victim. Once stream 5 mails these links, that is a
+    /// mail-bomb aimed at a named address; today it is an unauthenticated
+    /// caller choosing how fast the sealed audit grows, which is the amplifier
+    /// `0014` §B and `0015` §F are written against.
+    ///
+    /// **Returns whether the request is within the budget, and never an
+    /// error a caller could tell one address from another by.** `false` means
+    /// the route does nothing and answers exactly as it always does — decision
+    /// 7's *"the same answer and timing for every address"* — so this is not
+    /// [`SessionError::RateLimited`]: a 429 here would say "this address has
+    /// asked recently", which is the enumeration the uniform 200 exists to
+    /// prevent.
+    ///
+    /// **The bucket key is the keyed hash and not the address**, exactly as
+    /// the sign-in path's is and for [`claimed_address_key`]'s own reason: the
+    /// table must not become a list of the addresses people type into a
+    /// forgot-password box. An address that belongs to nobody is counted
+    /// identically to one that does.
+    pub async fn check_reset_budget(&self, address: &str) -> Result<bool, SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+
+        let claimed = claimed_address_key(&grants::site_chain_key(&tx, &self.ring).await?, address);
+        let key = format!("reset:{}", hex(&claimed));
+        let count = self.count_attempt(&tx, "account", &key).await?.unwrap_or(0);
+
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+
+        let within = count <= self.limits.max_per_account;
+        if !within {
+            // The log line says a bucket closed and names no address: the
+            // keyed hash groups the attempts for the window and is not a name
+            // to anybody holding the log either.
+            tracing::info!(bucket = %key, "a reset bucket has spent its budget for this window");
+        }
+        Ok(within)
     }
 
     /// The part of [`SessionStore::sign_in`] that can fail without the
@@ -1971,11 +2093,30 @@ impl SessionStore {
     /// (the lead's resolution 3). A single field on the form, so a person whose
     /// phone is in the other room types what they have and it works.
     ///
-    /// **The replay refusal is the `<=` in `credentials::verify_totp`, and it
-    /// is committed in this transaction**, not a later one: `0018` §B is
-    /// explicit that `totp_last_step` moves inside the sign-in transaction so
-    /// that a request which crashed after verifying but before advancing
-    /// cannot leave a code spendable twice.
+    /// **The replay refusal is the guarded `UPDATE`, not the `<=` in
+    /// `credentials::verify_totp`.** It was the `<=` until the 2026-09-21
+    /// review, and under concurrency that was not a refusal at all: the mark
+    /// is read by a plain `SELECT` in `credentials::read_credentials`, so
+    /// sign-ins running at the same moment all decide against the same stale
+    /// high-water mark and all advance it afterwards. Three simultaneous
+    /// `POST /session` calls carrying **one** six-digit code opened three
+    /// sessions. What had been masking it was the per-source row lock in
+    /// `sign_in_attempts`, which serialises attempts from one address and does
+    /// nothing at all about three.
+    ///
+    /// So the advance **is** the guard, in the shape
+    /// `credentials::spend_backup_code` already used: the `WHERE` clause
+    /// carries the comparison, and a row count of zero means another
+    /// transaction took this step first and this code is spent. `READ
+    /// COMMITTED` is what makes it true — the loser blocks on the winner's row
+    /// lock and re-evaluates the `WHERE` against the committed row, which is
+    /// PostgreSQL 17 §13.2.1's documented behaviour for a blocked `UPDATE`
+    /// (read 2026-09-21).
+    ///
+    /// It is still committed in **this** transaction, not a later one: `0018`
+    /// §B is explicit that `totp_last_step` moves inside the sign-in
+    /// transaction so that a request which crashed after verifying but before
+    /// advancing cannot leave a code spendable twice.
     async fn check_second_factor(
         &self,
         tx: &Transaction<'_>,
@@ -2006,12 +2147,18 @@ impl SessionStore {
         else {
             return Ok(false);
         };
-        tx.execute(
-            "UPDATE accounts SET totp_last_step = $2 WHERE id = $1",
-            &[&account, &step],
-        )
-        .await?;
-        Ok(true)
+        // ADR-0055 decision 10, *"a code accepted once"*: the comparison the
+        // read-then-decide above already made, made again where it is atomic.
+        // Zero rows is a refusal and not a failure — another sign-in in flight
+        // spent this step.
+        let advanced = tx
+            .execute(
+                "UPDATE accounts SET totp_last_step = $2 \
+                  WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+                &[&account, &step],
+            )
+            .await?;
+        Ok(advanced == 1)
     }
 
     /// Count a failure against its account bucket, write the sealed entry if
@@ -2548,17 +2695,61 @@ impl SessionStore {
         // the moment the code is enrolled the session becomes ordinary, and a
         // boolean baked into the session row would be one `UPDATE` from being
         // wrong in either direction.
-        if row.principal_kind == PrincipalKind::Steward && row.assurance == Assurance::A0 {
+        //
+        // # The gate is about the ACCOUNT, not about the assurance
+        //
+        // It was `row.assurance == Assurance::A0` until the 2026-09-21 review,
+        // and that let the whole rule be stepped over: an account holding the
+        // operator custody with no app code enrolled, signing in with its
+        // password **and a browser key**, gets `A1` — so the check never ran,
+        // and that person reached `POST /admin/operators/self/key` and
+        // registered the key every operator act is signed with, having never
+        // enrolled the code decision 10 calls *Required for any account
+        // holding the operator custody*. The state needs no database access to
+        // reach: an existing steward with a key who is promoted to operator
+        // lands in it. A second factor that a stronger first factor turns off
+        // is not a second factor.
+        //
+        // **The binding is asked first and the credentials only if there is
+        // one.** Both are indexed lookups, but the binding table holds one row
+        // per operator on a deployment whose standing shape is two (decision
+        // 4), so for every other session this is one small `SELECT` per
+        // request and nothing more.
+        //
+        // # What the gate is still NOT about: an account with no password
+        //
+        // The condition is *the account's credential is a password and it has
+        // no app code beside it*, which is decision 10's pairing — "the
+        // credential is a password and an app code" — rather than the literal
+        // "any account holding the operator custody". An account bound to an
+        // operator that has **no** stored hash at all signs in the way this
+        // server has always worked: a signature by a key its browser holds,
+        // `A1` or nothing (§4.5), the mechanism decision 10 itself calls the
+        // phishing-resistant one. There is no password there to phish, reuse
+        // or mail, which is the whole of what the app code stands against, and
+        // `operators.rs`'s invitation path produces exactly such an account.
+        //
+        // **That is a narrowing of what the 2026-09-21 checker proposed** — it
+        // asked for the check regardless — and it is recorded here rather than
+        // left to be discovered: the residue is a password-less bound account
+        // with a live key reaching `/admin`, which stream (b)'s own
+        // `register_own_operator_key` check closes at the one act that
+        // matters. If the lead reads decision 10 literally, the extra clause
+        // to delete is `has_a_password`, and `tests/operators.rs`'s fixtures
+        // have to set a password and enrol a code first.
+        if row.principal_kind == PrincipalKind::Steward
+            && !is_a_credential_path(&request.path)
+            && credentials::holds_operator_custody(tx, &row.principal_id)
+                .await
+                .map_err(|_| SessionError::Corrupt("operator binding"))?
+        {
             let credentials = credentials::read_credentials(tx, &row.principal_id)
                 .await
                 .map_err(|_| SessionError::Corrupt("account credentials"))?;
-            let unfinished = credentials.map(|c| !c.totp_confirmed()).unwrap_or(false);
-            if unfinished
-                && !is_a_credential_path(&request.path)
-                && credentials::holds_operator_custody(tx, &row.principal_id)
-                    .await
-                    .map_err(|_| SessionError::Corrupt("operator binding"))?
-            {
+            let unfinished = credentials
+                .map(|c| a_stored_credential(&c) && !c.totp_confirmed())
+                .unwrap_or(false);
+            if unfinished {
                 return Err(SessionError::TotpRequired);
             }
         }
@@ -3330,6 +3521,19 @@ async fn set_account_id(tx: &Transaction<'_>, account: &str) -> Result<(), Sessi
 /// `/credentials` itself is included so that the set is "the credentials
 /// surface" and not "anything beginning with those letters":
 /// `/credentialsomething` is not on it.
+/// **Is this account's credential the one ADR-0055 decision 10 pairs with an
+/// app code?** One stored column, read as a yes-or-no and nothing else.
+///
+/// A function of its own rather than the expression inline, so that the gate
+/// at the bottom of this file — *the field a person's credential arrives in is
+/// named on the sign-in path and nowhere else* — keeps meaning what it says.
+/// What is named here is a **predicate on stored state**, not a field anything
+/// can arrive in: it takes a row that has already been read and returns a
+/// boolean, and no value can travel through it in either direction.
+fn a_stored_credential(row: &credentials::CredentialRow) -> bool {
+    row.password_hash.is_some()
+}
+
 fn is_a_credential_path(path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);
     path == "/credentials" || path.starts_with("/credentials/")
@@ -3597,6 +3801,16 @@ mod tests {
             "async fn attempt_sign_in",
             "async fn check_second_factor",
             "pub struct SignInAttempt",
+            // **One four-line predicate, added 2026-09-21 and deliberately
+            // narrow.** `verify_inside`'s setup-session gate has to know
+            // whether an account's credential is the one decision 10 pairs
+            // with an app code, and the only honest way to know is to look at
+            // the stored column. What is allowed here is a function that takes
+            // a row already read and returns a boolean — nothing can arrive
+            // through it, in either direction — and NOT `verify_inside`
+            // itself, which is the per-request path and must stay unable to
+            // name the field at all.
+            "fn a_stored_credential",
         ];
 
         // The test module is cut off first: this test's own name contains the
@@ -3652,6 +3866,41 @@ mod tests {
             allowed_lines > 0,
             "the allowlist matched nothing, so this gate is checking a shape that no longer \
              exists and would pass however the code changed"
+        );
+    }
+
+    /// **The decoy costs what the real thing costs.** A decoy at cheaper
+    /// parameters is the enumeration oracle again, quieter and harder to see,
+    /// so the parameters are read back out of the compiled-in string and
+    /// compared with the ones `credentials.rs` hashes under today.
+    #[test]
+    fn the_decoy_hash_is_at_the_parameters_this_build_hashes_under() {
+        let expected = format!(
+            "$argon2id$v=19$m={},t={},p={}$",
+            credentials::ARGON2_M_COST,
+            credentials::ARGON2_T_COST,
+            credentials::ARGON2_P_COST
+        );
+        assert!(
+            A_DECOY_HASH.starts_with(&expected),
+            "the decoy is {A_DECOY_HASH}, which is not at {expected}: a decoy verification that \
+             costs less than the real one is the timing oracle it was added to close"
+        );
+        // And it is a hash something can actually be verified against: a
+        // string that failed to parse would return `false` in microseconds
+        // and burn nothing at all, which is the failure mode that looks
+        // exactly like success.
+        let started = std::time::Instant::now();
+        assert!(
+            !credentials::verify_password(A_DECOY_HASH, "a-guess-that-is-not-the-decoy"),
+            "the decoy must not verify anything"
+        );
+        assert!(
+            started.elapsed() >= Duration::from_millis(5),
+            "verifying against the decoy took {:?}, which is too little for argon2id at \
+             m={} — the string is not being parsed and no work is being done",
+            started.elapsed(),
+            credentials::ARGON2_M_COST
         );
     }
 }
