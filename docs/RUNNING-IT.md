@@ -236,7 +236,10 @@ The token is a bearer secret with one use; delete both copies once redeemed. If 
 that, `docker compose run --rm server recover-operator <address>` prints a fresh ten-minute setup
 code to stdout for the operator already bound to that address — it mints nothing new, and it works
 whether or not the first operator ever finished setup. `reissue-bootstrap-token` is kept as a
-deprecated alias.
+deprecated alias. A deployment first started by a build before ADR-0055 has an operator and no
+binding; the first start of a newer build binds them to the install address and writes the same
+token file (`docs/OPERATING.md`, "What to check after an upgrade"), so start the server once on
+the new build before running `recover-operator` there.
 
 **A blank page under uBlock Origin, and only "Loading failed for the module".** EasyPrivacy, on by
 default in uBlock Origin, carries the filter `/fathom.$domain=~fathom.care|~fathom.co.za|…` for the

@@ -163,7 +163,10 @@ a colleague alone after the 24-hour delay with no switch to ask for (migration 0
 `operators.rs`). With one live operator the server warns at every start, and the console banners it,
 never blocking work. Break-glass is `fathom-server recover-operator <address>` on the host: no
 delay, a sealed `operator_recovered_from_host` entry, every operator session banners it for seven
-days; `reissue-bootstrap-token` is kept as a deprecated alias. The console can place itself on its
+days; `reissue-bootstrap-token` is kept as a deprecated alias. A deployment first started by a
+build before ADR-0055 is adopted on the new build's first start: the bootstrapped operator is bound
+to the install address, their old keys and sessions retired, one sealed `operator_adopted` entry,
+and the same setup token file (migration 0026). The console can place itself on its
 own host from inside the console (confirm-or-revert, a five-minute default window) as well as from
 `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES`, which win when set (migration 0020, `placement.rs`);
 `fathom-server console-placement --reset` clears a placement that locked everyone out. SMTP is a
