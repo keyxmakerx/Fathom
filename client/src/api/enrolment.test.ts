@@ -27,10 +27,12 @@ import { ApiRefusal } from './errors';
 import {
   actionForOutcome,
   buildRedeemAccountBody,
+  buildRedeemOperatorBody,
   EnrolmentNotAttemptedError,
   EnrolmentOutcomeUnknownError,
   MalformedTokenError,
   parseRedeemAccountResponse,
+  parseRedeemOperatorResponse,
   parseToken,
   redeemAccountEnrolment,
 } from './enrolment';
@@ -94,6 +96,45 @@ describe('parseRedeemAccountResponse (admin.rs redeem_account\'s answer)', () =>
     // either way it must not be silently dropped.
     const withTrailer = new Uint8Array([...encodeKeyId('01JXENROLKEYIDEXAMPLE0000A'), 0xff]);
     expect(() => parseRedeemAccountResponse(withTrailer)).toThrow(/trailing/);
+  });
+});
+
+// The operator plane's two vectors, by the same Python method as above:
+//   (lp(token) + lp(pubkey)).hex()                        -- the body
+//   (lp(b"01JXOPERATORKEYID0000000AB") + lp(b"01JXOPERATORIDEXAMPLE00001")).hex()  -- the answer
+const EXPECTED_OPERATOR_BODY_HEX =
+  '20000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f41' +
+  '00000004462dba1ae4fc1a968b4dacf20cdd6dbe1fae34aa971514a63d3405c3d1cfd383b5' +
+  '8bbb08c13383428c5853c71c4c851e134b056821e468fe0a977abf4313dde1';
+const OPERATOR_ANSWER_HEX =
+  '1a00000030314a584f50455241544f524b455949443030303030303041421a00000030314a58' +
+  '4f50455241544f5249444558414d504c453030303031';
+
+describe('buildRedeemOperatorBody (admin.rs redeem_operator)', () => {
+  it('is LP(token) || LP(public_key), no operator id, and nothing after the second field', () => {
+    const body = buildRedeemOperatorBody(TOKEN, PUBLIC_KEY);
+    expect(toHex(body)).toBe(EXPECTED_OPERATOR_BODY_HEX);
+    let rest = body;
+    for (let i = 0; i < 2; i += 1) {
+      const len = new DataView(rest.buffer, rest.byteOffset, 4).getUint32(0, true);
+      rest = rest.slice(4 + len);
+    }
+    expect(rest.length).toBe(0);
+  });
+});
+
+describe('parseRedeemOperatorResponse (admin.rs redeem_operator\'s answer)', () => {
+  it('reads LP(key_id) || LP(operator_id)', () => {
+    expect(parseRedeemOperatorResponse(fromHex(OPERATOR_ANSWER_HEX))).toEqual({
+      keyId: '01JXOPERATORKEYID0000000AB',
+      operatorId: '01JXOPERATORIDEXAMPLE00001',
+    });
+  });
+
+  it('refuses a one-field answer (a server from before the operator id was appended) and a trailer', () => {
+    const oneField = fromHex(OPERATOR_ANSWER_HEX).slice(0, 4 + 26);
+    expect(() => parseRedeemOperatorResponse(oneField)).toThrow();
+    expect(() => parseRedeemOperatorResponse(fromHex(`${OPERATOR_ANSWER_HEX}ff`))).toThrow(/trailing/);
   });
 });
 

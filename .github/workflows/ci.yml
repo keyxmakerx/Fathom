@@ -249,6 +249,14 @@ jobs:
         run: |
           docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
           test -s ./first-operator-token
+      # A token nobody can use is not a way in. This speaks the browser
+      # client's own bytes with Node's WebCrypto and no dependency: redeem
+      # the token, sign in as the operator it names, and read the operator
+      # register with a signed request. Until 2026-09-21 the job stopped at
+      # "the file exists", and a client that could not redeem it passed.
+      - name: The token gets the first operator in over HTTP
+        run: |
+          node scripts/ci/first-operator-signin.mjs ./first-operator-token http://localhost:8080
           rm -f ./first-operator-token
       - name: A restart keeps its keys
         run: |

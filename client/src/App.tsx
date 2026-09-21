@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
+import { Console } from './components/console/Console';
 import { Enrol } from './components/Enrol';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
@@ -134,7 +135,9 @@ export default function App() {
   }
 
   const account = {
-    initials: initialsFromAddress(session.address),
+    // An operator id is a ulid, whose "initials" would be two digits: the
+    // chip says what the session is instead.
+    initials: session.kind === 'operator' ? 'OP' : initialsFromAddress(session.address),
     address: session.address,
   };
 
@@ -158,6 +161,24 @@ export default function App() {
     onZoomIn: () => setZoom((z) => Math.min(400, z + 10)),
     onZoomOut: () => setZoom((z) => Math.max(10, z - 10)),
   };
+
+  if (session.kind === 'operator') {
+    // The operator plane has one surface, the console (`docs/UI-SPEC.md`:
+    // "Site (operators only)"), and no camera: neither place is marked
+    // and no design is ever open here, because none is reachable from an
+    // operator session at all (`admin.rs`'s module header).
+    return (
+      <Shell
+        {...common}
+        place={null}
+        path={[{ label: 'Site' }]}
+        tree={null}
+        onPlaceChange={() => {}}
+      >
+        <Console operatorId={session.address} />
+      </Shell>
+    );
+  }
 
   if (view.kind === 'home') {
     return (

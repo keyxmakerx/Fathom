@@ -6,8 +6,14 @@
 // non-extractable, the same way `crypto/keys.ts` already persists an
 // enrolled one).
 
+import type { PrincipalKind } from '../api/constants';
+
 export interface ActiveSession {
   sessionId: string;
+  /** Which plane this session is on (`../api/constants.ts`). An operator
+   * session lands on the operator console and nowhere else; a steward
+   * session lands on Home. `address` is the operator id for the former. */
+  kind: PrincipalKind;
   token: Uint8Array;
   sessionKeyPair: CryptoKeyPair;
   expiresAtUnix: number;

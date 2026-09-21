@@ -189,8 +189,13 @@ export async function deletePendingKeyPair(address: string): Promise<void> {
  * this resolves without changing anything (promotion is idempotent, since
  * both `redeemAccountEnrolment` and `signIn` may call it after already
  * having their own copy of the pair in memory).
+ *
+ * `enrolledAs` is the enrolled slot's key when it differs from the pending
+ * one: an operator's key waits under `OPERATOR_PENDING_SLOT` until the
+ * server's answer names the operator (`../api/constants.ts`), and is filed
+ * under that id here. Every account promotion leaves it at its default.
  */
-export async function promotePendingKeyPair(address: string): Promise<void> {
+export async function promotePendingKeyPair(address: string, enrolledAs: string = address): Promise<void> {
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -201,7 +206,7 @@ export async function promotePendingKeyPair(address: string): Promise<void> {
       getRequest.onsuccess = () => {
         const pair = getRequest.result as CryptoKeyPair | undefined;
         if (pair) {
-          enrolledStore.put(pair, address);
+          enrolledStore.put(pair, enrolledAs);
           pendingStore.delete(address);
         }
       };

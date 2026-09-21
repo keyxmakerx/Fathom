@@ -2846,7 +2846,12 @@ impl OperatorStore {
     /// Redeem an operator's enrolment token: their first key (§5.5, §6.3).
     ///
     /// The operator id comes from the TOKEN, never from the caller, for
-    /// `redeem_account_enrolment`'s reason.
+    /// `redeem_account_enrolment`'s reason. **It is also the answer**: the
+    /// returned [`OperatorKey`] names the operator the token was for, because
+    /// that id is what the operator signs in with (`sessions::operator_by_id`:
+    /// *"handed to them once at enrolment"*) and this is the once. Before
+    /// 2026-09-21 only the key id came back, and a browser that had just
+    /// enrolled had no way to learn who it had enrolled as.
     ///
     /// Every refusal here is [`OperatorError::EnrolmentRefused`] too, and
     /// `redeem_account_enrolment`'s note about
@@ -2857,7 +2862,7 @@ impl OperatorStore {
         &self,
         token: &[u8],
         public_key: &[u8],
-    ) -> Result<String, OperatorError> {
+    ) -> Result<OperatorKey, OperatorError> {
         check_public_key(public_key)?;
 
         let mut client = self.pool.get().await?;
@@ -2978,7 +2983,7 @@ impl OperatorStore {
 
         leave_custody(&tx).await?;
         tx.commit().await?;
-        Ok(key_id)
+        Ok(key)
     }
 
     // -----------------------------------------------------------------------

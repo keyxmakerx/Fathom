@@ -21,6 +21,7 @@ import {
   promotePendingKeyPair,
   putPendingKeyPair,
 } from '../crypto/keys';
+import { keySlot, OPERATOR_PENDING_SLOT, PRINCIPAL_KIND_OPERATOR } from './constants';
 import { refusalFrom } from './errors';
 
 /**
@@ -280,4 +281,128 @@ export async function redeemAccountEnrolment(token: Uint8Array, address: string)
   }
 
   return keyId;
+}
+
+// ---------------------------------------------------------------------------
+// The operator plane: `POST /enrolment/operator`
+// ---------------------------------------------------------------------------
+
+/**
+ * Body: `LP(token) ‖ LP(public_key)` -- what `admin.rs`'s `redeem_operator`
+ * reads with `read_fields(&body, 2)`. **No operator id**: the token names
+ * the operator, so a token issued for one operator cannot enrol a key for
+ * another (`redeem_operator`'s own doc comment). The first-operator token
+ * is the one the server wrote to a file at first start
+ * (`docs/RUNNING-IT.md`); every later operator's arrives through the
+ * console's two-person request.
+ */
+export function buildRedeemOperatorBody(token: Uint8Array, publicKey: Uint8Array): Uint8Array {
+  return concatBytes(lp(token), lp(publicKey));
+}
+
+/** What `POST /enrolment/operator` answers: the enrolled key's id, and the
+ * operator id -- the thing the operator signs in with from now on. */
+export interface OperatorEnrolment {
+  keyId: string;
+  operatorId: string;
+}
+
+/**
+ * Parses `redeem_operator`'s answer: `LP(key_id) ‖ LP(operator_id)`.
+ *
+ * The second field was appended on 2026-09-21 (`admin.rs`, additive on the
+ * wire). A server from before that answers one field, and that is refused
+ * here rather than read as an enrolment with no owner: a key this browser
+ * cannot sign in with is exactly the "accepted and lost" state
+ * `EnrolmentOutcomeUnknownError` exists to name, and the caller treats a
+ * parse failure as that.
+ */
+export function parseRedeemOperatorResponse(bytes: Uint8Array): OperatorEnrolment {
+  const { value: keyIdBytes, rest: afterKeyId } = readLp(bytes);
+  const { value: operatorIdBytes, rest } = readLp(afterKeyId);
+  if (rest.length !== 0) {
+    throw new Error(`malformed /enrolment/operator response: ${rest.length} trailing byte(s)`);
+  }
+  const operatorId = new TextDecoder().decode(operatorIdBytes);
+  if (operatorId.length === 0) {
+    throw new Error('malformed /enrolment/operator response: empty operator id');
+  }
+  return { keyId: new TextDecoder().decode(keyIdBytes), operatorId };
+}
+
+/**
+ * Redeem an operator's enrolment token: the same act as
+ * [`redeemAccountEnrolment`] on the other plane, with the same five steps
+ * and the same state machine (`actionForOutcome`), and one difference this
+ * function is shaped around: **the operator id is not known until the
+ * answer is read**, so the pending key waits under `OPERATOR_PENDING_SLOT`
+ * rather than under its owner, and a confirmed answer promotes it to
+ * `keySlot('operator', operatorId)`. An outcome that cannot be confirmed
+ * leaves it in the sentinel slot, where `signIn` (`./auth.ts`) looks for
+ * an operator's key last -- so the operator can still sign in with the id
+ * the server's own first-start log line names (`operator_id=`), and that
+ * sign-in is what confirms the enrolment after the fact.
+ *
+ * One browser holds one such waiting key: a second operator enrolment
+ * attempted from the same browser while the first's outcome is unknown
+ * replaces it, which is the same "retype the token" cost as before, and is
+ * said here rather than guarded against.
+ */
+export async function redeemOperatorEnrolment(token: Uint8Array): Promise<OperatorEnrolment> {
+  const keyPair = await generateKeyPair();
+  const publicKey = await exportPublicKeyRaw(keyPair.publicKey);
+
+  // Step 1: hold the key provisionally, under the sentinel, before sending.
+  try {
+    await putPendingKeyPair(OPERATOR_PENDING_SLOT, keyPair);
+  } catch (cause) {
+    throw new EnrolmentNotAttemptedError(cause);
+  }
+
+  const body = buildRedeemOperatorBody(token, publicKey);
+
+  // Step 2: send.
+  let response: Response;
+  try {
+    response = await fetch('/enrolment/operator', {
+      method: 'POST',
+      body: body as BodyInit,
+    });
+  } catch (cause) {
+    throw new EnrolmentOutcomeUnknownError(cause);
+  }
+
+  // Step 3: a definite refusal.
+  if (!response.ok) {
+    const refusal = await refusalFrom(response);
+    if (actionForOutcome('refused') === 'delete-pending') {
+      await deletePendingKeyPair(OPERATOR_PENDING_SLOT).catch(() => {});
+    }
+    throw refusal;
+  }
+
+  // Step 4: OK was read, but the body might not be.
+  let enrolment: OperatorEnrolment;
+  try {
+    const out = new Uint8Array(await response.arrayBuffer());
+    enrolment = parseRedeemOperatorResponse(out);
+  } catch (cause) {
+    throw new EnrolmentOutcomeUnknownError(cause);
+  }
+
+  // Step 5: a definite OK, fully read. Promote -- into the slot the answer
+  // named, which is the one `signIn` reads first for this operator.
+  if (actionForOutcome('ok') === 'promote') {
+    try {
+      await promotePendingKeyPair(OPERATOR_PENDING_SLOT, keySlot(PRINCIPAL_KIND_OPERATOR, enrolment.operatorId));
+    } catch (cause) {
+      throw new EnrolmentOutcomeUnknownError(cause);
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+    await navigator.storage.persist().catch(() => {});
+  }
+
+  return enrolment;
 }

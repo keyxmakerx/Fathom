@@ -516,9 +516,15 @@ async fn redeem_account(
 /// `POST /enrolment/operator` — an operator's first key (§5.5, §6.3).
 ///
 /// Body: `LP(token) ‖ LP(public_key)`.
+/// Answer: `LP(key_id) ‖ LP(operator_id)`.
 ///
-/// **No operator id field**: the operator is the one the token names, so a
-/// token issued for one operator cannot enrol a key for another.
+/// **No operator id field in the body**: the operator is the one the token
+/// names, so a token issued for one operator cannot enrol a key for another.
+/// **The operator id is in the answer**, appended after the key id on
+/// 2026-09-21 (additive on the wire, as ADR-0053 §3 added `account_id` to
+/// `POST /session`): it is what the operator signs in with from now on
+/// (`sessions::operator_by_id` — *"handed to them once at enrolment"*), and
+/// the browser that generated the key is the one place that has to learn it.
 ///
 /// Counted against the source bucket exactly as [`redeem_account`] is — see
 /// its own doc comment.
@@ -540,8 +546,9 @@ async fn redeem_operator(
         .redeem_operator_enrolment(&fields[0], &fields[1])
         .await
         .map_err(AdminRefusal)?;
-    let mut out = Vec::with_capacity(48);
-    crypto::lp(&mut out, key.as_bytes());
+    let mut out = Vec::with_capacity(96);
+    crypto::lp(&mut out, key.id.as_bytes());
+    crypto::lp(&mut out, key.operator_id.as_bytes());
     Ok(bytes_response(out))
 }
 

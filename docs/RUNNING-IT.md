@@ -115,9 +115,20 @@ your server is elsewhere.
 
 ### 5. Sign in
 
-Open the client, redeem the operator token from step 3, and let the browser generate your key. There
-is no password anywhere in this product, and no self-registration: every account arrives by
-invitation.
+Open the client, choose **An operator token** on the enrolment screen, paste the token from step 3,
+and let the browser generate your key. The answer names your **operator id**, which the console
+shows beside "Signed in as" and the server's first-start log line carries as `operator_id=`: it is
+what you sign in with from then on (choose **An operator** on the sign-in screen), and it is not a
+secret. There is no password anywhere in this product, and no self-registration: every account
+arrives by invitation, and the operator console is where invitations are made — create an account,
+read its token off the board, hand it over, and the person redeems it on the same enrolment screen
+with **An invitation to an account** and their address.
+
+**What an operator cannot do yet from the console:** turn an organisation shell into an
+organisation. The shell and its claim token are minted, but the steward-side route that redeems the
+claim is not built (`docs/NEXT.md`, first item), so no organisation exists for a steward to draw in
+until it is. Until 2026-09-21 the client could not redeem an operator token at all, so a fresh
+install had no way in; `.github/workflows/ci.yml`'s compose job now proves the way in over HTTP.
 
 ### Verified on 2026-09-14, from source
 
@@ -187,7 +198,7 @@ side):
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
 To sign in the first time, read the one-time token the first start wrote and paste it into the
-enrolment screen:
+enrolment screen under **An operator token** (§5 above says what follows):
 
 ```sh
 docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
@@ -197,6 +208,19 @@ cat ./first-operator-token
 The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before
 that, `docker compose run --rm server reissue-bootstrap-token` mints another, and refuses the
 moment any operator key has ever been enrolled.
+
+**A blank page under uBlock Origin, and only "Loading failed for the module".** EasyPrivacy, on by
+default in uBlock Origin, carries the filter `/fathom.$domain=~fathom.care|~fathom.co.za|…` for the
+Fathom Analytics tracker (easylist/easylist, `easyprivacy/easyprivacy_general.txt`, read
+2026-09-21). A plain pattern matches anywhere in the full URL, scheme and host included (uBlock
+Origin's `static-net-filtering.js`, read 2026-09-21), so **every sub-resource of a site served at a
+host name beginning `fathom.` is blocked** — `https://fathom.example.com/assets/main-….js` contains
+`/fathom.` — unless the page's domain is on that filter's exemption list, and yours is not. The
+document itself loads, the module does not, and the page stays blank. Two ways out: serve it under
+a host that does not begin with `fathom.` (`racks.example.com`, `fathom-app.example.com`), or add
+`@@||fathom.example.com^` to uBlock Origin's My filters on every browser that uses it. The server
+cannot fix this; nothing it serves is at fault, and the logger in uBlock Origin shows the filter that
+matched.
 
 **What the stack does for itself.** A one-shot `keys-init` container runs first and generates,
 into the `keys` volume, whatever is missing: the master key and the chain key (mode 0400, owned by
