@@ -440,6 +440,24 @@ const TABLES: &[TableClaim] = &[
               key-protected material either: it protects a public vendor image, it is single-use \
               and minutes long, and it wraps no key.",
     },
+    // ---- ADR-0055 stream (b) --------------------------------------------
+    //
+    // Added at the END of the list so that the three parallel ADR-0055 streams
+    // merge mechanically. Stream (a) claims `backup_codes` and
+    // `password_reset_tokens` and `0018`'s new `accounts` columns; stream (c)
+    // claims `0020`'s placement table.
+    TableClaim {
+        name: "operator_account_bindings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "ADR-0055 decision 1's sealed fact: operator X holds the custody on account Y. Two \
+              opaque ids, the site-chain `seq` of the entry that created it, a timestamp, and a \
+              32-byte seal over the pair. **No secret of any kind**, and deliberately no address \
+              -- the address lives on `accounts` and this row points at it, so a database read \
+              hands an attacker two ulids. Not key-protected material either: it wraps no key \
+              and carries no payload. What the seal gives it is tamper evidence, which \
+              `0019`'s own header argues a column on `operators` could not have had without \
+              re-sealing every existing row under a key the migration role does not hold.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to

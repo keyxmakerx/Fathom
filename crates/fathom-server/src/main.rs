@@ -8,8 +8,21 @@ use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
 use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
 
+/// **ADR-0055 decision 3 retired `FATHOM_SINGLE_OPERATOR`, and a deployment
+/// that still sets it is refused rather than quietly ignored.**
+///
+/// A switch somebody believes still works is worse than a refusal: the
+/// variable used to be the only way a sole operator could change a setting
+/// alone, and an installer who set it and got a running server would believe
+/// a control was in force that no longer exists. The quorum is now
+/// `min(2, live independent operators)`, counted off the register at every
+/// act, which a sole operator satisfies without declaring anything.
+///
+/// CLAUDE.md rule 2's spirit, applied to configuration.
+const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by      ADR-0055 decision 3. Remove it from the environment and start again. The second signature      is now min(2, live independent operators), counted from the operator register: a      deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no      switch to do it.";
+
 /// Where the first operator's enrolment token is written -- on a first start,
-/// and by `reissue-bootstrap-token`.
+/// and nowhere else.
 ///
 /// **The deployment chooses it; it is no longer derived from where the master
 /// key lives.** It was derived, until 2026-09-14, on the argument that the key
@@ -78,24 +91,57 @@ async fn main() -> ExitCode {
         };
     }
     // The second subcommand, and the one that has to be read carefully.
-    // `reissue_bootstrap_token` below carries the argument; the short version
-    // is that it mints a fresh first-operator enrolment token ONLY while no
-    // operator key has ever been enrolled, and refuses loudly afterwards.
+    // `recover_operator` below carries the argument; the short version is that
+    // it prints a ten-minute setup code for an operator who ALREADY EXISTS,
+    // records the act on the site chain, and mints no operator (ADR-0055
+    // decision 8).
     //
     // Unlike `healthcheck` it needs the full configuration, the database and
     // the key material, so it is handled after the arguments are checked and
     // not before.
-    if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
-        if args.len() > 1 {
-            eprintln!("fathom-server: reissue-bootstrap-token takes no arguments");
+    if args.first().map(String::as_str) == Some("recover-operator") {
+        let Some(address) = args.get(1) else {
+            eprintln!("fathom-server: recover-operator takes one argument, the operator's address");
+            return ExitCode::from(2);
+        };
+        if args.len() > 2 {
+            eprintln!("fathom-server: recover-operator takes exactly one argument");
             return ExitCode::from(2);
         }
-        return reissue_bootstrap_token().await;
+        return recover_operator(address, false).await;
+    }
+    // ADR-0055 decision 8: `reissue-bootstrap-token` folds into
+    // `recover-operator`. Kept as an alias because it is in
+    // `docs/OPERATING.md`'s drill and in operators' shell history, and a
+    // command that vanished would be discovered at the worst moment. With no
+    // address it falls back to FATHOM_OPERATOR_NOTICE_ADDRESS, which is the
+    // address the first start bound the first operator to.
+    if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
+        if args.len() > 2 {
+            eprintln!("fathom-server: reissue-bootstrap-token takes at most one argument");
+            return ExitCode::from(2);
+        }
+        let address = match args.get(1) {
+            Some(a) => a.clone(),
+            None => match std::env::var("FATHOM_OPERATOR_NOTICE_ADDRESS") {
+                Ok(a) if !a.trim().is_empty() => a.trim().to_string(),
+                _ => {
+                    eprintln!(
+                        "fathom-server: reissue-bootstrap-token is an alias for \
+                         `recover-operator <address>` (ADR-0055 decision 8) and needs an \
+                         address: pass one, or set FATHOM_OPERATOR_NOTICE_ADDRESS"
+                    );
+                    return ExitCode::from(2);
+                }
+            },
+        };
+        return recover_operator(&address, true).await;
     }
     if !args.is_empty() {
         eprintln!(
             "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]` and \
-             `reissue-bootstrap-token`; with no arguments it runs the server"
+             `recover-operator <address>` (with `reissue-bootstrap-token` kept as a deprecated \
+             alias); with no arguments it runs the server"
         );
         return ExitCode::from(2);
     }
@@ -109,6 +155,15 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    // ADR-0055 stream (b). Before the schema, before logging, before the
+    // database: a deployment that believes a retired control is in force must
+    // not get a running server out of this process. See
+    // `RETIRED_SINGLE_OPERATOR`.
+    if config.single_operator {
+        eprintln!("fathom-server: {RETIRED_SINGLE_OPERATOR}");
+        return ExitCode::from(2);
+    }
 
     // The schema tree, same shape as the config it sits beside: read before
     // logging, fail on stderr, no subscriber to blame for having missed it.
@@ -568,33 +623,14 @@ async fn main() -> ExitCode {
         catalogue,
     };
 
-    // The operator plane. `single_operator` is read from the configuration
-    // rather than decided here, and it removes the second signature without
-    // removing the delay -- admin design §5.3, and `config.rs` says why on the
-    // field itself.
+    // The operator plane. ADR-0055 decision 3: the quorum is not configured
+    // here or anywhere -- it is `min(2, live independent operators)`, counted
+    // off the register at every act.
     let operators = Arc::new(fathom_server::operators::OperatorStore::new(
         pool.clone(),
         Arc::clone(&ring),
         deployment.clone(),
-        config.single_operator,
     ));
-
-    // §5.3's mode is written to the site chain at startup rather than left as
-    // a belief held only by this process's environment. An auditor reading the
-    // chain can then see that the deployment was running with one operator,
-    // and when.
-    if config.single_operator {
-        match operators.record_single_operator_mode().await {
-            Ok(seq) => tracing::warn!(
-                site_chain_seq = seq,
-                "FATHOM_SINGLE_OPERATOR is set: settings changes need ONE operator's assertion                  instead of two. The delay is unchanged and is now the only thing standing                  between one compromised operator and a changed setting."
-            ),
-            Err(e) => {
-                tracing::error!(error = ?e, "could not record single-operator mode; refusing to start");
-                return ExitCode::from(9);
-            }
-        }
-    }
 
     // First start mints the first operator and their enrolment token. The
     // token is the one secret in this program that a human has to read, so it
@@ -640,6 +676,77 @@ async fn main() -> ExitCode {
             );
             return ExitCode::from(9);
         }
+    }
+
+    // ---- ADR-0055 stream (b): what this start has to say out loud --------
+    //
+    // §5.3 wanted `single_operator_mode` on the site chain *"at every startup,
+    // so nobody can later claim two-person control was in force"*. ADR-0055
+    // decision 3 makes it a DERIVED fact, so it is written at every start and
+    // not only when a switch was set: an auditor reading the chain sees how
+    // many pairs of hands this deployment was running on, and when, without
+    // taking any process's environment on trust.
+    //
+    // **After the bootstrap, not before**: on a first start the register is
+    // empty until the block above runs, and an entry saying "zero operators"
+    // would be a true statement about a moment nobody cares about.
+    let live_operators = match operators.record_single_operator_mode().await {
+        Ok(seq) => match operators.live_independent_operators().await {
+            Ok(live) => {
+                tracing::info!(
+                    site_chain_seq = seq,
+                    live_independent_operators = live,
+                    "the operator quorum for this start was recorded on the site chain"
+                );
+                live
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "could not count the operator register; refusing to start");
+                return ExitCode::from(9);
+            }
+        },
+        Err(e) => {
+            tracing::error!(error = ?e, "could not record the operator quorum; refusing to start");
+            return ExitCode::from(9);
+        }
+    };
+
+    // ADR-0055 decision 4: *"with one live operator the server warns at every
+    // start and the console shows a standing banner that escalates weekly. It
+    // never blocks work."* This is the first half; `GET /admin/notices` is the
+    // second.
+    if live_operators < 2 {
+        tracing::warn!(
+            live_independent_operators = live_operators,
+            "THIS DEPLOYMENT HAS ONE OPERATOR who can act. GitHub's own advice, verbatim: 'if \
+             an organisation only has one owner, the organisation's projects can become \
+             inaccessible if the owner is unreachable.' Add a colleague in the console: one \
+             operator may do it alone, and it applies after the 24-hour delay. Until then, the \
+             only way back from a lost browser is `fathom-server recover-operator <address>` on \
+             this host."
+        );
+    }
+
+    // ADR-0055 decision 7's last sentence, verbatim: *"Until SMTP is applied,
+    // every start logs: 'recovery by mail is unavailable until SMTP is set in
+    // the console; until then the only recovery is fathom-server
+    // recover-operator'."*
+    //
+    // The setting is read rather than assumed. A read that FAILS is not
+    // treated as "no SMTP": a settings row that does not stand up to its own
+    // sealed entry is an incident (`operators::OperatorError::
+    // SettingUnresolvable`), and reporting it as a missing form would bury it.
+    match operators.effective_setting("smtp").await {
+        Ok(None) => tracing::warn!(
+            "recovery by mail is unavailable until SMTP is set in the console; until then the \
+             only recovery is `fathom-server recover-operator`"
+        ),
+        Ok(Some(_)) => {}
+        Err(e) => tracing::error!(
+            error = ?e,
+            "the SMTP setting could not be resolved. This is not the same as it being unset: \
+             treat it as an incident and read the site chain"
+        ),
     }
 
     // Firmware staging (ADR-0045). Absent configuration means the routes are
@@ -806,32 +913,35 @@ async fn main() -> ExitCode {
     }
 }
 
-/// **The way back into a deployment whose first-operator token was lost**, and
-/// the one command in this binary that mints a bearer secret with no session
-/// behind it.
+/// **`fathom-server recover-operator <address>`** — ADR-0055 decision 8's
+/// break-glass, and the one command in this binary that mints a bearer secret
+/// with no session behind it.
 ///
-/// Read `operators::OperatorStore::reissue_bootstrap_token` before changing
-/// anything here: the gate is that no operator key has ever been enrolled, and
-/// it is what stops this being a way for anyone who can run a command on this
-/// host to mint themselves an operator session.
+/// Read `operators::OperatorStore::recover_operator` before changing anything
+/// here: that function carries the whole argument for why a host command that
+/// works AFTER an operator key exists is not a backdoor, and what it still
+/// refuses (it mints no operator; an unknown address writes nothing).
 ///
-/// What this function adds around that gate:
+/// What this function adds around it:
 ///
-/// - **The token goes to the file and nowhere else.** Not stdout, not the log,
-///   not an error message. The log line names the path, the operator, the
-///   expiry and the site-chain `seq`, which is everything an operator needs and
-///   nothing an attacker holding the logs can use.
-/// - **An existing file is refused, not overwritten.** The file that is already
-///   there may be the valid token this command was run because somebody could
-///   not find; replacing it would destroy the thing it is here to restore. The
-///   check happens twice -- once before the database is touched, so the common
-///   case fails before anything is minted, and once in `create_new` at the
-///   write, which is the one that is not a race.
+/// - **The code goes to stdout, and nowhere else.** Not the log, not a file,
+///   not an error message. It is read off the terminal by the person who just
+///   typed the command and it dies in ten minutes
+///   (`operators::RECOVERY_SETUP_TOKEN_LIFETIME`). The log line names the
+///   operator, the expiry and the site-chain `seq` — everything an operator
+///   needs and nothing an attacker holding the logs can use. The first start's
+///   own token still goes to a FILE, because at that moment there is no
+///   terminal: a container wrote it.
 /// - **The key material is loaded but never created.** The server's own
 ///   startup passes `create_if_missing: true`; this passes `false`, because a
 ///   chain key invented here would make every entry ever sealed under the real
 ///   one unverifiable, and the symptom would read as tampering.
-async fn reissue_bootstrap_token() -> ExitCode {
+/// - **`reissue-bootstrap-token` is an alias** (ADR-0055 decision 8: *"it
+///   folds into it"*). It takes an optional address and falls back to
+///   `FATHOM_OPERATOR_NOTICE_ADDRESS`, prints a deprecation line, and is
+///   otherwise this same function. Kept because it is in
+///   `docs/OPERATING.md`'s drill and in operators' shell history.
+async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
     // Configuration BEFORE logging, exactly as the server does and for the
     // same reason: a bad configuration fails on stderr rather than through a
     // subscriber that has not been set up.
@@ -842,31 +952,38 @@ async fn reissue_bootstrap_token() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if config.single_operator {
+        eprintln!("fathom-server: {RETIRED_SINGLE_OPERATOR}");
+        return ExitCode::from(2);
+    }
 
+    // **The log goes to stderr here, and only here.** Everywhere else in this
+    // binary the subscriber writes to stdout, which is what a container
+    // runtime collects. This subcommand prints ONE secret to stdout -- the
+    // setup code -- and a deployment that ships its logs off the box
+    // (`audit.rs`) must not ship that code with them. Two streams, two
+    // audiences: `fathom-server recover-operator a@b > code` is a working
+    // sentence, and the log still lands wherever logs land.
     tracing_subscriber::fmt()
         .with_max_level(config.log_level.to_tracing())
         .with_ansi(false)
         .with_target(true)
+        .with_writer(std::io::stderr)
         .init();
 
-    let path = bootstrap_token_path(&config);
-
-    // Before the database, before the keys, before anything is minted. A
-    // token file that already exists may be the live one, and this command
-    // must never be the thing that destroys it.
-    if path.exists() {
-        tracing::error!(
-            token_file = %path.display(),
-            "refusing: a token file already exists at this path. It may be the valid token. \
-             Read it, or move it out of the way deliberately, and run this again"
+    if called_as_reissue {
+        tracing::warn!(
+            "`reissue-bootstrap-token` is deprecated and is now an alias for \
+             `recover-operator <address>` (ADR-0055 decision 8). It no longer refuses once an \
+             operator key is enrolled, it takes an address, and it prints the code to stdout \
+             instead of writing a file. Use the new name."
         );
-        return ExitCode::from(10);
     }
 
     tracing::info!(
         database = %config.database_for_logging(),
-        token_file = %path.display(),
-        "re-issuing the first operator's enrolment token"
+        "recovering an operator from the host. This is a loud act: it appends a sealed \
+         `operator_recovered_from_host` entry and banners every operator session for seven days"
     );
 
     let pool = match db::pool(&config) {
@@ -927,59 +1044,56 @@ async fn reissue_bootstrap_token() -> ExitCode {
         Err(e) => {
             tracing::error!(
                 error = %e,
-                "this deployment has no identity, so it has never started and has no first \
-                 operator to re-issue for. Start the server once"
+                "this deployment has no identity, so it has never started and has no operator \
+                 to recover. Start the server once"
             );
             return ExitCode::from(12);
         }
     };
     drop(client);
 
-    let operators = fathom_server::operators::OperatorStore::new(
-        pool.clone(),
-        Arc::clone(&ring),
-        deployment,
-        config.single_operator,
-    );
+    let operators =
+        fathom_server::operators::OperatorStore::new(pool.clone(), Arc::clone(&ring), deployment);
 
-    let reissued = match operators.reissue_bootstrap_token().await {
+    let recovered = match operators.recover_operator(address).await {
         Ok(r) => r,
+        Err(fathom_server::operators::OperatorError::NotFound(_)) => {
+            // **Nothing was written.** Said plainly, because the whole line
+            // decision 8 draws is that recovery restores a seat somebody
+            // already held and never creates one.
+            tracing::error!(
+                "no operator is bound to that address, so nothing was recovered and nothing \
+                 was minted -- not an account, not an operator, not a code. Check the address \
+                 against `GET /admin/operators`, or bootstrap a deployment that has none"
+            );
+            return ExitCode::from(9);
+        }
         Err(e) => {
-            tracing::error!(error = %e, "the enrolment token was NOT re-issued");
+            tracing::error!(error = %e, "no code was issued");
             return ExitCode::from(9);
         }
     };
 
-    match write_bootstrap_token(&path, &reissued.invitation.token) {
-        Ok(()) => {
-            tracing::warn!(
-                operator_id = %reissued.operator_id,
-                token_file = %path.display(),
-                expires_at_unix = reissued.invitation.expires_at_unix,
-                site_chain_seq = reissued.issued_seq,
-                expired_tokens = reissued.expired.len(),
-                "a fresh enrolment token was written for the first operator. Any previously \
-                 issued and unredeemed token for them is now dead. Read the file, redeem it in \
-                 a browser, then delete it. The token is not in this log and will not be shown \
-                 again"
-            );
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            // The database has already committed, so the old token is dead and
-            // the new one is unreadable. Running the command again is the
-            // remedy and still works -- no key has been enrolled, which is the
-            // only condition the gate cares about.
-            tracing::error!(
-                error = %e,
-                token_file = %path.display(),
-                "the token was minted but could not be written, so nobody can read it. Point \
-                 FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in and \
-                 run this again"
-            );
-            ExitCode::from(10)
-        }
+    // stdout, and only here. `println!` rather than `tracing`, so that a
+    // deployment shipping its logs off the box (`audit.rs`) does not ship the
+    // one bearer secret this command exists to hand to a human.
+    let mut code = String::with_capacity(69);
+    code.push_str(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX);
+    for byte in &recovered.invitation.token {
+        code.push_str(&format!("{byte:02x}"));
     }
+    println!("{code}");
+
+    tracing::warn!(
+        operator_id = %recovered.operator_id,
+        expires_at_unix = recovered.invitation.expires_at_unix,
+        site_chain_seq = recovered.issued_seq,
+        expired_tokens = recovered.expired.len(),
+        "a one-shot setup code was printed to stdout and is NOT in this log. It is good for ten \
+         minutes. Any previously issued and unredeemed setup or operator token for this \
+         operator is now dead. Every operator session banners this recovery for seven days"
+    );
+    ExitCode::SUCCESS
 }
 
 /// One word for a pool error, so nothing the driver formatted can travel into a

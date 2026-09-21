@@ -475,6 +475,35 @@ pub enum EntryType {
     /// leaves room for the site-level summary; `keys::rewrap_master_key`
     /// writes both, in one transaction, or neither.
     Rewrap,
+
+    // ---- ADR-0055 stream (b) ---------------------------------------------
+    //
+    // Added at the END of the enum, as the three parallel ADR-0055 streams
+    // agreed, so that a merge is mechanical. Both are SITE types and both are
+    // in the schema: `operator_recovered_from_host` in
+    // `0019_operator_account_binding.sql` §D, `operator_key_enrolled` in
+    // `0022_operator_quorum_and_the_operator_key.sql` §C.
+    /// **Break-glass, and it is loud** (ADR-0055 decision 8).
+    /// `fathom-server recover-operator <address>` ran where the key volume is
+    /// mounted and printed a ten-minute setup code for an operator who already
+    /// existed. It mints no operator. Every operator session banners it for
+    /// seven days, and that banner is derived from this entry rather than from
+    /// a column somebody could clear.
+    OperatorRecoveredFromHost,
+    /// An account that holds the operator custody registered an operator key
+    /// for the browser it was sitting at, with its password and its app code
+    /// behind it (ADR-0055 decision 1, `POST /admin/operators/self/key`).
+    ///
+    /// **Not `operator_enrolled`**: that type means a one-shot invitation was
+    /// redeemed, and an auditor has to be able to tell the two apart without
+    /// holding the chain key. The metadata carries `via` for the reader who
+    /// does hold it.
+    OperatorKeyEnrolled,
+    /// One operator confirmed another's recovery, clearing `0021`'s seat hold
+    /// before its 24 hours ran out (ADR-0055 decision 7). The hold itself is a
+    /// column; the fact that somebody lifted it early is an act, and an act on
+    /// the operator plane is a sealed entry.
+    OperatorSeatHoldCleared,
 }
 
 impl EntryType {
@@ -512,6 +541,10 @@ impl EntryType {
             Self::SettingCancelled => "setting_cancelled",
             Self::SettingUnresolvable => "setting_unresolvable",
             Self::SingleOperatorMode => "single_operator_mode",
+            // ADR-0055 stream (b).
+            Self::OperatorRecoveredFromHost => "operator_recovered_from_host",
+            Self::OperatorKeyEnrolled => "operator_key_enrolled",
+            Self::OperatorSeatHoldCleared => "operator_seat_hold_cleared",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
             Self::AccountKeyEnrolled => "account_key_enrolled",
@@ -563,6 +596,10 @@ impl EntryType {
             "setting_cancelled" => Some(Self::SettingCancelled),
             "setting_unresolvable" => Some(Self::SettingUnresolvable),
             "single_operator_mode" => Some(Self::SingleOperatorMode),
+            // ADR-0055 stream (b).
+            "operator_recovered_from_host" => Some(Self::OperatorRecoveredFromHost),
+            "operator_key_enrolled" => Some(Self::OperatorKeyEnrolled),
+            "operator_seat_hold_cleared" => Some(Self::OperatorSeatHoldCleared),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
@@ -627,7 +664,11 @@ impl EntryType {
             | Self::SettingApplied
             | Self::SettingCancelled
             | Self::SettingUnresolvable
-            | Self::SingleOperatorMode => &[ChainKind::Site],
+            | Self::SingleOperatorMode
+            // ADR-0055 stream (b).
+            | Self::OperatorRecoveredFromHost
+            | Self::OperatorKeyEnrolled
+            | Self::OperatorSeatHoldCleared => &[ChainKind::Site],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded

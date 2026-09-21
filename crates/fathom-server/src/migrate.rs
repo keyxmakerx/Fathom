@@ -130,6 +130,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0021_operator_seat_hold.sql",
         sql: include_str!("../migrations/0021_operator_seat_hold.sql"),
     },
+    // ADR-0055 stream (b).
+    Migration {
+        version: 22,
+        name: "0022_operator_quorum_and_the_operator_key.sql",
+        sql: include_str!("../migrations/0022_operator_quorum_and_the_operator_key.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
