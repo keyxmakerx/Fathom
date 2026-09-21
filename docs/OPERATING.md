@@ -210,6 +210,15 @@ read both expect it.
 
 ## What to check after an upgrade
 
+- **Upgrading from a build before ADR-0055 (2026-09-21):** the first start of the new build binds
+  the operator the old build created to the install address on record, retires that operator's
+  browser keys and ends their sessions (the old flow had no second factor), and writes a one-shot
+  setup token to `FATHOM_BOOTSTRAP_TOKEN_FILE` — the log says `UPGRADE:` and names the path, never
+  the token. Copy the file out as §"Sign in" of `docs/RUNNING-IT.md` shows, set a password, enrol
+  an app code. The act is a sealed `operator_adopted` entry on the site chain, once; every later
+  start finds the binding and does nothing. If the address already holds an account with a
+  confirmed app code, no token is written and that person signs in as usual. `recover-operator`
+  refuses an unbound operator, so run the server once on the new build before reaching for it.
 - The startup log line naming `master_key_id` and `chain_key_id` — the same ids as before the
   upgrade. If the server exits instead with a wrong-key error, see Restore above; it did not start.
 - The migration count in the startup log — it should match what you expect for the version you

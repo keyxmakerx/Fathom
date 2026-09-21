@@ -717,7 +717,79 @@ async fn main() -> ExitCode {
         }
         // Every start after the first. Not an error here: the deployment is
         // already bootstrapped, which is the ordinary case.
-        Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {}
+        //
+        // **And it is where the upgrade lands.** A deployment whose first
+        // start ran under a build before ADR-0055 has an operator, an install
+        // record and no binding, so the bootstrap answers here and, until
+        // 2026-09-21, nothing else happened: nobody could sign in and
+        // `recover-operator` refused, because it resolves an address through
+        // the binding. `adopt_first_operator_from_install` answers `None` on
+        // every deployment that does not have that shape, which is every
+        // ADR-0055-native one and every start after an adoption.
+        Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {
+            match operators.adopt_first_operator_from_install().await {
+                Ok(None) => {}
+                Ok(Some(adopted)) => match adopted.invitation {
+                    Some(invitation) => {
+                        let path = bootstrap_token_path(&config);
+                        match write_bootstrap_token(&path, &invitation.token) {
+                            Ok(()) => tracing::warn!(
+                                operator_id = %adopted.operator_id,
+                                notice_address = %adopted.notice_address,
+                                retired_keys = adopted.retired_keys,
+                                ended_sessions = adopted.ended_sessions,
+                                token_file = %path.display(),
+                                expires_at_unix = invitation.expires_at_unix,
+                                "UPGRADE: the operator created before this build was bound \
+                                 to the install address; a one-shot setup token was written \
+                                 to the token file. Read the file, redeem it in a browser, \
+                                 then delete it. The token is not in this log and will not \
+                                 be shown again."
+                            ),
+                            Err(e) => {
+                                tracing::error!(
+                                    error = %e,
+                                    token_file = %path.display(),
+                                    "the operator created before this build was bound to \
+                                     the install address, but their setup token could not \
+                                     be written, so nobody can redeem it; refusing to \
+                                     start. Point FATHOM_BOOTSTRAP_TOKEN_FILE at a path \
+                                     this process can create a file in -- it must NOT be \
+                                     inside the read-only key volume -- and then run \
+                                     `fathom-server recover-operator <address>`, which \
+                                     works now that the binding exists"
+                                );
+                                return ExitCode::from(10);
+                            }
+                        }
+                    }
+                    // ADR-0055 decision 9: the account already holds a
+                    // credential and a confirmed app code, so there is nothing
+                    // to hand anybody. A token here would be a second bearer
+                    // secret standing beside a stronger route.
+                    None => tracing::warn!(
+                        operator_id = %adopted.operator_id,
+                        notice_address = %adopted.notice_address,
+                        retired_keys = adopted.retired_keys,
+                        ended_sessions = adopted.ended_sessions,
+                        "UPGRADE: the operator created before this build was bound to the install \
+                         address. No token was issued and none is needed: that account already \
+                         holds a credential and a confirmed app code, so it signs in with those \
+                         and registers an operator key from the console."
+                    ),
+                },
+                Err(e) => {
+                    tracing::error!(
+                        error = ?e,
+                        "the operator created before this build could not be bound to the install \
+                         address; refusing to start rather than running a deployment nobody can \
+                         sign in to. Read the site chain: nothing was written unless the sealed \
+                         `operator_adopted` entry was"
+                    );
+                    return ExitCode::from(9);
+                }
+            }
+        }
         Err(e) => {
             tracing::error!(
                 error = ?e,
@@ -1178,7 +1250,9 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
             tracing::error!(
                 "no operator is bound to that address, so nothing was recovered and nothing \
                  was minted -- not an account, not an operator, not a code. Check the address \
-                 against `GET /admin/operators`, or bootstrap a deployment that has none"
+                 against `GET /admin/operators`, or bootstrap a deployment that has none. An \
+                 operator created by a build before ADR-0055 is bound on the first start of \
+                 this build; start the server once, then run this again"
             );
             return ExitCode::from(9);
         }

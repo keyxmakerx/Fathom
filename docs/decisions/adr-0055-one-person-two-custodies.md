@@ -106,6 +106,14 @@ instead of silent. Keep two.
 2. **The environment seeds; the register rules.** The address in `.env` is read on the first start
    and never again, as Keycloak, Authentik and Nextcloud do. A later change to it logs one line
    naming the register as the truth and does nothing. Handoff happens in the console, not in a file.
+   *Amended 2026-09-21, on the owner's deployment:* a deployment first started by a build before
+   this decision has an operator and no binding, and "first start only" locked it out — the
+   bootstrap answered "already bootstrapped" and `recover-operator` could not resolve the address.
+   So the first start of a newer build **adopts** the bootstrapped operator: binds them to the
+   install record's address (not the environment's, which is decision 2's own rule), retires the
+   operator keys the old flow enrolled without a second factor, ends that operator's sessions,
+   seals one `operator_adopted` entry and writes the same setup token file the first start writes.
+   Once; every later start finds the binding and is silent.
 3. **Operator quorum is `min(2, live independent operators)`**, §3.5's rule ported: a sole operator
    adds a second alone, with the 24-hour delay, a banner in every operator session, a cancel button,
    and notice by mail once mail exists. `FATHOM_SINGLE_OPERATOR` is retired; the sealed

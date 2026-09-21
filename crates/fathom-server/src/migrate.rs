@@ -164,6 +164,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0025_credential_seal.sql",
         sql: include_str!("../migrations/0025_credential_seal.sql"),
     },
+    // ADR-0055 decision 1, applied to a deployment that started before it:
+    // `OperatorStore::adopt_first_operator_from_install` records the adoption
+    // with a site entry type this constraint has to allow.
+    Migration {
+        version: 26,
+        name: "0026_operator_adoption.sql",
+        sql: include_str!("../migrations/0026_operator_adoption.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

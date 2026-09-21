@@ -523,6 +523,17 @@ pub enum EntryType {
     /// column; the fact that somebody lifted it early is an act, and an act on
     /// the operator plane is a sealed entry.
     OperatorSeatHoldCleared,
+    /// **An operator created before ADR-0055 was bound to the install
+    /// address**, on the first start of a build that has decision 1.
+    ///
+    /// Such an operator has no account and no binding, so nobody can sign in
+    /// as them and `recover-operator` cannot resolve their address. The start
+    /// adopts them: the account at `site_install.notice_address`, the sealed
+    /// binding, and the dispossession of everything the older flow left
+    /// standing without a second factor behind it. **Not
+    /// `operator_bootstrapped`**: no operator is created here, and an auditor
+    /// has to be able to tell a first start from an upgrade. Migration `0026`.
+    OperatorAdopted,
     // ADR-0055 stream (c) -- console placement (decision 11, migration
     // `0020_console_placement.sql` section C). Three types, written by
     // `placement.rs`. **None is in §7.2's list**, which predates ADR-0055;
@@ -588,6 +599,7 @@ impl EntryType {
             Self::OperatorRecoveredFromHost => "operator_recovered_from_host",
             Self::OperatorKeyEnrolled => "operator_key_enrolled",
             Self::OperatorSeatHoldCleared => "operator_seat_hold_cleared",
+            Self::OperatorAdopted => "operator_adopted",
             Self::OrgGenesis => "org_genesis",
             Self::Rewrap => "rewrap",
             Self::AccountKeyEnrolled => "account_key_enrolled",
@@ -653,6 +665,7 @@ impl EntryType {
             "operator_recovered_from_host" => Some(Self::OperatorRecoveredFromHost),
             "operator_key_enrolled" => Some(Self::OperatorKeyEnrolled),
             "operator_seat_hold_cleared" => Some(Self::OperatorSeatHoldCleared),
+            "operator_adopted" => Some(Self::OperatorAdopted),
             "org_genesis" => Some(Self::OrgGenesis),
             "rewrap" => Some(Self::Rewrap),
             "account_key_enrolled" => Some(Self::AccountKeyEnrolled),
@@ -733,7 +746,8 @@ impl EntryType {
             // ADR-0055 stream (b).
             | Self::OperatorRecoveredFromHost
             | Self::OperatorKeyEnrolled
-            | Self::OperatorSeatHoldCleared => &[ChainKind::Site],
+            | Self::OperatorSeatHoldCleared
+            | Self::OperatorAdopted => &[ChainKind::Site],
             // ADR-0055 stream (c)
             | Self::ConsolePlacementRequested
             | Self::ConsolePlacementConfirmed

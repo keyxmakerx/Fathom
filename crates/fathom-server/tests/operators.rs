@@ -4271,3 +4271,455 @@ async fn an_account_with_a_key_and_no_app_code_cannot_register_the_operator_key(
         .await
         .expect("with an app code on the account, the browser registers its operator key");
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0055 decision 1, applied backwards: the operator a build before it made
+//
+// A deployment installed before ADR-0055 has an operator row, a `site_install`
+// row and NO binding, because the older first start created no account. On
+// this build `bootstrap_first_operator` answers `AlreadyBootstrapped` and
+// stops, so nobody can sign in; and `recover-operator` resolves an address
+// through the binding, so it refuses and mints nothing. Observed on a real
+// deployment on 2026-09-21.
+//
+// **Every test below fabricates that shape rather than describing it**, as the
+// superuser, with the append-only trigger on `operator_account_bindings`
+// disabled through `support::tamper` -- which is a tier-3 move and is
+// performed in the open, exactly as `0019`'s own header requires of anything
+// that removes a binding.
+// ---------------------------------------------------------------------------
+
+/// **A real password**: four words, the shape a password manager produces, and
+/// the one `credentials::check_password` is written against. Not a string
+/// built to satisfy the check (CLAUDE.md rule 2).
+const A_REAL_CREDENTIAL: &str = "harbour-lantern-copper-nine";
+
+/// Remove the sealed binding between an operator and its account, leaving the
+/// shape a pre-ADR-0055 deployment has.
+///
+/// `0019`'s trigger refuses `UPDATE` and `DELETE` on this table at every
+/// privilege level including the table's owner, so the only way to produce the
+/// state a real deployment arrived at honestly is to turn the trigger off --
+/// which `support::tamper` does, serialised across every test binary, and
+/// which is visible in the test body on purpose.
+async fn unbind(su: &tokio_postgres::Client, operator: &str) {
+    let removed = support::tamper(
+        su,
+        "operator_account_bindings",
+        "DELETE FROM operator_account_bindings WHERE operator_id = $1",
+        &[&operator],
+    )
+    .await;
+    assert_eq!(removed, 1, "the fixture must actually remove the binding");
+}
+
+/// Every operator key of one operator that is in service now, read through the
+/// store's own pool under the custody `operator_keys_readable` admits.
+async fn live_keys_of(operators_store: &OperatorStore, operator: &str) -> usize {
+    let mut client = operators_store.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let keys = operators::live_operator_keys(&tx, &ring(), operator, now_unix())
+        .await
+        .expect("the operator keyring reads, and every row's seal verifies");
+    tx.commit().await.expect("commit");
+    keys.len()
+}
+
+/// The sealed metadata of the one `operator_adopted` entry on this
+/// deployment's site chain, opened the way an auditor holding the chain key
+/// would open it.
+async fn the_adoption_entry(pool: &Pool, ring: &Arc<KeyRing>, tag: &str) -> String {
+    let su = support::superuser_on_isolated(tag).await;
+    let seq: i64 = su
+        .query_one(
+            "SELECT seq FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'operator_adopted'",
+            &[],
+        )
+        .await
+        .expect("exactly one adoption entry")
+        .get(0);
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let entry = chains::read_site_entry_verified(&tx, ring, seq)
+        .await
+        .expect("read the entry")
+        .expect("the seq must hold an entry");
+    assert_eq!(
+        entry.entry_type,
+        fathom_server::chain::EntryType::OperatorAdopted
+    );
+    let metadata = String::from_utf8_lossy(&entry.metadata).to_string();
+    tx.commit().await.expect("commit");
+    metadata
+}
+
+/// **The upgrade, end to end**: an operator with no account and no binding is
+/// bound to the install address on the next start, once, and the token it
+/// writes opens the setup screen.
+///
+/// The account is deleted here as well as the binding, because the older first
+/// start created neither — that is the whole of the shape. The adoption
+/// creates one at `site_install.notice_address`, which is the address ADR-0055
+/// decision 1 makes the identity and the one address no role can rewrite
+/// (`0015` §C).
+#[tokio::test]
+async fn an_operator_from_before_the_binding_is_adopted_on_the_next_start() {
+    const TAG: &str = "ops_adopt_binds";
+    let (pool, operators_store, _sessions, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // The pre-ADR-0055 shape: the operator row and the install record stay,
+    // the binding and the account go.
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+    su.execute(
+        "DELETE FROM accounts WHERE id = $1",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("the older first start created no account, so the fixture removes this one");
+    su.execute(
+        "DELETE FROM principals WHERE id = $1",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("and its principal row with it");
+
+    let adopted = operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the adoption runs")
+        .expect("an operator with no binding and an install record is adopted");
+    assert_eq!(adopted.operator_id, bootstrap.operator_id);
+    assert_eq!(adopted.notice_address, address);
+
+    // The binding exists, and the account it names is at the install address.
+    let bound: String = su
+        .query_one(
+            "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+            &[&bootstrap.operator_id],
+        )
+        .await
+        .expect("the operator custody is bound to an account now")
+        .get(0);
+    assert_eq!(bound, adopted.account_id);
+    let email: String = su
+        .query_one("SELECT email FROM accounts WHERE id = $1", &[&bound])
+        .await
+        .expect("the account exists")
+        .get(0);
+    assert_eq!(
+        email,
+        su.query_one("SELECT notice_address FROM site_install", &[])
+            .await
+            .expect("the install record")
+            .get::<_, String>(0),
+        "ADR-0055 decision 1: the address is the identity, and the install record is where it \
+         is written down"
+    );
+
+    // One entry, and it is the record of this act.
+    let entries: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'operator_adopted'",
+            &[],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(entries, 1);
+
+    // The token redeems on the setup route: the screen ADR-0055 decision 10
+    // describes, reached through the same function `/enrolment/operator/setup`
+    // calls.
+    let invitation = adopted
+        .invitation
+        .expect("an account with no app code gets the one-shot setup token");
+    assert_eq!(invitation.purpose, Purpose::Setup);
+    assert_eq!(invitation.subject, adopted.operator_id);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        operators_store.deployment().to_string(),
+    );
+    creds
+        .redeem_setup(&operators_store, &invitation.token, A_REAL_CREDENTIAL)
+        .await
+        .expect("the token the adoption wrote opens the setup screen");
+
+    // A second start finds the binding and does nothing at all.
+    let again = operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the second call runs");
+    assert!(
+        again.is_none(),
+        "an adoption is once: the binding it wrote is what stops the next start repeating it"
+    );
+    assert_eq!(
+        su.query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'operator_adopted'",
+            &[],
+        )
+        .await
+        .expect("count")
+        .get::<_, i64>(0),
+        1,
+        "and it appended nothing the second time"
+    );
+
+    // The chain still verifies, which is the claim every sealed act makes and
+    // the one a new writer is most likely to break.
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let report = chains::verify_site(&tx, &ring, true)
+        .await
+        .expect("verification runs");
+    assert!(
+        matches!(
+            report.outcome,
+            fathom_server::chain::Outcome::Verified { .. }
+        ),
+        "the site chain must still verify after an adoption: {}",
+        report.summary()
+    );
+}
+
+/// **`recover-operator` works after the adoption and refuses before it** --
+/// which is the defect this whole path closes, asserted in both directions.
+///
+/// The command resolves an address THROUGH the binding (ADR-0055 decision 8,
+/// so that a display name an operator chose cannot point a recovery at a seat
+/// nobody expects). With no binding there is nothing to resolve, and the
+/// person the command exists for is exactly the person who cannot get in.
+#[tokio::test]
+async fn recover_operator_refuses_before_the_adoption_and_works_after_it() {
+    const TAG: &str = "ops_adopt_recovers";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+
+    match operators_store.recover_operator(&address).await {
+        Err(OperatorError::NotFound(what)) => assert_eq!(what, "operator"),
+        Ok(_) => panic!("with no binding there is no operator to recover"),
+        Err(e) => panic!("the refusal must be NotFound, not {e}"),
+    }
+
+    operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the adoption runs")
+        .expect("an operator with no binding and an install record is adopted");
+
+    let recovered = operators_store
+        .recover_operator(&address)
+        .await
+        .expect("the binding the adoption wrote is what makes the address resolvable");
+    assert_eq!(recovered.operator_id, bootstrap.operator_id);
+    assert_eq!(recovered.invitation.purpose, Purpose::Setup);
+}
+
+/// **What the adoption takes away**, and what it leaves alone.
+///
+/// The operator here went all the way through the current flow — an account
+/// key, a confirmed app code, an operator key registered from the console, and
+/// an operator session — and then the binding is removed, which is the state a
+/// deployment installed before ADR-0055 is in with keys enrolled by the older
+/// token-redemption flow. Those keys had no second factor anywhere in the act
+/// that created them; ADR-0055 decision 9 has the operator key register only
+/// from the console with a confirmed app code behind it.
+///
+/// **The account cannot be removed here** — `account_keys` references it `ON
+/// DELETE RESTRICT` — which is the other branch and is asserted as such: the
+/// adoption reuses the account that already stands at that address rather than
+/// duplicating it, and issues no token, because that person already holds a
+/// credential and an app code.
+#[tokio::test]
+async fn the_adoption_retires_the_old_flows_keys_and_ends_its_sessions() {
+    const TAG: &str = "ops_adopt_dispossesses";
+    let (pool, operators_store, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let account = account_of_operator(&operators_store, &operator.id).await;
+    let address = account_address(&sessions_store, &account).await;
+    assert_eq!(
+        live_keys_of(&operators_store, &operator.id).await,
+        1,
+        "the fixture registers one operator key"
+    );
+
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &operator.id).await;
+
+    let adopted = operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the adoption runs")
+        .expect("an operator with no binding and an install record is adopted");
+    assert_eq!(adopted.operator_id, operator.id);
+    assert_eq!(
+        adopted.account_id, account,
+        "one person, two custodies, one address: the account already at that address is the \
+         one the custody is bound back to"
+    );
+    assert_eq!(adopted.notice_address, address);
+    assert!(
+        adopted.invitation.is_none(),
+        "this account holds a credential and a confirmed app code, so decision 9 has it sign \
+         in with those and register an operator key from the console -- a token here would be \
+         a second bearer secret nobody asked for"
+    );
+
+    assert_eq!(
+        live_keys_of(&operators_store, &operator.id).await,
+        0,
+        "every key the older flow enrolled leaves service (ADR-0055 decision 9)"
+    );
+    assert_eq!(adopted.retired_keys, 1);
+    assert!(
+        sessions_store
+            .issue_request_nonce(&operator.signed_in.session_id, &operator.signed_in.token)
+            .await
+            .is_err(),
+        "the operator session the lost browser was holding is ended, as a sealed revocation"
+    );
+    assert!(adopted.ended_sessions >= 1);
+
+    // The counts are inside the sealed entry, and they are the counts.
+    let metadata = the_adoption_entry(&pool, &ring, TAG).await;
+    assert!(
+        metadata.contains(&operator.id) && metadata.contains(&address),
+        "the sealed metadata names the operator and the address: {metadata}"
+    );
+    assert!(
+        metadata.contains(&format!("\"retired_keys\":{}", adopted.retired_keys)),
+        "the entry states what it retired: {metadata}"
+    );
+    assert!(
+        metadata.contains(&format!("\"ended_sessions\":{}", adopted.ended_sessions)),
+        "and what it ended: {metadata}"
+    );
+
+    // And it leaves the second factor alone: an upgrade that cleared a working
+    // app code would lock out the person it is meant to let in.
+    let confirmed: bool = su
+        .query_one(
+            "SELECT totp_last_step IS NOT NULL FROM accounts WHERE id = $1",
+            &[&account],
+        )
+        .await
+        .expect("the account row")
+        .get(0);
+    assert!(
+        confirmed,
+        "the adoption is not a recovery: it clears no app code, no backup code and no seat hold"
+    );
+}
+
+/// **An ADR-0055-native deployment is left alone**, silently, at every start.
+///
+/// This is the ordinary case on every deployment installed since 2026-09-21,
+/// and on every start after an adoption. It has to be cheap and it has to
+/// write nothing at all.
+#[tokio::test]
+async fn a_deployment_that_already_has_the_binding_is_not_adopted() {
+    const TAG: &str = "ops_adopt_native";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    operators_store
+        .bootstrap_first_operator(&unique("owner@example.org"), &unique("owner@example.org"))
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let before: i64 = su
+        .query_one("SELECT count(*) FROM chain_entries", &[])
+        .await
+        .expect("count")
+        .get(0);
+
+    assert!(
+        operators_store
+            .adopt_first_operator_from_install()
+            .await
+            .expect("the adoption runs")
+            .is_none(),
+        "every operator this build creates already has a binding"
+    );
+    assert_eq!(
+        before,
+        su.query_one("SELECT count(*) FROM chain_entries", &[])
+            .await
+            .expect("count")
+            .get::<_, i64>(0),
+        "and nothing was appended"
+    );
+}
+
+/// **A deployment that has never started has nothing to adopt.**
+///
+/// No `site_install` row, no operator: the first start is about to run and
+/// this must not be a second way into it.
+#[tokio::test]
+async fn a_deployment_that_never_started_is_not_adopted() {
+    const TAG: &str = "ops_adopt_never_started";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let before: i64 = su
+        .query_one("SELECT count(*) FROM chain_entries", &[])
+        .await
+        .expect("count")
+        .get(0);
+
+    assert!(
+        operators_store
+            .adopt_first_operator_from_install()
+            .await
+            .expect("the adoption runs")
+            .is_none(),
+        "with no install record there is no address to bind anybody to"
+    );
+    assert_eq!(
+        before,
+        su.query_one("SELECT count(*) FROM chain_entries", &[])
+            .await
+            .expect("count")
+            .get::<_, i64>(0),
+        "and nothing was appended"
+    );
+    assert_eq!(
+        su.query_one("SELECT count(*) FROM operators", &[])
+            .await
+            .expect("count")
+            .get::<_, i64>(0),
+        0,
+        "and no operator was minted: an adoption binds a seat that exists and creates none"
+    );
+}
