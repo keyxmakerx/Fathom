@@ -1627,19 +1627,18 @@ impl SessionStore {
         // the operator plane always (resolution 8 keeps `kind = 'operator'` a
         // key sign-in) and on any account with no password set, which is
         // every account that existed before this build.
-        let credentials =
-            match kind {
-                PrincipalKind::Steward => credentials::read_credentials(tx, &account)
-                    .await
-                    .map_err(|_| {
-                        (
-                            Some(AccountBucket::Account(account.clone())),
-                            "database",
-                            SessionError::Corrupt("account credentials"),
-                        )
-                    })?,
-                PrincipalKind::Operator => None,
-            };
+        let credentials = match kind {
+            PrincipalKind::Steward => credentials::read_credentials(tx, &self.ring, &account)
+                .await
+                .map_err(|_| {
+                    (
+                        Some(AccountBucket::Account(account.clone())),
+                        "database",
+                        SessionError::Corrupt("account credentials"),
+                    )
+                })?,
+            PrincipalKind::Operator => None,
+        };
         let by_password = credentials
             .as_ref()
             .and_then(|c| c.password_hash.clone())
@@ -2743,7 +2742,7 @@ impl SessionStore {
                 .await
                 .map_err(|_| SessionError::Corrupt("operator binding"))?
         {
-            let credentials = credentials::read_credentials(tx, &row.principal_id)
+            let credentials = credentials::read_credentials(tx, &self.ring, &row.principal_id)
                 .await
                 .map_err(|_| SessionError::Corrupt("account credentials"))?;
             let unfinished = credentials

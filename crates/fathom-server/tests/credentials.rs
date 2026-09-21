@@ -290,7 +290,7 @@ async fn totp_secret_of(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8> {
         .await
         .expect("this deployment is stamped at startup")
         .get(0);
-    let row = credentials::read_credentials(&tx, account)
+    let row = credentials::read_credentials(&tx, ring, account)
         .await
         .expect("read")
         .expect("the account exists");
@@ -389,16 +389,39 @@ async fn set_password_directly(
     person: &Person,
     password: &str,
 ) {
-    let _ = ring;
     let hash = credentials::hash_password(password).expect("hash");
     let mut client = pool.get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
     tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
         .await
         .expect("reset custody");
+    // **The hash and its seal in ONE statement**, which is the shape `0025`
+    // §B's constraint trigger requires of anything that puts a first
+    // credential on a row — `credentials::seal_for_write`'s own doc is the
+    // rule and `CredentialStore::set_password` is the worked example. A
+    // fixture that wrote the hash alone would be writing the tier-2 state
+    // `a_credential_column_changed_outside_this_server_is_unverifiable` is
+    // about, and the database refuses it.
+    let account = person.account.to_string();
+    let mut next = credentials::read_credentials(&tx, ring, &account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    next.password_hash = Some(hash.clone());
+    let seal = credentials::seal_for_write(&tx, ring, &account, &mut next, None)
+        .await
+        .expect("seal the credential columns");
     tx.execute(
-        "UPDATE accounts SET password_hash = $2 WHERE id = $1",
-        &[&person.account.to_string(), &hash],
+        "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                credential_row_version = $4, credential_seq = $5 \
+          WHERE id = $1",
+        &[
+            &account,
+            &hash,
+            &seal,
+            &next.credential_row_version,
+            &next.seq_column(),
+        ],
     )
     .await
     .expect("set the password");
@@ -1223,6 +1246,607 @@ async fn a_second_browsers_key_signs_in_and_so_does_the_first() {
         "A1",
         "a valid evidence signature outranks the app code (decision 6, resolution 1)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The seal over the credential columns — `0025`, the ADR-0055 fix of
+// 2026-09-21
+// ---------------------------------------------------------------------------
+
+/// **Switching the app code off with one `UPDATE` no longer produces a
+/// password-only sign-in; it produces an integrity refusal.**
+///
+/// The reviewer's reproduction, run verbatim: on the account holding the
+/// operator custody,
+///
+/// ```sql
+/// UPDATE accounts SET totp_secret_ct = NULL, totp_secret_nonce = NULL,
+///        totp_secret_key_epoch = NULL, totp_enrolled_at = NULL,
+///        totp_last_step = NULL;
+/// ```
+///
+/// answered the next password-only sign-in with a session and no alarm
+/// anywhere. `accounts.totp_last_step` is what `totp_confirmed()` reads, it is
+/// not in `0018`'s `accounts_totp_secret_is_whole` CHECK, and before `0025` no
+/// seal covered any credential column — so the one fact this build decides a
+/// second factor on had no integrity cover at all, while every table beside it
+/// had one.
+///
+/// The superuser stands in for the tier-2 writer `0025`'s header describes.
+/// What is asserted is the REFUSAL and its kind: `SessionError::Corrupt` is
+/// the integrity alarm, which `sessions.rs` renders as a 500 and never as a
+/// permission error — `CredentialError::Unverifiable`'s own doc says that
+/// distinction must survive to the surface.
+#[tokio::test]
+async fn a_credential_column_changed_outside_this_server_is_unverifiable() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let enrolled = an_enrolled_account(&pool, &ring, &sessions, &creds, "sealed").await;
+    let account = enrolled.person.account.to_string();
+
+    // It is sealed at rest before anything is touched.
+    let (seal, version): (Option<Vec<u8>>, i32) = {
+        let row = superuser()
+            .await
+            .query_one(
+                "SELECT credential_seal, credential_row_version FROM accounts WHERE id = $1",
+                &[&account],
+            )
+            .await
+            .expect("the account row");
+        (row.get(0), row.get(1))
+    };
+    assert!(
+        seal.is_some(),
+        "an account with a password and an app code must carry a credential seal"
+    );
+    assert!(
+        version >= 2,
+        "the seal is rewritten at every credential act"
+    );
+
+    // The downgrade.
+    superuser()
+        .await
+        .execute(
+            "UPDATE accounts SET totp_secret_ct = NULL, totp_secret_nonce = NULL, \
+                    totp_secret_key_epoch = NULL, totp_enrolled_at = NULL, \
+                    totp_last_step = NULL \
+              WHERE id = $1",
+            &[&account],
+        )
+        .await
+        .expect("a writer holding a database credential needs nothing else");
+
+    let refused = sign_in_with(&sessions, &enrolled.person, A_REAL_PASSWORD, "").await;
+    match refused {
+        Err(SessionError::Corrupt(_)) => {}
+        Ok(_) => panic!(
+            "clearing the app-code columns must not hand back a password-only session: \
+             that is the whole finding"
+        ),
+        Err(other) => panic!("the refusal must be the integrity alarm, not {other:?}"),
+    }
+}
+
+/// **A credential copied onto another account's row does not open it.**
+///
+/// The second half of the same reproduction: `password_hash` plus the four
+/// secret columns copied onto a freshly created account signed in with the
+/// known password alone. Two things refuse it now — the seal is over the
+/// account id it was written for (`0025` §A), and a row that carries a
+/// credential with NO seal is refused outright (`0025` §B), which is what a
+/// copy that leaves the seal behind produces.
+#[tokio::test]
+async fn a_credential_copied_onto_another_account_does_not_open_it() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let enrolled = an_enrolled_account(&pool, &ring, &sessions, &creds, "donor").await;
+    let thief = an_account(&pool, "thief").await;
+    let donor = enrolled.person.account.to_string();
+    let thief_id = thief.account.to_string();
+
+    // (a) the columns alone, seal left behind. **The database refuses the
+    // write**: `0025` §B's constraint trigger asks at every row image whether
+    // a credential is sitting there with no seal over it, and the writer is a
+    // superuser — row-level security exempts them and a trigger does not.
+    let refused = superuser()
+        .await
+        .execute(
+            "UPDATE accounts \
+                SET password_hash = (SELECT password_hash FROM accounts WHERE id = $2) \
+              WHERE id = $1",
+            &[&thief_id, &donor],
+        )
+        .await;
+    let refused = refused.expect_err("an unsealed credential must not be writable at all");
+    let said = refused
+        .as_db_error()
+        .map(|e| e.message().to_string())
+        .unwrap_or_default();
+    assert!(
+        said.contains("no seal over it"),
+        "the refusal must name the rule: {said:?}"
+    );
+
+    // (b) the columns AND the seal, which is the copy a thorough writer makes
+    // once the refusal above has told them a seal exists. The write goes
+    // through — the row now carries one — and the SEAL is what refuses,
+    // because it names the account it was written for.
+    superuser()
+        .await
+        .execute(
+            "UPDATE accounts \
+                SET password_hash = (SELECT password_hash FROM accounts WHERE id = $2), \
+                    credential_seal = (SELECT credential_seal FROM accounts WHERE id = $2), \
+                    credential_row_version = \
+                        (SELECT credential_row_version FROM accounts WHERE id = $2), \
+                    credential_seq = (SELECT credential_seq FROM accounts WHERE id = $2) \
+              WHERE id = $1",
+            &[&thief_id, &donor],
+        )
+        .await
+        .expect("the whole credential, seal and all");
+    match sign_in_with(&sessions, &thief, A_REAL_PASSWORD, "").await {
+        Err(SessionError::Corrupt(_)) => {}
+        Ok(_) => {
+            panic!("the seal names the account it was written for, so a copied one must not verify")
+        }
+        Err(other) => panic!("the refusal must be the integrity alarm, not {other:?}"),
+    }
+}
+
+/// **No seal and no credential is the pre-credential state, and it is legal.**
+///
+/// Every account created before `0018` is in it, and `0025` §B says so. The
+/// same test watches the seal appear at the moment a password is set through
+/// the route, naming the `password_set` entry that set it.
+#[tokio::test]
+async fn an_account_with_no_credential_carries_no_seal_until_it_has_one() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let person = an_account(&pool, "nocred").await;
+
+    let seal: Option<Vec<u8>> = superuser()
+        .await
+        .query_one(
+            "SELECT credential_seal FROM accounts WHERE id = $1",
+            &[&person.account.to_string()],
+        )
+        .await
+        .expect("the account row")
+        .get(0);
+    assert!(seal.is_none(), "a fresh account has no credential to seal");
+
+    set_password_directly(&pool, &ring, &creds, &person, A_REAL_PASSWORD).await;
+    let (signed_in, session_key) = sign_in_with(&sessions, &person, A_REAL_PASSWORD, "")
+        .await
+        .expect("a sealed password opens a session");
+    let session = verify(
+        &sessions,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/password",
+        b"",
+    )
+    .await;
+    creds
+        .set_password(&session, ANOTHER_REAL_PASSWORD)
+        .await
+        .expect("change the password through the route");
+
+    let row = superuser()
+        .await
+        .query_one(
+            "SELECT credential_seal, credential_seq FROM accounts WHERE id = $1",
+            &[&person.account.to_string()],
+        )
+        .await
+        .expect("the account row");
+    let seal: Option<Vec<u8>> = row.get(0);
+    let seq: Option<i64> = row.get(1);
+    assert_eq!(
+        seal.map(|s| s.len()),
+        Some(32),
+        "setting a password writes the seal in the same transaction"
+    );
+    let seq = seq.expect("and names the entry that changed it");
+    let entry: String = superuser()
+        .await
+        .query_one(
+            "SELECT entry_type FROM chain_entries WHERE chain_kind = 'site' AND seq = $1",
+            &[&seq],
+        )
+        .await
+        .expect("the entry the seal names")
+        .get(0);
+    assert_eq!(entry, "password_set", "the seq is the act's own entry");
+}
+
+// ---------------------------------------------------------------------------
+// The common-password list — CLAUDE.md rule 2, and the fix of 2026-09-21
+// ---------------------------------------------------------------------------
+
+/// **A common password padded to the fifteen-character floor is refused.**
+///
+/// The bundled list was inert: 10,000 of its 10,001 lines are shorter than
+/// [`credentials::PASSWORD_MIN`], so the length rule already refused them and
+/// exactly one entry could ever fire the list rule. Driven over the wire on
+/// 2026-09-21, every fixture below was ACCEPTED as the password of the account
+/// holding the operator custody.
+///
+/// These are real inputs, not synthetic ones: each is what a person actually
+/// types when a form asks for fifteen characters and they have `password` in
+/// their head. `credentials::is_common_password` states the three rules.
+#[tokio::test]
+async fn a_common_password_padded_to_the_length_floor_is_refused() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let person = an_account(&pool, "padder").await;
+    set_password_directly(&pool, &ring, &creds, &person, A_REAL_PASSWORD).await;
+    let (signed_in, session_key) = sign_in_with(&sessions, &person, A_REAL_PASSWORD, "")
+        .await
+        .expect("sign in");
+
+    for candidate in [
+        // The two the brief names.
+        "password123456789",
+        "qwertyuiop1234567",
+        // And the rest of what the reviewer got accepted.
+        "passwordpassword",
+        "iloveyouiloveyou",
+        "qwertyuiopasdfgh",
+        "password12345678",
+        "Password1234567!",
+        "trustno1trustno1",
+        "123456789012345",
+    ] {
+        assert!(
+            candidate.chars().count() >= credentials::PASSWORD_MIN,
+            "{candidate:?} must clear the length rule or it proves the wrong thing"
+        );
+        let session = verify(
+            &sessions,
+            &signed_in,
+            &session_key,
+            "POST",
+            "/credentials/password",
+            b"",
+        )
+        .await;
+        let refused = creds.set_password(&session, candidate).await;
+        assert!(
+            matches!(refused, Err(CredentialError::PasswordIsCommon)),
+            "{candidate:?} is a common password with padding on it: {refused:?}"
+        );
+    }
+
+    // And a real passphrase of the same length is still accepted, so what
+    // refuses the nine above is the list and not the rule's appetite.
+    let session = verify(
+        &sessions,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/password",
+        b"",
+    )
+    .await;
+    creds
+        .set_password(&session, ANOTHER_REAL_PASSWORD)
+        .await
+        .expect("a four-word passphrase is not on any list");
+}
+
+// ---------------------------------------------------------------------------
+// "Forgot my password" — decision 7's "the same answer AND TIMING"
+// ---------------------------------------------------------------------------
+
+/// **An address that belongs to nobody takes about as long as one that does.**
+///
+/// Decision 7 asks for *"the same answer and timing for every address"* and
+/// OWASP ASVS 5.0.0 6.3.8 forbids enumeration *"through messages, codes or
+/// timing"*. The answer was already identical and this file asserted it; the
+/// TIMING was not, and nothing measured it: ten probes over HTTP on 2026-09-21
+/// gave 9.8 ms for an address that exists against 6.2 ms for one that does
+/// not, about sixty per cent.
+///
+/// **What this test can and cannot say.** It measures the store, not the
+/// socket, so it sees the branch and not the noise around it; and it compares
+/// MEDIANS over many interleaved probes, because one sample of a database call
+/// measures the scheduler. The bound is deliberately loose — the branch that
+/// finds an account still appends an entry and inserts a row, which
+/// `issue_reset_token` explains it cannot mirror without writing rows for an
+/// address that belongs to nobody. What it catches is the shape of the
+/// failure: one side of a branch doing far less work than the other.
+#[tokio::test]
+async fn forgot_my_password_takes_about_as_long_for_an_address_that_belongs_to_nobody() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let person = an_account(&pool, "timed").await;
+    let nobody = unique("nobody-at-all");
+
+    // Warm the pool and the plan cache, so the first call's connection setup
+    // is not counted as a property of the branch it happened to be in.
+    for _ in 0..3 {
+        creds
+            .request_reset(&person.address, "198.51.100.7")
+            .await
+            .expect("warm");
+        creds
+            .request_reset(&nobody, "198.51.100.7")
+            .await
+            .expect("warm");
+    }
+
+    const PROBES: usize = 20;
+    let mut known = Vec::with_capacity(PROBES);
+    let mut unknown = Vec::with_capacity(PROBES);
+    for _ in 0..PROBES {
+        // Interleaved, so a machine that gets busy halfway through spoils both
+        // samples equally rather than one of them.
+        let at = std::time::Instant::now();
+        creds
+            .request_reset(&person.address, "198.51.100.7")
+            .await
+            .expect("known");
+        known.push(at.elapsed().as_micros() as u64);
+
+        let at = std::time::Instant::now();
+        creds
+            .request_reset(&nobody, "198.51.100.7")
+            .await
+            .expect("unknown");
+        unknown.push(at.elapsed().as_micros() as u64);
+    }
+    known.sort_unstable();
+    unknown.sort_unstable();
+    let known_median = known[PROBES / 2] as f64;
+    let unknown_median = unknown[PROBES / 2] as f64;
+
+    assert!(
+        known_median <= unknown_median * TIMING_RATIO_MAX,
+        "an address that exists must not be tellable from one that does not by the clock: \
+         known median {known_median} µs, unknown median {unknown_median} µs"
+    );
+}
+
+/// How much longer the branch that finds an account may take than the one that
+/// does not, before this suite calls it an enumeration channel.
+///
+/// **Read off runs rather than chosen.** Measured here on 2026-09-21, twenty
+/// interleaved probes each, medians in microseconds:
+///
+/// | | address exists | address does not | ratio |
+/// |---|---|---|---|
+/// | before the fix | 4414 | 1972 | **2.24** |
+/// | after it | 4545 / 5064 / 4723 | 2803 / 3148 / 2905 | **1.62 / 1.61 / 1.63** |
+///
+/// The three repeats are there because a bound between two numbers is only
+/// worth having if the numbers are steady. `1.9` sits fifteen per cent above
+/// what the fix achieves and eighteen per cent below what it replaced, so it
+/// fails on the regression and not on a busy machine. The residue is the two
+/// INSERTs and the chain's advisory lock, which `issue_reset_token` explains
+/// it will not mirror.
+const TIMING_RATIO_MAX: f64 = 1.9;
+
+// ---------------------------------------------------------------------------
+// A reset ends the OPERATOR's sessions too — decision 7's "every other
+// session of the account ends"
+// ---------------------------------------------------------------------------
+
+/// **A password reset ends the bound operator's sessions, not only the
+/// account's.**
+///
+/// `end_every_session_of` selected `principal_kind = 'steward'` only, so an
+/// operator-kind session of the operator bound to the account whose password
+/// was just reset survived it — and the operator principal has an id of its
+/// own, so no filter on `principal_id` would ever have caught it. Decision 7
+/// says *"Every other session of the account ends"*, with no plane on it.
+///
+/// The operator session row is written as the superuser, for the reason
+/// `bind_to_a_new_operator` gives about the binding: opening a real one needs
+/// the operator plane's key enrolment, which is another stream's, and nothing
+/// under test here reads the row's MAC — what is under test is which rows the
+/// sweep selects.
+#[tokio::test]
+async fn a_reset_ends_the_bound_operators_sessions_too() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let person = an_account(&pool, "twoplanes").await;
+    set_password_directly(&pool, &ring, &creds, &person, A_REAL_PASSWORD).await;
+    let operator = bind_to_a_new_operator(&pool, &person).await;
+
+    let (signed_in, _key) = sign_in_with(&sessions, &person, A_REAL_PASSWORD, "")
+        .await
+        .expect("the account's own session");
+    let operator_session = an_operator_session_row(&operator).await;
+
+    let before = site_entries_of("operator_signed_out").await;
+    let token = a_reset_token(&pool, &ring, &creds, &person).await;
+    creds
+        .redeem_reset(&token, ANOTHER_REAL_PASSWORD)
+        .await
+        .expect("redeem");
+
+    for (session, whose) in [
+        (signed_in.session_id.as_str(), "the account's"),
+        (operator_session.as_str(), "the bound operator's"),
+    ] {
+        let left: i64 = superuser()
+            .await
+            .query_one("SELECT count(*) FROM sessions WHERE id = $1", &[&session])
+            .await
+            .expect("count")
+            .get(0);
+        assert_eq!(left, 0, "{whose} session must be gone after a reset");
+        let revoked: i64 = superuser()
+            .await
+            .query_one(
+                "SELECT count(*) FROM session_revocations WHERE session_id = $1",
+                &[&session],
+            )
+            .await
+            .expect("count")
+            .get(0);
+        assert_eq!(revoked, 1, "and {whose} ending must be recorded");
+    }
+    assert_eq!(
+        site_entries_of("operator_signed_out").await,
+        before + 1,
+        "the operator plane's own entry type says which plane ended"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The keyring cap — `credentials::LIVE_ACCOUNT_KEYS_MAX`
+// ---------------------------------------------------------------------------
+
+/// **The eleventh browser retires the first one's key, sealed, and the ring
+/// never grows past ten.**
+///
+/// `POST /credentials/key` had no cap and no rate limit of its own: every call
+/// appended a sealed `authenticator_registered` entry and inserted a row, and
+/// `grants::verify_by_any_live_key` walks the whole live ring at every signed
+/// sign-in. This drives the real route's own function eleven times and reads
+/// the ring off the database.
+#[tokio::test]
+async fn an_eleventh_browser_key_retires_the_oldest_one() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let person = an_account(&pool, "manybrowsers").await;
+    set_password_directly(&pool, &ring, &creds, &person, A_REAL_PASSWORD).await;
+    let (signed_in, session_key) = sign_in_with(&sessions, &person, A_REAL_PASSWORD, "")
+        .await
+        .expect("sign in");
+
+    let cap = credentials::LIVE_ACCOUNT_KEYS_MAX;
+    let mut registered = Vec::new();
+    for i in 0..(cap + 1) {
+        let session = verify(
+            &sessions,
+            &signed_in,
+            &session_key,
+            "POST",
+            "/credentials/key",
+            b"",
+        )
+        .await;
+        let browser = SoftwareKey::random().expect("a keypair");
+        let id = creds
+            .register_key(&session, &browser.public_key())
+            .await
+            .expect("register this browser's key");
+        registered.push(id);
+
+        let live: i64 = superuser()
+            .await
+            .query_one(
+                "SELECT count(*) FROM account_keys \
+                  WHERE account_id = $1 AND retired_at IS NULL AND superseded_by IS NULL",
+                &[&person.account.to_string()],
+            )
+            .await
+            .expect("count")
+            .get(0);
+        assert!(
+            live <= cap,
+            "the live ring must never exceed {cap}: it held {live} after registration {}",
+            i + 1
+        );
+    }
+
+    // The one that went is the OLDEST, and it went by retirement rather than
+    // by deletion — `0011`'s keyring rows are never deleted.
+    let retired: Option<i64> = superuser()
+        .await
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM retired_at)::bigint FROM account_keys WHERE id = $1",
+            &[&registered[0]],
+        )
+        .await
+        .expect("the first key's row is still there")
+        .get(0);
+    assert!(
+        retired.is_some(),
+        "the eleventh registration retires the first browser's key"
+    );
+    let version: i32 = superuser()
+        .await
+        .query_one(
+            "SELECT row_version FROM account_keys WHERE id = $1",
+            &[&registered[0]],
+        )
+        .await
+        .expect("the row")
+        .get(0);
+    assert_eq!(version, 2, "and re-seals it at the next version");
+
+    // Only as many as the cap requires go: the second-oldest is still live.
+    let second_oldest: Option<i64> = superuser()
+        .await
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM retired_at)::bigint FROM account_keys WHERE id = $1",
+            &[&registered[1]],
+        )
+        .await
+        .expect("the row")
+        .get(0);
+    assert!(
+        second_oldest.is_none(),
+        "only as many as the cap requires are retired"
+    );
+}
+
+/// One operator-kind session row, written as the superuser. See
+/// [`a_reset_ends_the_bound_operators_sessions_too`] for why.
+async fn an_operator_session_row(operator: &str) -> String {
+    let id = fathom_server::ids::new_ulid().to_string();
+    let mut pubkey = vec![0u8; 65];
+    pubkey[0] = 4;
+    let mut token_hash = vec![0u8; 32];
+    token_hash[0..16].copy_from_slice(&id.as_bytes()[0..16]);
+    superuser()
+        .await
+        .execute(
+            "INSERT INTO sessions (id, principal_id, principal_kind, token_hash, session_pubkey, \
+                                   session_alg, bound_nonce, assurance, chain_seq, expires_at, \
+                                   row_version, row_mac) \
+             VALUES ($1, $2, 'operator', $3, $4, 1, $5, 'A0', 1, now() + interval '1 hour', \
+                     1, $6)",
+            &[
+                &id,
+                &operator,
+                &token_hash,
+                &pubkey,
+                &vec![7u8; 32],
+                &vec![0u8; 32],
+            ],
+        )
+        .await
+        .expect("an operator-kind session row");
+    id
 }
 
 // ---------------------------------------------------------------------------

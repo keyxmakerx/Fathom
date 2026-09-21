@@ -223,6 +223,25 @@ pub const RESET_TOKEN_LEN: usize = 32;
 /// into it.
 pub const OPERATOR_KEY_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// **How many live keys one account's browser keyring may hold: ten.**
+///
+/// `POST /credentials/key` had no cap and no rate limit of its own. Every call
+/// appends a sealed `authenticator_registered` entry and inserts an
+/// `account_keys` row, and `grants::verify_by_any_live_key` walks the WHOLE
+/// live ring verifying each row seal at every sign-in that presents a
+/// signature — so one session could grow the sealed audit and the per-sign-in
+/// work without bound. It needs a verified session, so the blast radius was
+/// one account's own ring plus the site chain; it is closed anyway, because
+/// `0014` §B and `0015` §F both argue that an authenticated caller choosing
+/// how fast the audit grows is an amplifier whether or not it is an attack.
+///
+/// Ten rather than two, because ADR-0055 decision 6 is *"any browser, no
+/// pairing"* — a person with a laptop, a desktop, a phone and a tablet, who
+/// reinstalls one of them twice a year, must never meet this number by
+/// accident. The eleventh registration retires the oldest live key, sealed, so
+/// the cap refuses nobody: it evicts.
+pub const LIVE_ACCOUNT_KEYS_MAX: i64 = 10;
+
 /// The bundled list of the most common passwords, compiled in.
 ///
 /// `deps/decisions/common-passwords.md` records the URL, the licence, the
@@ -467,16 +486,71 @@ pub fn check_password(password: &str, address: &str) -> Result<(), CredentialErr
     Ok(())
 }
 
-/// Is this — already lowercased — on the bundled list?
+/// Is this — already lowercased — on the bundled list, **as itself, as its
+/// stem, or as something a list entry is buried inside?**
+///
+/// # The rule, stated once
+///
+/// A password is common when, lowercased:
+///
+/// 1. it **equals** a list entry; or
+/// 2. **with trailing digits and punctuation stripped** it equals a list
+///    entry — `password123456789`, `Password1234567!`; or
+/// 3. it **contains** a list entry of **eight or more characters** —
+///    `passwordpassword`, `qwertyuiopasdfgh`, `iloveyouiloveyou`.
+///
+/// Rule 1 is the original and is kept. Rules 2 and 3 exist because rule 1 on
+/// its own was **inert**, which is CLAUDE.md rule 2's exact failure mode — a
+/// gate tested against an input nobody types:
+///
+/// > [`PASSWORD_MIN`] is fifteen, and 10,000 of the 10,001 lines in
+/// > `data/common-passwords.txt` are shorter than fifteen characters, so the
+/// > length rule already refused them. **Exactly one entry could ever fire
+/// > this check** — `films+pic+galeries` — and that is the entry the test
+/// > fixture picked, because it picked the longest line in the file. Driven
+/// > over the wire against `POST /credentials/password` on 2026-09-21, every
+/// > one of `passwordpassword`, `iloveyouiloveyou`, `qwertyuiopasdfgh`,
+/// > `password12345678`, `Password1234567!`, `trustno1trustno1` and
+/// > `123456789012345` was ACCEPTED as the password of the account holding the
+/// > operator custody.
+///
+/// Eight, in rule 3, is NIST SP 800-63B revision 4 §3.1.1.2's own floor for a
+/// password used with a second factor, read as the shortest string that is a
+/// password rather than a syllable: below it, `123456` inside
+/// `correct123456horse` would refuse a passphrase that is not in any
+/// dictionary. Measured against the vendored list, 2,087 entries are eight or
+/// longer, and none of them is inside `correct-horse-battery-staple`,
+/// `the-quick-brown-fox-jumps` or `rack-diagram-estate-record`.
+///
+/// **What this does not claim.** It is not a breach check — decision 10's
+/// online option is a separate thing, off by default because Fathom may run
+/// air-gapped — and it does not catch every leet variant. It catches the
+/// concatenations and paddings of common words that a fifteen-character floor
+/// pushes people towards, which is the whole of what the vendored list can
+/// reach at this length.
 ///
 /// A linear scan over ten thousand short lines, on a path that is about to run
 /// a memory-hard hash costing nineteen mebibytes. Building an index would be
 /// optimising the cheap half.
 fn is_common_password(lowered: &str) -> bool {
-    COMMON_PASSWORDS
-        .lines()
-        .any(|line| !line.is_empty() && line.eq_ignore_ascii_case(lowered))
+    // Rule 2's stem. `trim_end_matches` and not a regular expression: the
+    // dependency ceiling is real (ADR-0055's own dependency note) and this is
+    // two predicates.
+    let stem = lowered.trim_end_matches(|c: char| c.is_ascii_digit() || c.is_ascii_punctuation());
+    COMMON_PASSWORDS.lines().any(|line| {
+        if line.is_empty() {
+            return false;
+        }
+        line.eq_ignore_ascii_case(lowered)
+            || (!stem.is_empty() && line.eq_ignore_ascii_case(stem))
+            || (line.chars().count() >= COMMON_PASSWORD_SUBSTRING_MIN
+                && lowered.contains(&line.to_ascii_lowercase()))
+    })
 }
+
+/// How long a list entry must be before rule 3 of [`is_common_password`] —
+/// "contains" — applies to it. Eight, and that function carries the citation.
+const COMMON_PASSWORD_SUBSTRING_MIN: usize = 8;
 
 // ---------------------------------------------------------------------------
 // The app code — RFC 6238
@@ -734,6 +808,19 @@ pub struct CredentialRow {
     pub totp_enrolled: bool,
     pub totp_last_step: Option<i64>,
     pub operator_key_hold_until_unix: i64,
+    /// `totp_enrolled_at` as seconds since the epoch, zero when unset.
+    /// Carried as well as [`CredentialRow::totp_enrolled`] because the seal
+    /// covers the instant and not only the fact (`0025` §A).
+    pub totp_enrolled_at_unix: i64,
+    /// `0025` §A. `None` is "this account has never had a credential", which
+    /// is legal and is what every account created before `0018` is.
+    pub credential_seal: Option<Vec<u8>>,
+    pub credential_row_version: i32,
+    /// The `chain_entries.seq` of the entry that last changed these columns,
+    /// zero when none has (see [`credential_state_bytes`]'s doc for the one
+    /// act — enrolling a secret that is not yet confirmed — that changes them
+    /// without an entry of its own).
+    pub credential_seq: i64,
 }
 
 impl CredentialRow {
@@ -755,6 +842,11 @@ impl CredentialRow {
     /// any other way.
     pub fn totp_confirmed(&self) -> bool {
         self.totp_last_step.is_some()
+    }
+
+    /// `credential_seq` as the column holds it: `NULL` rather than zero.
+    pub fn seq_column(&self) -> Option<i64> {
+        seq_column(self.credential_seq)
     }
 
     /// The secret, opened. `None` when none is enrolled.
@@ -780,10 +872,161 @@ impl CredentialRow {
     }
 }
 
-/// Read one account's credential columns. **Every caller reads through this
-/// one function**, so a path cannot be written that quietly omits the hold or
-/// the replay mark.
+/// Everything `accounts.credential_seal` covers, canonically.
+///
+/// `0025` §A is the schema's statement of this list and wins over this
+/// comment. Two choices in it are worth reading twice:
+///
+/// * **`totp_last_step` is sealed as a BOOLEAN — whether it is set.** Being
+///   set is what [`CredentialRow::totp_confirmed`] means and is therefore the
+///   authority fact; the value moves on every sign-in, and sealing the value
+///   would mean a fresh seal on every sign-in for nothing. What the value
+///   carries — "a code accepted once" — is enforced by the guarded `UPDATE`
+///   at the moment it advances, which is a concurrency control and not an
+///   integrity one.
+/// * **The chain seq is the entry that last CHANGED these columns**, and one
+///   act changes them without an entry: drawing a TOTP secret that has not
+///   been confirmed yet (`enrol_totp`), because `0018` §B's own `CHECK`
+///   forces the secret to rest before the person has proved they can read a
+///   code off it, and the `totp_enrolled` entry is written at confirmation.
+///   That state keeps the previous seq, and the confirmation sets its own.
+fn credential_state_bytes(row: &CredentialRow) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "password_hash".to_string(),
+        match &row.password_hash {
+            Some(hash) => Json::Str(hash.clone()),
+            None => Json::Null,
+        },
+    );
+    map.insert(
+        "totp_secret_ct".to_string(),
+        match &row.totp_secret_ct {
+            Some(ct) => Json::Str(hex(ct)),
+            None => Json::Null,
+        },
+    );
+    map.insert(
+        "totp_secret_nonce".to_string(),
+        match &row.totp_secret_nonce {
+            Some(nonce) => Json::Str(hex(nonce)),
+            None => Json::Null,
+        },
+    );
+    map.insert(
+        "totp_secret_key_epoch".to_string(),
+        match row.totp_secret_key_epoch {
+            Some(epoch) => Json::Int(epoch as i64),
+            None => Json::Null,
+        },
+    );
+    map.insert(
+        "totp_enrolled_at_unix".to_string(),
+        Json::Int(row.totp_enrolled_at_unix),
+    );
+    map.insert(
+        "totp_confirmed".to_string(),
+        Json::Bool(row.totp_confirmed()),
+    );
+    map.insert(
+        "operator_key_hold_until_unix".to_string(),
+        Json::Int(row.operator_key_hold_until_unix),
+    );
+    Json::Obj(map).to_canonical_bytes()
+}
+
+/// The seal on one account's credential columns.
+///
+/// `authority::row_seal` under `grants::site_row_key`, the same key and the
+/// same construction `account_keys`, `backup_codes` and
+/// `password_reset_tokens` are sealed under — the account plane is
+/// site-scoped, and `site_row_key`'s own doc carries that argument. The
+/// account id is the seal's `row_id`, so a credential lifted onto another
+/// account's row does not verify: the same property `0018` §B's AAD gives the
+/// TOTP secret, extended to the four columns beside it that had none.
+fn credential_seal(row_key: &Key32, account: &str, row: &CredentialRow) -> [u8; 32] {
+    authority::row_seal(
+        row_key,
+        &RowFacts {
+            table: "accounts",
+            row_id: account,
+            chain_seq: row.credential_seq,
+            row_version: row.credential_row_version,
+            row_state: &credential_state_bytes(row),
+        },
+    )
+}
+
+/// Is any credential column set at all?
+///
+/// `operator_key_hold_until` is deliberately not in this list, and `0025` §B
+/// says why: the hold is a fact about a seat, a reset writes it on accounts
+/// that may have no credential, and a hold with no password is not a state
+/// anybody can sign in with. It is INSIDE the seal; it does not by itself
+/// REQUIRE one.
+fn has_a_credential(row: &CredentialRow) -> bool {
+    row.password_hash.is_some()
+        || row.totp_secret_ct.is_some()
+        || row.totp_secret_nonce.is_some()
+        || row.totp_secret_key_epoch.is_some()
+        || row.totp_enrolled
+        || row.totp_last_step.is_some()
+}
+
+/// **The refusal.** A credential state that this server did not write is
+/// `Unverifiable`, and `0025`'s header says what that is worth: not that a
+/// database holder is locked out of anything, but that the act the row would
+/// have authorised is refused rather than performed.
+///
+/// Three outcomes, and the middle one is the whole point:
+///
+/// 1. no seal and no credential — the pre-credential state, legal, and what
+///    every account created before `0018` is;
+/// 2. **no seal and a credential set — refused**, because that is exactly the
+///    shape a writer produces who puts a password hash or an app-code secret
+///    into the table from outside;
+/// 3. a seal — recomputed over the row as it stands, and compared.
+fn verify_credential_seal(
+    row_key: &Key32,
+    account: &str,
+    row: &CredentialRow,
+) -> Result<(), CredentialError> {
+    match &row.credential_seal {
+        None if has_a_credential(row) => Err(CredentialError::Unverifiable("credential seal")),
+        None => Ok(()),
+        Some(stored) => {
+            if stored.as_slice() == credential_seal(row_key, account, row).as_slice() {
+                Ok(())
+            } else {
+                Err(CredentialError::Unverifiable("credential seal"))
+            }
+        }
+    }
+}
+
+/// Read one account's credential columns **and verify the seal over them**.
+///
+/// **Every caller reads through this one function**, so a path cannot be
+/// written that quietly omits the hold, the replay mark or — since `0025` —
+/// the seal. It takes the ring for that reason and no other.
 pub async fn read_credentials(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+) -> Result<Option<CredentialRow>, CredentialError> {
+    let Some(row) = read_credentials_unverified(tx, account).await? else {
+        return Ok(None);
+    };
+    let row_key = grants::site_row_key(tx, ring).await?;
+    verify_credential_seal(&row_key, account, &row)?;
+    Ok(Some(row))
+}
+
+/// The columns, without the check. **Private, and it stays private**: the two
+/// callers are the verification above and the re-sealing below, which reads
+/// the row it has just changed and whose seal is therefore stale by
+/// construction.
+async fn read_credentials_unverified(
     tx: &Transaction<'_>,
     account: &str,
 ) -> Result<Option<CredentialRow>, CredentialError> {
@@ -791,7 +1034,9 @@ pub async fn read_credentials(
         .query_opt(
             "SELECT email, password_hash, totp_secret_ct, totp_secret_nonce, \
                     totp_secret_key_epoch, totp_enrolled_at IS NOT NULL, totp_last_step, \
-                    COALESCE(EXTRACT(EPOCH FROM operator_key_hold_until)::bigint, 0) \
+                    COALESCE(EXTRACT(EPOCH FROM operator_key_hold_until)::bigint, 0), \
+                    COALESCE(EXTRACT(EPOCH FROM totp_enrolled_at)::bigint, 0), \
+                    credential_seal, credential_row_version, COALESCE(credential_seq, 0) \
                FROM accounts WHERE id = $1",
             &[&account],
         )
@@ -806,7 +1051,156 @@ pub async fn read_credentials(
         totp_enrolled: row.get(5),
         totp_last_step: row.get(6),
         operator_key_hold_until_unix: row.get(7),
+        totp_enrolled_at_unix: row.get(8),
+        credential_seal: row.get(9),
+        credential_row_version: row.get(10),
+        credential_seq: row.get(11),
     }))
+}
+
+/// The seal for the state a transaction is **about to write**, with the
+/// version bumped and the seq recorded.
+///
+/// `next` is the row as it will stand after the `UPDATE`; this mutates its
+/// two bookkeeping fields so the caller can splice them into the same
+/// statement. **One statement, columns and seal together**, because `0025`
+/// §B's constraint trigger asks its question of every row image a transaction
+/// leaves behind, and a credential written in one statement and sealed in the
+/// next leaves an unsealed image between them. It is also simply true: there
+/// is no instant, even inside a transaction, at which the credential is at
+/// rest without its seal.
+///
+/// `seq` is the entry that made the change, or `None` to keep the one already
+/// on the row — see [`credential_state_bytes`] for the one act that changes
+/// these columns without an entry of its own.
+fn next_seal(
+    row_key: &Key32,
+    account: &str,
+    next: &mut CredentialRow,
+    seq: Option<i64>,
+) -> Vec<u8> {
+    next.credential_row_version = next.credential_row_version.saturating_add(1);
+    if let Some(seq) = seq {
+        next.credential_seq = seq;
+    }
+    credential_seal(row_key, account, next).to_vec()
+}
+
+/// `credential_seq` as the column holds it: `NULL` rather than zero.
+fn seq_column(seq: i64) -> Option<i64> {
+    (seq != 0).then_some(seq)
+}
+
+/// [`next_seal`], for a caller outside this module.
+///
+/// **The shape a path that writes a FIRST credential has to take**: read the
+/// row, change the fields it is about to write, take the seal, and put the
+/// columns and the seal in ONE `UPDATE`. `0025` §B's constraint trigger is
+/// what requires it — a row image that carries a credential and no seal is
+/// refused whichever statement left it behind — and
+/// [`CredentialStore::set_password`] is the worked example.
+///
+/// `next` comes back with `credential_row_version` bumped and
+/// `credential_seq` set; [`CredentialRow::seq_column`] is the value the column
+/// takes.
+pub async fn seal_for_write(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    next: &mut CredentialRow,
+    seq: Option<i64>,
+) -> Result<Vec<u8>, CredentialError> {
+    let row_key = grants::site_row_key(tx, ring).await?;
+    Ok(next_seal(&row_key, account, next, seq))
+}
+
+/// **Re-seal an account's credential columns, in the transaction that changed
+/// them.** `0025` §A.
+///
+/// Reads the row back as it now stands — so the seal is over what is actually
+/// at rest and not over what the caller believes it wrote — bumps
+/// `credential_row_version`, and records `seq` as the entry that made the
+/// change. `None` keeps the seq already there.
+///
+/// **For a row that already carries a seal**, which is every case outside this
+/// module: the caller has changed one column on a credential that already
+/// exists, so the row image their statement left behind already satisfies
+/// `0025` §B and this one only brings the seal up to date. A path that puts a
+/// FIRST credential on an unsealed row writes both in one statement instead —
+/// [`next_seal`] says why.
+///
+/// **It is `pub` because three transactions outside this module change a
+/// column the seal covers**, and a seal that is not rewritten there is an
+/// integrity alarm on an honest act:
+///
+/// * `sessions::check_second_factor` advances `totp_last_step`
+///   ([`reseal_after_totp_step`], which is the spelling that path should
+///   call);
+/// * `operators::confirm_recovery` clears `operator_key_hold_until`;
+/// * any later path that writes one of `0025` §A's columns.
+pub async fn reseal_credentials(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    seq: Option<i64>,
+) -> Result<(), CredentialError> {
+    let Some(current) = read_credentials_unverified(tx, account).await? else {
+        return Err(CredentialError::Corrupt("account"));
+    };
+    let sealed = CredentialRow {
+        credential_row_version: current.credential_row_version.saturating_add(1),
+        credential_seq: seq.unwrap_or(current.credential_seq),
+        ..current
+    };
+    let row_key = grants::site_row_key(tx, ring).await?;
+    let seal = credential_seal(&row_key, account, &sealed);
+    let updated = tx
+        .execute(
+            "UPDATE accounts \
+                SET credential_seal = $2, credential_row_version = $3, credential_seq = $4 \
+              WHERE id = $1",
+            &[
+                &account,
+                &seal.to_vec(),
+                &sealed.credential_row_version,
+                &seq_column(sealed.credential_seq),
+            ],
+        )
+        .await?;
+    if updated != 1 {
+        return Err(CredentialError::Corrupt("account"));
+    }
+    Ok(())
+}
+
+/// What `sessions::check_second_factor` calls once its guarded `UPDATE` has
+/// advanced `totp_last_step` to `step`.
+///
+/// **In the steady state this changes nothing in the sealed bytes** — the
+/// seal covers whether `totp_last_step` is set, not its value
+/// ([`credential_state_bytes`]) — so a sign-in that advances an already-
+/// confirmed code re-seals the same state at the next version. The case that
+/// needs it is the one where the column goes from NULL to set outside
+/// `confirm_totp`: an account whose secret is at rest but unconfirmed, whose
+/// first accepted code is presented at sign-in.
+///
+/// `step` is taken and checked rather than ignored, so a caller that reseals
+/// after an `UPDATE` which did NOT take effect — the rowcount-0 branch of the
+/// guard, which means another request won the race — is told so instead of
+/// sealing a state it did not produce.
+pub async fn reseal_after_totp_step(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    step: i64,
+) -> Result<(), CredentialError> {
+    let Some(current) = read_credentials_unverified(tx, account).await? else {
+        return Err(CredentialError::Corrupt("account"));
+    };
+    if current.totp_last_step != Some(step) {
+        return Err(CredentialError::CodeRefused);
+    }
+    reseal_credentials(tx, ring, account, None).await
 }
 
 /// Does this account hold the operator custody? `0019`'s binding table, read
@@ -1133,7 +1527,7 @@ impl CredentialStore {
         let tx = client.transaction().await?;
         enter_credential_custody(&tx, &account).await?;
 
-        let Some(row) = read_credentials(&tx, &account).await? else {
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::Corrupt("account"));
         };
         check_password(new_password, &row.address)?;
@@ -1153,11 +1547,24 @@ impl CredentialStore {
             ),
         )
         .await?;
-        let _ = appended;
 
+        // `0025`: the hash and the seal over it, in one statement.
+        let mut next = row.clone();
+        next.password_hash = Some(hash.clone());
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        let seal = next_seal(&row_key, &account, &mut next, Some(appended.seq));
         tx.execute(
-            "UPDATE accounts SET password_hash = $2 WHERE id = $1",
-            &[&account, &hash],
+            "UPDATE accounts \
+                SET password_hash = $2, credential_seal = $3, credential_row_version = $4, \
+                    credential_seq = $5 \
+              WHERE id = $1",
+            &[
+                &account,
+                &hash,
+                &seal,
+                &next.credential_row_version,
+                &seq_column(next.credential_seq),
+            ],
         )
         .await?;
 
@@ -1187,7 +1594,7 @@ impl CredentialStore {
         let tx = client.transaction().await?;
         enter_credential_custody(&tx, &account).await?;
 
-        let Some(row) = read_credentials(&tx, &account).await? else {
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::Corrupt("account"));
         };
         if row.totp_confirmed() {
@@ -1207,12 +1614,40 @@ impl CredentialStore {
         // columns and a secret cannot be at rest without it. What "confirmed"
         // means is `totp_last_step`, which the next request sets — see
         // `CredentialRow::totp_confirmed`, which carries the report.
+        // `0025`: the pending secret is at rest, so it is sealed at rest, in
+        // the same statement. No entry is appended here — see
+        // `credential_state_bytes` — so the seq already on the row stands
+        // until the confirmation writes its own.
+        //
+        // **`totp_enrolled_at` is an explicit instant and no longer `now()`**,
+        // because the seal covers it: a value the database chose is a value
+        // this server would have to read back before it could seal it.
+        let enrolled_at = now_unix();
+        let mut next = row.clone();
+        next.totp_secret_ct = Some(ciphertext.clone());
+        next.totp_secret_nonce = Some(nonce.to_vec());
+        next.totp_secret_key_epoch = Some(CHAIN_KEY_EPOCH);
+        next.totp_enrolled = true;
+        next.totp_enrolled_at_unix = enrolled_at;
+        next.totp_last_step = None;
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        let seal = next_seal(&row_key, &account, &mut next, None);
         tx.execute(
             "UPDATE accounts \
                 SET totp_secret_ct = $2, totp_secret_nonce = $3, totp_secret_key_epoch = $4, \
-                    totp_enrolled_at = now(), totp_last_step = NULL \
+                    totp_enrolled_at = to_timestamp($5::bigint), totp_last_step = NULL, \
+                    credential_seal = $6, credential_row_version = $7, credential_seq = $8 \
               WHERE id = $1",
-            &[&account, &ciphertext, &nonce.to_vec(), &CHAIN_KEY_EPOCH],
+            &[
+                &account,
+                &ciphertext,
+                &nonce.to_vec(),
+                &CHAIN_KEY_EPOCH,
+                &enrolled_at,
+                &seal,
+                &next.credential_row_version,
+                &seq_column(next.credential_seq),
+            ],
         )
         .await?;
 
@@ -1249,7 +1684,7 @@ impl CredentialStore {
         let tx = client.transaction().await?;
         enter_credential_custody(&tx, &account).await?;
 
-        let Some(row) = read_credentials(&tx, &account).await? else {
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::Corrupt("account"));
         };
         if row.totp_confirmed() {
@@ -1277,15 +1712,36 @@ impl CredentialStore {
             ),
         )
         .await?;
-        let _ = appended;
 
-        tx.execute(
-            "UPDATE accounts SET totp_last_step = $2 WHERE id = $1",
-            &[&account, &step],
-        )
-        .await?;
-
+        // **The advance IS the guard**, the shape `spend_backup_code` uses one
+        // function up: two confirmations racing on one code both read the same
+        // `NULL` high-water mark, and only the `UPDATE` sees the other. The
+        // row lock serialises them and the loser gets rowcount 0, which is
+        // `CodeRefused` — decision 10's *"a code accepted once"*, made true by
+        // the write rather than by the read that preceded it.
         let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        let mut next = row.clone();
+        next.totp_last_step = Some(step);
+        let seal = next_seal(&row_key, &account, &mut next, Some(appended.seq));
+        let advanced = tx
+            .execute(
+                "UPDATE accounts \
+                    SET totp_last_step = $2, credential_seal = $3, \
+                        credential_row_version = $4, credential_seq = $5 \
+                  WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+                &[
+                    &account,
+                    &step,
+                    &seal,
+                    &next.credential_row_version,
+                    &seq_column(next.credential_seq),
+                ],
+            )
+            .await?;
+        if advanced != 1 {
+            return Err(CredentialError::CodeRefused);
+        }
+
         let mut codes = Vec::with_capacity(BACKUP_CODE_COUNT);
         for _ in 0..BACKUP_CODE_COUNT {
             let code = new_backup_code()?;
@@ -1341,6 +1797,12 @@ impl CredentialStore {
     /// resolution 1 and lives in `grants::verify_by_any_live_key`: an account
     /// that has registered a key in each of two browsers can sign in and sign
     /// grants from either.
+    ///
+    /// **And at most [`LIVE_ACCOUNT_KEYS_MAX`] of them are live at once.**
+    /// This route had no cap and no rate limit of its own, so one session
+    /// could grow both the sealed audit and the per-sign-in verification work
+    /// without bound; the eleventh registration retires the oldest, sealed,
+    /// rather than refusing the person their new browser.
     pub async fn register_key(
         &self,
         session: &VerifiedSession,
@@ -1355,10 +1817,24 @@ impl CredentialStore {
         let tx = client.transaction().await?;
         enter_credential_custody(&tx, &account).await?;
 
-        let Some(row) = read_credentials(&tx, &account).await? else {
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::Corrupt("account"));
         };
         self.refuse_a_setup_session(&tx, &account, &row).await?;
+
+        // **The cap, before the enrolment.** `grants::retire_oldest_over_cap`
+        // retires whatever is over [`LIVE_ACCOUNT_KEYS_MAX`] — oldest first,
+        // each row re-sealed at its next version — so the eleventh browser
+        // costs the first one its key instead of costing every later sign-in
+        // one more signature verification.
+        grants::retire_oldest_over_cap(
+            &tx,
+            &self.ring,
+            &account,
+            LIVE_ACCOUNT_KEYS_MAX,
+            now_unix(),
+        )
+        .await?;
 
         let key = grants::enrol_software_key_at_invitation(
             &tx,
@@ -1388,11 +1864,16 @@ impl CredentialStore {
     /// `SessionError::SignInRefused` states its own version.** What is closed is
     /// the ANSWER: status, headers and body are identical for an address that
     /// belongs to an account and one that belongs to nobody, and
-    /// `tests/credentials.rs` asserts that over the wire. What is **not** closed
-    /// is how long it takes: an address that resolves goes on to append a sealed
-    /// entry and write a row, and one that resolves to nothing stops earlier.
-    /// That is a timing difference of real size, it is not measured here, and
-    /// **nothing in this file is a claim that this route is constant time.**
+    /// `tests/credentials.rs` asserts that over the wire. What is **narrowed
+    /// and not closed** is how long it takes: since the ADR-0055 fix of
+    /// 2026-09-21 both branches draw the token, hash it, derive the site row
+    /// key and compute a token seal, so the key derivation and the
+    /// cryptography no longer depend on whether the address exists. The found
+    /// branch still appends a sealed entry and inserts two rows, which the
+    /// other cannot mirror without writing rows for an address that belongs to
+    /// nobody — [`CredentialStore::issue_reset_token`] carries the argument
+    /// and what to do instead when the mail path lands. **Nothing in this file
+    /// is a claim that this route is constant time.**
     ///
     /// **The token is not returned** — there is no mail path yet (ADR-0055
     /// decision 7's *"until SMTP is applied"*), so until stream 5 builds one the
@@ -1433,6 +1914,7 @@ impl CredentialStore {
         let mut token = [0u8; RESET_TOKEN_LEN];
         getrandom::fill(&mut token).map_err(|_| CredentialError::Corrupt("random source"))?;
         let hash = reset_token_hash(&token);
+        let source: String = source.chars().take(128).collect();
 
         let found = tx
             .query_opt(
@@ -1442,9 +1924,36 @@ impl CredentialStore {
             .await?;
         let mut issued = None;
 
+        // **Both branches derive the key and compute the seal.** Decision 7
+        // asks for *"the same answer and timing for every address"* and OWASP
+        // ASVS 5.0.0 6.3.8 forbids enumeration *"through messages, codes or
+        // timing"*; before this, an address that resolved to nobody returned
+        // here having done nothing but one `SELECT`, and a measurement over
+        // HTTP separated the two branches by about 60% (9.8 ms against 6.2 ms
+        // on the reviewer's own server, 2026-09-21).
+        //
+        // `site_row_key` is a round trip and a key derivation, and the seal is
+        // the MAC — the same work, on the same values, for an address that
+        // exists and one that does not. The id is drawn rather than read so
+        // that the seal is over a string of the same shape and length.
+        //
+        // **What is still not equal, stated rather than claimed away.** The
+        // found branch goes on to append a sealed entry and insert a row: the
+        // chain's advisory lock, its tip read and two INSERTs. Those are not
+        // mirrored, because mirroring them means either writing rows for an
+        // address that belongs to nobody — which is the audit amplifier
+        // `0014` §B exists against — or taking the site chain's writer lock on
+        // an unauthenticated route, which hands a prober a contention signal
+        // in place of a timing one. **Nothing here is a claim that this route
+        // is constant time.** Closing the rest needs decision 7's mail path,
+        // where the whole act moves off the request (stream 5); that is the
+        // shape to take when it lands.
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        let id = ids::new_ulid().to_string();
+        let expires = now_unix() + self.reset_lifetime.as_secs() as i64;
+
         if let Some(found) = found {
             let account: String = found.get(0);
-            let source: String = source.chars().take(128).collect();
             let appended = chains::append_site(
                 &tx,
                 &self.ring,
@@ -1460,9 +1969,6 @@ impl CredentialStore {
             )
             .await?;
 
-            let id = ids::new_ulid().to_string();
-            let expires = now_unix() + self.reset_lifetime.as_secs() as i64;
-            let row_key = grants::site_row_key(&tx, &self.ring).await?;
             let seal = reset_token_seal(
                 &row_key,
                 &ResetTokenFacts {
@@ -1493,6 +1999,65 @@ impl CredentialStore {
             )
             .await?;
             issued = Some(token.to_vec());
+        } else {
+            // The other half of the equalisation above: the same round trips,
+            // the same key, the same seal, over an account id this deployment
+            // does not have.
+            //
+            // The tip read is `chains::append`'s own first query, spelled here
+            // rather than called, because what is being mirrored is its COST
+            // and not its effect. **Its advisory lock is deliberately not
+            // mirrored**: taking the site chain's writer lock on an
+            // unauthenticated route for an address that belongs to nobody
+            // would hand a caller who knows no address the ability to
+            // serialise every sign-in in the deployment, which is a worse
+            // thing to give away than the milliseconds it buys back.
+            let _ = tx
+                .query_opt(
+                    "SELECT seq, seal FROM chain_entries \
+                      WHERE chain_kind = 'site' AND chain_id = $1 ORDER BY seq DESC LIMIT 1",
+                    &[&self.deployment],
+                )
+                .await?;
+            let _ = reset_token_seal(
+                &row_key,
+                &ResetTokenFacts {
+                    id: &id,
+                    account_id: &id,
+                    token_hash: &hash,
+                    source: &source,
+                    issued_seq: 1,
+                    expires_at_unix: expires,
+                    row_version: 1,
+                    spent_at_unix: 0,
+                },
+            );
+
+            // And the chain entry's cryptography, which is the largest single
+            // thing the other branch does: canonical metadata, an AEAD over
+            // it, a content hash and a seal. **This is a COST mirror and says
+            // so** — it is deliberately not a second implementation of
+            // `chains::append`'s seal, because a second implementation of a
+            // seal is a thing that drifts and this is a thing that must only
+            // cost the same. What it costs is what `chains::append_locked`
+            // costs with the INSERT taken out.
+            let metadata = entry_metadata(
+                EntryType::ResetRequested,
+                &[
+                    ("account", Json::Str(id.clone())),
+                    ("source", Json::Str(source.clone())),
+                ],
+            );
+            let nonce = crypto::random_nonce()?;
+            // No label on the additional data: a label names a USE, and these
+            // bytes are never stored and never opened. `LABELS` stays the
+            // four this module actually writes with.
+            let sealed = crypto::seal(&row_key, &nonce, &metadata, b"")?;
+            let mut content = Vec::with_capacity(sealed.len() + 64);
+            crypto::lp(&mut content, &sealed);
+            crypto::lp(&mut content, &nonce);
+            let digest: [u8; 32] = Sha256::digest(&content).into();
+            let _ = crypto::mac(row_key.expose(), &digest);
         }
 
         leave_custody(&tx).await?;
@@ -1585,13 +2150,19 @@ impl CredentialStore {
             return Err(CredentialError::TokenRefused);
         }
 
-        let address: Option<String> = tx
-            .query_opt("SELECT email FROM accounts WHERE id = $1", &[&account])
-            .await?
-            .map(|r| r.get(0));
-        let Some(address) = address else {
+        // **The credential state, seal checked, before anything is written
+        // over it.** A reset writes a new `password_hash` into the same sealed
+        // state the app-code columns live in, so a row that does not verify is
+        // refused here rather than re-sealed with whatever a writer left in it
+        // — the fail-closed direction, and ADR-0055 decision 8's host command
+        // is the way back from it.
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::TokenRefused);
         };
+        let address = row.address.clone();
+        if address.is_empty() {
+            return Err(CredentialError::TokenRefused);
+        }
 
         // **Spent before the password is checked.** The token is single use
         // whatever happens next, so a caller who presents a live token with a
@@ -1656,7 +2227,7 @@ impl CredentialStore {
         }
         let password_hash = hash_password(new_password)?;
 
-        chains::append_site(
+        let password_entry = chains::append_site(
             &tx,
             &self.ring,
             &self.deployment,
@@ -1671,20 +2242,40 @@ impl CredentialStore {
         )
         .await?;
 
+        // `0025`, over both branches: the hold is inside the seal, so a reset
+        // that parks the operator seat seals the parking together with the
+        // password it wrote, in one statement.
         let holds_custody = holds_operator_custody(&tx, &account).await?;
+        let mut next = row.clone();
+        next.password_hash = Some(password_hash.clone());
         if holds_custody {
-            let until = now + OPERATOR_KEY_HOLD.as_secs() as i64;
+            next.operator_key_hold_until_unix = now + OPERATOR_KEY_HOLD.as_secs() as i64;
+        }
+        let seal = next_seal(&row_key, &account, &mut next, Some(password_entry.seq));
+        let version = next.credential_row_version;
+        let seq = seq_column(next.credential_seq);
+        if holds_custody {
             tx.execute(
                 "UPDATE accounts SET password_hash = $2, \
-                        operator_key_hold_until = to_timestamp($3::bigint) \
+                        operator_key_hold_until = to_timestamp($3::bigint), \
+                        credential_seal = $4, credential_row_version = $5, credential_seq = $6 \
                   WHERE id = $1",
-                &[&account, &password_hash, &until],
+                &[
+                    &account,
+                    &password_hash,
+                    &next.operator_key_hold_until_unix,
+                    &seal,
+                    &version,
+                    &seq,
+                ],
             )
             .await?;
         } else {
             tx.execute(
-                "UPDATE accounts SET password_hash = $2 WHERE id = $1",
-                &[&account, &password_hash],
+                "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                        credential_row_version = $4, credential_seq = $5 \
+                  WHERE id = $1",
+                &[&account, &password_hash, &seal, &version, &seq],
             )
             .await?;
         }
@@ -1754,18 +2345,18 @@ impl CredentialStore {
             return Err(CredentialError::TokenRefused);
         };
 
-        let address: Option<String> = tx
-            .query_opt("SELECT email FROM accounts WHERE id = $1", &[&account])
-            .await?
-            .map(|r| r.get(0));
-        let Some(address) = address else {
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::TokenRefused);
         };
+        let address = row.address.clone();
+        if address.is_empty() {
+            return Err(CredentialError::TokenRefused);
+        }
 
         check_password(new_password, &address)?;
         let password_hash = hash_password(new_password)?;
 
-        chains::append_site(
+        let password_entry = chains::append_site(
             &tx,
             &self.ring,
             &self.deployment,
@@ -1779,9 +2370,21 @@ impl CredentialStore {
             ),
         )
         .await?;
+        let mut next = row.clone();
+        next.password_hash = Some(password_hash.clone());
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        let seal = next_seal(&row_key, &account, &mut next, Some(password_entry.seq));
         tx.execute(
-            "UPDATE accounts SET password_hash = $2 WHERE id = $1",
-            &[&account, &password_hash],
+            "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                    credential_row_version = $4, credential_seq = $5 \
+              WHERE id = $1",
+            &[
+                &account,
+                &password_hash,
+                &seal,
+                &next.credential_row_version,
+                &seq_column(next.credential_seq),
+            ],
         )
         .await?;
 
@@ -1798,15 +2401,68 @@ impl CredentialStore {
     /// that deleting a session row is undone by a restore and a revocation row
     /// is not. Written here rather than called there because `sign_out_in`
     /// takes a `VerifiedSession`, and a reset has none: nobody is signed in.
+    ///
+    /// **Both planes, since the ADR-0055 fix of 2026-09-21.** It ended only
+    /// `principal_kind = 'steward'` sessions, so an operator-kind session of
+    /// the operator bound to this account survived the reset of the password
+    /// that person signs in with — and decision 7 says *"Every other session
+    /// of the account ends"* without qualification. The operator principal has
+    /// an id of its own, so no filter on `principal_id` could ever have caught
+    /// it: it is resolved through `operator_account_bindings` (`0019` §A),
+    /// which this transaction can read because `redeem_reset` holds
+    /// `app.session_custody` for the revocation rows anyway.
+    ///
+    /// Each plane's own entry type: `account_signed_out` for the account's
+    /// sessions, `operator_signed_out` for the operator's — both already on
+    /// the site chain's list (`0018` §F), so no schema change is needed to
+    /// say which plane ended.
     async fn end_every_session_of(
         &self,
         tx: &Transaction<'_>,
         account: &str,
     ) -> Result<(), CredentialError> {
+        self.end_sessions_of_principal(tx, account, PrincipalKind::Steward, account)
+            .await?;
+
+        // The operator bound to this account, if there is one. A binding is
+        // one row (`0019` §A's unique account), and its own seal is the
+        // operator plane's to verify — reading it here is a membership
+        // question, and the act it drives is ENDING sessions, so a forged
+        // binding costs somebody a sign-out and grants nobody anything.
+        let bound: Option<String> = tx
+            .query_opt(
+                "SELECT operator_id FROM operator_account_bindings WHERE account_id = $1",
+                &[&account],
+            )
+            .await?
+            .map(|r| r.get(0));
+        if let Some(operator) = bound {
+            self.end_sessions_of_principal(tx, &operator, PrincipalKind::Operator, account)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// One plane's worth of [`CredentialStore::end_every_session_of`].
+    ///
+    /// `account` is carried into the entry as well as `principal`, because on
+    /// the operator branch the two differ and the sealed record has to say
+    /// whose password reset ended an operator's session.
+    async fn end_sessions_of_principal(
+        &self,
+        tx: &Transaction<'_>,
+        principal: &str,
+        kind: PrincipalKind,
+        account: &str,
+    ) -> Result<(), CredentialError> {
+        let (kind_name, entry_type) = match kind {
+            PrincipalKind::Steward => ("steward", EntryType::AccountSignedOut),
+            PrincipalKind::Operator => ("operator", EntryType::OperatorSignedOut),
+        };
         let rows = tx
             .query(
-                "SELECT id FROM sessions WHERE principal_id = $1 AND principal_kind = 'steward'",
-                &[&account],
+                "SELECT id FROM sessions WHERE principal_id = $1 AND principal_kind = $2",
+                &[&principal, &kind_name],
             )
             .await?;
         let row_key = grants::site_row_key(tx, &self.ring).await?;
@@ -1816,20 +2472,21 @@ impl CredentialStore {
                 tx,
                 &self.ring,
                 &self.deployment,
-                EntryType::AccountSignedOut,
+                entry_type,
                 &entry_metadata(
-                    EntryType::AccountSignedOut,
+                    entry_type,
                     &[
                         ("session", Json::Str(id.clone())),
                         ("account", Json::Str(account.to_string())),
-                        ("principal_kind", Json::Str("steward".to_string())),
+                        ("principal", Json::Str(principal.to_string())),
+                        ("principal_kind", Json::Str(kind_name.to_string())),
                     ],
                 ),
             )
             .await?;
             let facts = crate::sessions::RevocationFacts {
                 session_id: &id,
-                principal_id: account,
+                principal_id: principal,
                 // The one value `session_revocations.reason` takes (`0014` §D's
                 // `CHECK`), and a reset IS a sign-out of every other browser.
                 reason: "signed_out",
@@ -1841,7 +2498,7 @@ impl CredentialStore {
                 "INSERT INTO session_revocations \
                      (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
                  VALUES ($1, $2, $3, $4, 1, $5) ON CONFLICT (session_id) DO NOTHING",
-                &[&id, &account, &facts.reason, &appended.seq, &mac.to_vec()],
+                &[&id, &principal, &facts.reason, &appended.seq, &mac.to_vec()],
             )
             .await?;
             tx.execute("DELETE FROM sessions WHERE id = $1", &[&id])
@@ -2041,6 +2698,48 @@ mod tests {
     }
 
     #[test]
+    fn a_common_password_with_padding_on_it_is_still_a_common_password() {
+        // **The fixtures are what people type**, not what the check wants:
+        // every one of these was ACCEPTED over the wire on 2026-09-21, because
+        // the fifteen-character floor had made the whole bundled list
+        // unreachable but for one line. CLAUDE.md rule 2.
+        for real in [
+            "password123456789",
+            "qwertyuiop1234567",
+            "passwordpassword",
+            "iloveyouiloveyou",
+            "qwertyuiopasdfgh",
+            "password12345678",
+            "password1234567!",
+            "trustno1trustno1",
+            "123456789012345",
+        ] {
+            assert!(
+                matches!(
+                    check_password(real, "nobody@example.org"),
+                    Err(CredentialError::PasswordIsCommon)
+                ),
+                "{real} is a common password with padding on it"
+            );
+        }
+
+        // And the passphrases people are actually told to choose are not
+        // caught by it. Each clears fifteen characters, so it is not the
+        // length rule passing them.
+        for passphrase in [
+            "correct-horse-battery-staple",
+            "the-quick-brown-fox-jumps",
+            "rack-diagram-estate-record",
+            "harbour-lantern-copper-nine",
+        ] {
+            assert!(
+                check_password(passphrase, "nobody@example.org").is_ok(),
+                "{passphrase} is on no list and must be accepted"
+            );
+        }
+    }
+
+    #[test]
     fn base32_is_rfc_4648_and_not_crockford() {
         // RFC 4648 §10's own test vectors, so the encoder is pinned against
         // the document an authenticator application implements.
@@ -2157,7 +2856,12 @@ mod tests {
         // check.
         assert!(check_password("correct-horse-battery-staple", "alice@example.org").is_ok());
         // No composition rule: fifteen lower-case letters is fine.
-        assert!(check_password("aaaaaaaaaaaaaaa", "alice@example.org").is_ok());
+        //
+        // **Not fifteen `a`s any more.** `aaaaaaaa` is itself on the bundled
+        // list, so [`is_common_password`]'s rule 3 refuses a run of them —
+        // which is right, and means this assertion needs an ordinary string
+        // rather than a repetitive one to say what it is about.
+        assert!(check_password("fifteenlettersx", "alice@example.org").is_ok());
 
         assert!(matches!(
             check_password("short-one-1234", "alice@example.org"),
@@ -2194,6 +2898,61 @@ mod tests {
             check_password(&longest.to_uppercase(), "nobody@example.org"),
             Err(CredentialError::PasswordIsCommon)
         ));
+    }
+
+    #[test]
+    fn a_credential_with_no_seal_over_it_is_unverifiable_and_no_credential_is_not() {
+        // `0025` §B's three outcomes, at the unit level. The database refuses
+        // the middle one too (its constraint trigger), and
+        // `tests/credentials.rs` drives that; this is the half that still has
+        // to hold for a row written before `0025` existed, which the trigger
+        // never saw.
+        let key = Key32::from_bytes([9u8; 32]);
+        let account = "01ACCOUNT0000000000000000A";
+
+        let empty = CredentialRow::default();
+        assert!(
+            verify_credential_seal(&key, account, &empty).is_ok(),
+            "an account with no credential has nothing to seal"
+        );
+
+        let mut with_password = CredentialRow {
+            password_hash: Some("$argon2id$v=19$m=19456,t=2,p=1$abc$def".to_string()),
+            ..CredentialRow::default()
+        };
+        assert!(
+            matches!(
+                verify_credential_seal(&key, account, &with_password),
+                Err(CredentialError::Unverifiable(_))
+            ),
+            "a password hash with no seal over it is not a state this server writes"
+        );
+
+        // Sealed, and then the second factor switched off underneath it.
+        with_password.totp_last_step = Some(59_666_877);
+        with_password.credential_seal =
+            Some(credential_seal(&key, account, &with_password).to_vec());
+        assert!(verify_credential_seal(&key, account, &with_password).is_ok());
+        let downgraded = CredentialRow {
+            totp_last_step: None,
+            ..with_password.clone()
+        };
+        assert!(
+            matches!(
+                verify_credential_seal(&key, account, &downgraded),
+                Err(CredentialError::Unverifiable(_))
+            ),
+            "clearing totp_last_step is what turns a two-factor account into a \
+             password-only one, so the seal must cover whether it is set"
+        );
+        // And the same row under another account's id.
+        assert!(
+            matches!(
+                verify_credential_seal(&key, "01ACCOUNT0000000000000000B", &with_password),
+                Err(CredentialError::Unverifiable(_))
+            ),
+            "the seal names the account it was written for"
+        );
     }
 
     #[test]

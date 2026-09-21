@@ -3814,6 +3814,124 @@ pub async fn authorise_account(
     authorise_in_verified_state(tx, auth, &verified, scope, needed).await
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0055 fix (S3)
+// ---------------------------------------------------------------------------
+
+/// **Retire the oldest live keys of one account until `cap` are left**, and
+/// say which ones went.
+///
+/// `POST /credentials/key` (`credentials::CredentialStore::register_key`) had
+/// no cap: every call inserted a row and appended a sealed entry, and
+/// [`verify_by_any_live_key`] walks the whole live ring at every signed
+/// sign-in, verifying each row seal. `credentials::LIVE_ACCOUNT_KEYS_MAX`
+/// carries the number and the argument for it; this is the eviction.
+///
+/// **Oldest by `enrolled_seq`**, which is the site chain's own order and not a
+/// clock: two keys registered in one second still have an order, and it is the
+/// order the sealed chain records.
+///
+/// # Why this is not [`retire_key`]
+///
+/// That one is §8.4's verb: a steward or the holder signs
+/// [`authority::retire_bytes`] and the act is filed on the ORGANISATION chain
+/// as `account_key_retired`. Neither half fits here. There is no signature —
+/// the act is the person registering an eleventh browser, and they have
+/// already proved themselves to the session this runs under — and a
+/// password-only account need belong to no organisation at all, so there may
+/// be no org chain to file it on. **The record is therefore the row itself**:
+/// `retired_at` is inside `account_key_row_state`, so the retirement is under
+/// the row seal at version + 1 and a writer who clears it leaves an
+/// unverifiable row, which is the same property `0018` §D states for a spent
+/// token. The site-chain record of the act is the `authenticator_registered`
+/// entry of the key that caused the eviction, appended in this same
+/// transaction by the caller.
+///
+/// **Reported, not hidden**: there is no site-chain entry type for retiring an
+/// account key (`0018` §F files `account_key_retired` on an org chain only),
+/// and adding one means editing `chain_entries_type_belongs_to_kind`, which
+/// every migration that touches it must re-list whole. That is a merge hazard
+/// while three streams are in flight, so it is left for the lead — the
+/// eviction is sealed either way.
+pub async fn retire_oldest_over_cap(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    cap: i64,
+    at_unix: i64,
+) -> Result<Vec<String>, AuthorityError> {
+    let live = tx
+        .query(
+            "SELECT id FROM account_keys \
+              WHERE account_id = $1 AND superseded_by IS NULL AND retired_at IS NULL \
+              ORDER BY enrolled_seq ASC",
+            &[&account],
+        )
+        .await?;
+    let over = (live.len() as i64) - cap + 1;
+    if over <= 0 {
+        return Ok(Vec::new());
+    }
+
+    let row_key = site_row_key(tx, ring).await?;
+    let mut retired = Vec::new();
+    for row in live.into_iter().take(over as usize) {
+        let id: String = row.get(0);
+        let Some(key) = read_account_key(tx, &id).await? else {
+            continue;
+        };
+        // The seal before the change, as every other path here checks it: a
+        // ring with one edited row is an incident, and evicting a row is not
+        // the moment to stop noticing.
+        let stored: Vec<u8> = tx
+            .query_one("SELECT row_seal FROM account_keys WHERE id = $1", &[&id])
+            .await?
+            .get(0);
+        let expected = authority::row_seal(
+            &row_key,
+            &RowFacts {
+                table: "account_keys",
+                row_id: &key.id,
+                chain_seq: key.enrolled_seq,
+                row_version: key.row_version,
+                row_state: &account_key_row_state(&key),
+            },
+        );
+        if stored != expected {
+            return Err(AuthorityError::Unverifiable("account key row seal"));
+        }
+
+        let evicted = AccountKey {
+            retired_at_unix: at_unix,
+            row_version: key.row_version + 1,
+            ..key
+        };
+        let seal = authority::row_seal(
+            &row_key,
+            &RowFacts {
+                table: "account_keys",
+                row_id: &evicted.id,
+                chain_seq: evicted.enrolled_seq,
+                row_version: evicted.row_version,
+                row_state: &account_key_row_state(&evicted),
+            },
+        );
+        let updated = tx
+            .execute(
+                "UPDATE account_keys \
+                    SET retired_at = to_timestamp($1::bigint), row_version = $2, row_seal = $3 \
+                  WHERE id = $4 AND retired_at IS NULL",
+                &[&at_unix, &evicted.row_version, &seal.to_vec(), &evicted.id],
+            )
+            .await?;
+        if updated != 1 {
+            return Err(AuthorityError::Unverifiable("account key"));
+        }
+        retired.push(evicted.id);
+    }
+    Ok(retired)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
