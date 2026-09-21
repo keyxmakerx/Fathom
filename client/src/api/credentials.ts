@@ -121,45 +121,6 @@ export function parseKeyId(bytes: Uint8Array): string {
   return decoder.decode(value);
 }
 
-/** `LP(key_id) ‖ LP(operator_id)` — `POST /admin/operators/self/key`, the same
- * shape `POST /enrolment/operator` answers, because a browser that has just
- * registered an operator key needs to learn which operator it registered for
- * (that id is what the operator signs in as). */
-export function parseOperatorKeyAnswer(bytes: Uint8Array): { keyId: string; operatorId: string } {
-  const { value: keyId, rest } = readLp(bytes);
-  const { value: operatorId, rest: trailing } = readLp(rest);
-  if (trailing.length !== 0) {
-    throw new Error('malformed response: trailing bytes after LP(operator_id)');
-  }
-  return { keyId: decoder.decode(keyId), operatorId: decoder.decode(operatorId) };
-}
-
-/**
- * `GET /placement/flag`: `LP("yes"|"no")`, and — only when the answer is
- * `"yes"` — a second `LP(confirm_by)` which is empty text when the placement
- * is already confirmed (`placement.rs`'s `flag`).
- *
- * A `"no"` answer carries **one** field, so a parser that insisted on two
- * would throw on exactly the host where the answer matters most.
- */
-export function parsePlacementFlag(bytes: Uint8Array): { consoleHost: boolean; confirmBy: number | null } {
-  const { value, rest } = readLp(bytes);
-  const answer = decoder.decode(value);
-  if (answer !== 'yes' && answer !== 'no') {
-    throw new Error('malformed /placement/flag response: not "yes" or "no"');
-  }
-  if (answer === 'no') {
-    return { consoleHost: false, confirmBy: null };
-  }
-  if (rest.length === 0) {
-    return { consoleHost: true, confirmBy: null };
-  }
-  const { value: deadline } = readLp(rest);
-  const text = decoder.decode(deadline);
-  const parsed = Number.parseInt(text, 10);
-  return { consoleHost: true, confirmBy: text.length > 0 && Number.isFinite(parsed) ? parsed : null };
-}
-
 // ---------------------------------------------------------------------------
 // The refusal that is a route, not a wall
 // ---------------------------------------------------------------------------
@@ -290,42 +251,4 @@ async function unsigned(path: string, body: Uint8Array): Promise<Uint8Array> {
     throw await refusalFrom(response);
   }
   return new Uint8Array(await response.arrayBuffer());
-}
-
-// ---------------------------------------------------------------------------
-// PROVISIONAL — the seam to ADR-0055 client streams (b) and (c)
-// ---------------------------------------------------------------------------
-//
-// **These two are built here only so this stream can be driven end to end**,
-// and they are meant to be deleted at the merge. Stream (c) owns
-// `client/src/api/placement.ts` and ships `useConsoleHost()`; stream (b) owns
-// the operator plane and ships the bootstrap. `App.tsx`'s one labelled block
-// names both imports; swapping them over is a two-line edit in that block and
-// a deletion of this section.
-//
-// Nothing else in this client imports them.
-
-/** `GET /placement/flag`, unauthenticated, outside `/admin` on purpose: on a
- * host that is not the console host, `/admin` is answered 404, and `"no"` is
- * exactly the answer this client needs there. */
-export async function fetchConsoleHostFlag(): Promise<{ consoleHost: boolean; confirmBy: number | null }> {
-  const response = await fetch('/placement/flag', { method: 'GET' });
-  if (!response.ok) {
-    throw await refusalFrom(response);
-  }
-  return parsePlacementFlag(new Uint8Array(await response.arrayBuffer()));
-}
-
-/**
- * `POST /admin/operators/self/key` — this account's browser registers its
- * operator key, from the ACCOUNT session, and learns which operator the
- * custody is bound to.
- *
- * Refused (403) for an account that holds no operator custody, which is the
- * ordinary case and is not an error: the caller shows nothing operator-side.
- */
-export async function registerOperatorKey(publicKey: Uint8Array): Promise<{ keyId: string; operatorId: string }> {
-  return parseOperatorKeyAnswer(
-    await signedFetch('POST', '/admin/operators/self/key', buildPublicKeyBody(publicKey)),
-  );
 }

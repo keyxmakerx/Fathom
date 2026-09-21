@@ -6,6 +6,7 @@ import {
   normalisePlacementHosts,
   normalisePlacementSources,
   requestPlacement,
+  useConsoleHost,
   type PlacementRequested,
 } from '../../api/placement';
 import { describeConsoleError } from './describeConsoleError';
@@ -31,15 +32,21 @@ import '../../styles/console.css';
  * confirms it. If nobody signs in there, the placement reverts on its own
  * and the revert is sealed.
  *
- * **How this page knows the environment has overridden it.**
- * `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES` win outright over anything
- * saved here (decision 11), and no route in this build reports that fact
- * directly. What `GET /placement/flag` does report is the deadline of an
- * unconfirmed placement, and `AdminExposure::confirm_by` returns none when
- * the environment wins. So: after a save, this page re-reads the flag, and
- * an answer of "yes, and nothing is pending" on the host that just saved a
- * placement can only mean the environment decided. That is inferred rather
- * than told, and it is said in those words on the screen.
+ * **How this page knows the environment has overridden it.** Two ways, and
+ * it prefers the one where it is told.
+ *
+ *  1. **Told.** `GET /placement/flag`'s third field says which of the
+ *     environment, a saved placement or nothing decided
+ *     (`api/placement.ts`'s `PlacementDecider`). When it says `environment`,
+ *     this form is read-only BEFORE anything is typed, and says so.
+ *  2. **Inferred**, when that field is absent -- which it is on the server
+ *     binary this was built against. `FATHOM_ADMIN_HOSTS` /
+ *     `FATHOM_ADMIN_SOURCES` win outright over anything saved here
+ *     (decision 11), and `AdminExposure::confirm_by` returns none when the
+ *     environment wins. So after a save this page re-reads the flag, and an
+ *     answer of "yes, and nothing is pending" on the host that just saved a
+ *     placement can only mean the environment decided. That is inferred
+ *     rather than told, and it is said in those words on the screen.
  */
 export interface PlacementFormProps {
   actingOperatorId: string;
@@ -55,7 +62,23 @@ export interface PlacementFormProps {
 type Stage =
   | { kind: 'form' }
   | { kind: 'warned' }
-  | { kind: 'moved'; requested: PlacementRequested; host: string; readOnly: boolean };
+  | { kind: 'moved'; requested: PlacementRequested; host: string; readOnly: ReadOnlyReason };
+
+/** Why a saved placement is not in force: because the flag's third field
+ * said so (`told`), or because this page worked it out from a flag that had
+ * no such field (`inferred`). `null` is the ordinary case, where the
+ * placement is in force and the browser is being taken to it. */
+type ReadOnlyReason = null | 'told' | 'inferred';
+
+/** What the form says when the environment is what decides, told by the
+ * flag's third field rather than worked out after a save. Exported for
+ * `placementCopy.test.ts`; the sentence is here beside the component that
+ * shows it because it is the whole of what that state renders. */
+export const ENVIRONMENT_DECIDES =
+  'The console placement is set by FATHOM_ADMIN_HOSTS and FATHOM_ADMIN_SOURCES on the server, and the ' +
+  'environment wins over anything saved here. This form is read-only: a placement saved from it would be ' +
+  'recorded on the site trail and would not be in force. Clear those variables and restart to place the ' +
+  'console from here.';
 
 export function PlacementForm({
   actingOperatorId,
@@ -70,6 +93,12 @@ export function PlacementForm({
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [movedAt, setMovedAt] = useState<number | null>(null);
+  // The flag, read once per page load and shared with `Console.tsx`'s own
+  // call: no second request. Its third field is the only way this page can
+  // be TOLD that the environment decides.
+  const consoleHost = useConsoleHost();
+  const environmentDecides =
+    consoleHost.status === 'ready' && consoleHost.flag.decidedBy === 'environment';
 
   // One clock for the countdown and for the redirect, so the two can never
   // disagree about how long is left.
@@ -114,13 +143,18 @@ export function PlacementForm({
         sources,
         windowSeconds: windowMinutes * 60,
       });
-      // The inference described on this component: a fresh placement is
-      // always unconfirmed, so a flag that says "yes, nothing pending" on
-      // this host means the environment overrode it.
-      let readOnly = false;
+      // Told if the server says; inferred if it does not. The inference is
+      // the one described on this component: a fresh placement is always
+      // unconfirmed, so a flag that says "yes, nothing pending" on this host
+      // means the environment overrode it.
+      let readOnly: ReadOnlyReason = null;
       try {
         const flag = await fetchConsoleFlag();
-        readOnly = flag.consoleHost && flag.confirmByUnix === null;
+        if (flag.decidedBy !== null) {
+          readOnly = flag.decidedBy === 'environment' ? 'told' : null;
+        } else if (flag.consoleHost && flag.confirmByUnix === null) {
+          readOnly = 'inferred';
+        }
       } catch {
         // The flag is a courtesy here; its absence must not stop the
         // countdown that is already running on the server.
@@ -134,6 +168,20 @@ export function PlacementForm({
     } finally {
       setBusy(false);
     }
+  }
+
+  // Told, before anything is typed: the environment decides, so there is no
+  // form here at all. Not a disabled form — a form that cannot do anything
+  // is still a form somebody will fill in.
+  if (environmentDecides && stage.kind === 'form') {
+    return (
+      <div className="console__form">
+        <div className="console__form-title">Where this console answers</div>
+        <p className="console__readonly" data-testid="placement-readonly">
+          {ENVIRONMENT_DECIDES}
+        </p>
+      </div>
+    );
   }
 
   if (stage.kind === 'moved') {
@@ -150,8 +198,12 @@ export function PlacementForm({
           {formatCountdown(remaining)}
         </p>
         <p className="console__note">{countdownSentence(stage.host, remaining)}</p>
-        {stage.readOnly ? (
-          <p className="console__readonly">
+        {stage.readOnly === 'told' ? (
+          <p className="console__readonly" data-testid="placement-readonly">
+            {ENVIRONMENT_DECIDES} The row was written and sealed; it is not in force.
+          </p>
+        ) : stage.readOnly === 'inferred' ? (
+          <p className="console__readonly" data-testid="placement-readonly">
             The server answered that this host is still the console host and that nothing is waiting to be
             confirmed. On a host that has just saved a placement that can only mean FATHOM_ADMIN_HOSTS or
             FATHOM_ADMIN_SOURCES are set, and the environment wins over anything saved here. The row was written

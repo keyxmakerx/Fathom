@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
-import { bootstrapOperatorCustody, signIn, signOut } from './api/auth';
-import { PRINCIPAL_KIND_OPERATOR } from './api/constants';
-import { appCodeEnrolmentRequired, fetchConsoleHostFlag } from './api/credentials';
+import { signIn, signOut } from './api/auth';
+import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
+import { appCodeEnrolmentRequired } from './api/credentials';
+import { ApiRefusal } from './api/errors';
+import { bootstrapOperatorSession, useConsoleHost } from './api/placement';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
@@ -19,8 +21,17 @@ import { DesignPlace } from './components/design/DesignPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
+import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
-import { getSession, subscribe } from './state/sessionState';
+import {
+  ACCOUNT_PLANE,
+  getSession,
+  getSessionOn,
+  OPERATOR_PLANE,
+  setPlane,
+  setSession,
+  subscribe,
+} from './state/sessionState';
 
 /**
  * Which door an unsigned-in visitor is at. Four since ADR-0055, and they are
@@ -102,74 +113,92 @@ export default function App() {
   }, [sessionId, sessionKind, midSetup]);
 
   // ---------------------------------------------------------------------
-  // ADR-0055 client (a) — the console entry
+  // ADR-0055 — the console entry (client streams (a) and (b), merged)
   //
-  // The one block this stream adds to the operator side. It asks the host
-  // whether the console lives here, and if it does, whether the signed-in
-  // account holds the operator custody; only both together put the Site
-  // entry on the screen. On any other host, and for anybody else, there is
-  // nothing operator-side to hide, because nothing is rendered (decision 9:
-  // *absent*, not hidden).
+  // The one block on the account side that leads to the operator side. It
+  // asks the host whether the console lives here (`useConsoleHost()`), and
+  // only then offers the Site entry at all. On any other host there is
+  // nothing operator-side to hide, because nothing is rendered — decision 9:
+  // *absent*, not hidden.
   //
-  // **At the merge**: `useConsoleHost()` comes from stream (c)'s
-  // `api/placement.ts` and the bootstrap from stream (b); the two imports
-  // below move and the provisional copies in `api/credentials.ts` and
-  // `api/auth.ts` are deleted. Nothing else in this file changes.
+  // **Pressing it is what asks whether this account holds the custody.** No
+  // route reports that without acting on it: `POST /admin/operators/self/key`
+  // registers the browser's key and answers with the operator id, or refuses.
+  // So the entry is offered to a signed-in account on a console host, the
+  // press runs `bootstrapOperatorSession`, and a refusal is shown in the
+  // server's own words and takes the entry away for the rest of this session
+  // rather than inviting a second press that would be refused the same way.
+  //
+  // **Both sessions stay live** (decision 1: one person, two custodies).
+  // `setSession` files the operator session on the operator plane and brings
+  // it into view; the account session is untouched on its own plane with its
+  // own request counter, so Home is one press away and no sign-in happens in
+  // between (`state/sessionState.ts`).
   // ---------------------------------------------------------------------
-  const [consoleHost, setConsoleHost] = useState(false);
-  const [operatorId, setOperatorId] = useState<string | null>(null);
+  const consoleHostState = useConsoleHost();
+  const consoleHost = consoleHostState.status === 'ready' && consoleHostState.flag.consoleHost;
   const [enteringConsole, setEnteringConsole] = useState(false);
-  const accountAddress = sessionKind === 'steward' ? (session?.address ?? null) : null;
+  const [consoleRefusal, setConsoleRefusal] = useState<string | null>(null);
+  const [custodyRefused, setCustodyRefused] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchConsoleHostFlag()
-      .then(({ consoleHost: yes }) => {
-        if (!cancelled) setConsoleHost(yes);
-      })
-      .catch(() => {
-        if (!cancelled) setConsoleHost(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!consoleHost || accountAddress === null || appCodeNeeded !== false) {
-      setOperatorId(null);
+  async function enterConsole() {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) return;
+    // Already picked up in this browser: this is a change of plane, not a
+    // second sign-in and not a second key registration.
+    if (getSessionOn(OPERATOR_PLANE)) {
+      setPlane(OPERATOR_PLANE);
       return;
     }
-    let cancelled = false;
-    bootstrapOperatorCustody(accountAddress)
-      .then((id) => {
-        if (!cancelled) setOperatorId(id);
-      })
-      .catch(() => {
-        // The server refusing is the ordinary answer for an account that
-        // holds no operator custody, and `bootstrapOperatorCustody` already
-        // reads it as `null`. Anything that reaches here is this browser
-        // failing, and the honest response is the same: show nothing.
-        if (!cancelled) setOperatorId(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [consoleHost, accountAddress, appCodeNeeded]);
-
-  async function enterConsole(id: string) {
     setEnteringConsole(true);
+    setConsoleRefusal(null);
     try {
-      // The operator plane is a key sign-in and carries no password: the
-      // key registered a moment ago is the evidence (`api/auth.ts`).
-      await signIn(id, PRINCIPAL_KIND_OPERATOR);
+      // **A key this browser already holds for an operator is the way in.**
+      // The operator plane is still a key sign-in (decision 10's last line),
+      // so a second visit signs in with the key the first visit filed and
+      // registers nothing: `operator_keys.fpr` is UNIQUE, and a browser that
+      // re-registered the same key on every page load would be refused by
+      // the database rather than by any rule.
+      const existing = await operatorSlotHeldHere();
+      if (existing) {
+        try {
+          await signIn(existing, PRINCIPAL_KIND_OPERATOR);
+          return;
+        } catch (error) {
+          // The key this browser holds is not one the server will take —
+          // retired, or from an install that has been rebuilt. Fall through
+          // and pick the custody up again with a new one.
+          console.error(error);
+        }
+      }
+      // **A fresh keypair for the operator custody**, not the account's own.
+      // Decision 6: any browser, no pairing; the server takes every live key
+      // of the principal (`live_operator_keys`, the lead's resolution 1), so
+      // one key per browser per custody is the shape, and reusing the
+      // account's would collide with itself the next time this ran.
+      const { session: operatorSession } = await bootstrapOperatorSession(
+        accountSession,
+        await generateKeyPair(),
+      );
+      setSession(operatorSession);
     } catch (error) {
       console.error(error);
+      const refusal = error instanceof ApiRefusal ? error.message : null;
+      setConsoleRefusal(
+        refusal ??
+          'This browser could not open the operator console. Nothing was changed on the server.',
+      );
+      // 403 is the ordinary answer for an account that holds no operator
+      // custody, and 404 is a host the console does not answer on. Neither
+      // is worth a second press.
+      if (error instanceof ApiRefusal && (error.status === 403 || error.status === 404)) {
+        setCustodyRefused(true);
+      }
     } finally {
       setEnteringConsole(false);
     }
   }
-  // --- end ADR-0055 client (a) console entry ---------------------------
+  // --- end ADR-0055 console entry --------------------------------------
 
   // The camera's state. It lives here rather than in `Shell` because the
   // drawing Session 4 builds will read it too, and two copies would drift.
@@ -367,6 +396,21 @@ export default function App() {
         tree={null}
         onPlaceChange={() => {}}
       >
+        {/* ADR-0055 decision 1: the account session did not end when this
+            one began, so Home is a press away and not a sign-in away. The
+            two sessions are separate on the wire — different principals,
+            different tokens, different counters — and this button changes
+            which one the screen is showing, nothing else. */}
+        {getSessionOn(ACCOUNT_PLANE) !== null && (
+          <button
+            type="button"
+            className="console-home"
+            data-testid="console-home"
+            onClick={() => setPlane(ACCOUNT_PLANE)}
+          >
+            Home — your account session is still open
+          </button>
+        )}
         <Console operatorId={session.address} />
       </Shell>
     );
@@ -390,27 +434,35 @@ export default function App() {
         <button type="button" className="account-entry" onClick={() => setAccountOpen(true)}>
           Your password and app code
         </button>
-        {/* ADR-0055 client (a): the console entry. Rendered only when the
-            host is a console host AND this account holds the operator
-            custody — otherwise there is nothing here at all. */}
-        {operatorId !== null && (
+        {/* ADR-0055: the console entry. Rendered only on a host the console
+            answers on, and taken away for the rest of this session once the
+            server has said this account holds no operator custody —
+            otherwise there is nothing here at all (decision 9). */}
+        {consoleHost && !custodyRefused && (
           <div className="console-entry">
             <div className="console-entry__text">
               <span className="console-entry__title">Site</span>
               <span className="console-entry__note">
-                You hold the operator custody on this server. The console is the operator plane: signing in there is
-                a second session, and this one ends.
+                The operator console answers on this host. If you hold the operator custody, opening it registers
+                this browser's operator key and signs you in as the operator — a second session beside this one.
+                This one stays open: Home is one press away from there.
               </span>
             </div>
             <button
               type="button"
               className="console-entry__go"
+              data-testid="console-entry"
               disabled={enteringConsole}
-              onClick={() => enterConsole(operatorId)}
+              onClick={() => void enterConsole()}
             >
               {enteringConsole ? 'Opening…' : 'Open the Site console'}
             </button>
           </div>
+        )}
+        {consoleRefusal && (
+          <p className="console-entry__refusal" role="alert">
+            {consoleRefusal}
+          </p>
         )}
         <Home
           address={session.address}
@@ -464,6 +516,30 @@ export default function App() {
       capability={view.design.capability}
     />
   );
+}
+
+/**
+ * The operator this browser already holds a key for, or `null`.
+ *
+ * `crypto/keys.ts` files an operator's key under `operator:<id>`
+ * (`api/constants.ts`'s `keySlot`), and IndexedDB is per origin, so the slots
+ * this reads belong to this install and no other. `SignIn.tsx` reads the same
+ * list to offer the identities this browser can prove.
+ */
+async function operatorSlotHeldHere(): Promise<string | null> {
+  try {
+    const { enrolled } = await listKeySlots();
+    for (const slot of enrolled) {
+      const who = identityOfSlot(slot);
+      if (who.kind === PRINCIPAL_KIND_OPERATOR && who.id !== '?') {
+        return who.id;
+      }
+    }
+  } catch {
+    // No storage, or a browser that refuses it: the bootstrap below is the
+    // honest fallback, not an error worth showing.
+  }
+  return null;
 }
 
 interface ScopeTreeProps {

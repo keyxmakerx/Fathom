@@ -25,7 +25,13 @@
 import { useEffect, useState } from 'react';
 
 import { concatBytes, lp, readLp, readU64LE, u64LE, utf8 } from '../crypto/bytes';
-import { exportPublicKeyRaw, generateKeyPair, getEnrolledKeyPair, signMessage } from '../crypto/keys';
+import {
+  exportPublicKeyRaw,
+  generateKeyPair,
+  getEnrolledKeyPair,
+  putEnrolledKeyPair,
+  signMessage,
+} from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
 import { getSession, type ActiveSession } from '../state/sessionState';
 import { parseSignInAnswer } from './auth';
@@ -37,16 +43,68 @@ import { signedFetch } from './signedFetch';
 // The console-host flag
 // ---------------------------------------------------------------------------
 
+/**
+ * What decided that this host does, or does not, answer for the console --
+ * `GET /placement/flag`'s **third** field.
+ *
+ *   - `environment`: `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES` are set,
+ *     and decision 11 says they win outright. The placement form is
+ *     read-only and says so.
+ *   - `console`: a placement saved in the console decides.
+ *   - `open`: nothing decides; the console answers everywhere.
+ *
+ * `null` means the server did not say. **That is not a fourth verdict and
+ * must not be read as one**: the field is absent on the server binary this
+ * client is built against today, and the honest response to an absent field
+ * is to say nothing about it (`PlacementForm.tsx` falls back to what it can
+ * observe, and says that is what it is doing).
+ */
+export type PlacementDecider = 'environment' | 'console' | 'open';
+
+const DECIDERS: readonly string[] = ['environment', 'console', 'open'];
+
 /** `GET /placement/flag`'s answer: `LP("yes"|"no")`, and when the answer is
  * "yes", `LP(confirm_by as text)` -- empty text when nothing is waiting to
  * be confirmed, so the shape does not depend on which of the two it is
- * (`placement.rs`'s `flag`). */
+ * (`placement.rs`'s `flag`) -- and, **optionally**, `LP(decided_by)`. */
 export interface ConsoleFlag {
   /** Whether a console request from this host would be answered at all. */
   consoleHost: boolean;
   /** The unix second an unconfirmed placement stops being honoured, or
    * `null` when nothing is pending. */
   confirmByUnix: number | null;
+  /** Which of the environment, a saved placement or nothing at all decided
+   * the verdict above, or `null` when the server did not say. */
+  decidedBy: PlacementDecider | null;
+}
+
+/**
+ * The optional last field, read off whatever is left.
+ *
+ * Nothing left is the ordinary answer from the server binary this client is
+ * built against today, and it is `null` and not an error. Bytes that are
+ * left but are not one well-formed LP field ARE an error, and the message is
+ * the one this parser has always given for trailing bytes -- a client that
+ * read a stray byte as a decider would be inventing the very fact the field
+ * exists to stop it inventing.
+ */
+function readOptionalDecider(rest: Uint8Array): PlacementDecider | null {
+  if (rest.length === 0) return null;
+  let value: Uint8Array;
+  let after: Uint8Array;
+  try {
+    ({ value, rest: after } = readLp(rest));
+  } catch {
+    throw new Error(`malformed placement flag: ${rest.length} trailing byte(s)`);
+  }
+  if (after.length !== 0) {
+    throw new Error(`malformed placement flag: ${after.length} trailing byte(s)`);
+  }
+  const text = new TextDecoder().decode(value).trim();
+  if (!DECIDERS.includes(text)) {
+    throw new Error(`malformed placement flag decider: ${JSON.stringify(text)}`);
+  }
+  return text as PlacementDecider;
 }
 
 export function parseFlagAnswer(bytes: Uint8Array): ConsoleFlag {
@@ -56,24 +114,23 @@ export function parseFlagAnswer(bytes: Uint8Array): ConsoleFlag {
     throw new Error(`malformed placement flag: ${JSON.stringify(text)}`);
   }
   if (text === 'no') {
-    if (rest.length !== 0) {
-      throw new Error(`malformed placement flag: ${rest.length} trailing byte(s) after "no"`);
-    }
-    return { consoleHost: false, confirmByUnix: null };
+    // "no" carries one field on today's binary. A decider after it is read
+    // if it is there, because the field is the server's to add and this is
+    // the host where being told which rule confined the console matters
+    // most.
+    return { consoleHost: false, confirmByUnix: null, decidedBy: readOptionalDecider(rest) };
   }
   const { value: deadline, rest: after } = readLp(rest);
-  if (after.length !== 0) {
-    throw new Error(`malformed placement flag: ${after.length} trailing byte(s)`);
-  }
+  const decidedBy = readOptionalDecider(after);
   const deadlineText = new TextDecoder().decode(deadline).trim();
   if (deadlineText.length === 0) {
-    return { consoleHost: true, confirmByUnix: null };
+    return { consoleHost: true, confirmByUnix: null, decidedBy };
   }
   const confirmByUnix = Number.parseInt(deadlineText, 10);
   if (!Number.isFinite(confirmByUnix)) {
     throw new Error(`malformed placement flag deadline: ${JSON.stringify(deadlineText)}`);
   }
-  return { consoleHost: true, confirmByUnix };
+  return { consoleHost: true, confirmByUnix, decidedBy };
 }
 
 export async function fetchConsoleFlag(): Promise<ConsoleFlag> {
@@ -276,11 +333,18 @@ export function buildOperatorSignInBody(
  *     and no password, which yields the operator session every operator act
  *     is then made under.
  *
- * `accountSession` must be the session `signedFetch` is currently making
- * requests under: this client holds one session at a time in
- * `state/sessionState.ts`, and step 1 has to be made as the account. The
+ * `accountSession` must be the session in view when this is called: step 1
+ * has to be made as the account, and `state/sessionState.ts` routes a
+ * request under `/admin` to the operator plane the moment one exists. Before
+ * that it falls back to the plane in view, which is what carries step 1. The
  * check is explicit rather than implied, because the failure it prevents --
  * registering an operator key under the wrong session -- is silent.
+ *
+ * The operator session that comes back is **not** installed here. The caller
+ * installs it (`setSession`), which files it on the operator plane beside
+ * the account session rather than in place of it: decision 1's one person
+ * with two custodies, and the reason Home is still reachable from the
+ * console.
  *
  * Refusals arrive as [`ApiRefusal`] with the server's own sentence: a seat
  * hold after a password reset, an account that holds no operator custody,
@@ -299,6 +363,16 @@ export async function bootstrapOperatorSession(
   const { keyId, operatorId } = parseOperatorKeyAnswer(
     await signedFetch('POST', '/admin/operators/self/key', lp(publicKey)),
   );
+
+  // **File the pair under the operator's own slot.** The server has recorded
+  // it as this operator's `live_operator_key`, and every operator act from
+  // here on is signed with it, not with the session key
+  // (`signOperatorAssertion`, `placement::verify_operator_assertion`). Filed
+  // before the sign-in below, so a browser that is interrupted between the
+  // two still holds the key the server already knows about; and filed only
+  // after the server's answer named the operator, which is the same
+  // discipline `api/enrolment.ts` follows.
+  await putEnrolledKeyPair(keySlot(PRINCIPAL_KIND_OPERATOR, operatorId), browserKey);
 
   const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);

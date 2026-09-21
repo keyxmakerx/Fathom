@@ -30,6 +30,7 @@ describe('parseFlagAnswer (placement.rs flag)', () => {
     expect(parseFlagAnswer(fromHex('030000007965730a00000031373930303030303030'))).toEqual({
       consoleHost: true,
       confirmByUnix: 1_790_000_000,
+      decidedBy: null,
     });
   });
 
@@ -40,6 +41,7 @@ describe('parseFlagAnswer (placement.rs flag)', () => {
     expect(parseFlagAnswer(fromHex('0300000079657300000000'))).toEqual({
       consoleHost: true,
       confirmByUnix: null,
+      decidedBy: null,
     });
   });
 
@@ -47,6 +49,7 @@ describe('parseFlagAnswer (placement.rs flag)', () => {
     expect(parseFlagAnswer(fromHex('020000006e6f'))).toEqual({
       consoleHost: false,
       confirmByUnix: null,
+      decidedBy: null,
     });
   });
 
@@ -55,6 +58,67 @@ describe('parseFlagAnswer (placement.rs flag)', () => {
     expect(() => parseFlagAnswer(fromHex('030000007965'))).toThrow(/truncated/);
     // lp("maybe")
     expect(() => parseFlagAnswer(fromHex('050000006d61796265'))).toThrow(/malformed placement flag/);
+  });
+});
+
+// The third field, which the server binary this was built against does not
+// send. Every vector below is `struct.pack('<I', len) + bytes` per field,
+// written out by hand from the shape the route will answer with, the same
+// method as the vectors above.
+describe('parseFlagAnswer: the OPTIONAL third field, which says which decided', () => {
+  it('absent is null, and null is not a verdict: today’s server says nothing', () => {
+    // lp("yes") + lp("") -- the whole of what the route sends today.
+    expect(parseFlagAnswer(fromHex('0300000079657300000000')).decidedBy).toBeNull();
+    // lp("no")
+    expect(parseFlagAnswer(fromHex('020000006e6f')).decidedBy).toBeNull();
+  });
+
+  it('reads "environment" after the deadline field', () => {
+    // lp("yes") + lp("") + lp("environment")
+    expect(
+      parseFlagAnswer(fromHex('03000000796573000000000b000000656e7669726f6e6d656e74')),
+    ).toEqual({ consoleHost: true, confirmByUnix: null, decidedBy: 'environment' });
+  });
+
+  it('reads "console" beside a deadline that is still running', () => {
+    // lp("yes") + lp("1790000000") + lp("console")
+    expect(
+      parseFlagAnswer(
+        fromHex('030000007965730a0000003137393030303030303007000000636f6e736f6c65'),
+      ),
+    ).toEqual({ consoleHost: true, confirmByUnix: 1_790_000_000, decidedBy: 'console' });
+  });
+
+  it('reads "open" -- a console that answers everywhere', () => {
+    // lp("yes") + lp("") + lp("open")
+    expect(
+      parseFlagAnswer(fromHex('0300000079657300000000040000006f70656e')).decidedBy,
+    ).toBe('open');
+  });
+
+  it('reads a decider after "no" too, where the answer matters most', () => {
+    // lp("no") + lp("environment")
+    expect(parseFlagAnswer(fromHex('020000006e6f0b000000656e7669726f6e6d656e74'))).toEqual({
+      consoleHost: false,
+      confirmByUnix: null,
+      decidedBy: 'environment',
+    });
+  });
+
+  it('refuses a word it was not told to expect rather than passing it on', () => {
+    // lp("yes") + lp("") + lp("proxy")
+    expect(() =>
+      parseFlagAnswer(fromHex('03000000796573000000000500000070726f7879')),
+    ).toThrow(/malformed placement flag decider/);
+  });
+
+  it('refuses bytes that are not a field, with the message it always gave', () => {
+    // lp("yes") + lp("") + one stray byte
+    expect(() => parseFlagAnswer(fromHex('0300000079657300000000ff'))).toThrow(/trailing/);
+    // lp("yes") + lp("") + lp("open") + one stray byte
+    expect(() =>
+      parseFlagAnswer(fromHex('0300000079657300000000040000006f70656eff')),
+    ).toThrow(/trailing/);
   });
 });
 

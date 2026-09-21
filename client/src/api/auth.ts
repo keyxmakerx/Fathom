@@ -10,11 +10,10 @@ import {
   getEnrolledKeyPair,
   getPendingKeyPair,
   promotePendingKeyPair,
-  putEnrolledKeyPair,
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
-import { setSession } from '../state/sessionState';
+import { heldSessions, setSession } from '../state/sessionState';
 import {
   keySlot,
   looksLikeOperatorId,
@@ -23,9 +22,9 @@ import {
   PRINCIPAL_KIND_STEWARD,
   type PrincipalKind,
 } from './constants';
-import { registerBrowserKey, registerOperatorKey } from './credentials';
-import { ApiRefusal, refusalFrom } from './errors';
-import { signedFetch } from './signedFetch';
+import { registerBrowserKey } from './credentials';
+import { refusalFrom } from './errors';
+import { signedFetchOn } from './signedFetch';
 
 /**
  * Thrown when this browser holds no enrolled key -- and no pending one
@@ -312,70 +311,26 @@ export function parseSignInAnswer(bytes: Uint8Array): {
   };
 }
 
-/** `DELETE /session`, signed like every other protected route. */
-export async function signOut(): Promise<void> {
-  await signedFetch('DELETE', '/session');
-  setSession(null);
-}
-
-// ---------------------------------------------------------------------------
-// PROVISIONAL — the operator bootstrap, ADR-0055 client stream (b)'s to own
-// ---------------------------------------------------------------------------
-//
-// Built here so stream (a) can be driven from the token file to the console
-// entry in one piece. Stream (b) owns the operator plane; at the merge this
-// function is deleted and `App.tsx`'s one labelled block imports theirs.
-
 /**
- * On a console host, after an account sign-in: register this browser's key as
- * the signed-in person's OPERATOR key, and learn which operator the custody is
- * bound to.
+ * `DELETE /session`, signed like every other protected route -- **once per
+ * session this browser holds**.
  *
- * The same key does both jobs, exactly as
- * `scripts/ci/first-operator-signin.mjs` walks it: `POST
- * /admin/operators/self/key` takes the account session and the public half,
- * answers with the operator id, and the operator then signs in by signing the
- * challenge with the private half — the operator plane is still a key sign-in
- * and carries no password (ADR-0055 decision 10's last line, and the lead's
- * resolution 8).
- *
- * Returns the operator id on success. Returns `null` when the server refuses,
- * which is the ordinary answer for an account that holds no operator custody
- * and for every host the console is not placed on: the caller shows nothing
- * operator-side, rather than an error nobody can act on.
- *
- * **One session at a time.** `state/sessionState.ts` holds one, and its
- * request counter resets with it, so this does not sign in as the operator
- * here — it leaves the account session live and hands the caller the operator
- * id. `App.tsx` signs in on the operator plane when the Site entry is pressed.
+ * Since ADR-0055 decision 1 the browser can hold two, the account's and the
+ * operator's (`../state/sessionState.ts`). Signing out signs the person out,
+ * not the custody they happen to be looking at, so each live session is
+ * ended on its own plane with its own key and its own counter. Every attempt
+ * is made even if an earlier one fails: a session row this browser could not
+ * reach expires on its own, and forgetting it here while leaving the other
+ * one live would be the worse of the two outcomes.
  */
-export async function bootstrapOperatorCustody(address: string): Promise<string | null> {
-  try {
-    // A browser that has just signed in with a password may not have
-    // finished filing its own key yet (`signIn` registers it after the
-    // session exists), and on this path there is no reason to wait for it:
-    // the caller only reaches here once the account is past its app-code
-    // setup, which is exactly when registering a key is safe.
-    const pair = (await getEnrolledKeyPair(address)) ?? (await registerAndRead(address));
-    if (!pair) {
-      return null;
-    }
-    const publicKey = await exportPublicKeyRaw(pair.publicKey);
-    const { operatorId } = await registerOperatorKey(publicKey);
-    // File the same pair under the operator's slot so `findKey` presents it
-    // as the operator's evidence at the next sign-in, on this browser and
-    // for this operator only (`./constants.ts`'s `keySlot`).
-    await putEnrolledKeyPair(keySlot(PRINCIPAL_KIND_OPERATOR, operatorId), pair);
-    return operatorId;
-  } catch (error) {
-    if (error instanceof ApiRefusal) {
-      return null;
-    }
-    throw error;
+export async function signOut(): Promise<void> {
+  const held = heldSessions();
+  const results = await Promise.allSettled(
+    held.map(({ plane }) => signedFetchOn(plane, 'DELETE', '/session')),
+  );
+  setSession(null);
+  const failed = results.find((r) => r.status === 'rejected');
+  if (failed && failed.status === 'rejected') {
+    throw failed.reason;
   }
-}
-
-async function registerAndRead(address: string): Promise<CryptoKeyPair | null> {
-  await registerBrowserKey(address).catch(() => {});
-  return getEnrolledKeyPair(address);
 }
