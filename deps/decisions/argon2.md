@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Job** | Turns a passphrase into a key. `32` D1 chose Argon2id v1.3 (RFC 9106) over scrypt (weaker side-channel story, no `id` mode) and PBKDF2 (memory-free, GPU-friendly) |
-| **Version** | `0.5`, `default-features = false` |
+| **Version** | `0.6`, `default-features = false` — `0.5` at approval; moved to `0.6.0` on 2026-09-21 because `0.5.3` sat on the previous RustCrypto generation and duplicated five crates `deny.toml` forbids duplicating (`00-CLOSURE.md`, 2026-09-21 note) |
 | **Publisher** | RustCrypto |
 | **Licence** | Apache-2.0 OR MIT — compatible with ADR-0004 |
 | **Ships or tooling** | **Ships.** Linked into `fathom-wasm` |

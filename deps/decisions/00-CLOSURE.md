@@ -29,24 +29,26 @@
 | `typenum` | transitive |
 | `universal-hash` | transitive |
 | `zeroize` | transitive |
-| `version_check` | transitive — ADR-0055 stream (a), see below |
+| `phc` | transitive — the PHC string format, split out of `password-hash 0.6` (2026-09-21, see below) |
 
 <!-- gate-zero:end -->
 
 **Twenty-three crates.**
 
-> **`version_check` joined on 2026-09-21, and is the ONE addition ADR-0055 stream (a) makes to
-> this list.** It arrives when `argon2 0.5.3` stops being inert and is actually built: it is a
-> build-time dependency of `generic-array 0.14`, in `argon2`'s own tree through
-> `blake2 → digest → crypto-common → generic-array`, and it exists only so that
-> `generic-array`'s `build.rs` can ask which Rust version is compiling it. **Nobody chose it**,
-> which is the closure provision's whole case: it is not named in any manifest in this
-> workspace, it does not ship (a `build.rs` dependency runs on the build host and is not linked
-> into the artifact), and there is nothing about it for an owner to decide that is not already
-> decided by approving `argon2`. `docs/archive/2026-09-21-adr-0055-build-contracts.md`'s
-> "Dependencies" table predicted exactly this and named it as the one crate the closure did not
-> already cover; the prediction was confirmed by running `scripts/gate-zero.sh` against the real
-> lockfile, which failed on `version_check` and on `sha1` and on nothing else.
+> **2026-09-21, twice in one day.** `argon2` stopped being inert with ADR-0055 stream (a), first
+> at `0.5.3`, which brought `version_check` (a build-time dependency of `generic-array 0.14`,
+> reached through `blake2 0.10 → digest 0.10 → crypto-common 0.1`) and, with it, a second copy
+> of `digest`, `block-buffer`, `cpufeatures`, `crypto-common` and `rand_core` beside the
+> `digest 0.11` generation the rest of this server is on. `deny.toml` denies a duplicate crate
+> by policy and the first CI run said so. The fix was the version, not the policy: `argon2 0.6.0`
+> (`blake2 ^0.11`, `password-hash ^0.6` on `rand_core ^0.10`, read off the crates.io index that
+> day) shares every one of those crates with the tree, `version_check` and `generic-array` leave
+> the lockfile, and one crate joins: **`phc`**, RustCrypto's PHC string format
+> (`RustCrypto/formats`, `Apache-2.0 OR MIT`, checked in its manifest 2026-09-21), which
+> `password-hash 0.6` split out of itself. Nobody chose it; it does the parsing `password-hash
+> 0.5` did inline, it ships (the PHC string in `accounts.password_hash` is parsed by it), and
+> there is nothing about it to decide that approving `argon2` did not decide. Measured, not
+> quoted: `scripts/gate-zero.sh` on the new lockfile failed on `phc` and on nothing else.
 
 > **The markers above are new (2026-09-03, WO-11 §5 step 1) and the list is not.** The names,
 > the measurement and the approval date are unchanged; what changed is that

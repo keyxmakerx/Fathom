@@ -56,7 +56,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::phc::PasswordHash;
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use argon2::{Algorithm, Argon2, Params, Version};
 use deadpool_postgres::{Pool, PoolError, Transaction};
 use fathom_canon::Json;
@@ -407,9 +408,10 @@ fn hasher() -> Result<Argon2<'static>, CredentialError> {
 pub fn hash_password(password: &str) -> Result<String, CredentialError> {
     let mut salt = [0u8; 16];
     getrandom::fill(&mut salt).map_err(|_| CredentialError::Corrupt("random source"))?;
-    let salt = SaltString::encode_b64(&salt).map_err(|_| CredentialError::Corrupt("salt"))?;
+    // `password-hash 0.6` takes the salt as bytes and encodes it into the PHC
+    // string itself; `0.5`'s `SaltString` step is gone with it.
     Ok(hasher()?
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password_with_salt(password.as_bytes(), &salt)
         .map_err(|_| CredentialError::Corrupt("password hash"))?
         .to_string())
 }

@@ -272,7 +272,16 @@ ecdsa = { version = "0.17.0", default-features = false, features = [
 # `SaltString` a salt travels in. The salt is drawn from `getrandom` directly —
 # the one generator this crate draws from (`crypto::Key32::random`'s own rule)
 # — never from a userspace generator with its own state.
-argon2 = { version = "0.5", default-features = false, features = [
+#
+# `0.6`, not `0.5`: this workspace is on the `digest 0.11` generation of
+# RustCrypto (`sha2 0.11`, `hmac 0.13`, `cipher 0.5`, `rand_core 0.10`), and
+# `argon2 0.5.3` sits on the previous one, so it brought a second `digest`,
+# `block-buffer`, `cpufeatures`, `crypto-common` and `rand_core` into the
+# lockfile. `deny.toml` denies a duplicate crate by policy, and the first CI
+# run of ADR-0055 (2026-09-21) failed there. `argon2 0.6.0` (`blake2 ^0.11`,
+# `password-hash ^0.6` on `rand_core ^0.10`, read off the crates.io index the
+# same day) shares every one of those crates with the rest of the tree.
+argon2 = { version = "0.6", default-features = false, features = [
     "alloc",
     "password-hash",
 ] }
