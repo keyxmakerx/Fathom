@@ -119,6 +119,14 @@ pub fn router(state: AdminState) -> Router {
         // header.
         .route("/enrolment/account", post(redeem_account))
         .route("/enrolment/operator", post(redeem_operator))
+        // ADR-0055 stream (c). `POST /admin/placement` is NOT here: it carries
+        // its own state and its own router (`placement::router`), merged
+        // beside this one inside the same exposure gate, so that a field on
+        // `AdminState` is not a conflict in every file that constructs one.
+        .route(
+            "/admin/settings/{change}/test-send",
+            post(test_send_setting),
+        )
         .with_state(state)
 }
 
@@ -291,6 +299,14 @@ async fn list_operators(
         .apply_due_operator_requests()
         .await
         .map_err(AdminRefusal)?;
+    // ADR-0055 stream (c): the console placement is swept on the same
+    // argument as the line above -- this deployment has no scheduler, so the
+    // paths that care do the sweeping (`0014` §C) -- but from
+    // `placement::confirm_on_the_new_host`, the layer over THIS router,
+    // rather than from this function: the sweep needs the `PlacementStore`,
+    // and a new field on `AdminState` would be a conflict in every file that
+    // constructs one while three streams build ADR-0055 at once. The layer
+    // runs on every `/admin` request, which includes this one.
 
     let operators = state
         .operators
@@ -422,6 +438,16 @@ async fn request_setting(
     let session = verify(&state, &signed).await?;
     let fields = read_fields(&signed.body, 3)?;
     let key = text(&fields[0], "setting key")?;
+    // ADR-0055 stream (c): `smtp` is the one key whose value has a shape this
+    // server has to agree with the client about (decision 11's form). It is
+    // checked HERE, before it is sealed, so a malformed form is a typed
+    // refusal instead of a row nobody can parse once the SMTP client exists.
+    // The refusal names the field and never its value -- the password is
+    // inside this envelope, and `tests/no_secret_in_logs.rs` drives exactly
+    // this path to prove it never reaches a log.
+    if key == "smtp" {
+        crate::placement::parse_smtp_value(&fields[1]).map_err(AdminRefusal)?;
+    }
     let pending = state
         .operators
         .request_setting(&session, &key, &fields[1], &fields[2])
@@ -462,6 +488,83 @@ async fn cancel_setting(
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (c) — the SMTP test send
+// ---------------------------------------------------------------------------
+
+/// `POST /admin/settings/{change}/test-send` — decision 11's *"a test-send
+/// goes to the requesting operator's own address, rate-limited, sealed"*.
+///
+/// Body: empty. Answer: **503 and one sentence**, because **no SMTP client
+/// ships in this phase** (ADR-0055's own cost list item 5 puts the client,
+/// reset-by-mail and the notices in the last session). A route that pretended
+/// to send would be worse than one that says it cannot: an operator who reads
+/// "sent" and receives nothing learns the wrong thing about their
+/// configuration.
+///
+/// What it DOES do before answering, because those halves are testable now
+/// and are the ones that protect the deployment:
+///
+/// * it needs a live operator session, like every other console route;
+/// * it spends a per-operator budget of one per five minutes in the SAME
+///   `sign_in_attempts` table §13 item 7 keeps
+///   (`placement::take_test_send_budget`), so an operator cannot hammer it.
+///   **Not the per-source bucket as well**: `api::Signed` has consumed the
+///   request by the time a handler runs, so this function cannot see the
+///   headers the address is derived from, and counting every test-send into
+///   one `unknown` bucket would be a limit in name only;
+/// * it is recorded on the site chain — as `operator_read` of the surface
+///   `settings/smtp/test-send`, which is sampled once per session per
+///   surface. **A dedicated entry type would need a migration**, and a
+///   migration that rewrites `chain_entries_type_belongs_to_kind` today would
+///   drop the types the other two ADR-0055 streams are adding in parallel.
+///   Reported rather than forced: the proper `smtp_test_send` type belongs
+///   with the SMTP client.
+///
+/// The destination is never in the request body (decision 11: *"no field to
+/// abuse as an open relay probe"*); it is the operator's own address through
+/// `operator_account_bindings`, which is stream (b)'s table and is read the
+/// day there is something to send.
+async fn test_send_setting(
+    State(state): State<AdminState>,
+    Path(change): Path<String>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    read_fields(&signed.body, 0)?;
+    if session.kind() != PrincipalKind::Operator {
+        return Err(Refusal::from(AdminRefusal(OperatorError::NotAnOperator)));
+    }
+    let operator = session.principal_id();
+    let within_budget = crate::placement::take_test_send_budget(
+        state.sessions.pool(),
+        &operator,
+        crate::placement::TEST_SEND_WINDOW_SECONDS,
+    )
+    .await
+    .map_err(AdminRefusal)?;
+    if !within_budget {
+        return Err(SessionError::RateLimited {
+            retry_after_seconds: crate::placement::TEST_SEND_WINDOW_SECONDS,
+        }
+        .into());
+    }
+    state
+        .operators
+        .record_read(&session, "settings/smtp/test-send")
+        .await
+        .map_err(AdminRefusal)?;
+    tracing::info!(
+        change = %change,
+        "an operator asked for an SMTP test send; no mail client ships in this phase"
+    );
+    Ok((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "mail sending is not built yet\n",
+    )
+        .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +685,13 @@ async fn verify(
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    // ADR-0055 stream (c): decision 11's confirmation is *"an operator
+    // sign-in on the new host"*, so it has to be attributed to the operator
+    // who actually reached the console. This is the one place that knows who
+    // that is; `placement::confirm_on_the_new_host`, the layer over this
+    // router, reads it when the response turns out to be a success. Outside
+    // that layer it does nothing at all.
+    crate::placement::note_acting_operator(&session);
     Ok(session)
 }
 

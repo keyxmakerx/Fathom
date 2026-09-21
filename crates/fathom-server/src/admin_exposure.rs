@@ -14,7 +14,25 @@
 //!
 //! Enforced HERE, in the binary, not left to the reverse proxy in front: the
 //! proxy is the operator's and can be misconfigured; this is the part of the
-//! fence Fathom can vouch for. It reads the same two facts the rate limiter
+//! fence Fathom can vouch for.
+//!
+//! # ADR-0055 stream (c): the placement, and one gap this does NOT close
+//!
+//! Since 2026-09-21 the same two lists can be set from the console itself
+//! (ADR-0055 decision 11, `crate::placement`), read here from a snapshot
+//! rather than from a query per request. The environment wins outright when
+//! either variable is set.
+//!
+//! **What is still not covered, reported rather than quietly left:**
+//! [`AdminExposure::covers`] matches `/admin*` and `/enrolment/operator`, so
+//! `POST /session` and `POST /session/challenge` for `kind='operator'` are
+//! still reachable on every host, whatever the placement says. That is the
+//! ADR-0055 build contracts' open issue 8. It is orthogonal to placement --
+//! placement confines the CONSOLE, not the sign-in surface, and widening
+//! `covers` would mean this module parsing sign-in bodies to find out which
+//! kind of principal is signing in, which the lead has ruled against
+//! (resolution 8, 2026-09-21). The client's own answer is decision 9's flag:
+//! on a host that is not the console host it shows nothing operator-side. It reads the same two facts the rate limiter
 //! reads -- the `Host` header the proxy forwards, and the client address as
 //! `client_address::ClientAddress` derives it (the forwarding header, believed
 //! only from a trusted proxy) -- so what the proxy has to get right is the
@@ -39,6 +57,12 @@ pub struct AdminExposure {
     hosts: Vec<String>,
     sources: Vec<Cidr>,
     client_address: ClientAddress,
+    // ADR-0055 stream (c): the placement an operator set from the console
+    // itself, read from a snapshot this process keeps current
+    // (`placement.rs`), never from a query per request. The two environment
+    // variables WIN OUTRIGHT when either is set (decision 11), and the
+    // console's own form is read-only then and says why.
+    placement: Option<crate::placement::PlacementView>,
 }
 
 impl AdminExposure {
@@ -51,12 +75,73 @@ impl AdminExposure {
             hosts: hosts.into_iter().map(|h| normalise_host(&h)).collect(),
             sources: sources.into_iter().collect(),
             client_address,
+            // ADR-0055 stream (c): set by `with_placement`, so a caller that
+            // wants the environment-only policy (every existing test) gets
+            // exactly what it had.
+            placement: None,
         }
     }
 
     /// True when neither list is set: nothing to enforce, no layer to mount.
+    ///
+    /// **A policy carrying a placement view is never open**, even while the
+    /// placement itself is empty: a placement can be written at any moment
+    /// from the console, and a layer that was not mounted at startup cannot
+    /// start enforcing one. [`AdminExposure::confines`] is the question
+    /// `main.rs` logs about.
     pub fn is_open(&self) -> bool {
-        self.hosts.is_empty() && self.sources.is_empty()
+        self.hosts.is_empty() && self.sources.is_empty() && self.placement.is_none()
+    }
+
+    // ADR-0055 stream (c) --------------------------------------------------
+
+    /// The same policy, reading the console's own placement when neither
+    /// environment variable is set.
+    pub fn with_placement(mut self, view: crate::placement::PlacementView) -> Self {
+        self.placement = Some(view);
+        self
+    }
+
+    /// Whether anything is confined RIGHT NOW: either environment variable,
+    /// or a placement in force. What the startup line and the console's
+    /// read-only notice are about.
+    pub fn confines(&self) -> bool {
+        if !self.hosts.is_empty() || !self.sources.is_empty() {
+            return true;
+        }
+        self.placed().is_some()
+    }
+
+    /// Whether the environment decides, in which case the console's placement
+    /// form is read-only (decision 11).
+    pub fn environment_wins(&self) -> bool {
+        !self.hosts.is_empty() || !self.sources.is_empty()
+    }
+
+    /// When the placement in force stops being in force unless an operator
+    /// confirms it on its new host, or `None` when nothing is pending. What
+    /// the flag route's second field carries and what the console counts
+    /// down.
+    pub fn confirm_by(&self, now_unix: i64) -> Option<i64> {
+        if self.environment_wins() {
+            return None;
+        }
+        let view = self.placement.as_ref()?;
+        let guard = view.read().ok()?;
+        guard.confirm_by(now_unix)
+    }
+
+    /// The placement in force, or `None` for "open". Cloned out of the
+    /// snapshot: the lock is held for the length of a `clone` and never
+    /// across an `await`.
+    fn placed(&self) -> Option<crate::placement::Placed> {
+        let view = self.placement.as_ref()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let guard = view.read().ok()?;
+        guard.effective(now).cloned()
     }
 
     pub fn hosts(&self) -> &[String] {
@@ -70,7 +155,23 @@ impl AdminExposure {
     }
 
     /// Both checks that are configured must pass.
+    ///
+    /// **The environment wins outright when either variable is set** (ADR-0055
+    /// decision 11); otherwise the console's own placement decides, and an
+    /// empty placement is the open console every deployment had before it.
     pub fn allows(&self, headers: &HeaderMap, extensions: &axum::http::Extensions) -> bool {
+        if !self.environment_wins() {
+            let Some(placed) = self.placed() else {
+                return true;
+            };
+            return Self::matches(
+                &placed.hosts,
+                &placed.sources,
+                &self.client_address,
+                headers,
+                extensions,
+            );
+        }
         if !self.hosts.is_empty() {
             let host = headers
                 .get(header::HOST)
@@ -92,11 +193,43 @@ impl AdminExposure {
         }
         true
     }
+
+    // ADR-0055 stream (c): the same two checks, over a placement's lists
+    // rather than the environment's. One function so that a placement and an
+    // environment variable cannot come to mean different things.
+    fn matches(
+        hosts: &[String],
+        sources: &[Cidr],
+        client_address: &ClientAddress,
+        headers: &HeaderMap,
+        extensions: &axum::http::Extensions,
+    ) -> bool {
+        if !hosts.is_empty() {
+            let host = headers
+                .get(header::HOST)
+                .and_then(|v| v.to_str().ok())
+                .map(normalise_host)
+                .unwrap_or_default();
+            if !hosts.contains(&host) {
+                return false;
+            }
+        }
+        if !sources.is_empty() {
+            let source = client_address.of(headers, extensions);
+            let Ok(ip) = source.parse::<IpAddr>() else {
+                return false;
+            };
+            if !sources.iter().any(|c| c.contains(ip)) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 /// `Host` as configured and as received: lower-case, no port. An IPv6
 /// literal keeps its brackets (`[::1]`), so `[::1]:8080` becomes `[::1]`.
-fn normalise_host(raw: &str) -> String {
+pub fn normalise_host(raw: &str) -> String {
     let raw = raw.trim();
     let without_port = if raw.starts_with('[') {
         match raw.find(']') {
@@ -130,7 +263,8 @@ pub async fn gate(
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("-"),
             source = %policy.client_address.of(request.headers(), request.extensions()),
-            "operator console request outside FATHOM_ADMIN_HOSTS / FATHOM_ADMIN_SOURCES; answered 404"
+            "operator console request outside the console's placement (FATHOM_ADMIN_HOSTS / \
+             FATHOM_ADMIN_SOURCES, or the placement set from the console itself); answered 404"
         );
         return StatusCode::NOT_FOUND.into_response();
     }

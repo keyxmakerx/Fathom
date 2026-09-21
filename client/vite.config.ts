@@ -43,6 +43,13 @@ export default defineConfig({
       '/enrolment': { target: apiTarget, changeOrigin: true },
       '/admin': { target: apiTarget, changeOrigin: true },
       '/catalogue': { target: apiTarget, changeOrigin: true },
+      // ADR-0055 stream (c): the unauthenticated console-host flag
+      // (`GET /placement/flag`). It is deliberately NOT under `/admin` --
+      // the answer a client needs on a host that is not the console host is
+      // "no", and `/admin` is answered 404 exactly there -- so it needs its
+      // own entry here. Without it the dev server answers 404 itself and the
+      // failure looks like a missing route on the server.
+      '/placement': { target: apiTarget, changeOrigin: true },
     },
   },
 })

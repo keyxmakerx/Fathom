@@ -219,3 +219,151 @@ fn a_secret_inside_an_arbitrary_struct_still_refuses() {
     assert_clean("an arbitrary struct's Debug", &logged);
     assert!(logged.contains("visible"), "{logged}");
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (c) — the second canary: an SMTP password
+// ---------------------------------------------------------------------------
+
+/// **A password a real SMTP server accepts**, and that is the whole point of
+/// the value (CLAUDE.md rule 2: *"test a safety gate against what a real
+/// device accepts, not against what the detector needs"*).
+///
+/// Twenty characters of mixed case, digits and punctuation — the shape of a
+/// password a person or a provider actually issues for SMTP AUTH (RFC 4954),
+/// and well inside RFC 5321 §4.5.3.1.4's 512-octet command line. It carries no
+/// marker word like "canary" or "do-not-log", because a redactor that only
+/// catches values shaped like a test fixture catches nothing real.
+const SMTP_CANARY: &str = "Tr0ub4dor&3xK!ngf1sh";
+
+fn smtp_envelope(password: &str) -> Vec<u8> {
+    fathom_server::placement::smtp_value_bytes(
+        "smtp.example.test",
+        587,
+        fathom_server::placement::TlsMode::StartTls,
+        "fathom@example.test",
+        password,
+        "fathom@example.test",
+    )
+}
+
+fn assert_no_smtp_password(where_: &str, text: &str) {
+    assert!(
+        !text.contains(SMTP_CANARY),
+        "the SMTP password appeared in {where_}:\n{text}"
+    );
+    // The first eight characters on their own: a truncating logger would
+    // otherwise pass this test while leaking most of the password.
+    assert!(
+        !text.contains(&SMTP_CANARY[..8]),
+        "part of the SMTP password appeared in {where_}:\n{text}"
+    );
+}
+
+/// §5.3's *"SMTP credentials are credentials"*, as a test: the value envelope
+/// `POST /admin/settings` carries for `key='smtp'` is parsed by
+/// `placement::parse_smtp_value`, and neither the parsed form, its refusals
+/// nor anything logged around them may carry the password.
+#[test]
+fn the_smtp_envelope_never_puts_its_password_in_a_log() {
+    let value = smtp_envelope(SMTP_CANARY);
+    let parsed = fathom_server::placement::parse_smtp_value(&value)
+        .expect("a real submission configuration parses");
+
+    let logged = captured(|| {
+        tracing::error!(?parsed, "smtp settings as a field");
+        tracing::warn!(smtp = ?parsed, "smtp settings under a name");
+        tracing::info!("smtp settings in the message: {parsed:?}");
+        tracing::debug!("smtp settings, pretty: {parsed:#?}");
+        tracing::trace!(password = ?parsed.password, "the password field on its own");
+        tracing::trace!(password = %parsed.password, "the password field as Display");
+    });
+    assert_no_smtp_password("a log line about the parsed settings", &logged);
+    // ...and it is not clean by being empty: an operator must still be able to
+    // see WHICH server the deployment is configured to talk to.
+    assert!(logged.contains("smtp.example.test"), "{logged}");
+    assert!(logged.contains("587"), "{logged}");
+}
+
+/// The refusal paths, which is where a value normally escapes: a malformed
+/// envelope is refused by field name, and the refusal never carries what was
+/// in the field.
+#[test]
+fn a_refused_smtp_envelope_names_the_field_and_not_the_value() {
+    // Every way this envelope can be wrong, each still carrying the real
+    // password, because the password is in the envelope whatever else is
+    // broken about it.
+    let mut truncated = smtp_envelope(SMTP_CANARY);
+    truncated.truncate(truncated.len() - 3);
+    let mut extra = smtp_envelope(SMTP_CANARY);
+    extra.extend_from_slice(&[4, 0, b'o', b'o', b'p', b's']);
+    let bad_address = fathom_server::placement::smtp_value_bytes(
+        "smtp.example.test",
+        587,
+        fathom_server::placement::TlsMode::StartTls,
+        "fathom@example.test",
+        SMTP_CANARY,
+        "not-an-address",
+    );
+    let bad_port = fathom_server::placement::smtp_value_bytes(
+        "smtp.example.test",
+        0,
+        fathom_server::placement::TlsMode::StartTls,
+        "fathom@example.test",
+        SMTP_CANARY,
+        "fathom@example.test",
+    );
+
+    for (what, envelope) in [
+        ("a truncated envelope", truncated),
+        ("a seventh field", extra),
+        ("an unusable from-address", bad_address),
+        ("port zero", bad_port),
+    ] {
+        let error = fathom_server::placement::parse_smtp_value(&envelope)
+            .err()
+            .unwrap_or_else(|| panic!("{what} must be refused"));
+        let logged = captured(|| {
+            tracing::error!(?error, "smtp envelope refused, as a field");
+            tracing::error!(error = %error, "smtp envelope refused, as Display");
+            tracing::error!("smtp envelope refused: {error}");
+            tracing::error!("smtp envelope refused: {error:?}");
+        });
+        assert_no_smtp_password(what, &logged);
+        assert!(
+            logged.contains("refused"),
+            "nothing was captured for {what}"
+        );
+    }
+}
+
+/// The same value on its way through the route that carries it.
+///
+/// `admin::request_setting` reads three length-prefixed fields and hands the
+/// second to the store, which seals it. Nothing on that path formats the body
+/// — this test drives the two things that could: the whole request body as a
+/// byte slice, and the refusal a bad body produces.
+#[test]
+fn the_request_body_carrying_an_smtp_password_is_never_formatted_into_a_log() {
+    let mut body = Vec::new();
+    fathom_server::crypto::lp(&mut body, b"smtp");
+    fathom_server::crypto::lp(&mut body, &smtp_envelope(SMTP_CANARY));
+    fathom_server::crypto::lp(&mut body, &[7u8; 64]);
+
+    let logged = captured(|| {
+        // The shapes a careless diagnostic takes: the length, the first
+        // bytes, the key. Never the value.
+        tracing::info!(bytes = body.len(), "a settings request arrived");
+        tracing::debug!(key = "smtp", "a settings request arrived");
+    });
+    assert_no_smtp_password("a log line about the request body", &logged);
+    assert!(logged.contains("a settings request arrived"), "{logged}");
+
+    // And the bytes themselves DO contain it — the positive control, so that
+    // this test cannot pass by searching something that never held the
+    // password in the first place.
+    let raw = String::from_utf8_lossy(&body).into_owned();
+    assert!(
+        raw.contains(SMTP_CANARY),
+        "the canary is not even in the body"
+    );
+}

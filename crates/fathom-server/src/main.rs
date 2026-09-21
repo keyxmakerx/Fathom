@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fathom_server::config::Config;
 use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
-use fathom_server::{db, keys, log_startup, migrate, rls, router, AppState};
+use fathom_server::{db, keys, log_startup, migrate, rls, AppState};
 
 /// Where the first operator's enrolment token is written -- on a first start,
 /// and by `reissue-bootstrap-token`.
@@ -92,10 +92,23 @@ async fn main() -> ExitCode {
         }
         return reissue_bootstrap_token().await;
     }
+    // ADR-0055 stream (c) -- decision 11's last sentence: the way back in when
+    // a placement locked everyone out of the console. Run ON THE HOST, where
+    // the key volume is mounted, like `reissue-bootstrap-token` above; it
+    // needs the full configuration and the key material, so it is handled
+    // here and not before.
+    if args.first().map(String::as_str) == Some("console-placement") {
+        if args.get(1).map(String::as_str) != Some("--reset") || args.len() > 2 {
+            eprintln!("fathom-server: console-placement takes exactly `--reset`");
+            return ExitCode::from(2);
+        }
+        return reset_console_placement().await;
+    }
     if !args.is_empty() {
         eprintln!(
-            "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]` and \
-             `reissue-bootstrap-token`; with no arguments it runs the server"
+            "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]`, \
+             `reissue-bootstrap-token` and `console-placement --reset`; with no arguments it \
+             runs the server"
         );
         return ExitCode::from(2);
     }
@@ -579,6 +592,27 @@ async fn main() -> ExitCode {
         config.single_operator,
     ));
 
+    // ADR-0055 stream (c) -- where the console answers, as the console itself
+    // set it (`src/placement.rs`). Loaded once here; refreshed on every
+    // placement write and by the sweep, so `admin_exposure` never runs a
+    // query per request.
+    let placement = Arc::new(fathom_server::placement::PlacementStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+    ));
+    match placement.refresh().await {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                error = ?e,
+                "the console placement could not be read; refusing to start rather than \
+                 answering the console on every host because a query failed"
+            );
+            return ExitCode::from(14);
+        }
+    }
+
     // §5.3's mode is written to the site chain at startup rather than left as
     // a belief held only by this process's environment. An auditor reading the
     // chain can then see that the deployment was running with one operator,
@@ -709,7 +743,9 @@ async fn main() -> ExitCode {
     };
 
     let admin = fathom_server::admin::AdminState {
-        sessions,
+        // ADR-0055 stream (c): cloned rather than moved -- the placement
+        // router beside this one needs the same session store.
+        sessions: Arc::clone(&sessions),
         operators,
         ring: Arc::clone(&ring),
         client_address: client_address.clone(),
@@ -751,28 +787,60 @@ async fn main() -> ExitCode {
             .filter_map(|s| fathom_server::admin_exposure::Cidr::parse(s)),
         client_address.clone(),
     );
-    let admin_router = if exposure.is_open() {
-        tracing::warn!(
-            "the operator console (/admin, /enrolment/operator) answers on every host and from \
-             every address; set FATHOM_ADMIN_HOSTS and/or FATHOM_ADMIN_SOURCES to confine it"
-        );
-        fathom_server::admin::router(admin)
-    } else {
+    // ADR-0055 stream (c): the policy now reads the console's own placement as
+    // well as the two environment variables, so the gate is ALWAYS mounted --
+    // a placement can be written at any moment from the console, and a layer
+    // that was not mounted at startup cannot start enforcing one.
+    let exposure = exposure.with_placement(placement.view());
+    if exposure.environment_wins() {
         tracing::info!(
             hosts = ?exposure.hosts(),
             sources = ?config.admin_sources,
             "the operator console answers only on these hosts and from these addresses; \
-             elsewhere its paths are 404"
+             elsewhere its paths are 404. FATHOM_ADMIN_HOSTS/FATHOM_ADMIN_SOURCES win over any \
+             placement set in the console, and the console's form is read-only"
         );
-        fathom_server::admin::router(admin).layer(axum::middleware::from_fn_with_state(
-            exposure,
-            fathom_server::admin_exposure::gate,
+    } else if exposure.confines() {
+        tracing::info!(
+            "the operator console answers only where its placement says (set in the console \
+             itself, ADR-0055 decision 11); elsewhere its paths are 404"
+        );
+    } else {
+        tracing::warn!(
+            "the operator console (/admin, /enrolment/operator) answers on every host and from \
+             every address; set FATHOM_ADMIN_HOSTS and/or FATHOM_ADMIN_SOURCES, or move it from \
+             the console itself, to confine it"
+        );
+    }
+    let admin_router = fathom_server::admin::router(admin)
+        // ADR-0055 stream (c): `POST /admin/placement`, merged INSIDE the same
+        // gate -- moving the console is a console act.
+        .merge(fathom_server::placement::router(
+            fathom_server::placement::PlacementState {
+                sessions: Arc::clone(&sessions),
+                placement: Arc::clone(&placement),
+            },
         ))
-    };
-    let mut app = router(AppState { health, engine })
-        .merge(fathom_server::api::router(api))
-        .merge(fathom_server::design_api::router(designs))
-        .merge(admin_router);
+        // The confirmation and the sweep: the first verified `/admin` request
+        // on the new host inside the window confirms the placement, and an
+        // expired window writes its sealed revert here.
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&placement),
+            fathom_server::placement::confirm_on_the_new_host,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            exposure.clone(),
+            fathom_server::admin_exposure::gate,
+        ));
+    let mut app = fathom_server::router_with_placement(
+        AppState { health, engine },
+        // The same policy the console's own gate uses, so the flag and the
+        // 404 can never disagree.
+        exposure,
+    )
+    .merge(fathom_server::api::router(api))
+    .merge(fathom_server::design_api::router(designs))
+    .merge(admin_router);
     if let Some(store) = firmware {
         app = app.merge(fathom_server::firmware::router(
             fathom_server::firmware::FirmwareState {
@@ -787,6 +855,12 @@ async fn main() -> ExitCode {
     if let Some(root) = client_root {
         app = root.attach(app);
     }
+    // ADR-0055 stream (c) -- decision 12's two headers, over EVERYTHING
+    // including the fallback that serves the client's own files.
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        fathom_server::client::SecurityHeaders::new(client_address.clone()),
+        fathom_server::client::security_headers,
+    ));
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -978,6 +1052,123 @@ async fn reissue_bootstrap_token() -> ExitCode {
                  run this again"
             );
             ExitCode::from(10)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (c) -- `fathom-server console-placement --reset`
+// ---------------------------------------------------------------------------
+
+/// **The way back in when a placement locked everyone out of the console** --
+/// ADR-0055 decision 11's last sentence, for the case where the window WAS
+/// confirmed and the host later died, so confirm-or-revert has nothing left to
+/// revert to.
+///
+/// Run on the host, where the key volume is mounted, exactly as
+/// `reissue-bootstrap-token` is: it clears every live placement, writes a
+/// sealed `console_placement_reverted` entry for each (`revert_reason =
+/// 'host_reset'`), and leaves the console answering wherever
+/// `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` say, or everywhere if they say
+/// nothing. It is loud on purpose: ADR-0043 §2 already puts the host inside
+/// tier 3, so what protects this is custody of the host plus the record that
+/// it happened -- the same argument decision 8 makes for `recover-operator`.
+///
+/// It mints nothing, it grants nobody anything, and the next operator sign-in
+/// is still a sign-in.
+async fn reset_console_placement() -> ExitCode {
+    let config = match Config::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("fathom-server: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    tracing_subscriber::fmt()
+        .with_max_level(config.log_level.to_tracing())
+        .with_ansi(false)
+        .with_target(true)
+        .init();
+
+    let pool = match db::pool(&config) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the connection pool");
+            return ExitCode::from(3);
+        }
+    };
+    let client = match pool.get().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(kind = %summarise(&e), "could not reach the database");
+            return ExitCode::from(5);
+        }
+    };
+    // The same gate the server refuses to start without: this writes rows and
+    // appends to the site chain through the runtime role, and a superuser
+    // connection would have every isolation policy inert underneath it.
+    if let Err(e) = rls::assert_rls_binds(&client).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(8);
+    }
+    // `false`: load the keys, never create them -- a chain key invented here
+    // would make every entry sealed under the real one unverifiable.
+    let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, false) {
+        Ok(r) => Arc::new(r),
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "refusing: the key material could not be loaded. This command seals a site-chain \
+                 entry like every other operator act"
+            );
+            return ExitCode::from(10);
+        }
+    };
+    if let Err(e) = keys::register_master_key(&client, &ring).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(11);
+    }
+    if let Err(e) = keys::register_chain_master_key(&client, &ring).await {
+        tracing::error!(error = %e, "refusing");
+        return ExitCode::from(11);
+    }
+    let deployment = match fathom_server::chains::deployment_id(&**client).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "this deployment has no identity, so it has never started and has no console \
+                 placement to clear. Start the server once"
+            );
+            return ExitCode::from(12);
+        }
+    };
+    drop(client);
+
+    let placement =
+        fathom_server::placement::PlacementStore::new(pool.clone(), Arc::clone(&ring), deployment);
+    match placement.reset_from_host().await {
+        Ok(0) => {
+            tracing::warn!(
+                "no console placement was in force; nothing to clear. The console answers \
+                 wherever FATHOM_ADMIN_HOSTS / FATHOM_ADMIN_SOURCES say, or everywhere if they \
+                 are unset"
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(cleared) => {
+            tracing::warn!(
+                cleared,
+                "the console placement was cleared FROM THE HOST and the act is on the site \
+                 chain. The console now answers wherever FATHOM_ADMIN_HOSTS / \
+                 FATHOM_ADMIN_SOURCES say, or everywhere if they are unset. Set it again from \
+                 the console as soon as there is somewhere to set it to"
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            tracing::error!(error = ?e, "the console placement was NOT cleared");
+            ExitCode::from(9)
         }
     }
 }

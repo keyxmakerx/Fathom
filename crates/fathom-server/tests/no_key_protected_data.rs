@@ -440,6 +440,21 @@ const TABLES: &[TableClaim] = &[
               key-protected material either: it protects a public vendor image, it is single-use \
               and minutes long, and it wraps no key.",
     },
+    // ADR-0055 stream (c) -- migration `0020_console_placement.sql`.
+    TableClaim {
+        name: "console_placements",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "where the operator console answers: host names, address ranges, the window the \
+              change was made under, which operator asked and their signature over it, which \
+              operator confirmed it on the new host, and whether it reverted and why. **Host \
+              names and CIDR ranges are configuration, not credentials** -- the same values \
+              FATHOM_ADMIN_HOSTS and FATHOM_ADMIN_SOURCES carry in the environment, where they \
+              are also in the clear, and a reader who has this table already has the \
+              environment. There is no free-text column a payload could hide in, and the \
+              signature is what a later reader verifies rather than something to keep. **No \
+              SMTP value lands here**: `smtp` is one more sealed `site_settings_versions` row \
+              (`0015` §F), which is where its ciphertext claim already is.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
