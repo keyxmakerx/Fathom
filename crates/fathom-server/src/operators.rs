@@ -737,6 +737,34 @@ pub struct Bootstrap {
     pub invitation: Invitation,
 }
 
+/// What [`OperatorStore::adopt_first_operator_from_install`] produces on a
+/// deployment whose first start happened under a build older than ADR-0055.
+///
+/// The operator existed already; what the adoption creates is the account at
+/// `site_install.notice_address`, the sealed binding between the two, and --
+/// only where there is no app code to sign in behind -- the one-shot `setup`
+/// token that opens the screen decision 10 describes. `invitation` is `None`
+/// when the account already holds a confirmed app code: that person signs in
+/// with what they have and registers an operator key from the console
+/// (decision 9), and a token minted for them would be a second bearer secret
+/// nobody asked for.
+///
+/// No `Debug`, for [`Reissued`]'s reason: [`Invitation`]'s own `Debug`
+/// withholds the token and this type is carried straight to a file.
+pub struct Adopted {
+    pub operator_id: String,
+    pub account_id: String,
+    /// The address the install record named, which is now this operator's
+    /// identity (ADR-0055 decision 1).
+    pub notice_address: String,
+    pub invitation: Option<Invitation>,
+    /// How many live operator keys the adoption retired, and how many sessions
+    /// it ended. Logged by `main.rs` and inside the sealed `operator_adopted`
+    /// entry, so the cost of the upgrade is stated in both places.
+    pub retired_keys: usize,
+    pub ended_sessions: usize,
+}
+
 /// What [`OperatorStore::reissue_bootstrap_token`] produces: the same
 /// invitation §6.3's first start produces, and what it cost.
 ///
@@ -1380,102 +1408,20 @@ impl OperatorStore {
         // `retired_at` was in `operator_key_row_state` from the day the table
         // was written and nothing had ever set it; `0024` grants the three
         // columns and adds the policy.
-        for key in live_keys {
-            let mut key = key;
-            key.retired_at_unix = recovered_at;
-            key.row_version += 1;
-            let seal = authority::row_seal(
-                &row_key,
-                &RowFacts {
-                    table: "operator_keys",
-                    row_id: &key.id,
-                    chain_seq: key.enrolled_seq,
-                    row_version: key.row_version,
-                    row_state: &operator_key_row_state(&key),
-                },
-            );
-            tx.execute(
-                "UPDATE operator_keys \
-                    SET retired_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
-                  WHERE id = $1 AND retired_at IS NULL",
-                &[&key.id, &recovered_at, &key.row_version, &seal.to_vec()],
-            )
-            .await?;
-        }
+        retire_operator_keys(&tx, &row_key, live_keys, recovered_at).await?;
 
         // 2. Every session of both principals ends -- the revocation row
         // first, then the delete, because `0014` §D's whole argument is that
         // a deleted session row is undone by a restore and a revocation row
         // is not.
-        for (session_id, principal) in &doomed_sessions {
-            let is_operator_session = principal == &operator;
-            let appended = chains::append_site(
-                &tx,
-                &self.ring,
-                &self.deployment,
-                if is_operator_session {
-                    EntryType::OperatorSignedOut
-                } else {
-                    EntryType::AccountSignedOut
-                },
-                &entry_metadata(
-                    if is_operator_session {
-                        EntryType::OperatorSignedOut
-                    } else {
-                        EntryType::AccountSignedOut
-                    },
-                    &[
-                        ("session", Json::Str(session_id.clone())),
-                        (
-                            if is_operator_session {
-                                "operator"
-                            } else {
-                                "account"
-                            },
-                            Json::Str(principal.clone()),
-                        ),
-                        (
-                            "principal_kind",
-                            Json::Str(
-                                if is_operator_session {
-                                    "operator"
-                                } else {
-                                    "steward"
-                                }
-                                .to_string(),
-                            ),
-                        ),
-                        (
-                            "reason",
-                            Json::Str("operator_recovered_from_host".to_string()),
-                        ),
-                    ],
-                ),
-            )
-            .await?;
-            let mac = crate::sessions::revocation_row_mac(
-                &row_key,
-                &crate::sessions::RevocationFacts {
-                    session_id,
-                    principal_id: principal,
-                    // The one value `0014` §D's CHECK takes, and a
-                    // break-glass IS a sign-out of every browser.
-                    reason: "signed_out",
-                    chain_seq: appended.seq,
-                    row_version: 1,
-                },
-            );
-            tx.execute(
-                "INSERT INTO session_revocations \
-                     (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
-                 VALUES ($1, $2, 'signed_out', $3, 1, $4) \
-                 ON CONFLICT (session_id) DO NOTHING",
-                &[session_id, principal, &appended.seq, &mac.to_vec()],
-            )
-            .await?;
-            tx.execute("DELETE FROM sessions WHERE id = $1", &[session_id])
-                .await?;
-        }
+        self.end_sessions_as_revocations(
+            &tx,
+            &row_key,
+            &doomed_sessions,
+            &operator,
+            "operator_recovered_from_host",
+        )
+        .await?;
 
         // 3. The app code goes, so the setup screen this code opens enrols a
         // new one -- which is what decision 8 already says it does.
@@ -1562,6 +1508,372 @@ impl OperatorStore {
             issued_seq: recorded.seq,
             expired,
         })
+    }
+
+    /// **The operator a build before ADR-0055 created, bound to the install
+    /// address on the first start of a build that has decision 1.**
+    ///
+    /// Called by `main.rs` at every start, in the arm where
+    /// [`OperatorStore::bootstrap_first_operator`] answered
+    /// [`OperatorError::AlreadyBootstrapped`]. On every ADR-0055-native
+    /// deployment, and on every start after an adoption, it answers `Ok(None)`
+    /// after two indexed reads and writes nothing. That is the ordinary case
+    /// and it has to stay silent.
+    ///
+    /// # What it is for
+    ///
+    /// Decision 1 -- *"the address is the identity"* -- made the first start
+    /// create an ACCOUNT for `FATHOM_OPERATOR_NOTICE_ADDRESS`, an operator,
+    /// and a sealed row in `operator_account_bindings` between them. A
+    /// deployment that did its first start under the older build has the
+    /// operator row and the `site_install` row and no binding. On the new
+    /// build the bootstrap finds an operator, answers `AlreadyBootstrapped`,
+    /// and stops: nobody can sign in, because a sign-in resolves an address to
+    /// an account and there is none; and `fathom-server recover-operator
+    /// <address>` resolves the address THROUGH the binding, so it refuses with
+    /// `NotFound("operator")` and mints nothing. Observed on a real deployment
+    /// on 2026-09-21. The remedy has to run without a human, because the
+    /// person it exists for is the one who cannot get in.
+    ///
+    /// # Which operator, and why that one
+    ///
+    /// The bootstrap's own: `created_by IS NULL` (nobody created it), not
+    /// disabled, lowest `created_seq`, and **no binding**. The last clause is
+    /// what makes this idempotent -- after an adoption there is a binding, so
+    /// the next start finds nothing -- and it is also what stops this touching
+    /// a colleague: every operator the console creates has a `created_by` and
+    /// a binding of its own.
+    ///
+    /// The row's seal and its creating entry are verified before anything
+    /// rests on it, exactly as [`OperatorStore::recover_operator`] does. An
+    /// `operators` row edited in the database is how somebody would point an
+    /// adoption at a seat nobody expects.
+    ///
+    /// # What it takes away
+    ///
+    /// **The record first**: one sealed `operator_adopted` entry (migration
+    /// `0026`), carrying the operator, the address and the counts, appended
+    /// before any of the writes it describes -- so a failure to record stops
+    /// the act.
+    ///
+    /// Then, in the same transaction: every live `setup` and `operator` token
+    /// of that operator is expired; every live operator key of that operator
+    /// is retired; and every session of the operator principal ends as a
+    /// sealed revocation. Those keys were enrolled by the older flow, which
+    /// redeemed a one-shot token and had no second factor anywhere in the act;
+    /// ADR-0055 decision 9 has the operator key register only from the console
+    /// with a confirmed app code behind it. Leaving them in service would keep
+    /// the weaker route alive underneath the stronger one, which is the shape
+    /// fix (a) removed from `recover_operator` on the same day.
+    ///
+    /// **It is not a recovery and it does not pretend to be one.** It does not
+    /// touch the account's credential, its app code, its backup codes or
+    /// `0021`'s seat hold, and it raises no seven-day banner: nothing here
+    /// says a key volume was reached for, and an upgrade that cleared a
+    /// working second factor would lock out the person it is meant to let in.
+    ///
+    /// # The token, only where there is no other way in
+    ///
+    /// A `setup` token is minted **only if the account at that address has no
+    /// confirmed app code**. If it has one, that person signs in with what
+    /// they already hold and registers an operator key from the console
+    /// (decision 9), and a token would be a second bearer secret nobody asked
+    /// for. The token is returned once and **nothing in this module logs it**.
+    pub async fn adopt_first_operator_from_install(
+        &self,
+    ) -> Result<Option<Adopted>, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        enter_enrolment_custody(&tx).await?;
+        // The account is read and written here, and `accounts_readable`
+        // (`0013` §A) admits the account custody rather than the operator one
+        // -- the pair `bootstrap_first_operator` takes, for its reason.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
+
+        // **The bootstrap's own lock.** Two interchangeable containers start
+        // at once, and this act reads "is there an unbound operator" and
+        // writes the binding that answers it; without the lock both could read
+        // the same answer and both adopt.
+        tx.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended('fathom/operator/bootstrap', 0))",
+            &[],
+        )
+        .await?;
+
+        // No install record means no first start ever ran here, which is a
+        // deployment `bootstrap_first_operator` is about to handle or has just
+        // failed at. Either way there is nothing to adopt and nothing to say.
+        let Some(install) = tx
+            .query_opt("SELECT notice_address FROM site_install", &[])
+            .await?
+        else {
+            return Ok(None);
+        };
+        let notice_address: String = install.get(0);
+
+        // The one operator this is ever about. `NOT EXISTS` against the
+        // binding is the idempotence: it is false for every operator on an
+        // ADR-0055-native deployment and for this one after the commit below.
+        let candidate = tx
+            .query_opt(
+                "SELECT o.id FROM operators o \
+                  WHERE o.created_by IS NULL AND o.disabled_at IS NULL \
+                    AND NOT EXISTS (SELECT 1 FROM operator_account_bindings b \
+                                     WHERE b.operator_id = o.id) \
+                  ORDER BY o.created_seq ASC \
+                  LIMIT 1",
+                &[],
+            )
+            .await?;
+        let Some(candidate) = candidate else {
+            return Ok(None);
+        };
+        let operator: String = candidate.get(0);
+
+        // The row's own seal and the entry that created it, before an address
+        // is attached to it or a token is minted against it.
+        verify_operator_row(&tx, &self.ring, &operator).await?;
+
+        // `app.session_custody` for the length of the dispossession and no
+        // longer: the operator keyring, the session rows and the revocation
+        // rows are behind it (`0015` §J, `0013` §E, `0014` §D), and it is the
+        // narrowest capability that can end a session at all.
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await?;
+        let adopted_at = now_unix();
+
+        // **The counts are taken before the entry, so they are inside it.**
+        // Every row's seal is verified on the way past: a keyring row edited
+        // in the database is how somebody would keep a key alive through an
+        // adoption, and `live_operator_keys` answers that with an alarm rather
+        // than a shrug.
+        let live_keys = live_operator_keys(&tx, &self.ring, &operator, adopted_at).await?;
+        let retired_keys = live_keys.len();
+        // **The operator principal only.** The account does not exist yet on
+        // the deployment this is written for, and where it does exist it is a
+        // steward seat this act has no quarrel with: what decision 9 says has
+        // no second factor behind it is the operator key and the operator
+        // session the older flow issued against it.
+        let doomed_sessions: Vec<(String, String)> = tx
+            .query(
+                "SELECT id, principal_id FROM sessions \
+                  WHERE principal_id = $1 AND principal_kind = 'operator' \
+                  ORDER BY id",
+                &[&operator],
+            )
+            .await?
+            .iter()
+            .map(|row| (row.get(0), row.get(1)))
+            .collect();
+        let ended_sessions = doomed_sessions.len();
+        // The same predicate `expire_live_tokens` uses, counted here because
+        // the entry that records the act is appended before the act.
+        let expiring: i64 = tx
+            .query_one(
+                "SELECT count(*) FROM enrolment_tokens \
+                  WHERE operator_id = $1 AND purpose IN ('setup', 'operator') \
+                    AND redeemed_at IS NULL AND expired_at IS NULL",
+                &[&operator],
+            )
+            .await?
+            .get(0);
+
+        // **The record, before anything else.** `chains::append_site` is what
+        // makes stopping the log stop the act.
+        let recorded = chains::append_site(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::OperatorAdopted,
+            &entry_metadata(
+                EntryType::OperatorAdopted,
+                &[
+                    ("operator", Json::Str(operator.clone())),
+                    // Inside the sealed metadata, like every other address
+                    // this module records.
+                    ("notice_address", Json::Str(notice_address.clone())),
+                    ("at", Json::Int(adopted_at)),
+                    ("retired_keys", Json::Int(retired_keys as i64)),
+                    ("ended_sessions", Json::Int(ended_sessions as i64)),
+                    ("expired_tokens", Json::Int(expiring)),
+                ],
+            ),
+        )
+        .await?;
+
+        // ADR-0055 decision 1: the address is the identity. An account that
+        // already exists at that address is REUSED -- one person, two
+        // custodies, one address -- and `accounts.email`'s uniqueness would
+        // force it anyway.
+        let account = self
+            .account_for_address(&tx, &notice_address, &notice_address, &operator)
+            .await?;
+        self.bind_operator_to_account(&tx, &operator, &account, recorded.seq)
+            .await?;
+
+        // ---------------------------------------------------------------
+        // The dispossession the entry above just recorded.
+        let mut expired = self
+            .expire_live_tokens(&tx, Purpose::Setup, &operator, "operator_adopted")
+            .await?;
+        expired.extend(
+            self.expire_live_tokens(&tx, Purpose::Operator, &operator, "operator_adopted")
+                .await?,
+        );
+        if expired.len() as i64 != expiring {
+            // The count went inside a sealed entry; a read and a write one
+            // statement apart under the bootstrap advisory lock cannot
+            // disagree, and an entry that misstates what happened is worse
+            // than a refusal.
+            return Err(OperatorError::Corrupt("enrolment token row"));
+        }
+
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        retire_operator_keys(&tx, &row_key, live_keys, adopted_at).await?;
+        self.end_sessions_as_revocations(
+            &tx,
+            &row_key,
+            &doomed_sessions,
+            &operator,
+            "operator_adopted",
+        )
+        .await?;
+
+        // **A token only where there is no other way in.** An account with a
+        // confirmed app code already holds a credential and a second factor;
+        // decision 9 has it register an operator key from the console, and a
+        // token here would be a bearer secret standing beside a stronger
+        // route.
+        let has_app_code = crate::credentials::read_credentials(&tx, &self.ring, &account)
+            .await
+            .map_err(|_| OperatorError::Corrupt("credential seal"))?
+            .is_some_and(|row| row.totp_confirmed());
+
+        tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
+            .await?;
+
+        let invitation = if has_app_code {
+            None
+        } else {
+            Some(
+                self.issue_token(
+                    &tx,
+                    Purpose::Setup,
+                    &operator,
+                    &operator,
+                    "adoption",
+                    ENROLMENT_TOKEN_LIFETIME,
+                )
+                .await?,
+            )
+        };
+
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(Some(Adopted {
+            operator_id: operator,
+            account_id: account,
+            notice_address,
+            invitation,
+            retired_keys,
+            ended_sessions,
+        }))
+    }
+
+    /// **End every session in `doomed`, each as a sealed revocation** -- the
+    /// shape `0014` §D requires: the entry, then the `session_revocations`
+    /// row whose MAC covers that entry's `seq`, then the delete, because a
+    /// deleted session row is undone by a restore and a revocation row is not.
+    ///
+    /// Shared by [`OperatorStore::recover_operator`] and
+    /// [`OperatorStore::adopt_first_operator_from_install`], which end
+    /// different sets of sessions for different reasons and must not end them
+    /// in two slightly different ways. A session whose `principal_id` is
+    /// `operator` is filed as `operator_signed_out`; anything else is the
+    /// bound account's own seat and is filed as `account_signed_out`.
+    ///
+    /// `reason` goes inside the sealed metadata. The `session_revocations`
+    /// row's own reason is `signed_out`, which is the one value `0014` §D's
+    /// CHECK takes.
+    async fn end_sessions_as_revocations(
+        &self,
+        tx: &Transaction<'_>,
+        row_key: &Key32,
+        doomed: &[(String, String)],
+        operator: &str,
+        reason: &str,
+    ) -> Result<(), OperatorError> {
+        for (session_id, principal) in doomed {
+            let is_operator_session = principal == operator;
+            let appended = chains::append_site(
+                tx,
+                &self.ring,
+                &self.deployment,
+                if is_operator_session {
+                    EntryType::OperatorSignedOut
+                } else {
+                    EntryType::AccountSignedOut
+                },
+                &entry_metadata(
+                    if is_operator_session {
+                        EntryType::OperatorSignedOut
+                    } else {
+                        EntryType::AccountSignedOut
+                    },
+                    &[
+                        ("session", Json::Str(session_id.clone())),
+                        (
+                            if is_operator_session {
+                                "operator"
+                            } else {
+                                "account"
+                            },
+                            Json::Str(principal.clone()),
+                        ),
+                        (
+                            "principal_kind",
+                            Json::Str(
+                                if is_operator_session {
+                                    "operator"
+                                } else {
+                                    "steward"
+                                }
+                                .to_string(),
+                            ),
+                        ),
+                        ("reason", Json::Str(reason.to_string())),
+                    ],
+                ),
+            )
+            .await?;
+            let mac = crate::sessions::revocation_row_mac(
+                row_key,
+                &crate::sessions::RevocationFacts {
+                    session_id,
+                    principal_id: principal,
+                    // The one value `0014` §D's CHECK takes, and a
+                    // break-glass IS a sign-out of every browser.
+                    reason: "signed_out",
+                    chain_seq: appended.seq,
+                    row_version: 1,
+                },
+            );
+            tx.execute(
+                "INSERT INTO session_revocations \
+                     (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
+                 VALUES ($1, $2, 'signed_out', $3, 1, $4) \
+                 ON CONFLICT (session_id) DO NOTHING",
+                &[session_id, principal, &appended.seq, &mac.to_vec()],
+            )
+            .await?;
+            tx.execute("DELETE FROM sessions WHERE id = $1", &[session_id])
+                .await?;
+        }
+        Ok(())
     }
 
     /// **Expire every live, unredeemed token of `purpose` for this subject**,
@@ -3997,6 +4309,49 @@ pub async fn live_operator_keys(
         out.push(key);
     }
     Ok(out)
+}
+
+/// **Take every key in `keys` out of service at `at_unix`**, re-sealing each
+/// row at `row_version + 1` over the state that now stands.
+///
+/// Shared by [`OperatorStore::recover_operator`] (ADR-0055 fix (a)) and
+/// [`OperatorStore::adopt_first_operator_from_install`] (decision 9), because
+/// two acts that retire a key must retire it the same way: `retired_at` is
+/// inside [`operator_key_row_state`], so a row updated without its seal is an
+/// alarm on the next read rather than a retired key.
+///
+/// The guarded `WHERE ... retired_at IS NULL` is what makes it once against a
+/// concurrent writer; `0024` is the migration that grants the three columns
+/// and adds the `UPDATE` policy, which names the operator custody.
+async fn retire_operator_keys(
+    tx: &Transaction<'_>,
+    row_key: &Key32,
+    keys: Vec<OperatorKey>,
+    at_unix: i64,
+) -> Result<(), OperatorError> {
+    for key in keys {
+        let mut key = key;
+        key.retired_at_unix = at_unix;
+        key.row_version += 1;
+        let seal = authority::row_seal(
+            row_key,
+            &RowFacts {
+                table: "operator_keys",
+                row_id: &key.id,
+                chain_seq: key.enrolled_seq,
+                row_version: key.row_version,
+                row_state: &operator_key_row_state(&key),
+            },
+        );
+        tx.execute(
+            "UPDATE operator_keys \
+                SET retired_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
+              WHERE id = $1 AND retired_at IS NULL",
+            &[&key.id, &at_unix, &key.row_version, &seal.to_vec()],
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// **The operator register's own interlock**: an operator row verifies only if
