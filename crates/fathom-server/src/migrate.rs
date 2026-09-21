@@ -130,6 +130,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0021_operator_seat_hold.sql",
         sql: include_str!("../migrations/0021_operator_seat_hold.sql"),
     },
+    // ADR-0055 stream (a). Appended at the END of this list so the other two
+    // streams' additions land beside it; if stream (b) also lands a 22,
+    // renumber one of the two — see 0022's own MERGE NOTE.
+    Migration {
+        version: 22,
+        name: "0022_setup_token_subject.sql",
+        sql: include_str!("../migrations/0022_setup_token_subject.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

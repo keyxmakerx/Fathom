@@ -978,6 +978,87 @@ pub async fn live_signing_key(
     Ok(key)
 }
 
+// ---- ADR-0055 stream (a): any live key of the account, not the newest ------
+//
+// Added in a labelled block so the other two ADR-0055 streams' additions land
+// beside it and the merge is mechanical.
+
+/// **Every** key this account could sign with today: neither superseded nor
+/// retired, newest first.
+///
+/// [`signing_key_of`] answers the same question with `LIMIT 1`, and that was
+/// right while an account had exactly one key — a browser enrolled at an
+/// invitation, and a rotation that superseded the old row. ADR-0055 decision 6
+/// ends that: *"Any browser, no pairing"*, and the lead's resolution 1 of the
+/// build contracts makes it concrete — the client registers a per-browser key
+/// through `POST /credentials/key` after every password sign-in, so one person
+/// on a laptop and a desktop has two live keys and neither supersedes the
+/// other. With `LIMIT 1` the older browser signs in and is refused, which
+/// reads as a stolen key rather than as a second machine.
+///
+/// **`ORDER BY enrolled_seq DESC` is kept**, so that when only one key is live
+/// this returns exactly what `signing_key_of` returns, in the same order, and
+/// the single-key path is unchanged.
+pub async fn live_signing_keys(
+    tx: &Transaction<'_>,
+    account: &str,
+) -> Result<Vec<AccountKey>, AuthorityError> {
+    let rows = tx
+        .query(
+            "SELECT id FROM account_keys \
+              WHERE account_id = $1 AND superseded_by IS NULL AND retired_at IS NULL \
+              ORDER BY enrolled_seq DESC",
+            &[&account],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id: String = row.get(0);
+        if let Some(key) = read_account_key(tx, &id).await? {
+            out.push(key);
+        }
+    }
+    Ok(out)
+}
+
+/// Verify `signature` over `message` against **any** of this account's live
+/// keys, and say which one verified.
+///
+/// Each candidate's own row seal is checked before its public key is believed,
+/// exactly as [`live_signing_key`] checks the single one: a keyring row whose
+/// `public_key` was edited is how an administrator would sign as somebody else,
+/// and that is no less true when there are two rows.
+///
+/// [`AuthorityError::NoSigningKey`] when the account has no live key at all —
+/// which is the expected state for a password-only person and must not be read
+/// as a refusal by a caller that has another factor.
+pub async fn verify_by_any_live_key(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+    message: &[u8],
+    signature: &[u8],
+    at_unix: i64,
+) -> Result<AccountKey, AuthorityError> {
+    let candidates = live_signing_keys(tx, account).await?;
+    if candidates.is_empty() {
+        return Err(AuthorityError::NoSigningKey);
+    }
+    let mut refused: Option<AuthorityError> = None;
+    for key in candidates {
+        // An UNVERIFIABLE row is an integrity alarm and is not swallowed by
+        // trying the next key: §3.4 step 2 is explicit that an alarm must not
+        // render as a permission error, and a keyring with one edited row is
+        // an incident whichever key the caller happened to use.
+        verify_key_row(tx, ring, &key, at_unix).await?;
+        match authority::verify_es256(&key.public_key, message, signature) {
+            Ok(()) => return Ok(key),
+            Err(e) => refused = Some(AuthorityError::from(e)),
+        }
+    }
+    Err(refused.unwrap_or(AuthorityError::NoSigningKey))
+}
+
 /// One keyring row by id, seal verified, in service at `at_unix`.
 ///
 /// A session records **which** key proved it, not merely that some key did, so
@@ -1775,14 +1856,17 @@ pub async fn second_grant(
     )
     .await?;
 
-    let seconder_key = signing_key_of(tx, &seconder)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
     let message = authority::second_bytes(
         &grant_bytes_of(tx, ring, &grant).await?,
         &grant.granter_key_fpr,
     );
-    authority::verify_es256(&seconder_key.public_key, &message, signature)?;
+    // ADR-0055 stream (a): any live key of the seconder, not the newest —
+    // `verify_by_any_live_key`'s own doc carries the argument. It also checks
+    // the keyring row's own seal, which `signing_key_of` did not. The key that
+    // VERIFIED is the one whose fingerprint goes on the seconding row below,
+    // so the record names what actually signed.
+    let seconder_key =
+        verify_by_any_live_key(tx, ring, &seconder, &message, signature, now_unix()).await?;
 
     let appended = chains::append_org(
         tx,
@@ -1874,16 +1958,16 @@ pub async fn set_suspension(
     )
     .await?;
 
-    let key = signing_key_of(tx, &actor)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
     let grant_bytes = grant_bytes_of(tx, ring, &grant).await?;
     let message = if suspend {
         authority::suspend_bytes(&organisation, &grant.id, &grant_bytes, at_unix)
     } else {
         authority::unsuspend_bytes(&organisation, &grant.id, &grant_bytes, at_unix)
     };
-    authority::verify_es256(&key.public_key, &message, signature)?;
+    // ADR-0055 stream (a): any live key of the actor, not the newest. The key
+    // that VERIFIED is the one whose fingerprint goes on the suspension row
+    // below, so the record names what actually signed.
+    let key = verify_by_any_live_key(tx, ring, &actor, &message, signature, at_unix).await?;
 
     let takes_effect = weakening_act_takes_effect_at(&grant, &actor, suspend, at_unix);
 
@@ -2161,16 +2245,15 @@ pub async fn revoke_grant(
     )
     .await?;
 
-    let key = signing_key_of(tx, &actor)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
     let message = authority::revoke_bytes(
         &organisation,
         &grant.id,
         &grant_bytes_of(tx, ring, &grant).await?,
         at_unix,
     );
-    authority::verify_es256(&key.public_key, &message, signature)?;
+    // ADR-0055 stream (a): any live key of the actor, not the newest.
+    let key = verify_by_any_live_key(tx, ring, &actor, &message, signature, at_unix).await?;
+    let _ = &key;
 
     // §3.5, as amended: revoking another steward's grant on one signature is a
     // single-steward act that weakens a steward, and waits out the same delay

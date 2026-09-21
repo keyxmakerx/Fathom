@@ -251,6 +251,55 @@ ecdsa = { version = "0.17.0", default-features = false, features = [
     "digest",
 ] }
 
+# ---------------------------------------------------------------------------
+# ADR-0055 stream (a) — THE PERSON'S CREDENTIAL. Decision 10: a password and an
+# app code. `docs/archive/2026-09-21-adr-0055-build-contracts.md`'s
+# "Dependencies" section measured both of these on 2026-09-21; the two lines
+# below are that measurement re-run against this lockfile rather than quoted
+# from it.
+# ---------------------------------------------------------------------------
+
+# The password hash. Argon2id, PHC-encoded into `accounts.password_hash`
+# (`0018` §A). `deps/decisions/argon2.md` is approved (2026-08-15) **with a
+# condition** — "the implementation is pinned against RFC 9106's published test
+# vectors, and that test is part of the verification floor" — so
+# `tests/credentials.rs` carries that vector. The condition travels with the
+# first real use rather than being inherited silently.
+#
+# `default-features = false` drops `std` and `rand`. `alloc` and
+# `password-hash` are the two this crate needs: `alloc` for the PHC string,
+# `password-hash` for the `PasswordHasher`/`PasswordVerifier` traits and the
+# `SaltString` a salt travels in. The salt is drawn from `getrandom` directly —
+# the one generator this crate draws from (`crypto::Key32::random`'s own rule)
+# — never from a userspace generator with its own state.
+argon2 = { version = "0.5", default-features = false, features = [
+    "alloc",
+    "password-hash",
+] }
+
+# The TOTP hash. RFC 6238 §1.2 fixes HMAC-SHA-1 as the default and every
+# authenticator application implements that one; ADR-0055 decision 10 names it.
+# SHA-1 is used here ONLY as the HMAC inside a six-digit, thirty-second
+# one-time code, where what is needed of it is a pseudorandom function and not
+# collision resistance. **Nothing else in this server may use it**, and
+# `tests/credentials.rs` asserts that by reading the manifest's own callers.
+#
+# **`0.11` and NOT the `0.10` the build contracts measured, and the reason is
+# the lockfile, not taste** — exactly the argument `chacha20poly1305` above
+# makes for its own version. `hmac 0.13` is already named in this manifest as
+# the chain MAC, and it wants `digest ^0.11`; `sha1 0.10` wants `digest ^0.10`,
+# so pairing them does not compile at all (`Hmac<Sha1>` needs `Sha1` to
+# implement `digest 0.11`'s traits and it implements `digest 0.10`'s). `0.11`
+# unifies with the `digest`/`crypto-common` majors `hmac` and `sha2` already
+# bring, which is also why it adds exactly one package to `Cargo.lock` rather
+# than a second `digest` tree. The contracts' "0.10" was measured by
+# `cargo add --dry-run`, which resolves a version without compiling against it.
+#
+# `default-features = false` drops `std` and `oid`. RustCrypto, the same family
+# as the already-approved `sha2` beside it; `deps/decisions/sha1.md` is its own
+# record and says plainly that it carries no audit either.
+sha1 = { version = "0.11", default-features = false }
+
 [dev-dependencies]
 # `tests/design_api.rs` builds real graphs to prove a save round-trips a
 # genuine `fathom-plain` payload (ADR-0049), which needs the generated node

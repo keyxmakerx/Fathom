@@ -125,11 +125,23 @@ export async function signIn(address: string, kind?: PrincipalKind): Promise<voi
   const evidenceSig = await signMessage(enrolledKeyPair.privateKey, challenge);
 
   // Body: LP(principal_kind) || LP(session_pubkey) || LP(nonce) || LP(evidence_sig)
+  //       || LP(credential) || LP(app_code)
+  //
+  // ADR-0055 stream (a) widened `POST /session` from four length-prefixed
+  // fields to six (decision 10), and `api.rs`'s `read_fields` refuses an
+  // inexact count — so the two new fields are not optional even on this path,
+  // which is the key-only branch and sends both empty. **This is the whole of
+  // what this stream changes in the client**: the screens that fill those two
+  // fields in are stream 4's (the ADR's cost/order item 4), and this edit
+  // exists so the key-based sign-in that works today still works after the
+  // server half lands.
   const signInBody = concatBytes(
     lp(utf8(kind)),
     lp(sessionPubkey),
     lp(serverNonce),
     lp(evidenceSig),
+    lp(new Uint8Array(0)),
+    lp(new Uint8Array(0)),
   );
   const signInResponse = await fetch('/session', {
     method: 'POST',

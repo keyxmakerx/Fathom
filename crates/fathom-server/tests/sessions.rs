@@ -1093,6 +1093,13 @@ async fn one_failed_sign_in(
     lp(&mut body, &pubkey);
     lp(&mut body, &nonce);
     lp(&mut body, &wrong.sign(&digest));
+
+    // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
+    // fields to six: a credential and an app code, both empty on the key-only
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the two empty fields are not optional.
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     let (status, answer, headers) = post_bytes_full(
         addr,
         "/session",
@@ -1129,96 +1136,21 @@ fn retry_after_of(headers: &[String]) -> Option<i64> {
         .and_then(|v| v.trim().parse().ok())
 }
 
-#[tokio::test]
-async fn the_operator_sign_in_surface_accepts_no_password_shaped_input() {
-    let _site = support::lock_the_site_chain().await;
-    let pool = support::migrated_pool().await;
-    let ring = ring();
-    let store = store(&pool, Arc::clone(&ring)).await;
-
-    // §4.5: an operator session is A1 or it does not exist. There is no
-    // password path, no reset link and no "forgot" flow.
-    //
-    // **Updated for `0015`, which makes the operator plane real.** This used
-    // to assert `OperatorHasNoAuthenticator`, because no operator key could be
-    // enrolled at all and so every attempt could safely say why. Now that one
-    // can, saying why would tell an unauthenticated caller which operator ids
-    // have enrolled and which are still holding a token — so the refusal is
-    // the same uniform `SignInRefused` an unknown account address gets, and
-    // the sealed `operator_signin_failed` entry carries the reason where an
-    // operator can read it. `tests/operators.rs` drives the path that now
-    // succeeds.
-    let key = SoftwareKey::random().unwrap();
-    let challenge = store
-        .issue_challenge(
-            PrincipalKind::Operator,
-            "operator@example.org",
-            &key.public_key(),
-            &a_source_of_its_own(),
-        )
-        .await
-        .expect("the operator surface answers a challenge like any other");
-    let digest = sessions::session_challenge(
-        &key.public_key(),
-        &challenge.nonce,
-        &challenge.deployment_id,
-    );
-    let refused = store
-        .sign_in(
-            PrincipalKind::Operator,
-            &key.public_key(),
-            &challenge.nonce,
-            &key.sign(&digest),
-            &a_source_of_its_own(),
-        )
-        .await;
-    assert!(
-        matches!(refused, Err(SessionError::SignInRefused)),
-        "got {refused:?}"
-    );
-
-    // **The structural half of the claim**: there is no field a password
-    // could arrive in. The sign-in message is four length-prefixed fields —
-    // kind, public key, nonce, signature — and a body carrying a fifth is
-    // refused rather than having the extra ignored.
-    let state = ApiState {
-        sessions: Arc::new(store),
-        watch: Arc::new(EpochWatch::new()),
-        ring: Arc::clone(&ring),
-        client_address: ClientAddress::peer(),
-    };
-    let addr = serve(api::router(state)).await;
-
-    let mut body = Vec::new();
-    lp(&mut body, b"operator");
-    lp(&mut body, &key.public_key());
-    lp(&mut body, &challenge.nonce);
-    lp(&mut body, &[0u8; 64]);
-    lp(
-        &mut body,
-        b"a password, which this protocol has no field for",
-    );
-    let refused = post_bytes(addr, "/session", &body, &[]).await;
-    assert_eq!(
-        refused.0, "400",
-        "a sign-in body with a field this protocol does not have must be refused, not silently \
-         truncated: {refused:?}"
-    );
-
-    // And the operator surface's refusals are on the site chain under §7.2's
-    // own name for them.
-    let client = pool.get().await.expect("connection");
-    let seen: i64 = client
-        .query_one(
-            "SELECT count(*) FROM chain_entries \
-              WHERE chain_kind = 'site' AND entry_type = 'operator_signin_failed'",
-            &[],
-        )
-        .await
-        .expect("count")
-        .get(0);
-    assert!(seen >= 1, "an operator sign-in attempt must be recorded");
-}
+// ---------------------------------------------------------------------------
+// ADR-0055 decision 10 — the operator custody needs a second factor
+// ---------------------------------------------------------------------------
+//
+// **`the_operator_sign_in_surface_accepts_no_password_shaped_input` stood here
+// and is deleted.** It asserted §4.5's "an operator session is A1 or it does
+// not exist, there is no password path", and ADR-0055 decision 10 reopens
+// exactly that on the owner's own decision, recorded in that ADR's header. A
+// test that forbids what the product now does is not a weakened test, it is a
+// false one.
+//
+// What replaces it is the guard the ADR puts in place of the ban: an account
+// that holds the operator custody and has not enrolled its app code has a
+// session that may finish its setup and do nothing else. The contracts name
+// this test by name.
 
 /// **An anonymous attacker gets ONE sealed entry per window, whatever they
 /// spray.**
@@ -1740,6 +1672,13 @@ async fn call_over_http(
     lp(&mut body, &pubkey);
     lp(&mut body, &nonce);
     lp(&mut body, &person.key.sign(&digest));
+
+    // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
+    // fields to six: a credential and an app code, both empty on the key-only
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the two empty fields are not optional.
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     let (status, answer) = post_bytes(addr, "/session", &body, forwarded).await;
     assert_eq!(status, "200", "sign-in");
     let (session_id, rest) = read_lp(&answer);

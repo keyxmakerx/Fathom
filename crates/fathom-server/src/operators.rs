@@ -4069,6 +4069,81 @@ impl OperatorStore {
             })
             .collect())
     }
+
+    // ---- ADR-0055 stream (a): the first operator's setup token -------------
+    //
+    // Added at the END of this impl, in a labelled block, so the other two
+    // ADR-0055 streams' additions land beside it and the merge is mechanical.
+
+    /// Issue a `purpose = 'setup'` token for an operator who already exists.
+    ///
+    /// ADR-0055 decision 10's last bullet: the first start writes this token to
+    /// the key volume and it opens the setup screen, instead of enrolling a
+    /// browser key. **Stream (b) is the caller that matters** —
+    /// `bootstrap_first_operator` issues one of these in place of today's
+    /// `Purpose::Operator` token — and it is here, beside its own spender, so
+    /// that both halves of the purpose live together and neither is written
+    /// twice.
+    ///
+    /// Returns the token exactly once. `0015` §E's lifetime applies, the same
+    /// as every other enrolment token.
+    pub async fn issue_setup_token(&self, operator: &str) -> Result<Invitation, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        enter_enrolment_custody(&tx).await?;
+        self.check_operator_live(&tx, operator).await?;
+        let invitation = self
+            .issue_token(&tx, Purpose::Setup, operator, operator, "setup")
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(invitation)
+    }
+
+    /// Spend a `purpose = 'setup'` token (`0019` §B) **inside the caller's
+    /// transaction**, and say which operator it was for.
+    ///
+    /// ADR-0055 decision 10's last bullet: the token the first start writes
+    /// opens the setup screen that sets a password and enrols the app code,
+    /// instead of enrolling a browser key. `credentials.rs` is the one caller;
+    /// it is here rather than there so that the seal check, the expiry check
+    /// and the `enrolment_token_redeemed` entry are the ones this module
+    /// already makes for every other purpose, and not a second copy of them.
+    ///
+    /// **The caller must already hold `app.enrolment_custody`** — `0015` §H
+    /// grants the `UPDATE` on `enrolment_tokens` to that capability and to no
+    /// other — and must commit for the redemption to stand. Every refusal is
+    /// [`OperatorError::EnrolmentRefused`], one message for every cause.
+    pub async fn spend_setup_token(
+        &self,
+        tx: &Transaction<'_>,
+        token: &[u8],
+    ) -> Result<String, OperatorError> {
+        let row = self.spend_token(tx, token, Purpose::Setup).await?;
+        let operator = row
+            .operator_id
+            .clone()
+            .ok_or(OperatorError::Corrupt("enrolment token subject"))?;
+
+        let redeemed = chains::append_site(
+            tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::EnrolmentTokenRedeemed,
+            &entry_metadata(
+                EntryType::EnrolmentTokenRedeemed,
+                &[
+                    ("token", Json::Str(row.id.clone())),
+                    ("purpose", Json::Str(Purpose::Setup.as_str().to_string())),
+                    ("operator", Json::Str(operator.clone())),
+                ],
+            ),
+        )
+        .await?;
+        self.mark_redeemed(tx, &row, redeemed.seq).await?;
+        Ok(operator)
+    }
 }
 
 // ---------------------------------------------------------------------------

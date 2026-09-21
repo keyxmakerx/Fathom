@@ -74,6 +74,7 @@ use sha2::{Digest, Sha256};
 use crate::authority::{self, RowFacts, SignatureRefused};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::credentials;
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
@@ -581,13 +582,20 @@ enum Latch {
     Anonymous,
 }
 
-/// §4.3's assurance. `A1` is the only value anything writes today.
+/// §4.3's assurance, with `0018` §B2's third value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Assurance {
-    /// A password-only session. **Nothing in this build produces one**: there
-    /// is no password path anywhere (§4.5, §5.1). It exists because §4.3's
-    /// rule is uniform and a reset-issued session will be recorded this way.
+    /// **A password and nothing else.** Reached since ADR-0055 decision 10 by
+    /// an account that has a password, no app code and no operator custody —
+    /// a steward who may sign in and change its own password (design §5.1) —
+    /// and by an account that holds the operator custody and has not finished
+    /// its setup, which is refused everywhere but `/credentials/*`.
     A0,
+    /// **A password and a verified app code**, no long-term key. `0018` §B2:
+    /// filing this as `A0` would let a reader mistake a two-factor sign-in for
+    /// the unauthenticated placeholder `A0` names, and filing it as `A1` would
+    /// claim a long-term-key attestation that never happened.
+    A0T,
     /// The session's holder signed a server challenge with an enrolled key.
     A1,
 }
@@ -596,6 +604,7 @@ impl Assurance {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::A0 => "A0",
+            Self::A0T => "A0T",
             Self::A1 => "A1",
         }
     }
@@ -603,10 +612,38 @@ impl Assurance {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "A0" => Some(Self::A0),
+            "A0T" => Some(Self::A0T),
             "A1" => Some(Self::A1),
             _ => None,
         }
     }
+}
+
+/// Everything `POST /session` carries, since ADR-0055 decision 10 widened it
+/// from four fields to six.
+///
+/// **A struct rather than six positional arguments**, and for
+/// `grants::Authority`'s reason: each field is a factor or a bucket key, and
+/// passing them as one value means a new caller cannot be written that
+/// quietly omits one or swaps two `&[u8]`s that happen to have the same type.
+///
+/// `password` and `totp_code` are `&str` and not `&[u8]` deliberately: both are
+/// things a person types, both are compared as text, and a byte slice here
+/// would invite a caller to pass a hash.
+pub struct SignInAttempt<'a> {
+    pub kind: PrincipalKind,
+    pub session_pubkey: &'a [u8],
+    pub nonce: &'a [u8; 32],
+    /// Empty when the browser holds no long-term key — which is the ordinary
+    /// case for a person signing in with a password (decision 6, *"Any
+    /// browser, no pairing"*).
+    pub evidence_sig: &'a [u8],
+    /// Empty on the key-only branch, which is every account that existed
+    /// before this build and every operator sign-in.
+    pub password: &'a str,
+    /// Six digits is an app code; anything else is tried as a backup code.
+    pub totp_code: &'a str,
+    pub source: &'a str,
 }
 
 /// What a caller must present on every request that reaches a design payload
@@ -853,6 +890,31 @@ pub enum SessionError {
     Malformed(&'static str),
     /// A stored row does not decode as what its column says it is.
     Corrupt(&'static str),
+
+    // ---- ADR-0055 stream (a) ------------------------------------------
+    /// The sign-in presented a password this account's stored hash does not
+    /// verify.
+    ///
+    /// **Rendered exactly as [`SessionError::SignInRefused`]** — decision 7 and
+    /// OWASP ASVS 5.0.0 6.3.8 as ADR-0055 read them on 2026-09-21: no account
+    /// enumeration through message, code or timing — but kept as its own
+    /// variant so the sealed `account_signin_failed` entry and the log line an
+    /// operator reads say which of the causes it was.
+    PasswordRefused,
+    /// This session's account holds the operator custody and has not enrolled
+    /// its app code, so the session is a **setup session**: accepted on
+    /// `/credentials/*` and refused everywhere else.
+    ///
+    /// ADR-0055 decision 10 (*"such an account is taken to the enrolment screen
+    /// before anything else until it has one"*) and the lead's resolution 1,
+    /// which makes it a typed refusal rather than a redirect so a client that
+    /// ignores it gets nothing.
+    ///
+    /// **Not `AccountDisabled` and not `NotSigned`**: the holder is who they
+    /// say they are and the session is real. What is missing is the second
+    /// factor, and the client has to be told that precisely, because the only
+    /// way out is the screen that enrols it.
+    TotpRequired,
 }
 
 impl core::fmt::Display for SessionError {
@@ -918,6 +980,16 @@ impl core::fmt::Display for SessionError {
             ),
             Self::Malformed(what) => write!(f, "the {what} is not the shape it must be"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
+            // ADR-0055 stream (a).
+            Self::PasswordRefused => f.write_str(
+                "sign-in refused. One message for every cause, so that an attacker cannot tell \
+                 an unknown address from a refused credential; the sealed entry carries the \
+                 reason",
+            ),
+            Self::TotpRequired => f.write_str(
+                "this account holds the operator custody and has no app code enrolled, so its \
+                 session may do nothing but finish the setup (ADR-0055 decision 10)",
+            ),
         }
     }
 }
@@ -1157,8 +1229,72 @@ impl SessionStore {
         evidence_sig: &[u8],
         source: &str,
     ) -> Result<SignedIn, SessionError> {
+        self.sign_in_with_credentials(&SignInAttempt {
+            kind,
+            session_pubkey,
+            nonce,
+            evidence_sig,
+            password: "",
+            totp_code: "",
+            source,
+        })
+        .await
+    }
+
+    /// [`SessionStore::sign_in`] **widened by ADR-0055 decision 10**: the same
+    /// act, with a password and an app code beside the evidence signature.
+    ///
+    /// # The two branches, and which one is which
+    ///
+    /// The branch is chosen by **the stored `accounts.password_hash`**, never
+    /// by which fields the caller filled in — a caller who could pick the
+    /// branch could pick the weaker one.
+    ///
+    /// 1. **`password_hash IS NULL`** — today's path, byte for byte. An
+    ///    enrolled long-term key signs the challenge, `A1` or nothing, and
+    ///    every existing account and every existing test goes through here
+    ///    unchanged. The operator plane is always this branch: ADR-0055
+    ///    resolution 8 keeps `kind = 'operator'` a key sign-in, and the
+    ///    operator custody is exercised through `/admin`.
+    /// 2. **`password_hash IS NOT NULL`** — the password is **required**, and
+    ///    the evidence signature is optional. Then:
+    ///    * a valid evidence signature by any live key → `A1`;
+    ///    * otherwise a verified app code → `A0T`;
+    ///    * otherwise `A0`, which is a full session for a steward with no app
+    ///      code and a **setup session** for an account holding the operator
+    ///      custody — refused by [`SessionStore::verify_request`] on every path
+    ///      but `/credentials/*` until the code is enrolled.
+    ///
+    /// **`live_signing_key` is not called when no evidence signature was
+    /// presented.** `AuthorityError::NoSigningKey` is the expected state for a
+    /// password-only person and must not be treated as a refusal.
+    ///
+    /// # The rate limits are the ones that already exist
+    ///
+    /// The lead's resolution 12: the password budget is `sign_in_attempts`'
+    /// existing per-address counter — ten failures per fifteen minutes, a rate
+    /// limit and **not** a lockout, [`SignInLimits::defaults`] carries the
+    /// argument — plus the per-source bucket counted before anything is looked
+    /// up. A refused password goes through [`SessionStore::refuse`] exactly as
+    /// a refused signature does, so it costs the same and answers the same.
+    pub async fn sign_in_with_credentials(
+        &self,
+        attempt: &SignInAttempt<'_>,
+    ) -> Result<SignedIn, SessionError> {
+        let SignInAttempt {
+            kind,
+            session_pubkey,
+            evidence_sig,
+            source,
+            ..
+        } = *attempt;
         check_public_key(session_pubkey)?;
-        if evidence_sig.len() != authority::SIGNATURE_LEN {
+        // **The length check moved behind "was one presented at all"**, and
+        // that is the whole of what branch 2 needs from it: an empty field is
+        // "no signature", which branch 2 allows and branch 1 refuses a few
+        // lines later as `SignInRefused`. A NON-empty field that is the wrong
+        // length is still malformed on either branch.
+        if !evidence_sig.is_empty() && evidence_sig.len() != authority::SIGNATURE_LEN {
             return Err(SessionError::Malformed("evidence signature"));
         }
 
@@ -1190,9 +1326,7 @@ impl SessionStore {
             return Err(e);
         }
 
-        let outcome = self
-            .attempt_sign_in(&tx, kind, session_pubkey, nonce, evidence_sig)
-            .await;
+        let outcome = self.attempt_sign_in(&tx, attempt).await;
 
         let result = match outcome {
             Ok(signed_in) => {
@@ -1286,11 +1420,17 @@ impl SessionStore {
     async fn attempt_sign_in(
         &self,
         tx: &Transaction<'_>,
-        kind: PrincipalKind,
-        session_pubkey: &[u8],
-        nonce: &[u8; 32],
-        evidence_sig: &[u8],
+        attempt: &SignInAttempt<'_>,
     ) -> Result<(String, SignedIn), (Option<AccountBucket>, &'static str, SessionError)> {
+        let SignInAttempt {
+            kind,
+            session_pubkey,
+            nonce,
+            evidence_sig,
+            password,
+            totp_code,
+            ..
+        } = *attempt;
         // (2) Consume the nonce. `DELETE ... RETURNING` is the whole of
         // "single use": no row back means it was never issued, has already
         // been used, or has expired, and those are one fact from here.
@@ -1360,7 +1500,36 @@ impl SessionStore {
         // register row itself verifies. Every refusal below is the refusal the
         // other plane gives, so the two cannot be told apart from outside.
         let now = now_unix();
-        let key: SignInKey = match kind {
+        // **ADR-0055 stream (a): the credential branch, chosen by the STORED
+        // hash and never by which fields the caller filled in.** `None` on
+        // the operator plane always (resolution 8 keeps `kind = 'operator'` a
+        // key sign-in) and on any account with no password set, which is
+        // every account that existed before this build.
+        let credentials =
+            match kind {
+                PrincipalKind::Steward => credentials::read_credentials(tx, &account)
+                    .await
+                    .map_err(|_| {
+                        (
+                            Some(AccountBucket::Account(account.clone())),
+                            "database",
+                            SessionError::Corrupt("account credentials"),
+                        )
+                    })?,
+                PrincipalKind::Operator => None,
+            };
+        let by_password = credentials
+            .as_ref()
+            .and_then(|c| c.password_hash.clone())
+            .is_some();
+
+        // Derived here rather than at step (4) because the account plane now
+        // verifies the evidence signature WHILE resolving the key: `0055`
+        // resolution 1 accepts any live key of the account, so "which key" and
+        // "does it verify" are one question and cannot be two steps.
+        let challenge = session_challenge(session_pubkey, nonce, &self.deployment);
+
+        let key: Option<SignInKey> = match kind {
             PrincipalKind::Steward => {
                 let disabled = tx
                     .query_opt(
@@ -1400,30 +1569,83 @@ impl SessionStore {
                 set_account_id(tx, &account)
                     .await
                     .map_err(|e| (Some(AccountBucket::Account(account.clone())), "database", e))?;
-                match grants::live_signing_key(tx, &self.ring, &account, now).await {
-                    Ok(key) => SignInKey {
-                        id: key.id,
-                        public_key: key.public_key,
-                        fpr: key.fpr,
-                    },
-                    Err(AuthorityError::NoSigningKey) => {
+
+                // **The keyring is NOT read on the credential branch when no
+                // signature was presented.** `NoSigningKey` is the expected
+                // state for a password-only person, and treating it as a
+                // refusal would lock out exactly the people ADR-0055 decision
+                // 6 is for.
+                if evidence_sig.is_empty() {
+                    if by_password {
+                        None
+                    } else {
+                        // Branch 1 with nothing presented at all. The same
+                        // uniform refusal a wrong signature gets: telling the
+                        // two apart tells a caller which field they got right.
                         return Err((
                             Some(AccountBucket::Account(account)),
-                            "no_signing_key",
+                            "no_evidence",
                             SessionError::SignInRefused,
-                        ))
-                    }
-                    Err(e @ AuthorityError::Unverifiable(_)) => {
-                        // An integrity alarm, not a sign-in failure: say so
-                        // rather than folding it into the uniform refusal.
-                        return Err((
-                            Some(AccountBucket::Account(account)),
-                            "keyring_unverifiable",
-                            e.into(),
                         ));
                     }
-                    Err(e) => {
-                        return Err((Some(AccountBucket::Account(account)), "keyring", e.into()))
+                } else {
+                    // **Any live key of the account, not the newest** — the
+                    // lead's resolution 1, and `grants::verify_by_any_live_key`
+                    // carries the argument: the client registers a per-browser
+                    // key after every password sign-in, so one person on two
+                    // machines has two live keys and neither supersedes the
+                    // other.
+                    match grants::verify_by_any_live_key(
+                        tx,
+                        &self.ring,
+                        &account,
+                        &challenge,
+                        evidence_sig,
+                        now,
+                    )
+                    .await
+                    {
+                        Ok(key) => Some(SignInKey {
+                            id: key.id,
+                            fpr: key.fpr,
+                        }),
+                        Err(AuthorityError::NoSigningKey) if by_password => None,
+                        Err(AuthorityError::Signature(_)) if by_password => {
+                            // The password still has to be right, and it is
+                            // checked below. A signature that did not verify
+                            // costs the session its `A1` and nothing else.
+                            None
+                        }
+                        Err(AuthorityError::NoSigningKey) => {
+                            return Err((
+                                Some(AccountBucket::Account(account)),
+                                "no_signing_key",
+                                SessionError::SignInRefused,
+                            ))
+                        }
+                        Err(AuthorityError::Signature(_)) => {
+                            return Err((
+                                Some(AccountBucket::Account(account)),
+                                "evidence_signature",
+                                SessionError::SignInRefused,
+                            ))
+                        }
+                        Err(e @ AuthorityError::Unverifiable(_)) => {
+                            // An integrity alarm, not a sign-in failure: say so
+                            // rather than folding it into the uniform refusal.
+                            return Err((
+                                Some(AccountBucket::Account(account)),
+                                "keyring_unverifiable",
+                                e.into(),
+                            ));
+                        }
+                        Err(e) => {
+                            return Err((
+                                Some(AccountBucket::Account(account)),
+                                "keyring",
+                                e.into(),
+                            ))
+                        }
                     }
                 }
             }
@@ -1458,11 +1680,28 @@ impl SessionStore {
                     ));
                 }
                 match operators::live_operator_key(tx, &self.ring, &account, now).await {
-                    Ok(key) => SignInKey {
-                        id: key.id,
-                        public_key: key.public_key,
-                        fpr: key.fpr,
-                    },
+                    Ok(key) => {
+                        // **The operator plane verifies here**, where the
+                        // account plane now does too: resolution 8 keeps
+                        // `kind = 'operator'` a key sign-in, so there is one
+                        // key and one signature and no password to fall back
+                        // to. `§4.5`: an operator session is `A1` or it does
+                        // not exist.
+                        if let Err(refused) =
+                            authority::verify_es256(&key.public_key, &challenge, evidence_sig)
+                        {
+                            let _ = refused;
+                            return Err((
+                                Some(AccountBucket::Account(account)),
+                                "evidence_signature",
+                                SessionError::SignInRefused,
+                            ));
+                        }
+                        Some(SignInKey {
+                            id: key.id,
+                            fpr: key.fpr,
+                        })
+                    }
                     Err(operators::OperatorError::Unverifiable(what)) => {
                         return Err((
                             Some(AccountBucket::Account(account)),
@@ -1484,22 +1723,85 @@ impl SessionStore {
             }
         };
 
-        // (4) The evidence signature.
-        let challenge = session_challenge(session_pubkey, nonce, &self.deployment);
-        if let Err(refused) = authority::verify_es256(&key.public_key, &challenge, evidence_sig) {
-            let _ = refused;
-            return Err((
-                Some(AccountBucket::Account(account)),
-                "evidence_signature",
-                SessionError::SignInRefused,
-            ));
+        // (4) The factors. **The password first when there is one**, so that
+        // no later check can be reached without it — decision 10's "the
+        // password is required" is a gate and not one of several ways in.
+        //
+        // The evidence signature has already been verified, above, by whichever
+        // of the account's live keys it was made with: `key` is `Some` exactly
+        // when one of them verified it.
+        let mut assurance = Assurance::A1;
+
+        if by_password {
+            let row = credentials
+                .as_ref()
+                .expect("by_password is read off this row");
+            let stored = row
+                .password_hash
+                .as_deref()
+                .expect("by_password is exactly this field being set");
+            if password.is_empty() || !credentials::verify_password(stored, password) {
+                return Err((
+                    Some(AccountBucket::Account(account)),
+                    "password_refused",
+                    SessionError::PasswordRefused,
+                ));
+            }
+
+            // The app code, when one is enrolled. Six digits is a TOTP code;
+            // anything else is tried as a backup code (the lead's resolution
+            // 3), which is what makes a lost phone recoverable without a
+            // second field on the form nobody would fill in.
+            if row.totp_confirmed() {
+                let checked = self
+                    .check_second_factor(tx, &account, row, totp_code)
+                    .await
+                    .map_err(|e| (Some(AccountBucket::Account(account.clone())), "totp", e))?;
+                if !checked {
+                    return Err((
+                        Some(AccountBucket::Account(account)),
+                        "totp_refused",
+                        SessionError::PasswordRefused,
+                    ));
+                }
+                assurance = Assurance::A0T;
+            } else {
+                // No app code yet. A steward with no operator custody gets a
+                // full `A0` session — design §5.1, and it is how they reach
+                // the screen that sets one up. An account that HOLDS the
+                // operator custody gets the same `A0` value, and
+                // `verify_inside` refuses it everywhere but `/credentials/*`:
+                // decision 10's "taken to the enrolment screen before anything
+                // else", expressed as a refusal rather than a redirect so a
+                // client that ignores it gets nothing.
+                assurance = Assurance::A0;
+            }
+
+            // A verified evidence signature still outranks both: decision 6
+            // keeps the browser-held key as the strongest factor, and
+            // resolution 1 says a valid one means `A1`.
+            if key.is_some() {
+                assurance = Assurance::A1;
+            }
         }
+
+        // The key is recorded on the row only when it is what established the
+        // session. `0013`'s
+        // `CHECK ((assurance = 'A1') = (evidence_sig IS NOT NULL))` is
+        // untouched and still holds — `A0` and `A0T` carry neither.
+        let key = match assurance {
+            Assurance::A1 => key,
+            Assurance::A0 | Assurance::A0T => None,
+        };
+        let evidence_sig: &[u8] = if key.is_some() { evidence_sig } else { b"" };
 
         // (5) The entry first, then the row whose MAC covers its seq.
         let id = ids::new_ulid().to_string();
         let token = random_32()
             .map_err(|e| (Some(AccountBucket::Account(account.clone())), "random", e))?;
-        let digest = evidence_digest(&challenge, evidence_sig);
+        let digest = key
+            .as_ref()
+            .map(|_| evidence_digest(&challenge, evidence_sig));
         // §7.2 names both, and which one this is is the one fact a reader of
         // the site chain can group by without holding the metadata key.
         let entry_type = match kind {
@@ -1517,9 +1819,21 @@ impl SessionStore {
                     ("account", Json::Str(account.clone())),
                     ("session", Json::Str(id.clone())),
                     ("principal_kind", Json::Str(kind.as_str().to_string())),
-                    ("assurance", Json::Str(Assurance::A1.as_str().to_string())),
-                    ("evidence_key", Json::Str(key.id.clone())),
-                    ("key_fpr", Json::Str(hex(&key.fpr))),
+                    ("assurance", Json::Str(assurance.as_str().to_string())),
+                    (
+                        "evidence_key",
+                        match &key {
+                            Some(key) => Json::Str(key.id.clone()),
+                            None => Json::Null,
+                        },
+                    ),
+                    (
+                        "key_fpr",
+                        match &key {
+                            Some(key) => Json::Str(hex(&key.fpr)),
+                            None => Json::Null,
+                        },
+                    ),
                 ],
             ),
         )
@@ -1544,10 +1858,10 @@ impl SessionStore {
             token_hash: token_hash(&token),
             session_pubkey: session_pubkey.to_vec(),
             bound_nonce: *nonce,
-            evidence_key_id: Some(key.id.clone()),
-            evidence_sig: Some(evidence_sig.to_vec()),
-            assertion_digest: Some(digest),
-            assurance: Assurance::A1,
+            evidence_key_id: key.as_ref().map(|k| k.id.clone()),
+            evidence_sig: key.as_ref().map(|_| evidence_sig.to_vec()),
+            assertion_digest: digest,
+            assurance,
             chain_seq: appended.seq,
             row_version: 1,
             issued_at_unix: now,
@@ -1633,6 +1947,56 @@ impl SessionStore {
                 account_id: account,
             },
         ))
+    }
+
+    /// The second factor at sign-in: an app code, or a backup code standing in
+    /// for one.
+    ///
+    /// **Six digits is a TOTP code; anything else is tried as a backup code**
+    /// (the lead's resolution 3). A single field on the form, so a person whose
+    /// phone is in the other room types what they have and it works.
+    ///
+    /// **The replay refusal is the `<=` in `credentials::verify_totp`, and it
+    /// is committed in this transaction**, not a later one: `0018` §B is
+    /// explicit that `totp_last_step` moves inside the sign-in transaction so
+    /// that a request which crashed after verifying but before advancing
+    /// cannot leave a code spendable twice.
+    async fn check_second_factor(
+        &self,
+        tx: &Transaction<'_>,
+        account: &str,
+        row: &credentials::CredentialRow,
+        code: &str,
+    ) -> Result<bool, SessionError> {
+        if code.is_empty() {
+            return Ok(false);
+        }
+        let six_digits = code.chars().count() == 6 && code.chars().all(|c| c.is_ascii_digit());
+        if !six_digits {
+            return credentials::spend_backup_code(tx, &self.ring, &self.deployment, account, code)
+                .await
+                .map_err(|_| SessionError::Corrupt("backup code"));
+        }
+
+        let key = credentials::totp_key_for(tx, &self.ring)
+            .await
+            .map_err(|_| SessionError::Corrupt("credential key"))?;
+        let secret = row
+            .totp_secret(&key, &self.deployment, account)
+            .map_err(|_| SessionError::Corrupt("totp secret"))?;
+        let Some(secret) = secret else {
+            return Ok(false);
+        };
+        let Some(step) = credentials::verify_totp(&secret, code, now_unix(), row.totp_last_step)
+        else {
+            return Ok(false);
+        };
+        tx.execute(
+            "UPDATE accounts SET totp_last_step = $2 WHERE id = $1",
+            &[&account, &step],
+        )
+        .await?;
+        Ok(true)
     }
 
     /// Count a failure against its account bucket, write the sealed entry if
@@ -2154,6 +2518,32 @@ impl SessionStore {
                         Err(_) => return Err(SessionError::EvidenceKeyNotInService),
                     }
                 }
+            }
+        }
+
+        // (4a) **ADR-0055 stream (a): the setup session.** An account that
+        // holds the operator custody and has not enrolled its app code gets a
+        // session accepted on `/credentials/*` and nowhere else — decision
+        // 10's *"such an account is taken to the enrolment screen before
+        // anything else until it has one"*, and the lead's resolution 1.
+        //
+        // **Re-read here rather than cached in the row**, which is the same
+        // discipline the disabled flag above follows and for the same reason:
+        // the moment the code is enrolled the session becomes ordinary, and a
+        // boolean baked into the session row would be one `UPDATE` from being
+        // wrong in either direction.
+        if row.principal_kind == PrincipalKind::Steward && row.assurance == Assurance::A0 {
+            let credentials = credentials::read_credentials(tx, &row.principal_id)
+                .await
+                .map_err(|_| SessionError::Corrupt("account credentials"))?;
+            let unfinished = credentials.map(|c| !c.totp_confirmed()).unwrap_or(false);
+            if unfinished
+                && !is_a_credential_path(&request.path)
+                && credentials::holds_operator_custody(tx, &row.principal_id)
+                    .await
+                    .map_err(|_| SessionError::Corrupt("operator binding"))?
+            {
+                return Err(SessionError::TotpRequired);
             }
         }
 
@@ -2854,9 +3244,16 @@ async fn operator_by_id(
 /// carries that argument. What sign-in needs from either is the same three
 /// fields, and this is that, so the branch below produces one value and the
 /// forty lines after it are written once.
+///
+/// **Two fields since ADR-0055 stream (a), not three.** The public key is gone
+/// because nothing downstream verifies with it any more: both planes now
+/// verify the evidence signature WHERE they resolve the key — the account
+/// plane because `grants::verify_by_any_live_key` has to try each of several
+/// live keys, and the operator plane beside it so the two read alike. What is
+/// left is what the session ROW and the sealed entry record: which key, and
+/// its fingerprint.
 struct SignInKey {
     id: String,
-    public_key: Vec<u8>,
     fpr: [u8; 32],
 }
 
@@ -2904,6 +3301,22 @@ async fn set_account_id(tx: &Transaction<'_>, account: &str) -> Result<(), Sessi
     tx.execute("SELECT set_config('app.account_id', $1, true)", &[&account])
         .await?;
     Ok(())
+}
+
+/// Is this the path of a route a setup session may reach?
+///
+/// **The path is the SIGNED one** — it is inside the per-request message
+/// `request_bytes` covers — so a caller cannot claim `/credentials/...` for a
+/// request that went somewhere else. The comparison is against the path only,
+/// with the query stripped, because a query string is not part of which route
+/// answered.
+///
+/// `/credentials` itself is included so that the set is "the credentials
+/// surface" and not "anything beginning with those letters":
+/// `/credentialsomething` is not on it.
+fn is_a_credential_path(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    path == "/credentials" || path.starts_with("/credentials/")
 }
 
 fn check_public_key(public_key: &[u8]) -> Result<(), SessionError> {
@@ -3146,11 +3559,30 @@ mod tests {
     }
 
     #[test]
-    fn no_message_in_this_module_has_a_field_a_password_could_arrive_in() {
-        // §4.5 and OPEN-QUESTIONS C2. The check is on the source of this file
-        // rather than on a type, because what must not exist is a FIELD, and
-        // a field that does not exist has no type to assert about.
+    fn exactly_two_places_in_this_module_name_the_credential_a_person_types() {
+        // **This test used to forbid the WORD, in this whole file.** §4.5 and
+        // OPEN-QUESTIONS C2 said the operator surface has no password path and
+        // this build's account surface had none either; ADR-0055 decision 10
+        // reopens exactly that, on the owner's own decision recorded in that
+        // ADR's header. So the gate becomes an allowlist rather than a ban:
+        // the field may be named on the sign-in path and nowhere else in this
+        // module, and a line that names it anywhere else still fails.
         //
+        // `tests/operators.rs` holds the same gate at the HTTP surface, per
+        // handler, across `api.rs`, `admin.rs` and `operators.rs`. Here the
+        // unit is coarser — this module's sign-in is one act spread over
+        // `sign_in_with_credentials`, `attempt_sign_in` and
+        // `check_second_factor` — so the allowlist is by function name.
+        const ALLOWED: &[&str] = &[
+            // The compatibility wrapper, which fills the two new fields with
+            // nothing so that every existing caller is byte-identical.
+            "pub async fn sign_in(",
+            "pub async fn sign_in_with_credentials",
+            "async fn attempt_sign_in",
+            "async fn check_second_factor",
+            "pub struct SignInAttempt",
+        ];
+
         // The test module is cut off first: this test's own name contains the
         // word, and a check that fails on the thing checking is a check that
         // gets deleted.
@@ -3159,22 +3591,51 @@ mod tests {
             .split_once("#[cfg(test)]")
             .map(|(before, _)| before)
             .unwrap_or(whole);
-        for forbidden in ["password", "passphrase", "passcode", "\"pin\""] {
-            for line in source.lines() {
-                let lower = line.to_ascii_lowercase();
+
+        let mut inside: Option<&str> = None;
+        let mut allowed_lines = 0usize;
+        for line in source.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("async fn ")
+                || trimmed.starts_with("pub fn ")
+                || trimmed.starts_with("pub async fn ")
+                || trimmed.starts_with("pub struct ")
+            {
+                inside = ALLOWED.iter().find(|a| trimmed.starts_with(*a)).copied();
+            }
+            // **A typed refusal is not a field.** `SessionError::PasswordRefused`
+            // carries no value at all — it is the name of an answer, and the
+            // whole point of naming it is that the answer is uniform. Removing
+            // the identifier before the scan keeps the gate about what it says
+            // it is about: a FIELD a credential could arrive in.
+            let scanned = line.replace("PasswordRefused", "");
+            let lower = scanned.to_ascii_lowercase();
+            for forbidden in ["password", "passphrase", "passcode", "\"pin\""] {
                 if !lower.contains(forbidden) {
                     continue;
                 }
-                // Prose about there being no password path is the point, not a
-                // violation of it.
-                assert!(
-                    lower.trim_start().starts_with("//")
-                        || lower.trim_start().starts_with("///")
-                        || lower.contains("no password")
-                        || lower.contains("forbidden"),
-                    "a non-comment line mentions {forbidden}: {line}"
-                );
+                // Prose about where the password path is and is not is the
+                // point, not a violation of it.
+                if lower.trim_start().starts_with("//")
+                    || lower.trim_start().starts_with("///")
+                    || lower.contains("no password")
+                    || lower.contains("forbidden")
+                {
+                    continue;
+                }
+                match inside {
+                    Some(_) => allowed_lines += 1,
+                    None => panic!(
+                        "a non-comment line outside the sign-in path mentions {forbidden}: {line}"
+                    ),
+                }
             }
         }
+        assert!(
+            allowed_lines > 0,
+            "the allowlist matched nothing, so this gate is checking a shape that no longer \
+             exists and would pass however the code changed"
+        );
     }
 }

@@ -29,10 +29,24 @@
 | `typenum` | transitive |
 | `universal-hash` | transitive |
 | `zeroize` | transitive |
+| `version_check` | transitive — ADR-0055 stream (a), see below |
 
 <!-- gate-zero:end -->
 
-**Twenty-two crates.**
+**Twenty-three crates.**
+
+> **`version_check` joined on 2026-09-21, and is the ONE addition ADR-0055 stream (a) makes to
+> this list.** It arrives when `argon2 0.5.3` stops being inert and is actually built: it is a
+> build-time dependency of `generic-array 0.14`, in `argon2`'s own tree through
+> `blake2 → digest → crypto-common → generic-array`, and it exists only so that
+> `generic-array`'s `build.rs` can ask which Rust version is compiling it. **Nobody chose it**,
+> which is the closure provision's whole case: it is not named in any manifest in this
+> workspace, it does not ship (a `build.rs` dependency runs on the build host and is not linked
+> into the artifact), and there is nothing about it for an owner to decide that is not already
+> decided by approving `argon2`. `docs/archive/2026-09-21-adr-0055-build-contracts.md`'s
+> "Dependencies" table predicted exactly this and named it as the one crate the closure did not
+> already cover; the prediction was confirmed by running `scripts/gate-zero.sh` against the real
+> lockfile, which failed on `version_check` and on `sha1` and on nothing else.
 
 > **The markers above are new (2026-09-03, WO-11 §5 step 1) and the list is not.** The names,
 > the measurement and the approval date are unchanged; what changed is that

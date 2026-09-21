@@ -2368,63 +2368,178 @@ async fn raw_request(
     (status, body)
 }
 
-/// **No route accepts anything password-shaped, and the check covers the WIRE
-/// TYPES and not only one module.**
+/// **Exactly one route in this server accepts anything password-shaped, and
+/// this test names it.**
 ///
-/// `sessions.rs` has had this check since `0013`, on its own source. The wire
-/// fields live in `api.rs` and now in `admin.rs`, so the check moves to where
-/// the fields are: every file that parses a request body or names a header is
-/// read, and a non-comment line mentioning a password-shaped field fails it.
+/// # What this test used to say, and why that sentence is now false
+///
+/// It forbade the WORD, everywhere, in `api.rs`, `admin.rs`, `operators.rs`
+/// and `sessions.rs` — the structural half of §4.5's *"the operator surface
+/// has no password path"*. **ADR-0055 reopens §4.5 by the owner's own
+/// decision, recorded in that ADR's header and nowhere else** (decision 10: a
+/// password and an app code, with the guard that the app code is not mailed
+/// and not re-issuable, and that a mailed reset never restores the operator
+/// custody by itself).
+///
+/// So the gate changes shape rather than being deleted: **an allowlist of the
+/// routes a password may arrive on, and an outright ban everywhere else.** The
+/// contracts (`docs/archive/2026-09-21-adr-0055-build-contracts.md`, stream
+/// (a), "Functions changed / tests rewritten") ask for exactly this — *"name
+/// the one route and the one column rather than forbid the word"*.
+///
+/// The allowlist is **per function, not per file**: `api.rs`'s
+/// `sign_in_handler` and the six handlers of the credential surface may carry
+/// one; every other handler in `api.rs`, and every handler in `admin.rs` and
+/// `operators.rs`, still fails this test outright. `credentials.rs` is the
+/// module the ADR creates for this and is read as a whole.
 #[test]
-fn no_wire_type_in_this_server_has_a_field_a_password_could_arrive_in() {
+fn exactly_one_route_in_this_server_has_a_field_a_password_could_arrive_in() {
+    // Handlers that ADR-0055 decision 10 puts a password on. Nothing else in
+    // any file below may name one.
+    const ALLOWED_HANDLERS: &[&str] = &[
+        // `api.rs` — the HTTP surface. One sign-in handler, and the six
+        // credential routes ADR-0055 decision 10 creates.
+        "async fn sign_in_handler",
+        "async fn set_password_handler",
+        "async fn register_key_handler",
+        "async fn enrol_totp_handler",
+        "async fn confirm_totp_handler",
+        "async fn request_reset_handler",
+        "async fn redeem_reset_handler",
+        "async fn operator_setup_handler",
+        // The router that carries them: it names the paths.
+        "pub fn credential_router",
+        // `sessions.rs` — the sign-in path, which is ONE act spread over a
+        // message type, a compatibility wrapper, the attempt itself and the
+        // second-factor check. `src/sessions.rs`'s own unit test holds the
+        // same allowlist at module scope; this one holds it across the four
+        // files, so a field moved from one to another is caught by whichever
+        // of the two it lands outside.
+        "pub struct SignInAttempt",
+        "pub async fn sign_in(",
+        "pub async fn sign_in_with_credentials",
+        "async fn attempt_sign_in",
+        "async fn check_second_factor",
+    ];
+
     let files = [
         ("api.rs", include_str!("../src/api.rs")),
         ("admin.rs", include_str!("../src/admin.rs")),
         ("operators.rs", include_str!("../src/operators.rs")),
         ("sessions.rs", include_str!("../src/sessions.rs")),
     ];
+    let mut allowed_lines = 0usize;
     for (name, whole) in files {
         // The test modules are cut off first: their own names contain the word.
         let source = whole
             .split_once("#[cfg(test)]")
             .map(|(before, _)| before)
             .unwrap_or(whole);
-        for forbidden in ["password", "passphrase", "passcode", "\"pin\""] {
-            for line in source.lines() {
-                let lower = line.to_ascii_lowercase();
+
+        // Which function each line is inside, tracked by the last `fn` header
+        // seen. Blunt, and blunt is what is wanted: a password field moved out
+        // of an allowlisted handler into a helper beneath it is caught,
+        // because the helper's own `fn` line ends the allowance.
+        let mut inside: Option<&str> = None;
+        for line in source.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("async fn ")
+                || trimmed.starts_with("pub fn ")
+                || trimmed.starts_with("pub async fn ")
+                || trimmed.starts_with("pub(crate) fn ")
+                || trimmed.starts_with("pub(crate) async fn ")
+                || trimmed.starts_with("struct ")
+                || trimmed.starts_with("pub struct ")
+                || trimmed.starts_with("pub enum ")
+                || trimmed.starts_with("enum ")
+            {
+                inside = ALLOWED_HANDLERS
+                    .iter()
+                    .find(|h| trimmed.starts_with(*h))
+                    .copied();
+            }
+            // **A typed refusal is not a field.** Each of these names an
+            // ANSWER and carries no value at all — `PasswordRefused` carries
+            // nothing, and the four policy variants carry nothing either; the
+            // whole point of naming them is that the caller is told which rule
+            // their own proposed password broke. Removing the identifiers
+            // before the scan keeps this gate about what it says it is about:
+            // a FIELD a credential could arrive in.
+            let mut scanned = line.to_string();
+            for typed in [
+                "PasswordRefused",
+                "PasswordTooShort",
+                "PasswordTooLong",
+                "PasswordIsCommon",
+                "PasswordContainsAddress",
+            ] {
+                scanned = scanned.replace(typed, "");
+            }
+            let lower = scanned.to_ascii_lowercase();
+            for forbidden in ["password", "passphrase", "passcode", "\"pin\""] {
                 if !lower.contains(forbidden) {
                     continue;
                 }
-                assert!(
-                    lower.trim_start().starts_with("//")
-                        || lower.trim_start().starts_with("///")
-                        || lower.contains("no password")
-                        || lower.contains("forbidden"),
-                    "{name} has a non-comment line mentioning {forbidden}: {line}"
-                );
+                if lower.trim_start().starts_with("//")
+                    || lower.trim_start().starts_with("///")
+                    || lower.contains("no password")
+                    || lower.contains("forbidden")
+                {
+                    continue;
+                }
+                match inside {
+                    Some(_) => allowed_lines += 1,
+                    None => panic!(
+                        "{name} has a non-comment line mentioning {forbidden} outside the \
+                         handlers ADR-0055 decision 10 allows one on: {line}"
+                    ),
+                }
             }
         }
     }
+    assert!(
+        allowed_lines > 0,
+        "the allowlist matched nothing at all, which means this gate is checking a shape that \
+         no longer exists and would pass however the code changed"
+    );
 }
 
-/// The structural half of the same claim, at the database: **there is no
-/// password column anywhere in this schema**, for an account or an operator.
+/// The structural half of the same claim, at the database: **there is exactly
+/// one column a password may be stored in, and it is `accounts.password_hash`.**
+///
+/// `0018` §A creates it and argues at length for why it is one text column
+/// holding a whole PHC string and why it is deliberately **not** sealed: a
+/// password hash is already a one-way, salted, memory-hard function, and
+/// wrapping it in this server's own AEAD would suggest a property — that it
+/// can be recovered — a password hash must never have.
+///
+/// Every other `%password%`, `%passphrase%`, `%passcode%` or `pin` column in
+/// the live catalogue still fails this test.
 #[tokio::test]
-async fn the_schema_has_no_column_a_password_could_be_stored_in() {
+async fn the_schema_has_exactly_one_column_a_password_can_be_stored_in() {
     let _pool = deployment().await;
-    let found: i64 = superuser()
+    let rows = superuser()
         .await
-        .query_one(
-            "SELECT count(*) FROM information_schema.columns \
+        .query(
+            "SELECT table_name, column_name FROM information_schema.columns \
               WHERE table_schema = 'public' \
                 AND (column_name ILIKE '%password%' OR column_name ILIKE '%passphrase%' \
-                     OR column_name ILIKE '%passcode%' OR column_name = 'pin')",
+                     OR column_name ILIKE '%passcode%' OR column_name = 'pin') \
+              ORDER BY table_name, column_name",
             &[],
         )
         .await
-        .expect("read the catalogue")
-        .get(0);
-    assert_eq!(found, 0, "§4.5 and §5.1: there is no password, for anyone");
+        .expect("read the catalogue");
+    let found: Vec<String> = rows
+        .iter()
+        .map(|r| format!("{}.{}", r.get::<_, String>(0), r.get::<_, String>(1)))
+        .collect();
+    assert_eq!(
+        found,
+        vec!["accounts.password_hash".to_string()],
+        "ADR-0055 decision 10 allows exactly one such column; the catalogue has {found:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
