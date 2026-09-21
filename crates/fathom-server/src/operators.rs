@@ -455,6 +455,11 @@ pub enum Purpose {
     Operator,
     /// §6.2's organisation enrolment claim.
     Organisation,
+    /// ADR-0055 decision 10's first-operator setup: the token the first start
+    /// writes opens the screen that sets a password and enrols the app code,
+    /// instead of enrolling a browser key. Subject column: `operator_id`, as
+    /// `0019` §B's CHECK requires.
+    Setup,
 }
 
 impl Purpose {
@@ -463,6 +468,7 @@ impl Purpose {
             Self::Account => "account",
             Self::Operator => "operator",
             Self::Organisation => "organisation",
+            Self::Setup => "setup",
         }
     }
 
@@ -471,6 +477,7 @@ impl Purpose {
             "account" => Some(Self::Account),
             "operator" => Some(Self::Operator),
             "organisation" => Some(Self::Organisation),
+            "setup" => Some(Self::Setup),
             _ => None,
         }
     }
@@ -997,7 +1004,7 @@ impl OperatorStore {
         // column name is interpolated at all.
         let column = match purpose {
             Purpose::Account => "account_id",
-            Purpose::Operator => "operator_id",
+            Purpose::Operator | Purpose::Setup => "operator_id",
             Purpose::Organisation => "shell_id",
         };
         let rows = tx
@@ -3316,7 +3323,7 @@ impl OperatorStore {
 
         let (account, operator, shell) = match purpose {
             Purpose::Account => (Some(subject), None, None),
-            Purpose::Operator => (None, Some(subject), None),
+            Purpose::Operator | Purpose::Setup => (None, Some(subject), None),
             Purpose::Organisation => (None, None, Some(subject)),
         };
 
@@ -4125,7 +4132,7 @@ impl TokenRow {
     fn subject(&self) -> &str {
         match self.purpose {
             Purpose::Account => self.account_id.as_deref().unwrap_or(""),
-            Purpose::Operator => self.operator_id.as_deref().unwrap_or(""),
+            Purpose::Operator | Purpose::Setup => self.operator_id.as_deref().unwrap_or(""),
             Purpose::Organisation => self.shell_id.as_deref().unwrap_or(""),
         }
     }
