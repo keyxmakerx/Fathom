@@ -292,6 +292,17 @@ pub enum OperatorError {
     /// that holds the operator custody and has not enrolled an app code yet.
     /// It reaches the credential routes and nothing else.
     SetupSessionOnly,
+    /// **An `operators` row verifies under no row-state shape any build of
+    /// this server has ever written**, so it was not written by this server.
+    ///
+    /// Produced by [`OperatorStore::reseal_legacy_operator_rows`] and by
+    /// nothing else: every other reader of that table asks
+    /// [`verify_operator_row`], which knows only the current shape and answers
+    /// [`OperatorError::Unverifiable`]. It carries the operator id because the
+    /// start-time re-seal is the one place where naming the row is what makes
+    /// the refusal actionable, and its only reader is a log line on a host
+    /// where the database is already reachable.
+    UnverifiableOperatorRow(String),
     /// A field of a message was not the shape it must be.
     Malformed(&'static str),
     /// A stored row does not decode as what its column says it is.
@@ -386,6 +397,12 @@ impl core::fmt::Display for OperatorError {
                  gets before it has enrolled an app code. It reaches the credential routes and \
                  nothing else (ADR-0055 decision 1)",
             ),
+            Self::UnverifiableOperatorRow(id) => write!(
+                f,
+                "the operators row {id} verifies under neither this build's row seal nor the \
+                 one every build before ADR-0055's fix round wrote, so it was not written by \
+                 this server. This is not a permission error and must never render as one"
+            ),
             Self::Malformed(what) => write!(f, "the {what} is not the shape it must be"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
         }
@@ -427,6 +444,36 @@ impl From<crypto::CryptoError> for OperatorError {
 impl From<SignatureRefused> for OperatorError {
     fn from(e: SignatureRefused) -> Self {
         Self::Signature(e)
+    }
+}
+
+/// **What a failed credential read or re-seal means here** -- written
+/// 2026-09-21, because it used to mean one thing and one thing only.
+///
+/// Three call sites in this file read or re-sealed a credential row through
+/// `map_err(|_| OperatorError::Corrupt("credential seal"))`, which turns a
+/// lost connection, a statement timeout and a permission refusal into *"a
+/// stored credential seal is not consistent"* -- an integrity alarm, raised by
+/// a database hiccup, on a path (`recover_operator`, the adoption) whose whole
+/// job is to be believable when it says something is wrong. A transport error
+/// is carried through as a transport error, and only a seal that does not
+/// verify is an alarm.
+fn credential_failure(e: crate::credentials::CredentialError) -> OperatorError {
+    use crate::credentials::CredentialError as C;
+    match e {
+        C::Db(e) => OperatorError::Db(e),
+        C::Pool(e) => OperatorError::Pool(e),
+        C::Chain(e) => OperatorError::Chain(e),
+        C::Authority(e) => OperatorError::Authority(e),
+        C::Crypto(e) => OperatorError::Crypto(e),
+        C::Operator(e) => *e,
+        // The alarm, and the only one: the row is there and does not verify.
+        C::Unverifiable(what) => OperatorError::Unverifiable(what),
+        C::Corrupt(what) => OperatorError::Corrupt(what),
+        // Everything else is a refusal about a password, a code or a token,
+        // and none of these call sites presents one. It cannot be rendered as
+        // a database error and it is not an alarm either.
+        _ => OperatorError::Corrupt("credential row"),
     }
 }
 
@@ -763,6 +810,144 @@ pub struct Adopted {
     /// entry, so the cost of the upgrade is stated in both places.
     pub retired_keys: usize,
     pub ended_sessions: usize,
+}
+
+/// **What one start's adoption did, or did not do, and why** -- written
+/// 2026-09-21 after the checker found three ways
+/// [`OperatorStore::adopt_first_operator_from_install`] could answer "nothing
+/// happened" when something had in fact gone wrong.
+///
+/// The old signature was `Option<Adopted>`, and `None` meant five different
+/// things: the ordinary ADR-0055-native start, a deployment that has never
+/// started, an install record that is missing while operators exist, a
+/// bootstrapped operator that is disabled, and -- once the refusals below
+/// existed -- an account that cannot be bound. `main.rs` logged the first of
+/// those, correctly, by saying nothing; it logged the rest the same way, which
+/// is how an upgrade that did not happen looks exactly like an upgrade that
+/// was not needed.
+///
+/// So: [`Adoption::Nothing`] is the silent case and the only one, and every
+/// [`AdoptionRefusal`] is a sentence `main.rs` prints at `error` or `warn` and
+/// then **keeps running** -- none of these is a reason to take a working site
+/// down, and a refusal is not an integrity alarm. What stops the start is an
+/// `Err`, which still means the database or a seal did not answer.
+///
+/// No `Debug`, for [`Adopted`]'s reason: it carries an [`Invitation`].
+pub enum Adoption {
+    /// The operator was bound. [`Adopted::invitation`] says whether a token
+    /// was written or the account already held a stronger way in.
+    Adopted(Adopted),
+    /// Nothing to adopt: every operator has a binding (every deployment
+    /// installed since 2026-09-21, and every start after an adoption), or the
+    /// deployment has no operator and no install record at all because its
+    /// first start has not run yet.
+    Nothing,
+    /// There is something to adopt and it was **not** adopted. Said out loud,
+    /// once per start, until somebody fixes it.
+    Refused(AdoptionRefusal),
+}
+
+impl Adoption {
+    /// The adopted operator, or `None` for every other outcome.
+    ///
+    /// **For assertions and for tests.** `main.rs` matches every variant by
+    /// hand and must go on doing so: a refusal that collapsed back into
+    /// `None` here would be the silent no-op this type exists to remove.
+    pub fn adopted(self) -> Option<Adopted> {
+        match self {
+            Self::Adopted(adopted) => Some(adopted),
+            _ => None,
+        }
+    }
+}
+
+/// **Why an adoption that had something to do did not do it.**
+///
+/// Every variant carries what a person on the host needs to act: the address,
+/// and the ids of the rows involved. None of them carries a secret, because
+/// none of these paths mints one -- a refusal happens before the sealed
+/// `operator_adopted` entry is appended, so a refused start writes nothing at
+/// all.
+#[derive(Debug)]
+pub enum AdoptionRefusal {
+    /// There are operators and no `site_install` row, so there is no address
+    /// to bind anybody to. `0015` §C writes that row on the first start and
+    /// no role can rewrite it; operators without it means a restore that left
+    /// it behind, or a hand-built database.
+    NoInstallRecord { operators: i64 },
+    /// The one operator a pre-ADR-0055 first start created is **disabled**, so
+    /// binding it would hand the deployment's only custody to a seat that
+    /// cannot act. Nothing here re-enables an operator: `0015` §A's register
+    /// is append-only in effect and §4.5 has re-enrolment go through §5.4's
+    /// machinery, not through a start-up path.
+    OperatorDisabled {
+        operator_id: String,
+        address: String,
+    },
+    /// The account at the install address is **disabled**, so the binding
+    /// would be permanent (`0019`'s trigger refuses `UPDATE` and `DELETE` at
+    /// every privilege level) and the sign-in behind it would be refused
+    /// (`sessions.rs`, `account_disabled`). A token minted against it would
+    /// redeem and then dead-end. Enable the account, or restore.
+    AccountDisabled {
+        operator_id: String,
+        account_id: String,
+        address: String,
+    },
+    /// The account at the install address **already holds another operator's
+    /// custody**. `operator_account_bindings.account_id` is UNIQUE (`0019`
+    /// §A), so the insert would raise `23505` at every start; and a binding
+    /// cannot be moved, because nothing may rewrite one.
+    AccountAlreadyBound {
+        operator_id: String,
+        account_id: String,
+        address: String,
+        bound_to: String,
+    },
+    /// **More than one operator matches**, so which one holds the install
+    /// address is not a question this path may answer by taking the oldest.
+    /// The ids are named and an operator chooses -- by disabling the ones that
+    /// are not the seat, from a console another operator can still reach, or
+    /// from a restore.
+    SeveralCandidates {
+        operator_ids: Vec<String>,
+        address: String,
+    },
+}
+
+impl core::fmt::Display for AdoptionRefusal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NoInstallRecord { operators } => write!(
+                f,
+                "this deployment has {operators} operator(s) and no site_install row, so \
+                 there is no notice address to bind one to"
+            ),
+            Self::OperatorDisabled { operator_id, .. } => write!(
+                f,
+                "the operator created before this build ({operator_id}) is disabled, so \
+                 it was not bound"
+            ),
+            Self::AccountDisabled { address, .. } => write!(
+                f,
+                "the account at the install address ({address}) is disabled, so the \
+                 operator was not bound"
+            ),
+            Self::AccountAlreadyBound {
+                address, bound_to, ..
+            } => write!(
+                f,
+                "the account at the install address ({address}) already holds the custody \
+                 of operator {bound_to}, and a binding cannot be moved"
+            ),
+            Self::SeveralCandidates { operator_ids, .. } => write!(
+                f,
+                "{} operators have no binding and no creator, so which one the install \
+                 address belongs to is not this path's to guess",
+                operator_ids.len()
+            ),
+        }
+    }
 }
 
 /// What [`OperatorStore::reissue_bootstrap_token`] produces: the same
@@ -1482,7 +1667,7 @@ impl OperatorStore {
         // next read of the account is an integrity alarm, not a sign-in.
         crate::credentials::reseal_credentials(&tx, &self.ring, &account, None)
             .await
-            .map_err(|_| OperatorError::Corrupt("credential seal"))?;
+            .map_err(credential_failure)?;
 
         tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
             .await?;
@@ -1579,9 +1764,19 @@ impl OperatorStore {
     /// they already hold and registers an operator key from the console
     /// (decision 9), and a token would be a second bearer secret nobody asked
     /// for. The token is returned once and **nothing in this module logs it**.
-    pub async fn adopt_first_operator_from_install(
-        &self,
-    ) -> Result<Option<Adopted>, OperatorError> {
+    ///
+    /// # What it refuses, and why a refusal is not an error (2026-09-21)
+    ///
+    /// Four shapes cannot be adopted and are not failures of this server:
+    /// the account at the install address is disabled; it already holds
+    /// another operator's custody; the bootstrapped operator is disabled;
+    /// more than one operator has no creator and no binding. Each comes back
+    /// as an [`AdoptionRefusal`] that `main.rs` names in a log line and keeps
+    /// running for, because taking a working site down over a binding nobody
+    /// can write yet helps nobody. **Every one of them is decided before the
+    /// sealed `operator_adopted` entry is appended**, so a refused start
+    /// leaves the site chain exactly as it found it.
+    pub async fn adopt_first_operator_from_install(&self) -> Result<Adoption, OperatorError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
@@ -1602,39 +1797,141 @@ impl OperatorStore {
         )
         .await?;
 
-        // No install record means no first start ever ran here, which is a
-        // deployment `bootstrap_first_operator` is about to handle or has just
-        // failed at. Either way there is nothing to adopt and nothing to say.
+        // No install record and no operator means no first start ever ran
+        // here, which is a deployment `bootstrap_first_operator` is about to
+        // handle or has just failed at: nothing to adopt and nothing to say.
+        //
+        // **No install record WITH operators is a different thing** and is
+        // said out loud (2026-09-21). `0015` §C writes that row on the first
+        // start and no role can rewrite it, so operators standing beside a
+        // missing one is a restore that left it behind -- and every start
+        // after it was silent, because both shapes answered `None`.
         let Some(install) = tx
             .query_opt("SELECT notice_address FROM site_install", &[])
             .await?
         else {
-            return Ok(None);
+            let operators: i64 = tx
+                .query_one("SELECT count(*) FROM operators", &[])
+                .await?
+                .get(0);
+            return Ok(if operators == 0 {
+                Adoption::Nothing
+            } else {
+                Adoption::Refused(AdoptionRefusal::NoInstallRecord { operators })
+            });
         };
         let notice_address: String = install.get(0);
 
         // The one operator this is ever about. `NOT EXISTS` against the
         // binding is the idempotence: it is false for every operator on an
         // ADR-0055-native deployment and for this one after the commit below.
-        let candidate = tx
-            .query_opt(
+        //
+        // **No `LIMIT 1`** (2026-09-21). Two unbound operators with no creator
+        // is not a deployment this path understands, and picking the oldest
+        // would hand the install address to whichever row sorted first and
+        // leave the other one permanently unable to sign in. Both ids are
+        // named instead and an operator decides.
+        let candidates: Vec<String> = tx
+            .query(
                 "SELECT o.id FROM operators o \
                   WHERE o.created_by IS NULL AND o.disabled_at IS NULL \
                     AND NOT EXISTS (SELECT 1 FROM operator_account_bindings b \
                                      WHERE b.operator_id = o.id) \
-                  ORDER BY o.created_seq ASC \
-                  LIMIT 1",
+                  ORDER BY o.created_seq ASC",
                 &[],
             )
-            .await?;
-        let Some(candidate) = candidate else {
-            return Ok(None);
+            .await?
+            .iter()
+            .map(|row| row.get(0))
+            .collect();
+        if candidates.len() > 1 {
+            return Ok(Adoption::Refused(AdoptionRefusal::SeveralCandidates {
+                operator_ids: candidates,
+                address: notice_address,
+            }));
+        }
+        let Some(operator) = candidates.into_iter().next() else {
+            // Nothing live to adopt. Before answering "nothing to do", ask
+            // whether the one operator a pre-ADR-0055 first start created is
+            // sitting there DISABLED: the query above skips it, and until
+            // 2026-09-21 that was indistinguishable from an ADR-0055-native
+            // deployment in the log and in this return value.
+            let disabled = tx
+                .query_opt(
+                    "SELECT o.id FROM operators o \
+                      WHERE o.created_by IS NULL AND o.disabled_at IS NOT NULL \
+                        AND NOT EXISTS (SELECT 1 FROM operator_account_bindings b \
+                                         WHERE b.operator_id = o.id) \
+                      ORDER BY o.created_seq ASC \
+                      LIMIT 1",
+                    &[],
+                )
+                .await?;
+            return Ok(match disabled {
+                Some(row) => Adoption::Refused(AdoptionRefusal::OperatorDisabled {
+                    operator_id: row.get(0),
+                    address: notice_address,
+                }),
+                None => Adoption::Nothing,
+            });
         };
-        let operator: String = candidate.get(0);
 
         // The row's own seal and the entry that created it, before an address
         // is attached to it or a token is minted against it.
+        //
+        // A row sealed by a build before ADR-0055's fix round fails here, and
+        // that is the whole of why `main.rs` runs
+        // [`OperatorStore::reseal_legacy_operator_rows`] before this -- on the
+        // deployment this path was written for, the seal predates the shape
+        // this verifies against.
         verify_operator_row(&tx, &self.ring, &operator).await?;
+
+        // ---------------------------------------------------------------
+        // **The two ways the account at that address cannot take this
+        // custody** (2026-09-21). Both are checked HERE, before the sealed
+        // entry is appended and before anything is written, because a refusal
+        // must leave the site chain exactly as it found it.
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT id, disabled_at IS NOT NULL FROM accounts WHERE email = $1",
+                &[&notice_address],
+            )
+            .await?
+        {
+            let account_id: String = row.get(0);
+            let disabled: bool = row.get(1);
+            // A disabled account signs in nowhere (`sessions.rs` answers
+            // `account_disabled`), and the binding that would be written here
+            // can never be undone -- `0019`'s trigger refuses `UPDATE` and
+            // `DELETE` on that table at every privilege level including its
+            // owner. Binding to it and minting a token would produce a token
+            // that redeems and a sign-in that refuses, permanently.
+            if disabled {
+                return Ok(Adoption::Refused(AdoptionRefusal::AccountDisabled {
+                    operator_id: operator,
+                    account_id,
+                    address: notice_address,
+                }));
+            }
+            // `operator_account_bindings.account_id` is UNIQUE (`0019` §A).
+            // Inserting a second binding for it raises `23505`, which came
+            // back as an `Err` and took the exit code with it at EVERY start,
+            // not just this one.
+            if let Some(bound) = tx
+                .query_opt(
+                    "SELECT operator_id FROM operator_account_bindings WHERE account_id = $1",
+                    &[&account_id],
+                )
+                .await?
+            {
+                return Ok(Adoption::Refused(AdoptionRefusal::AccountAlreadyBound {
+                    operator_id: operator,
+                    account_id,
+                    address: notice_address,
+                    bound_to: bound.get(0),
+                }));
+            }
+        }
 
         // `app.session_custody` for the length of the dispossession and no
         // longer: the operator keyring, the session rows and the revocation
@@ -1748,7 +2045,7 @@ impl OperatorStore {
         // route.
         let has_app_code = crate::credentials::read_credentials(&tx, &self.ring, &account)
             .await
-            .map_err(|_| OperatorError::Corrupt("credential seal"))?
+            .map_err(credential_failure)?
             .is_some_and(|row| row.totp_confirmed());
 
         tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
@@ -1774,7 +2071,7 @@ impl OperatorStore {
             .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
-        Ok(Some(Adopted {
+        Ok(Adoption::Adopted(Adopted {
             operator_id: operator,
             account_id: account,
             notice_address,
@@ -1782,6 +2079,49 @@ impl OperatorStore {
             retired_keys,
             ended_sessions,
         }))
+    }
+
+    /// **Every live operator who holds no account custody**, oldest first --
+    /// the colleagues a pre-ADR-0055 build created, named at every start
+    /// (2026-09-21).
+    ///
+    /// [`OperatorStore::adopt_first_operator_from_install`] adopts exactly one
+    /// operator: the one with no `created_by`, which is the one a first start
+    /// minted. An operator a pre-ADR-0055 build created through the console
+    /// has a `created_by` and no binding, and ADR-0055 decision 1 gives it no
+    /// way to acquire one -- it cannot sign in, because sign-in resolves the
+    /// custody through the binding, and nothing but a new operator row and a
+    /// new binding would let that person in.
+    ///
+    /// **It still counts towards the quorum**, because
+    /// [`live_independent_operators`] asks `disabled_at` and
+    /// `first_independent_signin_at` and not the binding. Deliberately not
+    /// changed here: a count that dropped would change what a second signature
+    /// means on a live deployment, and that is a decision, not a fix. What
+    /// this does is say the ids out loud so an operator can disable them from
+    /// the console, which is the supported way to make the count right.
+    ///
+    /// One query, and `main.rs` logs only when it comes back non-empty.
+    pub async fn operators_without_a_binding(&self) -> Result<Vec<String>, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        let ids: Vec<String> = tx
+            .query(
+                "SELECT o.id FROM operators o \
+                  WHERE o.disabled_at IS NULL \
+                    AND NOT EXISTS (SELECT 1 FROM operator_account_bindings b \
+                                     WHERE b.operator_id = o.id) \
+                  ORDER BY o.created_seq ASC",
+                &[],
+            )
+            .await?
+            .iter()
+            .map(|row| row.get(0))
+            .collect();
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(ids)
     }
 
     /// **End every session in `doomed`, each as a sealed revocation** -- the
@@ -4980,6 +5320,249 @@ pub async fn operator_row_seal(
     }
 }
 
+/// **The `row_state` an `operators` row was sealed under before ADR-0055's
+/// fix round S2** -- [`operator_row_seal`]'s map with
+/// `first_independent_signin_at` left out.
+///
+/// Written by every build from `d774af8` (the operator console and migration
+/// `0015`, which gave this table its `row_seal` column) through `0aadb0f`
+/// (ADR-0055 stream (b)). `6d1b5de`, 2026-09-21, brought the column inside the
+/// seal, because decision 3 had just made it decide whether a second signature
+/// is required at all.
+///
+/// **There is exactly one legacy shape, and this is it.** `git log -p -S
+/// first_independent_signin_at -- crates/fathom-server/src/operators.rs` names
+/// three commits: `d774af8`, which created the file; `0aadb0f`, which did not
+/// touch this map; and `6d1b5de`, which added the key. `authority::row_seal`
+/// and `RowFacts` have not changed since `3c931c1`, which predates all three,
+/// so nothing else about the computation has moved either. If a fourth shape
+/// ever exists it gets its own `legacy_operator_row_state_v2` beside this one
+/// and [`OperatorStore::reseal_legacy_operator_rows`] tries both.
+fn legacy_operator_row_state_v1(
+    id: &str,
+    display_name: &str,
+    created_by: Option<&str>,
+    disabled_at_unix: i64,
+    created_seq: i64,
+) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "created_by".to_string(),
+        match created_by {
+            Some(by) => Json::Str(by.to_string()),
+            None => Json::Null,
+        },
+    );
+    map.insert("created_seq".to_string(), Json::Int(created_seq));
+    map.insert("disabled_at".to_string(), Json::Int(disabled_at_unix));
+    map.insert(
+        "display_name".to_string(),
+        Json::Str(display_name.to_string()),
+    );
+    map.insert("id".to_string(), Json::Str(id.to_string()));
+    Json::Obj(map).to_canonical_bytes()
+}
+
+/// The seal an `operators` row carried before ADR-0055's fix round S2, over
+/// [`legacy_operator_row_state_v1`].
+///
+/// **Public for two callers and for no others**:
+/// [`OperatorStore::reseal_legacy_operator_rows`], which runs once at start
+/// and converts such a seal into a current one, and the test that proves it by
+/// sealing a row the way the old build did.
+///
+/// **[`verify_operator_row`] does not call it and must never call it.** The
+/// sign-in path, the seconding path and every console verb verify against the
+/// CURRENT shape only; a verifier that quietly accepted the old shape would
+/// leave `first_independent_signin_at` outside the seal forever, which is the
+/// hole fix (d) closed.
+#[allow(clippy::too_many_arguments)]
+pub async fn legacy_operator_row_seal(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    id: &str,
+    display_name: &str,
+    created_by: Option<&str>,
+    disabled_at_unix: i64,
+    created_seq: i64,
+    row_version: i32,
+) -> Result<[u8; 32], OperatorError> {
+    Ok(authority::row_seal(
+        &grants::site_row_key(tx, ring).await?,
+        &RowFacts {
+            table: "operators",
+            row_id: id,
+            chain_seq: created_seq,
+            row_version,
+            row_state: &legacy_operator_row_state_v1(
+                id,
+                display_name,
+                created_by,
+                disabled_at_unix,
+                created_seq,
+            ),
+        },
+    ))
+}
+
+impl OperatorStore {
+    /// **Bring every `operators` row sealed by an older build up to this
+    /// build's seal** -- written 2026-09-21, and run by `main.rs` on every
+    /// start before the bootstrap and the adoption.
+    ///
+    /// # Why a deployment cannot start without this
+    ///
+    /// ADR-0055 fix (d) (`6d1b5de`) put `first_independent_signin_at` inside
+    /// [`operator_row_seal`]. Every `operators` row written before that was
+    /// sealed over [`legacy_operator_row_state_v1`], so on the first start of
+    /// this build [`verify_operator_row`] answers
+    /// `Unverifiable("operator row seal")` for it -- and that is not a corner:
+    /// it is the sign-in path, it is [`eligible_seconders_for`], which reads
+    /// and verifies EVERY row in the register, and it is
+    /// [`OperatorStore::adopt_first_operator_from_install`], which verifies
+    /// the row before it binds it. A deployment that upgraded from a build
+    /// before the fix round would refuse to start at all, having started
+    /// perfectly well the day before.
+    ///
+    /// # What it will and will not do
+    ///
+    /// A row whose stored seal matches the current shape is left alone, so a
+    /// second run returns 0 and this is idempotent. A row whose stored seal
+    /// matches the legacy shape is re-sealed under the current shape at
+    /// `row_version + 1` -- `row_seal` and `row_version` and no other column,
+    /// which is exactly the `UPDATE` `0015` §A grants `fathom_app` and exactly
+    /// the custody [`mark_first_independent_signin`] re-seals under. A row that
+    /// matches neither is [`OperatorError::UnverifiableOperatorRow`], by id,
+    /// and `main.rs` refuses to start: a row that was not written by any build
+    /// of this server is a tampered row, and re-sealing it would be forging a
+    /// seal over whatever somebody put there.
+    ///
+    /// **It launders nothing.** The re-seal proves only that the row's bytes
+    /// are the bytes an older build sealed; [`verify_operator_row`] still
+    /// demands the sealed creation entry naming this operator afterwards, and
+    /// that check is untouched. And it carries the row's CURRENT
+    /// `first_independent_signin_at` into the new seal, because that is the
+    /// value at rest -- under the old build that column was outside the seal
+    /// and `note_first_signin` wrote it raw, so nothing here or anywhere can
+    /// tell a value that was moved before this start from one that was not.
+    /// From this start on it is sealed.
+    ///
+    /// Under the bootstrap's own advisory lock, for the reason the adoption
+    /// takes it: two interchangeable containers start at once, and both would
+    /// otherwise read the same row and write the same `row_version + 1`.
+    pub async fn reseal_legacy_operator_rows(&self) -> Result<usize, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        tx.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended('fathom/operator/bootstrap', 0))",
+            &[],
+        )
+        .await?;
+
+        let ids: Vec<String> = tx
+            .query("SELECT id FROM operators ORDER BY id", &[])
+            .await?
+            .iter()
+            .map(|row| row.get(0))
+            .collect();
+        let mut resealed = 0usize;
+        for id in ids {
+            if self.reseal_one_legacy_operator_row(&tx, &id).await? {
+                resealed += 1;
+            }
+        }
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(resealed)
+    }
+
+    /// One row of [`OperatorStore::reseal_legacy_operator_rows`]. `true` when
+    /// this call re-sealed it.
+    async fn reseal_one_legacy_operator_row(
+        &self,
+        tx: &Transaction<'_>,
+        id: &str,
+    ) -> Result<bool, OperatorError> {
+        let Some(row) = read_operator(tx, id).await? else {
+            // Nothing deletes an `operators` row -- there is no DELETE
+            // privilege and no policy for one (`0015` §A) -- so this is a read
+            // that raced nothing. It is not an error either way.
+            return Ok(false);
+        };
+        let stored: Option<Vec<u8>> = tx
+            .query_one("SELECT row_seal FROM operators WHERE id = $1", &[&id])
+            .await?
+            .get(0);
+        // A NULL seal and a NULL `created_seq` are refused exactly as a wrong
+        // seal is, and for the same reason: there is no older shape they could
+        // be the honest remains of.
+        let (Some(stored), Some(created_seq)) = (stored, row.created_seq) else {
+            return Err(OperatorError::UnverifiableOperatorRow(id.to_string()));
+        };
+
+        let current = operator_row_seal(
+            tx,
+            &self.ring,
+            &row.id,
+            &row.display_name,
+            row.created_by.as_deref(),
+            row.disabled_at_unix,
+            row.first_independent_signin_at_unix,
+            created_seq,
+            row.row_version,
+        )
+        .await?;
+        if stored == current {
+            return Ok(false);
+        }
+
+        let legacy = legacy_operator_row_seal(
+            tx,
+            &self.ring,
+            &row.id,
+            &row.display_name,
+            row.created_by.as_deref(),
+            row.disabled_at_unix,
+            created_seq,
+            row.row_version,
+        )
+        .await?;
+        if stored != legacy {
+            return Err(OperatorError::UnverifiableOperatorRow(id.to_string()));
+        }
+
+        let version = row.row_version + 1;
+        let seal = operator_row_seal(
+            tx,
+            &self.ring,
+            &row.id,
+            &row.display_name,
+            row.created_by.as_deref(),
+            row.disabled_at_unix,
+            row.first_independent_signin_at_unix,
+            created_seq,
+            version,
+        )
+        .await?;
+        // Guarded on the version that was read, so a second process that took
+        // the lock first and re-sealed this row updates nothing here rather
+        // than writing a seal over a `row_version` that has moved.
+        let updated = tx
+            .execute(
+                "UPDATE operators SET row_version = $2, row_seal = $3 \
+                  WHERE id = $1 AND row_version = $4",
+                &[&id, &version, &seal.to_vec(), &row.row_version],
+            )
+            .await?;
+        if updated != 1 {
+            return Err(OperatorError::UnverifiableOperatorRow(id.to_string()));
+        }
+        Ok(true)
+    }
+}
+
 impl OperatorStore {
     #[allow(clippy::too_many_arguments)]
     async fn shell_seal(
@@ -6350,7 +6933,7 @@ impl OperatorStore {
         // the transaction that cleared it.
         crate::credentials::reseal_credentials(&tx, &self.ring, &account, None)
             .await
-            .map_err(|_| OperatorError::Corrupt("credential seal"))?;
+            .map_err(credential_failure)?;
 
         tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
             .await?;

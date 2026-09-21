@@ -210,14 +210,23 @@ read both expect it.
 
 ## What to check after an upgrade
 
-- **Upgrading from a build before ADR-0055 (2026-09-21):** the first start of the new build binds
-  the operator the old build created to the install address on record, retires that operator's
-  browser keys and ends their sessions (the old flow had no second factor), and writes a one-shot
-  setup token to `FATHOM_BOOTSTRAP_TOKEN_FILE` — the log says `UPGRADE:` and names the path, never
-  the token. Copy the file out as §"Sign in" of `docs/RUNNING-IT.md` shows, set a password, enrol
-  an app code. The act is a sealed `operator_adopted` entry on the site chain, once; every later
-  start finds the binding and does nothing. If the address already holds an account with a
-  confirmed app code, no token is written and that person signs in as usual. `recover-operator`
+- **Upgrading from a build before ADR-0055 (2026-09-21):** the first start of the new build does
+  two things, in this order, and logs both. First it re-seals every `operators` row an older build
+  wrote (the row seal gained a field in the fix round; a row that verifies under the old shape is
+  re-sealed under the new one, and a row that verifies under neither refuses the start as
+  tampering). Then it binds the operator the old build created to the install address on record,
+  retires that operator's browser keys and ends their sessions (the old flow had no second
+  factor), and writes a one-shot setup token to `FATHOM_BOOTSTRAP_TOKEN_FILE`, replacing the old
+  build's token file if one is still there (that token is expired by this act). The log says
+  `UPGRADE:` and names the path, never the token. Copy the file out as §"Sign in" of
+  `docs/RUNNING-IT.md` shows, set a password, enrol an app code. The act is a sealed
+  `operator_adopted` entry on the site chain, once; every later start finds the binding and does
+  nothing. Three shapes are refused and logged instead of bound, with the address named: the
+  account at that address is disabled; it is already bound to another operator; the bootstrapped
+  operator is disabled. If the address already holds an account with a confirmed app code, no
+  token is written, whoever holds that account now holds the operator custody, and the log says
+  so. Operators the old console created beside the first one have no binding either; they cannot
+  sign in, the start lists them, and they should be disabled from the console. `recover-operator`
   refuses an unbound operator, so run the server once on the new build before reaching for it.
 - The startup log line naming `master_key_id` and `chain_key_id` — the same ids as before the
   upgrade. If the server exits instead with a wrong-key error, see Restore above; it did not start.

@@ -35,7 +35,9 @@ use fathom_server::credentials::{self, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant};
 use fathom_server::keys::{self, KeyRing};
-use fathom_server::operators::{self, OperatorError, OperatorStore, Purpose};
+use fathom_server::operators::{
+    self, Adoption, AdoptionRefusal, OperatorError, OperatorStore, Purpose,
+};
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
     self, Assurance, PrincipalKind, SessionError, SessionStore, SignInLimits, SignedIn,
@@ -2078,12 +2080,18 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
     const TAG: &str = "ops_seconder_created";
     // **One store and a deployment of its own, where this used to need two
     // stores over a shared one.** ADR-0055 decision 3 takes the quorum off the
-    // constructor and puts it on the register, so the way to require a second
-    // signature is to seed two operators who could give one -- which is also
-    // the only state the rule under test is visible in. At quorum 1 an
-    // unseconded change applies alone once its delay passes, so the "does not
-    // apply" assertion below was a race against one second of real round trips
-    // and lost it on a loaded machine (2026-09-19).
+    // constructor and puts it on the register, so the way to make a second
+    // signature possible at all is to seed two operators -- which is also the
+    // only state the rule under test is visible in.
+    //
+    // **What the quorum is here, exactly.** Fix (c) made the quorum per
+    // requester: `second` was created by `first`, so `second` is not an
+    // eligible seconder for `first`'s request, the quorum for it is 1, and the
+    // change applies ALONE once its delay passes. Until 2026-09-21 the end of
+    // this test asserted the opposite ("the change does not apply"), which was
+    // true only inside the one-second delay: it passed on a fast machine and
+    // lost the race on a CI runner. The assertion below now states the rule as
+    // fix (c) wrote it, after the delay, with no race to lose.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let first = a_lone_operator(&operators_store, &sessions_store).await;
@@ -2130,14 +2138,32 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
         refused.is_err(),
         "an operator the requester created may not second their change (§5.5)"
     );
+    let unseconded = operators_store
+        .list_pending_settings()
+        .await
+        .expect("the pending list answers")
+        .into_iter()
+        .find(|p| p.id == pending.id)
+        .map(|p| p.seconded_by.is_none());
+    assert_eq!(
+        unseconded,
+        Some(true),
+        "the refused signature left no seconder on the version"
+    );
+
+    // Nobody in this register can second `first` (the only other operator is
+    // one `first` created), so `quorum_for(first)` is 1 and the version stands
+    // alone with the delay -- ADR-0055 decision 3 and fix (c). Waiting past the
+    // store's own delay makes this a statement about the rule, not a race.
+    tokio::time::sleep(operators_store.settings_delay() + Duration::from_millis(200)).await;
     assert_eq!(
         operators_store
             .effective_setting(&key)
             .await
             .expect("the resolver answers")
             .as_deref(),
-        Some(&b"first"[..]),
-        "and the change does not apply"
+        Some(&value[..]),
+        "with no eligible seconder the change applies alone after the delay"
     );
 }
 
@@ -4402,6 +4428,7 @@ async fn an_operator_from_before_the_binding_is_adopted_on_the_next_start() {
         .adopt_first_operator_from_install()
         .await
         .expect("the adoption runs")
+        .adopted()
         .expect("an operator with no binding and an install record is adopted");
     assert_eq!(adopted.operator_id, bootstrap.operator_id);
     assert_eq!(adopted.notice_address, address);
@@ -4467,7 +4494,7 @@ async fn an_operator_from_before_the_binding_is_adopted_on_the_next_start() {
         .await
         .expect("the second call runs");
     assert!(
-        again.is_none(),
+        matches!(again, Adoption::Nothing),
         "an adoption is once: the binding it wrote is what stops the next start repeating it"
     );
     assert_eq!(
@@ -4532,6 +4559,7 @@ async fn recover_operator_refuses_before_the_adoption_and_works_after_it() {
         .adopt_first_operator_from_install()
         .await
         .expect("the adoption runs")
+        .adopted()
         .expect("an operator with no binding and an install record is adopted");
 
     let recovered = operators_store
@@ -4579,6 +4607,7 @@ async fn the_adoption_retires_the_old_flows_keys_and_ends_its_sessions() {
         .adopt_first_operator_from_install()
         .await
         .expect("the adoption runs")
+        .adopted()
         .expect("an operator with no binding and an install record is adopted");
     assert_eq!(adopted.operator_id, operator.id);
     assert_eq!(
@@ -4664,11 +4693,13 @@ async fn a_deployment_that_already_has_the_binding_is_not_adopted() {
         .get(0);
 
     assert!(
-        operators_store
-            .adopt_first_operator_from_install()
-            .await
-            .expect("the adoption runs")
-            .is_none(),
+        matches!(
+            operators_store
+                .adopt_first_operator_from_install()
+                .await
+                .expect("the adoption runs"),
+            Adoption::Nothing
+        ),
         "every operator this build creates already has a binding"
     );
     assert_eq!(
@@ -4699,12 +4730,15 @@ async fn a_deployment_that_never_started_is_not_adopted() {
         .get(0);
 
     assert!(
-        operators_store
-            .adopt_first_operator_from_install()
-            .await
-            .expect("the adoption runs")
-            .is_none(),
-        "with no install record there is no address to bind anybody to"
+        matches!(
+            operators_store
+                .adopt_first_operator_from_install()
+                .await
+                .expect("the adoption runs"),
+            Adoption::Nothing
+        ),
+        "with no install record there is no address to bind anybody to: and with no operator \
+         either, there is nothing to say about it"
     );
     assert_eq!(
         before,
@@ -4721,5 +4755,533 @@ async fn a_deployment_that_never_started_is_not_adopted() {
             .get::<_, i64>(0),
         0,
         "and no operator was minted: an adoption binds a seat that exists and creates none"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The upgrade's own row seals -- ADR-0055 fix round S2, 2026-09-21
+// ---------------------------------------------------------------------------
+
+/// Everything [`operators::operator_row_seal`] needs about one `operators`
+/// row, read as the superuser so the fixture sees what is actually at rest:
+/// display name, `created_by`, `disabled_at`, `first_independent_signin_at`,
+/// `created_seq`, `row_version`.
+async fn operator_row_facts(
+    su: &tokio_postgres::Client,
+    operator: &str,
+) -> (String, Option<String>, i64, i64, i64, i32) {
+    let row = su
+        .query_one(
+            "SELECT display_name, created_by, \
+                    COALESCE(EXTRACT(EPOCH FROM disabled_at)::bigint, 0), \
+                    COALESCE(EXTRACT(EPOCH FROM first_independent_signin_at)::bigint, 0), \
+                    created_seq, row_version \
+               FROM operators WHERE id = $1",
+            &[&operator],
+        )
+        .await
+        .expect("the operator row");
+    (
+        row.get(0),
+        row.get(1),
+        row.get(2),
+        row.get(3),
+        row.get(4),
+        row.get(5),
+    )
+}
+
+/// **Seal one `operators` row the way every build before ADR-0055's fix round
+/// sealed it** — over a `row_state` with no `first_independent_signin_at` in
+/// it — and write it as the superuser.
+///
+/// This is the whole of the state a real deployment that upgrades into this
+/// build is in, and it cannot be produced through any runtime path: the store
+/// only knows how to write the current shape. The seal is computed by
+/// [`operators::legacy_operator_row_seal`], which exists for the start-time
+/// re-seal and for this fixture and is called by nothing else.
+async fn seal_the_operator_row_the_old_way(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    su: &tokio_postgres::Client,
+    operator: &str,
+) {
+    let (display_name, created_by, disabled_at, _signin, created_seq, row_version) =
+        operator_row_facts(su, operator).await;
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let seal = operators::legacy_operator_row_seal(
+        &tx,
+        ring,
+        operator,
+        &display_name,
+        created_by.as_deref(),
+        disabled_at,
+        created_seq,
+        row_version,
+    )
+    .await
+    .expect("the old build's row state seals under this deployment's row key");
+    tx.commit().await.expect("commit");
+    su.execute(
+        "UPDATE operators SET row_seal = $2 WHERE id = $1",
+        &[&operator, &seal.to_vec()],
+    )
+    .await
+    .expect("the fixture writes the old seal");
+}
+
+/// The stored seal and version of one `operators` row.
+async fn operator_seal_and_version(su: &tokio_postgres::Client, operator: &str) -> (Vec<u8>, i32) {
+    let row = su
+        .query_one(
+            "SELECT row_seal, row_version FROM operators WHERE id = $1",
+            &[&operator],
+        )
+        .await
+        .expect("the operator row");
+    (row.get(0), row.get(1))
+}
+
+/// Does this row verify under the CURRENT shape, through the store's own
+/// verifier — the one on the sign-in path?
+async fn operator_row_verifies(operators_store: &OperatorStore, operator: &str) -> bool {
+    let mut client = operators_store.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let verified = operators_store.verify_operator_row(&tx, operator).await;
+    tx.commit().await.expect("commit");
+    verified.is_ok()
+}
+
+/// **A deployment sealed by the build before the fix round starts, and adopts,
+/// because the re-seal runs first** — the defect that would have stopped the
+/// owner's own deployment from starting at all.
+///
+/// `6d1b5de` (2026-09-21) brought `first_independent_signin_at` inside
+/// [`operators::operator_row_seal`], because ADR-0055 decision 3 had just made
+/// that column decide whether a second signature is required at all. Every
+/// `operators` row written before that is sealed over the shape this fixture
+/// writes, and `verify_operator_row` — which is the sign-in path, the
+/// seconding path AND the first thing the adoption does — refuses it.
+///
+/// Four claims, in the order a start makes them:
+///
+/// 1. the adoption on its own **fails**, and fails as an integrity alarm;
+/// 2. `reseal_legacy_operator_rows` re-seals exactly one row, and the row then
+///    verifies under the current shape;
+/// 3. the adoption then does what it was written to do;
+/// 4. a second re-seal touches nothing, because a start is not a one-off.
+#[tokio::test]
+async fn an_operator_row_sealed_before_the_fix_round_is_resealed_at_start_and_then_adopts() {
+    const TAG: &str = "ops_adopt_legacy_seal";
+    let (pool, operators_store, _sessions, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // The pre-ADR-0055 shape, all of it: no binding, no account, and a row
+    // seal from before the fix round.
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+    su.execute(
+        "DELETE FROM accounts WHERE id = $1",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("the older first start created no account");
+    su.execute(
+        "DELETE FROM principals WHERE id = $1",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("and its principal row with it");
+    seal_the_operator_row_the_old_way(&pool, &ring, &su, &bootstrap.operator_id).await;
+
+    // 1. The finding: this start does not start.
+    match operators_store.adopt_first_operator_from_install().await {
+        Err(OperatorError::Unverifiable(what)) => assert_eq!(
+            what, "operator row seal",
+            "the adoption verifies the row before it binds it, and the row is sealed under the \
+             old shape"
+        ),
+        Ok(_) => panic!("the adoption must not bind a row it cannot verify"),
+        Err(e) => panic!("the refusal must be the seal, not {e}"),
+    }
+    assert!(
+        !operator_row_verifies(&operators_store, &bootstrap.operator_id).await,
+        "and nothing else that verifies an operator row works either -- which is sign-in and \
+         every seconding count"
+    );
+
+    // 2. The re-seal, which is what `main.rs` runs before the bootstrap.
+    let (_old_seal, old_version) = operator_seal_and_version(&su, &bootstrap.operator_id).await;
+    assert_eq!(
+        operators_store
+            .reseal_legacy_operator_rows()
+            .await
+            .expect("a row sealed by an older build is recognised, not refused"),
+        1
+    );
+    assert!(
+        operator_row_verifies(&operators_store, &bootstrap.operator_id).await,
+        "the row verifies under the current shape now, which is the whole point"
+    );
+    let (_new_seal, new_version) = operator_seal_and_version(&su, &bootstrap.operator_id).await;
+    assert_eq!(
+        new_version,
+        old_version + 1,
+        "a re-seal is a new row version, exactly as `mark_first_independent_signin`'s is"
+    );
+
+    // 3. And now the upgrade it was blocking.
+    let adopted = operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the adoption runs")
+        .adopted()
+        .expect("an operator with no binding and an install record is adopted");
+    assert_eq!(adopted.operator_id, bootstrap.operator_id);
+    assert_eq!(adopted.notice_address, address);
+    assert!(
+        adopted.invitation.is_some(),
+        "the account this adoption created holds no app code, so the setup token is the way in"
+    );
+
+    // 4. Idempotent: the next start finds nothing to do.
+    assert_eq!(
+        operators_store
+            .reseal_legacy_operator_rows()
+            .await
+            .expect("the second run runs"),
+        0,
+        "a re-sealed row verifies under the current shape, so the next start re-seals nothing"
+    );
+}
+
+/// **A row that verifies under no shape this server has ever written is
+/// refused by name, not re-sealed.**
+///
+/// The re-seal exists to recognise an older build's honest work. It must not
+/// become a way to launder a row somebody edited in the database: the only
+/// evidence it has is that the stored seal matches a shape this codebase
+/// produced, and a random seal matches none of them.
+#[tokio::test]
+async fn a_tampered_operator_row_is_refused_by_the_reseal_rather_than_resealed() {
+    const TAG: &str = "ops_reseal_tampered";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let forged = vec![7u8; 32];
+    su.execute(
+        "UPDATE operators SET row_seal = $2 WHERE id = $1",
+        &[&bootstrap.operator_id, &forged],
+    )
+    .await
+    .expect("whoever holds the database can write this column; the seal is what stops them");
+
+    match operators_store.reseal_legacy_operator_rows().await {
+        Err(OperatorError::UnverifiableOperatorRow(id)) => assert_eq!(
+            id, bootstrap.operator_id,
+            "the refusal names the row, because the person reading the log has to find it"
+        ),
+        Ok(n) => panic!("a forged seal must not be re-sealed; {n} row(s) were"),
+        Err(e) => panic!("the refusal must name the row, not {e}"),
+    }
+
+    let (seal, version) = operator_seal_and_version(&su, &bootstrap.operator_id).await;
+    assert_eq!(
+        seal, forged,
+        "and it wrote nothing: a refused row is left exactly as it was found"
+    );
+    assert_eq!(version, 1);
+}
+
+/// **A disabled account at the install address is not bound, and the site
+/// keeps running.**
+///
+/// `account_for_address` selects by email and asks nothing about
+/// `disabled_at`, so before 2026-09-21 the adoption bound the operator custody
+/// to an account that cannot sign in (`sessions.rs` answers `account_disabled`)
+/// and minted a token that redeems into that refusal. A binding is written
+/// once and never rewritten — `0019`'s trigger refuses `UPDATE` and `DELETE`
+/// at every privilege level including the table's owner — so the lockout would
+/// have been permanent, and produced by the act that exists to end one.
+#[tokio::test]
+async fn a_disabled_account_at_the_install_address_is_refused_rather_than_bound() {
+    const TAG: &str = "ops_adopt_account_disabled";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+    // The account stays, and is disabled — the column the console's own
+    // `disable_account` writes.
+    su.execute(
+        "UPDATE accounts SET disabled_at = now() WHERE id = $1",
+        &[&bootstrap.account_id],
+    )
+    .await
+    .expect("disable the account at the install address");
+
+    let before: i64 = su
+        .query_one("SELECT count(*) FROM chain_entries", &[])
+        .await
+        .expect("count")
+        .get(0);
+
+    match operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("a refusal is not an error: the site goes on serving")
+    {
+        Adoption::Refused(AdoptionRefusal::AccountDisabled {
+            operator_id,
+            account_id,
+            address: refused_address,
+        }) => {
+            assert_eq!(operator_id, bootstrap.operator_id);
+            assert_eq!(account_id, bootstrap.account_id);
+            assert_eq!(refused_address, address);
+        }
+        Adoption::Adopted(_) => panic!("a disabled account must not be bound to an operator"),
+        Adoption::Nothing => panic!("this must not be silent"),
+        Adoption::Refused(other) => panic!("the wrong refusal: {other}"),
+    }
+
+    assert_eq!(
+        su.query_one("SELECT count(*) FROM chain_entries", &[])
+            .await
+            .expect("count")
+            .get::<_, i64>(0),
+        before,
+        "a refusal is decided before the sealed entry is appended, so it writes nothing"
+    );
+    assert_eq!(
+        su.query_one(
+            "SELECT count(*) FROM operator_account_bindings WHERE operator_id = $1",
+            &[&bootstrap.operator_id],
+        )
+        .await
+        .expect("count")
+        .get::<_, i64>(0),
+        0,
+        "and above all it wrote no binding, because a binding cannot be taken back"
+    );
+}
+
+/// **An account that already holds another operator's custody is refused, at
+/// every start, without an exception reaching anybody.**
+///
+/// `operator_account_bindings.account_id` is UNIQUE (`0019` §A), so the insert
+/// the adoption used to make raises `23505`; that came back as an `Err`, and
+/// `main.rs` turns an `Err` here into exit 9. Not once — at every start, for
+/// ever, because nothing about the deployment changes in between.
+///
+/// **The second operator is built as the superuser**, and that is stated here
+/// rather than hidden: it holds the binding and nothing else, and no runtime
+/// path can produce it, because the store's own verbs create an operator and
+/// its binding together. The operator this test is actually about is the real
+/// bootstrapped one, whose row and creating entry the adoption verifies
+/// normally before it gets as far as the account.
+#[tokio::test]
+async fn an_account_that_already_holds_an_operator_custody_is_refused_not_bound_twice() {
+    const TAG: &str = "ops_adopt_account_bound";
+    let (_pool, operators_store, _sessions, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+
+    // A second operator, holding the account at the install address. `0019`'s
+    // immutability trigger refuses `UPDATE` and `DELETE` and not `INSERT`, so
+    // this needs no tampering — only the superuser's way past row-level
+    // security.
+    let squatter = fathom_server::ids::new_ulid().to_string();
+    su.execute(
+        "INSERT INTO principals (id, kind) VALUES ($1, 'operator')",
+        &[&squatter],
+    )
+    .await
+    .expect("the principal row");
+    su.execute(
+        "INSERT INTO operators (id, display_name) VALUES ($1, 'a colleague')",
+        &[&squatter],
+    )
+    .await
+    .expect("the operator row");
+    su.execute(
+        "INSERT INTO operator_account_bindings \
+             (operator_id, account_id, bound_seq, row_version, row_seal) \
+         VALUES ($1, $2, 1, 1, $3)",
+        &[&squatter, &bootstrap.account_id, &vec![3u8; 32]],
+    )
+    .await
+    .expect("the binding that makes the account unavailable");
+
+    match operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("a 23505 must not reach the caller: this is a refusal, not a database error")
+    {
+        Adoption::Refused(AdoptionRefusal::AccountAlreadyBound {
+            operator_id,
+            account_id,
+            address: refused_address,
+            bound_to,
+        }) => {
+            assert_eq!(operator_id, bootstrap.operator_id);
+            assert_eq!(account_id, bootstrap.account_id);
+            assert_eq!(refused_address, address);
+            assert_eq!(
+                bound_to, squatter,
+                "the log has to name both operators, or nobody can tell what to do about it"
+            );
+        }
+        Adoption::Adopted(_) => panic!("one account holds one operator custody"),
+        Adoption::Nothing => panic!("this must not be silent"),
+        Adoption::Refused(other) => panic!("the wrong refusal: {other}"),
+    }
+
+    assert_eq!(
+        su.query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'operator_adopted'",
+            &[],
+        )
+        .await
+        .expect("count")
+        .get::<_, i64>(0),
+        0,
+        "and nothing was recorded, because nothing happened"
+    );
+}
+
+/// **A disabled operator is not adopted, and the start says so.**
+///
+/// The candidate query asks `disabled_at IS NULL`, so this answered "nothing
+/// to do" and looked exactly like a deployment that needed nothing — on a
+/// deployment whose only operator cannot act. Nothing here re-enables one:
+/// `0015` §A's register is append-only in effect and §4.5 sends a lost
+/// operator through §5.4's machinery.
+///
+/// The fixture disables the row the way the console does, seal and all, using
+/// [`operators::operator_row_seal`] — so the assertion at the end is real: the
+/// start-time re-seal leaves a correctly sealed row alone whether it is
+/// disabled or not.
+#[tokio::test]
+async fn a_disabled_bootstrapped_operator_is_refused_out_loud_rather_than_silently() {
+    const TAG: &str = "ops_adopt_operator_disabled";
+    let (pool, operators_store, _sessions, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = operators_store
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let su = support::superuser_on_isolated(TAG).await;
+    unbind(&su, &bootstrap.operator_id).await;
+
+    let (display_name, created_by, _disabled, signin, created_seq, row_version) =
+        operator_row_facts(&su, &bootstrap.operator_id).await;
+    let at = now_unix();
+    let seal = {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute(
+            "SELECT set_config('app.operator_custody', 'yes', true)",
+            &[],
+        )
+        .await
+        .expect("operator custody");
+        let seal = operators::operator_row_seal(
+            &tx,
+            &ring,
+            &bootstrap.operator_id,
+            &display_name,
+            created_by.as_deref(),
+            at,
+            signin,
+            created_seq,
+            row_version,
+        )
+        .await
+        .expect("seal the disabled row under the current shape");
+        tx.commit().await.expect("commit");
+        seal
+    };
+    // `0019` §C's floor refuses disabling the last live operator at every
+    // privilege level, which is exactly what this deployment has — so the
+    // trigger comes off for the one statement, visibly.
+    let disabled = support::tamper(
+        &su,
+        "operators",
+        "UPDATE operators SET disabled_at = to_timestamp($2::bigint), row_seal = $3 \
+          WHERE id = $1",
+        &[&bootstrap.operator_id, &at, &seal.to_vec()],
+    )
+    .await;
+    assert_eq!(disabled, 1);
+
+    match operators_store
+        .adopt_first_operator_from_install()
+        .await
+        .expect("the adoption runs")
+    {
+        Adoption::Refused(AdoptionRefusal::OperatorDisabled {
+            operator_id,
+            address: refused_address,
+        }) => {
+            assert_eq!(operator_id, bootstrap.operator_id);
+            assert_eq!(refused_address, address);
+        }
+        Adoption::Adopted(_) => panic!("a disabled operator must not be bound"),
+        Adoption::Nothing => panic!("this is the silence the typed outcome exists to remove"),
+        Adoption::Refused(other) => panic!("the wrong refusal: {other}"),
+    }
+
+    assert_eq!(
+        operators_store
+            .reseal_legacy_operator_rows()
+            .await
+            .expect("the re-seal runs"),
+        0,
+        "a row sealed correctly under the current shape is left alone, disabled or not"
     );
 }

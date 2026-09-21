@@ -959,6 +959,16 @@ impl From<AdminRefusal> for Refusal {
                 tracing::error!(reason = %e.0, "integrity check failed");
                 Refusal::from(SessionError::Unverifiable(what))
             }
+            // The start-time re-seal is the only thing that raises this and it
+            // runs before the listener binds, so no request can reach it. It
+            // is mapped anyway, and as the alarm it is: the fall-through would
+            // render an integrity failure as `Corrupt("operator plane")`,
+            // which reads as "this server is confused" rather than "a stored
+            // row was not written by this server" (§3.4 step 2).
+            OperatorError::UnverifiableOperatorRow(_) => {
+                tracing::error!(reason = %e.0, "integrity check failed");
+                Refusal::from(SessionError::Unverifiable("operator row seal"))
+            }
             OperatorError::SettingUnresolvable => {
                 tracing::error!(reason = %e.0, "a settings row does not stand up to its entry");
                 Refusal::from(SessionError::Unverifiable("settings row"))

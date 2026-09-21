@@ -158,7 +158,7 @@ with `recover-operator` once their account exists (`docs/NEXT.md`).
 Run here against a real PostgreSQL 16, from an empty database:
 
 ```
-migrations applied                        15
+migrations applied                        26
 keys loaded                               master + chain
 site chain                                deployment_started, operator_bootstrapped,
                                           enrolment_token_issued
