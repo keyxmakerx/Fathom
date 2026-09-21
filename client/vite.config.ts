@@ -57,6 +57,11 @@ export default defineConfig({
       // already covered by the `/enrolment` entry above. Without this line
       // the dev server answers 404 itself and the failure looks like a
       // missing route on the server.
+      // `/credentials/*` -- the password, the app code and this browser's
+      // key. They are account-plane and answer on every host, exactly like
+      // `/session`, so they need an entry of their own here; without it the
+      // dev server answers its own 404 and the failure looks like a missing
+      // route on the server.
       '/credentials': { target: apiTarget, changeOrigin: true },
     },
   },
