@@ -5,24 +5,32 @@
 //! Three routes counted a client's address (sign-in limits, the redemption
 //! routes, firmware fetches) with three copies of the same logic, and two
 //! of the copies read the FIRST entry of that header, which is the entry a
-//! client can write. This is the one copy now, and the rule it applies
-//! (2026-09-20) is the standard one:
+//! client can write. This is the one copy now. The rule (2026-09-21):
 //!
 //! - **`FATHOM_TRUSTED_PROXIES` set** (addresses or ranges, or the word
-//!   `private` for every private, loopback and link-local range): the
-//!   header is believed only when the connection itself comes from one of
-//!   those addresses. Its entries are then read from the right, skipping
-//!   every trusted proxy, and the first address that is not one is the
-//!   client. A proxy that overwrites the header and a proxy that appends
-//!   to it both come out right, and so does a chain of two trusted hops.
+//!   `private`): the header is believed only when the connection itself
+//!   comes from one of them. The entries are then counted from the right,
+//!   across every line of the header (RFC 9110 §5.3 makes the lines one
+//!   list), and the client is the `FATHOM_FORWARDED_HOPS`-th one -- the
+//!   last entry by default, which is the one the proxy itself appended; `2`
+//!   when the proxy sits behind one more hop that appends (an edge, a CDN),
+//!   and so on. Whatever a client wrote in front of that is never reached.
 //!   From any other peer the header is ignored and the peer is the address,
 //!   so a client that can reach the port directly gains nothing by forging
-//!   it.
-//! - **Header configured, no trusted proxies**: the header's last entry is
-//!   believed from every peer. This is what every deployment had before
-//!   this module, kept for the one that cannot name its proxy, and `main.rs`
-//!   warns at startup that it is in force.
-//! - **Neither**: the peer address.
+//!   it -- and a client that can reach the port directly FROM a trusted
+//!   range is trusted, which is why the port is published only where the
+//!   proxy reaches it (`docs/RUNNING-IT.md`).
+//! - **Not set**: the peer address, which behind a proxy is the proxy: one
+//!   rate-limit bucket for everyone, nothing forgeable. `main.rs` warns.
+//!
+//! Counting hops rather than skipping every entry that falls in a trusted
+//! range is deliberate. The skipping rule (nginx's `real_ip_recursive`,
+//! this module until 2026-09-21) cannot tell a proxy from a client that
+//! sits in the same range, so with `private` and clients on the LAN or the
+//! overlay every client collapsed onto the proxy's address, and a proxy that
+//! appends left a forged public entry standing. A hop count has no such
+//! ambiguity: the topology is stated once, in one number. Express's
+//! `trust proxy` takes the same number for the same reason.
 //!
 //! What this cannot do is read an address the proxy did not send. The
 //! PROXY protocol, which carries the client's address inside the TCP
@@ -154,20 +162,43 @@ pub fn parse_trusted_proxies(text: &str) -> Result<Vec<Cidr>, String> {
 
 /// The policy, built once in `main.rs` from the configuration and handed to
 /// every state that counts an address.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ClientAddress {
     header: Option<String>,
     trusted_proxies: Vec<Cidr>,
+    /// Which entry from the right is the client: `1` is the last one.
+    hops: usize,
+}
+
+impl Default for ClientAddress {
+    fn default() -> Self {
+        Self {
+            header: None,
+            trusted_proxies: Vec::new(),
+            hops: 1,
+        }
+    }
 }
 
 impl ClientAddress {
+    /// The header, believed from `trusted_proxies`, the last entry the
+    /// client. A header with no proxies is the peer rule: `config.rs`
+    /// refuses that combination, and here it is simply never believed.
     pub fn new(header: Option<String>, trusted_proxies: impl IntoIterator<Item = Cidr>) -> Self {
         Self {
             header: header
                 .map(|h| h.trim().to_string())
                 .filter(|h| !h.is_empty()),
             trusted_proxies: trusted_proxies.into_iter().collect(),
+            hops: 1,
         }
+    }
+
+    /// The same, with the client `hops` entries from the right (`1` is the
+    /// last). `0` is read as `1`.
+    pub fn with_hops(mut self, hops: usize) -> Self {
+        self.hops = hops.max(1);
+        self
     }
 
     /// The peer address, always.
@@ -175,9 +206,17 @@ impl ClientAddress {
         Self::default()
     }
 
-    /// The header, believed from every peer (the pre-2026-09-20 rule).
+    /// The header, believed from loopback only: what a test harness that
+    /// drives a router over `127.0.0.1` needs to choose the address it is
+    /// counted under. Not a production shape.
     pub fn header(name: &str) -> Self {
-        Self::new(Some(name.to_string()), [])
+        Self::new(
+            Some(name.to_string()),
+            [
+                Cidr::parse("127.0.0.1").expect("a constant"),
+                Cidr::parse("::1").expect("a constant"),
+            ],
+        )
     }
 
     pub fn header_name(&self) -> Option<&str> {
@@ -186,6 +225,10 @@ impl ClientAddress {
 
     pub fn trusted_proxies(&self) -> &[Cidr] {
         &self.trusted_proxies
+    }
+
+    pub fn hops(&self) -> usize {
+        self.hops
     }
 
     fn trusted(&self, ip: IpAddr) -> bool {
@@ -207,38 +250,30 @@ impl ClientAddress {
         let Some(name) = &self.header else {
             return peer_text();
         };
-        // Every line of the header, in arrival order, is one list (RFC 9110
-        // §5.3): a proxy that adds its own line instead of appending to the
-        // client's has still written last. So the entries are read from the
-        // right across all lines, and only the first line is never enough.
-        let mut entries = headers
-            .get_all(name)
-            .iter()
-            .rev()
-            .filter_map(|line| line.to_str().ok())
-            .flat_map(|line| line.rsplit(',').map(str::trim))
-            .filter(|entry| !entry.is_empty())
-            .peekable();
-        if entries.peek().is_none() {
-            return peer_text();
-        }
-        let bounded = |entry: &str| entry.chars().take(255).collect::<String>();
-        if self.trusted_proxies.is_empty() {
-            return entries.next().map(bounded).unwrap_or_else(peer_text);
-        }
+        // The header is believed from a trusted proxy and from nobody else;
+        // with no proxies trusted there is nobody to believe.
         let Some(peer_ip) = peer else {
             return peer_text();
         };
         if !self.trusted(peer_ip) {
             return peer_text();
         }
-        for entry in entries {
-            match entry.parse::<IpAddr>() {
-                Ok(ip) if self.trusted(ip) => continue,
-                _ => return bounded(entry),
-            }
-        }
-        peer_text()
+        // Every line of the header, in arrival order, is one list (RFC 9110
+        // §5.3): a proxy that adds its own line instead of appending to the
+        // client's has still written last. Counted from the right, the
+        // `hops`-th entry is the client; fewer entries than that is a proxy
+        // that did not write what the configuration says it does, and the
+        // peer is the nearest honest fact.
+        headers
+            .get_all(name)
+            .iter()
+            .rev()
+            .filter_map(|line| line.to_str().ok())
+            .flat_map(|line| line.rsplit(',').map(str::trim))
+            .filter(|entry| !entry.is_empty())
+            .nth(self.hops - 1)
+            .map(|entry| entry.chars().take(255).collect())
+            .unwrap_or_else(peer_text)
     }
 }
 
@@ -350,40 +385,86 @@ mod tests {
     }
 
     #[test]
-    fn the_legacy_rule_believes_the_last_entry_from_any_peer() {
-        let p = ClientAddress::header("x-forwarded-for");
-        assert_eq!(
-            p.of(&xff("6.6.6.6, 10.0.0.9"), &Extensions::new()),
-            "10.0.0.9"
-        );
-        assert_eq!(p.of(&xff("10.0.0.9"), &from("203.0.113.1")), "10.0.0.9");
-        assert_eq!(p.of(&HeaderMap::new(), &from("203.0.113.1")), "203.0.113.1");
+    fn with_no_trusted_proxies_the_header_is_never_believed() {
+        let p = ClientAddress::new(Some("x-forwarded-for".to_string()), []);
+        assert_eq!(p.of(&xff("6.6.6.6"), &from("203.0.113.1")), "203.0.113.1");
+        assert_eq!(p.of(&xff("6.6.6.6"), &from("127.0.0.1")), "127.0.0.1");
+        assert_eq!(p.of(&xff("6.6.6.6"), &Extensions::new()), "unknown");
     }
 
     #[test]
-    fn with_trusted_proxies_the_header_is_believed_only_from_them() {
+    fn with_trusted_proxies_the_last_entry_is_the_client_and_only_from_them() {
         let p = policy(&["10.0.0.0/8"]);
         // The proxy overwrote the header: one entry, the client.
         assert_eq!(
             p.of(&xff("198.51.100.4"), &from("10.0.0.2")),
             "198.51.100.4"
         );
-        // The proxy appended to a forged header: the rightmost untrusted wins.
+        // The proxy appended to a forged header: the entry it wrote wins.
         assert_eq!(
             p.of(&xff("6.6.6.6, 198.51.100.4"), &from("10.0.0.2")),
             "198.51.100.4"
         );
-        // Two trusted hops: skip the inner proxy's own entry.
+        // A client whose own address is inside the trusted range keeps it:
+        // the proxy wrote it last, and a hop count does not mistake a
+        // client for a proxy the way a range would.
+        assert_eq!(p.of(&xff("10.0.0.77"), &from("10.0.0.2")), "10.0.0.77");
         assert_eq!(
-            p.of(&xff("198.51.100.4, 10.0.0.3"), &from("10.0.0.2")),
-            "198.51.100.4"
+            p.of(&xff("6.6.6.6, 10.0.0.77"), &from("10.0.0.2")),
+            "10.0.0.77"
         );
-        // Every entry is a proxy: the peer is the nearest honest fact.
-        assert_eq!(p.of(&xff("10.0.0.3"), &from("10.0.0.2")), "10.0.0.2");
         // Not from a proxy: the header is ignored, forged or not.
         assert_eq!(p.of(&xff("6.6.6.6"), &from("203.0.113.1")), "203.0.113.1");
         // No peer known at all: nothing can be vouched for.
         assert_eq!(p.of(&xff("6.6.6.6"), &Extensions::new()), "unknown");
+    }
+
+    #[test]
+    fn private_keeps_a_private_client_s_own_address() {
+        let p = ClientAddress::new(
+            Some("x-forwarded-for".to_string()),
+            parse_trusted_proxies("private").expect("private"),
+        );
+        // A LAN proxy at 192.168.1.2 forwarding a LAN client at 192.168.1.50:
+        // the client, not the proxy, and not a forged entry in front of it.
+        assert_eq!(
+            p.of(&xff("192.168.1.50"), &from("192.168.1.2")),
+            "192.168.1.50"
+        );
+        assert_eq!(
+            p.of(&xff("203.0.113.9, 192.168.1.50"), &from("192.168.1.2")),
+            "192.168.1.50"
+        );
+        // NetBird's proxy at 100.64.0.2 forwarding a client at its public
+        // address, and one on the overlay: each is what the proxy wrote.
+        assert_eq!(
+            p.of(&xff("198.51.100.4"), &from("100.64.0.2")),
+            "198.51.100.4"
+        );
+        assert_eq!(p.of(&xff("100.64.0.7"), &from("100.64.0.2")), "100.64.0.7");
+    }
+
+    #[test]
+    fn a_hop_count_names_the_entry_an_outer_proxy_wrote() {
+        // Edge (203.0.113.200) -> proxy (10.0.0.2) -> here. The proxy appends
+        // the edge's address; the edge appended the client's. Two hops.
+        let p = policy(&["10.0.0.0/8"]).with_hops(2);
+        assert_eq!(
+            p.of(&xff("198.51.100.4, 203.0.113.200"), &from("10.0.0.2")),
+            "198.51.100.4"
+        );
+        assert_eq!(
+            p.of(
+                &xff("6.6.6.6, 198.51.100.4, 203.0.113.200"),
+                &from("10.0.0.2")
+            ),
+            "198.51.100.4"
+        );
+        // Fewer entries than hops: the proxy did not write what the
+        // configuration says, and the peer is the nearest honest fact.
+        assert_eq!(p.of(&xff("203.0.113.200"), &from("10.0.0.2")), "10.0.0.2");
+        // Zero is one.
+        assert_eq!(policy(&["10.0.0.0/8"]).with_hops(0).hops(), 1);
     }
 
     /// A proxy that adds its own `X-Forwarded-For` line instead of
@@ -395,15 +476,10 @@ mod tests {
         h.append("x-forwarded-for", HeaderValue::from_static("6.6.6.6"));
         h.append(
             "x-forwarded-for",
-            HeaderValue::from_static("198.51.100.4, 10.0.0.3"),
+            HeaderValue::from_static("6.6.6.7, 198.51.100.4"),
         );
         let p = policy(&["10.0.0.0/8"]);
         assert_eq!(p.of(&h, &from("10.0.0.2")), "198.51.100.4");
-        assert_eq!(
-            ClientAddress::header("x-forwarded-for").of(&h, &from("10.0.0.2")),
-            "10.0.0.3",
-            "the legacy rule takes the last entry of the last line"
-        );
         // Blank lines and stray commas do not stand in for an entry.
         let mut h = HeaderMap::new();
         h.append("x-forwarded-for", HeaderValue::from_static("198.51.100.4,"));

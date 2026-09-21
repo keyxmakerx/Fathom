@@ -23,10 +23,13 @@ export const PRINCIPAL_KIND_OPERATOR: PrincipalKind = 'operator';
 /**
  * Where `../crypto/keys.ts` keeps a principal's key: an account's under its
  * address, exactly as before; an operator's under `operator:` and the
- * operator id, so the two planes never share a slot however an address is
- * spelled. The prefix, not a separate store, because the two-store
- * pending/enrolled promotion in `keys.ts` is what makes an enrolment safe
- * and it is keyed by this one string.
+ * operator id. The two planes never share a slot because an operator id is
+ * a ULID (`looksLikeOperatorId`) and `identityOfSlot` reads a slot as an
+ * operator's only when what follows the prefix is one -- an address that
+ * happens to be spelled `operator:…` stays an address. The prefix, not a
+ * separate store, because the two-store pending/enrolled promotion in
+ * `keys.ts` is what makes an enrolment safe and it is keyed by this one
+ * string.
  */
 export function keySlot(kind: PrincipalKind, id: string): string {
   return kind === PRINCIPAL_KIND_OPERATOR ? `operator:${id}` : id;
@@ -51,8 +54,12 @@ export interface SlotIdentity {
 }
 
 export function identityOfSlot(slot: string): SlotIdentity {
-  return slot.startsWith('operator:')
-    ? { kind: PRINCIPAL_KIND_OPERATOR, id: slot.slice('operator:'.length) }
+  if (slot === OPERATOR_PENDING_SLOT) {
+    return { kind: PRINCIPAL_KIND_OPERATOR, id: '?' };
+  }
+  const rest = slot.startsWith('operator:') ? slot.slice('operator:'.length) : null;
+  return rest !== null && looksLikeOperatorId(rest)
+    ? { kind: PRINCIPAL_KIND_OPERATOR, id: rest }
     : { kind: PRINCIPAL_KIND_STEWARD, id: slot };
 }
 

@@ -498,21 +498,18 @@ async fn main() -> ExitCode {
         config.trusted_client_ip_header.clone(),
         fathom_server::client_address::parse_trusted_proxies(&config.trusted_proxies.join(","))
             .expect("config refuses an unparseable FATHOM_TRUSTED_PROXIES"),
-    );
-    match (
-        client_address.header_name(),
-        client_address.trusted_proxies().is_empty(),
-    ) {
-        (None, _) => tracing::info!("client addresses: the peer, no forwarding header trusted"),
-        (Some(header), true) => tracing::warn!(
-            header,
-            "client addresses: the forwarding header is believed from EVERY peer; set \
-             FATHOM_TRUSTED_PROXIES to the proxy's address so a client reaching this port \
-             directly cannot choose its own"
+    )
+    .with_hops(config.forwarded_hops);
+    match client_address.header_name() {
+        None => tracing::warn!(
+            "client addresses: the peer. Behind a reverse proxy that is the proxy, so every \
+             client shares one sign-in rate-limit bucket and one address in the audit trail; \
+             set FATHOM_TRUSTED_PROXIES to the proxy's address or range to count clients apart"
         ),
-        (Some(header), false) => tracing::info!(
+        Some(header) => tracing::info!(
             header,
             trusted_proxies = ?config.trusted_proxies,
+            hops = client_address.hops(),
             "client addresses: the forwarding header, believed only from the trusted proxies"
         ),
     }

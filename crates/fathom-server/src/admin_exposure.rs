@@ -63,10 +63,6 @@ impl AdminExposure {
         &self.hosts
     }
 
-    pub fn sources(&self) -> &[Cidr] {
-        &self.sources
-    }
-
     /// The paths this policy covers. `/enrolment/account` is NOT one: an
     /// invited account redeems its token on the site, from wherever it is.
     pub fn covers(path: &str) -> bool {

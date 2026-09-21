@@ -195,15 +195,16 @@ here that is expensive to fix later.
 #### Operational foundations — added 2026-09-12, owner's list
 
 Four things that are cheap now and expensive once code and data exist. Docker is confirmed as the
-shipping shape; `compose.yaml` already runs the database, the server and Caddy in front.
+shipping shape; `compose.yaml` already runs the database and the server, one published port behind
+the operator's own reverse proxy (Caddy left the stack on 2026-09-20).
 
 **1. Two Fathom containers must be interchangeable.** This is what load balancing actually requires,
 and it is a constraint on every line written from here: no session state in process memory, nothing
 cached on local disk, no file written by the app except the master key it reads at startup. A design
 that holds a session in a process is a design that cannot be scaled, and retrofitting it means
 touching everything. **Lock it before more code lands.** The load balancer itself can then be
-whatever the customer already runs; the compose file grows a second `server` replica and Caddy
-balances across them.
+whatever the customer already runs; the compose file grows a second `server` replica and the
+operator's proxy balances across them.
 
 **2. Audit, and pushing it out.** Open question A2 asks whether the first release keeps an audit log;
 the answer is now effectively forced, because item 3 below depends on it. An audit trail an
