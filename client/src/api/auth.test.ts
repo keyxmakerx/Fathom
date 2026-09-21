@@ -5,7 +5,7 @@
 // construction whatsoever, including a wrong one.
 import { describe, expect, it } from 'vitest';
 
-import { parseSignInAnswer } from './auth';
+import { buildSignInBody, parseSignInAnswer } from './auth';
 
 function u32le(n: number): number[] {
   return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
@@ -81,5 +81,56 @@ describe('parseSignInAnswer (crates/fathom-server/src/api.rs sign_in_handler)', 
     ]);
 
     expect(() => parseSignInAnswer(bytes)).toThrow();
+  });
+});
+
+// ADR-0055 client (a): the body `POST /session` reads with
+// `read_fields(&body, 6)`. Built here from the same hand-rolled `u32le` the
+// tests above use, so the expectation does not come from the encoder under
+// test.
+describe('buildSignInBody (api.rs sign_in_handler, six fields since ADR-0055 decision 10)', () => {
+  const pubkey = Uint8Array.from([0x04, ...Array.from({ length: 64 }, (_, i) => i)]);
+  const nonce = Uint8Array.from(Array.from({ length: 32 }, (_, i) => 255 - i));
+
+  function lpOf(bytes: Uint8Array | number[]): number[] {
+    const list = Array.from(bytes);
+    return [...u32le(list.length), ...list];
+  }
+
+  it('writes kind, session pubkey, nonce, evidence, password and app code in that order', () => {
+    const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 9));
+    const body = buildSignInBody('steward', pubkey, nonce, evidence, 'harbour-lantern-copper-nine', '123456');
+
+    expect(Array.from(body)).toEqual([
+      ...lpField('steward'),
+      ...lpOf(pubkey),
+      ...lpOf(nonce),
+      ...lpOf(evidence),
+      ...lpField('harbour-lantern-copper-nine'),
+      ...lpField('123456'),
+    ]);
+  });
+
+  it('sends the two new fields empty on the key-only path rather than omitting them', () => {
+    // `read_fields` refuses an inexact count, so a four-field body is a 400
+    // and not a shorter version of the same request.
+    const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 1));
+    const body = buildSignInBody('operator', pubkey, nonce, evidence, '', '');
+    const tail = Array.from(body).slice(-8);
+    expect(tail).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(Array.from(body).length).toBe(
+      lpField('operator').length + lpOf(pubkey).length + lpOf(nonce).length + lpOf(evidence).length + 4 + 4,
+    );
+  });
+
+  it('sends an empty evidence field when this browser holds no key', () => {
+    const body = buildSignInBody('steward', pubkey, nonce, new Uint8Array(0), 'a-real-password-here', '');
+    const afterKindAndKeys = lpField('steward').length + lpOf(pubkey).length + lpOf(nonce).length;
+    expect(Array.from(body).slice(afterKindAndKeys, afterKindAndKeys + 4)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('trims the app code, because a pasted code carries whitespace and the server does not trim', () => {
+    const body = buildSignInBody('steward', pubkey, nonce, new Uint8Array(0), 'p', ' 000111 \n');
+    expect(Array.from(body).slice(-10)).toEqual(lpField('000111'));
   });
 });

@@ -85,6 +85,9 @@
    it does not navigate anywhere, and a screen reader should hear it as
    the action it is. */
 .signin__switch {
+  /* One per line: since ADR-0055 there are three of these under the form
+     (reset, enrol, setup) and inline buttons ran into each other. */
+  display: block;
   margin-top: var(--space-3, 12px);
   padding: 0;
   border: 0;
@@ -147,4 +150,179 @@
   color: var(--muted);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
+}
+
+/* ADR-0055 client (a) — the credential doors: setup, reset, the account
+   screen and the console entry. Same card, same rules, no new tokens: a
+   heading for the sections a screen now has more than one of, a hint under
+   a field, the monospace block a secret is read out of, and the list the
+   backup codes are shown in once. */
+
+.signin__input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.signin__notice {
+  margin: 0 0 var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+.signin__section {
+  display: block;
+  margin-top: var(--s5);
+  padding-top: var(--s5);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.signin__heading {
+  font-size: var(--t-body);
+  margin: 0 0 var(--s3) 0;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.signin__body {
+  font-size: var(--t-body);
+  margin: 0 0 var(--s4) 0;
+}
+
+.signin__hint {
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.signin__mono {
+  margin: var(--s1) 0 var(--s2) 0;
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  padding: var(--s2) var(--s3);
+  user-select: all;
+}
+
+.signin__mono--wrap {
+  overflow-wrap: anywhere;
+}
+
+.signin__codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1) var(--s3);
+  margin: 0 0 var(--s4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signin__code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  user-select: all;
+}
+
+/* "I have saved these" — a pressed button rather than a checkbox, because
+   `design/tokens.css` sets `appearance: none` on every input and a native
+   checkbox would have nothing to draw. */
+.signin__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  margin: var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--ink);
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  font-size: var(--t-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.signin__toggle--on,
+.signin__toggle:hover,
+.signin__toggle:focus-visible {
+  border-color: var(--ink);
+}
+
+.signin__toggle-box {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  border: var(--rule-hair) solid var(--ink);
+}
+
+/* The way to a person's own password and app code, on Home. A text button,
+   the same shape `signin__switch` takes, because it is a way to somewhere
+   and not a region of its own — see `App.tsx`'s note on placement. */
+.account-entry {
+  display: block;
+  margin-bottom: var(--s4);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.account-entry:hover,
+.account-entry:focus-visible {
+  color: var(--ink);
+}
+
+/* The console entry, on Home, for a person who holds both custodies and is
+   on the host the console is placed on. Absent everywhere else — see
+   `App.tsx`'s labelled block. */
+.console-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+}
+
+.console-entry__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.console-entry__title {
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.console-entry__note {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.console-entry__go {
+  flex: none;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--ink);
+  color: var(--page);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+
+.console-entry__go:disabled {
+  cursor: not-allowed;
+  opacity: var(--phantom);
 }

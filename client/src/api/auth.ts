@@ -10,6 +10,7 @@ import {
   getEnrolledKeyPair,
   getPendingKeyPair,
   promotePendingKeyPair,
+  putEnrolledKeyPair,
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
@@ -22,7 +23,8 @@ import {
   PRINCIPAL_KIND_STEWARD,
   type PrincipalKind,
 } from './constants';
-import { refusalFrom } from './errors';
+import { registerBrowserKey, registerOperatorKey } from './credentials';
+import { ApiRefusal, refusalFrom } from './errors';
 import { signedFetch } from './signedFetch';
 
 /**
@@ -83,21 +85,40 @@ export class NoEnrolledKeyError extends Error {
  * a key whose owner the server never got to say.
  *
  * Throws [`NoEnrolledKeyError`] before any network call if this browser
- * holds neither, and an [`ApiRefusal`](./errors.ts) — the server's own
- * uniform wording, unchanged — for every refusal the server itself can
- * produce.
+ * holds neither **and no password was typed**, and an
+ * [`ApiRefusal`](./errors.ts) — the server's own uniform wording, unchanged —
+ * for every refusal the server itself can produce.
+ *
+ * **Since ADR-0055 decision 6 a key is no longer required at all.** The
+ * address, a password and an app code sign in from any browser, with no
+ * pairing; a key this browser happens to hold is sent beside them as evidence
+ * and is what makes the session `A1`. `credential` carries the other two
+ * fields; both go on the wire empty when there is nothing to put in them,
+ * because `POST /session` takes exactly six fields.
  */
-export async function signIn(address: string, kind?: PrincipalKind): Promise<void> {
+export async function signIn(
+  address: string,
+  kind?: PrincipalKind,
+  credential: SignInCredential = {},
+): Promise<void> {
+  const password = credential.password ?? '';
+  const appCode = credential.appCode ?? '';
   const found = await findKey(address, kind);
-  if (!found) {
+  if (!found && password.length === 0) {
     throw new NoEnrolledKeyError(address, kind ?? (looksLikeOperatorId(address) ? PRINCIPAL_KIND_OPERATOR : PRINCIPAL_KIND_STEWARD));
   }
-  kind = found.kind;
+  // A password is the account plane's credential and only the account
+  // plane's: `sessions.rs` reads `accounts.password_hash`, and an operator
+  // principal has no account row of its own (ADR-0055 decision 1 binds the
+  // custody to an account; the operator still signs in by key). So a
+  // password with no key found means the steward plane, unless the caller
+  // named one.
+  kind = found ? found.kind : (kind ?? PRINCIPAL_KIND_STEWARD);
   const slot = keySlot(kind, address);
-  const enrolledKeyPair = found.pair;
+  const enrolledKeyPair = found?.pair ?? null;
   // Which pending slot the key came from, if any, so success can promote
   // exactly that one into `slot`.
-  const pendingSlot = found.pendingSlot;
+  const pendingSlot = found?.pendingSlot ?? null;
 
   const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
@@ -122,27 +143,15 @@ export async function signIn(address: string, kind?: PrincipalKind): Promise<voi
   const deploymentId = new TextDecoder().decode(deploymentIdBytes);
 
   const challenge = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
-  const evidenceSig = await signMessage(enrolledKeyPair.privateKey, challenge);
+  // No key in this browser is an ordinary state since ADR-0055 decision 6
+  // ("any browser, no pairing"): the evidence field goes empty and the
+  // password and the app code are what the server checks. A key, when this
+  // browser has one, still signs the challenge and still buys `A1`.
+  const evidenceSig = enrolledKeyPair
+    ? await signMessage(enrolledKeyPair.privateKey, challenge)
+    : new Uint8Array(0);
 
-  // Body: LP(principal_kind) || LP(session_pubkey) || LP(nonce) || LP(evidence_sig)
-  //       || LP(credential) || LP(app_code)
-  //
-  // ADR-0055 stream (a) widened `POST /session` from four length-prefixed
-  // fields to six (decision 10), and `api.rs`'s `read_fields` refuses an
-  // inexact count — so the two new fields are not optional even on this path,
-  // which is the key-only branch and sends both empty. **This is the whole of
-  // what this stream changes in the client**: the screens that fill those two
-  // fields in are stream 4's (the ADR's cost/order item 4), and this edit
-  // exists so the key-based sign-in that works today still works after the
-  // server half lands.
-  const signInBody = concatBytes(
-    lp(utf8(kind)),
-    lp(sessionPubkey),
-    lp(serverNonce),
-    lp(evidenceSig),
-    lp(new Uint8Array(0)),
-    lp(new Uint8Array(0)),
-  );
+  const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, appCode);
   const signInResponse = await fetch('/session', {
     method: 'POST',
     body: signInBody as BodyInit,
@@ -171,6 +180,71 @@ export async function signIn(address: string, kind?: PrincipalKind): Promise<voi
     address,
     accountId,
   });
+
+  // **This browser's own key, registered silently once there is a session to
+  // register it under** (ADR-0055 decision 6: the browser is not paired, it
+  // simply keeps a key so the next sign-in is `A1`). Best effort: a failure
+  // here costs the next sign-in its `A1` and nothing else, so it must never
+  // undo a sign-in that has already succeeded.
+  //
+  // **Only when an app code was presented**, and the reason is a property of
+  // the server this client must not walk into: `sessions.rs` (4) gives
+  // `A1` to password + key even when no app code is enrolled yet, and the
+  // setup gate in `verify_inside` (4a) fires on `A0` alone. Registering a key
+  // for an operator-custody account that has not finished enrolling its app
+  // code would therefore turn its next session from a setup session into a
+  // full one. An app code in hand means the account is past that point.
+  // `Setup.tsx` registers the key explicitly, after the code is confirmed.
+  if (
+    credential.registerBrowserKey !== false &&
+    kind === PRINCIPAL_KIND_STEWARD &&
+    found === null &&
+    appCode.trim().length > 0
+  ) {
+    await registerBrowserKey(address).catch(() => {});
+  }
+}
+
+/** What the person typed at the door, beside their address. */
+export interface SignInCredential {
+  /** The password. Empty for the key-only path, which is every operator
+   * sign-in and every account that has never set one. */
+  password?: string;
+  /** Six digits from the app, or one of the ten backup codes — the server
+   * tries the second when the first does not fit (`sessions.rs`'s
+   * `check_second_factor`), which is why the screen has one field. */
+  appCode?: string;
+  /** Register a key for this browser on success when it holds none. Default
+   * true; `Setup.tsx` passes `false` for the sign-in it makes mid-setup,
+   * before the app code exists. */
+  registerBrowserKey?: boolean;
+}
+
+/**
+ * `POST /session`'s body: `LP(kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖
+ * LP(evidence_sig) ‖ LP(password) ‖ LP(app_code)`.
+ *
+ * Six fields since ADR-0055 decision 10 widened the route, and `api.rs`'s
+ * `read_fields` refuses an inexact count — so the last two are sent on every
+ * path, empty where there is nothing to put in them. Exported so
+ * `auth.test.ts` can check the framing without a network call.
+ */
+export function buildSignInBody(
+  kind: PrincipalKind,
+  sessionPubkey: Uint8Array,
+  nonce: Uint8Array,
+  evidenceSig: Uint8Array,
+  password: string,
+  appCode: string,
+): Uint8Array {
+  return concatBytes(
+    lp(utf8(kind)),
+    lp(sessionPubkey),
+    lp(nonce),
+    lp(evidenceSig),
+    lp(utf8(password)),
+    lp(utf8(appCode.trim())),
+  );
 }
 
 interface FoundKey {
@@ -242,4 +316,66 @@ export function parseSignInAnswer(bytes: Uint8Array): {
 export async function signOut(): Promise<void> {
   await signedFetch('DELETE', '/session');
   setSession(null);
+}
+
+// ---------------------------------------------------------------------------
+// PROVISIONAL — the operator bootstrap, ADR-0055 client stream (b)'s to own
+// ---------------------------------------------------------------------------
+//
+// Built here so stream (a) can be driven from the token file to the console
+// entry in one piece. Stream (b) owns the operator plane; at the merge this
+// function is deleted and `App.tsx`'s one labelled block imports theirs.
+
+/**
+ * On a console host, after an account sign-in: register this browser's key as
+ * the signed-in person's OPERATOR key, and learn which operator the custody is
+ * bound to.
+ *
+ * The same key does both jobs, exactly as
+ * `scripts/ci/first-operator-signin.mjs` walks it: `POST
+ * /admin/operators/self/key` takes the account session and the public half,
+ * answers with the operator id, and the operator then signs in by signing the
+ * challenge with the private half — the operator plane is still a key sign-in
+ * and carries no password (ADR-0055 decision 10's last line, and the lead's
+ * resolution 8).
+ *
+ * Returns the operator id on success. Returns `null` when the server refuses,
+ * which is the ordinary answer for an account that holds no operator custody
+ * and for every host the console is not placed on: the caller shows nothing
+ * operator-side, rather than an error nobody can act on.
+ *
+ * **One session at a time.** `state/sessionState.ts` holds one, and its
+ * request counter resets with it, so this does not sign in as the operator
+ * here — it leaves the account session live and hands the caller the operator
+ * id. `App.tsx` signs in on the operator plane when the Site entry is pressed.
+ */
+export async function bootstrapOperatorCustody(address: string): Promise<string | null> {
+  try {
+    // A browser that has just signed in with a password may not have
+    // finished filing its own key yet (`signIn` registers it after the
+    // session exists), and on this path there is no reason to wait for it:
+    // the caller only reaches here once the account is past its app-code
+    // setup, which is exactly when registering a key is safe.
+    const pair = (await getEnrolledKeyPair(address)) ?? (await registerAndRead(address));
+    if (!pair) {
+      return null;
+    }
+    const publicKey = await exportPublicKeyRaw(pair.publicKey);
+    const { operatorId } = await registerOperatorKey(publicKey);
+    // File the same pair under the operator's slot so `findKey` presents it
+    // as the operator's evidence at the next sign-in, on this browser and
+    // for this operator only (`./constants.ts`'s `keySlot`).
+    await putEnrolledKeyPair(keySlot(PRINCIPAL_KIND_OPERATOR, operatorId), pair);
+    return operatorId;
+  } catch (error) {
+    if (error instanceof ApiRefusal) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function registerAndRead(address: string): Promise<CryptoKeyPair | null> {
+  await registerBrowserKey(address).catch(() => {});
+  return getEnrolledKeyPair(address);
 }
