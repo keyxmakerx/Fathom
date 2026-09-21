@@ -10,26 +10,54 @@ export interface SignInProps {
   /** Go to the enrolment screen, which puts a key in this browser by
    * redeeming an invitation. Optional so this screen still stands alone. */
   onRedeemInvitation?: () => void;
+  /** Go to the forgot-password screen. */
+  onForgotPassword?: () => void;
+  /** Go to the first operator's setup screen, for the token the server wrote
+   * at its first start. */
+  onFirstOperatorSetup?: () => void;
+  /** Prefilled address — after a reset, or after setup, so the person does
+   * not retype what this client already knows. */
+  initialAddress?: string;
+  /** One sentence above the form, from whatever sent the person here (a
+   * completed reset, a session that ended). Never a refusal: those come from
+   * the server and are shown below the button, verbatim. */
+  notice?: string | null;
 }
 
 /**
- * Sign-in, and nothing else. No password field: there is nowhere one could
- * go (`crates/fathom-server/src/api.rs`'s `sign_in_handler`). No
- * self-registration: enrolment is by invitation
- * (`docs/OPEN-QUESTIONS.md` B5), so this screen signs in with a key this
- * browser already holds and sends anyone without one to `Enrol`.
+ * Sign-in: the address, the password and the app code.
  *
- * **No choice of plane.** The key is the access, and it was filed under
- * one plane's slot when it was enrolled (`../api/constants.ts`), so this
- * screen lists the identities this browser holds a key for and signs in as
- * whichever is pressed; the field below is for typing one instead, and
- * `signIn` (`../api/auth.ts`) finds the key the same way. The owner's rule,
- * 2026-09-21: *"if they have access they have access, it shouldn't be a
- * selection"*.
+ * **Any browser, no pairing** (ADR-0055 decision 6). Until 2026-09-21 this
+ * screen had no password field because the server had nowhere to put one;
+ * decision 10 puts the credential here, and the key this browser may hold is
+ * now evidence sent beside it rather than the only way in. `signIn`
+ * (`../api/auth.ts`) presents a stored key automatically when there is one —
+ * nothing on this screen mentions it, because a person signing in has nothing
+ * to decide about it.
+ *
+ * **No choice of plane.** The identities below are the ones this browser
+ * holds a key for; pressing one fills the address in (an operator id signs in
+ * on the spot, since the operator plane is a key sign-in and carries no
+ * password). The owner's rule, 2026-09-21: *"if they have access they have
+ * access, it shouldn't be a selection"*.
+ *
+ * **One field for two kinds of code.** Six digits is the app code; one of the
+ * ten backup codes goes in the same box, and the server tries it when the
+ * first shape does not fit. The note under the field says so, because a
+ * person reaching for a backup code has already lost their phone and should
+ * not also have to guess where it goes.
  */
-export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
+export function SignIn({
+  onRedeemInvitation,
+  onForgotPassword,
+  onFirstOperatorSetup,
+  initialAddress,
+  notice,
+}: SignInProps) {
   const [identities, setIdentities] = useState<SlotIdentity[] | null>(null);
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(initialAddress ?? '');
+  const [password, setPassword] = useState('');
+  const [appCode, setAppCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -64,7 +92,7 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
     setBusy(id);
     setRefusal(null);
     try {
-      await signIn(id, kind);
+      await signIn(id, kind, { password, appCode });
     } catch (error) {
       console.error(error);
       setRefusal(describe(error));
@@ -78,15 +106,28 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
     await attempt(address.trim());
   }
 
+  /** An identity this browser holds a key for. An operator id is a key
+   * sign-in with no password (`../api/auth.ts`), so it is pressed and done;
+   * an account's address goes into the field above the password, because the
+   * password is still required whenever the account has one. */
+  function chooseIdentity(who: SlotIdentity) {
+    if (who.kind === 'operator') {
+      void attempt(who.id, who.kind);
+      return;
+    }
+    setAddress(who.id);
+    setRefusal(null);
+  }
+
   const hasIdentities = identities !== null && identities.length > 0;
 
   return (
     <div className="signin">
       <form className="signin__card" onSubmit={handleSubmit}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">
-          {hasIdentities ? 'Sign in with a key this browser holds.' : 'Sign in with your enrolled key.'}
-        </p>
+        <p className="signin__subtitle">Sign in with your address, your password and your app code.</p>
+
+        {notice && <p className="signin__notice">{notice}</p>}
 
         {hasIdentities && (
           <div className="signin__identities">
@@ -96,11 +137,11 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
                 type="button"
                 className="signin__identity"
                 disabled={busy !== null}
-                onClick={() => attempt(who.id, who.kind)}
+                onClick={() => chooseIdentity(who)}
               >
                 <span className="signin__identity-id">{who.id}</span>
                 <span className="signin__identity-kind">
-                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'operator' : 'account'}
+                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'operator' : 'this browser'}
                 </span>
               </button>
             ))}
@@ -109,7 +150,7 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="signin-address">
-            {hasIdentities ? 'Or another address or operator id' : 'Address or operator id'}
+            Address
           </label>
           <input
             id="signin-address"
@@ -120,8 +161,45 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
             value={address}
             onChange={(event) => setAddress(event.target.value)}
             disabled={busy !== null}
-            required={!hasIdentities}
+            required
           />
+        </div>
+
+        <div className="signin__field">
+          <label className="signin__label" htmlFor="signin-password">
+            Password
+          </label>
+          <input
+            id="signin-password"
+            className="signin__input"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            disabled={busy !== null}
+          />
+        </div>
+
+        <div className="signin__field">
+          <label className="signin__label" htmlFor="signin-code">
+            App code
+          </label>
+          <input
+            id="signin-code"
+            className="signin__input signin__input--mono"
+            type="text"
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={appCode}
+            onChange={(event) => setAppCode(event.target.value)}
+            disabled={busy !== null}
+          />
+          <p className="signin__hint">
+            Six digits from your app. Lost the phone? Type one of your backup codes here instead — each works once.
+          </p>
         </div>
 
         <button
@@ -138,11 +216,21 @@ export function SignIn({ onRedeemInvitation }: SignInProps = {}) {
           </div>
         )}
 
-        <p className="signin__note">There is no password. The key in this browser is the access.</p>
+        {onForgotPassword && (
+          <button type="button" className="signin__switch" onClick={onForgotPassword}>
+            Forgotten your password?
+          </button>
+        )}
 
         {onRedeemInvitation && (
           <button type="button" className="signin__switch" onClick={onRedeemInvitation}>
-            No key in this browser? Redeem a token.
+            Invited? Redeem a token.
+          </button>
+        )}
+
+        {onFirstOperatorSetup && (
+          <button type="button" className="signin__switch" onClick={onFirstOperatorSetup}>
+            Setting this server up for the first time? Use the token the server wrote at first start.
           </button>
         )}
       </form>

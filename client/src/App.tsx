@@ -1,10 +1,16 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
+import { bootstrapOperatorCustody, signIn, signOut } from './api/auth';
+import { PRINCIPAL_KIND_OPERATOR } from './api/constants';
+import { appCodeEnrolmentRequired, fetchConsoleHostFlag } from './api/credentials';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
+import { Account } from './components/Account';
 import { Console } from './components/console/Console';
 import { Enrol } from './components/Enrol';
+import { Reset, tokenFromLocation } from './components/Reset';
+import { Setup } from './components/Setup';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
@@ -13,17 +19,19 @@ import { DesignPlace } from './components/design/DesignPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
-import { listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
 import { getSession, subscribe } from './state/sessionState';
 
 /**
- * Which door an unsigned-in visitor is at. Two, and they are not the same
- * thing: `sign-in` uses a key this browser already holds, `enrol` puts one
- * here for the first time by redeeming an invitation. Nobody self-registers
- * (`docs/OPEN-QUESTIONS.md` B5), so neither door creates an account.
+ * Which door an unsigned-in visitor is at. Four since ADR-0055, and they are
+ * not the same thing: `sign-in` takes an address, a password and an app code;
+ * `enrol` redeems an invitation, which is still the key path and unchanged;
+ * `setup` is the first operator's, for the token file the server wrote at its
+ * first start; `reset` is "forgot my password" and the screen its link lands
+ * on. Nobody self-registers (`docs/OPEN-QUESTIONS.md` B5), so no door creates
+ * an account.
  */
-type Door = 'sign-in' | 'enrol';
+type Door = 'sign-in' | 'enrol' | 'setup' | 'reset';
 
 /**
  * Where a signed-in person is.
@@ -40,26 +48,128 @@ type View =
 
 export default function App() {
   const session = useSyncExternalStore(subscribe, getSession);
-  const [door, setDoor] = useState<Door>('sign-in');
+  // ADR-0055 client (a): a link carrying a reset token opens the reset
+  // screen and nothing else. Read once, before the first render, so the
+  // screen does not flash the ordinary door first.
+  const [resetToken] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : tokenFromLocation(window.location),
+  );
+  const [door, setDoor] = useState<Door>(resetToken ? 'reset' : 'sign-in');
   const [view, setView] = useState<View>({ kind: 'home' });
 
-  // A browser holding no key at all has nothing to sign in with, so it
-  // starts at the enrolment door; one that holds a key starts at sign-in,
-  // which lists it. Decided once, from storage, and never over a choice the
-  // visitor has already made.
+  // ADR-0055 client (a): what the sign-in door is told by whatever sent the
+  // person back to it — a finished reset, a finished setup.
+  const [signInAddress, setSignInAddress] = useState<string | undefined>(undefined);
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
+
+  // ADR-0055 client (a): the app-code gate. `null` is "not asked yet";
+  // `true` is the server's own `enrol an app code first` refusal, which is
+  // a route to a screen and not a wall (`api/credentials.ts`).
+  const [appCodeNeeded, setAppCodeNeeded] = useState<boolean | null>(null);
+
+  // ADR-0055 client (a): true once the first operator's setup screen has
+  // finished, so a live session does not pull the person off it halfway.
+  const [setupDone, setSetupDone] = useState(false);
+
+  // ADR-0055 client (a): the account's own credential screen is open.
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  // The app-code gate, asked once per session: an account that holds the
+  // operator custody and has no app code gets a session good for
+  // `/credentials/*` alone, and the server says so with a typed refusal on
+  // the first ordinary route. Asking one route on purpose puts the answer
+  // here, where the screen can be chosen, rather than inside whichever
+  // surface happened to fetch first.
+  const sessionId = session?.sessionId ?? null;
+  const sessionKind = session?.kind ?? null;
+  const midSetup = door === 'setup' && !setupDone;
+  useEffect(() => {
+    if (sessionId === null || sessionKind !== 'steward' || midSetup) {
+      setAppCodeNeeded(null);
+      return;
+    }
+    let cancelled = false;
+    appCodeEnrolmentRequired()
+      .then((needed) => {
+        if (!cancelled) setAppCodeNeeded(needed);
+      })
+      .catch(() => {
+        if (!cancelled) setAppCodeNeeded(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, sessionKind, midSetup]);
+
+  // ---------------------------------------------------------------------
+  // ADR-0055 client (a) — the console entry
+  //
+  // The one block this stream adds to the operator side. It asks the host
+  // whether the console lives here, and if it does, whether the signed-in
+  // account holds the operator custody; only both together put the Site
+  // entry on the screen. On any other host, and for anybody else, there is
+  // nothing operator-side to hide, because nothing is rendered (decision 9:
+  // *absent*, not hidden).
+  //
+  // **At the merge**: `useConsoleHost()` comes from stream (c)'s
+  // `api/placement.ts` and the bootstrap from stream (b); the two imports
+  // below move and the provisional copies in `api/credentials.ts` and
+  // `api/auth.ts` are deleted. Nothing else in this file changes.
+  // ---------------------------------------------------------------------
+  const [consoleHost, setConsoleHost] = useState(false);
+  const [operatorId, setOperatorId] = useState<string | null>(null);
+  const [enteringConsole, setEnteringConsole] = useState(false);
+  const accountAddress = sessionKind === 'steward' ? (session?.address ?? null) : null;
+
   useEffect(() => {
     let cancelled = false;
-    listKeySlots()
-      .then(({ enrolled, pending }) => {
-        if (!cancelled && enrolled.length === 0 && pending.length === 0) {
-          setDoor('enrol');
-        }
+    fetchConsoleHostFlag()
+      .then(({ consoleHost: yes }) => {
+        if (!cancelled) setConsoleHost(yes);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setConsoleHost(false);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!consoleHost || accountAddress === null || appCodeNeeded !== false) {
+      setOperatorId(null);
+      return;
+    }
+    let cancelled = false;
+    bootstrapOperatorCustody(accountAddress)
+      .then((id) => {
+        if (!cancelled) setOperatorId(id);
+      })
+      .catch(() => {
+        // The server refusing is the ordinary answer for an account that
+        // holds no operator custody, and `bootstrapOperatorCustody` already
+        // reads it as `null`. Anything that reaches here is this browser
+        // failing, and the honest response is the same: show nothing.
+        if (!cancelled) setOperatorId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [consoleHost, accountAddress, appCodeNeeded]);
+
+  async function enterConsole(id: string) {
+    setEnteringConsole(true);
+    try {
+      // The operator plane is a key sign-in and carries no password: the
+      // key registered a moment ago is the evidence (`api/auth.ts`).
+      await signIn(id, PRINCIPAL_KIND_OPERATOR);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setEnteringConsole(false);
+    }
+  }
+  // --- end ADR-0055 client (a) console entry ---------------------------
 
   // The camera's state. It lives here rather than in `Shell` because the
   // drawing Session 4 builds will read it too, and two copies would drift.
@@ -145,11 +255,74 @@ export default function App() {
     [],
   );
 
+  // ADR-0055 client (a): the setup door holds the screen even once its own
+  // sign-in has made a session — the password is set but the app code is
+  // not, and that session may do nothing else until it is.
+  if (midSetup) {
+    return (
+      <Setup
+        onUseSignIn={() => setDoor('sign-in')}
+        onDone={async (address) => {
+          // The setup session is `A0` for its whole life and the operator
+          // routes refuse `A0`, so there is nothing left for it to do. Ended
+          // BEFORE this screen gives way, so that the gate below does not
+          // start a signed request against a session that is going away.
+          // Best effort: if the sign-out does not land, the row expires on
+          // its own and this browser has already forgotten it.
+          await signOut().catch(() => {});
+          setSetupDone(true);
+          setSignInAddress(address);
+          setSignInNotice(
+            'Set up. Sign in with your password and a code from your app — the session that set this up was a ' +
+              'setup session and ends here.',
+          );
+          setDoor('sign-in');
+        }}
+      />
+    );
+  }
+
   if (!session) {
-    return door === 'enrol' ? (
-      <Enrol onUseExistingKey={() => setDoor('sign-in')} />
-    ) : (
-      <SignIn onRedeemInvitation={() => setDoor('enrol')} />
+    const toSignIn = (address?: string, notice?: string) => {
+      setSignInAddress(address);
+      setSignInNotice(notice ?? null);
+      setDoor('sign-in');
+    };
+    if (door === 'enrol') {
+      return <Enrol onUseExistingKey={() => setDoor('sign-in')} />;
+    }
+    if (door === 'reset') {
+      return <Reset initialToken={resetToken ?? undefined} onUseSignIn={toSignIn} />;
+    }
+    return (
+      <SignIn
+        onRedeemInvitation={() => setDoor('enrol')}
+        onForgotPassword={() => setDoor('reset')}
+        onFirstOperatorSetup={() => setDoor('setup')}
+        initialAddress={signInAddress}
+        notice={signInNotice}
+      />
+    );
+  }
+
+  // ADR-0055 client (a): the account's own credential screen, opened from
+  // Home. **Placement is this stream's own call and the shell's owner may
+  // move it**: ADR-0055 gives every signed-in person a password and an app
+  // code to manage and `docs/UI-SPEC.md` has no place for them yet, so the
+  // way in is a text button above Home rather than a new region.
+  if (accountOpen && session.kind === 'steward') {
+    return <Account address={session.address} onClose={() => setAccountOpen(false)} />;
+  }
+
+  // ADR-0055 client (a): the typed refusal routes here, and nowhere else is
+  // reachable from this session until the app code exists.
+  if (appCodeNeeded === true) {
+    return (
+      <Account
+        address={session.address}
+        purpose="app-code"
+        onDone={() => setAppCodeNeeded(false)}
+      />
     );
   }
 
@@ -211,6 +384,34 @@ export default function App() {
           // to open: a place needs a design, and Home is where you pick one.
         }}
       >
+        {/* ADR-0055 client (a): the way to a person's own password and app
+            code. Everybody has both now, so this is not operator-side and
+            does not wait on the flag. */}
+        <button type="button" className="account-entry" onClick={() => setAccountOpen(true)}>
+          Your password and app code
+        </button>
+        {/* ADR-0055 client (a): the console entry. Rendered only when the
+            host is a console host AND this account holds the operator
+            custody — otherwise there is nothing here at all. */}
+        {operatorId !== null && (
+          <div className="console-entry">
+            <div className="console-entry__text">
+              <span className="console-entry__title">Site</span>
+              <span className="console-entry__note">
+                You hold the operator custody on this server. The console is the operator plane: signing in there is
+                a second session, and this one ends.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="console-entry__go"
+              disabled={enteringConsole}
+              onClick={() => enterConsole(operatorId)}
+            >
+              {enteringConsole ? 'Opening…' : 'Open the Site console'}
+            </button>
+          </div>
+        )}
         <Home
           address={session.address}
           onOpenRacks={openIn('racks')}

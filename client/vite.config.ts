@@ -50,6 +50,14 @@ export default defineConfig({
       // own entry here. Without it the dev server answers 404 itself and the
       // failure looks like a missing route on the server.
       '/placement': { target: apiTarget, changeOrigin: true },
+      // ADR-0055 client (a): the credential plane —
+      // `/credentials/password`, `/credentials/key`,
+      // `/credentials/totp/*` and `/credentials/reset*`
+      // (`api.rs`'s `credential_router`). `/enrolment/operator/setup` is
+      // already covered by the `/enrolment` entry above. Without this line
+      // the dev server answers 404 itself and the failure looks like a
+      // missing route on the server.
+      '/credentials': { target: apiTarget, changeOrigin: true },
     },
   },
 })
