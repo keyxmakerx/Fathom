@@ -2080,12 +2080,18 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
     const TAG: &str = "ops_seconder_created";
     // **One store and a deployment of its own, where this used to need two
     // stores over a shared one.** ADR-0055 decision 3 takes the quorum off the
-    // constructor and puts it on the register, so the way to require a second
-    // signature is to seed two operators who could give one -- which is also
-    // the only state the rule under test is visible in. At quorum 1 an
-    // unseconded change applies alone once its delay passes, so the "does not
-    // apply" assertion below was a race against one second of real round trips
-    // and lost it on a loaded machine (2026-09-19).
+    // constructor and puts it on the register, so the way to make a second
+    // signature possible at all is to seed two operators -- which is also the
+    // only state the rule under test is visible in.
+    //
+    // **What the quorum is here, exactly.** Fix (c) made the quorum per
+    // requester: `second` was created by `first`, so `second` is not an
+    // eligible seconder for `first`'s request, the quorum for it is 1, and the
+    // change applies ALONE once its delay passes. Until 2026-09-21 the end of
+    // this test asserted the opposite ("the change does not apply"), which was
+    // true only inside the one-second delay: it passed on a fast machine and
+    // lost the race on a CI runner. The assertion below now states the rule as
+    // fix (c) wrote it, after the delay, with no race to lose.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let first = a_lone_operator(&operators_store, &sessions_store).await;
@@ -2132,14 +2138,32 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
         refused.is_err(),
         "an operator the requester created may not second their change (§5.5)"
     );
+    let unseconded = operators_store
+        .list_pending_settings()
+        .await
+        .expect("the pending list answers")
+        .into_iter()
+        .find(|p| p.id == pending.id)
+        .map(|p| p.seconded_by.is_none());
+    assert_eq!(
+        unseconded,
+        Some(true),
+        "the refused signature left no seconder on the version"
+    );
+
+    // Nobody in this register can second `first` (the only other operator is
+    // one `first` created), so `quorum_for(first)` is 1 and the version stands
+    // alone with the delay -- ADR-0055 decision 3 and fix (c). Waiting past the
+    // store's own delay makes this a statement about the rule, not a race.
+    tokio::time::sleep(operators_store.settings_delay() + Duration::from_millis(200)).await;
     assert_eq!(
         operators_store
             .effective_setting(&key)
             .await
             .expect("the resolver answers")
             .as_deref(),
-        Some(&b"first"[..]),
-        "and the change does not apply"
+        Some(&value[..]),
+        "with no eligible seconder the change applies alone after the delay"
     );
 }
 
