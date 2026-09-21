@@ -106,6 +106,25 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0017_firmware_staging.sql",
         sql: include_str!("../migrations/0017_firmware_staging.sql"),
     },
+    // 0016 does not exist: see `0015_operator_console.sql` section B2 for why
+    // the number was retired rather than reused, and
+    // `docs/archive/2026-09-21-adr-0055-build-contracts.md` for why these
+    // three start at 18 rather than at the number ADR-0055's prose uses.
+    Migration {
+        version: 18,
+        name: "0018_credentials.sql",
+        sql: include_str!("../migrations/0018_credentials.sql"),
+    },
+    Migration {
+        version: 19,
+        name: "0019_operator_account_binding.sql",
+        sql: include_str!("../migrations/0019_operator_account_binding.sql"),
+    },
+    Migration {
+        version: 20,
+        name: "0020_console_placement.sql",
+        sql: include_str!("../migrations/0020_console_placement.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
