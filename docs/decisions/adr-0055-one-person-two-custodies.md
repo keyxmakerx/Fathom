@@ -140,10 +140,13 @@ instead of silent. Keep two.
    written into `docs/OPERATING.md` and rehearsed on the 90-day cadence Entra names.
 9. **The console lives on its own host, and the client knows it.** The server half exists
    (`admin_exposure.rs`). The client half is new: the server tells the client whether the host it
-   was served on is a console host, and on any other host the operator sign-in, the console entry
-   and every operator control are absent, not hidden. An allowlist at the reverse proxy for the
-   console host is defence in depth the runbook recommends and never the only gate (ASVS 8.4.2):
-   sign-in with a second factor stands under it.
+   was served on is a console host, and on any other host the console entry and every operator
+   control are absent, not hidden. **As built (2026-09-21), precisely:** the operator custody is
+   exercised only through `/admin`, which the placement confines, and an operator key can be
+   registered only there, so off a console host there is nothing an operator session could do;
+   the sign-in route itself is not confined by host, and the client shows no operator door there.
+   An allowlist at the reverse proxy for the console host is defence in depth the runbook
+   recommends and never the only gate (ASVS 8.4.2): sign-in with a second factor stands under it.
 10. **The credential is a password and an app code; email is never a factor.**
     - Password: argon2id (parameters from the OWASP Password Storage Cheat Sheet, looked up at
       build time, not assumed); at least 15 characters and at most 128; no composition rules; no
