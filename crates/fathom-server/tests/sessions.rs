@@ -22,21 +22,25 @@
 mod support;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use deadpool_postgres::Pool;
 use fathom_server::api::{
-    self, ApiState, HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE,
-    HEADER_TIMESTAMP, HEADER_TOKEN,
+    self, ApiState, CredentialApiState, HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION,
+    HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN,
 };
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
+use fathom_server::credentials::{self, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
 use fathom_server::keys::{self, KeyRing};
+use fathom_server::operators::OperatorStore;
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
-    self, PrincipalKind, SessionError, SessionStore, SignInLimits, SignedIn, SignedRequest,
+    self, PrincipalKind, SessionError, SessionStore, SignInAttempt, SignInLimits, SignedIn,
+    SignedRequest, VerifiedSession,
 };
 
 /// The one master key this test database is encrypted under — the same value
@@ -2406,5 +2410,882 @@ async fn an_account_disabled_before_the_request_arrives_is_refused_by_the_route(
         "the disabled-account check and the authorisation it gates now run on one snapshot, so a \
          disabled account is refused at the route rather than authorised beside a check that \
          already committed"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 fix (S1) — what the 2026-09-21 checker found in sessions and the API
+// ---------------------------------------------------------------------------
+//
+// Six findings, six claims, six tests that failed before the fix beside them.
+// Each is written the way CLAUDE.md rule 2 asks: **real inputs.** A genuine
+// six-digit code computed from the enrolled secret at the step the clock is
+// actually in; a real four-word passphrase of the length a person types;
+// concurrency where the finding is about concurrency, run on a multi-threaded
+// runtime because a current-thread one proves something weaker while looking
+// identical.
+//
+// **These tests get a deployment of their own**, tag `sess`, for the reason
+// `tests/credentials.rs` gives for its: they bind an account to an operator,
+// they count rows of a table other suites share, and the shared test database
+// is one deployment several binaries write to.
+
+/// This section's own database: `fathom_isolated_sess`.
+const ADR55_TAG: &str = "sess";
+
+static ADR55_DEPLOYMENT: tokio::sync::OnceCell<Pool> = tokio::sync::OnceCell::const_new();
+
+/// One of these tests at a time. The timing test below measures argon2id, and
+/// two of them running at once on the same machine measure each other.
+static ADR55_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// **A real password**: four words, twenty-seven characters, the shape a
+/// password manager's generator and the XKCD advice both produce. Not fifteen
+/// `a`s and not a string built to satisfy the check.
+const ADR55_PASSWORD: &str = "harbour-lantern-copper-nine";
+
+/// A second real one, wrong for every account here, for the refusals.
+const ADR55_WRONG_PASSWORD: &str = "orchard-thimble-marble-four";
+
+async fn adr55_deployment() -> Pool {
+    ADR55_DEPLOYMENT
+        .get_or_init(|| async {
+            let pool = support::isolated_deployment(ADR55_TAG).await;
+            let client = pool.get().await.expect("connection");
+            chains::register_deployment(&**client)
+                .await
+                .expect("stamp the deployment id, exactly as main.rs does at startup");
+            pool.clone()
+        })
+        .await
+        .clone()
+}
+
+async fn adr55_superuser() -> tokio_postgres::Client {
+    support::superuser_on_isolated(ADR55_TAG).await
+}
+
+async fn adr55_store(pool: &Pool, ring: Arc<KeyRing>, limits: SignInLimits) -> SessionStore {
+    let client = pool.get().await.expect("connection");
+    let deployment = chains::deployment_id(&**client)
+        .await
+        .expect("this deployment is stamped at startup");
+    SessionStore::new(pool.clone(), ring, deployment, limits)
+}
+
+async fn adr55_credentials(pool: &Pool, ring: Arc<KeyRing>) -> CredentialStore {
+    let client = pool.get().await.expect("connection");
+    let deployment = chains::deployment_id(&**client)
+        .await
+        .expect("this deployment is stamped at startup");
+    CredentialStore::new(pool.clone(), ring, deployment)
+}
+
+async fn adr55_operators(pool: &Pool, ring: Arc<KeyRing>) -> OperatorStore {
+    let client = pool.get().await.expect("connection");
+    let deployment = chains::deployment_id(&**client)
+        .await
+        .expect("this deployment is stamped at startup");
+    OperatorStore::with_delay(pool.clone(), ring, deployment, Duration::from_secs(1))
+}
+
+async fn adr55_account(pool: &Pool, name: &str) -> Person {
+    let address = unique(name);
+    let account = repo::create_account(pool, &address, name)
+        .await
+        .expect("create account")
+        .id;
+    Person {
+        account,
+        address,
+        key: SoftwareKey::random().expect("a keypair"),
+    }
+}
+
+/// Set a password with no session, the way `/enrolment/operator/setup` and
+/// `/credentials/reset/redeem` do — only ever to bootstrap a fixture into the
+/// state a test is actually about.
+async fn adr55_set_password(pool: &Pool, person: &Person, password: &str) {
+    let hash = credentials::hash_password(password).expect("hash");
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
+        .await
+        .expect("reset custody");
+    tx.execute(
+        "UPDATE accounts SET password_hash = $2 WHERE id = $1",
+        &[&person.account.to_string(), &hash],
+    )
+    .await
+    .expect("set the credential");
+    tx.commit().await.expect("commit");
+}
+
+/// Sign in with a credential and whatever second factor is handed over, and
+/// optionally with an evidence signature by a key the account has enrolled.
+async fn adr55_sign_in(
+    store: &SessionStore,
+    address: &str,
+    password: &str,
+    code: &str,
+    evidence: Option<&SoftwareKey>,
+) -> Result<(SignedIn, SoftwareKey), SessionError> {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Steward, address, &pubkey, &source)
+        .await?;
+    let signature = evidence.map(|key| {
+        key.sign(&sessions::session_challenge(
+            &pubkey,
+            &challenge.nonce,
+            &challenge.deployment_id,
+        ))
+    });
+    let signed_in = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: signature.as_ref().map(|s| &s[..]).unwrap_or(b""),
+            password,
+            totp_code: code,
+            source: &source,
+        })
+        .await?;
+    Ok((signed_in, session_key))
+}
+
+async fn adr55_next_counter(session_id: &str) -> i64 {
+    let mark: i64 = adr55_superuser()
+        .await
+        .query_one(
+            "SELECT request_counter FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0);
+    mark + 1
+}
+
+async fn adr55_try_verify(
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+) -> Result<VerifiedSession, SessionError> {
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await?;
+    let counter = adr55_next_counter(&signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        method,
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    store
+        .verify_request(&SignedRequest {
+            session_id: &signed_in.session_id,
+            method,
+            path,
+            body: b"",
+            nonce,
+            unix_ms,
+            counter,
+            signature: session_key.sign(&message),
+        })
+        .await
+}
+
+async fn adr55_assurance_of(session_id: &str) -> String {
+    adr55_superuser()
+        .await
+        .query_one(
+            "SELECT assurance FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0)
+}
+
+/// The secret this account's app code is computed from, opened as the server
+/// opens it — because what these tests present is what a real authenticator
+/// would be showing.
+async fn adr55_totp_secret(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8> {
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+        .await
+        .expect("session custody");
+    let deployment: String = tx
+        .query_one("SELECT id FROM deployments", &[])
+        .await
+        .expect("this deployment is stamped at startup")
+        .get(0);
+    let row = credentials::read_credentials(&tx, account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    let key = credentials::totp_key_for(&tx, ring)
+        .await
+        .expect("the credential key");
+    let secret = row
+        .totp_secret(&key, &deployment, account)
+        .expect("open the secret")
+        .expect("a secret is enrolled");
+    tx.rollback().await.expect("rollback");
+    secret
+}
+
+/// A code at a step that has not been spent yet.
+///
+/// `totp_last_step` refuses a code at or below the last accepted step, and
+/// confirming the enrolment spends one — so a test that signs in afterwards
+/// waits for the step to turn over. The wait is the replay refusal doing its
+/// job.
+async fn adr55_a_fresh_code(secret: &[u8]) -> String {
+    let step = credentials::totp_step(now_unix());
+    loop {
+        let now = now_unix();
+        if credentials::totp_step(now) > step {
+            return credentials::totp_code(secret, credentials::totp_step(now));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+struct Adr55Enrolled {
+    person: Person,
+    secret: Vec<u8>,
+}
+
+/// An account with a credential and a **confirmed** app code, built the way
+/// the product builds one: set the credential, sign in, enrol, confirm with a
+/// real six-digit code.
+async fn adr55_enrolled(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    sessions: &SessionStore,
+    creds: &CredentialStore,
+    name: &str,
+) -> Adr55Enrolled {
+    let person = adr55_account(pool, name).await;
+    adr55_set_password(pool, &person, ADR55_PASSWORD).await;
+
+    let (signed_in, session_key) =
+        adr55_sign_in(sessions, &person.address, ADR55_PASSWORD, "", None)
+            .await
+            .expect("a steward with a credential and no app code signs in");
+
+    let session = adr55_try_verify(
+        sessions,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds.enrol_totp(&session).await.expect("enrol an app code");
+
+    let secret = adr55_totp_secret(pool, ring, &person.account.to_string()).await;
+    let session = adr55_try_verify(
+        sessions,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/confirm",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .confirm_totp(
+            &session,
+            &credentials::totp_code(&secret, credentials::totp_step(now_unix())),
+        )
+        .await
+        .expect("a real six-digit code confirms the enrolment");
+
+    Adr55Enrolled { person, secret }
+}
+
+/// Create an operator row and bind this account to it.
+///
+/// **Written as the superuser with a placeholder seal.** Nothing under test
+/// here verifies the binding — `credentials::holds_operator_custody` is a
+/// membership lookup whose own doc says so, and the authorisation it feeds is
+/// a refusal, so a forged binding locks its holder out rather than letting
+/// anybody in.
+async fn adr55_bind_to_an_operator(person: &Person) -> String {
+    let su = adr55_superuser().await;
+    let operator = fathom_server::ids::new_ulid().to_string();
+    su.execute(
+        "INSERT INTO principals (id, kind) VALUES ($1, 'operator')",
+        &[&operator],
+    )
+    .await
+    .expect("principal");
+    su.execute(
+        "INSERT INTO operators (id, display_name, created_seq, row_version, row_seal) \
+         VALUES ($1, $2, 1, 1, $3)",
+        &[&operator, &unique("Colleague"), &vec![0u8; 32]],
+    )
+    .await
+    .expect("operator row");
+    su.execute(
+        "INSERT INTO operator_account_bindings (operator_id, account_id, bound_seq, \
+                                                row_version, row_seal) \
+         VALUES ($1, $2, 1, 1, $3)",
+        &[&operator, &person.account.to_string(), &vec![0u8; 32]],
+    )
+    .await
+    .expect("binding row");
+    operator
+}
+
+async fn adr55_credential_surface(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    sessions: Arc<SessionStore>,
+) -> std::net::SocketAddr {
+    let creds = Arc::new(adr55_credentials(pool, Arc::clone(ring)).await);
+    let operators = Arc::new(adr55_operators(pool, Arc::clone(ring)).await);
+    serve(api::credential_router(CredentialApiState {
+        sessions,
+        credentials: creds,
+        operators,
+        client_address: ClientAddress::header("x-forwarded-for"),
+    }))
+    .await
+}
+
+/// One signed `POST` to the credential surface, over a real socket.
+///
+/// The per-request nonce is drawn in process rather than through
+/// `/session/nonce`, which the credential router does not mount; the nonce is
+/// not what these tests are about, and the signature over method, path, body
+/// digest, nonce, time and counter is assembled exactly as the client does.
+async fn adr55_signed_post(
+    addr: std::net::SocketAddr,
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    path: &str,
+    body: &[u8],
+) -> (String, String) {
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await
+        .expect("a live session may ask for a nonce");
+    let counter = adr55_next_counter(&signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        "POST",
+        path,
+        &sessions::body_digest(body),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        path,
+        &[
+            (HEADER_SESSION, signed_in.session_id.clone()),
+            (HEADER_NONCE, hex(&nonce)),
+            (HEADER_TIMESTAMP, unix_ms.to_string()),
+            (HEADER_COUNTER, counter.to_string()),
+            (HEADER_SIGNATURE, hex(&session_key.sign(&message))),
+        ],
+        body,
+    )
+    .await;
+    (status, String::from_utf8_lossy(&answer).into_owned())
+}
+
+fn median(mut xs: Vec<u128>) -> u128 {
+    xs.sort_unstable();
+    xs[xs.len() / 2]
+}
+
+/// **ADR-0055 decision 10's *"a code accepted once"* holds against sign-ins
+/// that arrive at the same moment, not only against one that arrives twice.**
+///
+/// The checker of 2026-09-21 fired three `POST /session` calls together, each
+/// from its own source, each carrying the SAME live six-digit code, and got
+/// three sessions. `check_second_factor` read the high-water mark with a plain
+/// `SELECT`, decided, and only then advanced it, so every attempt in flight
+/// decided against the same stale number; what had been masking it was the
+/// per-source row lock in `sign_in_attempts`, which serialises attempts from
+/// one address and does nothing about three.
+///
+/// **A multi-threaded runtime, real parallel tasks, and one genuine code.**
+/// The code is computed from the enrolled secret at the step the clock is in —
+/// what an authenticator would be showing — and every task presents the same
+/// characters.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_app_code_presented_by_four_sign_ins_at_once_opens_exactly_one_session() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "at-once").await;
+
+    // A step the enrolment has not already spent.
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+
+    // Four challenges, drawn one after another, so that nothing in the race
+    // below is waiting on the challenge route. Four different sources, because
+    // the shared per-source row was the accidental lock that hid this.
+    let mut prepared = Vec::new();
+    for _ in 0..4 {
+        let session_key = SoftwareKey::random().expect("a session keypair");
+        let pubkey = session_key.public_key();
+        let source = a_source_of_its_own();
+        let challenge = store
+            .issue_challenge(
+                PrincipalKind::Steward,
+                &enrolled.person.address,
+                &pubkey,
+                &source,
+            )
+            .await
+            .expect("a challenge");
+        prepared.push((pubkey, challenge.nonce, source));
+    }
+
+    let mut running = Vec::new();
+    for (pubkey, nonce, source) in prepared {
+        let store = Arc::clone(&store);
+        let code = code.clone();
+        running.push(tokio::spawn(async move {
+            store
+                .sign_in_with_credentials(&SignInAttempt {
+                    kind: PrincipalKind::Steward,
+                    session_pubkey: &pubkey,
+                    nonce: &nonce,
+                    evidence_sig: b"",
+                    password: ADR55_PASSWORD,
+                    totp_code: &code,
+                    source: &source,
+                })
+                .await
+        }));
+    }
+
+    let mut opened = 0;
+    let mut refused = 0;
+    for task in running {
+        match task.await.expect("the task did not panic") {
+            Ok(_) => opened += 1,
+            Err(SessionError::PasswordRefused) => refused += 1,
+            Err(other) => panic!(
+                "a second sign-in on a spent code must be the uniform credential refusal, not \
+                 {other:?}"
+            ),
+        }
+    }
+
+    assert_eq!(
+        (opened, refused),
+        (1, 3),
+        "four sign-ins presenting ONE six-digit code opened {opened} sessions and were refused \
+         {refused} times. ADR-0055 decision 10 says a code is accepted once, and an \
+         adversary-in-the-middle relaying a victim's live code submits in parallel precisely so \
+         that the victim's own sign-in still succeeds and nothing looks wrong"
+    );
+
+    // Read off the table, not off the return values. `A0T` is `0018` §B2's
+    // "a credential and a verified app code" and is the assurance exactly one
+    // of these four can honestly have; the fixture's own enrolment session is
+    // `A0` and is not counted, because it never presented a code.
+    let opened_by_a_code: i64 = adr55_superuser()
+        .await
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE principal_id = $1 AND assurance = 'A0T'",
+            &[&enrolled.person.account.to_string()],
+        )
+        .await
+        .expect("count sessions")
+        .get(0);
+    assert_eq!(
+        opened_by_a_code, 1,
+        "one code, one session row that says a code made it"
+    );
+}
+
+/// **A known address and an unknown one are refused in the same time, not only
+/// with the same words.**
+///
+/// OWASP ASVS 5.0.0 6.3.8, which ADR-0055 quotes and this suite's fixtures were
+/// read against on 2026-09-21: *"no account enumeration through messages, codes
+/// or timing."* The checker measured this deployment at a median 498.7 ms for a
+/// known address against 5.9 ms for an unknown one — 85 to 1, no statistics
+/// needed — because the argon2id verification ran only when there was a stored
+/// hash to run it against.
+///
+/// # The tolerance, and why it is this one
+///
+/// One argon2id at `m=19456, t=2` is hundreds of milliseconds in a debug build
+/// and tens in a release one; the database work that differs between the two
+/// branches — one row read, a keyring lookup — is single-figure milliseconds
+/// on either. So the honest assertion is that **neither median is more than
+/// twice the other**: a factor of two is far more than the residue can
+/// account for and far less than the 85 the oracle was worth, and it leaves
+/// room for a scheduler on a shared runner. The probes are interleaved so that
+/// any load hits both sides alike, and both medians are also required to be
+/// large enough that the test is not two fast paths agreeing about nothing.
+#[tokio::test]
+async fn a_credential_refused_for_an_unknown_address_costs_the_same_time_as_one_for_a_known_one() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    // The account cap is put out of the way: this test is about the clock, and
+    // a `429` at the eleventh probe would be a different path being timed.
+    let store = adr55_store(
+        &pool,
+        Arc::clone(&ring),
+        SignInLimits {
+            window: Duration::from_secs(900),
+            max_per_account: 1_000_000,
+            max_per_source: 1_000_000,
+        },
+    )
+    .await;
+
+    let person = adr55_account(&pool, "known").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    let nobody = unique("nobody");
+
+    let probe = |address: String| {
+        let store = &store;
+        async move {
+            let started = std::time::Instant::now();
+            let outcome = adr55_sign_in(store, &address, ADR55_WRONG_PASSWORD, "", None).await;
+            let elapsed = started.elapsed().as_micros();
+            (outcome, elapsed)
+        }
+    };
+
+    // One of each first, uncounted: the first argon2id of a process pays for
+    // whatever the allocator has not done yet.
+    let _ = probe(person.address.clone()).await;
+    let _ = probe(nobody.clone()).await;
+
+    let mut known = Vec::new();
+    let mut unknown = Vec::new();
+    for _ in 0..7 {
+        let (outcome, took) = probe(person.address.clone()).await;
+        assert!(
+            matches!(outcome, Err(SessionError::PasswordRefused)),
+            "a wrong credential for a known address is the uniform refusal"
+        );
+        known.push(took);
+
+        let (outcome, took) = probe(nobody.clone()).await;
+        assert!(
+            matches!(outcome, Err(SessionError::SignInRefused)),
+            "an address that belongs to nobody is the uniform refusal"
+        );
+        unknown.push(took);
+    }
+
+    let (a, b) = (median(known.clone()), median(unknown.clone()));
+    let (low, high) = (a.min(b), a.max(b));
+    assert!(
+        low >= 5_000,
+        "the medians are {a} µs (known) and {b} µs (unknown): both are too small for an argon2id \
+         to have happened on either side, so this test would pass on a build that does no work \
+         at all. known={known:?} unknown={unknown:?}"
+    );
+    assert!(
+        high <= low * 2,
+        "a wrong credential for a known address took a median {a} µs and one for an address that \
+         belongs to nobody took {b} µs. OWASP ASVS 5.0.0 6.3.8 asks for no enumeration through \
+         timing, and a caller who can tell those apart holds a list of this deployment's people. \
+         known={known:?} unknown={unknown:?}"
+    );
+}
+
+/// **The setup rule is about the ACCOUNT, not about how strong the session
+/// is.**
+///
+/// ADR-0055 decision 10: an app code is *Required for any account holding the
+/// operator custody*, and *"such an account is taken to the enrolment screen
+/// before anything else until it has one"*. The gate was written as
+/// `assurance == A0`, so the same person signing in with a credential **and a
+/// browser key** got `A1` and walked straight past it — and the checker of
+/// 2026-09-21 rode that all the way to `POST /admin/operators/self/key`, which
+/// registers the key every operator act is signed with, having never enrolled
+/// a code.
+///
+/// The state needs no database access to reach and no unusual order: register
+/// a browser key as an ordinary steward, then be promoted. That is the order
+/// below.
+#[tokio::test]
+async fn an_account_holding_the_operator_custody_with_no_app_code_is_a_setup_session_at_a1_too() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await;
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+
+    // An ordinary steward with a credential, no app code and no custody.
+    let person = adr55_account(&pool, "promoted").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    let browser = SoftwareKey::random().expect("a browser keypair");
+
+    let (signed_in, session_key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential and no app code signs in");
+    let session = adr55_try_verify(&store, &signed_in, &session_key, "POST", "/credentials/key")
+        .await
+        .expect("a live session verifies its own signed request");
+    creds
+        .register_key(&session, &browser.public_key())
+        .await
+        .expect("an ordinary steward may register this browser's key");
+
+    // Now promoted: the account is bound to an operator. `operators.rs` USES
+    // an account that already exists at the address rather than making a
+    // second one, so this is the state the product itself produces.
+    adr55_bind_to_an_operator(&person).await;
+
+    // And the sign-in that used to escape the rule: the credential AND the key.
+    let (signed_in, session_key) =
+        adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", Some(&browser))
+            .await
+            .expect(
+                "the key is live, so this sign-in succeeds — the refusal is at the next request",
+            );
+    assert_eq!(
+        adr55_assurance_of(&signed_in.session_id).await,
+        "A1",
+        "the session really is the strong one, or this test is not about the hole it is named for"
+    );
+
+    let refused = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "GET",
+        "/organisations/01JQZ0000000000000000000AA/capability",
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(SessionError::TotpRequired)),
+        "an A1 session on an account that holds the operator custody and has no app code reached \
+         a route that is not `/credentials/*` and was answered {refused:?}. A second factor that \
+         a stronger first factor turns off is not a second factor"
+    );
+
+    // And the way out is open, or the rule is a lockout rather than a gate.
+    adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("the enrolment screen is exactly what a setup session may reach");
+}
+
+/// **`POST /credentials/reset` has a budget per address, and spending it
+/// changes nothing a caller can see.**
+///
+/// ADR-0055 decision 7 asks for *"per-account and per-source rate limits that
+/// already exist"* and `0018` §D describes the bucket by name — `sign_in_attempts`
+/// under a `reset:` prefix. Only the source bucket was spent: the checker of
+/// 2026-09-21 sent ten requests for one address from one source and found ten
+/// simultaneously live 24-hour tokens for one person and ten sealed entries,
+/// with a distributed caller unbounded per victim.
+///
+/// The cap here is three rather than the default ten because the shape is what
+/// is under test and not the number.
+#[tokio::test]
+async fn ten_resets_for_one_address_mint_tokens_only_up_to_its_own_cap_and_all_answer_alike() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(
+        adr55_store(
+            &pool,
+            Arc::clone(&ring),
+            SignInLimits {
+                window: Duration::from_secs(900),
+                max_per_account: 3,
+                max_per_source: 1_000_000,
+            },
+        )
+        .await,
+    );
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let person = adr55_account(&pool, "flooded").await;
+    let nobody = unique("nobody");
+    let source = a_source_of_its_own();
+
+    let mut answers = Vec::new();
+    for address in [person.address.clone(), nobody.clone()] {
+        for _ in 0..10 {
+            let mut body = Vec::new();
+            lp(&mut body, address.as_bytes());
+            let (status, answer, headers) = post_bytes_full(
+                addr,
+                "/credentials/reset",
+                &body,
+                &[("x-forwarded-for", source.clone())],
+            )
+            .await;
+            answers.push((address.clone(), status, normalise(&headers), answer));
+        }
+    }
+
+    let first = answers.first().expect("ten of each").clone();
+    for (address, status, headers, answer) in &answers {
+        assert_eq!(
+            (status, headers, answer),
+            (&first.1, &first.2, &first.3),
+            "the reset route answered differently for {address}: over the cap and under it, for \
+             an address that belongs to somebody and one that belongs to nobody, decision 7 asks \
+             for one answer. A 429 here would say 'this address has asked recently', which is the \
+             enumeration the uniform 200 exists to prevent"
+        );
+        assert_eq!(status, "200", "and that one answer is 200");
+    }
+
+    let minted: i64 = adr55_superuser()
+        .await
+        .query_one(
+            "SELECT count(*) FROM password_reset_tokens WHERE account_id = $1",
+            &[&person.account.to_string()],
+        )
+        .await
+        .expect("count tokens")
+        .get(0);
+    assert_eq!(
+        minted, 3,
+        "ten requests for one address minted {minted} live tokens against a cap of three. Once \
+         stream 5 mails these links that is a mail-bomb at a named person; today it is an \
+         unauthenticated caller choosing how fast the sealed audit grows"
+    );
+}
+
+/// **A person told why their password was refused.**
+///
+/// `credentials.rs`'s header rule 4 — *"no refusal explains which check it
+/// failed, except the password policy"* — and the arm in `api.rs` that renders
+/// the four policy sentences. The checker of 2026-09-21 found that arm
+/// unreachable from every route: the handlers returned `Refusal`, and the
+/// `From` impl on the way there folded all four into
+/// `SessionError::Malformed` → `400 malformed request`. A person told that
+/// retries with something shorter, not with something better.
+#[tokio::test]
+async fn a_credential_refused_by_the_policy_says_which_rule_it_broke() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let person = adr55_account(&pool, "told").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    let (signed_in, session_key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential signs in");
+
+    // Long enough to pass the length rule and hopeless for the reason the
+    // policy actually cares about: it carries the one thing an attacker
+    // already knows.
+    let chosen = format!("{}-lantern-copper", person.address);
+    assert!(
+        chosen.chars().count() >= credentials::PASSWORD_MIN,
+        "the fixture has to clear the length rule, or this test proves the wrong refusal"
+    );
+    let mut body = Vec::new();
+    lp(&mut body, chosen.as_bytes());
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/password",
+        &body,
+    )
+    .await;
+
+    assert_eq!(
+        status, "400",
+        "a policy refusal is a 400 about what the caller just chose: {answer}"
+    );
+    assert!(
+        answer.contains("must not contain the address it opens"),
+        "the answer was {answer:?}. The sentence is safe to give — it is a statement about a \
+         credential the caller supplied and already holds — and without it the only honest thing \
+         a person can do is guess"
+    );
+}
+
+/// **Asking to enrol a second app code over a live one is a conflict, and it
+/// says so.**
+///
+/// It was rendered as `SessionError::SignInRefused`: `401 sign-in refused`, to
+/// a caller holding a live, verified session. That reads as "your session
+/// died" and sends a client back to the door it has just come through, when
+/// the real answer is that replacing a live second factor from inside a
+/// session is not a form at all — it is ADR-0055 decision 8's host command.
+#[tokio::test]
+async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_which() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "already").await;
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("a credential and a real six-digit code open a session");
+
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/totp/enrol",
+        b"",
+    )
+    .await;
+
+    assert_eq!(
+        status, "409",
+        "an account that already has a confirmed app code asked to enrol another and was \
+         answered {status} {answer:?}. A live session being told 'sign-in refused' is told its \
+         session is the problem, and it is not"
+    );
+    assert!(
+        answer.contains("already has a confirmed app code"),
+        "the answer was {answer:?}, which does not say what happened"
     );
 }

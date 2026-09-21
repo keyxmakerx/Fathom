@@ -593,7 +593,7 @@ async fn verified(state: &CredentialApiState, signed: &Signed) -> Result<Verifie
 async fn set_password_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
     let chosen = text(&fields[0], "credential")?;
@@ -611,7 +611,7 @@ async fn set_password_handler(
 async fn register_key_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
     let id = state
@@ -630,7 +630,7 @@ async fn register_key_handler(
 async fn enrol_totp_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let _ = read_fields(&signed.body, 0)?;
     let enrolment = state
@@ -650,7 +650,7 @@ async fn enrol_totp_handler(
 async fn confirm_totp_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
     let code = text(&fields[0], "app code")?;
@@ -672,10 +672,19 @@ async fn confirm_totp_handler(
 /// and OWASP ASVS 5.0.0 6.3.8 as the ADR read them on 2026-09-21. The refusal
 /// paths above it are the rate limits, which answer the same way for every
 /// address.
+///
+/// **Two buckets, not one.** Decision 7 asks for *"per-account and per-source
+/// rate limits that already exist"*. Until the 2026-09-21 review only the
+/// source bucket was spent here, so ten requests from one source minted ten
+/// simultaneously live tokens for one person and a distributed caller was
+/// unbounded per victim; the per-address bucket `0018` §D describes — the
+/// `reset:` prefix over `sessions::claimed_address_key` — is now counted too.
+/// Over it, the route does nothing and answers exactly as it does when it did
+/// everything.
 async fn request_reset_handler(
     State(state): State<CredentialApiState>,
     request: Request,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let source = state
         .client_address
         .of(request.headers(), request.extensions());
@@ -693,6 +702,13 @@ async fn request_reset_handler(
         .sessions
         .check_source_budget(PrincipalKind::Steward, &source)
         .await?;
+    // **The same 200 over the cap as under it.** A 429 here would say "this
+    // address has asked recently", which is the enumeration the uniform answer
+    // exists to prevent, so the budget is spent and the act is simply not
+    // done.
+    if !state.sessions.check_reset_budget(&address).await? {
+        return Ok(empty_response());
+    }
     state
         .credentials
         .request_reset(&address, &source)
@@ -709,7 +725,7 @@ async fn request_reset_handler(
 async fn redeem_reset_handler(
     State(state): State<CredentialApiState>,
     request: Request,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let source = state
         .client_address
         .of(request.headers(), request.extensions());
@@ -740,7 +756,7 @@ async fn redeem_reset_handler(
 async fn operator_setup_handler(
     State(state): State<CredentialApiState>,
     request: Request,
-) -> Result<Response, Refusal> {
+) -> Result<Response, CredentialRefusal> {
     let source = state
         .client_address
         .of(request.headers(), request.extensions());
@@ -768,7 +784,43 @@ async fn operator_setup_handler(
 /// holds, so it discloses nothing; every other refusal here goes through
 /// [`Refusal`], whose sentence is fixed per status for the reason its own doc
 /// gives.
+///
+/// # This is the credential routes' error type, and that is the fix
+///
+/// Until the 2026-09-21 review it was not: every credential handler returned
+/// `Result<Response, Refusal>` and reached this type only through
+/// `.map_err(CredentialRefusal)?`, which went through a `From` impl that
+/// folded the four policy variants into `SessionError::Malformed`. The
+/// self-explaining arm below was unreachable from any route, and a person who
+/// chose a password containing their own address was told **"malformed
+/// request"** — so they retried with something shorter rather than something
+/// better. `credentials.rs`'s header rule 4, *"no refusal explains which check
+/// it failed, except the password policy"*, was half kept: the half that says
+/// nothing.
+///
+/// The handlers now return this type, so [`IntoResponse`] below is the one
+/// place a credential verdict is decided. The `?` operator still works on the
+/// `Refusal`-shaped helpers they call, through [`From<Refusal>`] — which wraps
+/// rather than re-maps, so every non-credential refusal renders byte for byte
+/// as it did.
 pub struct CredentialRefusal(pub crate::credentials::CredentialError);
+
+/// A session-plane refusal reaching a credential handler through `?`.
+///
+/// **Wrapped, not re-mapped**: `CredentialError::Session` is rendered by
+/// `Refusal`'s own `IntoResponse` below, so the status, the sentence and the
+/// log line are the ones that surface has always given.
+impl From<Refusal> for CredentialRefusal {
+    fn from(e: Refusal) -> Self {
+        CredentialRefusal(crate::credentials::CredentialError::Session(e.0))
+    }
+}
+
+impl From<SessionError> for CredentialRefusal {
+    fn from(e: SessionError) -> Self {
+        CredentialRefusal(crate::credentials::CredentialError::Session(e))
+    }
+}
 
 impl IntoResponse for CredentialRefusal {
     fn into_response(self) -> Response {
@@ -787,7 +839,21 @@ impl IntoResponse for CredentialRefusal {
                 tracing::info!(reason = "totp_required", "credential act refused");
                 Refusal::from(SessionError::TotpRequired).into_response()
             }
-            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::TotpAlreadyEnrolled => {
+            // **409 and a sentence, not the uniform sign-in refusal.** This is
+            // an authenticated route answering its own session about its own
+            // account, and the fact — "you already have an app code" — is one
+            // the caller supplied the session for. Rendered as
+            // `SignInRefused` it was a `401 sign-in refused` to a live
+            // session, which reads as "your session died" and sends a client
+            // back to the door it just came through. Told plainly, the person
+            // knows the answer is not a retry but ADR-0055 decision 8's host
+            // command. It discloses nothing: a caller who cannot reach this
+            // route cannot see it, and a caller who can holds the account.
+            E::TotpAlreadyEnrolled => {
+                tracing::info!(reason = %self.0, "credential act refused");
+                (StatusCode::CONFLICT, format!("{}\n", self.0)).into_response()
+            }
+            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled => {
                 tracing::info!(reason = %self.0, "credential act refused");
                 Refusal::from(SessionError::SignInRefused).into_response()
             }
@@ -807,32 +873,6 @@ impl IntoResponse for CredentialRefusal {
                 Refusal::from(SessionError::Corrupt("credential plane")).into_response()
             }
         }
-    }
-}
-
-/// The same verdicts `IntoResponse` above gives, for the handlers that reach a
-/// credential error through `?`. A spent setup token is a refusal, not an
-/// integrity alarm: mapping every credential error to `Corrupt` here made a
-/// second use of the token answer 500 and log an integrity failure, which the
-/// end-to-end run of 2026-09-21 caught.
-impl From<CredentialRefusal> for Refusal {
-    fn from(e: CredentialRefusal) -> Self {
-        use crate::credentials::CredentialError as E;
-        Refusal::from(match e.0 {
-            E::PasswordTooShort
-            | E::PasswordTooLong
-            | E::PasswordIsCommon
-            | E::PasswordContainsAddress => SessionError::Malformed("credential"),
-            E::TotpRequired => SessionError::TotpRequired,
-            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::TotpAlreadyEnrolled => {
-                SessionError::SignInRefused
-            }
-            E::NotAnAccountSession => SessionError::NotATenantPrincipal,
-            E::Malformed(what) => SessionError::Malformed(what),
-            E::Session(e) => e,
-            E::Unverifiable(what) => SessionError::Unverifiable(what),
-            _ => SessionError::Corrupt("credential plane"),
-        })
     }
 }
 
