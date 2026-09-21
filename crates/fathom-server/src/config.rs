@@ -201,18 +201,29 @@ pub struct Config {
     /// more hop that appends (`src/client_address.rs`).
     pub forwarded_hops: usize,
 
-    /// `FATHOM_SINGLE_OPERATOR`. Admin design §5.3's documented escape for a
-    /// deployment that genuinely has one operator.
+    /// `FATHOM_SINGLE_OPERATOR`. **Retired by ADR-0055 decision 3, and parsed
+    /// anyway so that the refusal can name what was set.**
     ///
-    /// **It removes the second signature and it does NOT remove the delay.**
-    /// The delay is what gives anyone a chance to notice; the second signature
-    /// is what makes one compromised operator insufficient. A deployment with
-    /// one operator cannot have the second, so it keeps the first, and the
-    /// fact that it is in this mode is written to the site chain at startup
-    /// rather than left as a local belief.
+    /// It used to be admin design §5.3's documented escape for a deployment
+    /// with one operator: it removed the second signature and kept the delay.
+    /// ADR-0055 decision 3 replaces it with `min(2, live independent
+    /// operators)` counted off the register, which a sole operator satisfies
+    /// without declaring anything and which stops being satisfied the moment a
+    /// colleague signs in. The switch's own failure was the deadlock it left
+    /// behind: off by default, absent from `compose.yaml` and `.env.example`,
+    /// so *a fresh install's sole operator could not add a second operator at
+    /// all*.
+    ///
+    /// **Nothing reads this field's VALUE for behaviour.** `main.rs` refuses
+    /// to start when it is set at all, naming the variable and ADR-0055
+    /// decision 3 — CLAUDE.md rule 2's spirit: a stale switch somebody
+    /// believes still works is worse than a refusal. The parse stays so that
+    /// the refusal can say what it found; `grep` for this field finds exactly
+    /// that one refusal.
     ///
     /// Absent, empty or anything but `1`/`true`/`yes` means false: the safe
-    /// value is the one you get by not setting it or by fumbling it.
+    /// value is still the one you get by not setting it or by fumbling it, and
+    /// a fumbled value starts the server rather than refusing on a typo.
     pub single_operator: bool,
 
     /// `FATHOM_OPERATOR_NOTICE_ADDRESS`. Where operator notices go, and the

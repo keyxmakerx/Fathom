@@ -1,10 +1,18 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
+import { signIn, signOut } from './api/auth';
+import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
+import { appCodeEnrolmentRequired } from './api/credentials';
+import { ApiRefusal } from './api/errors';
+import { bootstrapOperatorSession, useConsoleHost } from './api/placement';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
+import { Account } from './components/Account';
 import { Console } from './components/console/Console';
 import { Enrol } from './components/Enrol';
+import { Reset, tokenFromLocation } from './components/Reset';
+import { Setup } from './components/Setup';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
@@ -13,17 +21,28 @@ import { DesignPlace } from './components/design/DesignPlace';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
-import { listKeySlots } from './crypto/keys';
+import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
-import { getSession, subscribe } from './state/sessionState';
+import {
+  ACCOUNT_PLANE,
+  getSession,
+  getSessionOn,
+  OPERATOR_PLANE,
+  setPlane,
+  setSession,
+  subscribe,
+} from './state/sessionState';
 
 /**
- * Which door an unsigned-in visitor is at. Two, and they are not the same
- * thing: `sign-in` uses a key this browser already holds, `enrol` puts one
- * here for the first time by redeeming an invitation. Nobody self-registers
- * (`docs/OPEN-QUESTIONS.md` B5), so neither door creates an account.
+ * Which door an unsigned-in visitor is at. Four since ADR-0055, and they are
+ * not the same thing: `sign-in` takes an address, a password and an app code;
+ * `enrol` redeems an invitation, which is still the key path and unchanged;
+ * `setup` is the first operator's, for the token file the server wrote at its
+ * first start; `reset` is "forgot my password" and the screen its link lands
+ * on. Nobody self-registers (`docs/OPEN-QUESTIONS.md` B5), so no door creates
+ * an account.
  */
-type Door = 'sign-in' | 'enrol';
+type Door = 'sign-in' | 'enrol' | 'setup' | 'reset';
 
 /**
  * Where a signed-in person is.
@@ -40,26 +59,146 @@ type View =
 
 export default function App() {
   const session = useSyncExternalStore(subscribe, getSession);
-  const [door, setDoor] = useState<Door>('sign-in');
+  // ADR-0055 client (a): a link carrying a reset token opens the reset
+  // screen and nothing else. Read once, before the first render, so the
+  // screen does not flash the ordinary door first.
+  const [resetToken] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : tokenFromLocation(window.location),
+  );
+  const [door, setDoor] = useState<Door>(resetToken ? 'reset' : 'sign-in');
   const [view, setView] = useState<View>({ kind: 'home' });
 
-  // A browser holding no key at all has nothing to sign in with, so it
-  // starts at the enrolment door; one that holds a key starts at sign-in,
-  // which lists it. Decided once, from storage, and never over a choice the
-  // visitor has already made.
+  // ADR-0055 client (a): what the sign-in door is told by whatever sent the
+  // person back to it — a finished reset, a finished setup.
+  const [signInAddress, setSignInAddress] = useState<string | undefined>(undefined);
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
+
+  // ADR-0055 client (a): the app-code gate. `null` is "not asked yet";
+  // `true` is the server's own `enrol an app code first` refusal, which is
+  // a route to a screen and not a wall (`api/credentials.ts`).
+  const [appCodeNeeded, setAppCodeNeeded] = useState<boolean | null>(null);
+
+  // ADR-0055 client (a): true once the first operator's setup screen has
+  // finished, so a live session does not pull the person off it halfway.
+  const [setupDone, setSetupDone] = useState(false);
+
+  // ADR-0055 client (a): the account's own credential screen is open.
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  // The app-code gate, asked once per session: an account that holds the
+  // operator custody and has no app code gets a session good for
+  // `/credentials/*` alone, and the server says so with a typed refusal on
+  // the first ordinary route. Asking one route on purpose puts the answer
+  // here, where the screen can be chosen, rather than inside whichever
+  // surface happened to fetch first.
+  const sessionId = session?.sessionId ?? null;
+  const sessionKind = session?.kind ?? null;
+  const midSetup = door === 'setup' && !setupDone;
   useEffect(() => {
+    if (sessionId === null || sessionKind !== 'steward' || midSetup) {
+      setAppCodeNeeded(null);
+      return;
+    }
     let cancelled = false;
-    listKeySlots()
-      .then(({ enrolled, pending }) => {
-        if (!cancelled && enrolled.length === 0 && pending.length === 0) {
-          setDoor('enrol');
-        }
+    appCodeEnrolmentRequired()
+      .then((needed) => {
+        if (!cancelled) setAppCodeNeeded(needed);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setAppCodeNeeded(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionId, sessionKind, midSetup]);
+
+  // ---------------------------------------------------------------------
+  // ADR-0055 — the console entry (client streams (a) and (b), merged)
+  //
+  // The one block on the account side that leads to the operator side. It
+  // asks the host whether the console lives here (`useConsoleHost()`), and
+  // only then offers the Site entry at all. On any other host there is
+  // nothing operator-side to hide, because nothing is rendered — decision 9:
+  // *absent*, not hidden.
+  //
+  // **Pressing it is what asks whether this account holds the custody.** No
+  // route reports that without acting on it: `POST /admin/operators/self/key`
+  // registers the browser's key and answers with the operator id, or refuses.
+  // So the entry is offered to a signed-in account on a console host, the
+  // press runs `bootstrapOperatorSession`, and a refusal is shown in the
+  // server's own words and takes the entry away for the rest of this session
+  // rather than inviting a second press that would be refused the same way.
+  //
+  // **Both sessions stay live** (decision 1: one person, two custodies).
+  // `setSession` files the operator session on the operator plane and brings
+  // it into view; the account session is untouched on its own plane with its
+  // own request counter, so Home is one press away and no sign-in happens in
+  // between (`state/sessionState.ts`).
+  // ---------------------------------------------------------------------
+  const consoleHostState = useConsoleHost();
+  const consoleHost = consoleHostState.status === 'ready' && consoleHostState.flag.consoleHost;
+  const [enteringConsole, setEnteringConsole] = useState(false);
+  const [consoleRefusal, setConsoleRefusal] = useState<string | null>(null);
+  const [custodyRefused, setCustodyRefused] = useState(false);
+
+  async function enterConsole() {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) return;
+    // Already picked up in this browser: this is a change of plane, not a
+    // second sign-in and not a second key registration.
+    if (getSessionOn(OPERATOR_PLANE)) {
+      setPlane(OPERATOR_PLANE);
+      return;
+    }
+    setEnteringConsole(true);
+    setConsoleRefusal(null);
+    try {
+      // **A key this browser already holds for an operator is the way in.**
+      // The operator plane is still a key sign-in (decision 10's last line),
+      // so a second visit signs in with the key the first visit filed and
+      // registers nothing: `operator_keys.fpr` is UNIQUE, and a browser that
+      // re-registered the same key on every page load would be refused by
+      // the database rather than by any rule.
+      const existing = await operatorSlotHeldHere();
+      if (existing) {
+        try {
+          await signIn(existing, PRINCIPAL_KIND_OPERATOR);
+          return;
+        } catch (error) {
+          // The key this browser holds is not one the server will take —
+          // retired, or from an install that has been rebuilt. Fall through
+          // and pick the custody up again with a new one.
+          console.error(error);
+        }
+      }
+      // **A fresh keypair for the operator custody**, not the account's own.
+      // Decision 6: any browser, no pairing; the server takes every live key
+      // of the principal (`live_operator_keys`, the lead's resolution 1), so
+      // one key per browser per custody is the shape, and reusing the
+      // account's would collide with itself the next time this ran.
+      const { session: operatorSession } = await bootstrapOperatorSession(
+        accountSession,
+        await generateKeyPair(),
+      );
+      setSession(operatorSession);
+    } catch (error) {
+      console.error(error);
+      const refusal = error instanceof ApiRefusal ? error.message : null;
+      setConsoleRefusal(
+        refusal ??
+          'This browser could not open the operator console. Nothing was changed on the server.',
+      );
+      // 403 is the ordinary answer for an account that holds no operator
+      // custody, and 404 is a host the console does not answer on. Neither
+      // is worth a second press.
+      if (error instanceof ApiRefusal && (error.status === 403 || error.status === 404)) {
+        setCustodyRefused(true);
+      }
+    } finally {
+      setEnteringConsole(false);
+    }
+  }
+  // --- end ADR-0055 console entry --------------------------------------
 
   // The camera's state. It lives here rather than in `Shell` because the
   // drawing Session 4 builds will read it too, and two copies would drift.
@@ -145,11 +284,74 @@ export default function App() {
     [],
   );
 
+  // ADR-0055 client (a): the setup door holds the screen even once its own
+  // sign-in has made a session — the password is set but the app code is
+  // not, and that session may do nothing else until it is.
+  if (midSetup) {
+    return (
+      <Setup
+        onUseSignIn={() => setDoor('sign-in')}
+        onDone={async (address) => {
+          // The setup session is `A0` for its whole life and the operator
+          // routes refuse `A0`, so there is nothing left for it to do. Ended
+          // BEFORE this screen gives way, so that the gate below does not
+          // start a signed request against a session that is going away.
+          // Best effort: if the sign-out does not land, the row expires on
+          // its own and this browser has already forgotten it.
+          await signOut().catch(() => {});
+          setSetupDone(true);
+          setSignInAddress(address);
+          setSignInNotice(
+            'Set up. Sign in with your password and a code from your app — the session that set this up was a ' +
+              'setup session and ends here.',
+          );
+          setDoor('sign-in');
+        }}
+      />
+    );
+  }
+
   if (!session) {
-    return door === 'enrol' ? (
-      <Enrol onUseExistingKey={() => setDoor('sign-in')} />
-    ) : (
-      <SignIn onRedeemInvitation={() => setDoor('enrol')} />
+    const toSignIn = (address?: string, notice?: string) => {
+      setSignInAddress(address);
+      setSignInNotice(notice ?? null);
+      setDoor('sign-in');
+    };
+    if (door === 'enrol') {
+      return <Enrol onUseExistingKey={() => setDoor('sign-in')} />;
+    }
+    if (door === 'reset') {
+      return <Reset initialToken={resetToken ?? undefined} onUseSignIn={toSignIn} />;
+    }
+    return (
+      <SignIn
+        onRedeemInvitation={() => setDoor('enrol')}
+        onForgotPassword={() => setDoor('reset')}
+        onFirstOperatorSetup={() => setDoor('setup')}
+        initialAddress={signInAddress}
+        notice={signInNotice}
+      />
+    );
+  }
+
+  // ADR-0055 client (a): the account's own credential screen, opened from
+  // Home. **Placement is this stream's own call and the shell's owner may
+  // move it**: ADR-0055 gives every signed-in person a password and an app
+  // code to manage and `docs/UI-SPEC.md` has no place for them yet, so the
+  // way in is a text button above Home rather than a new region.
+  if (accountOpen && session.kind === 'steward') {
+    return <Account address={session.address} onClose={() => setAccountOpen(false)} />;
+  }
+
+  // ADR-0055 client (a): the typed refusal routes here, and nowhere else is
+  // reachable from this session until the app code exists.
+  if (appCodeNeeded === true) {
+    return (
+      <Account
+        address={session.address}
+        purpose="app-code"
+        onDone={() => setAppCodeNeeded(false)}
+      />
     );
   }
 
@@ -194,6 +396,21 @@ export default function App() {
         tree={null}
         onPlaceChange={() => {}}
       >
+        {/* ADR-0055 decision 1: the account session did not end when this
+            one began, so Home is a press away and not a sign-in away. The
+            two sessions are separate on the wire — different principals,
+            different tokens, different counters — and this button changes
+            which one the screen is showing, nothing else. */}
+        {getSessionOn(ACCOUNT_PLANE) !== null && (
+          <button
+            type="button"
+            className="console-home"
+            data-testid="console-home"
+            onClick={() => setPlane(ACCOUNT_PLANE)}
+          >
+            Home — your account session is still open
+          </button>
+        )}
         <Console operatorId={session.address} />
       </Shell>
     );
@@ -211,6 +428,42 @@ export default function App() {
           // to open: a place needs a design, and Home is where you pick one.
         }}
       >
+        {/* ADR-0055 client (a): the way to a person's own password and app
+            code. Everybody has both now, so this is not operator-side and
+            does not wait on the flag. */}
+        <button type="button" className="account-entry" onClick={() => setAccountOpen(true)}>
+          Your password and app code
+        </button>
+        {/* ADR-0055: the console entry. Rendered only on a host the console
+            answers on, and taken away for the rest of this session once the
+            server has said this account holds no operator custody —
+            otherwise there is nothing here at all (decision 9). */}
+        {consoleHost && !custodyRefused && (
+          <div className="console-entry">
+            <div className="console-entry__text">
+              <span className="console-entry__title">Site</span>
+              <span className="console-entry__note">
+                The operator console answers on this host. If you hold the operator custody, opening it registers
+                this browser's operator key and signs you in as the operator — a second session beside this one.
+                This one stays open: Home is one press away from there.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="console-entry__go"
+              data-testid="console-entry"
+              disabled={enteringConsole}
+              onClick={() => void enterConsole()}
+            >
+              {enteringConsole ? 'Opening…' : 'Open the Site console'}
+            </button>
+          </div>
+        )}
+        {consoleRefusal && (
+          <p className="console-entry__refusal" role="alert">
+            {consoleRefusal}
+          </p>
+        )}
         <Home
           address={session.address}
           onOpenRacks={openIn('racks')}
@@ -263,6 +516,30 @@ export default function App() {
       capability={view.design.capability}
     />
   );
+}
+
+/**
+ * The operator this browser already holds a key for, or `null`.
+ *
+ * `crypto/keys.ts` files an operator's key under `operator:<id>`
+ * (`api/constants.ts`'s `keySlot`), and IndexedDB is per origin, so the slots
+ * this reads belong to this install and no other. `SignIn.tsx` reads the same
+ * list to offer the identities this browser can prove.
+ */
+async function operatorSlotHeldHere(): Promise<string | null> {
+  try {
+    const { enrolled } = await listKeySlots();
+    for (const slot of enrolled) {
+      const who = identityOfSlot(slot);
+      if (who.kind === PRINCIPAL_KIND_OPERATOR && who.id !== '?') {
+        return who.id;
+      }
+    }
+  } catch {
+    // No storage, or a browser that refuses it: the bootstrap below is the
+    // honest fallback, not an error worth showing.
+  }
+  return null;
 }
 
 interface ScopeTreeProps {

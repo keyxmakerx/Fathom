@@ -48,9 +48,11 @@ type Stage =
  * The owner's rule, 2026-09-21: *"if they have access they have access, it
  * shouldn't be a selection"*.
  *
- * No password field: there is nowhere one could go
- * (`crates/fathom-server/src/admin.rs`'s module header, "no password field
- * anywhere in this file"). The token is a bearer secret with one use, so it
+ * No password field: `POST /enrolment/account` takes `LP(token) ‖
+ * LP(address) ‖ LP(public_key)` and nothing else, and ADR-0055 left this
+ * door exactly as it was — an invitation is redeemed with a key, and the
+ * password and app code are set afterwards on the account screen. The token
+ * is a bearer secret with one use, so it
  * is held only in this component's own state -- never a URL, a query
  * string, a log line, or `localStorage` -- and is cleared only once
  * redemption is *confirmed* OK, so a later reload of this screen has
@@ -354,8 +356,9 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
           {typedKind === 'operator'
             ? 'An operator token: the one the server wrote at first start, or one the console issued. It names ' +
               'its operator and works once.'
-            : 'An invitation is redeemed with the address it was sent to. Every token works once. There is no ' +
-              'password: the key this browser generates is the access.'}
+            : 'An invitation is redeemed with the address it was sent to. Every token works once. Redeeming one ' +
+              'asks for no password: the key this browser generates is what proves the account is yours. A ' +
+              'password and an app code are set afterwards, on your own account screen.'}
         </p>
 
         {onUseExistingKey && (

@@ -108,8 +108,12 @@ guesses.
 
 ## Rekey
 
-**There is no `rekey` verb in the binary today.** `fathom-server`'s only subcommands are
-`healthcheck [--addr HOST:PORT]` and `reissue-bootstrap-token` (`crates/fathom-server/src/main.rs`).
+**There is no `rekey` verb in the binary today.** `fathom-server`'s subcommands are `healthcheck
+[--addr HOST:PORT]`, `recover-operator <address>` (break-glass, its own section below) and
+`console-placement --reset` (also below) (`crates/fathom-server/src/main.rs`). `reissue-bootstrap-token`
+is kept as a deprecated alias for `recover-operator`: ADR-0055 decision 8 folded it in on
+2026-09-21, and it takes an optional address, falling back to `FATHOM_OPERATOR_NOTICE_ADDRESS`.
+
 ADR-0043 §9's operator text says to "run `fathom rekey`" if you suspect the host was compromised —
 that command does not exist yet, under that name or any other, and nothing in this repository wires
 one up.
@@ -129,22 +133,29 @@ Neither is exposed as something you can run today. When one is built as an opera
 it should follow §12.6's rule verbatim: the two operations must never share a verb, and no
 configuration flag may accept "rotate" as a synonym for "re-wrap."
 
-## The operator notice address and the interlock
+## The operator notice address and the quorum
 
 `FATHOM_OPERATOR_NOTICE_ADDRESS` has no default (`crates/fathom-server/src/config.rs`). It is read
-at every start but used only at the first: it is the address the first operator is created against,
-and it is recorded once into `site_install`, where no role can update it afterwards. Set it before
-your first start — a compose deployment refuses to come up at all without it — because a
-deployment bootstrapped against a guessed address has an operator nobody can reach, with no way to
-correct it short of destroying the database.
+at every start but used only at the first: it is the address the first operator's account is
+created against, and it is recorded once into `site_install`, where no role can update it
+afterwards. Set it before your first start — a compose deployment refuses to come up at all without
+it — because a deployment bootstrapped against a guessed address has an operator nobody can reach,
+with no way to correct it short of destroying the database.
 
-`FATHOM_SINGLE_OPERATOR` is the documented escape for a deployment with genuinely one operator.
-Ordinarily, changing a setting needs two operators' signatures and a delay; this flag removes the
-second signature. **It does not remove the delay** — the delay is what gives anyone a chance to
-notice a change before it takes effect, and with one operator it is the only thing left standing
-between a compromised operator and a changed setting. Fathom records that the deployment is running
-in this mode on the site chain at startup, with a warning in the log, rather than leaving it as
-something only your environment file remembers.
+**`FATHOM_SINGLE_OPERATOR` is retired** (ADR-0055 decision 3). It used to remove the second
+signature a settings change needed, for a deployment with genuinely one operator, and keep the
+delay standing in its place. The server now refuses to start at all if it is set — naming the
+variable and the decision, exit code 2 — rather than run with a switch that no longer does
+anything: a control somebody believes is in force and is not is worse than a refusal. The quorum
+today is `min(2, live independent operators)`, counted off the operator register at every act, not
+declared anywhere: a sole operator's own request stands alone and applies after the 24-hour delay,
+the same rule §3.5 already gave stewards, finally ported. Two operators is the standing
+expectation, not a requirement — a sole operator is a supported, working shape, and the server
+never blocks work over it. It says so, twice, at every start with one live operator: a warning
+naming the count and quoting GitHub's own advice on the risk of one owner, and — separately —
+that recovery by mail is unavailable until SMTP is set in the console, so the only recovery until
+then is `fathom-server recover-operator`. Neither line is decoration; read them off a real start,
+not off this page.
 
 ## Where the operator console answers
 
@@ -157,6 +168,45 @@ same two the rate limiter needs: it forwards the original `Host`, and it is name
 `FATHOM_TRUSTED_PROXIES`, which is what lets its `X-Forwarded-For` be believed and nobody else's
 (`crates/fathom-server/src/client_address.rs`). With neither variable set the console answers everywhere, and the
 server logs a warning saying so at every start.
+
+**Since 2026-09-21 (ADR-0055 decision 11) the console can also place itself**, from inside the
+console, with no restart: an operator sets a host and source list there, the page warns what is
+about to happen, the change applies at once and is sealed, and the browser is taken to the new
+host. Signing in there inside the window (default five minutes, from one to sixty, cannot be
+turned off) confirms it; if nobody does, the placement reverts on its own to the last confirmed one
+— or to open, if there was none — and every operator session banners the revert.
+`FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES` **win outright when set**: the console's own form
+says so and goes read-only. If a confirmed placement locks everyone out and the host it pointed at
+is gone — confirm-or-revert has nothing left to revert to — `fathom-server console-placement
+--reset`, run on the host where the key volume is mounted, clears it: sealed, loud, and it mints
+nothing and grants nobody anything. The console then answers wherever the environment variables
+say, or everywhere if neither is set.
+
+## Break-glass: recovering an operator from the host
+
+ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server
+recover-operator <address>`, run where the key volume is mounted, works for an operator who
+**already exists** and is not disabled. It prints a one-shot ten-minute setup code to stdout — and
+only to stdout, never to the log, never to a file — that lets that person set a new password and
+enrol a new app code. **It also dispossesses whoever holds that seat right now**: every operator
+key on the seat is retired, every live session of both the account and the operator is ended
+(as sealed revocations, which a restore does not undo), the app code and its backup codes are
+cleared, and any seat hold from a mailed reset is cleared — so a stolen browser loses its access
+the moment the command runs. **It mints no new operator**: an address nobody is bound to gets a
+refusal and nothing is written. There is no delay, on purpose — the host already holds every key
+(ADR-0043 §2), so a delay here would be theatre, not protection; what protects this act is custody
+of the host plus the record that it happened, the same shape Microsoft Entra uses for emergency
+access accounts. Every use appends a sealed `operator_recovered_from_host` entry to the site chain,
+notifies every live operator, and **banners every operator session for seven days**
+(`GET /admin/notices`). `reissue-bootstrap-token` is kept as a deprecated alias, folded into this
+command: it takes an optional address, falls back to `FATHOM_OPERATOR_NOTICE_ADDRESS`, and prints a
+line saying it is deprecated.
+
+**Rehearse this every 90 days** — the cadence ADR-0055's own research names, from Microsoft Entra's
+guidance on emergency-access accounts (*"validated at least every 90 days"*). Run it against a real
+deployment, confirm the code signs in, confirm the seven-day banner appears in every operator's
+session, and confirm the sealed entry is on the site chain where `GET /admin/notices` and a chain
+read both expect it.
 
 ## What to check after an upgrade
 

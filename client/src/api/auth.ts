@@ -13,7 +13,7 @@ import {
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
-import { setSession } from '../state/sessionState';
+import { heldSessions, setSession } from '../state/sessionState';
 import {
   keySlot,
   looksLikeOperatorId,
@@ -22,8 +22,9 @@ import {
   PRINCIPAL_KIND_STEWARD,
   type PrincipalKind,
 } from './constants';
+import { registerBrowserKey } from './credentials';
 import { refusalFrom } from './errors';
-import { signedFetch } from './signedFetch';
+import { signedFetchOn } from './signedFetch';
 
 /**
  * Thrown when this browser holds no enrolled key -- and no pending one
@@ -83,21 +84,40 @@ export class NoEnrolledKeyError extends Error {
  * a key whose owner the server never got to say.
  *
  * Throws [`NoEnrolledKeyError`] before any network call if this browser
- * holds neither, and an [`ApiRefusal`](./errors.ts) — the server's own
- * uniform wording, unchanged — for every refusal the server itself can
- * produce.
+ * holds neither **and no password was typed**, and an
+ * [`ApiRefusal`](./errors.ts) — the server's own uniform wording, unchanged —
+ * for every refusal the server itself can produce.
+ *
+ * **Since ADR-0055 decision 6 a key is no longer required at all.** The
+ * address, a password and an app code sign in from any browser, with no
+ * pairing; a key this browser happens to hold is sent beside them as evidence
+ * and is what makes the session `A1`. `credential` carries the other two
+ * fields; both go on the wire empty when there is nothing to put in them,
+ * because `POST /session` takes exactly six fields.
  */
-export async function signIn(address: string, kind?: PrincipalKind): Promise<void> {
+export async function signIn(
+  address: string,
+  kind?: PrincipalKind,
+  credential: SignInCredential = {},
+): Promise<void> {
+  const password = credential.password ?? '';
+  const appCode = credential.appCode ?? '';
   const found = await findKey(address, kind);
-  if (!found) {
+  if (!found && password.length === 0) {
     throw new NoEnrolledKeyError(address, kind ?? (looksLikeOperatorId(address) ? PRINCIPAL_KIND_OPERATOR : PRINCIPAL_KIND_STEWARD));
   }
-  kind = found.kind;
+  // A password is the account plane's credential and only the account
+  // plane's: `sessions.rs` reads `accounts.password_hash`, and an operator
+  // principal has no account row of its own (ADR-0055 decision 1 binds the
+  // custody to an account; the operator still signs in by key). So a
+  // password with no key found means the steward plane, unless the caller
+  // named one.
+  kind = found ? found.kind : (kind ?? PRINCIPAL_KIND_STEWARD);
   const slot = keySlot(kind, address);
-  const enrolledKeyPair = found.pair;
+  const enrolledKeyPair = found?.pair ?? null;
   // Which pending slot the key came from, if any, so success can promote
   // exactly that one into `slot`.
-  const pendingSlot = found.pendingSlot;
+  const pendingSlot = found?.pendingSlot ?? null;
 
   const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
@@ -122,15 +142,15 @@ export async function signIn(address: string, kind?: PrincipalKind): Promise<voi
   const deploymentId = new TextDecoder().decode(deploymentIdBytes);
 
   const challenge = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
-  const evidenceSig = await signMessage(enrolledKeyPair.privateKey, challenge);
+  // No key in this browser is an ordinary state since ADR-0055 decision 6
+  // ("any browser, no pairing"): the evidence field goes empty and the
+  // password and the app code are what the server checks. A key, when this
+  // browser has one, still signs the challenge and still buys `A1`.
+  const evidenceSig = enrolledKeyPair
+    ? await signMessage(enrolledKeyPair.privateKey, challenge)
+    : new Uint8Array(0);
 
-  // Body: LP(principal_kind) || LP(session_pubkey) || LP(nonce) || LP(evidence_sig)
-  const signInBody = concatBytes(
-    lp(utf8(kind)),
-    lp(sessionPubkey),
-    lp(serverNonce),
-    lp(evidenceSig),
-  );
+  const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, appCode);
   const signInResponse = await fetch('/session', {
     method: 'POST',
     body: signInBody as BodyInit,
@@ -159,6 +179,71 @@ export async function signIn(address: string, kind?: PrincipalKind): Promise<voi
     address,
     accountId,
   });
+
+  // **This browser's own key, registered silently once there is a session to
+  // register it under** (ADR-0055 decision 6: the browser is not paired, it
+  // simply keeps a key so the next sign-in is `A1`). Best effort: a failure
+  // here costs the next sign-in its `A1` and nothing else, so it must never
+  // undo a sign-in that has already succeeded.
+  //
+  // **Only when an app code was presented**, and the reason is a property of
+  // the server this client must not walk into: `sessions.rs` (4) gives
+  // `A1` to password + key even when no app code is enrolled yet, and the
+  // setup gate in `verify_inside` (4a) fires on `A0` alone. Registering a key
+  // for an operator-custody account that has not finished enrolling its app
+  // code would therefore turn its next session from a setup session into a
+  // full one. An app code in hand means the account is past that point.
+  // `Setup.tsx` registers the key explicitly, after the code is confirmed.
+  if (
+    credential.registerBrowserKey !== false &&
+    kind === PRINCIPAL_KIND_STEWARD &&
+    found === null &&
+    appCode.trim().length > 0
+  ) {
+    await registerBrowserKey(address).catch(() => {});
+  }
+}
+
+/** What the person typed at the door, beside their address. */
+export interface SignInCredential {
+  /** The password. Empty for the key-only path, which is every operator
+   * sign-in and every account that has never set one. */
+  password?: string;
+  /** Six digits from the app, or one of the ten backup codes — the server
+   * tries the second when the first does not fit (`sessions.rs`'s
+   * `check_second_factor`), which is why the screen has one field. */
+  appCode?: string;
+  /** Register a key for this browser on success when it holds none. Default
+   * true; `Setup.tsx` passes `false` for the sign-in it makes mid-setup,
+   * before the app code exists. */
+  registerBrowserKey?: boolean;
+}
+
+/**
+ * `POST /session`'s body: `LP(kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖
+ * LP(evidence_sig) ‖ LP(password) ‖ LP(app_code)`.
+ *
+ * Six fields since ADR-0055 decision 10 widened the route, and `api.rs`'s
+ * `read_fields` refuses an inexact count — so the last two are sent on every
+ * path, empty where there is nothing to put in them. Exported so
+ * `auth.test.ts` can check the framing without a network call.
+ */
+export function buildSignInBody(
+  kind: PrincipalKind,
+  sessionPubkey: Uint8Array,
+  nonce: Uint8Array,
+  evidenceSig: Uint8Array,
+  password: string,
+  appCode: string,
+): Uint8Array {
+  return concatBytes(
+    lp(utf8(kind)),
+    lp(sessionPubkey),
+    lp(nonce),
+    lp(evidenceSig),
+    lp(utf8(password)),
+    lp(utf8(appCode.trim())),
+  );
 }
 
 interface FoundKey {
@@ -226,8 +311,26 @@ export function parseSignInAnswer(bytes: Uint8Array): {
   };
 }
 
-/** `DELETE /session`, signed like every other protected route. */
+/**
+ * `DELETE /session`, signed like every other protected route -- **once per
+ * session this browser holds**.
+ *
+ * Since ADR-0055 decision 1 the browser can hold two, the account's and the
+ * operator's (`../state/sessionState.ts`). Signing out signs the person out,
+ * not the custody they happen to be looking at, so each live session is
+ * ended on its own plane with its own key and its own counter. Every attempt
+ * is made even if an earlier one fails: a session row this browser could not
+ * reach expires on its own, and forgetting it here while leaving the other
+ * one live would be the worse of the two outcomes.
+ */
 export async function signOut(): Promise<void> {
-  await signedFetch('DELETE', '/session');
+  const held = heldSessions();
+  const results = await Promise.allSettled(
+    held.map(({ plane }) => signedFetchOn(plane, 'DELETE', '/session')),
+  );
   setSession(null);
+  const failed = results.find((r) => r.status === 'rejected');
+  if (failed && failed.status === 'rejected') {
+    throw failed.reason;
+  }
 }

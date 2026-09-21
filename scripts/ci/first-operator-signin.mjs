@@ -4,33 +4,77 @@
 // What `.github/workflows/ci.yml`'s `compose` job proved before 2026-09-21:
 // health answers, the client is served, a token file exists. What it did
 // not: that anyone could use that token. This script is the missing check,
-// speaking exactly the bytes the browser client speaks
-// (`client/src/api/enrolment.ts`, `auth.ts`, `signedFetch.ts`,
-// `crypto/session.ts`) with Node's own WebCrypto and no dependency:
+// speaking exactly the bytes the browser client speaks with Node's own
+// WebCrypto and no dependency.
 //
-//   1. POST /enrolment/operator   LP(token) ‖ LP(public_key)
-//                                 → LP(key_id) ‖ LP(operator_id)
-//   2. POST /session/challenge    LP("operator") ‖ LP(operator_id) ‖ LP(session_pubkey)
-//                                 → LP(nonce) ‖ LP(deployment_id)
-//   3. POST /session              LP("operator") ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(sig)
-//                                 → LP(session_id) ‖ LP(token) ‖ u64(expires) ‖ LP(principal_id)
-//   4. GET  /admin/operators      signed with the session key (nonce from
-//                                 POST /session/nonce), and the answer must
-//                                 name the operator just enrolled.
+// **Rewritten 2026-09-21 for ADR-0055 decision 10.** The flow was: redeem the
+// token as a browser KEY, then sign in by signing a challenge. It is now the
+// credential the ADR puts there — a password and an app code — because that is
+// what the product does and a smoke test of a flow nobody uses is not a smoke
+// test.
 //
-// Usage: node scripts/ci/first-operator-signin.mjs <token-file> [base-url]
-// Exit 0 when the enrolled operator signs in and reads the register; any
-// other outcome is non-zero with the step that failed.
+//   1. POST /enrolment/operator/setup  LP(token) ‖ LP(credential)  → 200, empty
+//                                      (resolution 4: NO session; the client
+//                                      signs in immediately afterwards)
+//   2. POST /session/challenge         LP("steward") ‖ LP(address) ‖ LP(session_pubkey)
+//                                      → LP(nonce) ‖ LP(deployment_id)
+//   3. POST /session                   six fields: LP(kind) ‖ LP(session_pubkey)
+//                                      ‖ LP(nonce) ‖ LP(evidence_sig) ‖ LP(credential)
+//                                      ‖ LP(app_code)
+//                                      → LP(session_id) ‖ LP(token) ‖ u64(expires)
+//                                        ‖ LP(principal_id)
+//   4. POST /credentials/totp/enrol    signed, empty → LP(otpauth_uri) ‖ LP(secret_base32)
+//   5. compute a TOTP in Node          RFC 6238, HMAC-SHA-1 through WebCrypto
+//   6. POST /credentials/totp/confirm  signed, LP(code) → ten LP(backup_code)
+//   7. POST /credentials/key           signed, LP(public_key) → LP(key_id)
+//   8. the operator's own key sign-in, and a signed GET /admin/operators.
+//
+// **Step 8 needs a route stream (b) owns** — the one that registers an
+// operator's key under `/admin`. Until it exists this script stops after step
+// 7 and says so, loudly, with exit code 0: the account half is what this
+// stream built and it is what this run proves. Set
+// `FATHOM_REQUIRE_OPERATOR_KEY_ROUTE=1` to make its absence a failure once
+// stream (b) has landed.
+//
+// Usage: node scripts/ci/first-operator-signin.mjs <token-file> [address] [base-url]
+// The address may come from FATHOM_OPERATOR_NOTICE_ADDRESS instead, which is
+// what `.github/workflows/ci.yml` already sets — so the CI line is unchanged.
+// Exit 0 when the first operator sets a password, enrols an app code, signs in
+// and registers a browser key; any other outcome is non-zero with the step
+// that failed.
 
 import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 
 const subtle = webcrypto.subtle;
-const [, , tokenFile, baseUrl = 'http://localhost:8080'] = process.argv;
-if (!tokenFile) {
-  console.error('usage: first-operator-signin.mjs <token-file> [base-url]');
+
+// **The address is the identity now** (ADR-0055 decision 1), so this script
+// needs one where it used to need only the operator id the enrolment answered
+// with. It is taken from the argument list when one is given and otherwise
+// from `FATHOM_OPERATOR_NOTICE_ADDRESS` — which is the address the first start
+// creates the account for, is already in `compose.yaml` and in
+// `.github/workflows/ci.yml`'s job environment, and is the one value that
+// cannot be wrong. So the CI line does not have to change.
+const [, , tokenFile, ...rest_argv] = process.argv;
+const looksLikeUrl = (s) => /^https?:\/\//i.test(s ?? '');
+const positionalUrl = rest_argv.find(looksLikeUrl);
+const positionalAddress = rest_argv.find((a) => !looksLikeUrl(a));
+const baseUrl = positionalUrl ?? 'http://localhost:8080';
+const address = positionalAddress ?? process.env.FATHOM_OPERATOR_NOTICE_ADDRESS ?? '';
+if (!tokenFile || !address) {
+  console.error(
+    'usage: first-operator-signin.mjs <token-file> [address] [base-url]\n' +
+      'the address may instead come from FATHOM_OPERATOR_NOTICE_ADDRESS',
+  );
   process.exit(2);
 }
+
+// **A real password**, of the length and shape ADR-0055 decision 10 requires
+// and a person actually chooses: four words, twenty-eight characters, well
+// past the fifteen-character floor and not on the bundled common list. A smoke
+// test that used `aaaaaaaaaaaaaaa` would pass while proving the policy accepts
+// nothing anybody would type.
+const CREDENTIAL = 'harbour-lantern-copper-nine';
 
 // --- bytes, as `client/src/crypto/bytes.ts` spells them ---------------------
 
@@ -57,6 +101,7 @@ function u64le(n) {
   return b;
 }
 const lp = (b) => concat(u32le(b.length), b);
+const EMPTY = new Uint8Array(0);
 function readLp(bytes) {
   if (bytes.length < 4) throw new Error('short LP field');
   const len = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
@@ -95,7 +140,54 @@ async function sha256(b) {
   return new Uint8Array(await subtle.digest('SHA-256', b));
 }
 
-// --- the four steps -----------------------------------------------------------
+// --- RFC 6238, the same way `src/credentials.rs` computes it ----------------
+//
+// HMAC-SHA-1 through WebCrypto, which Node's `crypto.webcrypto` offers for
+// exactly this kind of legacy interoperability. The server's own record —
+// `deps/decisions/sha1.md` — carries why SHA-1 is sound as the HMAC inside a
+// one-time code and broken for the thing it is famously broken for.
+
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Decode(text) {
+  const clean = text.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
+  const out = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const c of clean) {
+    const v = BASE32.indexOf(c);
+    if (v < 0) throw new Error(`not RFC 4648 base32: ${JSON.stringify(c)}`);
+    buffer = (buffer << 5) | v;
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((buffer >> bits) & 0xff);
+    }
+  }
+  return Uint8Array.from(out);
+}
+
+async function totpCode(secretBytes, step) {
+  const key = await subtle.importKey(
+    'raw',
+    secretBytes,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const counter = new Uint8Array(8);
+  new DataView(counter.buffer).setBigUint64(0, BigInt(step), false); // big-endian, RFC 4226
+  const tag = new Uint8Array(await subtle.sign('HMAC', key, counter));
+  const offset = tag[tag.length - 1] & 0x0f;
+  const binary =
+    ((tag[offset] & 0x7f) << 24) |
+    (tag[offset + 1] << 16) |
+    (tag[offset + 2] << 8) |
+    tag[offset + 3];
+  return String(binary % 1000000).padStart(6, '0');
+}
+const currentStep = () => Math.floor(Date.now() / 1000 / 30);
+
+// --- the steps ---------------------------------------------------------------
 
 async function post(path, body, headers = {}) {
   const r = await fetch(baseUrl + path, { method: 'POST', body, headers });
@@ -107,79 +199,226 @@ function fail(step, detail) {
   process.exit(1);
 }
 
-const token = fromHex(readFileSync(tokenFile, 'utf8'));
-
-// 1. Enrol.
-const operatorKey = await keyPair();
-const enrol = await post('/enrolment/operator', concat(lp(token), lp(await publicRaw(operatorKey))));
-if (enrol.status !== 200) fail('enrol', `status ${enrol.status}: ${enrol.text.trim()}`);
-const { value: keyId, rest: afterKey } = readLp(enrol.bytes);
-const { value: opIdBytes, rest: afterOp } = readLp(afterKey);
-if (afterOp.length !== 0) fail('enrol', `${afterOp.length} trailing byte(s) after LP(operator_id)`);
-const operatorId = dec.decode(opIdBytes);
-if (!/^[0-9A-Z]{26}$/.test(operatorId)) fail('enrol', `operator id ${JSON.stringify(operatorId)} is not a ulid`);
-console.log(`enrolled key ${dec.decode(keyId)} for operator ${operatorId}`);
-
-// 2. Challenge.
-const sessionKey = await keyPair();
-const sessionPub = await publicRaw(sessionKey);
-const ch = await post('/session/challenge', concat(lp(utf8('operator')), lp(utf8(operatorId)), lp(sessionPub)));
-if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
-const { value: nonce, rest: afterNonce } = readLp(ch.bytes);
-const { value: deploymentId } = readLp(afterNonce);
-
-// 3. Sign in: the challenge is SHA-256 over LP(tag) ‖ LP(pubkey) ‖ LP(nonce) ‖
-//    LP(deployment), signed by the enrolled key (`crypto/session.ts`).
-const challenge = await sha256(
-  concat(lp(utf8('fathom/session/bind/v1')), lp(sessionPub), lp(nonce), lp(deploymentId)),
-);
-const evidence = await sign(operatorKey, challenge);
-const si = await post('/session', concat(lp(utf8('operator')), lp(sessionPub), lp(nonce), lp(evidence)));
-if (si.status !== 200) fail('sign-in', `status ${si.status}: ${si.text.trim()}`);
-const { value: sessionIdBytes, rest: afterSid } = readLp(si.bytes);
-const { value: sessionToken, rest: afterTok } = readLp(afterSid);
-const { value: principalBytes } = readLp(afterTok.slice(8));
-const sessionId = dec.decode(sessionIdBytes);
-if (dec.decode(principalBytes) !== operatorId) {
-  fail('sign-in', `the session names ${dec.decode(principalBytes)}, not ${operatorId}`);
-}
-console.log(`signed in: session ${sessionId}`);
-
-// 4. One signed request (`signedFetch.ts`): a nonce, then the request bytes.
-const nonceRes = await post('/session/nonce', undefined, {
-  'fathom-session': sessionId,
-  'fathom-session-token': hex(sessionToken),
-});
-if (nonceRes.status !== 200) fail('nonce', `status ${nonceRes.status}: ${nonceRes.text.trim()}`);
-const { value: reqNonce } = readLp(nonceRes.bytes);
-const unixMs = Date.now();
-const counter = 1;
-const path = '/admin/operators';
-const message = concat(
-  lp(utf8('fathom/session/req/v1')),
-  lp(utf8(sessionId)),
-  lp(utf8('GET')),
-  lp(utf8(path)),
-  lp(await sha256(new Uint8Array(0))),
-  lp(reqNonce),
-  u64le(unixMs),
-  u64le(counter),
-);
-const signature = await sign(sessionKey, message);
-const list = await fetch(baseUrl + path, {
-  method: 'GET',
-  headers: {
-    'fathom-session': sessionId,
-    'fathom-session-token': hex(sessionToken),
+/// One signed request's headers, as `client/src/api/signedFetch.ts` builds
+/// them: a nonce from `POST /session/nonce`, then a signature over the method,
+/// the path, the body digest, the nonce, the time and the counter.
+let counter = 0;
+async function signedHeaders(session, method, path, body) {
+  const nonceRes = await post('/session/nonce', undefined, {
+    'fathom-session': session.id,
+    'fathom-session-token': hex(session.token),
+  });
+  if (nonceRes.status !== 200) fail('nonce', `status ${nonceRes.status}: ${nonceRes.text.trim()}`);
+  const { value: reqNonce } = readLp(nonceRes.bytes);
+  const unixMs = Date.now();
+  counter += 1;
+  const message = concat(
+    lp(utf8('fathom/session/req/v1')),
+    lp(utf8(session.id)),
+    lp(utf8(method)),
+    lp(utf8(path)),
+    lp(await sha256(body ?? EMPTY)),
+    lp(reqNonce),
+    u64le(unixMs),
+    u64le(counter),
+  );
+  return {
+    'fathom-session': session.id,
+    'fathom-session-token': hex(session.token),
     'fathom-nonce': hex(reqNonce),
     'fathom-timestamp': String(unixMs),
     'fathom-counter': String(counter),
-    'fathom-signature': hex(signature),
-  },
+    'fathom-signature': hex(await sign(session.key, message)),
+  };
+}
+
+async function signedPost(session, path, body) {
+  const headers = await signedHeaders(session, 'POST', path, body);
+  return post(path, body ?? EMPTY, headers);
+}
+
+/// Steps 2 and 3: a fresh session keypair, a challenge over its public half,
+/// and the six-field sign-in body ADR-0055 decision 10 widened `POST /session`
+/// to.
+async function signIn(kind, principal, { credential = '', appCode = '', evidenceKey = null } = {}) {
+  const sessionKey = await keyPair();
+  const sessionPub = await publicRaw(sessionKey);
+  const ch = await post(
+    '/session/challenge',
+    concat(lp(utf8(kind)), lp(utf8(principal)), lp(sessionPub)),
+  );
+  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
+  const { value: nonce, rest: afterNonce } = readLp(ch.bytes);
+  const { value: deploymentId } = readLp(afterNonce);
+
+  let evidence = EMPTY;
+  if (evidenceKey) {
+    const challenge = await sha256(
+      concat(lp(utf8('fathom/session/bind/v1')), lp(sessionPub), lp(nonce), lp(deploymentId)),
+    );
+    evidence = await sign(evidenceKey, challenge);
+  }
+
+  const si = await post(
+    '/session',
+    concat(
+      lp(utf8(kind)),
+      lp(sessionPub),
+      lp(nonce),
+      lp(evidence),
+      lp(utf8(credential)),
+      lp(utf8(appCode)),
+    ),
+  );
+  if (si.status !== 200) fail('sign-in', `status ${si.status}: ${si.text.trim()}`);
+  const { value: sessionIdBytes, rest: afterSid } = readLp(si.bytes);
+  const { value: sessionToken, rest: afterTok } = readLp(afterSid);
+  const { value: principalBytes } = readLp(afterTok.slice(8));
+  counter = 0;
+  return {
+    id: dec.decode(sessionIdBytes),
+    token: sessionToken,
+    key: sessionKey,
+    principal: dec.decode(principalBytes),
+  };
+}
+
+// 1. The setup token: set a password. No session comes back (resolution 4).
+const token = fromHex(readFileSync(tokenFile, 'utf8'));
+const setup = await post(
+  '/enrolment/operator/setup',
+  concat(lp(token), lp(utf8(CREDENTIAL))),
+);
+if (setup.status !== 200) fail('setup', `status ${setup.status}: ${setup.text.trim()}`);
+if (setup.bytes.length !== 0) {
+  fail('setup', `the setup route must return no session and no body, got ${setup.bytes.length} byte(s)`);
+}
+console.log('setup: the first operator set a password');
+
+// A spent setup token is spent. The smoke test asserts it here rather than
+// leaving it to the suite, because a token file that still works after setup
+// is a token file sitting on a volume being a standing credential.
+const again = await post('/enrolment/operator/setup', concat(lp(token), lp(utf8(CREDENTIAL))));
+if (again.status !== 401) {
+  fail('setup', `a spent setup token must be refused with 401, got ${again.status}: ${again.text.trim()}`);
+}
+console.log('setup: the token is spent (401 on a second use)');
+
+// 2 and 3. Sign in with the address and the password. No app code yet, so this
+// is the `A0` setup session decision 10 describes: good for `/credentials/*`
+// and nothing else.
+const session = await signIn('steward', address, { credential: CREDENTIAL });
+console.log(`signed in: session ${session.id} for ${session.principal}`);
+
+// 4. Enrol the app code.
+const enrol = await signedPost(session, '/credentials/totp/enrol', EMPTY);
+if (enrol.status !== 200) fail('totp-enrol', `status ${enrol.status}: ${enrol.text.trim()}`);
+const { value: uriBytes, rest: afterUri } = readLp(enrol.bytes);
+const { value: secretBytes } = readLp(afterUri);
+const otpauth = dec.decode(uriBytes);
+if (!otpauth.startsWith('otpauth://totp/')) fail('totp-enrol', `not an otpauth URI: ${otpauth}`);
+for (const required of ['algorithm=SHA1', 'digits=6', 'period=30']) {
+  if (!otpauth.includes(required)) fail('totp-enrol', `the URI omits ${required}: ${otpauth}`);
+}
+const secret = base32Decode(dec.decode(secretBytes));
+console.log(`app code: a ${secret.length}-byte secret and an otpauth URI`);
+
+// 5 and 6. Compute a code and confirm with it.
+const code = await totpCode(secret, currentStep());
+const confirm = await signedPost(session, '/credentials/totp/confirm', lp(utf8(code)));
+if (confirm.status !== 200) fail('totp-confirm', `status ${confirm.status}: ${confirm.text.trim()}`);
+let rest = confirm.bytes;
+const backupCodes = [];
+while (rest.length > 0) {
+  const read = readLp(rest);
+  backupCodes.push(dec.decode(read.value));
+  rest = read.rest;
+}
+if (backupCodes.length !== 10) fail('totp-confirm', `expected ten backup codes, got ${backupCodes.length}`);
+console.log(`app code: confirmed with a real six-digit code; ten backup codes issued`);
+
+// 7. Register this browser's long-term key.
+const browserKey = await keyPair();
+const registered = await signedPost(
+  session,
+  '/credentials/key',
+  lp(await publicRaw(browserKey)),
+);
+if (registered.status !== 200) fail('key', `status ${registered.status}: ${registered.text.trim()}`);
+const { value: keyIdBytes } = readLp(registered.bytes);
+console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
+
+// The whole point of the app code: the session is no longer setup-only, and a
+// sign-in now needs the password AND a code. **A backup code, not another app
+// code**: the confirm above spent this 30-second step, and a code is accepted
+// once per step (ADR-0055 decision 10, the replay rule), so a second app code
+// inside the same step is refused on purpose. The backup code proves the lost
+// phone path at the same time, and its single use is asserted right after.
+const withCode = await signIn('steward', address, {
+  credential: CREDENTIAL,
+  appCode: backupCodes[0],
 });
+console.log(`two factors: signed in again as ${withCode.principal} with a password and a backup code`);
+{
+  const sessionKey = await keyPair();
+  const sessionPub = await publicRaw(sessionKey);
+  const ch = await post(
+    '/session/challenge',
+    concat(lp(utf8('steward')), lp(utf8(address)), lp(sessionPub)),
+  );
+  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
+  const { value: nonce } = readLp(ch.bytes);
+  const again = await post(
+    '/session',
+    concat(
+      lp(utf8('steward')),
+      lp(sessionPub),
+      lp(nonce),
+      lp(EMPTY),
+      lp(utf8(CREDENTIAL)),
+      lp(utf8(backupCodes[0])),
+    ),
+  );
+  if (again.status === 200) fail('backup-code', 'a spent backup code signed in a second time');
+  console.log(`backup code: spent, a second use is refused (${again.status})`);
+}
+
+// 8. The operator key. From the account session -- the person, with their
+// password and their code behind them -- on the console host: this build
+// confines nothing, so every host is the console host. The answer names the
+// operator the custody is bound to, which is the id the operator signs in as.
+const opKey = await signedPost(
+  withCode,
+  '/admin/operators/self/key',
+  lp(await publicRaw(browserKey)),
+);
+if (opKey.status !== 200) fail('operator-key', `status ${opKey.status}: ${opKey.text.trim()}`);
+const { value: opKeyIdBytes, rest: afterOpKeyId } = readLp(opKey.bytes);
+const { value: operatorIdBytes } = readLp(afterOpKeyId);
+const operatorId = dec.decode(operatorIdBytes);
+console.log(`operator key: ${dec.decode(opKeyIdBytes)} registered for operator ${operatorId}`);
+
+// 9. The operator sign-in: the operator custody is still a key sign-in
+// (resolution 8), with the browser's key as the evidence and no password.
+const op = await signIn('operator', operatorId, { evidenceKey: browserKey });
+if (op.principal !== operatorId) {
+  fail('operator-sign-in', `the session names ${op.principal}, not ${operatorId}`);
+}
+console.log(`operator: signed in as ${operatorId} with the browser key`);
+
+// 10. One signed read of the register, which must name this operator and
+// the notice address the first start bound the custody to.
+const registerPath = '/admin/operators';
+const registerHeaders = await signedHeaders(op, 'GET', registerPath, EMPTY);
+const list = await fetch(baseUrl + registerPath, { method: 'GET', headers: registerHeaders });
 const listText = await list.text();
 if (list.status !== 200) fail('register', `status ${list.status}: ${listText.trim()}`);
 const row = listText.split('\n').find((line) => line.startsWith(`${operatorId} `));
 if (!row) fail('register', `the register does not name ${operatorId}:\n${listText}`);
-console.log(`the register names the operator: ${row}`);
-console.log('OK: the first operator enrolled, signed in and read the operator register over HTTP');
+if (!row.includes(address)) fail('register', `the register's row does not carry ${address}: ${row}`);
+console.log(`the register names the operator and their address: ${row}`);
+console.log(
+  'OK: the first operator set a password, enrolled an app code, signed in with both ' +
+    'factors, registered a browser key, registered it as their operator key, signed in ' +
+    'as the operator and read the register over HTTP',
+);

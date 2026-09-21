@@ -29,10 +29,26 @@
 | `typenum` | transitive |
 | `universal-hash` | transitive |
 | `zeroize` | transitive |
+| `phc` | transitive — the PHC string format, split out of `password-hash 0.6` (2026-09-21, see below) |
 
 <!-- gate-zero:end -->
 
-**Twenty-two crates.**
+**Twenty-three crates.**
+
+> **2026-09-21, twice in one day.** `argon2` stopped being inert with ADR-0055 stream (a), first
+> at `0.5.3`, which brought `version_check` (a build-time dependency of `generic-array 0.14`,
+> reached through `blake2 0.10 → digest 0.10 → crypto-common 0.1`) and, with it, a second copy
+> of `digest`, `block-buffer`, `cpufeatures`, `crypto-common` and `rand_core` beside the
+> `digest 0.11` generation the rest of this server is on. `deny.toml` denies a duplicate crate
+> by policy and the first CI run said so. The fix was the version, not the policy: `argon2 0.6.0`
+> (`blake2 ^0.11`, `password-hash ^0.6` on `rand_core ^0.10`, read off the crates.io index that
+> day) shares every one of those crates with the tree, `version_check` and `generic-array` leave
+> the lockfile, and one crate joins: **`phc`**, RustCrypto's PHC string format
+> (`RustCrypto/formats`, `Apache-2.0 OR MIT`, checked in its manifest 2026-09-21), which
+> `password-hash 0.6` split out of itself. Nobody chose it; it does the parsing `password-hash
+> 0.5` did inline, it ships (the PHC string in `accounts.password_hash` is parsed by it), and
+> there is nothing about it to decide that approving `argon2` did not decide. Measured, not
+> quoted: `scripts/gate-zero.sh` on the new lockfile failed on `phc` and on nothing else.
 
 > **The markers above are new (2026-09-03, WO-11 §5 step 1) and the list is not.** The names,
 > the measurement and the approval date are unchanged; what changed is that

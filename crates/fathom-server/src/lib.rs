@@ -74,6 +74,15 @@ pub mod repo;
 pub mod rls;
 pub mod secret;
 pub mod sessions;
+// ADR-0055 stream (a): the person's credential — a password, an app code, ten
+// backup codes and the two ways back in. Added at the END of this list so the
+// other two ADR-0055 streams' additions land beside it and the merge is
+// mechanical.
+pub mod credentials;
+// ADR-0055 stream (c) -- console placement, the SMTP envelope and the two
+// headers. At the end of the list rather than in alphabetical place so that
+// three streams building ADR-0055 at once merge mechanically.
+pub mod placement;
 
 use std::sync::Arc;
 
@@ -131,4 +140,19 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health::handler))
         .route("/schema/kinds", get(engine::kinds_handler))
         .with_state(state)
+}
+
+// ADR-0055 stream (c) ------------------------------------------------------
+
+/// [`router`], plus the unauthenticated console-host flag.
+///
+/// `GET /placement/flag` is **outside `/admin`** on purpose (ADR-0055
+/// decision 9): the answer a client needs on a host that is NOT the console
+/// host is "no", and a route under `/admin` is answered 404 exactly there by
+/// `admin_exposure`. It carries its own state, so it is appended here rather
+/// than folded into [`AppState`] — a field on that struct is a conflict in
+/// every file that constructs one, and three streams are building ADR-0055 at
+/// once.
+pub fn router_with_placement(state: AppState, exposure: admin_exposure::AdminExposure) -> Router {
+    router(state).merge(placement::flag_router(exposure))
 }

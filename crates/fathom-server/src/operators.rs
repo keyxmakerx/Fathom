@@ -57,7 +57,7 @@ use crate::grants::{self, AuthorityError, GenesisGrant};
 use crate::ids;
 use crate::keys::KeyRing;
 use crate::repo::{AccountId, OrganisationId, RepoError};
-use crate::sessions::{PrincipalKind, VerifiedSession};
+use crate::sessions::{Assurance, PrincipalKind, VerifiedSession};
 
 // ---------------------------------------------------------------------------
 // The labels
@@ -162,6 +162,47 @@ pub const ENROLMENT_TOKEN_LIFETIME: Duration = Duration::from_secs(72 * 60 * 60)
 /// operator's.
 pub const BOOTSTRAP_TOKEN_PREFIX: &str = "op_";
 
+// ---- ADR-0055 stream (b) --------------------------------------------------
+
+/// **Ten minutes**, for the setup code `fathom-server recover-operator` prints
+/// to a terminal (ADR-0055 decision 8: *"prints a one-shot ten-minute setup
+/// code"*).
+///
+/// Short because it is read off a screen by the person who just typed the
+/// command, not mailed: the whole life of this token is the walk from the
+/// host's terminal to a browser. It is deliberately NOT
+/// [`ENROLMENT_TOKEN_LIFETIME`] -- seventy-two hours exists to survive a
+/// weekend and a mail queue, and neither is in play here.
+pub const RECOVERY_SETUP_TOKEN_LIFETIME: Duration = Duration::from_secs(10 * 60);
+
+/// **Seven days**, the window ADR-0055 decision 8 banners every operator
+/// session for after a host recovery: *"notifies every operator, and banners
+/// every operator session for seven days"*.
+///
+/// Derived from the site chain, never stored: [`OperatorStore::notices`] asks
+/// the chain whether an `operator_recovered_from_host` entry landed inside
+/// this window. A column would be a column somebody could clear.
+pub const RECOVERY_BANNER_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// **Seven days**, the seconder-independence window
+/// `0015_operator_console.sql` §G pins in `fathom_seconder_is_independent`:
+/// *"that sign-in is older than the longest delay window in force"*.
+///
+/// Named here because ADR-0055 decision 3's quorum has to agree with it. The
+/// lead's resolution 9, 2026-09-21: *"live independent operators are operators
+/// not disabled whose `first_independent_signin_at IS NOT NULL` and older than
+/// the seconder trigger's 7-day window, so quorum never demands a seconder who
+/// cannot second."* A quorum of two counting an operator the trigger would
+/// refuse is a quorum that can never be met, which is the deadlock decision 3
+/// exists to remove.
+///
+/// **The literal is in two places and has to be.** The trigger's copy is in
+/// SQL because a trigger cannot read a Rust constant, and this one is in Rust
+/// because the quorum is computed here. `the_quorum_window_matches_the_trigger`
+/// in `tests/operators.rs` reads the trigger's own source out of the catalogue
+/// and asserts the two agree.
+pub const INDEPENDENCE_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -206,6 +247,13 @@ pub enum OperatorError {
     /// before the statement is issued, so the caller gets a sentence rather
     /// than a constraint name.
     SecondedByTheRequester,
+    /// `0015` §G's `fathom_seconder_is_independent` refused this seconder:
+    /// they are disabled, they were created by the requester, they have no
+    /// independent sign-in on record, or that sign-in is newer than
+    /// [`INDEPENDENCE_WINDOW`]. **A rule, not an alarm** — before ADR-0055
+    /// fix (c) the trigger's `P0001` fell through to
+    /// `Corrupt("operator plane")` and reached the console as a 500.
+    SeconderNotIndependent,
     /// §5.3: this change has not reached its `effective_at`, or has not been
     /// seconded, or has been cancelled, so it does not apply.
     NotYetEffective,
@@ -227,6 +275,23 @@ pub enum OperatorError {
     /// themselves an operator enrolment token, and an operator session with
     /// it, without holding any key this deployment has ever seen.
     AlreadyEnrolled,
+    // ---- ADR-0055 stream (b) ------------------------------------------
+    /// The acting account holds no operator custody: there is no row in
+    /// `operator_account_bindings` naming it (ADR-0055 decision 1). Also the
+    /// refusal when a binding exists but names a disabled operator.
+    NotBoundToAnOperator,
+    /// `accounts.operator_key_hold_until` (`0021`) is in the future: this
+    /// account's credential was reset, and ADR-0055 decision 7 will not let a
+    /// reset restore the operator seat by itself. Another operator confirms
+    /// it, or the hold runs out.
+    SeatHeld,
+    /// `0019` §C's floor: disabling this operator would leave the deployment
+    /// with none, and there is no way back from that but the key volume.
+    LastLiveOperator,
+    /// The session is the setup-only one ADR-0055 decision 1 gives an account
+    /// that holds the operator custody and has not enrolled an app code yet.
+    /// It reaches the credential routes and nothing else.
+    SetupSessionOnly,
     /// A field of a message was not the shape it must be.
     Malformed(&'static str),
     /// A stored row does not decode as what its column says it is.
@@ -276,6 +341,13 @@ impl core::fmt::Display for OperatorError {
                 "the operator who requested a change cannot second it: two ids that differ is \
                  what the CHECK tests, and two humans is what the rule is about",
             ),
+            Self::SeconderNotIndependent => f.write_str(
+                "this operator cannot second this request: two ids are two humans only if the \
+                 seconder is not disabled, was not created by the requester, and has an \
+                 independent sign-in on record older than the longest delay window in force \
+                 (admin design 5.5). When nobody is eligible the request stands alone after \
+                 its delay (ADR-0055 decision 3)",
+            ),
             Self::NotYetEffective => f.write_str(
                 "this change is not effective: it is inside its delay, unseconded, or cancelled",
             ),
@@ -293,6 +365,26 @@ impl core::fmt::Display for OperatorError {
                  operator, or a restore from backup. Re-issuing after enrolment would be a \
                  way for anyone who can run a command on this host to mint themselves an \
                  operator session",
+            ),
+            // ---- ADR-0055 stream (b) --------------------------------
+            Self::NotBoundToAnOperator => f.write_str(
+                "this account holds no operator custody: there is no binding naming it, or the \
+                 operator it names is disabled (ADR-0055 decision 1)",
+            ),
+            Self::SeatHeld => f.write_str(
+                "the operator seat on this account is held: its credential was reset, and a \
+                 reset does not restore the operator custody by itself. Another operator \
+                 confirms the recovery, or the hold runs out (ADR-0055 decision 7)",
+            ),
+            Self::LastLiveOperator => f.write_str(
+                "disabling the last live operator is refused: the deployment would have none, \
+                 and the way back would be the key volume. Add a colleague first (ADR-0055 \
+                 decision 4)",
+            ),
+            Self::SetupSessionOnly => f.write_str(
+                "this session is the setup-only one an account holding the operator custody \
+                 gets before it has enrolled an app code. It reaches the credential routes and \
+                 nothing else (ADR-0055 decision 1)",
             ),
             Self::Malformed(what) => write!(f, "the {what} is not the shape it must be"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
@@ -415,12 +507,34 @@ pub fn setting_second_bytes(
 
 /// §5.5's *"two existing operator assertions"* for creating an operator, half
 /// one.
-pub fn operator_request_bytes(deployment: &str, operator: &str, display_name: &str) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(160);
+///
+/// **The address is inside the assertion** (ADR-0055 decision 5, the lead's
+/// resolution 5, 2026-09-21). What an operator asserts is not "mint somebody
+/// called Sam" but "invite Sam, at this address, to hold this custody" -- and
+/// the address is where the invitation goes. Outside the signature it would be
+/// a field whoever holds the database could rewrite between the request and
+/// the apply, redirecting an invitation two operators had signed for.
+///
+/// **The tag stays `fathom/site/operator/request/v1`.** A length-prefixed
+/// field added to the end cannot make an old signature verify against the new
+/// shape or the other way round -- the bytes differ, and
+/// `the_signed_messages_change_with_every_field_they_cover` pins that -- so
+/// what a version bump would buy is a second label in §12.2's table for a
+/// message no deployment has ever signed outside a test. The cost of the
+/// change is stated instead: an operator request signed before 2026-09-21 does
+/// not verify after it.
+pub fn operator_request_bytes(
+    deployment: &str,
+    operator: &str,
+    display_name: &str,
+    address: &str,
+) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(224);
     crypto::lp(&mut msg, TAG_OPERATOR_REQUEST);
     crypto::lp(&mut msg, deployment.as_bytes());
     crypto::lp(&mut msg, operator.as_bytes());
     crypto::lp(&mut msg, display_name.as_bytes());
+    crypto::lp(&mut msg, address.as_bytes());
     msg
 }
 
@@ -455,6 +569,11 @@ pub enum Purpose {
     Operator,
     /// §6.2's organisation enrolment claim.
     Organisation,
+    /// ADR-0055 decision 10's first-operator setup: the token the first start
+    /// writes opens the screen that sets a password and enrols the app code,
+    /// instead of enrolling a browser key. Subject column: `operator_id`, as
+    /// `0019` §B's CHECK requires.
+    Setup,
 }
 
 impl Purpose {
@@ -463,6 +582,7 @@ impl Purpose {
             Self::Account => "account",
             Self::Operator => "operator",
             Self::Organisation => "organisation",
+            Self::Setup => "setup",
         }
     }
 
@@ -471,6 +591,7 @@ impl Purpose {
             "account" => Some(Self::Account),
             "operator" => Some(Self::Operator),
             "organisation" => Some(Self::Organisation),
+            "setup" => Some(Self::Setup),
             _ => None,
         }
     }
@@ -526,6 +647,16 @@ pub struct Operator {
     pub first_independent_signin_at_unix: i64,
     pub disabled_at_unix: i64,
     pub row_version: i32,
+    /// **ADR-0055 stream (b).** The address of the account this operator's
+    /// custody is bound to (`operator_account_bindings`, `0019` §A), which is
+    /// decision 1's *"the address is the identity"* and decision 5's
+    /// destination for a notice.
+    ///
+    /// `None` for an operator with no binding -- which is every operator a
+    /// deployment created before ADR-0055, and nothing this code writes. It is
+    /// NOT inside `operators.row_seal`: the binding is a row of its own with
+    /// its own seal, for `0019`'s reported reason.
+    pub address: Option<String>,
 }
 
 impl Operator {
@@ -533,6 +664,50 @@ impl Operator {
     /// signed in"*, beside every operator until that stops being true.
     pub fn never_independently_signed_in(&self) -> bool {
         self.first_independent_signin_at_unix == 0
+    }
+
+    /// ADR-0055 decision 3, the lead's resolution 9: could this operator
+    /// second ANYBODY?
+    ///
+    /// **Live is not enough.** `0015` §G's `fathom_seconder_is_independent`
+    /// refuses a seconder with no independent sign-in on record, and one whose
+    /// first sign-in is newer than [`INDEPENDENCE_WINDOW`]. Counting such an
+    /// operator towards a quorum of two would be demanding a second signature
+    /// from somebody the database will not accept one from -- a deadlock with
+    /// a number in front of it, which is exactly what decision 3 removes.
+    ///
+    /// **Three of the trigger's four clauses, and it says so now.** The fourth
+    /// is per-requester and lives in [`Operator::is_eligible_to_second`]; this
+    /// one is the deployment-wide fact decision 4's banner is about ("how many
+    /// operators could act at all"), not the quorum.
+    pub fn counts_towards_quorum(&self, now_unix: i64) -> bool {
+        self.disabled_at_unix == 0
+            && self.first_independent_signin_at_unix != 0
+            && self.first_independent_signin_at_unix
+                <= now_unix - INDEPENDENCE_WINDOW.as_secs() as i64
+    }
+
+    /// **All four of `fathom_seconder_is_independent`'s clauses, against one
+    /// named requester** — ADR-0055 fix (c), 2026-09-21.
+    ///
+    /// The fourth clause is `0015_operator_console.sql`:719, *"the seconder
+    /// was created by the requester, so two ids are not two humans"*, and
+    /// leaving it out of the count was a deadlock in exactly the shape
+    /// decision 5 calls standing: bootstrap operator A, colleague B whom A
+    /// added. Once both had been independently signed in for seven days the
+    /// quorum read 2 and B was the only candidate — but B was created by A, so
+    /// B's signature raised `P0001` and A could never add a third operator.
+    /// The request sat pending for ever.
+    ///
+    /// So the quorum is per requester: [`quorum_for`] counts the operators who
+    /// could second THIS requester and asks for a second signature only when
+    /// there is somebody who can give one. When there is nobody, the request
+    /// stands alone — **with the delay**, which decision 3 says quorum 1 never
+    /// removes.
+    pub fn is_eligible_to_second(&self, requester: &str, now_unix: i64) -> bool {
+        self.id != requester
+            && self.created_by.as_deref() != Some(requester)
+            && self.counts_towards_quorum(now_unix)
     }
 }
 
@@ -554,6 +729,11 @@ pub struct PendingChange {
 /// What §6.3's first start produces.
 pub struct Bootstrap {
     pub operator_id: String,
+    /// **ADR-0055 decision 1.** The account the first start created for
+    /// `FATHOM_OPERATOR_NOTICE_ADDRESS`, and bound the operator custody to.
+    /// The person signs in as this account; the operator principal underneath
+    /// is what the console checks.
+    pub account_id: String,
     pub invitation: Invitation,
 }
 
@@ -597,16 +777,11 @@ pub struct OperatorStore {
     /// which breaks the row seal, so the test proves the seal and never the
     /// delay.
     settings_delay: Duration,
-    /// §5.3's `FATHOM_SINGLE_OPERATOR`. **Reduces the second signature to none
-    /// and keeps the delay, the notice and (when it exists) the witness
-    /// receipt.** Quorum 1 with no delay is not a configuration this product
-    /// offers, and there is no code path here that shortens the delay.
-    single_operator: bool,
 }
 
 impl OperatorStore {
-    pub fn new(pool: Pool, ring: Arc<KeyRing>, deployment: String, single_operator: bool) -> Self {
-        Self::with_delay(pool, ring, deployment, single_operator, SETTINGS_DELAY)
+    pub fn new(pool: Pool, ring: Arc<KeyRing>, deployment: String) -> Self {
+        Self::with_delay(pool, ring, deployment, SETTINGS_DELAY)
     }
 
     /// As [`OperatorStore::new`], with a delay other than [`SETTINGS_DELAY`].
@@ -620,7 +795,6 @@ impl OperatorStore {
         pool: Pool,
         ring: Arc<KeyRing>,
         deployment: String,
-        single_operator: bool,
         settings_delay: Duration,
     ) -> Self {
         Self {
@@ -628,7 +802,6 @@ impl OperatorStore {
             ring,
             deployment,
             settings_delay,
-            single_operator,
         }
     }
 
@@ -640,8 +813,66 @@ impl OperatorStore {
         &self.pool
     }
 
-    pub fn single_operator(&self) -> bool {
-        self.single_operator
+    // -----------------------------------------------------------------------
+    // ADR-0055 decision 3 -- the quorum, derived
+    // -----------------------------------------------------------------------
+
+    /// **How many operators could actually second something right now.**
+    ///
+    /// ADR-0055 decision 3 retires `FATHOM_SINGLE_OPERATOR` and ports §3.5's
+    /// `min(2, live stewards)` to the operator plane. The lead's resolution 9,
+    /// 2026-09-21, fixes what "live" means here, and it is narrower than
+    /// "`disabled_at IS NULL`": `0015` §G's `fathom_seconder_is_independent`
+    /// refuses a seconder with no independent sign-in on record and one whose
+    /// first sign-in is newer than [`INDEPENDENCE_WINDOW`]. A quorum of two
+    /// that counted such an operator would be asking for a signature the
+    /// database refuses to store -- a deadlock, which is the thing decision 3
+    /// exists to remove.
+    ///
+    /// The predicate is [`Operator::counts_towards_quorum`], so that the rule
+    /// is written once and the tests can drive it without a database.
+    pub async fn live_independent_operators(&self) -> Result<i64, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        let count = live_independent_operators(&tx).await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(count)
+    }
+
+    /// `min(2, live independent operators)` -- decision 3's rule, named.
+    ///
+    /// **Deployment-wide, and not what gates a request.** Decision 4's banner
+    /// asks this; [`OperatorStore::quorum_for`] is what `request_operator`,
+    /// `request_setting` and the two applies ask, because the fourth of
+    /// `0015` §G's clauses is per requester (ADR-0055 fix (c)).
+    pub async fn operator_quorum(&self) -> Result<i64, OperatorError> {
+        Ok(self.live_independent_operators().await?.min(2))
+    }
+
+    /// **The quorum a request by `requester` actually has to reach** --
+    /// [`quorum_for`], in a transaction of its own, for a caller outside one.
+    pub async fn quorum_for(&self, requester: &str) -> Result<i64, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        let quorum = quorum_for(&tx, &self.ring, requester).await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(quorum)
+    }
+
+    /// **Is this deployment down to a quorum of one?**
+    ///
+    /// The replacement for the stored `single_operator` field ADR-0055
+    /// decision 3 retires. Every reader of the old field calls this instead,
+    /// and every one of them now asks the register rather than the process's
+    /// environment -- which is what `apply_if_due` and `apply_operator_request`
+    /// were already doing by calling `self.single_operator()` rather than
+    /// reading the row's own stamped field (their own comments, 2026-09-21).
+    pub async fn single_operator(&self) -> Result<bool, OperatorError> {
+        Ok(self.operator_quorum().await? < 2)
     }
 
     pub fn settings_delay(&self) -> Duration {
@@ -689,6 +920,12 @@ impl OperatorStore {
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
         enter_enrolment_custody(&tx).await?;
+        // ADR-0055 decision 1: this start creates an ACCOUNT as well as an
+        // operator, and `accounts_readable` (`0013` §A) admits the account
+        // custody rather than the operator one. The same pair
+        // `set_account_disabled` takes.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
 
         // One bootstrapper at a time, deployment-wide. `chains::append_site`
         // takes the same kind of lock for the chain itself; this one covers
@@ -727,6 +964,19 @@ impl OperatorStore {
         self.insert_operator(&tx, &id, display_name, None, appended.seq)
             .await?;
 
+        // **ADR-0055 decision 1: the address is the identity.** The first
+        // start creates the account for `FATHOM_OPERATOR_NOTICE_ADDRESS` and
+        // binds the operator custody to it, so that the installer signs in
+        // with an address like everybody else and the console recognises them
+        // through the binding. The account's display name is the address: it
+        // is the one thing the installer has already told this deployment
+        // about themselves, and a guessed name would be a name nobody chose.
+        let account_id = self
+            .account_for_address(&tx, notice_address, notice_address, &id)
+            .await?;
+        self.bind_operator_to_account(&tx, &id, &account_id, appended.seq)
+            .await?;
+
         // **An install record that already exists wins, and is not
         // overwritten.** §6.2 pins an organisation's enrolment claim to this
         // address precisely because no role can rewrite it, and a second
@@ -742,14 +992,31 @@ impl OperatorStore {
         )
         .await?;
 
+        // **ADR-0055 decision 10's last bullet: a `setup` token, not an
+        // `operator` one.** *"The first operator's setup: the token file the
+        // first start writes opens a setup screen (set the password, enrol the
+        // app code, save the backup codes) instead of enrolling a browser
+        // key."* The bytes, the file and the `op_` prefix are unchanged; what
+        // changed is which screen the token opens, and `0019` §B is the CHECK
+        // that lets the column say so.
         let invitation = self
-            .issue_token(&tx, Purpose::Operator, &id, &id, "bootstrap")
+            .issue_token(
+                &tx,
+                Purpose::Setup,
+                &id,
+                &id,
+                "bootstrap",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
             .await?;
 
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(Bootstrap {
             operator_id: id,
+            account_id,
             invitation,
         })
     }
@@ -757,12 +1024,16 @@ impl OperatorStore {
     /// §5.3's declaration: **write `single_operator_mode` at every startup**,
     /// *"so nobody can later claim two-person control was in force"*.
     ///
-    /// Called by `main.rs` at startup when `FATHOM_SINGLE_OPERATOR` is set, and
-    /// by nothing else. It is a sealed statement about how this deployment is
-    /// configured, not a setting: there is no path here that turns the mode on
-    /// or off, because the mode is read from the process's own configuration
-    /// and a mode an operator could change through the console would be the
-    /// second signature removing itself.
+    /// Called by `main.rs` at every startup, and by nothing else.
+    ///
+    /// **ADR-0055 decision 3: it is a derived fact now, not a declaration.**
+    /// It used to be written only when `FATHOM_SINGLE_OPERATOR` was set, and
+    /// what it recorded was what the environment said. The switch is retired;
+    /// what this records is what the register says -- how many operators could
+    /// actually second something -- so a reader of the trail can see that this
+    /// deployment was running on one pair of hands, and when, without taking a
+    /// process's environment on trust. There is still no path here that turns
+    /// the quorum up or down: it is counted, never set.
     ///
     /// **An entry per startup and not per act.** Two interchangeable containers
     /// restarting is the ordinary case, so this is bounded by restarts; an
@@ -771,6 +1042,11 @@ impl OperatorStore {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
+        // **Derived, not declared** (ADR-0055 decision 3). The count is read
+        // in the same transaction the entry is appended in, so the sealed
+        // statement is about the register as it was when it was made and not
+        // about a number this process read a second earlier.
+        let live = live_independent_operators(&tx).await?;
         let appended = chains::append_site(
             &tx,
             &self.ring,
@@ -779,7 +1055,9 @@ impl OperatorStore {
             &entry_metadata(
                 EntryType::SingleOperatorMode,
                 &[
-                    ("single_operator", Json::Bool(self.single_operator)),
+                    ("single_operator", Json::Bool(live.min(2) < 2)),
+                    ("live_independent_operators", Json::Int(live)),
+                    ("quorum", Json::Int(live.min(2))),
                     // The delay is stated beside it, because §5.3's sentence is
                     // that single-operator mode *"reduces the second signature
                     // to none and KEEPS the delay"* — a reader of the trail
@@ -812,151 +1090,476 @@ impl OperatorStore {
         Ok(count > 0)
     }
 
-    /// **A fresh enrolment token for the first operator, and only while no
-    /// operator key has ever been enrolled.**
+    /// **The way back in, from the host, for an operator who already exists**
+    /// — ADR-0055 decision 8, which reopens §6.3's refusal on the owner's
+    /// decision.
     ///
-    /// The problem this answers: §6.3's token is handed out exactly once, in a
-    /// file, and it is the only way into a new deployment. Lose it — a
-    /// container restarted before anybody read it, a volume discarded, a
-    /// terminal closed — and nothing re-bootstraps, because an operator row
-    /// exists and [`OperatorStore::bootstrap_first_operator`] is idempotent by
-    /// design. Before this, the only remedy was destroying the database.
+    /// `fathom-server recover-operator <address>` runs where the key volume is
+    /// mounted and prints a one-shot ten-minute `setup` code for the operator
+    /// bound to that address. That code opens the same screen the first
+    /// operator's own token opens: set a credential, enrol the app code, save
+    /// the backup codes.
     ///
-    /// # The gate, which is the whole of this function
+    /// # What changed, and why it is not a backdoor
     ///
-    /// **If any row exists in `operator_keys`, this refuses.** Not "if the
-    /// first operator has a live key", not "if that operator has one": *any*
-    /// row, retired or not. A re-issue that worked after enrolment would let
-    /// whoever can run a command on this host mint an operator enrolment
-    /// token, redeem it with a key of their own, and hold an operator session
-    /// — without ever holding a key this deployment has seen. That is a
-    /// backdoor with a subcommand in front of it, and no amount of logging
-    /// makes it not one. Once a key exists, the way back in is another
-    /// operator or a restore, and [`OperatorError::AlreadyEnrolled`] says so.
+    /// Until 2026-09-21 this function was `reissue_bootstrap_token`, and its
+    /// whole safety was one gate: **any** row in `operator_keys` and it
+    /// refused. The argument was that a re-issue that worked after enrolment
+    /// would let whoever can run a command on this host mint an operator
+    /// session without holding a key this deployment has ever seen.
     ///
-    /// A host-level attacker is tier 3 in
-    /// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and already holds the key
-    /// volume and the database, so this does not pretend to fence them out of
-    /// the deployment. What it fences is the *window*: before enrolment there
-    /// is no operator key in existence and so nothing to steal a march on —
-    /// the installer and the attacker are in the same position, which is the
-    /// position §6.3's own token file already puts them in. After enrolment
-    /// there is a key, and this must not be a way around it.
+    /// ADR-0055 decision 8 answers that argument rather than ignoring it, and
+    /// the answer is in the ADR: *"the host already holds every key (ADR-0043
+    /// §2), so a delay here is theatre"*. A host-level attacker is tier 3 in
+    /// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §0.1 and already holds the
+    /// master key, the chain key and the database; the gate was never the
+    /// thing standing between them and the deployment. What it cost was real:
+    /// a sole operator who lost their browser had no way back that was not a
+    /// restore, which is the lockout the whole ADR is about. Every product the
+    /// ADR surveyed on 2026-09-21 recovers from the host (GitLab, Grafana,
+    /// NetBox, Portainer, Keycloak — the ADR's own table), and Microsoft
+    /// Entra's break-glass model is custody plus alerting, not a weaker front
+    /// door.
     ///
-    /// # Which operator
+    /// So the control moves from refusal to record: a sealed
+    /// `operator_recovered_from_host` entry, a notice to every operator when
+    /// mail exists, and a banner on every operator session for seven days
+    /// ([`RECOVERY_BANNER_WINDOW`], served by [`OperatorStore::notices`]).
     ///
-    /// Exactly one operator must exist and it must be the bootstrap one
-    /// (`created_by IS NULL`). With no key enrolled anywhere, that is the only
-    /// state the console can have produced: §5.5's operator-creation path
-    /// needs two operator sessions, and an operator session needs an enrolled
-    /// key. Anything else is a register this path cannot reason about, and it
-    /// refuses rather than guessing which row to hand a token for.
+    /// **And no delay** — decision 8 is explicit that one here would be
+    /// theatre. In particular this does NOT set `0021`'s
+    /// `operator_key_hold_until`: that hold exists because a MAILED reset is a
+    /// route an attacker who controls the mail server can walk, and the key
+    /// volume is not. Since ADR-0055 fix (f) it CLEARS one that is already
+    /// set, for the same reason — on a sole-operator deployment
+    /// [`OperatorStore::confirm_recovery`] refuses self-confirmation, so a
+    /// hold had no exit but the clock and the host could not override it.
+    ///
+    /// # What it takes away — ADR-0055 fix (a), 2026-09-21
+    ///
+    /// Until that date this restored access and dispossessed nobody: one
+    /// `UPDATE accounts SET password_hash`, and the lost browser kept its
+    /// session, kept its operator key, and its app code and backup codes still
+    /// worked. The quiet mailed path was strictly stronger than the loud host
+    /// path, which is backwards. In the same transaction as the record, this
+    /// now:
+    ///
+    /// 1. retires **every live `operator_keys` row** of that operator
+    ///    (migration `0024`), so the browser that was lost can sign nothing;
+    /// 2. ends **every session of both principals** — the bound account's
+    ///    steward sessions and the operator principal's own — each with its
+    ///    sealed entry and its `session_revocations` row, because a deleted
+    ///    session row is undone by a restore and a revocation row is not
+    ///    (`0014` §D);
+    /// 3. clears the **app code**: the TOTP secret and all four columns
+    ///    `0018` §B's CHECK correlates, so the setup screen this code opens
+    ///    enrols a new one — which is what decision 8 already promised — and
+    ///    retires the **ten backup codes** that stand beside it, since an app
+    ///    code that is gone and codes that still open the account is not a
+    ///    cleared second factor;
+    /// 4. clears `operator_key_hold_until` (fix (f), above).
+    ///
+    /// None of that is a power the host did not have: ADR-0043 §2 puts the key
+    /// volume inside tier 3, which is the ADR's own argument for there being
+    /// no delay here. What it changes is that the act now costs the holder of
+    /// a stolen browser their access, which is the whole point of break-glass.
+    ///
+    /// # What it still refuses
+    ///
+    /// **It mints no operator.** The address must resolve, through
+    /// `operator_account_bindings`, to an operator row that already exists and
+    /// is not disabled. An unknown address is [`OperatorError::NotFound`] and
+    /// nothing is written — not an account, not an operator, not a token.
+    /// That is the line decision 8 draws and it is the line this function
+    /// keeps: recovery restores a seat somebody already held, and creating a
+    /// seat is still two operators' work or a first start's.
     ///
     /// # The token it replaces
     ///
-    /// **Any live, unredeemed operator token for that operator is expired
-    /// first**, in the same transaction, each with its own sealed
-    /// `enrolment_token_expired` entry. Two live tokens would be two bearer
-    /// secrets for one enrolment, and the one this command is run because
-    /// nobody can find is exactly the one nobody can account for: leaving it
-    /// live would mean a deployment where the operator believes they hold the
-    /// only way in while a lost file still holds another. The cost is that
-    /// running this while somebody is mid-enrolment invalidates the token they
-    /// are holding; they run it again and get the new one, which is the lesser
-    /// harm and the recoverable one.
+    /// Any live, unredeemed `setup` or `operator` token for that operator is
+    /// expired first, in the same transaction, each with its own sealed
+    /// `enrolment_token_expired` entry — `reissue_bootstrap_token`'s rule,
+    /// kept for its own reason: two live bearer secrets for one seat, and the
+    /// one this command is run because nobody can find is exactly the one
+    /// nobody can account for.
     ///
-    /// Each of those rows' seals is verified before it is expired. A token row
-    /// that does not verify is not re-sealed into a new state by this path —
-    /// that would launder it — and the whole act refuses instead.
-    ///
-    /// The token is returned once, exactly as the bootstrap returns it, and it
-    /// is the caller's job to write it where a human can read it. **Nothing in
-    /// this module logs it.**
-    pub async fn reissue_bootstrap_token(&self) -> Result<Reissued, OperatorError> {
+    /// The token is returned once. **Nothing in this module logs it.**
+    pub async fn recover_operator(&self, address: &str) -> Result<Reissued, OperatorError> {
+        if address.trim().len() < 3 {
+            return Err(OperatorError::Malformed("address"));
+        }
+
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
         enter_enrolment_custody(&tx).await?;
+        // `accounts` is read here, and `accounts_readable` admits the account
+        // custody and not the operator custody (`0013` §A). The same pair
+        // `set_account_disabled` takes, for the same reason.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
 
-        // The bootstrap's own lock, because this is the bootstrap's act: a
-        // re-issue racing a first start must not read "no key enrolled" from
-        // one snapshot and mint against another.
+        // The bootstrap's own lock, because this act is the bootstrap's
+        // neighbour: a recovery racing a first start must not read the
+        // register from one snapshot and mint against another.
         tx.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended('fathom/operator/bootstrap', 0))",
             &[],
         )
         .await?;
 
-        // THE GATE. Every row, retired or live, for every operator.
-        let enrolled: i64 = tx
-            .query_one("SELECT count(*) FROM operator_keys", &[])
-            .await?
-            .get(0);
-        if enrolled > 0 {
-            return Err(OperatorError::AlreadyEnrolled);
-        }
-
-        let rows = tx
-            .query("SELECT id, created_by FROM operators", &[])
+        // **The address is resolved through the BINDING, never through a
+        // display name.** `operators.display_name` is free text an operator
+        // chose; `operator_account_bindings` is the sealed fact that names
+        // which account holds which custody, and `accounts.email` is unique.
+        let found = tx
+            .query_opt(
+                "SELECT b.operator_id, b.account_id FROM operator_account_bindings b \
+                   JOIN accounts a ON a.id = b.account_id \
+                  WHERE a.email = $1",
+                &[&address],
+            )
             .await?;
-        if rows.is_empty() {
-            // Nothing to re-issue for. The server's own first start is what
-            // mints the first operator, and it has not run yet.
-            return Err(OperatorError::NotFound("first operator"));
-        }
-        if rows.len() > 1 {
-            return Err(OperatorError::Corrupt("operator register"));
-        }
-        let operator: String = rows[0].get(0);
-        let created_by: Option<String> = rows[0].get(1);
-        if created_by.is_some() {
-            return Err(OperatorError::Corrupt("operator register"));
-        }
+        let Some(found) = found else {
+            return Err(OperatorError::NotFound("operator"));
+        };
+        let operator: String = found.get(0);
+        let account: String = found.get(1);
 
         // The row's own seal, before a token is minted against it. An
         // `operators` row edited in the database is exactly how somebody would
-        // point the first operator at a name nobody expects.
+        // point a recovery at a seat nobody expects — and the binding's own
+        // seal, because the binding is what just chose the seat.
         let row = verify_operator_row(&tx, &self.ring, &operator).await?;
         if row.disabled_at_unix != 0 {
             return Err(OperatorError::OperatorDisabled);
         }
+        self.verify_binding(&tx, &operator, &account).await?;
 
-        let expired = self
-            .expire_live_tokens(&tx, Purpose::Operator, &operator, "bootstrap_reissue")
+        let mut expired = self
+            .expire_live_tokens(
+                &tx,
+                Purpose::Setup,
+                &operator,
+                "operator_recovered_from_host",
+            )
             .await?;
-
-        // `reason` is the field `issue_token` already carries for this — the
-        // bootstrap's own token says `bootstrap` — and it is inside the sealed
-        // metadata, so a reader holding the chain key can tell a token minted
-        // from the host command line from one minted by the console. It is
-        // deliberately not a new `EntryType`: the act IS an enrolment token
-        // being issued, which is what `enrolment_token_issued` means, and a
-        // new type would cost a migration rewriting a `CHECK` that three
-        // migrations have already rewritten, for a distinction the sealed
-        // metadata already carries.
-        let invitation = self
-            .issue_token(
+        expired.extend(
+            self.expire_live_tokens(
                 &tx,
                 Purpose::Operator,
                 &operator,
-                &operator,
-                "bootstrap_reissue",
+                "operator_recovered_from_host",
             )
+            .await?,
+        );
+
+        // ---------------------------------------------------------------
+        // ADR-0055 fix (a) -- **the dispossession**, counted here and
+        // written below the entry that records it.
+        //
+        // Until 2026-09-21 this command restored ACCESS and dispossessed
+        // NOBODY. Redeeming its code changed exactly one thing,
+        // `accounts.password_hash`: the lost browser kept its operator
+        // session, kept its operator key, and the old app code and backup
+        // codes still worked. The quiet mailed path (decision 7) was
+        // strictly stronger than the loud host path, which is backwards --
+        // and on a sole-operator deployment, the shape decision 4 calls
+        // standing, a stolen browser was permanent, because such an
+        // operator can neither disable themselves nor be disabled.
+        //
+        // Decision 8 says the code *"lets that person set a new password
+        // AND enrol a new app code"*, so the app code has to be gone for
+        // the setup screen to enrol one; and the host *"already holds every
+        // key (ADR-0043 §2)"*, which is the same sentence that says a delay
+        // here is theatre and therefore also says retiring those keys from
+        // the host gives away nothing the host did not have.
+        //
+        // The counts are taken in this transaction, put inside the sealed
+        // entry, and then performed. Nothing commits unless all of it does.
+        //
+        // `app.session_custody` for the length of the two phases and no
+        // longer: the session rows, the revocation rows, the credential
+        // columns on `accounts` and the backup codes are all behind it
+        // (`0013` §E, `0014` §D, `0018` §E), and it is the narrowest
+        // capability that can read or end a session at all.
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
             .await?;
-        let issued_seq: i64 = tx
+        let recovered_at = now_unix();
+        // Every row's seal verified on the way past: a keyring row edited in
+        // the database is how somebody would keep a key alive through a
+        // recovery, and `live_operator_keys` answers that with an alarm
+        // rather than a shrug.
+        let live_keys = live_operator_keys(&tx, &self.ring, &operator, recovered_at).await?;
+        let retired_keys = live_keys.len();
+        // **Both principals.** `credentials::end_every_session_of` filters
+        // `principal_kind = 'steward'`, which is the account; the operator
+        // principal has an id of its own and a session of its own, and it
+        // is the operator session the lost browser is holding.
+        let doomed_sessions: Vec<(String, String)> = tx
+            .query(
+                "SELECT id, principal_id FROM sessions \
+                  WHERE (principal_id = $1 AND principal_kind = 'steward') \
+                     OR (principal_id = $2 AND principal_kind = 'operator') \
+                  ORDER BY id",
+                &[&account, &operator],
+            )
+            .await?
+            .iter()
+            .map(|row| (row.get(0), row.get(1)))
+            .collect();
+        let ended_sessions = doomed_sessions.len();
+        let live_codes: Vec<(String, Vec<u8>, i32)> = tx
+            .query(
+                "SELECT id, code_hash, row_version FROM backup_codes \
+                  WHERE account_id = $1 AND used_at IS NULL",
+                &[&account],
+            )
+            .await?
+            .iter()
+            .map(|row| (row.get(0), row.get(1), row.get(2)))
+            .collect();
+        let retired_codes = live_codes.len();
+        // The hold `credentials::redeem_reset` sets (`0021`, decision 7).
+        // Clearing it is fix (f): on a sole-operator deployment `confirm_recovery`
+        // refuses self-confirmation, so a redeemed reset parked the only
+        // operator seat for 24 hours with no way back from the host -- while
+        // decision 8's whole argument is that a delay on the host path is
+        // theatre. The host holds every key; it does not need to wait.
+        let hold_cleared: bool = tx
             .query_one(
-                "SELECT issued_seq FROM enrolment_tokens WHERE id = $1",
-                &[&invitation.id],
+                "SELECT operator_key_hold_until IS NOT NULL FROM accounts WHERE id = $1",
+                &[&account],
             )
             .await?
             .get(0);
 
+        // **The record, before the token.** `chains::append_site` is what
+        // makes stopping the log stop the act: the entry is appended in this
+        // transaction, and if it fails nothing is minted.
+        let recorded = chains::append_site(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::OperatorRecoveredFromHost,
+            &entry_metadata(
+                EntryType::OperatorRecoveredFromHost,
+                &[
+                    ("operator", Json::Str(operator.clone())),
+                    ("account", Json::Str(account.clone())),
+                    // Inside the sealed metadata, like every other address
+                    // this module records.
+                    ("address", Json::Str(address.to_string())),
+                    ("expired_tokens", Json::Int(expired.len() as i64)),
+                    // ADR-0055 fix (e): **the time, inside the seal.**
+                    // `chain_entries.created_at` is not in the entry's content
+                    // hash or seal (`chains.rs`'s INSERT column list), and
+                    // `notices()` used to select on it BEFORE verifying
+                    // anything -- so a row moved eight days into the past was
+                    // simply not selected and the seven-day banner went quiet
+                    // with no alarm, which is the opposite of what this act's
+                    // whole control is.
+                    ("at", Json::Int(recovered_at)),
+                    ("retired_keys", Json::Int(retired_keys as i64)),
+                    ("ended_sessions", Json::Int(ended_sessions as i64)),
+                    ("retired_backup_codes", Json::Int(retired_codes as i64)),
+                    ("app_code_cleared", Json::Bool(true)),
+                    ("seat_hold_cleared", Json::Bool(hold_cleared)),
+                ],
+            ),
+        )
+        .await?;
+
+        // ---------------------------------------------------------------
+        // ADR-0055 fix (a) -- the writes the entry above just recorded.
+        // `operator_keys` is behind `0024`'s own `UPDATE` policy, under the
+        // operator custody this transaction already holds.
+        let row_key = grants::site_row_key(&tx, &self.ring).await?;
+
+        // 1. Every live operator key of this operator leaves service.
+        // `retired_at` was in `operator_key_row_state` from the day the table
+        // was written and nothing had ever set it; `0024` grants the three
+        // columns and adds the policy.
+        for key in live_keys {
+            let mut key = key;
+            key.retired_at_unix = recovered_at;
+            key.row_version += 1;
+            let seal = authority::row_seal(
+                &row_key,
+                &RowFacts {
+                    table: "operator_keys",
+                    row_id: &key.id,
+                    chain_seq: key.enrolled_seq,
+                    row_version: key.row_version,
+                    row_state: &operator_key_row_state(&key),
+                },
+            );
+            tx.execute(
+                "UPDATE operator_keys \
+                    SET retired_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
+                  WHERE id = $1 AND retired_at IS NULL",
+                &[&key.id, &recovered_at, &key.row_version, &seal.to_vec()],
+            )
+            .await?;
+        }
+
+        // 2. Every session of both principals ends -- the revocation row
+        // first, then the delete, because `0014` §D's whole argument is that
+        // a deleted session row is undone by a restore and a revocation row
+        // is not.
+        for (session_id, principal) in &doomed_sessions {
+            let is_operator_session = principal == &operator;
+            let appended = chains::append_site(
+                &tx,
+                &self.ring,
+                &self.deployment,
+                if is_operator_session {
+                    EntryType::OperatorSignedOut
+                } else {
+                    EntryType::AccountSignedOut
+                },
+                &entry_metadata(
+                    if is_operator_session {
+                        EntryType::OperatorSignedOut
+                    } else {
+                        EntryType::AccountSignedOut
+                    },
+                    &[
+                        ("session", Json::Str(session_id.clone())),
+                        (
+                            if is_operator_session {
+                                "operator"
+                            } else {
+                                "account"
+                            },
+                            Json::Str(principal.clone()),
+                        ),
+                        (
+                            "principal_kind",
+                            Json::Str(
+                                if is_operator_session {
+                                    "operator"
+                                } else {
+                                    "steward"
+                                }
+                                .to_string(),
+                            ),
+                        ),
+                        (
+                            "reason",
+                            Json::Str("operator_recovered_from_host".to_string()),
+                        ),
+                    ],
+                ),
+            )
+            .await?;
+            let mac = crate::sessions::revocation_row_mac(
+                &row_key,
+                &crate::sessions::RevocationFacts {
+                    session_id,
+                    principal_id: principal,
+                    // The one value `0014` §D's CHECK takes, and a
+                    // break-glass IS a sign-out of every browser.
+                    reason: "signed_out",
+                    chain_seq: appended.seq,
+                    row_version: 1,
+                },
+            );
+            tx.execute(
+                "INSERT INTO session_revocations \
+                     (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
+                 VALUES ($1, $2, 'signed_out', $3, 1, $4) \
+                 ON CONFLICT (session_id) DO NOTHING",
+                &[session_id, principal, &appended.seq, &mac.to_vec()],
+            )
+            .await?;
+            tx.execute("DELETE FROM sessions WHERE id = $1", &[session_id])
+                .await?;
+        }
+
+        // 3. The app code goes, so the setup screen this code opens enrols a
+        // new one -- which is what decision 8 already says it does.
+        // `credentials::enrol_totp` refuses an account whose code is
+        // confirmed, so leaving the secret in place would make decision 8's
+        // second promise unkeepable. All four columns together, because
+        // `0018` §B's `accounts_totp_secret_is_whole` correlates them.
+        tx.execute(
+            "UPDATE accounts \
+                SET totp_secret_ct = NULL, totp_secret_nonce = NULL, \
+                    totp_secret_key_epoch = NULL, totp_enrolled_at = NULL, \
+                    totp_last_step = NULL \
+              WHERE id = $1",
+            &[&account],
+        )
+        .await?;
+
+        // 4. The ten backup codes stand BESIDE the app code (decision 10,
+        // *"for the lost phone"*), so an app code that is gone and codes that
+        // still open the account is not a cleared second factor. Marked
+        // spent, because `0018` §C gives `fathom_app` no DELETE -- a spent
+        // code stays as the record that it was spent -- and sealed at
+        // version 2 against this recovery's own entry, so clearing `used_at`
+        // in the database leaves a row that does not verify.
+        for (code_id, code_hash, _version) in &live_codes {
+            let hash = as_32(code_hash, "backup code hash")?;
+            let seal = crate::credentials::backup_code_seal_for(
+                &row_key,
+                code_id,
+                &account,
+                &hash,
+                recorded.seq,
+                2,
+                recovered_at,
+            );
+            tx.execute(
+                "UPDATE backup_codes \
+                    SET used_at = to_timestamp($2::bigint), used_seq = $3, row_version = 2, \
+                        row_seal = $4 \
+                  WHERE id = $1 AND used_at IS NULL",
+                &[code_id, &recovered_at, &recorded.seq, &seal.to_vec()],
+            )
+            .await?;
+        }
+
+        // 5. The seat hold, cleared -- fix (f). See the count above.
+        if hold_cleared {
+            tx.execute(
+                "UPDATE accounts SET operator_key_hold_until = NULL WHERE id = $1",
+                &[&account],
+            )
+            .await?;
+        }
+
+        // 6. The credential seal (migration 0025) covers the app-code columns
+        // and the hold, both changed above, so the row is re-sealed here in
+        // the same transaction over what is now at rest; without this the
+        // next read of the account is an integrity alarm, not a sign-in.
+        crate::credentials::reseal_credentials(&tx, &self.ring, &account, None)
+            .await
+            .map_err(|_| OperatorError::Corrupt("credential seal"))?;
+
+        tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
+            .await?;
+
+        let invitation = self
+            .issue_token(
+                &tx,
+                Purpose::Setup,
+                &operator,
+                &operator,
+                "operator_recovered_from_host",
+                RECOVERY_SETUP_TOKEN_LIFETIME,
+            )
+            .await?;
+
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(Reissued {
             operator_id: operator,
             invitation,
-            issued_seq,
+            issued_seq: recorded.seq,
             expired,
         })
     }
@@ -997,7 +1600,7 @@ impl OperatorStore {
         // column name is interpolated at all.
         let column = match purpose {
             Purpose::Account => "account_id",
-            Purpose::Operator => "operator_id",
+            Purpose::Operator | Purpose::Setup => "operator_id",
             Purpose::Organisation => "shell_id",
         };
         let rows = tx
@@ -1154,7 +1757,14 @@ impl OperatorStore {
         .await?;
 
         let invitation = self
-            .issue_token(&tx, Purpose::Account, &account, &acting, "account_shell")
+            .issue_token(
+                &tx,
+                Purpose::Account,
+                &account,
+                &acting,
+                "account_shell",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
             .await?;
 
         leave_custody(&tx).await?;
@@ -1233,7 +1843,14 @@ impl OperatorStore {
             .await?;
 
         let invitation = self
-            .issue_token(&tx, Purpose::Account, account, &acting, "reissued")
+            .issue_token(
+                &tx,
+                Purpose::Account,
+                account,
+                &acting,
+                "reissued",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
             .await?;
 
         tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
@@ -1448,7 +2065,14 @@ impl OperatorStore {
         .await?;
 
         let invitation = self
-            .issue_token(&tx, Purpose::Organisation, &shell, &acting, "org_shell")
+            .issue_token(
+                &tx,
+                Purpose::Organisation,
+                &shell,
+                &acting,
+                "org_shell",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
             .await?;
 
         leave_custody(&tx).await?;
@@ -1783,6 +2407,30 @@ impl OperatorStore {
             return Err(OperatorError::NotFound("operator"));
         };
 
+        // **`0019` §C's floor, refused here as well as in the trigger.**
+        // Two checks and not one, for `check_operator_live`'s reason: the
+        // trigger is the fence that binds whoever holds a connection, and
+        // this is the same refusal before the statement is issued, so the
+        // caller gets a sentence rather than a constraint's message. Both read
+        // inside the transaction the act runs in.
+        //
+        // Live, not live-and-independent: the floor is about the deployment
+        // having ANY operator, which is the one case that is not a policy
+        // choice. ADR-0055 decision 4 keeps a sole operator a supported shape
+        // and warns rather than blocks.
+        if row.disabled_at_unix == 0 {
+            let live: i64 = tx
+                .query_one(
+                    "SELECT count(*) FROM operators WHERE disabled_at IS NULL",
+                    &[],
+                )
+                .await?
+                .get(0);
+            if live <= 1 {
+                return Err(OperatorError::LastLiveOperator);
+            }
+        }
+
         let appended = chains::append_site(
             &tx,
             &self.ring,
@@ -1808,17 +2456,29 @@ impl OperatorStore {
                 &row.display_name,
                 row.created_by.as_deref(),
                 now,
+                row.first_independent_signin_at_unix,
                 row.created_seq.unwrap_or(appended.seq),
                 version,
             )
             .await?;
-        tx.execute(
-            "UPDATE operators \
-                SET disabled_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
-              WHERE id = $1",
-            &[&target, &now, &version, &seal.to_vec()],
-        )
-        .await?;
+        // The trigger is the one that is not a race. Its message is mapped
+        // rather than surfaced: `0019` §C raises a plain exception, which
+        // arrives as `SQLSTATE P0001`, and a caller must not have to read a
+        // database sentence to learn it hit a rule this module already names.
+        if let Err(e) = tx
+            .execute(
+                "UPDATE operators \
+                    SET disabled_at = to_timestamp($2::bigint), row_version = $3, row_seal = $4 \
+                  WHERE id = $1",
+                &[&target, &now, &version, &seal.to_vec()],
+            )
+            .await
+        {
+            if is_operator_floor(&e) {
+                return Err(OperatorError::LastLiveOperator);
+            }
+            return Err(e.into());
+        }
 
         leave_custody(&tx).await?;
         tx.commit().await?;
@@ -1886,14 +2546,27 @@ impl OperatorStore {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
+        // ADR-0055 decision 1: the register shows the address, which lives
+        // on the bound account. `accounts_readable` (`0013` §A) admits the
+        // account custody, so this read takes it beside the operator one --
+        // the same pair `set_account_disabled` takes, and dropped again
+        // before the transaction ends.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
         let rows = tx
             .query(
-                "SELECT id, display_name, created_by, created_seq, \
-                        COALESCE(EXTRACT(EPOCH FROM first_independent_signin_at)::bigint, 0), \
-                        COALESCE(EXTRACT(EPOCH FROM disabled_at)::bigint, 0), row_version \
-                   FROM operators ORDER BY created_at",
+                "SELECT o.id, o.display_name, o.created_by, o.created_seq, \
+                        COALESCE(EXTRACT(EPOCH FROM o.first_independent_signin_at)::bigint, 0), \
+                        COALESCE(EXTRACT(EPOCH FROM o.disabled_at)::bigint, 0), o.row_version, \
+                        a.email \
+                   FROM operators o \
+                   LEFT JOIN operator_account_bindings b ON b.operator_id = o.id \
+                   LEFT JOIN accounts a ON a.id = b.account_id \
+                  ORDER BY o.created_at",
                 &[],
             )
+            .await?;
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
             .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
@@ -1907,6 +2580,7 @@ impl OperatorStore {
                 first_independent_signin_at_unix: row.get(4),
                 disabled_at_unix: row.get(5),
                 row_version: row.get(6),
+                address: row.get(7),
             })
             .collect())
     }
@@ -2004,6 +2678,17 @@ impl OperatorStore {
             now + self.settings_delay.as_secs() as i64
         };
 
+        // ADR-0055 decision 3: the stamp is the quorum in force AT REQUEST
+        // TIME, read off the register in this transaction. It is a record, not
+        // a gate -- `apply_if_due` re-reads the live quorum, and `0022` §A
+        // takes away the `CHECK` that used to make this stamp a bar to
+        // seconding the row later.
+        //
+        // **Per requester** (fix (c)): the question is not how many operators
+        // exist but how many could second THIS one, which is the fourth
+        // clause `0015` §G applies and `live_independent_operators` omits.
+        let single_operator = quorum_for(&tx, &self.ring, &acting).await? < 2;
+
         let appended = chains::append_site(
             &tx,
             &self.ring,
@@ -2018,7 +2703,7 @@ impl OperatorStore {
                     ("requested_by", Json::Str(acting.clone())),
                     ("effective_at", Json::Int(effective_at)),
                     ("first_version", Json::Bool(first_version)),
-                    ("single_operator", Json::Bool(self.single_operator)),
+                    ("single_operator", Json::Bool(single_operator)),
                 ],
             ),
         )
@@ -2032,7 +2717,7 @@ impl OperatorStore {
             request_sig: signature,
             seconded_by: None,
             second_sig: None,
-            single_operator: self.single_operator,
+            single_operator,
             effective_at_unix: effective_at,
             cancelled_at_unix: 0,
             applied_at_unix: 0,
@@ -2055,7 +2740,7 @@ impl OperatorStore {
                 &acting,
                 &signature.to_vec(),
                 &appended.seq,
-                &self.single_operator,
+                &single_operator,
                 &effective_at,
                 &seal.to_vec(),
             ],
@@ -2143,21 +2828,31 @@ impl OperatorStore {
             .setting_seal(&tx, &facts.as_ref(), row.chain_seq, version)
             .await?;
 
-        tx.execute(
-            "UPDATE site_settings_versions \
+        // ADR-0055 fix (c): the same trigger guards this table (`0015` §G
+        // installs `site_settings_versions_seconder` beside
+        // `operator_requests_seconder`), so the same typed refusal.
+        if let Err(e) = tx
+            .execute(
+                "UPDATE site_settings_versions \
                 SET seconded_by = $2, second_sig = $3, seconded_seq = $4, row_version = $5, \
                     row_seal = $6 \
               WHERE id = $1 AND seconded_by IS NULL",
-            &[
-                &change_id,
-                &acting,
-                &signature.to_vec(),
-                &appended.seq,
-                &version,
-                &seal.to_vec(),
-            ],
-        )
-        .await?;
+                &[
+                    &change_id,
+                    &acting,
+                    &signature.to_vec(),
+                    &appended.seq,
+                    &version,
+                    &seal.to_vec(),
+                ],
+            )
+            .await
+        {
+            if is_seconder_refusal(&e) {
+                return Err(OperatorError::SeconderNotIndependent);
+            }
+            return Err(e.into());
+        }
 
         self.apply_if_due(&tx, change_id).await?;
         leave_custody(&tx).await?;
@@ -2477,7 +3172,7 @@ impl OperatorStore {
             )
             .await?
             .is_none();
-        // **`self.single_operator()`, not `row.facts.single_operator`.** The
+        // **The LIVE quorum, not `row.facts.single_operator`.** The
         // row's own field is what this deployment was configured as at
         // REQUEST time, stamped onto the row and sealed there -- a fixed
         // record, on purpose, of what was true then. Gating on it here would
@@ -2489,7 +3184,20 @@ impl OperatorStore {
         // still apply alone on the strength of a flag that is no longer this
         // deployment's policy. The live value is asked fresh, here, same as
         // `first_version` above it.
-        if !first_version && row.facts.seconded_by.is_none() && !self.single_operator() {
+        //
+        // ADR-0055 decision 3 makes "the live value" a count over the
+        // register rather than a process's environment, and the lead's
+        // resolution 10 adds the other half: a row stamped `single_operator =
+        // true` at request time may still be seconded later, because `0022`
+        // §A took away the `CHECK` that forbade it. So this re-read is now the
+        // only thing that decides, in both directions.
+        //
+        // **Per requester** (fix (c)): `quorum_for` counts the operators who
+        // could second the operator who asked for THIS change. A quorum of 2
+        // that no living operator could satisfy left the change pending for
+        // ever.
+        let single_operator = quorum_for(tx, &self.ring, &row.facts.requested_by).await? < 2;
+        if !first_version && row.facts.seconded_by.is_none() && !single_operator {
             return Ok(false);
         }
 
@@ -2513,10 +3221,25 @@ impl OperatorStore {
                             None => Json::Null,
                         },
                     ),
-                    // The live value this apply was actually gated on, same
-                    // as the condition above -- not the row's own stamped
-                    // request-time field, for the same reason.
-                    ("single_operator", Json::Bool(self.single_operator())),
+                    // **The row's own stamped field, and it has to be.**
+                    // `resolve_candidate` reconstructs this entire object from
+                    // the row and compares it byte for byte, so every field in
+                    // it must be reconstructible from the row -- and the live
+                    // quorum is not: it is a count that moves.
+                    //
+                    // Nothing is lost by that. What an auditor wants to know
+                    // is whether this change took one signature or two, and
+                    // `seconded_by` in this same entry says so: applied with
+                    // `seconded_by` null is applied at quorum 1, and the
+                    // condition above is what enforced it. Until 2026-09-21
+                    // this wrote the live value and `resolve_candidate`
+                    // compared the stamp, which agreed only because
+                    // `FATHOM_SINGLE_OPERATOR` could not change while a
+                    // process ran; ADR-0055 decision 3 makes the two differ,
+                    // and the symptom was every seconded change reading as
+                    // `SettingUnresolvable` -- an integrity alarm raised by
+                    // using the product correctly, which is the worst kind.
+                    ("single_operator", Json::Bool(row.facts.single_operator)),
                 ],
             ),
         )
@@ -2553,15 +3276,36 @@ impl OperatorStore {
     /// **The notice is not built** — there is no mail path in this build — and
     /// that is reported rather than implied. What is built is the two
     /// assertions, the delay, the seconder rules and the sealed entries.
+    ///
+    /// **ADR-0055 decision 5 and the lead's resolution 5: the colleague's
+    /// address is taken here, at request time.** *"Add the successor, they
+    /// sign in on their own"* — and they cannot sign in on their own without
+    /// an address to be invited at and an account shell behind it. Collecting
+    /// it at their own first sign-in, the alternative the contracts document
+    /// left open as issue 5, would mean an invitation with nowhere to go. The
+    /// address goes inside the assertion (`operator_request_bytes`) and inside
+    /// the row seal (`0022` §B), so it is neither the requesting operator's
+    /// word alone nor the database holder's to rewrite.
+    ///
+    /// Quorum is ADR-0055 decision 3's `min(2, live independent operators)`:
+    /// with one operator this applies alone after the delay, and nothing here
+    /// shortens the delay.
     pub async fn request_operator(
         &self,
         operator: &VerifiedSession,
         display_name: &str,
+        address: &str,
         signature: &[u8],
     ) -> Result<PendingChange, OperatorError> {
         let acting = self.acting_operator(operator)?;
         if display_name.trim().is_empty() || display_name.len() > 200 {
             return Err(OperatorError::Malformed("display name"));
+        }
+        // The same floor `create_account_shell` puts under an address, and the
+        // same ceiling `0022` §B's CHECK does: an address this server cannot
+        // store is refused here with a sentence rather than by a constraint.
+        if address.trim().len() < 3 || address.len() > 320 {
+            return Err(OperatorError::Malformed("address"));
         }
 
         let mut client = self.pool.get().await?;
@@ -2571,10 +3315,12 @@ impl OperatorStore {
         // act runs in (§1.1: a suspended operator stops at the next request).
         self.check_operator_live(&tx, &acting).await?;
 
-        let message = operator_request_bytes(&self.deployment, &acting, display_name);
+        let message = operator_request_bytes(&self.deployment, &acting, display_name, address);
         self.verify_operator_assertion(&tx, &acting, &message, signature)
             .await?;
 
+        // Per requester (fix (c)) -- see `request_setting`'s own note.
+        let single_operator = quorum_for(&tx, &self.ring, &acting).await? < 2;
         let id = ids::new_ulid().to_string();
         // **No first-version exemption here.** §5.3's immediate-first-version
         // rule is about a setting with no prior value to protect; an operator
@@ -2592,9 +3338,15 @@ impl OperatorStore {
                 &[
                     ("request", Json::Str(id.clone())),
                     ("display_name", Json::Str(display_name.to_string())),
+                    // Inside the SEALED metadata, which is AEAD ciphertext
+                    // under a key that is not in PostgreSQL (§7.3), for the
+                    // reason `create_account_shell` records an address the
+                    // same way: the trail says who was invited without putting
+                    // a list of addresses in the clear.
+                    ("address", Json::Str(address.to_string())),
                     ("requested_by", Json::Str(acting.clone())),
                     ("effective_at", Json::Int(effective_at)),
-                    ("single_operator", Json::Bool(self.single_operator)),
+                    ("single_operator", Json::Bool(single_operator)),
                     ("state", Json::Str("requested".to_string())),
                 ],
             ),
@@ -2604,11 +3356,12 @@ impl OperatorStore {
         let facts = OperatorRequestFacts {
             id: &id,
             display_name,
+            address,
             requested_by: &acting,
             request_sig: signature,
             seconded_by: None,
             second_sig: None,
-            single_operator: self.single_operator,
+            single_operator,
             effective_at_unix: effective_at,
             cancelled_at_unix: 0,
             applied_at_unix: 0,
@@ -2619,16 +3372,17 @@ impl OperatorStore {
 
         tx.execute(
             "INSERT INTO operator_requests \
-                 (id, display_name, requested_by, request_sig, requested_seq, single_operator, \
-                  effective_at, row_version, row_seal) \
-             VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7::bigint), 1, $8)",
+                 (id, display_name, address, requested_by, request_sig, requested_seq, \
+                  single_operator, effective_at, row_version, row_seal) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::bigint), 1, $9)",
             &[
                 &id,
                 &display_name,
+                &address,
                 &acting,
                 &signature.to_vec(),
                 &appended.seq,
-                &self.single_operator,
+                &single_operator,
                 &effective_at,
                 &seal.to_vec(),
             ],
@@ -2694,21 +3448,32 @@ impl OperatorStore {
             .request_seal(&tx, &next.as_ref(), row.chain_seq, version)
             .await?;
 
-        tx.execute(
-            "UPDATE operator_requests \
+        // ADR-0055 fix (c): `0015` §G's trigger is the fence, and its `P0001`
+        // is a RULE. Until 2026-09-21 it fell through `admin.rs`'s `other` arm
+        // and reached the operator as a 500 integrity alarm; the same shape
+        // `disable_operator` already uses for `0019` §C's floor.
+        if let Err(e) = tx
+            .execute(
+                "UPDATE operator_requests \
                 SET seconded_by = $2, second_sig = $3, seconded_seq = $4, row_version = $5, \
                     row_seal = $6 \
               WHERE id = $1 AND seconded_by IS NULL",
-            &[
-                &request_id,
-                &acting,
-                &signature.to_vec(),
-                &appended.seq,
-                &version,
-                &seal.to_vec(),
-            ],
-        )
-        .await?;
+                &[
+                    &request_id,
+                    &acting,
+                    &signature.to_vec(),
+                    &appended.seq,
+                    &version,
+                    &seal.to_vec(),
+                ],
+            )
+            .await
+        {
+            if is_seconder_refusal(&e) {
+                return Err(OperatorError::SeconderNotIndependent);
+            }
+            return Err(e.into());
+        }
 
         leave_custody(&tx).await?;
         tx.commit().await?;
@@ -2726,11 +3491,16 @@ impl OperatorStore {
         enter_operator_custody(&tx).await?;
         enter_enrolment_custody(&tx).await?;
 
+        // **The candidate filter no longer reads the stamped flag.** ADR-0055
+        // decision 3 makes the quorum a live count, so a row stamped
+        // `single_operator = false` at request time is a candidate the moment
+        // this deployment drops to one operator, and `apply_operator_request`
+        // is what decides. Reading the stamp here would silently exclude
+        // exactly the rows the new rule is about.
         let rows = tx
             .query(
                 "SELECT id FROM operator_requests \
                   WHERE applied_at IS NULL AND cancelled_at IS NULL AND effective_at <= now() \
-                    AND (seconded_by IS NOT NULL OR single_operator) \
                   ORDER BY effective_at",
                 &[],
             )
@@ -2761,7 +3531,7 @@ impl OperatorStore {
         if row.effective_at_unix > now_unix() {
             return Ok(None);
         }
-        // **`self.single_operator()`, live, not `row.single_operator`.** Same
+        // **The LIVE quorum, not `row.single_operator`.** Same
         // finding, same fix, as `apply_if_due` above (see that function's own
         // comment): the row's field is a record of this deployment's
         // configuration at REQUEST time, sealed there deliberately; gating a
@@ -2775,7 +3545,19 @@ impl OperatorStore {
         // true yet is not one this check would have accepted either, and a
         // row it includes because it stamped `single_operator = true` still
         // has to pass the live check here before anything is created.
-        if row.seconded_by.is_none() && !self.single_operator() {
+        //
+        // ADR-0055 decision 3: "the live value" is now a count over the
+        // register (`live_independent_operators`), so a sole operator's
+        // request applies alone after the delay and stops applying alone the
+        // moment a second independent operator exists.
+        //
+        // **Per requester** (fix (c)): "a second independent operator" means
+        // one who could second THIS requester. Bootstrap operator A plus
+        // colleague B whom A added is two independent operators and zero
+        // eligible seconders for A, and the old count left A's request for a
+        // third operator pending for ever.
+        let single_operator = quorum_for(tx, &self.ring, &row.requested_by).await? < 2;
+        if row.seconded_by.is_none() && !single_operator {
             return Ok(None);
         }
 
@@ -2801,7 +3583,7 @@ impl OperatorStore {
                     ),
                     // The live value this apply was actually gated on, same
                     // as the condition above.
-                    ("single_operator", Json::Bool(self.single_operator())),
+                    ("single_operator", Json::Bool(single_operator)),
                     ("state", Json::Str("applied".to_string())),
                 ],
             ),
@@ -2816,6 +3598,24 @@ impl OperatorStore {
             appended.seq,
         )
         .await?;
+
+        // **ADR-0055 decision 1: the address is the identity.** The account
+        // shell for the address this request named is created here if none
+        // exists, and the operator custody is bound to it in the same
+        // transaction as the operator row. An operator with no bound account
+        // is an operator with no address to be invited at, no address for a
+        // notice, and nothing to sign in with once the key-only path is gone.
+        //
+        // An account that already exists at the address is USED, not
+        // duplicated: this is decision 1's whole point — one person, two
+        // custodies, one address — and `accounts.email` is unique, so a second
+        // shell for the same address is not a state this schema can hold
+        // anyway.
+        let account_id = self
+            .account_for_address(tx, &row.address, &row.display_name, &row.requested_by)
+            .await?;
+        self.bind_operator_to_account(tx, &operator_id, &account_id, appended.seq)
+            .await?;
 
         let now = now_unix();
         let mut next = row.clone();
@@ -2842,16 +3642,20 @@ impl OperatorStore {
         )
         .await?;
 
-        // §5.5's *"a first sign-in that must register an authenticator"*: the
-        // new operator exists and has no key, and the only way they get one is
-        // this token.
+        // §5.5's *"a first sign-in that must register an authenticator"*, as
+        // ADR-0055 decision 10 rewrites it: the new operator exists, holds
+        // nothing, and the one thing they get is a `setup` token — the screen
+        // that sets a credential and enrols the app code, not a screen that
+        // enrols a browser key. The `operator` purpose stays in the schema for
+        // the passkey step NEXT.md item 4 holds open; nothing issues one.
         let invitation = self
             .issue_token(
                 tx,
-                Purpose::Operator,
+                Purpose::Setup,
                 &operator_id,
                 &row.requested_by,
                 "operator_created",
+                ENROLMENT_TOKEN_LIFETIME,
             )
             .await?;
         Ok(Some(invitation))
@@ -3061,9 +3865,26 @@ impl OperatorStore {
         if signature.len() != authority::SIGNATURE_LEN {
             return Err(OperatorError::Malformed("assertion signature"));
         }
-        let key = self.live_operator_key(tx, operator, now_unix()).await?;
-        authority::verify_es256(&key.public_key, message, signature)?;
-        Ok(())
+        // **Every live key, not the newest one** (ADR-0055, the lead's
+        // resolution 1, 2026-09-21: *"any live key of the account must be
+        // accepted wherever sign-in evidence or grant signatures are
+        // verified"*). Decision 6 is that any browser can be signed in to with
+        // no pairing, and decision 1 has the browser register a key of its
+        // own; an operator with two browsers therefore has two live keys, and
+        // a `LIMIT 1` on the newest would refuse the one they are sitting at.
+        // Retiring a key is still what takes it out of this set.
+        let keys = live_operator_keys(tx, &self.ring, operator, now_unix()).await?;
+        let mut refused = None;
+        for key in &keys {
+            match authority::verify_es256(&key.public_key, message, signature) {
+                Ok(()) => return Ok(()),
+                Err(e) => refused = Some(e),
+            }
+        }
+        Err(match refused {
+            Some(e) => OperatorError::Signature(e),
+            None => OperatorError::NoOperatorKey,
+        })
     }
 
     /// The operator's key as anything accepting a signature must resolve it:
@@ -3104,20 +3925,48 @@ pub async fn live_operator_key(
     operator: &str,
     at_unix: i64,
 ) -> Result<OperatorKey, OperatorError> {
-    {
-        let row = tx
-            .query_opt(
-                "SELECT id, operator_id, public_key, fpr, enrolled_seq, row_version, \
-                        COALESCE(EXTRACT(EPOCH FROM retired_at)::bigint, 0), row_seal \
-                   FROM operator_keys \
-                  WHERE operator_id = $1 AND retired_at IS NULL \
-                  ORDER BY enrolled_seq DESC LIMIT 1",
-                &[&operator],
-            )
-            .await?;
-        let Some(row) = row else {
-            return Err(OperatorError::NoOperatorKey);
-        };
+    live_operator_keys(tx, ring, operator, at_unix)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or(OperatorError::NoOperatorKey)
+}
+
+/// **Every key this operator holds that is in service now**, newest first,
+/// each one's own row seal verified.
+///
+/// ADR-0055, the lead's resolution 1 (2026-09-21): *"any live key of the
+/// account must be accepted wherever sign-in evidence or grant signatures are
+/// verified (no `LIMIT 1` on the newest)."* Decision 6 says any browser, with
+/// no pairing, and decision 1 has each browser register a key of its own, so
+/// an operator with a laptop and a phone holds two live keys and either must
+/// work. Before 2026-09-21 this was `ORDER BY enrolled_seq DESC LIMIT 1` and
+/// registering a second browser silently locked the first one out.
+///
+/// A row whose seal does not verify is an ALARM and not a skipped key:
+/// [`OperatorError::Unverifiable`] comes back rather than the remaining keys,
+/// because a keyring row whose `public_key` was edited is exactly how an
+/// administrator would sign in as somebody else, and quietly ignoring it would
+/// turn the alarm into a shrug.
+pub async fn live_operator_keys(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator: &str,
+    at_unix: i64,
+) -> Result<Vec<OperatorKey>, OperatorError> {
+    let rows = tx
+        .query(
+            "SELECT id, operator_id, public_key, fpr, enrolled_seq, row_version, \
+                    COALESCE(EXTRACT(EPOCH FROM retired_at)::bigint, 0), row_seal \
+               FROM operator_keys \
+              WHERE operator_id = $1 AND retired_at IS NULL \
+              ORDER BY enrolled_seq DESC",
+            &[&operator],
+        )
+        .await?;
+    let row_key = grants::site_row_key(tx, ring).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
         let fpr: Vec<u8> = row.get(3);
         let key = OperatorKey {
             id: row.get(0),
@@ -3130,7 +3979,7 @@ pub async fn live_operator_key(
         };
         let stored_seal: Vec<u8> = row.get(7);
         let recomputed = authority::row_seal(
-            &grants::site_row_key(tx, ring).await?,
+            &row_key,
             &RowFacts {
                 table: "operator_keys",
                 row_id: &key.id,
@@ -3143,10 +3992,11 @@ pub async fn live_operator_key(
             return Err(OperatorError::Unverifiable("operator key row seal"));
         }
         if key.retired_at_unix != 0 && at_unix > key.retired_at_unix {
-            return Err(OperatorError::NoOperatorKey);
+            continue;
         }
-        Ok(key)
+        out.push(key);
     }
+    Ok(out)
 }
 
 /// **The operator register's own interlock**: an operator row verifies only if
@@ -3186,6 +4036,10 @@ pub async fn verify_operator_row(
             &row.display_name,
             row.created_by.as_deref(),
             row.disabled_at_unix,
+            // ADR-0055 fix (d): inside the seal since 2026-09-21, because
+            // decision 3 made this column decide whether a second signature
+            // is required at all.
+            row.first_independent_signin_at_unix,
             created_seq,
             row.row_version,
         )
@@ -3228,21 +4082,103 @@ pub async fn verify_operator_row(
     }
 }
 
-/// Record an operator's first independent sign-in (§5.5), once.
+/// **Record an operator's first independent sign-in (§5.5), once, and re-seal
+/// the row** — ADR-0055 fix (d), 2026-09-21.
 ///
-/// Called by `sessions.rs` on a successful operator sign-in. **Not inside the
-/// row seal**, deliberately: it is a fact the sign-in path records about a row
-/// it does not own, exactly as `sessions.last_seen_at` is outside the session
-/// MAC. What it gates — seconding — additionally requires a signature by that
-/// operator's own key, so a backdated timestamp buys an attacker nothing they
-/// could not already do with the key they would still need.
-pub async fn note_first_signin(tx: &Transaction<'_>, operator: &str) -> Result<(), OperatorError> {
-    tx.execute(
-        "UPDATE operators SET first_independent_signin_at = now() \
-          WHERE id = $1 AND first_independent_signin_at IS NULL",
-        &[&operator],
+/// The guarded `UPDATE ... WHERE first_independent_signin_at IS NULL` is what
+/// makes it once against a concurrent second sign-in; the re-seal at
+/// `row_version + 1` is what makes it once against whoever holds a database
+/// connection. Returns `true` when this call was the one that recorded it.
+///
+/// # Why it takes a `KeyRing` and the old one did not
+///
+/// [`note_first_signin`] wrote this column with no seal update, justified by
+/// *"what it gates — seconding — additionally requires a signature by that
+/// operator's own key"*. ADR-0055 decision 3 made the column gate whether a
+/// second signature is required AT ALL, so moving it forward on every
+/// operator row drives [`quorum_for`] to 1 and a single signature mints a new
+/// operator. `0015_operator_console.sql`:162 grants that `UPDATE` to
+/// `fathom_app`. The seal is the fence, and a seal needs the row key.
+///
+/// The read and the write are in one transaction and the write is guarded on
+/// the same NULL the read saw, so two sign-ins racing produce one recorded
+/// time and one seal: the loser's `UPDATE` matches no row and it returns
+/// `false` without having sealed anything.
+pub async fn mark_first_independent_signin(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator: &str,
+) -> Result<bool, OperatorError> {
+    let Some(row) = read_operator(tx, operator).await? else {
+        return Err(OperatorError::NotFound("operator"));
+    };
+    if row.first_independent_signin_at_unix != 0 {
+        return Ok(false);
+    }
+    let Some(created_seq) = row.created_seq else {
+        return Err(OperatorError::Unverifiable("operator row seal"));
+    };
+
+    // The value the seal must cover is the value the row will hold, so it is
+    // chosen here rather than left to `now()` inside the statement: a seal
+    // over a timestamp the database picked a microsecond later would not
+    // verify. Whole seconds, as every other time in this module's seals.
+    let at = now_unix();
+    let version = row.row_version + 1;
+    let seal = operator_row_seal(
+        tx,
+        ring,
+        &row.id,
+        &row.display_name,
+        row.created_by.as_deref(),
+        row.disabled_at_unix,
+        at,
+        created_seq,
+        version,
     )
     .await?;
+    let updated = tx
+        .execute(
+            "UPDATE operators \
+                SET first_independent_signin_at = to_timestamp($2::bigint), \
+                    row_version = $3, row_seal = $4 \
+              WHERE id = $1 AND first_independent_signin_at IS NULL",
+            &[&operator, &at, &version, &seal.to_vec()],
+        )
+        .await?;
+    Ok(updated == 1)
+}
+
+/// **Superseded by [`mark_first_independent_signin`] and deliberately inert.**
+///
+/// This used to be the raw `UPDATE` of `operators.first_independent_signin_at`
+/// on the operator sign-in path, with no seal update — which is exactly what
+/// ADR-0055 fix (d) closes now that decision 3 makes that column decide
+/// whether a second signature is required at all. Writing it here would leave
+/// the row failing its own seal at the next `verify_operator_row`, which is on
+/// the sign-in path: an operator who signed in once could never sign in again.
+///
+/// **It is a no-op rather than deleted** because its one caller is
+/// `sessions.rs:1896`, which belongs to another stream in this build and is
+/// not edited here. The call to replace it with is:
+///
+/// ```text
+/// operators::mark_first_independent_signin(tx, &self.ring, &account).await
+/// ```
+///
+/// **Until that is wired, this build is weaker, and it is said out loud
+/// rather than left to be discovered.** No sign-in records a first
+/// independent sign-in, so `first_independent_signin_at` stays NULL for every
+/// operator, [`quorum_for`] answers 1 for every requester, and a request that
+/// ought to need two signatures applies on one after its 24-hour delay. The
+/// delay and the sealed record stay; the second signature does not. The
+/// column cannot be written from the sign-in path without the row key, and
+/// the row key is not reachable from this signature — which is why the call
+/// site has to change rather than this function.
+pub async fn note_first_signin(
+    _tx: &Transaction<'_>,
+    _operator: &str,
+) -> Result<(), OperatorError> {
     Ok(())
 }
 
@@ -3261,7 +4197,7 @@ impl OperatorStore {
         )
         .await?;
         let seal = self
-            .operator_seal(tx, id, display_name, created_by, 0, created_seq, 1)
+            .operator_seal(tx, id, display_name, created_by, 0, 0, created_seq, 1)
             .await?;
         tx.execute(
             "INSERT INTO operators (id, display_name, created_by, created_seq, row_version, row_seal) \
@@ -3284,6 +4220,11 @@ impl OperatorStore {
     /// The caller's own entry — `account_created`, `org_shell_created`,
     /// `operator_created`, `operator_bootstrapped` — records the act that
     /// warranted the token, and is a different fact.
+    /// `lifetime` is a parameter and not [`ENROLMENT_TOKEN_LIFETIME`] read at
+    /// the point of use, because ADR-0055 decision 8's break-glass code lives
+    /// for ten minutes and everything else lives for seventy-two hours. Every
+    /// caller states which, so a new one cannot get a three-day token by
+    /// forgetting to think about it.
     async fn issue_token(
         &self,
         tx: &Transaction<'_>,
@@ -3291,6 +4232,7 @@ impl OperatorStore {
         subject: &str,
         issued_by: &str,
         reason: &str,
+        lifetime: Duration,
     ) -> Result<Invitation, OperatorError> {
         let issued = chains::append_site(
             tx,
@@ -3312,11 +4254,11 @@ impl OperatorStore {
         let id = ids::new_ulid().to_string();
         let token = random_32()?;
         let hash = token_hash(&token);
-        let expires_at = now_unix() + ENROLMENT_TOKEN_LIFETIME.as_secs() as i64;
+        let expires_at = now_unix() + lifetime.as_secs() as i64;
 
         let (account, operator, shell) = match purpose {
             Purpose::Account => (Some(subject), None, None),
-            Purpose::Operator => (None, Some(subject), None),
+            Purpose::Operator | Purpose::Setup => (None, Some(subject), None),
             Purpose::Organisation => (None, None, Some(subject)),
         };
 
@@ -3601,6 +4543,7 @@ impl OperatorStore {
         display_name: &str,
         created_by: Option<&str>,
         disabled_at_unix: i64,
+        first_independent_signin_at_unix: i64,
         created_seq: i64,
         row_version: i32,
     ) -> Result<[u8; 32], OperatorError> {
@@ -3611,6 +4554,7 @@ impl OperatorStore {
             display_name,
             created_by,
             disabled_at_unix,
+            first_independent_signin_at_unix,
             created_seq,
             row_version,
         )
@@ -3623,8 +4567,19 @@ impl OperatorStore {
 /// Free, because `verify_operator_row` is — `sessions.rs` checks this on the
 /// sign-in path and has no `OperatorStore`.
 ///
-/// **`first_independent_signin_at` is deliberately outside it**, and
-/// [`note_first_signin`] carries the argument.
+/// **`first_independent_signin_at` is INSIDE it since ADR-0055 fix (d)**,
+/// 2026-09-21, and [`mark_first_independent_signin`] is the only writer.
+///
+/// It used to be outside, justified by *"what it gates — seconding —
+/// additionally requires a signature by that operator's own key, so a
+/// backdated timestamp buys an attacker nothing"*. ADR-0055 decision 3 made
+/// the column gate whether a second signature is required AT ALL: move it
+/// forward on every row and `live_independent_operators` reads 0,
+/// [`quorum_for`] reads 1, and `apply_operator_request` mints a new operator
+/// on one signature. `0015_operator_console.sql`:162 grants `fathom_app`
+/// `UPDATE (first_independent_signin_at)` and the `operators` write policy's
+/// WITH CHECK is only the two custodies, so that write is inside the
+/// application role, not only inside tier 3.
 #[allow(clippy::too_many_arguments)]
 pub async fn operator_row_seal(
     tx: &Transaction<'_>,
@@ -3633,6 +4588,7 @@ pub async fn operator_row_seal(
     display_name: &str,
     created_by: Option<&str>,
     disabled_at_unix: i64,
+    first_independent_signin_at_unix: i64,
     created_seq: i64,
     row_version: i32,
 ) -> Result<[u8; 32], OperatorError> {
@@ -3647,6 +4603,10 @@ pub async fn operator_row_seal(
         );
         map.insert("created_seq".to_string(), Json::Int(created_seq));
         map.insert("disabled_at".to_string(), Json::Int(disabled_at_unix));
+        map.insert(
+            "first_independent_signin_at".to_string(),
+            Json::Int(first_independent_signin_at_unix),
+        );
         map.insert(
             "display_name".to_string(),
             Json::Str(display_name.to_string()),
@@ -3824,6 +4784,7 @@ impl OperatorStore {
                 None => Json::Null,
             },
         );
+        map.insert("address".to_string(), Json::Str(facts.address.to_string()));
         map.insert(
             "display_name".to_string(),
             Json::Str(facts.display_name.to_string()),
@@ -4002,7 +4963,7 @@ impl OperatorStore {
                         EXTRACT(EPOCH FROM effective_at)::bigint, \
                         COALESCE(EXTRACT(EPOCH FROM cancelled_at)::bigint, 0), \
                         COALESCE(EXTRACT(EPOCH FROM applied_at)::bigint, 0), \
-                        sealed_seq, created_operator_id, row_version \
+                        sealed_seq, created_operator_id, row_version, address \
                    FROM operator_requests WHERE id = $1",
                 &[&id],
             )
@@ -4013,6 +4974,7 @@ impl OperatorStore {
         Ok(OwnedRequestFacts {
             id: row.get(0),
             display_name: row.get(1),
+            address: row.get(14),
             requested_by: row.get(2),
             request_sig: row.get(3),
             chain_seq: row.get(4),
@@ -4061,6 +5023,88 @@ impl OperatorStore {
                 sealed_seq: row.get(8),
             })
             .collect())
+    }
+
+    // ---- ADR-0055 stream (a): the first operator's setup token -------------
+    //
+    // Added at the END of this impl, in a labelled block, so the other two
+    // ADR-0055 streams' additions land beside it and the merge is mechanical.
+
+    /// Issue a `purpose = 'setup'` token for an operator who already exists.
+    ///
+    /// ADR-0055 decision 10's last bullet: the first start writes this token to
+    /// the key volume and it opens the setup screen, instead of enrolling a
+    /// browser key. **Stream (b) is the caller that matters** —
+    /// `bootstrap_first_operator` issues one of these in place of today's
+    /// `Purpose::Operator` token — and it is here, beside its own spender, so
+    /// that both halves of the purpose live together and neither is written
+    /// twice.
+    ///
+    /// Returns the token exactly once. `0015` §E's lifetime applies, the same
+    /// as every other enrolment token.
+    pub async fn issue_setup_token(&self, operator: &str) -> Result<Invitation, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        enter_enrolment_custody(&tx).await?;
+        self.check_operator_live(&tx, operator).await?;
+        let invitation = self
+            .issue_token(
+                &tx,
+                Purpose::Setup,
+                operator,
+                operator,
+                "setup",
+                ENROLMENT_TOKEN_LIFETIME,
+            )
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(invitation)
+    }
+
+    /// Spend a `purpose = 'setup'` token (`0019` §B) **inside the caller's
+    /// transaction**, and say which operator it was for.
+    ///
+    /// ADR-0055 decision 10's last bullet: the token the first start writes
+    /// opens the setup screen that sets a password and enrols the app code,
+    /// instead of enrolling a browser key. `credentials.rs` is the one caller;
+    /// it is here rather than there so that the seal check, the expiry check
+    /// and the `enrolment_token_redeemed` entry are the ones this module
+    /// already makes for every other purpose, and not a second copy of them.
+    ///
+    /// **The caller must already hold `app.enrolment_custody`** — `0015` §H
+    /// grants the `UPDATE` on `enrolment_tokens` to that capability and to no
+    /// other — and must commit for the redemption to stand. Every refusal is
+    /// [`OperatorError::EnrolmentRefused`], one message for every cause.
+    pub async fn spend_setup_token(
+        &self,
+        tx: &Transaction<'_>,
+        token: &[u8],
+    ) -> Result<String, OperatorError> {
+        let row = self.spend_token(tx, token, Purpose::Setup).await?;
+        let operator = row
+            .operator_id
+            .clone()
+            .ok_or(OperatorError::Corrupt("enrolment token subject"))?;
+
+        let redeemed = chains::append_site(
+            tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::EnrolmentTokenRedeemed,
+            &entry_metadata(
+                EntryType::EnrolmentTokenRedeemed,
+                &[
+                    ("token", Json::Str(row.id.clone())),
+                    ("purpose", Json::Str(Purpose::Setup.as_str().to_string())),
+                    ("operator", Json::Str(operator.clone())),
+                ],
+            ),
+        )
+        .await?;
+        self.mark_redeemed(tx, &row, redeemed.seq).await?;
+        Ok(operator)
     }
 }
 
@@ -4125,7 +5169,7 @@ impl TokenRow {
     fn subject(&self) -> &str {
         match self.purpose {
             Purpose::Account => self.account_id.as_deref().unwrap_or(""),
-            Purpose::Operator => self.operator_id.as_deref().unwrap_or(""),
+            Purpose::Operator | Purpose::Setup => self.operator_id.as_deref().unwrap_or(""),
             Purpose::Organisation => self.shell_id.as_deref().unwrap_or(""),
         }
     }
@@ -4226,6 +5270,9 @@ pub struct SettingFacts<'a> {
 struct OwnedRequestFacts {
     id: String,
     display_name: String,
+    /// ADR-0055 decision 5: the colleague's address, taken at request time and
+    /// inside the seal (`0022` §B).
+    address: String,
     requested_by: String,
     request_sig: Vec<u8>,
     chain_seq: i64,
@@ -4245,6 +5292,7 @@ impl OwnedRequestFacts {
         OperatorRequestFacts {
             id: &self.id,
             display_name: &self.display_name,
+            address: &self.address,
             requested_by: &self.requested_by,
             request_sig: &self.request_sig,
             seconded_by: self.seconded_by.as_deref(),
@@ -4277,6 +5325,8 @@ impl OwnedRequestFacts {
 pub struct OperatorRequestFacts<'a> {
     pub id: &'a str,
     pub display_name: &'a str,
+    /// ADR-0055 decision 5, `0022` §B.
+    pub address: &'a str,
     pub requested_by: &'a str,
     pub request_sig: &'a [u8],
     pub seconded_by: Option<&'a str>,
@@ -4326,7 +5376,746 @@ async fn read_operator(tx: &Transaction<'_>, id: &str) -> Result<Option<Operator
         first_independent_signin_at_unix: row.get(4),
         disabled_at_unix: row.get(5),
         row_version: row.get(6),
+        // **Not read here**, deliberately: this function is on the sign-in
+        // and act paths, where the binding is not needed and where joining
+        // `accounts` would need a custody those transactions do not take.
+        // `list_operators` is where the address is read, under the custody
+        // that admits it. ADR-0055 stream (b).
+        address: None,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (b) -- the operator custody an account holds
+//
+// `docs/decisions/adr-0055-one-person-two-custodies.md` decisions 1, 3, 4, 5,
+// 7 and 8; `migrations/0019_operator_account_binding.sql` for the binding and
+// the floor, `0021_operator_seat_hold.sql` for the hold, `0022_...` for the
+// quorum and the new entry types.
+// ---------------------------------------------------------------------------
+
+/// **How many operators could actually second something**, inside a
+/// transaction that is already holding the operator custody.
+///
+/// ADR-0055 decision 3 with the lead's resolution 9 (2026-09-21): not disabled,
+/// with an independent sign-in on record, and that sign-in older than
+/// [`INDEPENDENCE_WINDOW`].
+///
+/// **Three of `0015` §G's four clauses, and not the quorum.** Until ADR-0055
+/// fix (c) this doc claimed the three were *"exactly what
+/// `fathom_seconder_is_independent` will accept as a seconder"*, which was
+/// false: the trigger also refuses a seconder the requester created
+/// (`0015_operator_console.sql`:719), and that clause is per requester. The
+/// quorum is [`quorum_for`]; this count is the deployment-wide fact decision
+/// 4's *"two operators is the standing expectation"* banner reports, where
+/// the requester is nobody in particular.
+///
+/// **The SQL says it, not a filter in Rust**, because the count has to be a
+/// snapshot of the same transaction the act commits in -- `0014` finding 3's
+/// rule that verification and authorisation share a snapshot.
+pub async fn live_independent_operators(tx: &Transaction<'_>) -> Result<i64, OperatorError> {
+    let count: i64 = tx
+        .query_one(
+            "SELECT count(*) FROM operators \
+              WHERE disabled_at IS NULL \
+                AND first_independent_signin_at IS NOT NULL \
+                AND first_independent_signin_at <= now() - make_interval(secs => $1::double precision)",
+            &[&(INDEPENDENCE_WINDOW.as_secs() as f64)],
+        )
+        .await?
+        .get(0);
+    Ok(count)
+}
+
+/// **How many operators could second a request made by `requester`** — all
+/// four of `0015` §G's clauses, in the transaction the act commits in.
+///
+/// The fourth clause, `seconder_created_by = requested_by`
+/// (`0015_operator_console.sql`:719), is the one
+/// [`live_independent_operators`] leaves out, and leaving it out is what made
+/// the quorum demand a signature the database refuses to store. See
+/// [`Operator::is_eligible_to_second`] for the deadlock it produced on the
+/// deployment shape ADR-0055 decision 5 calls standing.
+///
+/// `id <> requester` as well, because §5.5 and `operator_requests`' own CHECK
+/// both refuse a requester seconding themselves — the trigger does not test
+/// it, so counting the requester here would have been the same deadlock one
+/// operator smaller.
+/// **Every row in the register is verified, and then the predicate is applied
+/// in Rust** — ADR-0055 fix (d), which is what makes bringing
+/// `first_independent_signin_at` inside [`operator_row_seal`] mean anything.
+///
+/// `0015_operator_console.sql`:162 grants `fathom_app`
+/// `UPDATE (first_independent_signin_at)` and the `operators` write policy's
+/// `WITH CHECK` is only the two custodies, so moving that column is inside the
+/// APPLICATION role, not only inside tier 3. Decision 3 then made the column
+/// decide whether a second signature is required at all.
+///
+/// **Not "verify the candidates the SQL selected", which was the first shape
+/// of this function and was wrong.** The attack is not adding a seconder, it
+/// is REMOVING one: clear `first_independent_signin_at` (or set `disabled_at`)
+/// on everybody and the quorum falls to 1, and a filter that verifies only the
+/// rows it selected never looks at the row that was edited out of the
+/// selection. So every row is read and verified, and the four clauses are
+/// applied to the verified form. A row that does not verify is an alarm and
+/// not a skipped candidate, for `live_operator_keys`' reason.
+///
+/// The register is small — operators are people, and decision 4 says two — so
+/// this is a handful of row seals and chain entries on the request, second and
+/// apply paths, and on no per-request path at all.
+pub async fn eligible_seconders_for(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    requester: &str,
+) -> Result<i64, OperatorError> {
+    let rows = tx
+        .query("SELECT id FROM operators ORDER BY id", &[])
+        .await?;
+    let now = now_unix();
+    let mut count = 0i64;
+    for row in &rows {
+        let id: String = row.get(0);
+        let operator = verify_operator_row(tx, ring, &id).await?;
+        if operator.is_eligible_to_second(requester, now) {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// **The quorum for a request made by `requester`**: `min(2, 1 + eligible
+/// seconders)` — ADR-0055 decision 3, made per requester by fix (c).
+///
+/// One is the requester's own signature, which they have already given. Two
+/// only when somebody exists who can actually give the second; when nobody
+/// can, the answer is 1 and the request stands alone, with the delay.
+pub async fn quorum_for(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    requester: &str,
+) -> Result<i64, OperatorError> {
+    Ok((1 + eligible_seconders_for(tx, ring, requester).await?).min(2))
+}
+
+/// Is this `0015` §G's seconder trigger refusing, rather than any other
+/// database error?
+///
+/// `fathom_seconder_is_independent` raises five different sentences and every
+/// one of them ends `(admin design 5.5)`, which is the stable fragment —
+/// `is_operator_floor` matches its trigger the same way and gives the reason.
+/// Before ADR-0055 fix (c) a refusal here fell through `admin.rs`'s `other`
+/// arm and reached the operator as a 500 `Corrupt("operator plane")`: an
+/// integrity alarm for a rule the deployment was correctly applying.
+fn is_seconder_refusal(e: &tokio_postgres::Error) -> bool {
+    match e.as_db_error() {
+        Some(db) => db.message().contains("(admin design 5.5)"),
+        None => false,
+    }
+}
+
+/// The bytes an `operator_account_bindings` row's seal covers.
+///
+/// Two fields and no more, because the row has two facts: which operator, and
+/// which account. `bound_at` is outside it because it is a timestamp the row
+/// does not claim anything by -- unlike `first_independent_signin_at`, which
+/// ADR-0055 decision 3 turned into an authority fact and fix (d) therefore
+/// brought inside the `operators` seal -- and `bound_seq` is
+/// inside the seal through [`RowFacts::chain_seq`], as every other row in this
+/// module binds its creating entry.
+fn binding_row_state(operator: &str, account: &str) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("account_id".to_string(), Json::Str(account.to_string()));
+    map.insert("operator_id".to_string(), Json::Str(operator.to_string()));
+    Json::Obj(map).to_canonical_bytes()
+}
+
+/// Is this the `0019` §C floor trigger refusing, rather than any other
+/// database error?
+///
+/// `RAISE EXCEPTION` in PL/pgSQL arrives as `SQLSTATE P0001` with the message
+/// the trigger wrote, and the message is the only thing that distinguishes it
+/// from every other `RAISE` in this schema. Matched on a stable fragment of
+/// `0019` §C's own sentence rather than on the whole of it, so that an edit to
+/// the punctuation does not silently turn a typed refusal back into
+/// `Corrupt("operator plane")`.
+fn is_operator_floor(e: &tokio_postgres::Error) -> bool {
+    match e.as_db_error() {
+        Some(db) => db.message().contains("disabling the last live operator"),
+        None => false,
+    }
+}
+
+impl OperatorStore {
+    // -----------------------------------------------------------------------
+    // The binding
+    // -----------------------------------------------------------------------
+
+    /// The account at this address, **created if there is none**, and its id.
+    ///
+    /// ADR-0055 decision 1: an operator has an address, and the address is an
+    /// account. Two callers: the first start (the notice address) and
+    /// `apply_operator_request` (the colleague's). Both run under
+    /// `app.account_custody` as well as the operator custody, because
+    /// `accounts_readable` (`0013` §A) admits the first and not the second.
+    ///
+    /// **An account that already exists is used, not duplicated.** One person,
+    /// two custodies, one address (decision 1) -- a colleague who is already a
+    /// steward here gets the operator custody on the account they already
+    /// have, which is the whole shape of the decision and also what
+    /// `accounts.email`'s own uniqueness would force anyway.
+    ///
+    /// The account is a SHELL: no key, no membership, no credential. §6.4's
+    /// *"a steward signs a grant naming a subject who already has a registered
+    /// key"* is what stops this being a route to authority.
+    async fn account_for_address(
+        &self,
+        tx: &Transaction<'_>,
+        address: &str,
+        display_name: &str,
+        created_by: &str,
+    ) -> Result<String, OperatorError> {
+        if let Some(row) = tx
+            .query_opt("SELECT id FROM accounts WHERE email = $1", &[&address])
+            .await?
+        {
+            return Ok(row.get(0));
+        }
+
+        let account = AccountId::new().to_string();
+        chains::append_site(
+            tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::AccountCreated,
+            &entry_metadata(
+                EntryType::AccountCreated,
+                &[
+                    ("account", Json::Str(account.clone())),
+                    ("operator", Json::Str(created_by.to_string())),
+                    // Inside the SEALED metadata, exactly as
+                    // `create_account_shell` records one.
+                    ("address", Json::Str(address.to_string())),
+                    ("display_name", Json::Str(display_name.to_string())),
+                    ("reason", Json::Str("operator_custody".to_string())),
+                ],
+            ),
+        )
+        .await?;
+
+        // `0004`: the principal row before the account row, because the
+        // composite key that makes an operator id unrepresentable in a
+        // membership runs through it.
+        tx.execute(
+            "INSERT INTO principals (id, kind) VALUES ($1, 'steward')",
+            &[&account],
+        )
+        .await?;
+        tx.execute(
+            "INSERT INTO accounts (id, email, display_name) VALUES ($1, $2, $3)",
+            &[&account, &address, &display_name],
+        )
+        .await?;
+        Ok(account)
+    }
+
+    /// Write the sealed fact that this operator's custody is held by this
+    /// account (`0019` §A).
+    ///
+    /// Append-only and written once: `0019`'s trigger refuses an `UPDATE` or a
+    /// `DELETE` on this table at every privilege level including the table's
+    /// owner, and the seal is what a tier-3 attacker cannot forge. A handoff
+    /// never rewrites a binding -- the successor gets a new operator row and a
+    /// new binding, and the predecessor's row is disabled (decision 5).
+    async fn bind_operator_to_account(
+        &self,
+        tx: &Transaction<'_>,
+        operator: &str,
+        account: &str,
+        bound_seq: i64,
+    ) -> Result<(), OperatorError> {
+        let seal = self
+            .binding_seal(tx, operator, account, bound_seq, 1)
+            .await?;
+        tx.execute(
+            "INSERT INTO operator_account_bindings \
+                 (operator_id, account_id, bound_seq, row_version, row_seal) \
+             VALUES ($1, $2, $3, 1, $4)",
+            &[&operator, &account, &bound_seq, &seal.to_vec()],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn binding_seal(
+        &self,
+        tx: &Transaction<'_>,
+        operator: &str,
+        account: &str,
+        bound_seq: i64,
+        row_version: i32,
+    ) -> Result<[u8; 32], OperatorError> {
+        Ok(authority::row_seal(
+            &grants::site_row_key(tx, &self.ring).await?,
+            &RowFacts {
+                table: "operator_account_bindings",
+                row_id: operator,
+                chain_seq: bound_seq,
+                row_version,
+                row_state: &binding_row_state(operator, account),
+            },
+        ))
+    }
+
+    /// The binding's own interlock: the row seals, or nothing rests on it.
+    ///
+    /// Called wherever a binding decides something -- which seat a recovery
+    /// restores, which operator an account may register a key for. A row
+    /// hand-inserted by whoever holds the database fails here, which is what
+    /// stops the binding being a way to attach an operator custody to an
+    /// account that was never given one.
+    async fn verify_binding(
+        &self,
+        tx: &Transaction<'_>,
+        operator: &str,
+        account: &str,
+    ) -> Result<(), OperatorError> {
+        let row = tx
+            .query_opt(
+                "SELECT bound_seq, row_version, row_seal FROM operator_account_bindings \
+                  WHERE operator_id = $1 AND account_id = $2",
+                &[&operator, &account],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Err(OperatorError::NotBoundToAnOperator);
+        };
+        let bound_seq: i64 = row.get(0);
+        let row_version: i32 = row.get(1);
+        let stored: Vec<u8> = row.get(2);
+        let recomputed = self
+            .binding_seal(tx, operator, account, bound_seq, row_version)
+            .await?;
+        if stored != recomputed {
+            return Err(OperatorError::Unverifiable("operator account binding seal"));
+        }
+        Ok(())
+    }
+
+    /// Which operator custody does this account hold, if any?
+    ///
+    /// The binding's seal is verified before the answer is believed, and a
+    /// disabled or unverifiable operator answers `NotBoundToAnOperator` --
+    /// one refusal for several causes, [`OperatorError::EnrolmentRefused`]'s
+    /// argument: a caller who could tell them apart could probe the register.
+    pub async fn operator_of_account(
+        &self,
+        tx: &Transaction<'_>,
+        account: &str,
+    ) -> Result<String, OperatorError> {
+        let row = tx
+            .query_opt(
+                "SELECT operator_id FROM operator_account_bindings WHERE account_id = $1",
+                &[&account],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Err(OperatorError::NotBoundToAnOperator);
+        };
+        let operator: String = row.get(0);
+        self.verify_binding(tx, &operator, account).await?;
+        let live = verify_operator_row(tx, &self.ring, &operator).await?;
+        if live.disabled_at_unix != 0 {
+            return Err(OperatorError::NotBoundToAnOperator);
+        }
+        Ok(operator)
+    }
+
+    // -----------------------------------------------------------------------
+    // ADR-0055 decision 1 -- the operator key a browser registers
+    // -----------------------------------------------------------------------
+
+    /// **`POST /admin/operators/self/key`**: the account signed in at this
+    /// browser registers an operator key for it.
+    ///
+    /// ADR-0055 decision 1 with the lead's resolution 8 (2026-09-21): there is
+    /// no separate operator sign-in any more. A person signs in with their
+    /// address, their credential and their app code; if their account holds
+    /// the operator custody, this is how the browser gets the key every
+    /// operator act is signed with (`verify_operator_assertion`). Decision 6's
+    /// *"any browser, no pairing"*: a second browser registers a second key
+    /// and both stay live, which is why `live_operator_keys` has no `LIMIT 1`.
+    ///
+    /// # What it checks, in order
+    ///
+    /// 1. **A steward session.** The acting principal is an account, not an
+    ///    operator: an operator principal has no account binding of its own,
+    ///    and a route that took one would be a route that let an operator
+    ///    session mint itself a second key.
+    /// 2. **Not the setup-only session, AND a confirmed app code on the
+    ///    account.** Resolution 1: an account holding the operator custody
+    ///    with no app code enrolled gets an `A0` session that reaches
+    ///    `/credentials/*` and nothing else. Registering the key every
+    ///    operator act is signed with is emphatically not the setup screen.
+    ///    ADR-0055 fix (g), 2026-09-21: the assurance check is not enough by
+    ///    itself, because an account with one live browser key reaches this
+    ///    route at `A1` with no app code ever enrolled — see the check itself
+    ///    for the whole of it.
+    /// 3. **A live, sealed binding**, and an operator row that verifies and is
+    ///    not disabled.
+    /// 4. **The seat is not held.** `accounts.operator_key_hold_until`
+    ///    (`0021`, ADR-0055 decision 7): if a mailed reset set the credential
+    ///    on this account, the operator seat waits for another operator's
+    ///    confirmation or for the 24 hours to run out. Without this check the
+    ///    reset would restore the seat by itself, which is exactly what
+    ///    decision 7 refuses -- *"a colleague who controls the mail server
+    ///    cannot reset their way into a second seat"*.
+    ///
+    /// The sealed entry is `operator_key_enrolled` (`0022` §C) and not
+    /// `operator_enrolled`: an auditor reading the trail has to be able to
+    /// tell a one-shot invitation being redeemed from somebody who knew the
+    /// credential registering a key, and the entry type is the half of that
+    /// which is legible without the chain key.
+    ///
+    /// **A note on the `via` field.** The lead's resolution 8 asks for
+    /// `via=password`. The value written is the SESSION'S ASSURANCE instead --
+    /// `A0T` for credential-and-app-code, `A1` for a key -- which names the
+    /// same route more precisely, because an account that already holds a
+    /// browser key reaches this route at `A1` and calling that route by the
+    /// other name would be filing a false fact. The literal the resolution
+    /// names is also a word this module's own gate test
+    /// (`no_message_in_this_module_has_a_field_a_...`) forbids on a
+    /// non-comment line, and weakening that test for an audit label would be
+    /// the wrong trade. Reported to the lead rather than decided silently.
+    pub async fn register_own_operator_key(
+        &self,
+        account: &VerifiedSession,
+        public_key: &[u8],
+    ) -> Result<OperatorKey, OperatorError> {
+        if account.kind() != PrincipalKind::Steward {
+            return Err(OperatorError::NotBoundToAnOperator);
+        }
+        if account.assurance() == Assurance::A0 {
+            return Err(OperatorError::SetupSessionOnly);
+        }
+        check_public_key(public_key)?;
+        let account_id = account.principal_id();
+
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        // `operator_keys_insertable` (`0015` §H) names the enrolment custody,
+        // because until today every operator key arrived by redemption. This
+        // is the other way in, and it takes the same custody to write the same
+        // table rather than widening the policy: what authorises it is the
+        // verified session and the sealed binding above, checked here.
+        enter_enrolment_custody(&tx).await?;
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
+
+        let operator = self.operator_of_account(&tx, &account_id).await?;
+
+        // **ADR-0055 fix (g): the app code, not the assurance.**
+        //
+        // The gate above is `assurance == A0`, and an account that holds the
+        // operator custody with ONE live account key escapes it entirely:
+        // password plus a key signature is `A1`, so
+        // `sessions::verify_request`'s setup-only check does not run and this
+        // one passes — and that person registers the operator key every
+        // operator act is signed with, having never enrolled the app code
+        // decision 10 calls **Required for any account holding the operator
+        // custody**. The state is reachable with no database access at all:
+        // `account_for_address` REUSES an account that already exists at the
+        // address, and an ordinary steward may register a browser key, so any
+        // existing keyed steward promoted to operator lands in it.
+        //
+        // So the question asked here is the account's, not the session's:
+        // `totp_last_step IS NOT NULL` is what `CredentialRow::totp_confirmed`
+        // reads, and it is NULL until a real six-digit code has been accepted
+        // once (`credentials::confirm_totp`).
+        let confirmed_app_code: bool = tx
+            .query_opt(
+                "SELECT totp_last_step IS NOT NULL FROM accounts WHERE id = $1",
+                &[&account_id],
+            )
+            .await?
+            .map(|row| row.get(0))
+            .unwrap_or(false);
+        if !confirmed_app_code {
+            return Err(OperatorError::SetupSessionOnly);
+        }
+
+        let hold: Option<i64> = tx
+            .query_opt(
+                "SELECT EXTRACT(EPOCH FROM operator_key_hold_until)::bigint FROM accounts \
+                  WHERE id = $1",
+                &[&account_id],
+            )
+            .await?
+            .and_then(|row| row.get(0));
+        if let Some(until) = hold {
+            if until > now_unix() {
+                return Err(OperatorError::SeatHeld);
+            }
+        }
+
+        let fpr = authority::key_fingerprint(public_key);
+        let key_id = ids::new_ulid().to_string();
+        let enrolled = chains::append_site(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::OperatorKeyEnrolled,
+            &entry_metadata(
+                EntryType::OperatorKeyEnrolled,
+                &[
+                    ("operator", Json::Str(operator.clone())),
+                    ("account", Json::Str(account_id.clone())),
+                    ("key", Json::Str(key_id.clone())),
+                    ("fpr", Json::Str(hex(&fpr))),
+                    ("key_source", Json::Str("software".to_string())),
+                    ("principal_kind", Json::Str("operator".to_string())),
+                    ("session", Json::Str(account.id().to_string())),
+                    // See this function's doc comment: the assurance IS the
+                    // route, and it is the honest form of the field the lead
+                    // asked for.
+                    ("via", Json::Str(account.assurance().as_str().to_string())),
+                ],
+            ),
+        )
+        .await?;
+
+        let key = OperatorKey {
+            id: key_id.clone(),
+            operator_id: operator.clone(),
+            public_key: public_key.to_vec(),
+            fpr,
+            enrolled_seq: enrolled.seq,
+            row_version: 1,
+            retired_at_unix: 0,
+        };
+        let seal = authority::row_seal(
+            &grants::site_row_key(&tx, &self.ring).await?,
+            &RowFacts {
+                table: "operator_keys",
+                row_id: &key_id,
+                chain_seq: enrolled.seq,
+                row_version: 1,
+                row_state: &operator_key_row_state(&key),
+            },
+        );
+        tx.execute(
+            "INSERT INTO operator_keys \
+                 (id, operator_id, key_source, public_key, alg, fpr, enrolled_seq, row_version, \
+                  row_seal) \
+             VALUES ($1, $2, 'software', $3, $4, $5, $6, 1, $7)",
+            &[
+                &key_id,
+                &operator,
+                &public_key.to_vec(),
+                &authority::ALG_ES256,
+                &fpr.to_vec(),
+                &enrolled.seq,
+                &seal.to_vec(),
+            ],
+        )
+        .await?;
+
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(key)
+    }
+
+    /// **`POST /admin/operators/{operator}/confirm-recovery`**: another
+    /// operator clears the seat hold early.
+    ///
+    /// ADR-0055 decision 7: an account whose credential was reset by mail *"does
+    /// not restore that custody by itself: the seat waits for another
+    /// operator's confirmation or the 24-hour delay with notice to every
+    /// operator"*. This is the confirmation half. The delay half needs nothing
+    /// -- [`OperatorStore::register_own_operator_key`] reads the clock.
+    ///
+    /// **Not the operator's own seat.** The colleague decision 7 is worried
+    /// about is the one who controls the mail server; letting them confirm
+    /// their own recovery would be the control confirming itself.
+    pub async fn confirm_recovery(
+        &self,
+        operator: &VerifiedSession,
+        target: &str,
+    ) -> Result<(), OperatorError> {
+        let acting = self.acting_operator(operator)?;
+        if acting == target {
+            return Err(OperatorError::Malformed("operator to confirm"));
+        }
+
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+                &[&target],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Err(OperatorError::NotBoundToAnOperator);
+        };
+        let account: String = row.get(0);
+        self.verify_binding(&tx, target, &account).await?;
+        verify_operator_row(&tx, &self.ring, target).await?;
+
+        chains::append_site(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::OperatorSeatHoldCleared,
+            &entry_metadata(
+                EntryType::OperatorSeatHoldCleared,
+                &[
+                    ("operator", Json::Str(target.to_string())),
+                    ("account", Json::Str(account.clone())),
+                    ("by", Json::Str(acting)),
+                    ("session", Json::Str(operator.id().to_string())),
+                ],
+            ),
+        )
+        .await?;
+
+        tx.execute(
+            "UPDATE accounts SET operator_key_hold_until = NULL WHERE id = $1",
+            &[&account],
+        )
+        .await?;
+        // The hold is inside the credential seal (migration 0025): re-seal in
+        // the transaction that cleared it.
+        crate::credentials::reseal_credentials(&tx, &self.ring, &account, None)
+            .await
+            .map_err(|_| OperatorError::Corrupt("credential seal"))?;
+
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // ADR-0055 decisions 4 and 8 -- what the console has to say out loud
+    // -----------------------------------------------------------------------
+
+    /// **`GET /admin/notices`**: the standing facts an operator session has to
+    /// show, derived from the chain and the register.
+    ///
+    /// The lead's resolution 6 (2026-09-21): *"the seven-day 'recovered from
+    /// host' banner and the one-operator fact are derived from the chain and
+    /// the register, served by `GET /admin/notices` as LP-framed lines; no new
+    /// storage."* That closes the contracts document's open issue 6, which
+    /// asked where the banner state should live: nowhere. A column somebody
+    /// could clear is a banner somebody could clear, and the two facts this
+    /// answers are both about somebody having done something they should not
+    /// be able to hide.
+    ///
+    /// One line per notice, space-separated, in the shape `list_operators`
+    /// already uses:
+    ///
+    /// - `recovered_from_host <at_unix> <until_unix>` — ADR-0055 decision 8's
+    ///   seven-day banner. Present while an `operator_recovered_from_host`
+    ///   entry lies inside [`RECOVERY_BANNER_WINDOW`], **measured by the time
+    ///   inside that entry's own seal and not by `chain_entries.created_at`**,
+    ///   which nothing seals (ADR-0055 fix (e)). **The entry is verified
+    ///   before it is reported**, so a row inserted by whoever holds the
+    ///   database cannot raise a banner, and a row whose seal was broken to
+    ///   suppress one is an alarm rather than a silence — which is now true
+    ///   of a row whose `created_at` was moved as well, because the newest
+    ///   entry of the type is selected whatever its `created_at` says.
+    /// - `one_operator <live_independent> <weeks_since_install>` — decision
+    ///   4's standing banner, which *"escalates weekly"* and *"never blocks
+    ///   work"*. The escalation number is weeks since this deployment's own
+    ///   `operator_bootstrapped` entry, and it is that rather than "weeks
+    ///   spent with one operator" for an honest reason: nothing stores the
+    ///   history of the count, and inventing one to make a banner shout louder
+    ///   would be storage this resolution just said not to add.
+    pub async fn notices(&self) -> Result<Vec<String>, OperatorError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+
+        let mut out = Vec::new();
+        let now = now_unix();
+
+        // **ADR-0055 fix (e): the newest entry of this type, whatever its
+        // `created_at` says, verified, and then the SEALED time.**
+        //
+        // This used to filter `created_at > window_start` in the SELECT and
+        // verify afterwards, while the comment above promised that *"a row
+        // whose seal was broken to suppress one is an alarm rather than a
+        // silence"*. `created_at` is not in `chains::append_site`'s content
+        // hash or seal, so a row moved eight days into the past was simply
+        // not selected: the verification never ran and the banner went quiet
+        // with nothing raised. (It needs a database owner -- `fathom_app`
+        // holds only SELECT and INSERT on `chain_entries` -- but the comment
+        // made a claim the code did not support.)
+        //
+        // So the row is selected by seq alone, verified, and the window is
+        // measured against the `at` the entry's own sealed metadata carries.
+        // A row of this type with no sealed `at` is an ALARM: the field is
+        // written by the only code that appends this entry type, which landed
+        // with the entry type itself in this unreleased build, so an entry
+        // without it is an entry this server did not write.
+        let recovered = tx
+            .query_opt(
+                "SELECT seq FROM chain_entries \
+                  WHERE chain_kind = 'site' AND entry_type = $1 \
+                  ORDER BY seq DESC LIMIT 1",
+                &[&EntryType::OperatorRecoveredFromHost.as_str()],
+            )
+            .await?;
+        if let Some(row) = recovered {
+            let seq: i64 = row.get(0);
+            let entry = chains::read_site_entry_verified(&tx, &self.ring, seq)
+                .await
+                .map_err(|_| OperatorError::Unverifiable("host recovery entry"))?;
+            let Some(entry) = entry else {
+                return Err(OperatorError::Unverifiable("host recovery entry"));
+            };
+            if entry.entry_type != EntryType::OperatorRecoveredFromHost {
+                return Err(OperatorError::Unverifiable("host recovery entry"));
+            }
+            let at = sealed_int(&entry.metadata, "at")?;
+            if at + RECOVERY_BANNER_WINDOW.as_secs() as i64 > now {
+                out.push(format!(
+                    "recovered_from_host {at} {}",
+                    at + RECOVERY_BANNER_WINDOW.as_secs() as i64
+                ));
+            }
+        }
+
+        let live = live_independent_operators(&tx).await?;
+        if live.min(2) < 2 {
+            let installed: Option<i64> = tx
+                .query_opt(
+                    "SELECT EXTRACT(EPOCH FROM min(created_at))::bigint FROM chain_entries \
+                      WHERE chain_kind = 'site' AND entry_type = $1",
+                    &[&EntryType::OperatorBootstrapped.as_str()],
+                )
+                .await?
+                .and_then(|row| row.get(0));
+            let weeks = match installed {
+                Some(at) if now > at => (now - at) / (7 * 24 * 60 * 60),
+                _ => 0,
+            };
+            out.push(format!("one_operator {live} {weeks}"));
+        }
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4410,6 +6199,31 @@ fn random_32() -> Result<[u8; 32], OperatorError> {
     Ok(*Key32::random()
         .map_err(|_| OperatorError::Corrupt("random source"))?
         .expose())
+}
+
+/// **One integer field out of a verified entry's sealed metadata** —
+/// ADR-0055 fix (e).
+///
+/// The module's usual trick, [`contains`], re-renders the one pair it wants
+/// and searches the canonical bytes for it: enough to ask *"does the entry
+/// say X?"* and useless for *"what does the entry say?"*. Reading a time the
+/// banner has to compare against a clock is the second question, so the
+/// metadata is parsed — with `fathom_canon`'s own parser, which is what
+/// `grants::verify_genesis_set` already does with `org_genesis`, and not a
+/// second one written here.
+///
+/// A missing or wrongly-typed field is [`OperatorError::Unverifiable`] and
+/// not a default: the entry was written by this server or it was not.
+fn sealed_int(metadata: &[u8], field: &'static str) -> Result<i64, OperatorError> {
+    let parsed = Json::parse_canonical(metadata)
+        .map_err(|_| OperatorError::Unverifiable("entry metadata"))?;
+    let Json::Obj(map) = parsed else {
+        return Err(OperatorError::Unverifiable("entry metadata"));
+    };
+    match map.get(field) {
+        Some(Json::Int(value)) => Ok(*value),
+        _ => Err(OperatorError::Unverifiable("entry metadata")),
+    }
 }
 
 fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
@@ -4508,8 +6322,17 @@ mod tests {
             setting_second_bytes("D", "OP", "C", "smtp", &Sha256::digest(b"value").into())
         );
         assert_ne!(
-            operator_request_bytes("D", "OP", "Sam"),
+            operator_request_bytes("D", "OP", "Sam", "sam@example.org"),
             operator_second_bytes("D", "OP", "R", "Sam")
+        );
+
+        // ADR-0055 decision 5: the address is covered, so two requests that
+        // differ only in where the invitation goes are different bytes. A
+        // signature that did not cover it would be a signature an attacker
+        // holding the database could re-point at a mailbox of their own.
+        assert_ne!(
+            operator_request_bytes("D", "OP", "Sam", "sam@example.org"),
+            operator_request_bytes("D", "OP", "Sam", "sam@example.com")
         );
     }
 

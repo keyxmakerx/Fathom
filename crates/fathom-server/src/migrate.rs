@@ -106,6 +106,64 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0017_firmware_staging.sql",
         sql: include_str!("../migrations/0017_firmware_staging.sql"),
     },
+    // 0016 does not exist: see `0015_operator_console.sql` section B2 for why
+    // the number was retired rather than reused, and
+    // `docs/archive/2026-09-21-adr-0055-build-contracts.md` for why these
+    // three start at 18 rather than at the number ADR-0055's prose uses.
+    Migration {
+        version: 18,
+        name: "0018_credentials.sql",
+        sql: include_str!("../migrations/0018_credentials.sql"),
+    },
+    Migration {
+        version: 19,
+        name: "0019_operator_account_binding.sql",
+        sql: include_str!("../migrations/0019_operator_account_binding.sql"),
+    },
+    Migration {
+        version: 20,
+        name: "0020_console_placement.sql",
+        sql: include_str!("../migrations/0020_console_placement.sql"),
+    },
+    Migration {
+        version: 21,
+        name: "0021_operator_seat_hold.sql",
+        sql: include_str!("../migrations/0021_operator_seat_hold.sql"),
+    },
+    // ADR-0055 stream (a). Appended at the END of this list so the other two
+    // streams' additions land beside it; if stream (b) also lands a 22,
+    // renumber one of the two — see 0022's own MERGE NOTE.
+    Migration {
+        version: 22,
+        name: "0022_setup_token_subject.sql",
+        sql: include_str!("../migrations/0022_setup_token_subject.sql"),
+    },
+    // ADR-0055 stream (b).
+    Migration {
+        version: 23,
+        name: "0023_operator_quorum_and_the_operator_key.sql",
+        sql: include_str!("../migrations/0023_operator_quorum_and_the_operator_key.sql"),
+    },
+    // ADR-0055 fix (a): `recover_operator` retires the lost browser's key,
+    // which needs a privilege `0015` §I deliberately took away and said would
+    // come back in a migration somebody had to write down.
+    Migration {
+        version: 24,
+        name: "0024_operator_key_retirement.sql",
+        sql: include_str!("../migrations/0024_operator_key_retirement.sql"),
+    },
+    // ADR-0055 fix (S3), the credential plane. **24 is left free on purpose**:
+    // the fix stream working on the operator plane lands one there, and a
+    // migration's number is its apply order, so these two must not collide.
+    // If 24 is absent when this merges, the lead renumbers this file rather
+    // than leaving a hole -- `migrate::run`'s gate is the ORDER of this list
+    // and the checksum of each file, not a dense sequence (0016 is already
+    // missing, see the note above).
+    Migration {
+        version: 25,
+        name: "0025_credential_seal.sql",
+        sql: include_str!("../migrations/0025_credential_seal.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

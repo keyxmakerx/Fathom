@@ -119,6 +119,25 @@ pub fn router(state: AdminState) -> Router {
         // header.
         .route("/enrolment/account", post(redeem_account))
         .route("/enrolment/operator", post(redeem_operator))
+        // ---- ADR-0055 stream (b) ---------------------------------------
+        //
+        // Added at the END of the router so that the three parallel ADR-0055
+        // streams merge mechanically. Stream (c) adds its settings and
+        // placement routes in its own block.
+        .route("/admin/operators/self/key", post(register_own_operator_key))
+        .route(
+            "/admin/operators/{operator}/confirm-recovery",
+            post(confirm_recovery),
+        )
+        .route("/admin/notices", get(notices))
+        // ADR-0055 stream (c). `POST /admin/placement` is NOT here: it carries
+        // its own state and its own router (`placement::router`), merged
+        // beside this one inside the same exposure gate, so that a field on
+        // `AdminState` is not a conflict in every file that constructs one.
+        .route(
+            "/admin/settings/{change}/test-send",
+            post(test_send_setting),
+        )
         .with_state(state)
 }
 
@@ -271,7 +290,14 @@ async fn suspend_grant(
 /// `GET /admin/operators` — the register, with §5.5's sentence beside each row.
 ///
 /// Answer: one line per operator, `id display_name created_by
-/// never_independently_signed_in disabled`.
+/// never_independently_signed_in disabled address`.
+///
+/// **The address is APPENDED** (ADR-0055 stream (b)), not inserted: a client
+/// that splits the line and reads the first five fields keeps working, which
+/// is the same additive rule ADR-0053 §3 followed when `account_id` was added
+/// to `POST /session`'s answer. An operator with no binding — every operator a
+/// deployment created before ADR-0055 — renders `-`, exactly as an absent
+/// `created_by` does.
 ///
 /// Applying anything whose delay has elapsed happens here too, because this
 /// deployment has no scheduler (`0014` §C's argument for sweeping on the paths
@@ -291,6 +317,14 @@ async fn list_operators(
         .apply_due_operator_requests()
         .await
         .map_err(AdminRefusal)?;
+    // ADR-0055 stream (c): the console placement is swept on the same
+    // argument as the line above -- this deployment has no scheduler, so the
+    // paths that care do the sweeping (`0014` §C) -- but from
+    // `placement::confirm_on_the_new_host`, the layer over THIS router,
+    // rather than from this function: the sweep needs the `PlacementStore`,
+    // and a new field on `AdminState` would be a conflict in every file that
+    // constructs one while three streams build ADR-0055 at once. The layer
+    // runs on every `/admin` request, which includes this one.
 
     let operators = state
         .operators
@@ -300,7 +334,7 @@ async fn list_operators(
     let mut out = String::new();
     for operator in &operators {
         out.push_str(&format!(
-            "{} {} {} {} {}\n",
+            "{} {} {} {} {} {}\n",
             operator.id,
             operator.display_name,
             operator.created_by.as_deref().unwrap_or("-"),
@@ -308,6 +342,8 @@ async fn list_operators(
             // signed in' beside every operator until that stops being true."*
             operator.never_independently_signed_in(),
             operator.disabled_at_unix != 0,
+            // ADR-0055 stream (b): appended, so the existing parser survives.
+            operator.address.as_deref().unwrap_or("-"),
         ));
     }
     Ok((StatusCode::OK, out).into_response())
@@ -342,20 +378,30 @@ async fn list_organisations(
 
 /// `POST /admin/operators` — §5.5's request half.
 ///
-/// Body: `LP(display_name) ‖ LP(assertion)`, where the assertion is over
-/// `operators::operator_request_bytes` **signed by the requesting operator's
-/// enrolled key** — a different key from the session key, so requesting a
-/// colleague is a key touch and not a form submission.
+/// Body: `LP(display_name) ‖ LP(address) ‖ LP(assertion)`, where the assertion
+/// is over `operators::operator_request_bytes` **signed by the requesting
+/// operator's enrolled key** — a different key from the session key, so
+/// requesting a colleague is a key touch and not a form submission.
+///
+/// **The address is new** (ADR-0055 decision 5, the lead's resolution 5): the
+/// colleague is invited AT an address, an account shell is created for it when
+/// the request applies, and the operator custody is bound to that account. The
+/// field is inside the assertion as well as inside the body, so the operator
+/// signs where the invitation goes. `read_fields` refuses a two-field body
+/// outright rather than defaulting the address, which is the same rule the
+/// module header states: a sender who believes something untrue about this
+/// protocol is told, not humoured.
 async fn request_operator(
     State(state): State<AdminState>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
     let session = verify(&state, &signed).await?;
-    let fields = read_fields(&signed.body, 2)?;
+    let fields = read_fields(&signed.body, 3)?;
     let display_name = text(&fields[0], "display name")?;
+    let address = text(&fields[1], "address")?;
     let pending = state
         .operators
-        .request_operator(&session, &display_name, &fields[1])
+        .request_operator(&session, &display_name, &address, &fields[2])
         .await
         .map_err(AdminRefusal)?;
     Ok(pending_response(&pending.id, pending.effective_at_unix))
@@ -399,6 +445,97 @@ async fn disable_operator(
 }
 
 // ---------------------------------------------------------------------------
+// ADR-0055 stream (b) — the operator custody an account holds
+//
+// Three handlers, in their own block so that the three parallel ADR-0055
+// streams merge mechanically. `operators.rs` holds every rule; these are the
+// translation to HTTP and hold none of their own, exactly like the handlers
+// above them.
+// ---------------------------------------------------------------------------
+
+/// `POST /admin/operators/self/key` — the browser this ACCOUNT is signed in at
+/// registers an operator key.
+///
+/// Body: `LP(public_key)`. Answer: `LP(key_id) ‖ LP(operator_id)`, the same
+/// shape `/enrolment/operator` answers, because a client that has just
+/// registered a key needs to learn which operator it registered for.
+///
+/// **The session is an account session, not an operator one**, and that is the
+/// point of the route: ADR-0055 decision 1 makes the operator custody
+/// something an account holds, and this is how the account's browser gets the
+/// key every operator act is then signed with. `operators.rs` checks the
+/// binding, the operator row's seal, and `0021`'s seat hold.
+///
+/// **It is under `/admin`, deliberately** (the lead's resolution 8): the
+/// console is confined to its host by `admin_exposure`, which matches
+/// `/admin*`, so registering an operator key is confined with it. A route
+/// outside `/admin` would be an operator control reachable on a host decision
+/// 9 says should show nothing operator-side at all.
+async fn register_own_operator_key(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let key = state
+        .operators
+        .register_own_operator_key(&session, &fields[0])
+        .await
+        .map_err(AdminRefusal)?;
+    let mut out = Vec::with_capacity(96);
+    crypto::lp(&mut out, key.id.as_bytes());
+    crypto::lp(&mut out, key.operator_id.as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /admin/operators/{operator}/confirm-recovery` — one operator clears
+/// another's seat hold early (ADR-0055 decision 7).
+///
+/// Body: empty. **There is no route that SETS the hold**: the reset redemption
+/// does that, and a console control that could set one would be a control for
+/// locking a colleague out of their own seat.
+async fn confirm_recovery(
+    State(state): State<AdminState>,
+    Path(operator): Path<String>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    read_fields(&signed.body, 0)?;
+    state
+        .operators
+        .confirm_recovery(&session, &operator)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(ok())
+}
+
+/// `GET /admin/notices` — the standing facts an operator session must show.
+///
+/// Answer: one LP-framed line per notice, no trailing count — a reader takes
+/// length-prefixed fields until the body runs out, exactly as it does for the
+/// multi-field answers above. Lines and their shapes are documented on
+/// `OperatorStore::notices`, which derives every one of them from the chain
+/// and the register; nothing here is stored and nothing here can be cleared.
+///
+/// **Not sampled into `operator_read`.** `record_read` exists so that a
+/// console polling a page writes one entry and not seventeen thousand; this
+/// route is polled by the banner on every page, and filing it as a surface
+/// read would say an operator "read the notices" when what happened is that
+/// their browser refreshed.
+async fn notices(State(state): State<AdminState>, signed: Signed) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    if session.kind() != PrincipalKind::Operator {
+        return Err(AdminRefusal(OperatorError::NotAnOperator).into());
+    }
+    let lines = state.operators.notices().await.map_err(AdminRefusal)?;
+    let mut out = Vec::with_capacity(128);
+    for line in &lines {
+        crypto::lp(&mut out, line.as_bytes());
+    }
+    Ok(bytes_response(out))
+}
+
+// ---------------------------------------------------------------------------
 // §5.3 — settings, behind §5.4's interlock
 // ---------------------------------------------------------------------------
 
@@ -422,6 +559,16 @@ async fn request_setting(
     let session = verify(&state, &signed).await?;
     let fields = read_fields(&signed.body, 3)?;
     let key = text(&fields[0], "setting key")?;
+    // ADR-0055 stream (c): `smtp` is the one key whose value has a shape this
+    // server has to agree with the client about (decision 11's form). It is
+    // checked HERE, before it is sealed, so a malformed form is a typed
+    // refusal instead of a row nobody can parse once the SMTP client exists.
+    // The refusal names the field and never its value -- the password is
+    // inside this envelope, and `tests/no_secret_in_logs.rs` drives exactly
+    // this path to prove it never reaches a log.
+    if key == "smtp" {
+        crate::placement::parse_smtp_value(&fields[1]).map_err(AdminRefusal)?;
+    }
     let pending = state
         .operators
         .request_setting(&session, &key, &fields[1], &fields[2])
@@ -462,6 +609,83 @@ async fn cancel_setting(
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0055 stream (c) — the SMTP test send
+// ---------------------------------------------------------------------------
+
+/// `POST /admin/settings/{change}/test-send` — decision 11's *"a test-send
+/// goes to the requesting operator's own address, rate-limited, sealed"*.
+///
+/// Body: empty. Answer: **503 and one sentence**, because **no SMTP client
+/// ships in this phase** (ADR-0055's own cost list item 5 puts the client,
+/// reset-by-mail and the notices in the last session). A route that pretended
+/// to send would be worse than one that says it cannot: an operator who reads
+/// "sent" and receives nothing learns the wrong thing about their
+/// configuration.
+///
+/// What it DOES do before answering, because those halves are testable now
+/// and are the ones that protect the deployment:
+///
+/// * it needs a live operator session, like every other console route;
+/// * it spends a per-operator budget of one per five minutes in the SAME
+///   `sign_in_attempts` table §13 item 7 keeps
+///   (`placement::take_test_send_budget`), so an operator cannot hammer it.
+///   **Not the per-source bucket as well**: `api::Signed` has consumed the
+///   request by the time a handler runs, so this function cannot see the
+///   headers the address is derived from, and counting every test-send into
+///   one `unknown` bucket would be a limit in name only;
+/// * it is recorded on the site chain — as `operator_read` of the surface
+///   `settings/smtp/test-send`, which is sampled once per session per
+///   surface. **A dedicated entry type would need a migration**, and a
+///   migration that rewrites `chain_entries_type_belongs_to_kind` today would
+///   drop the types the other two ADR-0055 streams are adding in parallel.
+///   Reported rather than forced: the proper `smtp_test_send` type belongs
+///   with the SMTP client.
+///
+/// The destination is never in the request body (decision 11: *"no field to
+/// abuse as an open relay probe"*); it is the operator's own address through
+/// `operator_account_bindings`, which is stream (b)'s table and is read the
+/// day there is something to send.
+async fn test_send_setting(
+    State(state): State<AdminState>,
+    Path(change): Path<String>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    read_fields(&signed.body, 0)?;
+    if session.kind() != PrincipalKind::Operator {
+        return Err(Refusal::from(AdminRefusal(OperatorError::NotAnOperator)));
+    }
+    let operator = session.principal_id();
+    let within_budget = crate::placement::take_test_send_budget(
+        state.sessions.pool(),
+        &operator,
+        crate::placement::TEST_SEND_WINDOW_SECONDS,
+    )
+    .await
+    .map_err(AdminRefusal)?;
+    if !within_budget {
+        return Err(SessionError::RateLimited {
+            retry_after_seconds: crate::placement::TEST_SEND_WINDOW_SECONDS,
+        }
+        .into());
+    }
+    state
+        .operators
+        .record_read(&session, "settings/smtp/test-send")
+        .await
+        .map_err(AdminRefusal)?;
+    tracing::info!(
+        change = %change,
+        "an operator asked for an SMTP test send; no mail client ships in this phase"
+    );
+    Ok((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "mail sending is not built yet\n",
+    )
+        .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +806,13 @@ async fn verify(
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    // ADR-0055 stream (c): decision 11's confirmation is *"an operator
+    // sign-in on the new host"*, so it has to be attributed to the operator
+    // who actually reached the console. This is the one place that knows who
+    // that is; `placement::confirm_on_the_new_host`, the layer over this
+    // router, reads it when the response turns out to be a success. Outside
+    // that layer it does nothing at all.
+    crate::placement::note_acting_operator(&session);
     Ok(session)
 }
 
@@ -687,9 +918,35 @@ impl From<AdminRefusal> for Refusal {
                 Refusal::from(SessionError::SignInRefused)
             }
             OperatorError::SecondedByTheRequester
+            // ADR-0055 fix (c): `0015` §G's trigger refusing a seconder is a
+            // rule this deployment is applying, not a sign that a stored row
+            // is lying. It used to reach the console as a 500.
+            | OperatorError::SeconderNotIndependent
             | OperatorError::NotYetEffective
             | OperatorError::AlreadyBootstrapped => {
                 tracing::info!(reason = %e.0, "operator act refused");
+                Refusal::from(SessionError::NotATenantPrincipal)
+            }
+            // ---- ADR-0055 stream (b) ----------------------------------
+            //
+            // All four render as a permission answer and not as an alarm: each
+            // is a rule this deployment is applying, not a sign that a stored
+            // row is lying. The detail goes to the log, per this type's own
+            // rule.
+            OperatorError::NotBoundToAnOperator => {
+                tracing::info!(reason = %e.0, "account holds no operator custody");
+                Refusal::from(SessionError::NotATenantPrincipal)
+            }
+            OperatorError::SeatHeld => {
+                tracing::warn!(reason = %e.0, "the operator seat on this account is held");
+                Refusal::from(SessionError::NotATenantPrincipal)
+            }
+            OperatorError::LastLiveOperator => {
+                tracing::warn!(reason = %e.0, "refused: that is the last live operator");
+                Refusal::from(SessionError::NotATenantPrincipal)
+            }
+            OperatorError::SetupSessionOnly => {
+                tracing::info!(reason = %e.0, "a setup-only session reached an operator route");
                 Refusal::from(SessionError::NotATenantPrincipal)
             }
             OperatorError::Malformed(what) => Refusal::from(SessionError::Malformed(what)),

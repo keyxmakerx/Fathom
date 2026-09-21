@@ -93,13 +93,57 @@ const TABLES: &[TableClaim] = &[
         why: "migration bookkeeping -- version numbers, filenames, byte lengths, checksums. \
               Never carries anything about a tenant, a design or a credential.",
     },
+    // ---- ADR-0055 stream (a): `accounts` changes kind ---------------------
+    //
+    // It was `NoKeyProtectedMaterial` with the reason "carries no
+    // authentication secret at all -- how an account proves who it is is
+    // undecided". `0018` decides it, and one of the two answers IS a
+    // key-protected secret, so the old claim cannot be made about this table
+    // any more and leaving it would be a lie in a list that exists to be true
+    // (this file's own header, on the same move for `0007`).
     TableClaim {
         name: "accounts",
-        protection: Protection::NoKeyProtectedMaterial,
-        why: "identity: id, email, display_name. `docs/PHASE-2-STORAGE-DESIGN.md` §1 lists \
-              identity as \"Low -- must be queryable\". Carries no authentication secret at \
-              all -- how an account proves who it is is undecided (`docs/OPEN-QUESTIONS.md` \
-              B1-B9, C2).",
+        protection: Protection::KeyProtected {
+            columns: &["totp_secret_ct"],
+            under: "a subkey of the site chain key (`fathom/credentials/totp/v1`), which is \
+                    derived from the chain master behind ADR-0043's provider interface and is \
+                    never in PostgreSQL. `0018` §B, and the same construction \
+                    `site_settings_versions.value_ct` uses one label over",
+        },
+        why: "identity -- id, email, display_name, still \"Low -- must be queryable\" per \
+              `docs/PHASE-2-STORAGE-DESIGN.md` §1 -- and, since ADR-0055 decision 10, the \
+              person's own credential. Three of those columns are declared and one is not, and \
+              the difference is the point:\n\
+              \n\
+              * `totp_secret_ct` IS key-protected: it is the shared secret an app code is \
+                computed from, it opens every future code, and it is sealed whole. Declared \
+                above.\n\
+              * `totp_secret_nonce` is a 96-bit AEAD nonce and `totp_secret_key_epoch` is an \
+                integer. Neither is secret -- a nonce is published beside its ciphertext by \
+                construction -- and neither is `bytea`-and-ciphertext, so declaring them would \
+                claim a protection they do not have. `tenant_keys` and `design_payload` \
+                declare only their ciphertext columns for the same reason.\n\
+              * `password_hash` is NOT key-protected and `0018` §A argues it at length: a \
+                password hash is already the one-way, salted, memory-hard function OWASP and \
+                NIST describe, and wrapping it in this server's AEAD would add a second key an \
+                attacker who has the database does not need -- and would suggest a property \
+                (recoverability) a password hash must never have.\n\
+              * `operator_key_hold_until` (`0021`) is a timestamp, and `credential_seal`, \
+                `credential_row_version` and `credential_seq` (`0025`) are the integrity cover \
+                over it and over the four columns above. A seal is a MAC — it holds no \
+                plaintext, it opens nothing, and it is not key-PROTECTED material any more \
+                than `backup_codes.row_seal` or `account_keys.row_seal` is; it is computed \
+                under `grants::site_row_key`, which is derived from the chain master behind \
+                ADR-0043's provider interface and is likewise never in PostgreSQL. `0021`'s \
+                own header said the hold did not need sealing, because the seal on an \
+                operator's authority is the `operator_keys` row the hold prevents being \
+                written; that argument still holds and `0025` covers the column anyway, so \
+                clearing it outside this server is the same kind of unverifiable as clearing \
+                the app code.\n\
+              \n\
+              **No device credential arrives here either** (CLAUDE.md rule 4): this is the \
+              PERSON's credential, which is a different noun, and `0018`'s header draws the \
+              same line at the schema.",
     },
     TableClaim {
         name: "organisations",
@@ -440,6 +484,69 @@ const TABLES: &[TableClaim] = &[
               key-protected material either: it protects a public vendor image, it is single-use \
               and minutes long, and it wraps no key.",
     },
+    // ---- ADR-0055 stream (a): migration 0018's two new tables -------------
+    //
+    // Added at the END of this list, in a labelled block, so the other two
+    // ADR-0055 streams' additions land beside them and the merge is
+    // mechanical. `operator_account_bindings` (`0019`) and the placement
+    // table (`0020`) belong to streams (b) and (c) and are NOT declared here.
+    TableClaim {
+        name: "backup_codes",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a single-use backup code, never the code. \
+              `H(LP(\"fathom/credentials/backup/code/v1\") || LP(code))` -- `0018` §C, the same \
+              construction `enrolment_tokens` and `firmware_fetch_tokens` already use -- so a \
+              database read hands an attacker a SHA-256 digest and a digest cannot be signed in \
+              with. The ten codes are returned once, at the moment the app code is confirmed, \
+              and are gone from this server before the transaction commits. It is not \
+              key-protected material either: it wraps no key, and a one-way hash is not \
+              something a key opens.",
+    },
+    TableClaim {
+        name: "password_reset_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of a reset token, never the token -- \
+              `H(LP(\"fathom/credentials/reset/token/v1\") || LP(token))`, `0018` §D, the same \
+              reasoning `enrolment_tokens` carries. Beside it: which account, the SOURCE the \
+              request came from (never a destination -- the destination is always \
+              `accounts.email`, which is what stops an operator-supplied address being an open \
+              relay), when it expires, whether it was spent, and the seal. Every one of those \
+              is the audit trail of a reset and is meant to be read. No key, no design payload \
+              and no device credential lands here.",
+    },
+    // ---- ADR-0055 stream (b) --------------------------------------------
+    //
+    // Added at the END of the list so that the three parallel ADR-0055 streams
+    // merge mechanically. Stream (a) claims `backup_codes` and
+    // `password_reset_tokens` and `0018`'s new `accounts` columns; stream (c)
+    // claims `0020`'s placement table.
+    TableClaim {
+        name: "operator_account_bindings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "ADR-0055 decision 1's sealed fact: operator X holds the custody on account Y. Two \
+              opaque ids, the site-chain `seq` of the entry that created it, a timestamp, and a \
+              32-byte seal over the pair. **No secret of any kind**, and deliberately no address \
+              -- the address lives on `accounts` and this row points at it, so a database read \
+              hands an attacker two ulids. Not key-protected material either: it wraps no key \
+              and carries no payload. What the seal gives it is tamper evidence, which \
+              `0019`'s own header argues a column on `operators` could not have had without \
+              re-sealing every existing row under a key the migration role does not hold.",
+    },
+    // ADR-0055 stream (c) -- migration `0020_console_placement.sql`.
+    TableClaim {
+        name: "console_placements",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "where the operator console answers: host names, address ranges, the window the \
+              change was made under, which operator asked and their signature over it, which \
+              operator confirmed it on the new host, and whether it reverted and why. **Host \
+              names and CIDR ranges are configuration, not credentials** -- the same values \
+              FATHOM_ADMIN_HOSTS and FATHOM_ADMIN_SOURCES carry in the environment, where they \
+              are also in the clear, and a reader who has this table already has the \
+              environment. There is no free-text column a payload could hide in, and the \
+              signature is what a later reader verifies rather than something to keep. **No \
+              SMTP value lands here**: `smtp` is one more sealed `site_settings_versions` row \
+              (`0015` §F), which is where its ciphertext claim already is.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
@@ -460,7 +567,8 @@ const TABLES: &[TableClaim] = &[
 /// above, and the function it calls raises an exception and returns nothing.
 /// Both are still read off the SQL by [`created_objects`] and reported by
 /// name, so one appearing on a table that is not in [`TABLES`] is visible in a
-/// diff.
+/// diff. A `CONSTRAINT TRIGGER` (`migrations/0025_credential_seal.sql`) is a
+/// trigger with a firing time, and holds no rows either.
 const NON_STORAGE_KINDS: &[&str] = &["index", "policy", "role", "function", "trigger"];
 
 /// Every migration file on disk, read from the directory rather than from
@@ -583,6 +691,9 @@ fn created_objects(sql: &str) -> Vec<(String, String)> {
         "if",
         "not",
         "exists",
+        // `CREATE CONSTRAINT TRIGGER` (`0025`) is a trigger; without this the
+        // reader files it as a thing of kind `constraint` called `trigger`.
+        "constraint",
     ];
     let (cleaned, _literals) = strip_string_literals(&strip_comments(sql));
     let cleaned = cleaned.to_ascii_lowercase();

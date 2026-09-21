@@ -43,6 +43,26 @@ export default defineConfig({
       '/enrolment': { target: apiTarget, changeOrigin: true },
       '/admin': { target: apiTarget, changeOrigin: true },
       '/catalogue': { target: apiTarget, changeOrigin: true },
+      // ADR-0055 stream (c): the unauthenticated console-host flag
+      // (`GET /placement/flag`). It is deliberately NOT under `/admin` --
+      // the answer a client needs on a host that is not the console host is
+      // "no", and `/admin` is answered 404 exactly there -- so it needs its
+      // own entry here. Without it the dev server answers 404 itself and the
+      // failure looks like a missing route on the server.
+      '/placement': { target: apiTarget, changeOrigin: true },
+      // ADR-0055 client (a): the credential plane —
+      // `/credentials/password`, `/credentials/key`,
+      // `/credentials/totp/*` and `/credentials/reset*`
+      // (`api.rs`'s `credential_router`). `/enrolment/operator/setup` is
+      // already covered by the `/enrolment` entry above. Without this line
+      // the dev server answers 404 itself and the failure looks like a
+      // missing route on the server.
+      // `/credentials/*` -- the password, the app code and this browser's
+      // key. They are account-plane and answer on every host, exactly like
+      // `/session`, so they need an entry of their own here; without it the
+      // dev server answers its own 404 and the failure looks like a missing
+      // route on the server.
+      '/credentials': { target: apiTarget, changeOrigin: true },
     },
   },
 })
