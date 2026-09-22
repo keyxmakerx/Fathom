@@ -57,7 +57,8 @@ not see.
 ## Decisions
 
 1. **The server says whether setup is finished, for the deployment as a whole.**
-   `GET /setup/state`, unauthenticated, answers `LP("pending")` while the install's first operator
+   `GET /setup/state`, unauthenticated but charged to the per-source budget like every other
+   unauthenticated route and answered `Cache-Control: no-store`, answers `LP("pending")` while the install's first operator
    has no stored credential (no password yet), and `LP("done")` afterwards, for ever. It is one bit
    about the deployment, never about an address, so ASVS 6.3.8 is untouched: the per-address
    answers stay identical in content and time. The bit is already visible to anyone who can reach
@@ -79,13 +80,24 @@ not see.
       for manual entry, the `otpauth://` URI for the person who wants it, and one field,
       **Verification code**, `autocomplete="one-time-code"`.
    4. *Recovery codes*, shown once, with copy and download, and a checkbox "I have saved these".
-   5. *Done.* Land on Home, signed in, with the operator console one press away.
+   5. *Sign in with your new authenticator.* One field, the verification code; the flow signs in
+      with the address and password it still holds, ending the setup-only session first, so the
+      session that lands on Home is one that proved the second factor (the operator key needs
+      that, ADR-0055 decision 9). *Added 2026-09-22 after the first checker:* the setup session is
+      password-only by construction, and landing on Home with it left the console entry one press
+      from a refusal.
+   6. *Done.* Home, signed in, with the operator console one press away.
    Every product surveyed lands the first administrator in the product; so does this.
 3. **Sign-in is two steps.** Step one: address and password. If the account holds a confirmed
    authenticator, the server answers a typed **second factor needed** instead of a session, and
    step two asks for the verification code, or a recovery code in the same field. The server's
    one-request verification is unchanged: the client sends the code with the address and password
-   again, and nothing is issued until all of it verifies. **What this gives up, named:** the
+   again, over the **same challenge** (same nonce, same session key), and nothing is issued until
+   all of it verifies. *Amended 2026-09-22 after the first checker:* the probe is a **rollback**,
+   not a refusal. It writes no chain entry (it is a protocol step; the sealed sign-in that follows
+   is the record), counts nothing against any bucket, and leaves the challenge nonce unconsumed,
+   so a two-step sign-in costs exactly what a one-shot sign-in cost: one challenge, one session.
+   A wrong password is still a sealed, counted, generic refusal. **What this gives up, named:** the
    second step tells the person who typed the right password that it was right. Every surveyed
    product with a second factor makes the same trade; it is not what 6.3.8 forbids (deducing a
    *valid user* from a *failed* challenge), and the sign-in rate limits and the account bucket

@@ -126,8 +126,8 @@ shows the address it was started with, so nothing is typed that could mismatch; 
 the bundled common-password list or contains the address; **set up your authenticator app** by
 scanning the QR code or entering the setup key, then typing the six-digit verification code it
 shows; save the **ten recovery codes**, shown once, each good for one sign-in in place of the
-authenticator, for a lost phone. You land on Home, signed in, with the operator console one press
-away.
+authenticator, for a lost phone; then sign in once with the code the app shows now. You land on
+Home, signed in, with the operator console one press away.
 
 **Every sign-in after that**, on any browser, is two steps at one door: your address and your
 password; then, because your account has an authenticator, the verification code it shows, or one
