@@ -83,7 +83,8 @@ email as a factor at level 3. A recovery code **may** go by mail, once, for at m
 (§4.2.1.2). Verifiers *"SHALL offer at least one phishing-resistant authentication option at
 AAL2"*, which a TOTP app is not and a passkey is; syncable passkeys are accepted at AAL2 (Appendix
 B). ASVS 6.4.3: a reset *"does not bypass any enabled multi-factor authentication mechanisms"*;
-6.3.8: no account enumeration through messages, codes or timing; 8.4.2: network location may
+6.3.8: no account enumeration through messages, codes or timing (ASVS, not NIST: 800-63B has no
+such clause, checked 2026-09-22 for ADR-0056); 8.4.2: network location may
 reduce risk for an administrative interface and is *"not the sole factor for authorization"*. The
 OWASP Forgot Password Cheat Sheet: tokens random, single use, expiring, the same answer for every
 address, sessions invalidated, no automatic sign-in.
