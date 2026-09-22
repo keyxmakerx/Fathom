@@ -36,9 +36,17 @@
 // the six digits of a verification code, exactly as
 // `scripts/ci/first-operator-signin.mjs` computes them.
 //
-// **Selectors are ids, roles and structure, not sentences**, so that the
-// copy on these screens can still be improved without breaking this drive.
-// 2026-09-22.
+// **The first-run and door half is addressed by ids, roles and structure; the
+// console half is only partly.** The sign-in and first-run screens are reached
+// through `#firstrun-*`, `#signin-*`, `[role=checkbox]` and their
+// `data-testid`s, so the copy there -- which ADR-0056 decision 4 is still
+// renaming -- can be improved without breaking this drive. The console's
+// FIELDS have ids (`#smtp-*`, `#placement-*`), its countdown a `data-testid`,
+// and its buttons and answers are reached through those and the classes around
+// them; but the WORDING of the warning list, the test-send answer and the
+// absence notice is still what this drive matches on, because the markup
+// offers nothing else to hold. That is a gap in the console markup, not a
+// choice made here; the client is not this drive's to change. 2026-09-22.
 //
 // It needs: PostgreSQL on 127.0.0.1 with the `fathom_test`/`postgres` roles,
 // a built client (`cd client && npm ci --ignore-scripts && npm run build`),
@@ -306,24 +314,84 @@ async function walkTheFirstRun(page, { token, address, password, spent, shot }) 
   return { secret, recoveryCodes };
 }
 
-/**
- * The ordinary door, in the two steps of ADR-0056 decision 3. Hands back
- * whether the second step was drawn, so a caller can assert it rather than
- * let a one-shot sign-in pass for a two-step one.
- */
-async function signInThroughTheDoor(page, { address, password, code }) {
-  await page.waitForSelector('#signin-password', { timeout: 20000 });
-  await page.fill('#signin-address', address);
-  await page.fill('#signin-password', password);
-  await page.click('form.signin__card button[type=submit]');
-  await page.waitForSelector('#signin-code, .home, .signin__refusal', { timeout: 30000 });
-  const twoStep = (await page.locator('#signin-code').count()) === 1;
-  if (twoStep) {
-    await page.fill('#signin-code', code);
-    await page.click('form.signin__card button[type=submit]');
+/** Wait for something this script can only learn from an event. */
+async function waitUntil(predicate, timeoutMs = 10000) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (predicate()) return true;
+    await new Promise((r) => setTimeout(r, 50));
   }
-  await page.waitForSelector('.home', { timeout: 30000 });
-  return { twoStep };
+  return predicate();
+}
+
+/**
+ * The ordinary door, in the two steps of ADR-0056 decision 3.
+ *
+ * **The two steps are asserted against the SERVER's answers, not against the
+ * markup alone** (2026-09-22). Looking for `#signin-code` only after step one
+ * was submitted could not fail: the one-page door this replaced carried that
+ * id on the same form as the password, so a client that had not moved at all
+ * would have passed. So this watches `POST /session` for the whole sign-in and
+ * asserts, in order: no code field on the password screen; exactly one
+ * `POST /session` in step one, answered 401 with the server's
+ * "second factor needed"; the code field drawn only then; and exactly one more
+ * `POST /session`, answered 200, which is the session.
+ */
+async function signInThroughTheDoor(page, { address, password, code, label }) {
+  const answers = [];
+  const watch = (response) => {
+    if (response.request().method() !== 'POST') return;
+    if (new URL(response.url()).pathname !== '/session') return;
+    // The body is read lazily: if some later build streams it away, an
+    // unreadable body must not break the drive.
+    answers.push({ status: response.status(), body: response.text().catch(() => null) });
+  };
+  page.on('response', watch);
+  try {
+    await page.waitForSelector('#signin-password', { timeout: 20000 });
+    const codeFieldBefore = await page.locator('#signin-code').count();
+    await page.fill('#signin-address', address);
+    await page.fill('#signin-password', password);
+    await page.click('form.signin__card button[type=submit]');
+    await page.waitForSelector('#signin-code, .home, .signin__refusal', { timeout: 30000 });
+    await waitUntil(() => answers.length >= 1);
+    const codeFieldAfter = await page.locator('#signin-code').count();
+    const probeBody = answers.length === 0 ? '' : ((await answers[0].body) ?? '').trim();
+
+    check(
+      `${label}: step one is the address and the password alone — the code field is not on that screen`,
+      codeFieldBefore === 0,
+      codeFieldBefore === 0 ? 'no #signin-code before step one was sent' : 'the password screen already carried #signin-code',
+    );
+    check(
+      `${label}: the password alone is answered "second factor needed" — one POST /session, 401 — and the code field appears only then`,
+      answers.length === 1 &&
+        answers[0].status === 401 &&
+        codeFieldAfter === 1 &&
+        // The body, when the browser still holds it: the server's own typed
+        // sentence, so this cannot pass on some other 401.
+        (probeBody === '' || probeBody === 'second factor needed'),
+      `${answers.length} POST /session [${answers.map((a) => a.status).join(', ')}], ` +
+        `${codeFieldAfter} code field(s), body ${JSON.stringify(probeBody.slice(0, 40))}`,
+    );
+
+    const twoStep = codeFieldBefore === 0 && codeFieldAfter === 1 && answers.length === 1 && answers[0].status === 401;
+    if (codeFieldAfter === 1) {
+      await page.fill('#signin-code', code);
+      await page.click('form.signin__card button[type=submit]');
+    }
+    await page.waitForSelector('.home', { timeout: 30000 });
+    await waitUntil(() => answers.length >= 2);
+    const completion = answers[answers.length - 1];
+    check(
+      `${label}: step two re-posts the same challenge and THAT request is the one that issues a session (200)`,
+      answers.length === 2 && completion.status === 200,
+      answers.map((a) => a.status).join(' then '),
+    );
+    return { twoStep, statuses: answers.map((a) => a.status) };
+  } finally {
+    page.off('response', watch);
+  }
 }
 
 /**
@@ -410,9 +478,18 @@ async function main() {
   const page = await context.newPage();
   const consoleErrors = [];
   const pageErrors = [];
+  // Every refused response, as a record and not as a console sentence: the
+  // gate at the end names an allowed SET by method, path and status. Filtering
+  // console lines by the status in them hid every 401 from every route, which
+  // is what this replaces (2026-09-22).
+  const failed = [];
   page.on('pageerror', (e) => pageErrors.push(String(e)));
   page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text());
+  });
+  page.on('response', (r) => {
+    if (r.status() < 400) return;
+    failed.push({ method: r.request().method(), status: r.status(), pathname: new URL(r.url()).pathname });
   });
   const shot = async (name) => {
     const path = join(SHOTS, `${name}.png`);
@@ -479,14 +556,26 @@ async function main() {
   await page.fill('#smtp-user', 'fathom');
   await page.fill('#smtp-password', 'hunter2-hunter2-hunter2');
   await page.fill('#smtp-from', 'fathom@example.test');
-  await page.click('text=Save the mail settings');
-  await page.waitForSelector('text=in effect at', { timeout: 15000 });
-  const savedText = await page.locator('form:has(#smtp-host)').innerText();
-  check('the SMTP form saved a sealed value and was told when it takes effect', /in effect at/.test(savedText));
+  const smtpForm = page.locator('form:has(#smtp-host)');
+  await smtpForm.locator('button[type=submit]').click();
+  // The saved change, by structure: the form draws the change id in a `<code>`
+  // once the server has sealed it.
+  await smtpForm.locator('.console__muted code').first().waitFor({ timeout: 15000 });
+  const smtpChange = (await smtpForm.locator('.console__muted code').first().innerText()).trim();
+  check(
+    'the SMTP form saved a sealed value and was told when it takes effect',
+    smtpChange.length > 0,
+    `change ${smtpChange}`,
+  );
   await shot('05-smtp-saved');
-  await page.click('text=Send a test to my own address');
-  await page.waitForSelector("text=mail sending is not built yet", { timeout: 15000 });
-  const testText = await page.locator('form:has(#smtp-host)').innerText();
+  // The test-send button is the form's only non-submit button, and it is only
+  // there once a change has been saved.
+  await smtpForm.locator('button[type=button]').click();
+  // Here the SENTENCE is the assertion: the point of this check is that the
+  // board repeats the SERVER's words rather than inventing cheerful ones, so
+  // there is nothing else to match on.
+  await page.waitForSelector('text=mail sending is not built yet', { timeout: 15000 });
+  const testText = await smtpForm.innerText();
   check(
     "the test send shows the server's own 503 sentence",
     testText.includes('mail sending is not built yet'),
@@ -496,7 +585,7 @@ async function main() {
   // ---- step 3: the placement warning, save, countdown and redirect --------
   await page.fill('#placement-hosts', 'localhost');
   await page.fill('#placement-window', '1');
-  await page.click('text=Review this move');
+  await page.locator('form:has(#placement-hosts) button[type=submit]').click();
   await page.waitForSelector('.console__warnlist', { timeout: 10000 });
   const warning = await page.locator('.console__warnlist').innerText();
   check('the warning names the new host', warning.includes('localhost'));
@@ -509,7 +598,11 @@ async function main() {
   );
   await shot('07-placement-warning');
 
-  await page.click('text=Move the console to localhost');
+  // The confirm button of the warning block, by structure: the two buttons
+  // there are the move and the way back, and the quiet one is the way back.
+  await page
+    .locator('.console__form:has(.console__warnlist) .console__row button:not(.console__btn--quiet)')
+    .click();
   await page.waitForSelector('[data-testid="placement-countdown"]', { timeout: 15000 });
   const countdown = await page.locator('[data-testid="placement-countdown"]').innerText();
   // A one-minute window, read off the server's own `confirm_by`. One second
@@ -582,11 +675,12 @@ async function main() {
     address: ADDRESS,
     password: CREDENTIAL,
     code: recoveryCodes[0],
+    label: 'the sign-in after the revert',
   });
   check(
     'a later sign-in is the two-step door, and its second step takes a RECOVERY code',
     backDoor.twoStep,
-    backDoor.twoStep ? 'one field, two kinds of code' : 'no second step was drawn',
+    `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 20000 });
   await page.click('[data-testid="console-entry"]');
@@ -642,22 +736,48 @@ async function main() {
   }
 
   if (consoleErrors.length) {
-    console.log('  browser console output (errors):');
+    console.log('  browser console output (errors), for information only:');
     for (const line of consoleErrors.slice(0, 10)) console.log(`    ${line}`);
   }
   check('no uncaught exception in the browser', pageErrors.length === 0, pageErrors.join(' | '));
-  // Two answers here are the product behaving as built: the test-send's 503,
-  // and the `401` of ADR-0056 decision 3's second-factor probe, which is a
-  // step in a two-step sign-in and not a failed one (the server rolls back,
-  // writes no entry and leaves the nonce unspent; it charges the source
-  // bucket and nothing else). Anything else -- a 404 from a console request
-  // made where the console does not answer, say -- is this client asking for
-  // something it was told not to.
-  const unexpected = consoleErrors.filter((line) => !/503/.test(line) && !/401/.test(line));
+  // **The allowed set of refused responses, named exactly**, by method, path
+  // and status. Two answers here are the product behaving as built:
+  //
+  //   * `POST /admin/settings/{change}/test-send` → 503, the mail test send
+  //     saying mail is not built yet. Once, because it is pressed once.
+  //   * `POST /session` → 401, ADR-0056 decision 3's second-factor probe: a
+  //     step in a two-step sign-in and not a failed one (the server rolls
+  //     back, writes no entry and leaves the nonce unspent; it charges the
+  //     source bucket and nothing else). Exactly one per two-step sign-in,
+  //     and this drive makes TWO_STEP_SIGN_INS of them. The first run's last
+  //     step sends the code with the password, so it never reaches the probe,
+  //     and the operator's key sign-in carries its evidence at once.
+  //
+  // Anything else -- a 404 from a console request made where the console does
+  // not answer, say -- is this client asking for something it was told not to,
+  // and it fails the drive whatever status it wears.
+  const TWO_STEP_SIGN_INS = 1;
+  const say = (f) => `${f.method} ${f.pathname} → ${f.status}`;
+  const isProbe = (f) => f.method === 'POST' && f.pathname === '/session' && f.status === 401;
+  const isTestSend = (f) =>
+    f.method === 'POST' && f.status === 503 && /^\/admin\/settings\/[^/]+\/test-send$/.test(f.pathname);
+  const probes = failed.filter(isProbe);
+  const testSends = failed.filter(isTestSend);
+  const unexpected = failed.filter((f) => !isProbe(f) && !isTestSend(f));
   check(
-    'the only failed requests in the whole drive are the test-send 503 and the second-factor probe',
+    'the mail test send is refused 503 exactly once, on the route the form posts to',
+    testSends.length === 1,
+    `${testSends.length}: ${testSends.map(say).join(' | ')}`,
+  );
+  check(
+    'every 401 in the drive is the second-factor probe on POST /session, one per two-step sign-in',
+    probes.length === TWO_STEP_SIGN_INS,
+    `${probes.length} of an expected ${TWO_STEP_SIGN_INS}: ${probes.map(say).join(' | ')}`,
+  );
+  check(
+    'and no other request in the whole drive was refused',
     unexpected.length === 0,
-    unexpected.join(' | '),
+    unexpected.slice(0, 8).map(say).join(' | '),
   );
 
   await browser.close();

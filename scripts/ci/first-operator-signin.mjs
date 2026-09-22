@@ -9,7 +9,7 @@
 //
 // **Rewritten 2026-09-21 for ADR-0055 decision 10.** The flow was: redeem the
 // token as a browser KEY, then sign in by signing a challenge. It is now the
-// credential the ADR puts there — a password and an app code — because that is
+// credential the ADR puts there — a password and an authenticator app — because that is
 // what the product does and a smoke test of a flow nobody uses is not a smoke
 // test.
 //
@@ -32,12 +32,15 @@
 //                                      → LP(nonce) ‖ LP(deployment_id)
 //   3. POST /session                   six fields: LP(kind) ‖ LP(session_pubkey)
 //                                      ‖ LP(nonce) ‖ LP(evidence_sig) ‖ LP(credential)
-//                                      ‖ LP(app_code)
+//                                      ‖ LP(app_code)   [the WIRE field name,
+//                                        which ADR-0056 decision 4 leaves
+//                                        alone; what a person is shown is a
+//                                        "verification code"]
 //                                      → LP(session_id) ‖ LP(token) ‖ u64(expires)
 //                                        ‖ LP(principal_id)
 //   4. POST /credentials/totp/enrol    signed, empty → LP(otpauth_uri) ‖ LP(secret_base32)
 //   5. compute a TOTP in Node          RFC 6238, HMAC-SHA-1 through WebCrypto
-//   6. POST /credentials/totp/confirm  signed, LP(code) → ten LP(backup_code)
+//   6. POST /credentials/totp/confirm  signed, LP(code) → ten LP(recovery code)
 //   7. POST /credentials/key           signed, LP(public_key) → LP(key_id)
 //   7b. POST /session with an EMPTY code once the authenticator is confirmed
 //                                      → 401 "second factor needed" (decision
@@ -64,7 +67,7 @@
 // Usage: node scripts/ci/first-operator-signin.mjs <token-file> [address] [base-url]
 // The address may come from FATHOM_OPERATOR_NOTICE_ADDRESS instead, which is
 // what `.github/workflows/ci.yml` already sets — so the CI line is unchanged.
-// Exit 0 when the first operator sets a password, enrols an app code, signs in
+// Exit 0 when the first operator sets a password, enrols an authenticator app, signs in
 // and registers a browser key; any other outcome is non-zero with the step
 // that failed.
 
@@ -419,13 +422,13 @@ if (stateAfter !== 'done') {
 }
 console.log('setup state: done, so the client shows the sign-in page from here on');
 
-// 2 and 3. Sign in with the address and the password. No app code yet, so this
+// 2 and 3. Sign in with the address and the password. No authenticator yet, so this
 // is the `A0` setup session decision 10 describes: good for `/credentials/*`
 // and nothing else.
 const session = await signIn('steward', address, { credential: CREDENTIAL });
 console.log(`signed in: session ${session.id} for ${session.principal}`);
 
-// 4. Enrol the app code.
+// 4. Enrol the authenticator app.
 const enrol = await signedPost(session, '/credentials/totp/enrol', EMPTY);
 if (enrol.status !== 200) fail('totp-enrol', `status ${enrol.status}: ${enrol.text.trim()}`);
 const { value: uriBytes, rest: afterUri } = readLp(enrol.bytes);
@@ -436,21 +439,21 @@ for (const required of ['algorithm=SHA1', 'digits=6', 'period=30']) {
   if (!otpauth.includes(required)) fail('totp-enrol', `the URI omits ${required}: ${otpauth}`);
 }
 const secret = base32Decode(dec.decode(secretBytes));
-console.log(`app code: a ${secret.length}-byte secret and an otpauth URI`);
+console.log(`authenticator: a ${secret.length}-byte setup key and an otpauth URI`);
 
 // 5 and 6. Compute a code and confirm with it.
 const code = await totpCode(secret, currentStep());
 const confirm = await signedPost(session, '/credentials/totp/confirm', lp(utf8(code)));
 if (confirm.status !== 200) fail('totp-confirm', `status ${confirm.status}: ${confirm.text.trim()}`);
 let rest = confirm.bytes;
-const backupCodes = [];
+const recoveryCodes = [];
 while (rest.length > 0) {
   const read = readLp(rest);
-  backupCodes.push(dec.decode(read.value));
+  recoveryCodes.push(dec.decode(read.value));
   rest = read.rest;
 }
-if (backupCodes.length !== 10) fail('totp-confirm', `expected ten backup codes, got ${backupCodes.length}`);
-console.log(`app code: confirmed with a real six-digit code; ten backup codes issued`);
+if (recoveryCodes.length !== 10) fail('totp-confirm', `expected ten recovery codes, got ${recoveryCodes.length}`);
+console.log('authenticator: confirmed with a real six-digit verification code; ten recovery codes issued');
 
 // 7. Register this browser's long-term key.
 const browserKey = await keyPair();
@@ -463,12 +466,13 @@ if (registered.status !== 200) fail('key', `status ${registered.status}: ${regis
 const { value: keyIdBytes } = readLp(registered.bytes);
 console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
 
-// The whole point of the app code: the session is no longer setup-only, and a
-// sign-in now needs the password AND a code. **A backup code, not another app
-// code**: the confirm above spent this 30-second step, and a code is accepted
-// once per step (ADR-0055 decision 10, the replay rule), so a second app code
-// inside the same step is refused on purpose. The backup code proves the lost
-// phone path at the same time, and its single use is asserted right after.
+// The whole point of the authenticator: the session is no longer setup-only,
+// and a sign-in now needs the password AND a code. **A recovery code, not
+// another verification code**: the confirm above spent this 30-second step, and
+// a code is accepted once per step (ADR-0055 decision 10, the replay rule), so
+// a second verification code inside the same step is refused on purpose. The
+// recovery code proves the lost phone path at the same time, and its single use
+// is asserted right after.
 // **The two steps are one challenge** (ADR-0056 decision 3 as amended
 // 2026-09-22). Step one sends the address and the credential with an empty
 // code; the server answers "second factor needed", issues nothing, and ROLLS
@@ -489,7 +493,7 @@ console.log('two steps: the password alone is answered "second factor needed", a
 
 const withCodeAnswer = await postSession('steward', twoStep, {
   credential: CREDENTIAL,
-  appCode: backupCodes[0],
+  appCode: recoveryCodes[0],
 });
 if (withCodeAnswer.status !== 200) {
   fail('second-factor', `step two re-posted the SAME challenge and was refused with ${withCodeAnswer.status}: ${JSON.stringify(withCodeAnswer.text)}. The probe must leave the nonce unconsumed, or every two-step sign-in costs a second challenge`);
@@ -498,13 +502,13 @@ const withCode = readSession(withCodeAnswer, twoStep.sessionKey);
 if (challengesAsked !== askedBefore + 1) {
   fail('second-factor', `a two-step sign-in asked for ${challengesAsked - askedBefore} challenges; it must ask for one`);
 }
-console.log(`two factors: signed in as ${withCode.principal} on the same challenge, with a password and a backup code`);
+console.log(`two factors: signed in as ${withCode.principal} on the same challenge, with a password and a recovery code`);
 
 // The nonce IS spent now -- the rolled-back probe is the one step that does not
-// burn it -- and so is the backup code. Two claims, one request each.
+// burn it -- and so is the recovery code. Two claims, one request each.
 const thirdPost = await postSession('steward', twoStep, {
   credential: CREDENTIAL,
-  appCode: backupCodes[0],
+  appCode: recoveryCodes[0],
 });
 if (thirdPost.status === 200) fail('second-factor', 'a challenge that had already opened a session opened a second one');
 console.log(`two steps: the challenge is spent once it issues a session (${thirdPost.status})`);
@@ -513,10 +517,10 @@ console.log(`two steps: the challenge is spent once it issues a session (${third
   const ch = await challengeFor('steward', address);
   const again = await postSession('steward', ch, {
     credential: CREDENTIAL,
-    appCode: backupCodes[0],
+    appCode: recoveryCodes[0],
   });
-  if (again.status === 200) fail('backup-code', 'a spent backup code signed in a second time');
-  console.log(`backup code: spent, a second use is refused (${again.status})`);
+  if (again.status === 200) fail('recovery-code', 'a spent recovery code signed in a second time');
+  console.log(`recovery code: spent, a second use is refused (${again.status})`);
 }
 
 // 8. The operator key. From the account session -- the person, with their
