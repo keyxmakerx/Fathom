@@ -12,7 +12,7 @@ import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode }
 import { Account } from './components/Account';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
-import { FirstRun, PASSWORD_SET_NOTICE } from './components/FirstRun';
+import { FirstRun } from './components/FirstRun';
 import { Reset, tokenFromLocation } from './components/Reset';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
@@ -96,9 +96,10 @@ export default function App() {
   const [signInAddress, setSignInAddress] = useState<string | undefined>(undefined);
   const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
-  // ADR-0055 client (a): the app-code gate. `null` is "not asked yet";
-  // `true` is the server's own `enrol an app code first` refusal, which is
-  // a route to a screen and not a wall (`api/credentials.ts`).
+  // ADR-0055 client (a): the setup gate. `null` is "not asked yet"; `true`
+  // is the server's own `set up an authenticator first` refusal, which is a
+  // route to a screen and not a wall (`api/credentials.ts`, which also
+  // matches the sentence a server from before ADR-0056 sends).
   const [appCodeNeeded, setAppCodeNeeded] = useState<boolean | null>(null);
 
   // ADR-0056 decision 1: the server's one bit about this deployment, asked
@@ -336,21 +337,29 @@ export default function App() {
   // `A0T` session the console takes; the entry works on the first press
   // rather than taking itself away for the rest of the session.
   //
-  // **And when it cannot finish**, because the sign-in after the password
-  // failed: the token is spent and there is no step left to show, so the
-  // door takes over with the address filled in and one sentence saying what
-  // happened (`FirstRun.tsx`'s `PASSWORD_SET_NOTICE`). `firstRunDone` is
-  // what stops this branch from pulling the person back: the bit read at
-  // boot still says `pending` in this page's memory, and it is the flow, not
-  // the server, that knows the token has been spent.
+  // **And when it hands the person to the door** — the sign-in after the
+  // password failed, or they took step 5's way out because their app was not
+  // giving them a usable code: the token is spent and there is no step left
+  // to show, so the door takes over with the address filled in and the
+  // sentence the flow chose (`FirstRun.tsx`'s `PASSWORD_SET_NOTICE` or
+  // `AUTHENTICATOR_SET_NOTICE`).
+  //
+  // **This gate is the state route's answer, freshly asked.** `firstRunDone`
+  // below is not this page's guess: the flow asks `GET /setup/state` again
+  // before it calls, and calls only when the server says `done` or does not
+  // answer at all. A server still saying `pending` keeps the flow on screen
+  // with its own sentence and never reaches here — which is the only way
+  // this branch and the server can agree about which screen a deployment is
+  // on. The bit read at boot still says `pending` in this page's memory, so
+  // something has to carry the newer answer, and this is it.
   if (firstRun) {
     return (
       <FirstRun
         onDone={() => setFirstRunDone(true)}
-        onPasswordSet={(address) => {
+        onUseTheDoor={(address, notice) => {
           setFirstRunDone(true);
           setSignInAddress(address);
-          setSignInNotice(PASSWORD_SET_NOTICE);
+          setSignInNotice(notice);
           setDoor('sign-in');
         }}
       />

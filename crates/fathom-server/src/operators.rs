@@ -394,8 +394,8 @@ impl core::fmt::Display for OperatorError {
             ),
             Self::SetupSessionOnly => f.write_str(
                 "this session is the setup-only one an account holding the operator custody \
-                 gets before it has enrolled an app code. It reaches the credential routes and \
-                 nothing else (ADR-0055 decision 1)",
+                 gets before it has set up an authenticator. It reaches the credential routes \
+                 and nothing else (ADR-0055 decision 1)",
             ),
             Self::UnverifiableOperatorRow(id) => write!(
                 f,

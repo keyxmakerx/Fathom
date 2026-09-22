@@ -272,8 +272,24 @@ export function Console({ operatorId }: ConsoleProps) {
                   {/* ADR-0056 decision 6: the address is what is handed over,
                       and the bare token stays beside it for whoever would
                       rather paste one into the enrolment screen. Both are
-                      the same invitation. */}
-                  <InvitationHandover token={token} origin={origin} />
+                      the same invitation.
+
+                      **Only an account invitation has a door.** `/invite`
+                      redeems an account's enrolment; an organisation claim is
+                      redeemed by the steward-side genesis route, which is not
+                      built (`docs/NEXT.md`, first item). Offering an address
+                      for one was this board inventing a place to send a
+                      person. 2026-09-22. */}
+                  {m.kind === 'organisation' ? (
+                    <p className="console__note">
+                      There is no address to hand over for an organisation claim: the steward-side
+                      route that redeems it and runs the organisation&apos;s genesis is not built in
+                      this version (<code>docs/NEXT.md</code>). The token below is recorded on the
+                      site trail and waits for that route.
+                    </p>
+                  ) : (
+                    <InvitationHandover token={token} origin={origin} />
+                  )}
                   <code className="console__token">{token}</code>
                 </li>
               );

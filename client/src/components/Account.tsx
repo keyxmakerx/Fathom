@@ -164,9 +164,20 @@ type EnrolmentStage =
   | { kind: 'confirming'; enrolment: TotpEnrolment }
   | { kind: 'recovery'; codes: string[] };
 
+/** Which of this component's two screens is up. The caller cannot see it
+ * from the outside — the enrolment the server drew is held in here — and the
+ * first run needs it: its progress line says which of six screens a person is
+ * on, and the recovery codes are step 4 (ADR-0056 decision 2). `'done'` is
+ * the moment the codes are dismissed, said once, beside `onDone`. */
+export type AuthenticatorEnrolmentStage = 'setup' | 'recovery' | 'done';
+
 export interface AuthenticatorEnrolmentProps {
   address: string;
   onDone: () => void;
+  /** Called whenever the screen below changes, and with `'setup'` when the
+   * secret is first drawn. Optional: the account screen has no progress line
+   * and does not care. */
+  onStage?: (stage: AuthenticatorEnrolmentStage) => void;
 }
 
 /**
@@ -188,7 +199,7 @@ export interface AuthenticatorEnrolmentProps {
  * decision 4); nothing here can fetch them again, so the step that dismisses
  * them asks the person to say they have them.
  */
-export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolmentProps) {
+export function AuthenticatorEnrolment({ address, onDone, onStage }: AuthenticatorEnrolmentProps) {
   const [stage, setStage] = useState<EnrolmentStage>({ kind: 'idle' });
   const [code, setCode] = useState('');
   const [saved, setSaved] = useState(false);
@@ -200,12 +211,16 @@ export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolme
     setStage({ kind: 'drawing' });
     try {
       setStage({ kind: 'enrolled', enrolment: await enrolAppCode() });
+      onStage?.('setup');
     } catch (error) {
       console.error(error);
       setStage({ kind: 'idle' });
       // ADR-0055 decision 10: an account that already has a second factor is
-      // refused here, and the server's own sentence for that case is what
-      // this screen shows (`./appCodeRefusal.ts`).
+      // refused here, with a 409 — and `./appCodeRefusal.ts` maps that **by
+      // status** to a sentence of this client's own. The server's body is not
+      // read out: it was written for the server's log, and a client that
+      // prints whatever arrives cannot promise what any screen says. Every
+      // other refusal keeps its own wording.
       setRefusal(describeAppCodeRefusal(error));
     }
   }
@@ -223,6 +238,7 @@ export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolme
       // costs the next sign-in its `A1` and nothing else.
       await registerBrowserKey(address).catch(() => {});
       setStage({ kind: 'recovery', codes });
+      onStage?.('recovery');
     } catch (error) {
       console.error(error);
       setStage({ kind: 'enrolled', enrolment });
@@ -259,6 +275,7 @@ export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolme
           setSaved(false);
           setCopied(null);
           setStage({ kind: 'idle' });
+          onStage?.('done');
           onDone();
         }}
       />
@@ -497,15 +514,6 @@ export function RecoveryCodesStage({
     </div>
   );
 }
-
-/**
- * `AuthenticatorEnrolment` under its old name.
- *
- * @deprecated ADR-0056 decision 4 renamed this. The alias is here so the
- * first-run stream's screens keep building while both halves land; delete it
- * once nothing imports it.
- */
-export const AppCodeEnrolment = AuthenticatorEnrolment;
 
 /**
  * What the downloaded file and the "Copy all" button both say.

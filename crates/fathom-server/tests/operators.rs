@@ -2833,6 +2833,19 @@ async fn raw_request(
     headers: &[(&str, String)],
     body: &[u8],
 ) -> (String, Vec<u8>) {
+    let (status, _head, body) = raw_request_full(addr, method, path, headers, body).await;
+    (status, body)
+}
+
+/// The same request with the response HEAD kept, for the claims that are about
+/// a header rather than a body.
+async fn raw_request_full(
+    addr: std::net::SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> (String, String, Vec<u8>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::net::TcpStream::connect(addr)
@@ -2865,7 +2878,77 @@ async fn raw_request(
         .nth(1)
         .unwrap_or_default()
         .to_string();
-    (status, body)
+    (status, head, body)
+}
+
+/// Sign a GET the way a browser would and keep the response head.
+async fn get_signed_full(
+    addr: std::net::SocketAddr,
+    path: &str,
+    operator: &Operator,
+    store: &SessionStore,
+) -> (String, String, Vec<u8>) {
+    let nonce = store
+        .issue_request_nonce(&operator.signed_in.session_id, &operator.signed_in.token)
+        .await
+        .expect("a nonce");
+    let counter = next_counter(store, &operator.signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &operator.signed_in.session_id,
+        "GET",
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let signature = operator.session_key.sign(&message);
+    let headers = [
+        (HEADER_SESSION, operator.signed_in.session_id.clone()),
+        (HEADER_NONCE, hex(&nonce)),
+        (HEADER_TIMESTAMP, unix_ms.to_string()),
+        (HEADER_COUNTER, counter.to_string()),
+        (HEADER_SIGNATURE, hex(&signature)),
+    ];
+    raw_request_full(addr, "GET", path, &headers, b"").await
+}
+
+/// **An admin answer says `Cache-Control: no-store`, like every other answer
+/// this server builds.**
+///
+/// `api.rs` has said so since it was written; `admin.rs` had a second
+/// `bytes_response` of its own that did not, and the 2026-09-22 review found
+/// it. What this route answers is a list of this deployment's operators, read
+/// under one session's authority — the last thing that may sit in a shared
+/// cache, where the next caller through that proxy may be allowed to read none
+/// of it.
+#[tokio::test]
+async fn an_admin_answer_says_no_store() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let (status, head, _) =
+        get_signed_full(addr, "/admin/operators", &operator, &sessions_store).await;
+    assert_eq!(status, "200", "the operator list reads: {head}");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "an operator list came back without `cache-control: no-store`, so a proxy between the \
+         browser and this server may keep it and offer it to the next caller:\n{head}"
+    );
 }
 
 /// **Exactly one route in this server accepts anything password-shaped, and

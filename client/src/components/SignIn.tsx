@@ -43,6 +43,54 @@ export const VERIFICATION_CODE_HINT =
 export const VERIFICATION_CODE_REFUSED =
   'That code was not accepted — wait for your authenticator app’s next code and type it again, or use one of your recovery codes.';
 
+/**
+ * How long the server's sign-in challenge lives, in milliseconds.
+ *
+ * `sessions.rs`'s `NONCE_LIFETIME`, 120 seconds, read there on 2026-09-22.
+ * **A copy of a server constant, and it is allowed to be stale**: everything
+ * it decides here is whether this client posts a challenge or fetches
+ * another first, and both are correct requests. A copy that drifted low
+ * spends an extra challenge; one that drifted high costs one refusal that is
+ * already handled below. Nothing is authorised on it.
+ */
+export const CHALLENGE_LIFETIME_MS = 120_000;
+
+/**
+ * How much of that lifetime step two is willing to spend before it stops
+ * reusing the challenge in hand.
+ *
+ * Thirty seconds of headroom for the round trip, the argon2id verification
+ * the server does on this path, and a clock that is not quite the server's.
+ * Past this the challenge is dropped and a fresh one asked for — one more
+ * `POST /session/challenge`, which is one source unit, against a refusal the
+ * person cannot act on and a code they have to type again.
+ */
+export const CHALLENGE_REUSE_BUDGET_MS = 90_000;
+
+/** Is the challenge taken at `issuedAtMs` worth posting, or should this step
+ * ask for a fresh one first? */
+export function challengeIsWorthPosting(issuedAtMs: number, now: number): boolean {
+  return now - issuedAtMs < CHALLENGE_REUSE_BUDGET_MS;
+}
+
+/**
+ * Had the challenge taken at `issuedAtMs` certainly expired by `now`?
+ *
+ * **The wire cannot be asked.** A sign-in whose nonce is not fresh is
+ * answered `SessionError::SignInRefused` — `sessions.rs` maps it there under
+ * the reason `nonce_not_fresh` — which is the same 401 and the same
+ * `sign-in refused` body a wrong code gets, on purpose: one message for
+ * every cause. So the only honest test is the clock, and it is used one way
+ * only. Past the server's own lifetime the challenge is dead whatever else
+ * was wrong, and re-posting the code costs the account bucket nothing it had
+ * not already been charged. Inside the lifetime nothing is retried, because
+ * "the code was wrong" is then the likelier reading and a blind second
+ * attempt would spend two of the ten failures a window allows on one typo.
+ */
+export function challengeHasCertainlyExpired(issuedAtMs: number, now: number): boolean {
+  return now - issuedAtMs >= CHALLENGE_LIFETIME_MS;
+}
+
 export interface SignInProps {
   /** Go to the forgot-password screen. The one link under this card
    * (ADR-0056 decision 6). */
@@ -71,14 +119,29 @@ export interface SignInProps {
  * address or a wrong password still gets one sentence.
  *
  * **Two steps, one challenge.** The answer that draws step two is a
- * rollback: the server wrote nothing, counted nothing and left the challenge
- * nonce unspent, because this is a step in a sign-in and not a failure of
- * one. So step two posts the challenge step one already holds — same session
- * keypair, same nonce, same evidence signature — with the code beside the
- * password, and an ordinary two-step sign-in costs a person exactly what a
- * one-shot sign-in cost before. A refusal at step two is a real one: it
- * consumes the nonce, so the try after it asks for a fresh challenge
- * (`../api/auth.ts`'s `beginSignIn` and `completeSignIn`).
+ * rollback: the server wrote no chain entry, left the challenge nonce
+ * unspent and counted nothing against the account, because this is a step in
+ * a sign-in and not a failure of one. It does cost **one source unit**,
+ * committed on its own, so that a password holder cannot run unlimited
+ * argon2id against one challenge; a two-step sign-in is three units of the
+ * per-source budget (challenge, probe, completion) and the budget was raised
+ * to keep the number of sign-ins a shared address can make in a window what
+ * it was. So step two posts the challenge step one already holds — same
+ * session keypair, same nonce, same evidence signature — with the code
+ * beside the password. A refusal at step two is a real one: it consumes the
+ * nonce, so the try after it asks for a fresh challenge (`../api/auth.ts`'s
+ * `beginSignIn` and `completeSignIn`).
+ *
+ * **A challenge does not live long enough to be left lying about.** The
+ * server's nonce lasts two minutes (`sessions.rs`'s `NONCE_LIFETIME`), and a
+ * person reading a code off a phone can easily spend that. So step two does
+ * not post a challenge that is near the end of it: past
+ * [`CHALLENGE_REUSE_BUDGET_MS`] it quietly asks for a fresh one and posts
+ * that instead, and if an answer comes back refusing a challenge that has by
+ * then certainly expired, it asks for a fresh one and posts the same code
+ * once more. Either way the person types their code once and sees no
+ * sentence about a nonce — a word that means nothing to them and names
+ * nothing they can fix.
  *
  * **Any browser, no pairing** (ADR-0055 decision 6). `signIn`
  * (`../api/auth.ts`) presents a stored key automatically when there is one —
@@ -157,12 +220,15 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
         // ADR-0056 decision 3: this answer is a step, not a wall. The
         // address and the password verified and the account holds a
         // confirmed authenticator. The server rolled its transaction back —
-        // no entry, nothing counted, and the nonce still unspent — so the
-        // challenge in hand is the one step two posts again, with the code
-        // beside the password. Asking for a second challenge here would pay
+        // no entry, nothing against the account's bucket, and the nonce
+        // still unspent — so the challenge in hand is the one step two posts
+        // again, with the code beside the password. What the probe does cost
+        // is one unit of the per-source budget, committed on its own so that
+        // a password holder cannot run unlimited argon2id against one
+        // challenge. Asking for a second challenge here would pay that
         // twice for one sign-in.
         if (isSecondFactorNeeded(error)) {
-          setSecondFactor({ address: id, challenge });
+          setSecondFactor({ address: id, challenge, issuedAtMs: Date.now() });
           setCode('');
           return;
         }
@@ -181,23 +247,52 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
     setBusy(step.address);
     setRefusal(null);
     try {
-      if (step.challenge) {
-        await completeSignIn(step.challenge, { password, verificationCode });
-      } else {
-        // The challenge this step arrived with has been spent by a refusal
-        // (below), so this try needs its own. `signIn` is the pair of calls
-        // back to back, which is exactly a fresh challenge and one post.
+      // The challenge this step arrived with is posted again only while it
+      // is worth posting. Past that — a person who went to find their phone
+      // — and after a refusal has spent it, this try asks for its own:
+      // `signIn` is the pair of calls back to back, which is exactly a fresh
+      // challenge and one post.
+      const held =
+        step.challenge !== null && challengeIsWorthPosting(step.issuedAtMs, Date.now())
+          ? step.challenge
+          : null;
+      if (held === null) {
         await signIn(step.address, undefined, { password, verificationCode });
+      } else {
+        try {
+          await completeSignIn(held, { password, verificationCode });
+        } catch (error) {
+          // **One transparent retry, and only for a challenge that is dead
+          // by the clock.** The server answers a stale nonce and a wrong
+          // code with the same sentence (see
+          // [`challengeHasCertainlyExpired`]), so the clock is what decides:
+          // if the nonce cannot still have been alive when the answer came
+          // back, the refusal is about the challenge and not about the code,
+          // and the person should not be told to try a code they typed
+          // correctly. A rate limit is never retried — it is the one refusal
+          // that says what to do, and asking again would be asking for a
+          // second one.
+          if (
+            !(error instanceof ApiRefusal) ||
+            error.status === 429 ||
+            error.retryAfterSeconds != null ||
+            !challengeHasCertainlyExpired(step.issuedAtMs, Date.now())
+          ) {
+            throw error;
+          }
+          console.error(error);
+          await signIn(step.address, undefined, { password, verificationCode });
+        }
       }
     } catch (error) {
       console.error(error);
       // A refused code is a sealed, counted refusal and it consumes the
-      // nonce — only the empty-code probe is rolled back. So whatever went
-      // wrong, the challenge is gone and the next try asks for a new one.
-      // The person stays on this step: the password is still right, and
+      // nonce — only the second-factor probe is rolled back. So whatever
+      // went wrong, the challenge is gone and the next try asks for a new
+      // one. The person stays on this step: the password is still right, and
       // sending them back to type it again would be this screen's own
       // invention.
-      setSecondFactor({ address: step.address, challenge: null });
+      setSecondFactor({ address: step.address, challenge: null, issuedAtMs: Date.now() });
       setRefusal(describeCode(error));
     } finally {
       setBusy(null);
@@ -336,6 +431,11 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
 interface SecondFactorState {
   address: string;
   challenge: SignInChallenge | null;
+  /** `Date.now()` when this step was drawn, which is within a round trip of
+   * when the server issued the nonce. What decides whether the challenge is
+   * still worth posting — the server's own lifetime is two minutes and a
+   * person reading a code off a phone can spend it. */
+  issuedAtMs: number;
 }
 
 export interface SecondFactorStepProps {

@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { isSecondFactorNeeded } from '../api/auth';
 import { ApiRefusal } from '../api/errors';
 import {
+  CHALLENGE_LIFETIME_MS,
+  CHALLENGE_REUSE_BUDGET_MS,
+  challengeHasCertainlyExpired,
+  challengeIsWorthPosting,
   SecondFactorStep,
   secondFactorIntro,
   SIGN_IN_REFUSED,
@@ -152,5 +156,41 @@ describe('what a refused sign-in says', () => {
     // pointed at it would point at nothing.
     expect(SIGN_IN_REFUSED).toBe('Sign-in refused. Check the address and the password.');
     expect(SIGN_IN_REFUSED).not.toMatch(/setup/i);
+  });
+});
+
+describe('the challenge step two holds, and how long it is worth holding', () => {
+  // ADR-0056 decision 3 leaves the nonce unspent for the probe, so step two
+  // re-posts the challenge step one got. `sessions.rs` gives that nonce 120
+  // seconds (`NONCE_LIFETIME`), and a person reading a code off a phone can
+  // spend it -- the finding: they then got a refusal written for a wrong
+  // code, about a challenge that had quietly died.
+  const issued = 1_000_000;
+
+  it('reuses the challenge while there is room for the round trip', () => {
+    expect(challengeIsWorthPosting(issued, issued)).toBe(true);
+    expect(challengeIsWorthPosting(issued, issued + 60_000)).toBe(true);
+    expect(challengeIsWorthPosting(issued, issued + CHALLENGE_REUSE_BUDGET_MS - 1)).toBe(true);
+  });
+
+  it('stops reusing it well before the server would refuse it', () => {
+    expect(challengeIsWorthPosting(issued, issued + CHALLENGE_REUSE_BUDGET_MS)).toBe(false);
+    expect(CHALLENGE_REUSE_BUDGET_MS).toBeLessThan(CHALLENGE_LIFETIME_MS);
+  });
+
+  it('calls a challenge certainly dead only past the server’s own lifetime', () => {
+    // The one transparent retry hangs off this, and it must not fire on a
+    // wrong code: a blind second attempt would spend two of the ten failures
+    // a window allows on one typo. The wire cannot be asked -- `sessions.rs`
+    // answers a stale nonce with `SignInRefused` under the reason
+    // `nonce_not_fresh`, which is the same 401 and the same `sign-in refused`
+    // body a wrong code gets.
+    expect(challengeHasCertainlyExpired(issued, issued + 1_000)).toBe(false);
+    expect(challengeHasCertainlyExpired(issued, issued + CHALLENGE_LIFETIME_MS - 1)).toBe(false);
+    expect(challengeHasCertainlyExpired(issued, issued + CHALLENGE_LIFETIME_MS)).toBe(true);
+  });
+
+  it('carries the server’s own lifetime, read off sessions.rs', () => {
+    expect(CHALLENGE_LIFETIME_MS).toBe(120_000);
   });
 });

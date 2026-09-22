@@ -1297,6 +1297,16 @@ async fn open_design_handler(
             .parse()
             .expect("a static content type is a valid header value"),
     );
+    // A design read under one person's authority is the last thing that may sit
+    // in a shared cache: the next caller through that proxy may not be allowed
+    // to read it at all. `api::bytes_response`'s rule, stated here because this
+    // response is built by hand for its two version headers.
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store"
+            .parse()
+            .expect("a static cache-control is a valid header value"),
+    );
     Ok((StatusCode::OK, headers, stored.payload).into_response())
 }
 
@@ -1386,7 +1396,12 @@ async fn save_design_handler(
 
     tx.commit().await.map_err(SessionError::Db)?;
 
-    Ok((StatusCode::OK, format!("{version}\n")).into_response())
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        format!("{version}\n"),
+    )
+        .into_response())
 }
 
 /// Everything ADR-0049 and this session's brief require of a wire payload
@@ -2006,10 +2021,18 @@ fn json_of_port(p: &Port) -> Json {
 // Response framing
 // ---------------------------------------------------------------------------
 
+/// `Cache-Control: no-store` on every one of them, the rule `api::bytes_response`
+/// states and the 2026-09-22 review found this module outside: nothing here is
+/// a document. It is one caller's answer under one caller's authority, and a
+/// cache between the browser and this server holding it is either stale or one
+/// caller's bytes offered to the next.
 fn json_response(j: Json) -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         j.to_canonical_bytes(),
     )
         .into_response()

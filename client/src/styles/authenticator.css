@@ -11,16 +11,38 @@
    modules on a light field, and the dark theme's page is nearly black. So
    the paper is white and the modules are black in both themes, and this is
    the one place in this client where that is right. */
-/* 220px is a floor, not a taste: a version-10 symbol is 57 modules plus two
-   four-module quiet zones, so 220px leaves about 3.4 CSS pixels per module.
-   A camera, and a password manager decoding a screenshot of the tab, both
-   need several pixels per module; smaller than this and the longest
-   `otpauth://` URI this product can produce stops reading. */
+/* 280px is a floor, not a taste, and it is the size the arithmetic asks for.
+   Recomputed 2026-09-22; the 220px here before was written when the encoder
+   stopped at version 10.
+
+   The URI is 110 bytes of fixed text plus the percent-encoded address
+   (`credentials.rs`'s `otpauth_uri`), and the server takes an address of up
+   to 320 characters (`operators.rs`). An ordinary address is ASCII with one
+   `@` in it, so the longest one this deployment can really produce is about
+   432 bytes: a version-16 symbol, 81 modules, 89 across with ISO/IEC 18004
+   §9.1's two four-module quiet zones. At 280px that is 3.1 CSS pixels per
+   module, which is the floor a camera and a screenshot decoder want; at
+   220px it was 2.5 and the code was drawn too small to read.
+
+   An ordinary address is far inside that: about 20 characters is a version-8
+   symbol, 57 across, 4.9 pixels per module.
+
+   **What this size does NOT cover, said plainly.** An address of 320
+   characters that are all percent-encoded — three bytes each, so a 1,070-byte
+   URI — is a version-27 symbol, 133 across, and would need 399px to reach the
+   same floor. That does not fit the 480px card, no address of that shape is a
+   mail address, and the setup key beside the code says the same thing for
+   anyone who somehow has one. The code is still drawn; it is the scan that
+   would be unreliable. */
 .qr {
   display: block;
   flex: none;
-  width: 220px;
-  height: 220px;
+  /* Square, and never wider than what it is sitting in: a phone narrower
+     than the card would otherwise push the code past the edge, where a
+     camera cannot see all of it either. */
+  width: min(280px, 100%);
+  height: auto;
+  aspect-ratio: 1 / 1;
   border: var(--rule-hair) solid var(--hairline);
 }
 
@@ -39,24 +61,21 @@
   font-size: var(--t-small);
 }
 
-/* The QR and the words beside it. On a viewport narrower than the card, the
-   two of them do not fit side by side, so they stack. */
+/* The QR and the line under it. They stack: the card is 480px wide with
+   32px of padding either side, so a 280px code beside a column of words
+   leaves that column about 100px, and the sentence sets in a ladder. The
+   code is the thing on this screen; the line belongs under it. 2026-09-22. */
 .authenticator__scan {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: var(--s4);
+  gap: var(--s2);
   margin-bottom: var(--s4);
 }
 
 .authenticator__scan-text {
   font-size: var(--t-body);
   margin: 0;
-}
-
-@media (max-width: 520px) {
-  .authenticator__scan {
-    flex-direction: column;
-  }
 }
 
 /* "Show the otpauth link" — a `<details>`, so it is closed by default, opens

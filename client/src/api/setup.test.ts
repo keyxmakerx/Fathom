@@ -18,7 +18,9 @@ import {
   parseSetupCheckAnswer,
   parseSetupState,
   refreshSetupState,
+  SETUP_STATE_MAX_WAIT_SECONDS,
   setupState,
+  setupStateRetryDelayMs,
 } from './setup';
 import { ApiRefusal } from './errors';
 
@@ -71,11 +73,80 @@ describe('fetchSetupState', () => {
 
   it('throws the server’s refusal rather than guessing a state from a failure', async () => {
     const error = await withFetch(
-      (async () => new Response('too many requests\n', { status: 429 })) as typeof globalThis.fetch,
+      (async () =>
+        new Response('too many requests\n', {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        })) as typeof globalThis.fetch,
       () => fetchSetupState().catch((e: unknown) => e),
     );
     expect(error).toBeInstanceOf(ApiRefusal);
     expect((error as ApiRefusal).status).toBe(429);
+  });
+
+  it('waits what a 429 asks for and asks once more before it gives up', async () => {
+    // The state route has its own per-source bucket, so a 429 on it is a
+    // "not now" and never a verdict about this deployment. Falling straight
+    // through on the first one would take the first-run screen away from an
+    // install that has not been set up, for a reason that is about the
+    // office's address and not about the install.
+    let calls = 0;
+    const state = await withFetch(
+      (async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response('too many requests\n', { status: 429, headers: { 'retry-after': '0' } })
+          : new Response(fromHex('0700000070656e64696e67') as BodyInit);
+      }) as typeof globalThis.fetch,
+      fetchSetupState,
+    );
+    expect(calls).toBe(2);
+    expect(state).toBe('pending');
+  });
+
+  it('asks once more and no further', async () => {
+    let calls = 0;
+    const error = await withFetch(
+      (async () => {
+        calls += 1;
+        return new Response('too many requests\n', {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        });
+      }) as typeof globalThis.fetch,
+      () => fetchSetupState().catch((e: unknown) => e),
+    );
+    expect(calls).toBe(2);
+    expect(error).toBeInstanceOf(ApiRefusal);
+  });
+
+  it('does not retry anything but a 429', async () => {
+    let calls = 0;
+    const error = await withFetch(
+      (async () => {
+        calls += 1;
+        return new Response('refused\n', { status: 500 });
+      }) as typeof globalThis.fetch,
+      () => fetchSetupState().catch((e: unknown) => e),
+    );
+    expect(calls).toBe(1);
+    expect((error as ApiRefusal).status).toBe(500);
+  });
+});
+
+describe('how long a 429 on the state route is allowed to hold the screen', () => {
+  it('honours the server’s number, bounded, and never waits on a negative one', () => {
+    expect(setupStateRetryDelayMs(3)).toBe(3_000);
+    expect(setupStateRetryDelayMs(SETUP_STATE_MAX_WAIT_SECONDS)).toBe(
+      SETUP_STATE_MAX_WAIT_SECONDS * 1_000,
+    );
+    // A `Retry-After` of half an hour is a blank page for half an hour; the
+    // door, wrong as it is on a pending deployment, is a screen a person can
+    // act on.
+    expect(setupStateRetryDelayMs(1_800)).toBe(SETUP_STATE_MAX_WAIT_SECONDS * 1_000);
+    expect(setupStateRetryDelayMs(-5)).toBe(0);
+    // No header at all: a proxy in front of the server that dropped it.
+    expect(setupStateRetryDelayMs(null)).toBe(1_000);
   });
 });
 

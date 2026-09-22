@@ -1,11 +1,20 @@
 // Drive the REAL built client's operator console against a REAL server:
-// ADR-0055 client stream (b).
+// ADR-0055 client stream (b), over the screens ADR-0056 gave the first run
+// and the door.
 //
 //   node scripts/drive-console-placement.mjs
 //
 // What it proves, in one browser, in this order:
 //
-//   1. the notices banner shows the one-operator fact off `GET /admin/notices`;
+//   0. `GET /setup/state` says `pending` on a fresh install, the client shows
+//      the first-run flow and no door, and the flow walks from the token file
+//      to Home: the token (checked, not spent), the password for the address
+//      the server named, the authenticator app with its QR code and setup
+//      key, the ten recovery codes behind the checkbox that gates Done, and
+//      the sign-in with the new authenticator. Then `/setup/state` says
+//      `done` (ADR-0056 decisions 1, 2, 4 and 5);
+//   1. the Site entry opens the console on the FIRST press, and the notices
+//      banner shows the one-operator fact off `GET /admin/notices`;
 //   2. the SMTP form round-trips a value through `POST /admin/settings`
 //      (sealed, with an assertion signed by the operator's enrolled key) and
 //      the test-send shows the server's 503 sentence in the server's words;
@@ -16,32 +25,40 @@
 //   4. decision 9's absence: an operator session on a host the console does
 //      not answer on renders NO operator control at all;
 //   5. the revert: after the window runs out unconfirmed, the console answers
-//      again on the host it was moved off, and the client works there.
+//      again on the host it was moved off, reached by a two-step sign-in at
+//      the ordinary door (ADR-0056 decision 3), and the client works there.
 //
-// **What it does not prove, said plainly.** The prerequisites -- the first
-// operator's password, the app code, this browser's key and the operator key
-// -- are spoken in the page by a hand port of `scripts/ci/first-operator-
-// signin.mjs`, not by the client's own modules, because no rendered surface
-// calls them until ADR-0055 client stream (a) lands its sign-in and setup
-// screens. `client/src/api/placement.ts`'s `bootstrapOperatorSession` sends
-// exactly the two requests step 0 below sends, in that order, and its bytes
-// are held by `client/src/api/placement.test.ts`; the function itself does
-// not run in this drive. Nothing else here is a port: every screen, every
-// form and every request in steps 1 to 5 is the built client's own code.
+// **There is no hand port left.** This script used to speak the
+// prerequisites -- password, second factor, browser key, operator key -- in
+// the page, because ADR-0055 landed the console before any rendered surface
+// called them. ADR-0056's first-run flow is that surface, so step 0 is now
+// the client's own screens end to end and the only bytes computed here are
+// the six digits of a verification code, exactly as
+// `scripts/ci/first-operator-signin.mjs` computes them.
+//
+// **Selectors are ids, roles and structure, not sentences**, so that the
+// copy on these screens can still be improved without breaking this drive.
+// 2026-09-22.
 //
 // It needs: PostgreSQL on 127.0.0.1 with the `fathom_test`/`postgres` roles,
 // a built client (`cd client && npm ci --ignore-scripts && npm run build`),
-// the merged `fathom-server` binary, and Playwright's Chromium. It creates
-// its own database and drops it, and it kills the server by PORT.
+// the `fathom-server` binary (`cargo build -p fathom-server`), and
+// Playwright's Chromium. It builds neither. It creates its own database and
+// drops it, and it kills the server by PORT.
 
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { webcrypto } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
 const ROOT = process.env.FATHOM_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
-const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? '/home/user/Fathom/target/debug/fathom-server';
+// `CARGO_TARGET_DIR` is set per worktree in this project, so the binary is
+// not always under ./target -- and the one this drive wants is the one built
+// beside the client it is driving.
+const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? join(ROOT, 'target');
+const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? join(TARGET_DIR, 'debug', 'fathom-server');
 const PORT = 18102;
 const OLD_HOST = `127.0.0.1:${PORT}`;
 const NEW_HOST = `localhost:${PORT}`;
@@ -95,6 +112,24 @@ function stopServer() {
   if (serverProc) serverProc.kill('SIGTERM');
 }
 
+/** The first field of a length-prefixed answer, as text. */
+function firstField(bytes) {
+  const len = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+  return new TextDecoder().decode(bytes.slice(4, 4 + len));
+}
+
+/**
+ * `GET /setup/state` — ADR-0056 decision 1's one bit about the deployment:
+ * `pending` while the first operator has no stored password, `done`
+ * afterwards, for ever. Asked from outside the browser, so the answer is the
+ * server's own and not this page's memory of it.
+ */
+async function setupState(baseUrl) {
+  const response = await fetch(`${baseUrl}/setup/state`);
+  if (response.status !== 200) return `HTTP ${response.status}`;
+  return firstField(new Uint8Array(await response.arrayBuffer()));
+}
+
 /**
  * `GET /placement/flag` as a given `Host` sees it.
  *
@@ -127,207 +162,185 @@ async function flagAs(host) {
   return { verdict, deadline };
 }
 
-// ---------------------------------------------------------------------------
-// The prerequisites, spoken in the page (see the header for why)
-// ---------------------------------------------------------------------------
+// --- the authenticator app, in Node (RFC 6238, as credentials.rs) ----------
 
-const PREREQUISITES = async ({ token, address, credential }) => {
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-  const utf8 = (s) => enc.encode(s);
-  const concat = (...parts) => {
-    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-    let at = 0;
-    for (const p of parts) {
-      out.set(p, at);
-      at += p.length;
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Decode(text) {
+  const clean = text.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
+  const out = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const c of clean) {
+    const v = BASE32.indexOf(c);
+    if (v < 0) throw new Error(`not RFC 4648 base32: ${JSON.stringify(c)}`);
+    buffer = (buffer << 5) | v;
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((buffer >> bits) & 0xff);
     }
-    return out;
-  };
-  const u32le = (n) => {
-    const b = new Uint8Array(4);
-    new DataView(b.buffer).setUint32(0, n, true);
-    return b;
-  };
-  const u64le = (n) => {
-    const b = new Uint8Array(8);
-    new DataView(b.buffer).setBigUint64(0, BigInt(n), true);
-    return b;
-  };
-  const lp = (b) => concat(u32le(b.length), b);
-  const EMPTY = new Uint8Array(0);
-  const readLp = (bytes) => {
-    const len = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
-    return { value: bytes.slice(4, 4 + len), rest: bytes.slice(4 + len) };
-  };
-  const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-  const fromHex = (s) => Uint8Array.from(s.match(/../g), (h) => parseInt(h, 16));
-  const N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
-  const lowS = (sig) => {
-    const s = BigInt('0x' + hex(sig.slice(32)));
-    if (s <= N >> 1n) return sig;
-    return concat(sig.slice(0, 32), fromHex((N - s).toString(16).padStart(64, '0')));
-  };
-  const keyPair = () =>
-    crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
-  const publicRaw = async (k) => new Uint8Array(await crypto.subtle.exportKey('raw', k.publicKey));
-  const sign = async (k, m) =>
-    lowS(new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, k.privateKey, m)));
-  const sha256 = async (b) => new Uint8Array(await crypto.subtle.digest('SHA-256', b));
-  const post = async (path, body, headers = {}) => {
-    const r = await fetch(path, { method: 'POST', body, headers });
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    return { status: r.status, bytes, text: dec.decode(bytes) };
-  };
-
-  const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const base32Decode = (text) => {
-    const clean = text.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
-    const out = [];
-    let buffer = 0;
-    let bits = 0;
-    for (const c of clean) {
-      buffer = (buffer << 5) | BASE32.indexOf(c);
-      bits += 5;
-      if (bits >= 8) {
-        bits -= 8;
-        out.push((buffer >> bits) & 0xff);
-      }
-    }
-    return Uint8Array.from(out);
-  };
-  const totpCode = async (secret, step) => {
-    const key = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-    const counter = new Uint8Array(8);
-    new DataView(counter.buffer).setBigUint64(0, BigInt(step), false);
-    const tag = new Uint8Array(await crypto.subtle.sign('HMAC', key, counter));
-    const offset = tag[tag.length - 1] & 0x0f;
-    const binary =
-      ((tag[offset] & 0x7f) << 24) | (tag[offset + 1] << 16) | (tag[offset + 2] << 8) | tag[offset + 3];
-    return String(binary % 1000000).padStart(6, '0');
-  };
-
-  let counter = 0;
-  const signedPost = async (session, path, body) => {
-    const nonceRes = await post('/session/nonce', undefined, {
-      'fathom-session': session.id,
-      'fathom-session-token': hex(session.token),
-    });
-    const { value: reqNonce } = readLp(nonceRes.bytes);
-    const unixMs = Date.now();
-    counter += 1;
-    const message = concat(
-      lp(utf8('fathom/session/req/v1')),
-      lp(utf8(session.id)),
-      lp(utf8('POST')),
-      lp(utf8(path)),
-      lp(await sha256(body ?? EMPTY)),
-      lp(reqNonce),
-      u64le(unixMs),
-      u64le(counter),
-    );
-    return post(path, body ?? EMPTY, {
-      'fathom-session': session.id,
-      'fathom-session-token': hex(session.token),
-      'fathom-nonce': hex(reqNonce),
-      'fathom-timestamp': String(unixMs),
-      'fathom-counter': String(counter),
-      'fathom-signature': hex(await sign(session.key, message)),
-    });
-  };
-
-  const signIn = async (kind, principal, { credential: cred = '', appCode = '', evidenceKey = null } = {}) => {
-    const sessionKey = await keyPair();
-    const sessionPub = await publicRaw(sessionKey);
-    const ch = await post('/session/challenge', concat(lp(utf8(kind)), lp(utf8(principal)), lp(sessionPub)));
-    if (ch.status !== 200) throw new Error(`challenge ${ch.status}: ${ch.text}`);
-    const { value: nonce, rest: afterNonce } = readLp(ch.bytes);
-    const { value: deploymentId } = readLp(afterNonce);
-    let evidence = EMPTY;
-    if (evidenceKey) {
-      const bound = await sha256(
-        concat(lp(utf8('fathom/session/bind/v1')), lp(sessionPub), lp(nonce), lp(deploymentId)),
-      );
-      evidence = await sign(evidenceKey, bound);
-    }
-    const si = await post(
-      '/session',
-      concat(lp(utf8(kind)), lp(sessionPub), lp(nonce), lp(evidence), lp(utf8(cred)), lp(utf8(appCode))),
-    );
-    if (si.status !== 200) throw new Error(`sign-in ${si.status}: ${si.text}`);
-    const { value: idBytes, rest: afterSid } = readLp(si.bytes);
-    const { value: tokenBytes } = readLp(afterSid);
-    counter = 0;
-    return { id: dec.decode(idBytes), token: tokenBytes, key: sessionKey };
-  };
-
-  // 1. The setup token sets the first operator's password. No session back.
-  const setup = await post('/enrolment/operator/setup', concat(lp(fromHex(token)), lp(utf8(credential))));
-  if (setup.status !== 200) throw new Error(`setup ${setup.status}: ${setup.text}`);
-
-  // 2. Sign in with the address and the password: the setup-only session.
-  const session = await signIn('steward', address, { credential });
-
-  // 3. Enrol and confirm the app code; keep the backup codes.
-  const enrol = await signedPost(session, '/credentials/totp/enrol', EMPTY);
-  if (enrol.status !== 200) throw new Error(`totp enrol ${enrol.status}: ${enrol.text}`);
-  const { value: uriBytes, rest: afterUri } = readLp(enrol.bytes);
-  const { value: secretBytes } = readLp(afterUri);
-  const secret = base32Decode(dec.decode(secretBytes));
-  const code = await totpCode(secret, Math.floor(Date.now() / 1000 / 30));
-  const confirm = await signedPost(session, '/credentials/totp/confirm', lp(utf8(code)));
-  if (confirm.status !== 200) throw new Error(`totp confirm ${confirm.status}: ${confirm.text}`);
-  const backupCodes = [];
-  let rest = confirm.bytes;
-  while (rest.length > 0) {
-    const read = readLp(rest);
-    backupCodes.push(dec.decode(read.value));
-    rest = read.rest;
   }
+  return Uint8Array.from(out);
+}
 
-  // 4. This browser's key, generated HERE and non-extractable, exactly as
-  //    `client/src/crypto/keys.ts` generates one.
-  const browserKey = await keyPair();
-  const registered = await signedPost(session, '/credentials/key', lp(await publicRaw(browserKey)));
-  if (registered.status !== 200) throw new Error(`key ${registered.status}: ${registered.text}`);
+async function totpCode(secretBytes, step) {
+  const key = await webcrypto.subtle.importKey('raw', secretBytes, { name: 'HMAC', hash: 'SHA-1' }, false, [
+    'sign',
+  ]);
+  const counter = new Uint8Array(8);
+  new DataView(counter.buffer).setBigUint64(0, BigInt(step), false);
+  const tag = new Uint8Array(await webcrypto.subtle.sign('HMAC', key, counter));
+  const offset = tag[tag.length - 1] & 0x0f;
+  const binary =
+    ((tag[offset] & 0x7f) << 24) | (tag[offset + 1] << 16) | (tag[offset + 2] << 8) | tag[offset + 3];
+  return String(binary % 1000000).padStart(6, '0');
+}
+const currentStep = () => Math.floor(Date.now() / 1000 / 30);
 
-  // 5. Sign in again with the password and a backup code (the app code for
-  //    this step is spent), giving the full account session.
-  const account = await signIn('steward', address, { credential, appCode: backupCodes[0] });
+/** A code for a step this run has not spent yet. `credentials::verify_totp`
+ * accepts a code once, so the drive waits for the clock rather than sending
+ * one it knows is spent. */
+async function freshCode(secret, spentSteps) {
+  for (;;) {
+    const step = currentStep();
+    if (!spentSteps.has(step)) {
+      spentSteps.add(step);
+      return totpCode(secret, step);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
 
-  // 6. `bootstrapOperatorSession` step 1: register the same key as this
-  //    account's OPERATOR key. The answer names the operator.
-  const opKey = await signedPost(account, '/admin/operators/self/key', lp(await publicRaw(browserKey)));
-  if (opKey.status !== 200) throw new Error(`operator key ${opKey.status}: ${opKey.text}`);
-  const { value: keyIdBytes, rest: afterKeyId } = readLp(opKey.bytes);
-  const { value: operatorIdBytes } = readLp(afterKeyId);
-  const operatorId = dec.decode(operatorIdBytes);
+// --- the two screens every part of this drive goes through -----------------
 
-  // 7. File that keypair where `crypto/keys.ts` looks for it, under the slot
-  //    `api/constants.ts`'s `keySlot('operator', id)` makes. From here on the
-  //    built client signs in and signs every operator act with it itself.
-  await new Promise((resolve, reject) => {
-    const request = indexedDB.open('fathom-enrolled-keys', 2);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains('keys')) db.createObjectStore('keys');
-      if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending');
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction('keys', 'readwrite');
-      tx.objectStore('keys').put(browserKey, `operator:${operatorId}`);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    };
-    request.onerror = () => reject(request.error);
+/**
+ * The first run, through the client's own steps (ADR-0056 decision 2).
+ *
+ * Ids, roles and structure only. Hands back the setup key and the ten
+ * recovery codes, which the rest of the drive signs in with.
+ */
+async function walkTheFirstRun(page, { token, address, password, spent, shot }) {
+  await page.waitForSelector('#firstrun-token', { timeout: 20000 });
+  check(
+    'a pending deployment shows the first-run flow and no sign-in door',
+    (await page.locator('#signin-password').count()) === 0,
+  );
+  await page.fill('#firstrun-token', token);
+  await page.click('form.signin__card button[type=submit]');
+
+  await page.waitForSelector('#firstrun-password', { timeout: 20000 });
+  const shown = await page.inputValue('#firstrun-address');
+  const readOnly = await page.locator('#firstrun-address').evaluate((el) => el.readOnly);
+  check(
+    'the token step spends nothing and the password step SHOWS the address it belongs to',
+    shown === address && readOnly,
+    `${shown}${readOnly ? ', read-only' : ', EDITABLE'}`,
+  );
+  await page.fill('#firstrun-password', password);
+  await page.fill('#firstrun-password-again', password);
+  await page.click('form.signin__card button[type=submit]');
+
+  // The enrolment screen opens on a button, because drawing a secret is an
+  // act. If a later build draws it on arrival, nothing is pressed.
+  await page.waitForSelector('.signin__section', { timeout: 25000 });
+  if ((await page.locator('[data-testid="totp-secret"]').count()) === 0) {
+    await page.click('.signin__section button.signin__submit');
+  }
+  await page.waitForSelector('[data-testid="totp-secret"]', { timeout: 20000 });
+
+  // ADR-0056 decision 5: inline SVG in the page, so `img-src` does not move
+  // — and no `style` attribute on it, because `style-src-attr 'unsafe-inline'`
+  // is the allowance decision 7 wants measured rather than leaned on.
+  const qr = await page.locator('[data-testid="qr"]').evaluate((el) => ({
+    tag: el.tagName.toLowerCase(),
+    style: el.getAttribute('style'),
+    modules: el.querySelector('.qr__modules')?.getAttribute('d')?.length ?? 0,
+  }));
+  check(
+    'the authenticator screen draws a real QR code as inline SVG, with no style attribute on it',
+    qr.tag === 'svg' && qr.style === null && qr.modules > 200,
+    `<${qr.tag}> style=${JSON.stringify(qr.style)}, ${qr.modules} characters of path`,
+  );
+
+  const secretText = (await page.locator('[data-testid="totp-secret"]').innerText()).trim();
+  // `textContent`, not `innerText`: the otpauth link sits in a closed
+  // `<details>`, and a closed element renders no text.
+  const otpauth = ((await page.locator('[data-testid="totp-uri"]').textContent()) ?? '').trim();
+  check(
+    'and shows the setup key beside it, with the otpauth URI for whoever wants it',
+    /^[A-Z2-7]{16,}$/.test(secretText) && otpauth.startsWith('otpauth://totp/'),
+    `${secretText.slice(0, 8)}…`,
+  );
+  if (shot) await shot('01-the-authenticator-step');
+
+  const secret = base32Decode(secretText);
+  await page.fill('#account-code', await freshCode(secret, spent));
+  await page.click('form.signin__section:has(#account-code) button[type=submit]');
+
+  await page.waitForSelector('.authenticator__codes', { timeout: 25000 });
+  const recoveryCodes = await page.locator('.authenticator__code').allInnerTexts();
+  check('ten recovery codes, shown once', recoveryCodes.length === 10, `${recoveryCodes.length}`);
+  const done = page.locator('.signin__section:has(.authenticator__codes) button.signin__submit');
+  const gated = await done.isDisabled();
+  const box = page.locator('[role="checkbox"]');
+  check(
+    'the recovery codes gate Done: unchecked, it is disabled, and the checkbox says so',
+    gated && (await box.getAttribute('aria-checked')) === 'false',
+    gated ? 'disabled until the box is checked' : 'Done was live with the box unchecked',
+  );
+  if (shot) await shot('02-the-recovery-codes');
+  await box.click();
+  check(
+    'and checking it arms Done',
+    !(await done.isDisabled()) && (await box.getAttribute('aria-checked')) === 'true',
+  );
+  await done.click();
+
+  await page.waitForSelector('#firstrun-code', { timeout: 20000 });
+  await page.fill('#firstrun-code', await freshCode(secret, spent));
+  await page.click('form.signin__card button[type=submit]');
+
+  await page.waitForSelector('.home', { timeout: 30000 });
+  check('the first run ends signed in on Home, not at the door', true);
+
+  return { secret, recoveryCodes };
+}
+
+/**
+ * The ordinary door, in the two steps of ADR-0056 decision 3. Hands back
+ * whether the second step was drawn, so a caller can assert it rather than
+ * let a one-shot sign-in pass for a two-step one.
+ */
+async function signInThroughTheDoor(page, { address, password, code }) {
+  await page.waitForSelector('#signin-password', { timeout: 20000 });
+  await page.fill('#signin-address', address);
+  await page.fill('#signin-password', password);
+  await page.click('form.signin__card button[type=submit]');
+  await page.waitForSelector('#signin-code, .home, .signin__refusal', { timeout: 30000 });
+  const twoStep = (await page.locator('#signin-code').count()) === 1;
+  if (twoStep) {
+    await page.fill('#signin-code', code);
+    await page.click('form.signin__card button[type=submit]');
+  }
+  await page.waitForSelector('.home', { timeout: 30000 });
+  return { twoStep };
+}
+
+/**
+ * Sign in as the operator with the key this browser already holds.
+ *
+ * The door lists the identities a browser has a key for, and pressing an
+ * operator's signs in on the spot (it is a key sign-in and carries no
+ * password). The row is found by the operator ID it shows, not by the word
+ * beside it: the id is what this drive already knows, and the word is copy.
+ */
+async function signInAsTheOperator(page, operatorId) {
+  await page.waitForSelector('.signin__identity', { timeout: 20000 });
+  const row = page.locator('.signin__identity', {
+    has: page.locator('.signin__identity-id', { hasText: operatorId }),
   });
-
-  return { operatorId, keyId: dec.decode(keyIdBytes), backupCodes: backupCodes.length };
-};
+  await row.first().click();
+}
 
 // ---------------------------------------------------------------------------
 
@@ -335,7 +348,9 @@ async function main() {
   if (!existsSync(join(ROOT, 'client', 'dist', 'index.html'))) {
     throw new Error('no built client. Run: cd client && npm ci --ignore-scripts && npm run build');
   }
-  if (!existsSync(SERVER_BIN)) throw new Error(`no server binary at ${SERVER_BIN}`);
+  if (!existsSync(SERVER_BIN)) {
+    throw new Error(`no server binary at ${SERVER_BIN}. Run: cargo build -p fathom-server --locked`);
+  }
 
   console.log(`==> database ${DB_NAME}`);
   psql(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE);`, { allowFailure: true });
@@ -387,7 +402,7 @@ async function main() {
     throw e;
   }
 
-  const token = readFileSync(tokenFile, 'utf8').trim().replace(/^op[_-]/i, '');
+  const token = readFileSync(tokenFile, 'utf8').trim();
 
   const { chromium } = await import(PLAYWRIGHT);
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
@@ -406,22 +421,43 @@ async function main() {
     return path;
   };
 
-  // ---- step 0: the prerequisites, in the page -----------------------------
-  await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  const bootstrap = await page.evaluate(PREREQUISITES, { token, address: ADDRESS, credential: CREDENTIAL });
+  // ---- step 0: the first run, through the client's own screens ------------
+  const stateBefore = await setupState(OLD_URL);
   check(
-    'the first operator has a password, an app code, ten backup codes and an operator key',
-    /^[0-9A-Z]{26}$/.test(bootstrap.operatorId) && bootstrap.backupCodes === 10,
-    `${bootstrap.operatorId}, ${bootstrap.backupCodes} backup codes`,
+    'GET /setup/state says pending on a fresh install (ADR-0056 decision 1)',
+    stateBefore === 'pending',
+    stateBefore,
   );
 
-  // ---- step 1: the built client signs the operator in ---------------------
+  const spent = new Set();
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('.signin__identity', { timeout: 10000 });
-  await shot('01-signin-lists-the-operator');
-  await page.click('.signin__identity');
-  await page.waitForSelector('.console', { timeout: 15000 });
+  const { recoveryCodes } = await walkTheFirstRun(page, {
+    token,
+    address: ADDRESS,
+    password: CREDENTIAL,
+    spent,
+    shot,
+  });
+  await shot('03-home-after-the-first-run');
+
+  const stateAfter = await setupState(OLD_URL);
+  check(
+    'and GET /setup/state has moved to done — one bit, about the deployment, for ever',
+    stateAfter === 'done',
+    stateAfter,
+  );
+
+  // ---- step 1: the Site entry, and the console ----------------------------
+  await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
+  await page.click('[data-testid="console-entry"]');
+  await page.waitForSelector('.console__section', { timeout: 25000 });
   await page.waitForTimeout(800);
+  check(
+    'the console opened on the FIRST press: the first run ended on a session that had proved the second factor',
+    (await page.locator('.console-entry__refusal').count()) === 0,
+  );
+  const operatorId = (await page.locator('.console__id').innerText()).trim();
+  check('and the console names the operator id', /^[0-9A-HJKMNP-TV-Z]{26}$/.test(operatorId), operatorId);
   const bannerText = await page.locator('.console-banner').innerText().catch(() => '');
   check(
     'the notices banner shows the one-operator fact from GET /admin/notices',
@@ -434,7 +470,7 @@ async function main() {
     registerText.includes(ADDRESS),
     registerText.slice(0, 160).replace(/\n/g, ' '),
   );
-  await shot('02-console-notices-and-register');
+  await shot('04-console-notices-and-register');
 
   // ---- step 2: the SMTP form ----------------------------------------------
   await page.fill('#smtp-host', 'smtp.example.test');
@@ -447,7 +483,7 @@ async function main() {
   await page.waitForSelector('text=in effect at', { timeout: 15000 });
   const savedText = await page.locator('form:has(#smtp-host)').innerText();
   check('the SMTP form saved a sealed value and was told when it takes effect', /in effect at/.test(savedText));
-  await shot('03-smtp-saved');
+  await shot('05-smtp-saved');
   await page.click('text=Send a test to my own address');
   await page.waitForSelector("text=mail sending is not built yet", { timeout: 15000 });
   const testText = await page.locator('form:has(#smtp-host)').innerText();
@@ -455,7 +491,7 @@ async function main() {
     "the test send shows the server's own 503 sentence",
     testText.includes('mail sending is not built yet'),
   );
-  await shot('04-smtp-test-send-503');
+  await shot('06-smtp-test-send-503');
 
   // ---- step 3: the placement warning, save, countdown and redirect --------
   await page.fill('#placement-hosts', 'localhost');
@@ -471,7 +507,7 @@ async function main() {
     'the warning says what an empty source list is stored as',
     warning.includes('0.0.0.0/0,::/0'),
   );
-  await shot('05-placement-warning');
+  await shot('07-placement-warning');
 
   await page.click('text=Move the console to localhost');
   await page.waitForSelector('[data-testid="placement-countdown"]', { timeout: 15000 });
@@ -486,7 +522,7 @@ async function main() {
     mm * 60 + ss > 0 && mm * 60 + ss <= 61,
     countdown,
   );
-  await shot('06-placement-countdown');
+  await shot('08-placement-countdown');
 
   const movedAt = Date.now();
   const flagOld = await flagAs(OLD_HOST);
@@ -501,15 +537,15 @@ async function main() {
   await page.waitForURL(`${NEW_URL}/`, { timeout: 20000 });
   await page.waitForTimeout(1000);
   check('the browser was taken to the new host', page.url().startsWith(NEW_URL), page.url());
-  await shot('07-landed-on-the-new-host');
+  await shot('09-landed-on-the-new-host');
 
   // ---- step 4: decision 9's absence on a host the console does not answer --
   // The operator sign-in itself is not gated by `admin_exposure` (the build
-  // contracts' open issue 8), so this is reachable: the client signs in and
-  // then offers nothing, because `useConsoleHost()` said no.
+  // contracts' open issue 8), so this is reachable: the client signs in with
+  // the operator key this browser filed when the console entry was pressed,
+  // and then offers nothing, because `useConsoleHost()` said no.
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('.signin__identity', { timeout: 10000 });
-  await page.click('.signin__identity');
+  await signInAsTheOperator(page, operatorId);
   await page.waitForSelector('.console__absent', { timeout: 15000 });
   const absent = await page.locator('.console').innerText();
   check(
@@ -519,7 +555,7 @@ async function main() {
     `${await page.locator('.console form').count()} forms, ${await page.locator('.console button').count()} buttons`,
   );
   check('and it says where the console went', /does not answer on/.test(absent));
-  await shot('08-operator-controls-absent-off-host');
+  await shot('10-operator-controls-absent-off-host');
 
   // ---- step 5: the revert --------------------------------------------------
   const waitMs = Math.max(0, 62_000 - (Date.now() - movedAt));
@@ -538,16 +574,29 @@ async function main() {
     JSON.stringify(flagOldAfter),
   );
 
+  // Back in at the ordinary door, which is now two steps: a recovery code
+  // goes in the same field the verification code does (ADR-0056 decisions 3
+  // and 4), and the person who reaches for one has lost their phone.
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('.signin__identity', { timeout: 10000 });
-  await page.click('.signin__identity');
-  await page.waitForSelector('.console__section', { timeout: 15000 });
+  const backDoor = await signInThroughTheDoor(page, {
+    address: ADDRESS,
+    password: CREDENTIAL,
+    code: recoveryCodes[0],
+  });
+  check(
+    'a later sign-in is the two-step door, and its second step takes a RECOVERY code',
+    backDoor.twoStep,
+    backDoor.twoStep ? 'one field, two kinds of code' : 'no second step was drawn',
+  );
+  await page.waitForSelector('[data-testid="console-entry"]', { timeout: 20000 });
+  await page.click('[data-testid="console-entry"]');
+  await page.waitForSelector('.console__section', { timeout: 20000 });
   await page.waitForTimeout(500);
   check(
     'and the real console renders there again',
     (await page.locator('#placement-hosts').count()) === 1,
   );
-  await shot('09-console-answers-again-after-the-revert');
+  await shot('11-console-answers-again-after-the-revert');
 
   // The revert is a sealed record, not only a clock: the sweep writes it on
   // the next console request, which the sign-in above just made.
@@ -597,13 +646,16 @@ async function main() {
     for (const line of consoleErrors.slice(0, 10)) console.log(`    ${line}`);
   }
   check('no uncaught exception in the browser', pageErrors.length === 0, pageErrors.join(' | '));
-  // The one expected resource error is the test-send's 503, which is the
-  // product behaving as built. Anything else -- a 404 from a console request
+  // Two answers here are the product behaving as built: the test-send's 503,
+  // and the `401` of ADR-0056 decision 3's second-factor probe, which is a
+  // step in a two-step sign-in and not a failed one (the server rolls back,
+  // writes no entry and leaves the nonce unspent; it charges the source
+  // bucket and nothing else). Anything else -- a 404 from a console request
   // made where the console does not answer, say -- is this client asking for
   // something it was told not to.
-  const unexpected = consoleErrors.filter((line) => !/503/.test(line));
+  const unexpected = consoleErrors.filter((line) => !/503/.test(line) && !/401/.test(line));
   check(
-    'the only failed request in the whole drive is the test-send 503',
+    'the only failed requests in the whole drive are the test-send 503 and the second-factor probe',
     unexpected.length === 0,
     unexpected.join(' | '),
   );

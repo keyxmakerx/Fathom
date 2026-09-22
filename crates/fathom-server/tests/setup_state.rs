@@ -352,33 +352,181 @@ async fn concurrent_first_callers_cause_one_setup_state_query() {
     );
 }
 
-/// **`GET /setup/state` charges the per-source budget, like every other
-/// unauthenticated route here.**
+/// **Concurrent callers arriving on an EXPIRED answer cause one query too.**
 ///
-/// The ADR-0056 build exempted it, on the argument that a person reloading the
-/// sign-in page should not spend what they need to sign in. What that left was
-/// one route on this server an unauthenticated caller could drive for nothing,
-/// and the cache it was exempted in favour of bounds the database and not the
-/// request. Both now: `check_source_budget` first, then the cache.
+/// The single-flight test above drives the cold cache, which is the easy half:
+/// nothing is remembered, and the gate is taken on the first read. The state a
+/// running deployment is actually in is the other one — an answer that was
+/// remembered five seconds ago and has just gone stale, with a crowd arriving
+/// on it. If the gate only covered the cold path, every fifth second of a
+/// deployment's life would be a crowd of queries.
 #[tokio::test]
-async fn the_state_route_charges_the_source_budget() {
+async fn concurrent_callers_on_a_stale_answer_cause_one_setup_state_query() {
+    const TAG: &str = "setup_state_stale";
+    const CALLERS: usize = 16;
+    let it = a_fresh_deployment(TAG).await;
+    let deployment = it.deployment().await;
+
+    let address = unique("owner@example.org");
+    it.operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // Warm it, so what follows is an expiry and not a miss.
+    it.credentials.setup_state().await.expect("the state reads");
+    assert_eq!(
+        it.credentials.setup_state().await.expect("the state reads"),
+        SetupState::Pending,
+        "the second call inside the window is answered from memory"
+    );
+
+    // Past the five seconds `credentials::SETUP_STATE_CACHE` allows. Real time,
+    // because what expires is a `std::time::Instant` and no test clock moves
+    // it.
+    tokio::time::sleep(credentials::SETUP_STATE_CACHE + Duration::from_millis(250)).await;
+
+    let before = credentials::setup_state_queries(&deployment);
+    let mut callers = Vec::with_capacity(CALLERS);
+    for _ in 0..CALLERS {
+        let store = Arc::clone(&it.credentials);
+        callers.push(tokio::spawn(async move {
+            store.setup_state().await.expect("the state reads")
+        }));
+    }
+    for caller in callers {
+        assert_eq!(
+            caller.await.expect("the task"),
+            SetupState::Pending,
+            "every caller gets the answer, whether it ran the query or waited for it"
+        );
+    }
+
+    assert_eq!(
+        credentials::setup_state_queries(&deployment) - before,
+        1,
+        "{CALLERS} callers arriving together on an EXPIRED answer ran more than one query. A \
+         gate that only covers the cold cache leaves every window's turnover open"
+    );
+}
+
+/// **An answer read before the bit moved is not remembered after it moved.**
+///
+/// The forget/put race, driven at the granularity it happens at. A reader
+/// queries; the act that flips the bit commits and calls
+/// `credentials::forget_setup_state` — which is exactly what
+/// `CredentialStore::redeem_setup` does after its own commit; the reader then
+/// stores what it read. Without a guard, the deployment that has just finished
+/// setting up answers `pending` for another five seconds, and the browser that
+/// finished it is sent back to step one.
+///
+/// **The pause is a real one and not a test hook**: an `ACCESS EXCLUSIVE` lock
+/// on `accounts` held by another transaction blocks the reader's `SELECT`
+/// exactly where the race needs it, and the forget lands while it is blocked.
+/// What is waited for is the query COUNTER, which the store increments on the
+/// line before the query, so the interleaving is observed rather than timed.
+#[tokio::test]
+async fn an_answer_read_before_the_bit_moved_is_not_remembered_after_it_moved() {
+    const TAG: &str = "setup_state_race";
+    let it = a_fresh_deployment(TAG).await;
+    let deployment = it.deployment().await;
+
+    let address = unique("owner@example.org");
+    it.operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    let mut su = support::superuser_on_isolated(TAG).await;
+    let blocker = su.transaction().await.expect("begin");
+    blocker
+        .batch_execute("LOCK TABLE accounts IN ACCESS EXCLUSIVE MODE")
+        .await
+        .expect("hold the table the state query reads");
+
+    let before = credentials::setup_state_queries(&deployment);
+    let store = Arc::clone(&it.credentials);
+    let reader = tokio::spawn(async move { store.setup_state().await });
+
+    // Wait until the reader has taken its generation and started its query. The
+    // counter moves on the line before the query, so this is the moment the
+    // race is about.
+    let mut waited = Duration::ZERO;
+    while credentials::setup_state_queries(&deployment) == before {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        waited += Duration::from_millis(20);
+        assert!(
+            waited < Duration::from_secs(20),
+            "the reader never reached its query"
+        );
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // The bit moves and the committer forgets, while the reader is inside its
+    // query.
+    credentials::forget_setup_state(&deployment);
+
+    // Let the reader finish and store what it read.
+    drop(blocker);
+    reader.await.expect("the task").expect("the state reads");
+
+    let before = credentials::setup_state_queries(&deployment);
+    it.credentials.setup_state().await.expect("the state reads");
+    assert_eq!(
+        credentials::setup_state_queries(&deployment) - before,
+        1,
+        "the racing answer was remembered anyway, so this deployment would answer with a \
+         reading taken before the act that moved the bit — for the whole five seconds the \
+         browser that did it is looking at the screen"
+    );
+
+    // And the cache still works, so what closed the race was the generation and
+    // not a cache that stopped remembering anything.
+    let before = credentials::setup_state_queries(&deployment);
+    it.credentials.setup_state().await.expect("the state reads");
+    assert_eq!(
+        credentials::setup_state_queries(&deployment) - before,
+        0,
+        "an answer nothing raced must still be remembered"
+    );
+}
+
+/// **`GET /setup/state` charges a budget of its own, and not the sign-in
+/// one.**
+///
+/// The ADR-0056 build exempted the route altogether, which left one thing on
+/// this server an unauthenticated caller could drive for nothing. The first fix
+/// charged it against the SIGN-IN bucket, and that is what this test now
+/// forbids: a page load is not a sign-in attempt, an office behind one address
+/// reloads, and the route it would refuse is the one that tells a browser
+/// whether this deployment has been set up at all.
+///
+/// Two claims in one, because they are one fact: the `setup-state:` bucket
+/// moves, the plain source bucket does not.
+#[tokio::test]
+async fn the_state_route_charges_a_bucket_of_its_own_and_not_the_sign_in_one() {
     const TAG: &str = "setup_state_budget";
     let it = a_fresh_deployment(TAG).await;
     let addr = it.surface().await;
     let source = a_source_of_its_own();
     let su = support::superuser_on_isolated(TAG).await;
-    let counted = || async {
-        su.query_one(
-            "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
-              WHERE bucket_kind = 'source' AND bucket_key = $1",
-            &[&source],
-        )
-        .await
-        .expect("read the bucket")
-        .get::<_, i64>(0)
+    let counted = |key: String| {
+        let su = &su;
+        async move {
+            su.query_one(
+                "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
+                  WHERE bucket_kind = 'source' AND bucket_key = $1",
+                &[&key],
+            )
+            .await
+            .expect("read the bucket")
+            .get::<_, i64>(0)
+        }
     };
+    let own = format!("setup-state:{source}");
 
-    assert_eq!(counted().await, 0, "the source has spent nothing yet");
+    assert_eq!(counted(source.clone()).await, 0, "nothing spent yet");
+    assert_eq!(counted(own.clone()).await, 0, "nor here");
     let (status, _) = raw_request(
         addr,
         "GET",
@@ -389,10 +537,94 @@ async fn the_state_route_charges_the_source_budget() {
     .await;
     assert_eq!(status, "200");
     assert_eq!(
-        counted().await,
+        counted(own).await,
         1,
         "one unauthenticated read of the deployment's state must cost this source one unit of \
-         the budget it shares with /session and the setup routes"
+         the state route's own budget"
+    );
+    assert_eq!(
+        counted(source).await,
+        0,
+        "and NONE of the sign-in budget. A browser reloading the page must not be able to \
+         refuse its own office's sign-ins, and a 429 on this route must never be what takes \
+         the first-run screen away"
+    );
+}
+
+/// **A source that spends the state route's budget is answered 429 with
+/// `Retry-After`, and its sign-in budget is untouched.**
+///
+/// The client's half of contract B2 depends on both: it waits the header out
+/// (bounded) and asks again rather than falling back to the sign-in door, which
+/// would be the wrong door for a deployment that has not been set up. And
+/// whatever the state route costs, the person behind that address can still
+/// sign in.
+///
+/// The bucket is seeded to its cap rather than driven to it: what is being
+/// tested is the answer at the cap, and a hundred and twenty requests to reach
+/// it would test the loop.
+#[tokio::test]
+async fn a_spent_state_budget_is_429_with_retry_after_and_costs_no_sign_in() {
+    const TAG: &str = "setup_state_cap";
+    let it = a_fresh_deployment(TAG).await;
+    let addr = it.surface().await;
+    let source = a_source_of_its_own();
+    let su = support::superuser_on_isolated(TAG).await;
+
+    // The current window, computed the way `sessions::window_start` computes
+    // it: the floor of now over the fifteen-minute window.
+    su.execute(
+        "INSERT INTO sign_in_attempts (bucket_kind, bucket_key, window_start, attempts) \
+         VALUES ('source', $1, to_timestamp(floor(extract(epoch from now()) / 900) * 900), $2)",
+        &[
+            &format!("setup-state:{source}"),
+            &fathom_server::sessions::SETUP_STATE_MAX_PER_SOURCE,
+        ],
+    )
+    .await
+    .expect("seed this source's state budget to its cap");
+
+    let (status, head, _) = raw_request_full(
+        addr,
+        "GET",
+        "/setup/state",
+        &[("x-forwarded-for", source.clone())],
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "429",
+        "the request past the cap must be refused, or the cap is not one:\n{head}"
+    );
+    let lower = head.to_ascii_lowercase();
+    assert!(
+        lower.contains("retry-after:"),
+        "a 429 with no Retry-After leaves the client guessing how long to wait, and a client \
+         that guesses wrong shows the sign-in door on a deployment that is still \
+         pending:\n{head}"
+    );
+    let seconds: i64 = lower
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("retry-after:"))
+        .and_then(|v| v.trim().parse().ok())
+        .expect("Retry-After is a number of seconds");
+    assert!(
+        seconds > 0 && seconds <= 15 * 60,
+        "Retry-After was {seconds} seconds, which is not this window"
+    );
+
+    let spent_on_sign_in: i64 = su
+        .query_one(
+            "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
+              WHERE bucket_kind = 'source' AND bucket_key = $1",
+            &[&source],
+        )
+        .await
+        .expect("read the sign-in bucket")
+        .get(0);
+    assert_eq!(
+        spent_on_sign_in, 0,
+        "a source that has spent its page-load budget must still be able to sign in"
     );
 }
 

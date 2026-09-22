@@ -46,7 +46,12 @@
 //                                        the SAME challenge -- the probe is a
 //                                        rollback, so the nonce survives it and
 //                                        a two-step sign-in costs one
-//                                        challenge, not two)
+//                                        challenge, not two. It does cost one
+//                                        SOURCE unit, added 2026-09-22: three
+//                                        for the pair, challenge, probe and
+//                                        completion, against a per-source cap
+//                                        raised to 45 so that fifteen sign-ins
+//                                        a window is still fifteen)
 //   8. the operator's own key sign-in, and a signed GET /admin/operators.
 //
 // **Step 8 needs a route stream (b) owns** — the one that registers an
@@ -274,11 +279,13 @@ async function signedPost(session, path, body) {
 
 /// Step 2: a fresh session keypair and a challenge over its public half.
 ///
-/// **Counted once, and once is what a whole sign-in costs.** ADR-0056 decision
-/// 3 as amended 2026-09-22: the second-factor probe is a rollback, so the nonce
-/// this hands back is still good afterwards and step two re-posts THIS
-/// challenge. A client that asked for a second one would be spending a second
-/// unit of its own rate-limit budget on the way to every ordinary sign-in.
+/// **Counted once per two-step sign-in, and the count is asserted below.**
+/// ADR-0056 decision 3 as amended 2026-09-22: the second-factor probe is a
+/// rollback, so the nonce this hands back is still good afterwards and step two
+/// re-posts THIS challenge. A client that asked for a second one would be
+/// spending a fourth unit of its own rate-limit budget — the pair already costs
+/// three, one for this challenge, one for the probe and one for the
+/// completion — on the way to every ordinary sign-in.
 let challengesAsked = 0;
 async function challengeFor(kind, principal) {
   const sessionKey = await keyPair();
@@ -468,7 +475,10 @@ console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
 // BACK -- so the nonce is untouched and step two re-posts the very same
 // challenge with the code in it. This is the request the browser makes on the
 // way to every ordinary sign-in, and if it cost a second challenge every
-// correct sign-in would pay for it.
+// correct sign-in would pay for it. The probe does cost one unit of the source
+// budget, which is what stops a password holder repeating it for nothing; what
+// this script asserts is the shape, and `tests/sessions.rs` asserts the
+// arithmetic against the buckets themselves.
 const askedBefore = challengesAsked;
 const twoStep = await challengeFor('steward', address);
 const probe = await postSession('steward', twoStep, { credential: CREDENTIAL });

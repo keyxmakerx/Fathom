@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   Account,
-  AppCodeEnrolment,
   AuthenticatorEnrolment,
   AuthenticatorSetupStage,
   RecoveryCodesStage,
@@ -57,9 +56,6 @@ describe('the authenticator enrolment', () => {
     expect(closed).not.toContain('data-testid="qr"');
   });
 
-  it('is still exported under its old name while the other stream lands', () => {
-    expect(AppCodeEnrolment).toBe(AuthenticatorEnrolment);
-  });
 });
 
 describe('the authenticator setup stage, rendered', () => {

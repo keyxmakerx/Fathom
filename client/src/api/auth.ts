@@ -62,13 +62,21 @@ export class NoEnrolledKeyError extends Error {
  *
  * **It is a rollback, not a refusal.** The server answers this and then
  * rolls its transaction back: no sealed entry (this is a protocol step, and
- * the sign-in that follows is the record), nothing counted against any
+ * the sign-in that follows is the record), nothing against the account's
  * bucket, and the challenge nonce left UNSPENT. So the second step re-posts
  * the SAME challenge -- the same session keypair, the same nonce, the same
  * evidence signature -- with the code beside the password, and an ordinary
- * two-step sign-in costs one challenge and one session, which is what a
- * one-shot sign-in cost before ADR-0056. [`completeSignIn`] is the call that
- * spends a challenge, and [`beginSignIn`] the one that gets it.
+ * two-step sign-in costs one challenge and one session.
+ *
+ * **One thing it does cost**, settled 2026-09-22: one unit of the
+ * per-source budget, committed in a transaction of its own so the rollback
+ * cannot take it back. Without it a password holder could run argon2id on
+ * one challenge as often as they liked. So a two-step sign-in is three
+ * source units -- challenge, probe, completion -- where a one-shot sign-in
+ * is two, and the per-source limit was raised in the same change so that the
+ * number of sign-ins one shared address can make in a window is unchanged.
+ * [`completeSignIn`] is the call that spends a challenge, and
+ * [`beginSignIn`] the one that gets it.
  *
  * Matched on the status **and** the sentence, because 401 alone is the
  * uniform sign-in refusal, which means the opposite and must never route

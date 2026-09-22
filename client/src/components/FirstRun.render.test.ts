@@ -1,10 +1,11 @@
-import { createElement, type ComponentType } from 'react';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import * as AccountModule from './Account';
+import { AuthenticatorSetupStage, RecoveryCodesStage } from './Account';
 import {
   authenticatorStepIntro,
+  AUTHENTICATOR_SET_NOTICE,
   FinalSignInStage,
   finalSignInStepIntro,
   FIRST_RUN_CODE_REFUSED,
@@ -15,21 +16,24 @@ import {
   passwordStepIntro,
   progressLine,
   SETUP_TOKEN_REFUSED,
+  SETUP_STILL_PENDING,
+  stepNumber,
   TokenStage,
+  type Step,
 } from './FirstRun';
 
 // Render-to-string smoke tests, per `ConfigDrawer.render.test.ts`'s
 // precedent -- no DOM testing library is installed, so this checks the markup
 // the flow produces, which is what a render-to-string pass can see.
 //
-// **Every step is rendered here, 1 to 5.** Steps 2 and 5 are behind state a
-// live server produces, so `FirstRun.tsx` draws them with pure components
-// this file renders directly with fixture props; steps 3 and 4 belong to the
-// account screen's enrolment, and this file renders ITS stages the same way.
-// The rule the last block enforces -- no "app code", no "backup code",
-// anywhere a person reads -- is worth nothing if it is only checked on the
-// one screen a bare render happens to reach. ADR-0056 decisions 2 and 4.
-// 2026-09-22.
+// **Every step is rendered here, 1 to 5, with fixture data and no
+// fallback.** Steps 2 and 5 are behind state a live server produces, so
+// `FirstRun.tsx` draws them with pure components this file renders directly;
+// steps 3 and 4 belong to the account screen's enrolment, and this file
+// imports ITS two stages by name and renders them the same way. The rule the
+// last block enforces -- no "app code", no "backup code", anywhere a person
+// reads -- is worth nothing if it is only checked on the one screen a bare
+// render happens to reach. ADR-0056 decisions 2 and 4. 2026-09-22.
 
 const ADDRESS = 'owner@example.test';
 const noop = () => {};
@@ -79,22 +83,13 @@ const stepFive = renderToStaticMarkup(
 // ---------------------------------------------------------------------
 // Steps 3 and 4 are the account screen's, and this flow shows them whole.
 //
-// The other client stream exports them as pure stages for exactly this
-// (`AuthenticatorSetupStage`, `RecoveryCodesStage`); until both halves are
-// merged the enrolment component itself is what is there, so the first
-// screen it draws stands in. Either way something a person reads is rendered
-// and checked, which is the point -- a step nothing renders is a step whose
-// wording nobody checks.
+// **Imported by name, with their real props.** This file used to look the two
+// stages up on the module and fall back to rendering whatever else it found,
+// because the rename was landing in another stream -- which meant that if
+// either export moved, steps 3 and 4 quietly went on passing against the
+// wrong markup. Both halves are in; the imports are hard, and a rename now
+// breaks this file, which is what a test is for. 2026-09-22.
 // ---------------------------------------------------------------------
-type StageProps = Record<string, unknown>;
-type Stages = Partial<{
-  AuthenticatorSetupStage: ComponentType<StageProps>;
-  RecoveryCodesStage: ComponentType<StageProps>;
-  AuthenticatorEnrolment: ComponentType<StageProps>;
-  AppCodeEnrolment: ComponentType<StageProps>;
-  recoveryCodeFile: (address: string, codes: readonly string[]) => string;
-}>;
-const account = AccountModule as unknown as Stages;
 
 const ENROLMENT = {
   secretBase32: 'JBSWY3DPEHPK3PXP',
@@ -113,47 +108,29 @@ const RECOVERY_CODES = [
   'ssss-tttt',
 ];
 
-const setupStage = account.AuthenticatorSetupStage ?? null;
-const recoveryStage = account.RecoveryCodesStage ?? null;
-const enrolment = account.AuthenticatorEnrolment ?? account.AppCodeEnrolment ?? null;
-
-/** A superset of the props either shape of the stage could want. React
- * ignores what a component does not read, so this survives the rename
- * landing without this file having to guess the signature exactly. */
-const setupStageProps: StageProps = {
-  address: ADDRESS,
-  enrolment: ENROLMENT,
-  secretBase32: ENROLMENT.secretBase32,
-  otpauthUri: ENROLMENT.otpauthUri,
-  code: '',
-  busy: false,
-  confirming: false,
-  copied: null,
-  refusal: null,
-  onCode: noop,
-  onSubmit: noop,
-  onCopy: noop,
-};
-const recoveryStageProps: StageProps = {
-  address: ADDRESS,
-  codes: RECOVERY_CODES,
-  saved: false,
-  copied: null,
-  onSaved: noop,
-  onToggleSaved: noop,
-  onCopy: noop,
-  onDownload: noop,
-  onDone: noop,
-};
-
-const stepThree = setupStage
-  ? renderToStaticMarkup(createElement(setupStage, setupStageProps))
-  : enrolment
-    ? renderToStaticMarkup(createElement(enrolment, { address: ADDRESS, onDone: noop }))
-    : '';
-const stepFour = recoveryStage
-  ? renderToStaticMarkup(createElement(recoveryStage, recoveryStageProps))
-  : (account.recoveryCodeFile?.(ADDRESS, RECOVERY_CODES) ?? '');
+const stepThree = renderToStaticMarkup(
+  createElement(AuthenticatorSetupStage, {
+    address: ADDRESS,
+    secretBase32: ENROLMENT.secretBase32,
+    otpauthUri: ENROLMENT.otpauthUri,
+    code: '',
+    onCodeChange: noop,
+    onSubmit: noop,
+    refusal: null,
+    busy: false,
+  }),
+);
+const stepFour = renderToStaticMarkup(
+  createElement(RecoveryCodesStage, {
+    address: ADDRESS,
+    codes: RECOVERY_CODES,
+    saved: false,
+    onSavedChange: noop,
+    onDone: noop,
+    onCopy: noop,
+    onDownload: noop,
+  }),
+);
 
 describe('the first run, step 1', () => {
   it('opens on the token and asks for nothing else', () => {
@@ -223,6 +200,38 @@ describe('the steps and the progress line', () => {
     expect(progressLine(2)).toBe('Step 2 of 5');
     expect(progressLine(5)).toBe('Step 5 of 5');
   });
+
+  it('says the number of the screen the person is actually looking at', () => {
+    // The recovery codes said "Step 3" until 2026-09-22: the enrolment
+    // component draws steps 3 and 4 and this flow could not see which was
+    // up. It says so now (`AuthenticatorEnrolment`'s `onStage`).
+    const at = (step: Step) => progressLine(stepNumber(step));
+    expect(at({ kind: 'token' })).toBe('Step 1 of 5');
+    expect(at({ kind: 'password', address: ADDRESS })).toBe('Step 2 of 5');
+    expect(at({ kind: 'authenticator', address: ADDRESS, screen: 'setup' })).toBe('Step 3 of 5');
+    expect(at({ kind: 'authenticator', address: ADDRESS, screen: 'recovery' })).toBe('Step 4 of 5');
+    expect(at({ kind: 'second-factor', address: ADDRESS })).toBe('Step 5 of 5');
+  });
+
+  it('numbers every screen inside the list it names', () => {
+    const screens: Step[] = [
+      { kind: 'token' },
+      { kind: 'checking' },
+      { kind: 'password', address: ADDRESS },
+      { kind: 'setting', address: ADDRESS },
+      { kind: 'signing-in', address: ADDRESS },
+      { kind: 'authenticator', address: ADDRESS, screen: 'setup' },
+      { kind: 'authenticator', address: ADDRESS, screen: 'recovery' },
+      { kind: 'second-factor', address: ADDRESS },
+      { kind: 'final-sign-in', address: ADDRESS },
+      { kind: 'leaving', address: ADDRESS },
+    ];
+    for (const step of screens) {
+      const number = stepNumber(step);
+      expect(number).toBeGreaterThanOrEqual(1);
+      expect(number).toBeLessThanOrEqual(FIRST_RUN_STEPS.length);
+    }
+  });
 });
 
 describe('step 2, choose a password', () => {
@@ -256,26 +265,45 @@ describe('step 3, the authenticator app', () => {
     expect(intro).toMatch(/one last sign-in/i);
   });
 
-  it('renders the enrolment the account screen owns', () => {
-    expect(stepThree).not.toBe('');
+  it('draws the QR code the password manager reads, as inline SVG', () => {
+    // ADR-0056 decision 5: a password manager takes the secret only out of a
+    // picture of the tab, and the picture must need nothing the
+    // Content-Security-Policy does not already allow.
+    expect(stepThree).toContain('data-testid="qr"');
+    expect(stepThree).toContain('<svg');
+    expect(stepThree).not.toContain('<img');
+    expect(stepThree).not.toContain('data-testid="qr-missing"');
+  });
+
+  it('shows the setup key for the person typing it in by hand', () => {
+    expect(stepThree).toContain('data-testid="totp-secret"');
+    expect(stepThree).toContain(ENROLMENT.secretBase32);
+    expect(stepThree.toLowerCase()).toContain('setup key');
     expect(stepThree.toLowerCase()).toContain('authenticator app');
-    if (setupStage) {
-      // The stage with a secret in hand: the QR code, the setup key beside
-      // it, and the one field a password manager is looking for.
-      expect(stepThree).toContain(ENROLMENT.secretBase32);
-      expect(stepThree.toLowerCase()).toContain('setup key');
-      expect(stepThree).toMatch(/autocomplete="one-time-code"/i);
-      expect(stepThree).toMatch(/verification code/i);
-    }
+    expect(stepThree).toContain(ADDRESS);
+  });
+
+  it('asks for the verification code in a field a password manager finds', () => {
+    expect(stepThree).toContain('id="account-code"');
+    expect(stepThree).toMatch(/autocomplete="one-time-code"/i);
+    expect(stepThree).toMatch(/verification code/i);
   });
 });
 
 describe('step 4, the recovery codes', () => {
-  it('shows the codes and says they are shown once', () => {
-    expect(stepFour).not.toBe('');
-    expect(stepFour).toContain('aaaa-bbbb');
-    expect(stepFour).toContain('ssss-tttt');
-    expect(stepFour.toLowerCase()).toMatch(/once/);
+  it('shows every code once, in the grid, and says they are shown once', () => {
+    for (const code of RECOVERY_CODES) expect(stepFour).toContain(code);
+    expect(stepFour).toContain('authenticator__codes');
+    expect(stepFour).toMatch(/shown now and never again/);
+    expect(stepFour).toContain(ADDRESS);
+  });
+
+  it('keeps Done shut behind "I have saved these"', () => {
+    // The server keeps only hashes of these, so this screen is the only time
+    // they exist; the gate is a control that has to be pressed.
+    expect(stepFour).toContain('I have saved these.');
+    expect(stepFour).toContain('aria-checked="false"');
+    expect(stepFour).toMatch(/<button[^>]*disabled[^>]*>Done<\/button>/);
   });
 });
 
@@ -335,6 +363,51 @@ describe('the sentence a spent token and a failed sign-in get', () => {
   });
 });
 
+describe('the way out of step 5', () => {
+  it('names both credentials, because by then the person has both', () => {
+    // The password was set at step 2 and the authenticator confirmed at step
+    // 3, so the door will ask for the two of them and one code. Saying only
+    // "your password is set" would leave a person wondering whether the code
+    // is wanted.
+    expect(AUTHENTICATOR_SET_NOTICE).toBe(
+      'Your password and authenticator are set. Sign in with them.',
+    );
+    expect(AUTHENTICATOR_SET_NOTICE.toLowerCase()).not.toContain('token');
+  });
+
+  it('offers the door on the step-5 screen, and says what pressing it is doing', () => {
+    expect(stepFive).toContain('Sign in at the ordinary door instead');
+    const leaving = renderToStaticMarkup(
+      createElement(FinalSignInStage, {
+        address: ADDRESS,
+        progress: progressLine(5),
+        code: '123456',
+        busy: true,
+        refusal: null,
+        onCode: noop,
+        onSubmit: noop,
+        onUseTheDoor: noop,
+        leaving: true,
+      }),
+    );
+    // The setup session is being ended first -- the finding: it was not, and
+    // the person landed on Home holding the password-only session step 5
+    // exists to replace.
+    expect(leaving).toContain('Ending this session…');
+    expect(leaving).not.toContain('Sign in at the ordinary door instead');
+  });
+});
+
+describe('when the server still says this deployment is not set up', () => {
+  it('stays in the flow and says so, rather than opening a door against it', () => {
+    // `App.tsx` gates the first-run flow on the state route's answer, so
+    // handing over while the server says `pending` would be the two of them
+    // disagreeing about which screen this deployment is on.
+    expect(SETUP_STILL_PENDING).toMatch(/has not been set up/);
+    expect(SETUP_STILL_PENDING).toMatch(/reload the page/i);
+  });
+});
+
 describe('the words this flow uses', () => {
   it('never says "app code" or "backup code" where a person reads', () => {
     // ADR-0056 decision 4, checked on every step's markup and on the copy
@@ -351,6 +424,8 @@ describe('the words this flow uses', () => {
       finalSignInStepIntro(ADDRESS),
       SETUP_TOKEN_REFUSED,
       PASSWORD_SET_NOTICE,
+      AUTHENTICATOR_SET_NOTICE,
+      SETUP_STILL_PENDING,
       FIRST_RUN_CODE_REFUSED,
       ...FIRST_RUN_STEPS,
     ]) {

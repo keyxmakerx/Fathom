@@ -261,8 +261,10 @@ async fn store(pool: &Pool, ring: Arc<KeyRing>) -> SessionStore {
 
 /// A source address **this call and no other test will ever use**.
 ///
-/// The source bucket is a rate limit, not a lockout: thirty attempts per
-/// fifteen minutes, counted per source string, in a row of `sign_in_attempts`
+/// The source bucket is a rate limit, not a lockout: forty-five attempts per
+/// fifteen minutes (`SignInLimits::defaults`, raised from thirty on 2026-09-22
+/// when the second-factor probe started costing one), counted per source
+/// string, in a row of `sign_in_attempts`
 /// in the shared test database. Every sign-in below used to hand it the same
 /// literal address, so the whole binary shared one bucket and the window
 /// carried over between runs — and on 2026-09-13 a third `cargo test` inside
@@ -3374,9 +3376,16 @@ async fn adr56_assurance_of(session_id: &str) -> String {
 /// **The measurement starts before the challenge**, which is the half the
 /// ADR-0056 build's own test missed. It read the source bucket after the
 /// challenge, so the second challenge step two needed — because the probe had
-/// consumed the nonce — was invisible, and an ordinary two-step sign-in cost
-/// three source units where a one-shot sign-in had cost two. What is asserted
-/// here is the whole journey: challenge, probe, sign-in, **two**.
+/// consumed the nonce — was invisible.
+///
+/// **What the journey costs, 2026-09-22 (second round): three source units** —
+/// challenge, probe, completion. The first round rolled the probe's own count
+/// back with everything else, which made the answer free and repeatable; the
+/// count is committed separately now and
+/// `SignInLimits::defaults().max_per_source` rose from thirty to forty-five so
+/// that fifteen sign-ins a window is still fifteen. The account bucket and the
+/// chain are untouched, which is the half that must not move: a person signing
+/// in correctly passes through here.
 #[tokio::test]
 async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_challenge_unspent() {
     let _serial = ADR55_SERIAL.lock().await;
@@ -3475,10 +3484,11 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
 
     assert_eq!(
         adr56_attempts("source", &source).await,
-        source_before + 2,
-        "an ordinary two-step sign-in must cost one challenge and one sign-in, which is what a \
-         one-shot sign-in cost before ADR-0056. Anything more is the person who signs in \
-         correctly paying for the shape of the conversation"
+        source_before + 3,
+        "an ordinary two-step sign-in costs one unit for the challenge, one for the probe and \
+         one for the completion. More than that is the person who signs in correctly paying \
+         for the shape of the conversation; fewer is a password holder running argon2id for \
+         nothing"
     );
     assert_eq!(
         adr56_attempts("account", &account).await,
@@ -3502,6 +3512,163 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
     assert!(
         matches!(spent, Err(SessionError::SignInRefused)),
         "a third post of the same challenge, after it opened a session, must be refused: {spent:?}"
+    );
+}
+
+/// **Every probe costs its source one unit of the budget, and nothing else
+/// moves.**
+///
+/// The 2026-09-22 review drove forty probes against one challenge and one
+/// source and found them all free: the rollback that keeps the nonce and the
+/// account bucket intact was also giving back the source count, so a password
+/// holder could run argon2id on this server for as long as they liked on one
+/// challenge. Whatever else the probe is, it is a request, and a request costs
+/// its source one unit here.
+///
+/// The three things that must still NOT move are asserted beside it, because
+/// the fix is worth nothing if it was bought by making a correct sign-in a
+/// failure: no chain entry, no account count, and the nonce still good. And a
+/// WRONG credential on the same account is driven last, on a source of its own,
+/// to show the refusal path is untouched — sealed, counted against the account,
+/// and the challenge consumed.
+#[tokio::test]
+async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alone() {
+    const PROBES: i64 = 12;
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "probecost").await;
+    let account = enrolled.person.account.to_string();
+
+    let account_before = adr56_attempts("account", &account).await;
+    let failed_before = failed_entries(&pool).await;
+    let source = a_source_of_its_own();
+    let source_before = adr56_attempts("source", &source).await;
+
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let challenge = store
+        .issue_challenge(
+            PrincipalKind::Steward,
+            &enrolled.person.address,
+            &pubkey,
+            &source,
+        )
+        .await
+        .expect("a challenge");
+
+    for probe in 0..PROBES {
+        let answer = store
+            .sign_in_with_credentials(&SignInAttempt {
+                kind: PrincipalKind::Steward,
+                session_pubkey: &pubkey,
+                nonce: &challenge.nonce,
+                evidence_sig: b"",
+                password: ADR55_PASSWORD,
+                totp_code: "",
+                source: &source,
+            })
+            .await;
+        assert!(
+            matches!(answer, Err(SessionError::SecondFactorNeeded)),
+            "probe {probe} was answered {answer:?}"
+        );
+        assert_eq!(
+            adr56_attempts("source", &source).await,
+            source_before + 1 + probe + 1,
+            "probe {probe} did not cost its source a unit. The challenge cost one; each probe \
+             costs one more, or a password holder runs unlimited argon2id on one challenge"
+        );
+    }
+
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        account_before,
+        "no probe may count against the ACCOUNT: the person signing in correctly makes this \
+         request on the way to every sign-in, and would spend their own window on it"
+    );
+    assert_eq!(
+        failed_entries(&pool).await,
+        failed_before,
+        "no probe may seal a sign-in failure: it is a protocol step, and the sealed sign-in \
+         that follows is the record"
+    );
+
+    // The nonce survived all of them, which is what makes step two the same
+    // challenge.
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let signed_in = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password: ADR55_PASSWORD,
+            totp_code: &code,
+            source: &source,
+        })
+        .await
+        .expect("the probes left the challenge unconsumed");
+    assert_eq!(adr56_assurance_of(&signed_in.session_id).await, "A0T");
+
+    // And the refusal path is where it always was. A fresh challenge on a
+    // source of its own, a wrong credential: sealed, counted against the
+    // account, and the nonce spent.
+    let wrong_source = a_source_of_its_own();
+    let wrong_key = SoftwareKey::random().expect("a session keypair");
+    let wrong_pub = wrong_key.public_key();
+    let wrong_challenge = store
+        .issue_challenge(
+            PrincipalKind::Steward,
+            &enrolled.person.address,
+            &wrong_pub,
+            &wrong_source,
+        )
+        .await
+        .expect("a challenge");
+    let account_before_wrong = adr56_attempts("account", &account).await;
+    let failed_before_wrong = failed_entries(&pool).await;
+    let refused = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &wrong_pub,
+            nonce: &wrong_challenge.nonce,
+            evidence_sig: b"",
+            password: "harbour-lantern-copper-ten",
+            totp_code: "",
+            source: &wrong_source,
+        })
+        .await;
+    assert!(
+        matches!(refused, Err(SessionError::PasswordRefused)),
+        "a wrong credential is still the refusal that renders as the one generic sentence: \
+         {refused:?}"
+    );
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        account_before_wrong + 1,
+        "and it still costs the account bucket a failure"
+    );
+    assert!(
+        failed_entries(&pool).await > failed_before_wrong,
+        "and it is still sealed"
+    );
+    let reused = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &wrong_pub,
+            nonce: &wrong_challenge.nonce,
+            evidence_sig: b"",
+            password: ADR55_PASSWORD,
+            totp_code: &adr55_a_fresh_code(&enrolled.secret).await,
+            source: &wrong_source,
+        })
+        .await;
+    assert!(
+        matches!(reused, Err(SessionError::SignInRefused)),
+        "a refused credential consumes the challenge, unlike the probe: {reused:?}"
     );
 }
 

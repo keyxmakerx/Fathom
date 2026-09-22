@@ -333,7 +333,10 @@ async fn sign_in_handler(
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
     let password = text(&fields[4], "credential")?;
-    let totp_code = text(&fields[5], "app code")?;
+    // The label travels into `SessionError::Malformed`, whose Display an
+    // operator reads: "verification code", the name on the screen (ADR-0056
+    // decision 4).
+    let totp_code = text(&fields[5], "verification code")?;
 
     let signed_in = state
         .sessions
@@ -401,7 +404,12 @@ async fn sign_out_handler(
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    Ok((StatusCode::OK, "signed out\n").into_response())
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "signed out\n",
+    )
+        .into_response())
 }
 
 /// `GET /organisations/{organisation}/capability` — the demonstration route,
@@ -497,6 +505,7 @@ async fn capability(
     match answer {
         Ok(capabilities) => Ok((
             StatusCode::OK,
+            [(axum::http::header::CACHE_CONTROL, "no-store")],
             format!("{}\n", capabilities.capability.as_str()),
         )
             .into_response()),
@@ -661,7 +670,7 @@ async fn confirm_totp_handler(
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
-    let code = text(&fields[0], "app code")?;
+    let code = text(&fields[0], "verification code")?;
     let codes = state
         .credentials
         .confirm_totp(&session, &code)
@@ -794,14 +803,21 @@ async fn operator_setup_handler(
 /// this is what they would see anyway, and the per-address answers of
 /// `/session` are untouched in content and in time (ASVS 5.0.0 6.3.8).
 ///
-/// **It charges the per-source budget, like every other unauthenticated route
-/// here.** The ADR-0056 build exempted it on the argument that a person
-/// reloading the sign-in page would spend what they need to sign in; the
-/// 2026-09-22 review pointed out what that leaves — one route on this server
-/// that an unauthenticated caller may drive for nothing. It is counted first
-/// and by the same call `/enrolment/operator/setup/check` beside it makes, so a
-/// source that has spent its budget here has spent it there and at `/session`
-/// too.
+/// **It charges a per-source budget of its own** — `setup-state:` + the
+/// source, [`crate::sessions::SETUP_STATE_MAX_PER_SOURCE`] per window. The
+/// ADR-0056 build exempted the route altogether, which left one thing on this
+/// server an unauthenticated caller could drive for nothing; the first fix
+/// charged it against the SIGN-IN bucket, and the 2026-09-22 review pointed
+/// out what that costs: an office behind one address whose page loads refuse
+/// its own sign-ins, and — worse — a 429 here takes the first-run screen away,
+/// so a deployment that is still pending looks finished to everybody behind
+/// that address. Its own bucket keeps each fault inside its own route.
+/// [`crate::sessions::SessionStore::check_setup_state_budget`] carries the
+/// argument.
+///
+/// **A 429 carries `Retry-After`**, as every other capped route here does, so
+/// the client waits and asks again rather than guessing that setup is
+/// finished.
 ///
 /// **Two guards, not one, because they bound different things.** The budget
 /// bounds the requests one source may make; the cache inside
@@ -819,10 +835,7 @@ async fn setup_state_handler(
     let source = state
         .client_address
         .of(request.headers(), request.extensions());
-    state
-        .sessions
-        .check_source_budget(PrincipalKind::Operator, &source)
-        .await?;
+    state.sessions.check_setup_state_budget(&source).await?;
     let answer = state
         .credentials
         .setup_state()
@@ -986,10 +999,16 @@ impl IntoResponse for CredentialRefusal {
     }
 }
 
+/// The same two headers as [`bytes_response`] over an empty body: a 200 with
+/// no bytes is still an answer about one caller's account, and `no-store`
+/// belongs on it for the reason that function's doc gives.
 fn empty_response() -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         Vec::new(),
     )
         .into_response()
@@ -1150,9 +1169,16 @@ impl IntoResponse for Refusal {
             // A setup session reaching a route it may not. **403 and not 401**:
             // the holder IS authenticated, and telling them to authenticate
             // again would send them round a loop that cannot end.
+            // **The sentence, 2026-09-22 (ADR-0056 decision 4).** It was
+            // `enrol an app code first`; the factor is an *authenticator app*
+            // everywhere a person can read it now, and a wire sentence the
+            // client matches on is read by a person the moment anything goes
+            // wrong with it. The client matches either spelling for one
+            // release, because a deployment may run a client and a server from
+            // different builds across one restart.
             SessionError::TotpRequired => {
-                tracing::info!(reason = %self.0, "an app code must be enrolled first");
-                (StatusCode::FORBIDDEN, "enrol an app code first\n")
+                tracing::info!(reason = %self.0, "an authenticator must be set up first");
+                (StatusCode::FORBIDDEN, "set up an authenticator first\n")
             }
             // ADR-0056 decision 3, step one of the two-step sign-in. **401 and
             // its own sentence**: no session was issued, so it is not a 200,

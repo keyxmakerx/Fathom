@@ -148,12 +148,14 @@ describe('buildSignInBody (api.rs sign_in_handler, six fields since ADR-0055 dec
 // The two-step sign-in, and the challenge the middle of it leaves unspent.
 //
 // ADR-0056 decision 3 as this round settles it: the second-factor answer is
-// a ROLLBACK, not a refusal -- nothing sealed, nothing counted, and the
-// nonce still good -- so the second post is the FIRST challenge again with
-// the code beside the password. If this client asked for a second challenge
-// there, an ordinary two-step sign-in would cost two challenges where a
-// one-shot sign-in cost one, which is the thing the contract exists to
-// prevent. 2026-09-22.
+// a ROLLBACK, not a refusal -- nothing sealed, nothing against the account's
+// bucket, and the nonce still good -- so the second post is the FIRST
+// challenge again with the code beside the password. If this client asked
+// for a second challenge there, an ordinary two-step sign-in would cost two
+// challenges where a one-shot sign-in cost one, which is the thing the
+// contract exists to prevent. The probe does cost one unit of the per-source
+// budget, committed on its own, so that the password holder cannot run
+// unlimited argon2id on one challenge. 2026-09-22.
 // ---------------------------------------------------------------------
 describe('completeSignIn, twice on one challenge', () => {
   function signInAnswer(): Uint8Array {

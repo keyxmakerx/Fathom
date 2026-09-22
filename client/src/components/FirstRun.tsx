@@ -1,17 +1,17 @@
-import { useState, type ComponentType, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import { signIn, signOut } from '../api/auth';
 import { PRINCIPAL_KIND_STEWARD } from '../api/constants';
 import { redeemOperatorSetup } from '../api/credentials';
 import { parseToken } from '../api/enrolment';
 import { ApiRefusal } from '../api/errors';
-import { checkSetupToken, refreshSetupState } from '../api/setup';
-import * as AccountModule from './Account';
-import { describe } from './Account';
+import { checkSetupToken, refreshSetupState, type SetupState } from '../api/setup';
+import { AuthenticatorEnrolment, describe } from './Account';
 import '../styles/signin.css';
 
 /**
- * The first run: one flow, five numbered steps, and while the server says
+ * The first run: one flow, five numbered steps and then Home — the ADR's six
+ * screens, of which the sixth is the product itself. While the server says
  * `pending` it is the only thing this client shows (ADR-0056 decisions 1 and
  * 2). It replaces `Setup.tsx`, which was one long form behind a link on the
  * sign-in door — three fields and three doors for a person who has just
@@ -29,7 +29,8 @@ import '../styles/signin.css';
  *   3. **Set up your authenticator app**, and 4. **recovery codes** — the
  *      enrolment component on the account screen, which is the same two steps
  *      a person meets later from their own account and is not duplicated
- *      here.
+ *      here. It says which of the two it is showing (`onStage`), so the
+ *      progress line over it is the right number on both.
  *   5. **Sign in with your new authenticator.** Here, and it is the step that
  *      makes the flow land where the ADR says it lands.
  *
@@ -44,32 +45,19 @@ import '../styles/signin.css';
  * the person has just proved they can produce, ends the setup session and
  * lands them on Home with an `A0T` one that the console takes.
  *
+ * **And the way out of step 5.** A person whose app is not giving them a code
+ * they can use can take the ordinary door instead — and that button ends the
+ * setup session first (`handleUseTheDoor`). It did not, and so handed the
+ * person to the door still holding the `A0` session this step exists to
+ * replace: they landed on Home on it and the Site entry was refused, which is
+ * the state the paragraph above describes. 2026-09-22.
+ *
  * The token is held in this component's own state only — never a URL, a query
  * string, a log line or `localStorage` — and cleared the moment the server
  * confirms it is spent, exactly as `Enrol.tsx` handles an invitation. The
  * password is held the same way, for the one reason step 5 needs it, and
  * cleared with it.
  */
-
-/**
- * Steps 3 and 4's screens, from the account screen's own module.
- *
- * ADR-0056 decision 4 takes "app code" out of every name a person reads, and
- * the other client stream renames this export `AuthenticatorEnrolment`. Both
- * names are looked for so that neither half of the build is broken while the
- * two streams are merged: the new name when it is there, today's name until
- * it is. The props are the same either way — `{ address, onDone }`.
- */
-export interface AuthenticatorEnrolmentProps {
-  address: string;
-  onDone?: () => void;
-}
-type EnrolmentExports = Partial<
-  Record<'AuthenticatorEnrolment' | 'AppCodeEnrolment', ComponentType<AuthenticatorEnrolmentProps>>
->;
-const enrolmentExports = AccountModule as unknown as EnrolmentExports;
-const AuthenticatorEnrolment: ComponentType<AuthenticatorEnrolmentProps> | null =
-  enrolmentExports.AuthenticatorEnrolment ?? enrolmentExports.AppCodeEnrolment ?? null;
 
 /** The fifteen-character floor, said inline on the screen that asks for a
  * password and checked here before the round trip. The server is what
@@ -81,7 +69,9 @@ const PASSWORD_MINIMUM = 15;
 /** How many steps a person is walked through, and what each is called.
  * Steps 3 and 4 are drawn by the enrolment component, not here — they are
  * named in this one list so that the progress line and the ADR agree about
- * how long this is (ADR-0056 decision 2). */
+ * how long this is (ADR-0056 decision 2). The ADR's sixth screen is Home,
+ * which this flow lands on and does not draw, so it is not counted here:
+ * "Step 5 of 5" is the last thing this component says. */
 export const FIRST_RUN_STEPS = [
   'Welcome',
   'Choose a password',
@@ -142,6 +132,33 @@ export const SETUP_TOKEN_REFUSED =
  */
 export const PASSWORD_SET_NOTICE = 'Your password is set. Sign in with it.';
 
+/**
+ * What the sign-in door is told when a person leaves step 5 for it.
+ *
+ * Both credentials exist by then — the password was set at step 2 and the
+ * authenticator was confirmed at step 3 — so the door asks for exactly the
+ * two things they have, and this says so rather than leaving them to guess
+ * whether the code is wanted. The person who presses that button is usually
+ * one whose app is not giving them a code they can use yet; nothing they did
+ * was wrong, and this is not a refusal.
+ */
+export const AUTHENTICATOR_SET_NOTICE =
+  'Your password and authenticator are set. Sign in with them.';
+
+/**
+ * What this screen says when the server, asked again, still says this
+ * deployment has not been set up.
+ *
+ * It should not happen: the state route answers `done` from the moment the
+ * first operator has a stored password, and this flow only asks after the
+ * server has said it set one. If it does happen, handing the person to the
+ * sign-in door would be this client deciding, against the server's own
+ * answer, that the first run is over. So the flow stays where it is and says
+ * what it was told; the console line beside it carries the detail.
+ */
+export const SETUP_STILL_PENDING =
+  'This server still reports that it has not been set up. Nothing more can be done from this screen — reload the page, and if it opens on the first step again, the setup did not complete.';
+
 /** What a refused code says at step 5. The server answers its uniform
  * sentence, and this screen does not repeat it: the password in hand is the
  * one this same flow set a minute ago, so the code is the only thing in the
@@ -158,43 +175,77 @@ export interface FirstRunProps {
    */
   onDone?: (address: string) => void;
   /**
-   * The password is set, but this flow cannot finish signing the person in
-   * (step 2's sign-in failed, and the token it spent is gone). Show the
-   * sign-in door with `address` prefilled and [`PASSWORD_SET_NOTICE`] above
-   * it. Never the token step again: the token no longer exists, and blaming
-   * it would be this screen inventing a cause.
+   * This flow has handed the person to the sign-in door, and the server has
+   * confirmed the deployment is set up. Show the door with `address`
+   * prefilled and `notice` above it — [`PASSWORD_SET_NOTICE`] when step 2's
+   * sign-in failed, [`AUTHENTICATOR_SET_NOTICE`] when the person left step 5
+   * for the door themselves. Never the token step again: the token is spent
+   * by either path, and blaming it would be this screen inventing a cause.
+   *
+   * **Only called once the state route has answered `done`** (or failed to
+   * answer at all). A server still saying `pending` keeps the person here,
+   * with [`SETUP_STILL_PENDING`] on the screen, because the caller's own
+   * gate is that same bit and handing over against it would be this client
+   * overruling the server about which screen a deployment is on.
    */
-  onPasswordSet?: (address: string) => void;
+  onUseTheDoor?: (address: string, notice: string) => void;
 }
 
-type Step =
+/** Which of the enrolment component's two screens is up, when this flow is
+ * showing it. `Account.tsx` owns them; this is what its `onStage` says, less
+ * `'done'`, which ends this step rather than renumbering it. */
+type EnrolmentScreen = 'setup' | 'recovery';
+
+export type Step =
   | { kind: 'token' }
   | { kind: 'checking' }
   | { kind: 'password'; address: string }
   | { kind: 'setting'; address: string }
   | { kind: 'signing-in'; address: string }
-  | { kind: 'authenticator'; address: string }
+  | { kind: 'authenticator'; address: string; screen: EnrolmentScreen }
   | { kind: 'second-factor'; address: string }
   | { kind: 'final-sign-in'; address: string }
-  | { kind: 'password-set'; address: string };
+  | { kind: 'leaving'; address: string }
+  /** The end of the road for this component: the door has been asked for.
+   * `handedOver` is false when the state route still said `pending`, which
+   * is the one case where the caller was not called and this card is what
+   * the person is left looking at. */
+  | { kind: 'handed-over'; address: string; notice: string; handedOver: boolean };
 
-/** Which of [`FIRST_RUN_STEPS`] each state of this component is on. The
- * enrolment component draws steps 3 and 4 from one state here, so the line
- * says 3 for both: the sub-step is the child's and this flow does not ask
- * for it. */
-const STEP_NUMBER: Record<Step['kind'], number> = {
-  token: 1,
-  checking: 1,
-  password: 2,
-  setting: 2,
-  'signing-in': 2,
-  authenticator: 3,
-  'second-factor': 5,
-  'final-sign-in': 5,
-  'password-set': 2,
-};
+/**
+ * Which of [`FIRST_RUN_STEPS`] a state of this component is on.
+ *
+ * **The recovery codes are step 4, and were saying 3.** The enrolment
+ * component draws steps 3 and 4 and this flow could not see which; it says
+ * so now through `onStage`, and the number follows it, so the line and
+ * [`FIRST_RUN_STEPS`] agree on every screen a person is shown. 2026-09-22.
+ *
+ * Exported so a runner with no DOM can check that agreement: the states this
+ * maps are behind a live server, and the number over the recovery codes is
+ * the thing that was wrong.
+ */
+export function stepNumber(step: Step): number {
+  switch (step.kind) {
+    case 'token':
+    case 'checking':
+      return 1;
+    case 'password':
+    case 'setting':
+    case 'signing-in':
+      return 2;
+    case 'authenticator':
+      return step.screen === 'recovery' ? 4 : 3;
+    case 'second-factor':
+    case 'final-sign-in':
+    case 'leaving':
+    case 'handed-over':
+      // The last thing this flow was on. The handover card is not a step and
+      // draws no progress line; the number is here so the type is total.
+      return 5;
+  }
+}
 
-export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
+export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
   const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
@@ -206,8 +257,9 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
     step.kind === 'checking' ||
     step.kind === 'setting' ||
     step.kind === 'signing-in' ||
-    step.kind === 'final-sign-in';
-  const progress = progressLine(STEP_NUMBER[step.kind]);
+    step.kind === 'final-sign-in' ||
+    step.kind === 'leaving';
+  const progress = progressLine(stepNumber(step));
 
   /** Step 1. A read: the token is not spent here, so a mistyped line costs
    * nothing but this answer. */
@@ -250,31 +302,46 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
   }
 
   /**
-   * The token is spent and the password is set, and this flow has nowhere
-   * left to send the person: hand them to the sign-in door.
+   * The token is spent and this flow has nowhere left to send the person:
+   * hand them to the sign-in door, with the sentence that says why.
    *
-   * **Ask the state route again first.** The deployment stopped being
-   * `pending` the instant the token was spent, and the answer this page read
-   * at boot is the one thing that would send the person back to a token step
-   * for a token that no longer exists. `refreshSetupState` re-asks with a
-   * five-second timeout; a timeout, a refusal or — the shape that should not
-   * happen — a server still saying `pending` all end the same way, because
-   * the password is set either way and the door is the only screen that can
-   * use it. The odd answer is logged rather than acted on.
+   * **Ask the state route again first, and act on what it says.** The
+   * deployment stopped being `pending` the instant the token was spent, and
+   * the answer this page read at boot is the one thing that would send the
+   * person back to a token step for a token that no longer exists.
+   * `refreshSetupState` re-asks with a five-second timeout, and the three
+   * answers are three outcomes:
+   *
+   * * `done` — the door, with `notice` above it. The ordinary case.
+   * * a timeout or a refusal — the door too. The server did not say this
+   *   deployment is unconfigured, and the credentials in the person's hands
+   *   are real whatever the route was doing.
+   * * `pending` — **stay here.** It should not happen; if it does, handing
+   *   over would be this client deciding against the server's own answer
+   *   which screen the deployment is on, and the caller gates on that same
+   *   bit. The person gets [`SETUP_STILL_PENDING`] and the console line
+   *   carries the detail.
+   *
+   * The answer, not `undefined`, is what the caller then gates on: it is
+   * called only on the first two outcomes. 2026-09-22.
    */
-  async function leaveForTheDoor(address: string) {
+  async function leaveForTheDoor(address: string, notice: string) {
+    let state: SetupState | null = null;
     try {
-      const state = await refreshSetupState();
-      if (state !== 'done') {
-        console.error(
-          'POST /enrolment/operator/setup answered, but GET /setup/state still says pending',
-        );
-      }
+      state = await refreshSetupState();
     } catch (error) {
       console.error(error);
     }
-    setStep({ kind: 'password-set', address });
-    onPasswordSet?.(address);
+    if (state === 'pending') {
+      console.error(
+        'the setup token was spent, but GET /setup/state still says pending; staying in the first-run flow',
+      );
+      setStep({ kind: 'handed-over', address, notice, handedOver: false });
+      setRefusal(SETUP_STILL_PENDING);
+      return;
+    }
+    setStep({ kind: 'handed-over', address, notice, handedOver: true });
+    onUseTheDoor?.(address, notice);
   }
 
   /** Step 2. Spends the token, then signs in with what was just set. */
@@ -330,11 +397,11 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
     } catch (error) {
       console.error(error);
       setRefusal(`${describe(error)} ${PASSWORD_SET_NOTICE}`);
-      await leaveForTheDoor(address);
+      await leaveForTheDoor(address, PASSWORD_SET_NOTICE);
       return;
     }
     setAgain('');
-    setStep({ kind: 'authenticator', address });
+    setStep({ kind: 'authenticator', address, screen: 'setup' });
   }
 
   /**
@@ -388,19 +455,60 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
     onDone?.(address);
   }
 
-  if (step.kind === 'password-set') {
-    // Only ever seen when nobody wired `onPasswordSet`: App.tsx shows the
-    // door on that call and this component is gone. It is here so the flow
-    // has no state that ends in a screen with nothing on it.
+  /**
+   * Step 5's way out: the ordinary sign-in door, for a person whose app is
+   * not giving them a code they can use.
+   *
+   * **The setup session is ended first.** It is still live at this point —
+   * password-only, `A0`, minted at step 2 — and handing the person to the
+   * door on top of it puts them on Home with a session the console's one
+   * press refuses (`operators.rs` refuses `A0` at
+   * `register_own_operator_key`). That was the finding: the button walked
+   * away from step 5 and left behind exactly the session step 5 exists to
+   * replace. A failure to sign out is logged and not shown; the door is
+   * still the right screen, and the old row expires on its own.
+   *
+   * Then the state route is asked again, and its answer decides whether the
+   * door is offered at all — see [`leaveForTheDoor`]. 2026-09-22.
+   */
+  async function handleUseTheDoor(address: string) {
+    setRefusal(null);
+    setStep({ kind: 'leaving', address });
+    try {
+      await signOut();
+    } catch (error) {
+      console.error(error);
+    }
+    // Nothing this flow held is needed at the door: the person types their
+    // own password there, and the code is the one thing it will ask for
+    // after it.
+    setPassword('');
+    setAgain('');
+    setCode('');
+    await leaveForTheDoor(address, AUTHENTICATOR_SET_NOTICE);
+  }
+
+  if (step.kind === 'handed-over') {
+    // With a caller wired, this is seen for a moment or not at all: `App.tsx`
+    // shows the door on the call and this component is gone. It is what a
+    // person is left looking at in the two cases where it is not — nobody
+    // wired the callback, or the server still says `pending` and the
+    // handover was not made.
     return (
       <div className="signin">
         <div className="signin__card">
           <h1 className="signin__title">Fathom</h1>
-          <h2 className="signin__heading">{PASSWORD_SET_NOTICE}</h2>
-          <p className="signin__subtitle">
-            The setup token was spent, so there is nothing left to redeem. Reload this page and
-            sign in at the door with {step.address} and the password you just chose.
-          </p>
+          <h2 className="signin__heading">{step.notice}</h2>
+          {/* Only where the door is in fact the next screen. With the server
+              still saying `pending`, sending a person to a door this client
+              is not showing them would be an instruction they cannot
+              follow; the sentence in the alert below is what they have. */}
+          {step.handedOver && (
+            <p className="signin__subtitle">
+              The setup token was spent, so there is nothing left to redeem. Reload this page and
+              sign in at the door as {step.address}.
+            </p>
+          )}
           {refusal && (
             <div className="signin__refusal" role="alert">
               {refusal}
@@ -411,7 +519,7 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
     );
   }
 
-  if (step.kind === 'second-factor' || step.kind === 'final-sign-in') {
+  if (step.kind === 'second-factor' || step.kind === 'final-sign-in' || step.kind === 'leaving') {
     const address = step.address;
     return (
       <FinalSignInStage
@@ -422,29 +530,42 @@ export function FirstRun({ onDone, onPasswordSet }: FirstRunProps) {
         refusal={refusal}
         onCode={setCode}
         onSubmit={(event) => void handleFinalSignIn(event, address)}
-        onUseTheDoor={onPasswordSet ? () => onPasswordSet(address) : undefined}
+        onUseTheDoor={onUseTheDoor ? () => void handleUseTheDoor(address) : undefined}
+        leaving={step.kind === 'leaving'}
       />
     );
   }
 
   if (step.kind === 'authenticator') {
+    const address = step.address;
+    const onRecovery = step.screen === 'recovery';
     return (
       <div className="signin">
         <div className="signin__card">
           <h1 className="signin__title">Fathom</h1>
           <p className="signin__progress">{progress}</p>
-          <h2 className="signin__heading">{FIRST_RUN_STEPS[2]}</h2>
-          <p className="signin__subtitle">{authenticatorStepIntro(step.address)}</p>
-          {AuthenticatorEnrolment && (
-            <AuthenticatorEnrolment
-              address={step.address}
-              onDone={() => {
-                setCode('');
-                setRefusal(null);
-                setStep({ kind: 'second-factor', address: step.address });
-              }}
-            />
-          )}
+          <h2 className="signin__heading">{onRecovery ? FIRST_RUN_STEPS[3] : FIRST_RUN_STEPS[2]}</h2>
+          {/* Step 4 writes its own opening sentence — the codes are shown
+              once, and the screen that shows them says so in its own words.
+              Repeating it here would be two sentences about the same ten
+              codes, one of them this file's guess at the other. */}
+          {!onRecovery && <p className="signin__subtitle">{authenticatorStepIntro(address)}</p>}
+          <AuthenticatorEnrolment
+            address={address}
+            // Which of the enrolment's two screens is up, so the progress
+            // line above is right on both: the recovery codes are step 4 and
+            // were saying 3 (ADR-0056 decision 2). `'done'` is not a screen
+            // — `onDone` below moves this flow on.
+            onStage={(stage) => {
+              if (stage === 'done') return;
+              setStep({ kind: 'authenticator', address, screen: stage });
+            }}
+            onDone={() => {
+              setCode('');
+              setRefusal(null);
+              setStep({ kind: 'second-factor', address });
+            }}
+          />
         </div>
       </div>
     );
@@ -709,6 +830,10 @@ export interface FinalSignInStageProps {
    * use: the ordinary sign-in door, which asks for exactly the same three
    * things. Absent when the caller has no door to send them to. */
   onUseTheDoor?: () => void;
+  /** True while that way out is being taken — the setup session is being
+   * ended and the state route asked again. The button says so rather than
+   * looking unpressed. */
+  leaving?: boolean;
 }
 
 /** Step 5: sign in with the authenticator that has just been set up. */
@@ -721,6 +846,7 @@ export function FinalSignInStage({
   onCode,
   onSubmit,
   onUseTheDoor,
+  leaving = false,
 }: FinalSignInStageProps) {
   return (
     <div className="signin">
@@ -757,8 +883,11 @@ export function FinalSignInStage({
           </p>
         </div>
 
+        {/* While the way out below is being taken, this button is disabled
+            but does not claim to be signing anybody in: the one thing
+            happening then is the setup session ending. */}
         <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy && !leaving ? 'Signing in…' : 'Sign in'}
         </button>
 
         {refusal && (
@@ -768,8 +897,13 @@ export function FinalSignInStage({
         )}
 
         {onUseTheDoor && (
-          <button type="button" className="signin__switch" onClick={onUseTheDoor}>
-            Sign in at the ordinary door instead
+          <button
+            type="button"
+            className="signin__switch"
+            onClick={onUseTheDoor}
+            disabled={busy}
+          >
+            {leaving ? 'Ending this session…' : 'Sign in at the ordinary door instead'}
           </button>
         )}
       </form>

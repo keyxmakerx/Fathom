@@ -12,6 +12,14 @@
 // `refusalFrom`, exactly as `./auth.ts`'s challenge and `./credentials.ts`'s
 // setup and reset routes do.
 //
+// **The state route has a bucket of its own** (2026-09-22, this round): a
+// per-source budget keyed `setup-state`, separate from the sign-in one and far
+// larger, because a page load is not a sign-in attempt. Two consequences here:
+// a busy office cannot spend its own sign-ins on opening the page, and a `429`
+// from this route is a "not now" rather than a verdict — [`fetchSetupState`]
+// waits what the server asks for, bounded, and asks once more before anything
+// falls back to the sign-in door.
+//
 // **What the state route says and what it does not.** One bit about the
 // deployment — "the first operator has no stored password yet" — and never a
 // bit about an address, which is what keeps the per-address answers identical
@@ -65,7 +73,37 @@ export function parseSetupState(bytes: Uint8Array): SetupState {
  */
 const SETUP_STATE_TIMEOUT_MS = 5_000;
 
-export async function fetchSetupState(): Promise<SetupState> {
+/**
+ * The longest this client waits on a `429` from the state route before asking
+ * again.
+ *
+ * The route has a per-source bucket of its own, separate from the sign-in one
+ * (120 per window, keyed `setup-state`), so an office behind one address can
+ * load the page without eating anybody's sign-in attempts. A 429 on it is
+ * therefore an ordinary, temporary "not now" rather than a verdict about this
+ * deployment — and answering it by falling straight through to the sign-in
+ * door would take the first-run screen away from an install that has not been
+ * set up. So the wait the server asks for is honoured once, bounded here: a
+ * `Retry-After` of half an hour would otherwise be a blank page for half an
+ * hour, and the door, wrong as it is on a pending deployment, is a screen a
+ * person can act on. 2026-09-22.
+ */
+export const SETUP_STATE_MAX_WAIT_SECONDS = 30;
+
+/** What a `429` with no `Retry-After` waits. The server sends the header; this
+ * is for a proxy in front of it that does not. */
+const SETUP_STATE_DEFAULT_WAIT_SECONDS = 1;
+
+/** How long to wait before the one retry, in milliseconds — the server's own
+ * number, floored at nothing and capped at
+ * [`SETUP_STATE_MAX_WAIT_SECONDS`]. Exported because the bound is the part
+ * worth a test, and a test that waited the real time would be the wait. */
+export function setupStateRetryDelayMs(retryAfterSeconds: number | null): number {
+  const asked = retryAfterSeconds ?? SETUP_STATE_DEFAULT_WAIT_SECONDS;
+  return Math.min(Math.max(asked, 0), SETUP_STATE_MAX_WAIT_SECONDS) * 1_000;
+}
+
+async function askForSetupState(): Promise<SetupState> {
   const response = await fetch('/setup/state', {
     signal: AbortSignal.timeout(SETUP_STATE_TIMEOUT_MS),
   });
@@ -73,6 +111,28 @@ export async function fetchSetupState(): Promise<SetupState> {
     throw await refusalFrom(response);
   }
   return parseSetupState(new Uint8Array(await response.arrayBuffer()));
+}
+
+/**
+ * Ask the route, and on a `429` wait what it asks for — bounded — and ask
+ * **once** more.
+ *
+ * One retry and not a loop: two tries bound what a hung or angry server costs
+ * a page load, and the second answer is either the bit or the fallback. Every
+ * other failure, including the timeout, is thrown as it is: a client that read
+ * a failure as `pending` would put a token field in front of a deployment that
+ * has been running for a year.
+ */
+export async function fetchSetupState(): Promise<SetupState> {
+  try {
+    return await askForSetupState();
+  } catch (error) {
+    if (!(error instanceof ApiRefusal) || error.status !== 429) throw error;
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, setupStateRetryDelayMs(error.retryAfterSeconds)),
+    );
+    return askForSetupState();
+  }
 }
 
 /** The one read per page load, on `./placement.ts`'s `consoleFlag()` pattern

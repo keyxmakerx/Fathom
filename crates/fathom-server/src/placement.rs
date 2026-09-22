@@ -1363,7 +1363,10 @@ async fn flag(
     crypto::lp(&mut out, exposure.decided_by().as_bytes());
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
         out,
     )
         .into_response()
@@ -1405,7 +1408,10 @@ async fn request_placement(
     crypto::u64_le(&mut out, requested.confirm_by_unix as u64);
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
         out,
     )
         .into_response())

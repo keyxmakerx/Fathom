@@ -335,7 +335,7 @@ impl core::fmt::Display for CredentialError {
                  tell a wrong code from one that has already been used",
             ),
             Self::NoTotpEnrolled => {
-                f.write_str("this account has no app code enrolled, and this act needs one")
+                f.write_str("this account has no authenticator set up, and this act needs one")
             }
             // **ADR-0056 decision 4: "authenticator", not "app code".** This
             // sentence is a 409's body and a client may print it, which makes
@@ -356,7 +356,7 @@ impl core::fmt::Display for CredentialError {
                  change here. The operator custody is exercised through /admin",
             ),
             Self::TotpRequired => f.write_str(
-                "this account holds the operator custody and has no app code yet, so its \
+                "this account holds the operator custody and has no authenticator yet, so its \
                  session may do nothing but finish the setup (ADR-0055 decision 10)",
             ),
             Self::Unverifiable(what) => write!(
@@ -1481,7 +1481,7 @@ pub const SETUP_STATE_CACHE: Duration = Duration::from_secs(5);
 ///   is the whole point of it: see [`CredentialStore::setup_state`].
 #[derive(Default)]
 struct SetupStateCache {
-    answers: std::sync::Mutex<HashMap<String, (std::time::Instant, SetupState)>>,
+    answers: std::sync::Mutex<HashMap<String, Slot>>,
     /// How many times the query has actually run, per deployment. See
     /// [`setup_state_queries`].
     queries: std::sync::Mutex<HashMap<String, u64>>,
@@ -1490,6 +1490,25 @@ struct SetupStateCache {
     /// callers, and a gate per deployment would be a map an unauthenticated
     /// caller could grow.
     refresh: tokio::sync::Mutex<()>,
+}
+
+/// One deployment's slot: what is remembered, and **which generation of the
+/// fact it is remembered from**.
+///
+/// The generation is the whole of the 2026-09-22 fix. A reader queries, the act
+/// that flips the bit commits and calls [`forget_setup_state`], and only then
+/// does the reader store what it read — putting `pending` back over a
+/// deployment that has finished setting up, for the whole five seconds of
+/// [`SETUP_STATE_CACHE`], which is the browser that just finished setup being
+/// sent back to step one of it. Forgetting bumps the generation; a put carries
+/// the generation its query was issued under and is dropped if that is no
+/// longer the current one. It is the ordinary ABA guard, and it is exact: the
+/// counter only ever moves forward, under the same lock the answer is stored
+/// under.
+#[derive(Default, Clone, Copy)]
+struct Slot {
+    generation: u64,
+    answer: Option<(std::time::Instant, SetupState)>,
 }
 
 /// The one cache, made on first use.
@@ -1507,9 +1526,14 @@ fn setup_state_cache() -> &'static SetupStateCache {
 /// operator the bit is about. A caller that forgets to call it is not wrong for
 /// longer than [`SETUP_STATE_CACHE`]; a caller that calls it needlessly costs
 /// one query.
+/// **It bumps the generation as well as dropping the answer**, so a query that
+/// was already in flight when this ran cannot store its now-stale reading
+/// afterwards. [`Slot`] carries the argument.
 pub fn forget_setup_state(deployment: &str) {
     if let Ok(mut held) = setup_state_cache().answers.lock() {
-        held.remove(deployment);
+        let slot = held.entry(deployment.to_string()).or_default();
+        slot.generation = slot.generation.wrapping_add(1);
+        slot.answer = None;
     }
 }
 
@@ -1533,14 +1557,36 @@ pub fn setup_state_queries(deployment: &str) -> u64 {
 impl SetupStateCache {
     fn get(&self, deployment: &str) -> Option<SetupState> {
         let held = self.answers.lock().ok()?;
-        let (taken_at, state) = *held.get(deployment)?;
+        let (taken_at, state) = held.get(deployment)?.answer?;
         (taken_at.elapsed() < SETUP_STATE_CACHE).then_some(state)
     }
 
-    fn put(&self, deployment: &str, state: SetupState) {
-        if let Ok(mut held) = self.answers.lock() {
-            held.insert(deployment.to_string(), (std::time::Instant::now(), state));
+    /// The generation a reader must carry from **before** its query to the put
+    /// after it. A deployment nothing has asked about yet is generation zero,
+    /// and asking creates the slot so that a [`forget_setup_state`] arriving
+    /// while the query runs has something to bump.
+    fn generation(&self, deployment: &str) -> u64 {
+        match self.answers.lock() {
+            Ok(mut held) => held.entry(deployment.to_string()).or_default().generation,
+            // A poisoned lock is no cache at all: `put_if_current` cannot take
+            // it either, so nothing is remembered and every caller queries.
+            Err(_) => 0,
         }
+    }
+
+    /// Remember this answer **only if the fact has not moved since the query
+    /// that produced it was issued**. `false` means it was dropped, which is
+    /// the forget/put race closing.
+    fn put_if_current(&self, deployment: &str, state: SetupState, generation: u64) -> bool {
+        let Ok(mut held) = self.answers.lock() else {
+            return false;
+        };
+        let slot = held.entry(deployment.to_string()).or_default();
+        if slot.generation != generation {
+            return false;
+        }
+        slot.answer = Some((std::time::Instant::now(), state));
+        true
     }
 
     fn count_query(&self, deployment: &str) {
@@ -2578,6 +2624,15 @@ impl CredentialStore {
     /// An error is not cached, so a deployment whose database is down does not
     /// hold a wrong answer for five seconds; the next caller retries.
     ///
+    /// **Nor is an answer the fact has already moved past.** The second round of
+    /// the 2026-09-22 review found the remaining window: a reader that queried
+    /// `pending` before [`CredentialStore::redeem_setup`] committed could store
+    /// it AFTER `forget_setup_state` had run, and the deployment that had just
+    /// finished setting up answered `pending` for another five seconds — which
+    /// is the browser that did it being sent back to step one. The put carries
+    /// the generation its query was issued under and is dropped if a forget has
+    /// landed in between ([`Slot`]).
+    ///
     /// **The route charges the per-source budget as well** (`api.rs`). The
     /// cache bounds the database and the budget bounds the request, and the
     /// build that had only the first of those left one unauthenticated route
@@ -2594,6 +2649,10 @@ impl CredentialStore {
         if let Some(state) = cache.get(&self.deployment) {
             return Ok(state);
         }
+        // **Read before the query, checked after it**: see [`Slot`]. Anything
+        // that moves the bit between these two lines makes this reading stale,
+        // and a stale reading must not be remembered for five seconds.
+        let generation = cache.generation(&self.deployment);
         cache.count_query(&self.deployment);
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -2622,7 +2681,7 @@ impl CredentialStore {
             Some(row) if row.get::<_, bool>(0) => SetupState::Pending,
             _ => SetupState::Done,
         };
-        cache.put(&self.deployment, state);
+        cache.put_if_current(&self.deployment, state, generation);
         Ok(state)
     }
 
