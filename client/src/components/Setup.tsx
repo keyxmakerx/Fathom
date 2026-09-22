@@ -4,6 +4,7 @@ import { signIn } from '../api/auth';
 import { PRINCIPAL_KIND_STEWARD } from '../api/constants';
 import { redeemOperatorSetup } from '../api/credentials';
 import { MalformedTokenError, parseToken } from '../api/enrolment';
+import { ApiRefusal } from '../api/errors';
 import { AppCodeEnrolment, describe } from './Account';
 import '../styles/signin.css';
 
@@ -58,6 +59,14 @@ type Stage =
  * string, a log line or `localStorage` — and cleared the moment the server
  * confirms it is spent, exactly as `Enrol.tsx` handles an invitation.
  */
+/** What a refused redemption says here. The server answers one sentence for
+ * every cause, for the audit trail; this lists the causes for the person and
+ * says what to do about each, without guessing which one it was. */
+const SETUP_REFUSED =
+  'Refused. Either this is not the current token (the file is rewritten at every first start and upgrade, so ' +
+  'copy it out again after the latest restart), or it has expired, or the address is not the one the server was ' +
+  'started with. A fresh code: fathom-server recover-operator <address>, run on the host.';
+
 export function Setup({ onUseSignIn, onDone }: SetupProps) {
   const [token, setToken] = useState('');
   const [address, setAddress] = useState('');
@@ -97,7 +106,7 @@ export function Setup({ onUseSignIn, onDone }: SetupProps) {
       // it, and it says that by answering. A refusal leaves the field as
       // typed, the same reading `Enrol.tsx` makes.
       setStage({ kind: 'form' });
-      setRefusal(describe(error));
+      setRefusal(error instanceof ApiRefusal && error.retryAfterSeconds == null ? SETUP_REFUSED : describe(error));
       return;
     }
     // Confirmed spent: nothing on this screen may suggest sending it again.
@@ -142,7 +151,10 @@ export function Setup({ onUseSignIn, onDone }: SetupProps) {
     <div className="signin">
       <form className="signin__card" onSubmit={handleSubmit}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">Set this server up. You need the token file the server wrote at first start.</p>
+        <p className="signin__subtitle">
+          Set up the first operator. You need the token line from the file the server wrote at its first start, or
+          the code that <code>fathom-server recover-operator</code> printed.
+        </p>
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="setup-token">
@@ -161,6 +173,12 @@ export function Setup({ onUseSignIn, onDone }: SetupProps) {
             disabled={busy}
             required
           />
+          <p className="signin__hint">
+            The whole line, beginning <code>op_</code>, from the file named in the server&apos;s FIRST START or
+            UPGRADE log line. Copy it out with <code>docker compose cp</code>; <code>docs/RUNNING-IT.md</code> shows
+            the command. Every restart that writes that file replaces the old one, so copy it again after the latest
+            restart.
+          </p>
         </div>
 
         <div className="signin__field">
@@ -179,8 +197,8 @@ export function Setup({ onUseSignIn, onDone }: SetupProps) {
             required
           />
           <p className="signin__hint">
-            The address this server was started with — <code>FATHOM_OPERATOR_NOTICE_ADDRESS</code>. The first start
-            made the account for it and bound the operator custody to it.
+            The address in <code>FATHOM_OPERATOR_NOTICE_ADDRESS</code>, typed exactly as it is there. The server made
+            this account for it at first start and bound the operator custody to it.
           </p>
         </div>
 
