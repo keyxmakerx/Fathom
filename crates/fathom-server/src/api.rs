@@ -333,7 +333,10 @@ async fn sign_in_handler(
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
     let password = text(&fields[4], "credential")?;
-    let totp_code = text(&fields[5], "app code")?;
+    // The label travels into `SessionError::Malformed`, whose Display an
+    // operator reads: "verification code", the name on the screen (ADR-0056
+    // decision 4).
+    let totp_code = text(&fields[5], "verification code")?;
 
     let signed_in = state
         .sessions
@@ -401,7 +404,12 @@ async fn sign_out_handler(
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    Ok((StatusCode::OK, "signed out\n").into_response())
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "signed out\n",
+    )
+        .into_response())
 }
 
 /// `GET /organisations/{organisation}/capability` — the demonstration route,
@@ -497,6 +505,7 @@ async fn capability(
     match answer {
         Ok(capabilities) => Ok((
             StatusCode::OK,
+            [(axum::http::header::CACHE_CONTROL, "no-store")],
             format!("{}\n", capabilities.capability.as_str()),
         )
             .into_response()),
@@ -550,6 +559,14 @@ pub fn credential_router(state: CredentialApiState) -> Router {
         .route("/credentials/reset", post(request_reset_handler))
         .route("/credentials/reset/redeem", post(redeem_reset_handler))
         .route("/enrolment/operator/setup", post(operator_setup_handler))
+        // ADR-0056 decisions 1 and 2. Beside the route they walk up to, and on
+        // every host for the same reason it is: a person reaches the setup
+        // screen at the address the token file was handed to them at.
+        .route(
+            "/enrolment/operator/setup/check",
+            post(operator_setup_check_handler),
+        )
+        .route("/setup/state", axum::routing::get(setup_state_handler))
         .with_state(state)
 }
 
@@ -653,7 +670,7 @@ async fn confirm_totp_handler(
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
-    let code = text(&fields[0], "app code")?;
+    let code = text(&fields[0], "verification code")?;
     let codes = state
         .credentials
         .confirm_totp(&session, &code)
@@ -777,6 +794,112 @@ async fn operator_setup_handler(
     Ok(empty_response())
 }
 
+/// `GET /setup/state` — has this deployment's first operator finished?
+///
+/// No body, no session, no signature. Answer: `LP("pending")` or `LP("done")`.
+///
+/// ADR-0056 decision 1. One bit about the DEPLOYMENT and never about an
+/// address: a visitor to a pending deployment is shown the setup screen, so
+/// this is what they would see anyway, and the per-address answers of
+/// `/session` are untouched in content and in time (ASVS 5.0.0 6.3.8).
+///
+/// **It charges a per-source budget of its own** — `setup-state:` + the
+/// source, [`crate::sessions::SETUP_STATE_MAX_PER_SOURCE`] per window. The
+/// ADR-0056 build exempted the route altogether, which left one thing on this
+/// server an unauthenticated caller could drive for nothing; the first fix
+/// charged it against the SIGN-IN bucket, and the 2026-09-22 review pointed
+/// out what that costs: an office behind one address whose page loads refuse
+/// its own sign-ins, and — worse — a 429 here takes the first-run screen away,
+/// so a deployment that is still pending looks finished to everybody behind
+/// that address. Its own bucket keeps each fault inside its own route.
+/// [`crate::sessions::SessionStore::check_setup_state_budget`] carries the
+/// argument.
+///
+/// **A 429 carries `Retry-After`**, as every other capped route here does, so
+/// the client waits and asks again rather than guessing that setup is
+/// finished.
+///
+/// **Two guards, not one, because they bound different things.** The budget
+/// bounds the requests one source may make; the cache inside
+/// [`crate::credentials::CredentialStore::setup_state`] bounds the database
+/// work a crowd of sources can cause, and it is single-flight, so C concurrent
+/// callers arriving on a stale answer cause one query and not C.
+///
+/// `Cache-Control: no-store`, from [`bytes_response`]: the bit moves once and
+/// a browser or a proxy holding `pending` after it has moved is a person sent
+/// back to step one of a setup that is finished.
+async fn setup_state_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, CredentialRefusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    state.sessions.check_setup_state_budget(&source).await?;
+    let answer = state
+        .credentials
+        .setup_state()
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(16);
+    crypto::lp(&mut out, answer.as_str().as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /enrolment/operator/setup/check` — whose setup does this token open?
+///
+/// Body: `LP(token)`. Answer: 200, `LP(address)`.
+///
+/// ADR-0056 decision 1: the address is never typed, so it can never mismatch.
+/// A read — the token is not spent and nothing is written — so the screen that
+/// follows still has to present it to `/enrolment/operator/setup`.
+///
+/// **One sentence for every refused token**, rendered inline below: wrong,
+/// spent, expired and token-shaped-but-nobody's are one fact from outside. A
+/// body that is not one length-prefixed field at all is still the surface's own
+/// `400 malformed request`, because that is a caller speaking a protocol this
+/// server does not, and saying so is not a fact about any token.
+///
+/// Rate limited against the same source bucket as the redemption beside it.
+async fn operator_setup_check_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, CredentialRefusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
+    let fields = read_fields(&body, 1)?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Operator, &source)
+        .await?;
+    let address = match state
+        .credentials
+        .check_setup(&state.operators, &fields[0])
+        .await
+    {
+        Ok(address) => address,
+        // **The sentence is this route's own, and it is rendered here.**
+        // `TokenRefused` reaches [`CredentialRefusal`] from three routes and
+        // renders as the uniform `sign-in refused` for the two that are about
+        // a credential; this one is about a token in a file, and a person
+        // holding the wrong file needs to be told which thing was refused.
+        // Wrong, spent and expired are one sentence, as they are everywhere
+        // else a token is presented.
+        Err(crate::credentials::CredentialError::TokenRefused) => {
+            tracing::info!(reason = "token_refused", "a setup token was refused");
+            return Ok((StatusCode::UNAUTHORIZED, "setup token refused\n").into_response());
+        }
+        Err(e) => return Err(CredentialRefusal(e)),
+    };
+    let mut out = Vec::with_capacity(64);
+    crypto::lp(&mut out, address.as_bytes());
+    Ok(bytes_response(out))
+}
+
 /// One credential-plane refusal, on its way to a status code and a sentence.
 ///
 /// **The password policy explains itself and nothing else does.** A policy
@@ -876,10 +999,16 @@ impl IntoResponse for CredentialRefusal {
     }
 }
 
+/// The same two headers as [`bytes_response`] over an empty body: a 200 with
+/// no bytes is still an answer about one caller's account, and `no-store`
+/// belongs on it for the reason that function's doc gives.
 fn empty_response() -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         Vec::new(),
     )
         .into_response()
@@ -924,10 +1053,21 @@ fn thirty_two(field: &[u8], what: &'static str) -> Result<[u8; 32], Refusal> {
         .map_err(|_| SessionError::Malformed(what).into())
 }
 
+/// One `200` carrying bytes, with the two headers every API answer here wants.
+///
+/// **`Cache-Control: no-store` on all of them.** Nothing this function returns
+/// is a document: it is a session, a token's answer, a deployment's current
+/// state, a design read under one person's authority. A cache between the
+/// browser and this server holding any of it is either a stale answer to a
+/// question whose answer has moved or one caller's bytes offered to the next,
+/// and neither is worth the round trip it would save.
 fn bytes_response(body: Vec<u8>) -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         body,
     )
         .into_response()
@@ -1029,9 +1169,26 @@ impl IntoResponse for Refusal {
             // A setup session reaching a route it may not. **403 and not 401**:
             // the holder IS authenticated, and telling them to authenticate
             // again would send them round a loop that cannot end.
+            // **The sentence, 2026-09-22 (ADR-0056 decision 4).** It was
+            // `enrol an app code first`; the factor is an *authenticator app*
+            // everywhere a person can read it now, and a wire sentence the
+            // client matches on is read by a person the moment anything goes
+            // wrong with it. The client matches either spelling for one
+            // release, because a deployment may run a client and a server from
+            // different builds across one restart.
             SessionError::TotpRequired => {
-                tracing::info!(reason = %self.0, "an app code must be enrolled first");
-                (StatusCode::FORBIDDEN, "enrol an app code first\n")
+                tracing::info!(reason = %self.0, "an authenticator must be set up first");
+                (StatusCode::FORBIDDEN, "set up an authenticator first\n")
+            }
+            // ADR-0056 decision 3, step one of the two-step sign-in. **401 and
+            // its own sentence**: no session was issued, so it is not a 200,
+            // and the client has to know to ask for the verification code
+            // rather than to re-draw the first screen with a refusal on it.
+            // The sentence is the client's contract and is asserted byte for
+            // byte by `scripts/ci/first-operator-signin.mjs`.
+            SessionError::SecondFactorNeeded => {
+                tracing::info!(reason = %self.0, "a second factor is needed");
+                (StatusCode::UNAUTHORIZED, "second factor needed\n")
             }
             SessionError::NotSigned
             | SessionError::NoSuchSession

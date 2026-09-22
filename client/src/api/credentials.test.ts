@@ -119,8 +119,16 @@ describe('the credential answers', () => {
 
 });
 
-describe('the app-code refusal, which is a route and not a wall', () => {
+describe('the setup-gate refusal, which is a route and not a wall', () => {
   it('matches the 403 and the sentence api.rs fixes for SessionError::TotpRequired', () => {
+    expect(isTotpRequired(new ApiRefusal(403, 'set up an authenticator first', null))).toBe(true);
+  });
+
+  it('still matches the sentence a server from before 2026-09-22 sends', () => {
+    // ADR-0056 decision 4 moved this sentence, and a deployment restarts its
+    // halves one at a time: for the length of one restart this client can be
+    // talking to a server from the last build, and the refusal is the only
+    // thing that routes a person to the enrolment screen.
     expect(isTotpRequired(new ApiRefusal(403, 'enrol an app code first', null))).toBe(true);
   });
 
@@ -137,7 +145,7 @@ describe('the app-code refusal, which is a route and not a wall', () => {
     const original = globalThis.fetch;
     try {
       globalThis.fetch = (async () =>
-        new Response('enrol an app code first\n', { status: 403 })) as typeof globalThis.fetch;
+        new Response('set up an authenticator first\n', { status: 403 })) as typeof globalThis.fetch;
       // No session is set, so `signedFetch` throws before it reaches the
       // network -- which is not the refusal, and must read as "no".
       expect(await appCodeEnrolmentRequired()).toBe(false);

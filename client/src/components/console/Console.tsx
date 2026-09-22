@@ -16,6 +16,7 @@ import {
 import { useConsoleHost } from '../../api/placement';
 import { formatToken } from '../../api/enrolment';
 import { describeConsoleError } from './describeConsoleError';
+import { InvitationHandover } from './InvitationHandover';
 import { NoticesBanner } from './NoticesBanner';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
@@ -103,6 +104,10 @@ export function Console({ operatorId }: ConsoleProps) {
   }, [pendingConfirmBy]);
 
   const host = typeof window === 'undefined' ? '' : window.location.host;
+  // The scheme and host this page was served from, for the invitation
+  // address beside every minted token (ADR-0056 decision 6). Read here rather
+  // than in the leaf so there is one place that touches `window`.
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
 
   // Decision 9, literally: on a host the console does not answer on, every
   // operator control is ABSENT. Not disabled, not hidden — this component
@@ -252,18 +257,43 @@ export function Console({ operatorId }: ConsoleProps) {
             screen reads it, so the person just pastes the token and their address.
           </p>
           <ul className="console__minted">
-            {minted.map((m) => (
-              <li key={m.invitation.tokenId} className="console__minted-row">
-                <div className="console__minted-label">{m.label}</div>
-                <div className="console__minted-meta">
-                  {m.kind === 'organisation' ? 'shell' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
-                  {formatUnix(m.invitation.expiresAtUnix)}
-                </div>
-                <code className="console__token">
-                  {formatToken(m.invitation.token, m.kind === 'organisation' ? 'organisation' : 'steward')}
-                </code>
-              </li>
-            ))}
+            {minted.map((m) => {
+              const token = formatToken(
+                m.invitation.token,
+                m.kind === 'organisation' ? 'organisation' : 'steward',
+              );
+              return (
+                <li key={m.invitation.tokenId} className="console__minted-row">
+                  <div className="console__minted-label">{m.label}</div>
+                  <div className="console__minted-meta">
+                    {m.kind === 'organisation' ? 'shell' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
+                    {formatUnix(m.invitation.expiresAtUnix)}
+                  </div>
+                  {/* ADR-0056 decision 6: the address is what is handed over,
+                      and the bare token stays beside it for whoever would
+                      rather paste one into the enrolment screen. Both are
+                      the same invitation.
+
+                      **Only an account invitation has a door.** `/invite`
+                      redeems an account's enrolment; an organisation claim is
+                      redeemed by the steward-side genesis route, which is not
+                      built (`docs/NEXT.md`, first item). Offering an address
+                      for one was this board inventing a place to send a
+                      person. 2026-09-22. */}
+                  {m.kind === 'organisation' ? (
+                    <p className="console__note">
+                      There is no address to hand over for an organisation claim: the steward-side
+                      route that redeems it and runs the organisation&apos;s genesis is not built in
+                      this version (<code>docs/NEXT.md</code>). The token below is recorded on the
+                      site trail and waits for that route.
+                    </p>
+                  ) : (
+                    <InvitationHandover token={token} origin={origin} />
+                  )}
+                  <code className="console__token">{token}</code>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

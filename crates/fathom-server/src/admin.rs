@@ -346,7 +346,12 @@ async fn list_operators(
             operator.address.as_deref().unwrap_or("-"),
         ));
     }
-    Ok((StatusCode::OK, out).into_response())
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        out,
+    )
+        .into_response())
 }
 
 /// `GET /admin/organisations/list` — §1.1's first verb, at the top level.
@@ -373,7 +378,12 @@ async fn list_organisations(
     for (id, name) in &rows {
         out.push_str(&format!("{id} {name}\n"));
     }
-    Ok((StatusCode::OK, out).into_response())
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        out,
+    )
+        .into_response())
 }
 
 /// `POST /admin/operators` — §5.5's request half.
@@ -870,17 +880,30 @@ fn pending_response(id: &str, effective_at_unix: i64) -> Response {
     bytes_response(out)
 }
 
+/// `Cache-Control: no-store` on every one of them, the rule `api::bytes_response`
+/// states and the 2026-09-22 review found this module outside: nothing here is
+/// a document. It is one caller's answer under one caller's authority, and a
+/// cache between the browser and this server holding it is either stale or one
+/// caller's bytes offered to the next.
 fn bytes_response(body: Vec<u8>) -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         body,
     )
         .into_response()
 }
 
 fn ok() -> Response {
-    (StatusCode::OK, "done\n").into_response()
+    (
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "done\n",
+    )
+        .into_response()
 }
 
 /// One operator-plane refusal, on its way to a status code and a short

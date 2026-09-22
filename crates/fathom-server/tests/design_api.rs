@@ -531,6 +531,17 @@ async fn raw_request(
     headers: &[(&str, String)],
     body: &[u8],
 ) -> (String, Vec<u8>) {
+    let (status, _head, body) = raw_request_full(addr, method, path, headers, body).await;
+    (status, body)
+}
+
+async fn raw_request_full(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> (String, String, Vec<u8>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::net::TcpStream::connect(addr)
@@ -563,7 +574,7 @@ async fn raw_request(
         .nth(1)
         .unwrap_or_default()
         .to_string();
-    (status, resp_body)
+    (status, head, resp_body)
 }
 
 fn lp(out: &mut Vec<u8>, field: &[u8]) {
@@ -589,6 +600,19 @@ async fn call(
     path: &str,
     body: &[u8],
 ) -> (String, Vec<u8>) {
+    let (status, _head, body) = call_full(addr, person, method, path, body).await;
+    (status, body)
+}
+
+/// [`call`] with the response HEAD kept, for the claims that are about a
+/// header rather than a body.
+async fn call_full(
+    addr: SocketAddr,
+    person: &Person,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> (String, String, Vec<u8>) {
     let session_key = SoftwareKey::random().unwrap();
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
@@ -656,7 +680,7 @@ async fn call(
         counter,
     );
     let signature = session_key.sign(&message);
-    raw_request(
+    raw_request_full(
         addr,
         method,
         path,
@@ -1014,6 +1038,51 @@ async fn a_payload_written_by_write_plain_saves_and_opens_back_byte_for_byte() {
     assert_eq!(
         body, payload,
         "the bytes read back must equal the bytes write_plain produced, byte for byte"
+    );
+}
+
+/// **Opening a design says `Cache-Control: no-store`.**
+///
+/// The read route builds its response by hand, for the two version headers it
+/// carries, and until the 2026-09-22 review that meant it carried no
+/// `Cache-Control` at all. A design is one organisation's estate of record read
+/// under one person's grant: a proxy holding those bytes may offer them to the
+/// next caller through it, who may hold no grant on that scope at all.
+#[tokio::test]
+async fn opening_a_design_says_no_store() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let payload = a_plain_face_payload(1);
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let open_path = format!("/organisations/{}/designs/{}", estate.organisation, design);
+    let (status, head, _) = call_full(addr, &drawer, "GET", &open_path, b"").await;
+    assert_eq!(status, "200", "the design opens: {head}");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "a design came back without `cache-control: no-store`, so a cache between the browser \
+         and this server may keep one organisation's estate and offer it to the next \
+         caller:\n{head}"
     );
 }
 

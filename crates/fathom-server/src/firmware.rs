@@ -1646,6 +1646,17 @@ async fn fetch_handler(
         "fathom-firmware-sha256",
         hex(&computed).parse().expect("hex is a valid header value"),
     );
+    // `no-store`, like every other answer this server builds. The URL is the
+    // credential here — a switch cannot sign a request — so a copy of this
+    // image sitting in a shared cache is a copy of the one secret the route
+    // has, and a staging that replaces an image must not be answered from a
+    // proxy holding the one before it.
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store"
+            .parse()
+            .expect("a static cache-control is a valid header value"),
+    );
     Ok((StatusCode::OK, headers, body).into_response())
 }
 
@@ -2024,10 +2035,18 @@ async fn enter_fetch_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> 
 // Response framing
 // ---------------------------------------------------------------------------
 
+/// `Cache-Control: no-store` on every one of them, the rule `api::bytes_response`
+/// states and the 2026-09-22 review found this module outside: nothing here is
+/// a document. It is one caller's answer under one caller's authority, and a
+/// cache between the browser and this server holding it is either stale or one
+/// caller's bytes offered to the next.
 fn json_response(j: Json) -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         j.to_canonical_bytes(),
     )
         .into_response()

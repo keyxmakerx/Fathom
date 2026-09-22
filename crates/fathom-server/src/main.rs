@@ -848,9 +848,15 @@ async fn main() -> ExitCode {
                         }
                     }
                     // ADR-0055 decision 9: the account already holds a
-                    // credential and a confirmed app code, so there is nothing
-                    // to hand anybody. A token here would be a second bearer
-                    // secret standing beside a stronger route.
+                    // credential and a confirmed authenticator, so there is
+                    // nothing to hand anybody. A token here would be a second
+                    // bearer secret standing beside a stronger route.
+                    //
+                    // **The words in the line below are the words on the
+                    // screen** (ADR-0056 decision 4, 2026-09-22): the factor is
+                    // an authenticator app wherever a person reads it, and an
+                    // operator reading this log line at two in the morning is a
+                    // person.
                     None => tracing::warn!(
                         operator_id = %adopted.operator_id,
                         notice_address = %adopted.notice_address,
@@ -859,8 +865,9 @@ async fn main() -> ExitCode {
                         "UPGRADE: the operator created before this build was bound to the \
                          install address, and WHOEVER HOLDS THE ACCOUNT AT THAT ADDRESS NOW \
                          HOLDS THE OPERATOR CUSTODY. No token was written and none is needed: \
-                         that account already holds a credential and a confirmed app code, so \
-                         it signs in with those and registers an operator key from the \
+                         that account already holds a credential and a confirmed \
+                         authenticator, so it signs in with those and registers an operator \
+                         key from the \
                          console. Its own sessions were not ended -- only the operator \
                          principal's were -- so a browser already signed in to that account \
                          stays signed in."

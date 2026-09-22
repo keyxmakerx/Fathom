@@ -177,3 +177,28 @@
   border: var(--rule-hair) solid var(--hairline);
   font-size: var(--t-small);
 }
+
+/* The address an invitation is redeemed at, beside the token it carries
+   (ADR-0056 decision 6). Written 2026-09-22. */
+.console__handover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+}
+
+.console__handover-label {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.console__handover-address {
+  display: block;
+  word-break: break-all;
+  user-select: all;
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border: var(--rule-hair) solid var(--hairline);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--t-small);
+}

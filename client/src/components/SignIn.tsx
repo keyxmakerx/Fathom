@@ -1,22 +1,132 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { NoEnrolledKeyError, signIn } from '../api/auth';
+import {
+  beginSignIn,
+  completeSignIn,
+  isSecondFactorNeeded,
+  NoEnrolledKeyError,
+  signIn,
+  type SignInChallenge,
+} from '../api/auth';
 import { identityOfSlot, OPERATOR_PENDING_SLOT, type SlotIdentity } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
 import { listKeySlots } from '../crypto/keys';
 import '../styles/signin.css';
 
+/** What step two says it is doing, and for whom. A function rather than
+ * markup so that a runner with no DOM can check the wording: the second step
+ * is reached only through a live refusal from the server (ADR-0056
+ * decision 3), which a render-to-string pass cannot produce. */
+export function secondFactorIntro(address: string): string {
+  return `Signing in as ${address}. This account has an authenticator app, so it needs a code as well.`;
+}
+
+/** The hint under the one code field. Both kinds of code go in it, and the
+ * person who needs the second kind has already lost their phone (ADR-0056
+ * decisions 3 and 4). */
+export const VERIFICATION_CODE_HINT =
+  'Six digits from your authenticator app, or one of your recovery codes.';
+
+/**
+ * What a refused code says, on the step where the code is the only thing
+ * that can have been wrong.
+ *
+ * The server answers its one uniform sentence here as everywhere else, and
+ * this screen does not repeat it: by the time this step is on screen the
+ * address and the password have verified once (that is what drew it), and
+ * the second post carries the same two plus the code. So naming the code is
+ * not a guess about which check refused — it is the only new thing in the
+ * request. One sentence, and it says what to do next, because a person
+ * reading it is either holding a code that has just rolled over or reaching
+ * for the envelope with the recovery codes in it.
+ */
+export const VERIFICATION_CODE_REFUSED =
+  'That code was not accepted — wait for your authenticator app’s next code and type it again, or use one of your recovery codes.';
+
+/**
+ * How much of the challenge's life step two is willing to spend before it
+ * stops reusing the challenge in hand.
+ *
+ * The server's nonce lasts 120 seconds (`sessions.rs`'s `NONCE_LIFETIME`,
+ * read there on 2026-09-22), so this leaves thirty seconds of headroom for
+ * the round trip, the argon2id verification the server does on this path,
+ * and a clock that is not quite the server's. Past this the challenge is
+ * dropped and a fresh one asked for — one more `POST /session/challenge`,
+ * which is one source unit, against a refusal the person cannot act on and a
+ * code they have to type again.
+ *
+ * **A copy of a server number, and it is allowed to be stale**: everything it
+ * decides is whether this client posts the challenge it holds or fetches
+ * another first, and both are correct requests. Nothing is authorised on it.
+ *
+ * **This is the whole of the handling, and it is pre-emptive.** There was a
+ * second arm here until 2026-09-22 — post the held challenge, and if the
+ * refusal came back after the nonce had certainly died, quietly fetch a fresh
+ * challenge and post the code once more. It could not run: the arm was inside
+ * the branch this budget guards, so entering it needed under 90 seconds
+ * elapsed, and firing it needed 120 or more to have passed by the time the
+ * answer arrived — thirty seconds of round trip. Dead code on the one path
+ * where a second post spends a second nonce, so it is gone, with its
+ * constant. The refresh below is what covers the person who went to find
+ * their phone.
+ */
+export const CHALLENGE_REUSE_BUDGET_MS = 90_000;
+
+/** Is the challenge taken at `issuedAtMs` worth posting, or should this step
+ * ask for a fresh one first? */
+export function challengeIsWorthPosting(issuedAtMs: number, now: number): boolean {
+  return now - issuedAtMs < CHALLENGE_REUSE_BUDGET_MS;
+}
+
+/** Step two's state: who it is for, and the challenge step one left unspent
+ * — `null` once a refusal has consumed it, which is what tells the next try
+ * to ask for a fresh one. */
+export interface SecondFactorState {
+  address: string;
+  challenge: SignInChallenge | null;
+  /** `Date.now()` when this step was drawn, which is within a round trip of
+   * when the server issued the nonce. What decides whether the challenge is
+   * still worth posting — the server's own lifetime is two minutes and a
+   * person reading a code off a phone can spend it. */
+  issuedAtMs: number;
+}
+
+/**
+ * Post step two: the password and the code, on the challenge in hand while
+ * that challenge is still worth posting, and on a fresh one when it is not.
+ *
+ * One post either way. A challenge under [`CHALLENGE_REUSE_BUDGET_MS`] old is
+ * completed as it stands — no second `POST /session/challenge`, which is the
+ * whole reason the probe leaves the nonce unspent. An older one, or none at
+ * all (a refusal consumed it), is replaced first: `signIn` is the pair of
+ * calls back to back, which is exactly a fresh challenge and one post.
+ *
+ * A function rather than a closure inside the component, so that a runner
+ * with no DOM can put a clock and a stubbed `../api/auth` around it: the
+ * branch is about time, and the only honest test of it is one that moves
+ * time. 2026-09-22.
+ */
+export async function postSecondStep(
+  step: SecondFactorState,
+  credentials: { password: string; verificationCode: string },
+): Promise<void> {
+  const held =
+    step.challenge !== null && challengeIsWorthPosting(step.issuedAtMs, Date.now())
+      ? step.challenge
+      : null;
+  if (held === null) {
+    await signIn(step.address, undefined, credentials);
+    return;
+  }
+  await completeSignIn(held, credentials);
+}
+
 export interface SignInProps {
-  /** Go to the enrolment screen, which puts a key in this browser by
-   * redeeming an invitation. Optional so this screen still stands alone. */
-  onRedeemInvitation?: () => void;
-  /** Go to the forgot-password screen. */
+  /** Go to the forgot-password screen. The one link under this card
+   * (ADR-0056 decision 6). */
   onForgotPassword?: () => void;
-  /** Go to the first operator's setup screen, for the token the server wrote
-   * at its first start. */
-  onFirstOperatorSetup?: () => void;
-  /** Prefilled address — after a reset, or after setup, so the person does
-   * not retype what this client already knows. */
+  /** Prefilled address — after a reset, so the person does not retype what
+   * this client already knows. */
   initialAddress?: string;
   /** One sentence above the form, from whatever sent the person here (a
    * completed reset, a session that ended). Never a refusal: those come from
@@ -25,12 +135,43 @@ export interface SignInProps {
 }
 
 /**
- * Sign-in: the address, the password and the app code.
+ * Sign-in, in two steps: the address and the password, and then — only for an
+ * account that holds a confirmed authenticator — the verification code.
  *
- * **Any browser, no pairing** (ADR-0055 decision 6). Until 2026-09-21 this
- * screen had no password field because the server had nowhere to put one;
- * decision 10 puts the credential here, and the key this browser may hold is
- * now evidence sent beside it rather than the only way in. `signIn`
+ * **Why two steps** (ADR-0056 decision 3). One card with three fields asked
+ * everybody for a code most accounts do not have, and left the one field that
+ * takes a recovery code sitting under a label about an app. The server now
+ * answers a typed *second factor needed* to an address-and-password that
+ * verifies against an account with a confirmed authenticator, and that answer
+ * is what draws the second step. The ADR names what this gives up: the second
+ * step tells the person who typed the right password that it was right. Every
+ * surveyed product with a second factor makes the same trade, and a wrong
+ * address or a wrong password still gets one sentence.
+ *
+ * **Two steps, one challenge.** The answer that draws step two is a
+ * rollback: the server wrote no chain entry, left the challenge nonce
+ * unspent and counted nothing against the account, because this is a step in
+ * a sign-in and not a failure of one. It does cost **one source unit**,
+ * committed on its own, so that a password holder cannot run unlimited
+ * argon2id against one challenge; a two-step sign-in is three units of the
+ * per-source budget (challenge, probe, completion) and the budget was raised
+ * to keep the number of sign-ins a shared address can make in a window what
+ * it was. So step two posts the challenge step one already holds — same
+ * session keypair, same nonce, same evidence signature — with the code
+ * beside the password. A refusal at step two is a real one: it consumes the
+ * nonce, so the try after it asks for a fresh challenge (`../api/auth.ts`'s
+ * `beginSignIn` and `completeSignIn`).
+ *
+ * **A challenge does not live long enough to be left lying about.** The
+ * server's nonce lasts two minutes (`sessions.rs`'s `NONCE_LIFETIME`), and a
+ * person reading a code off a phone can easily spend that. So step two does
+ * not post a challenge that is near the end of it: past
+ * [`CHALLENGE_REUSE_BUDGET_MS`] it quietly asks for a fresh one and posts
+ * that instead. The person types their code once and sees no sentence about
+ * a nonce — a word that means nothing to them and names nothing they can
+ * fix.
+ *
+ * **Any browser, no pairing** (ADR-0055 decision 6). `signIn`
  * (`../api/auth.ts`) presents a stored key automatically when there is one —
  * nothing on this screen mentions it, because a person signing in has nothing
  * to decide about it.
@@ -41,23 +182,30 @@ export interface SignInProps {
  * password). The owner's rule, 2026-09-21: *"if they have access they have
  * access, it shouldn't be a selection"*.
  *
- * **One field for two kinds of code.** Six digits is the app code; one of the
- * ten backup codes goes in the same box, and the server tries it when the
- * first shape does not fit. The note under the field says so, because a
- * person reaching for a backup code has already lost their phone and should
- * not also have to guess where it goes.
+ * **One field for two kinds of code.** Six digits from the authenticator app;
+ * one of the ten recovery codes goes in the same box, and the server tries it
+ * when the first shape does not fit. The hint under the field says so,
+ * because a person reaching for a recovery code has already lost their phone
+ * and should not also have to guess where it goes. The field is
+ * `autocomplete="one-time-code"`, which is what a password manager looks for
+ * first, and its `inputMode` stays `text`: a numeric keypad would hide the
+ * letters a recovery code is made of.
+ *
+ * **No setup door.** The server says whether this deployment has been set up
+ * (ADR-0056 decision 1), so `App.tsx` shows the first-run flow or this card,
+ * and this card no longer offers a link to either. An invitation is redeemed
+ * at the address it carries, not from here.
  */
-export function SignIn({
-  onRedeemInvitation,
-  onForgotPassword,
-  onFirstOperatorSetup,
-  initialAddress,
-  notice,
-}: SignInProps) {
+export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps) {
   const [identities, setIdentities] = useState<SlotIdentity[] | null>(null);
   const [address, setAddress] = useState(initialAddress ?? '');
   const [password, setPassword] = useState('');
-  const [appCode, setAppCode] = useState('');
+  const [code, setCode] = useState('');
+  /** Which step the card is on. Not `null` means step two, and it carries
+   * the address the server said it wanted a code for — so the field above
+   * cannot be edited out from under the answer — and the challenge that
+   * answer left unspent. */
+  const [secondFactor, setSecondFactor] = useState<SecondFactorState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -88,11 +236,32 @@ export function SignIn({
     };
   }, []);
 
+  /** Step one: the address, the password, and no code. */
   async function attempt(id: string, kind?: SlotIdentity['kind']) {
     setBusy(id);
     setRefusal(null);
     try {
-      await signIn(id, kind, { password, appCode });
+      const challenge = await beginSignIn(id, kind, { password });
+      try {
+        await completeSignIn(challenge, { password });
+      } catch (error) {
+        // ADR-0056 decision 3: this answer is a step, not a wall. The
+        // address and the password verified and the account holds a
+        // confirmed authenticator. The server rolled its transaction back —
+        // no entry, nothing against the account's bucket, and the nonce
+        // still unspent — so the challenge in hand is the one step two posts
+        // again, with the code beside the password. What the probe does cost
+        // is one unit of the per-source budget, committed on its own so that
+        // a password holder cannot run unlimited argon2id against one
+        // challenge. Asking for a second challenge here would pay that
+        // twice for one sign-in.
+        if (isSecondFactorNeeded(error)) {
+          setSecondFactor({ address: id, challenge, issuedAtMs: Date.now() });
+          setCode('');
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       console.error(error);
       setRefusal(describe(error));
@@ -101,8 +270,37 @@ export function SignIn({
     }
   }
 
+  /** Step two: the same challenge, the same password, and the code. */
+  async function attemptWithCode(step: SecondFactorState, verificationCode: string) {
+    setBusy(step.address);
+    setRefusal(null);
+    try {
+      // The challenge this step arrived with is posted again only while it
+      // is worth posting; past that — a person who went to find their phone
+      // — and after a refusal has spent it, this try asks for its own. One
+      // post either way: see [`postSecondStep`].
+      await postSecondStep(step, { password, verificationCode });
+    } catch (error) {
+      console.error(error);
+      // A refused code is a sealed, counted refusal and it consumes the
+      // nonce — only the second-factor probe is rolled back. So whatever
+      // went wrong, the challenge is gone and the next try asks for a new
+      // one. The person stays on this step: the password is still right, and
+      // sending them back to type it again would be this screen's own
+      // invention.
+      setSecondFactor({ address: step.address, challenge: null, issuedAtMs: Date.now() });
+      setRefusal(describeCode(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (secondFactor !== null) {
+      await attemptWithCode(secondFactor, code);
+      return;
+    }
     await attempt(address.trim());
   }
 
@@ -121,23 +319,32 @@ export function SignIn({
 
   const hasIdentities = identities !== null && identities.length > 0;
 
+  if (secondFactor !== null) {
+    return (
+      <SecondFactorStep
+        address={secondFactor.address}
+        code={code}
+        busy={busy !== null}
+        refusal={refusal}
+        onCode={setCode}
+        onSubmit={(event) => void handleSubmit(event)}
+        onStartAgain={() => {
+          setSecondFactor(null);
+          setPassword('');
+          setCode('');
+          setRefusal(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="signin">
-      <form className="signin__card" onSubmit={handleSubmit}>
+      <form className="signin__card" onSubmit={(event) => void handleSubmit(event)}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">
-          Sign in with your address and your password. The app code is the six-digit number from your
-          authenticator app, once you have enrolled one.
-        </p>
+        <p className="signin__subtitle">Sign in with your address and your password.</p>
 
         {notice && <p className="signin__notice">{notice}</p>}
-
-        {onFirstOperatorSetup && (
-          <p className="signin__hint">
-            First time on this server? This form cannot create a password. Use the setup link at the bottom of
-            this card with the token the server wrote.
-          </p>
-        )}
 
         {hasIdentities && (
           <div className="signin__identities">
@@ -190,28 +397,6 @@ export function SignIn({
           />
         </div>
 
-        <div className="signin__field">
-          <label className="signin__label" htmlFor="signin-code">
-            App code
-          </label>
-          <input
-            id="signin-code"
-            className="signin__input signin__input--mono"
-            type="text"
-            inputMode="text"
-            autoComplete="one-time-code"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={appCode}
-            onChange={(event) => setAppCode(event.target.value)}
-            disabled={busy !== null}
-          />
-          <p className="signin__hint">
-            Six digits from your app. Leave it empty until you have enrolled one. Lost the phone? Type one of your backup codes here instead — each works once.
-          </p>
-        </div>
-
         <button
           className="signin__submit"
           type="submit"
@@ -228,19 +413,7 @@ export function SignIn({
 
         {onForgotPassword && (
           <button type="button" className="signin__switch" onClick={onForgotPassword}>
-            Forgotten your password?
-          </button>
-        )}
-
-        {onRedeemInvitation && (
-          <button type="button" className="signin__switch" onClick={onRedeemInvitation}>
-            Invited? Redeem a token.
-          </button>
-        )}
-
-        {onFirstOperatorSetup && (
-          <button type="button" className="signin__switch" onClick={onFirstOperatorSetup}>
-            First time on this server? Set up the first operator with the token the server wrote at first start.
+            Forgot your password?
           </button>
         )}
       </form>
@@ -248,14 +421,91 @@ export function SignIn({
   );
 }
 
+export interface SecondFactorStepProps {
+  /** The address the server asked for a code for. Shown, never editable:
+   * the code is bound to the account the password already verified against. */
+  address: string;
+  code: string;
+  busy: boolean;
+  refusal: string | null;
+  onCode: (code: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  /** Back to step one, with the password and the code cleared. */
+  onStartAgain: () => void;
+}
+
+/**
+ * Step two of the door: one field, and a way back.
+ *
+ * A pure component, drawn from its props alone, for the reason
+ * `Account.tsx`'s stages are: this step is reached only through a live answer
+ * from the server, and a screen no test can render is a screen whose wording
+ * nobody checks. `SignIn.render.test.ts` renders it with a refusal in hand,
+ * which is the state a wrong code leaves it in. ADR-0056 decisions 3 and 4.
+ * 2026-09-22.
+ */
+export function SecondFactorStep({
+  address,
+  code,
+  busy,
+  refusal,
+  onCode,
+  onSubmit,
+  onStartAgain,
+}: SecondFactorStepProps) {
+  return (
+    <div className="signin">
+      <form className="signin__card" onSubmit={onSubmit}>
+        <h1 className="signin__title">Fathom</h1>
+        <p className="signin__subtitle">{secondFactorIntro(address)}</p>
+
+        <div className="signin__field">
+          <label className="signin__label" htmlFor="signin-code">
+            Verification code
+          </label>
+          <input
+            id="signin-code"
+            className="signin__input signin__input--mono"
+            type="text"
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={code}
+            onChange={(event) => onCode(event.target.value)}
+            disabled={busy}
+            required
+          />
+          <p className="signin__hint">{VERIFICATION_CODE_HINT}</p>
+        </div>
+
+        <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+
+        {refusal && (
+          <div className="signin__refusal" role="alert">
+            {refusal}
+          </div>
+        )}
+
+        <button type="button" className="signin__switch" onClick={onStartAgain}>
+          Sign in as someone else
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /** What a refused sign-in says on this screen. The server answers one
  * sentence for every cause, on purpose, and that sentence is written for the
- * audit trail, not for the person typing. This lists every check that can
- * refuse, without guessing which one did -- the server does not say, and
- * this screen must not invent it. */
-const SIGN_IN_REFUSED =
-  'Sign-in refused. Check the address and the password, and the six digits if an app code is enrolled. ' +
-  'Never set a password on this server? Use the setup link below.';
+ * audit trail, not for the person typing. This says what the person can act
+ * on without guessing which check refused -- the server does not say, and
+ * this screen must not invent it. Since ADR-0056 decision 1 it no longer
+ * mentions setup: the server decides whether this deployment is on its first
+ * run, and if it were, this card would not be on the screen at all. */
+export const SIGN_IN_REFUSED = 'Sign-in refused. Check the address and the password.';
 
 /** The server's own wording where it is meant for the person (a wait); the
  * sentence above for a refusal; this client's own honest statement of "I
@@ -268,6 +518,19 @@ function describe(error: unknown): string {
   }
   if (error instanceof NoEnrolledKeyError) {
     return error.message;
+  }
+  return 'Sign-in did not complete. See the console for detail.';
+}
+
+/** The same, on step two, where the code is the only new thing in the
+ * request — see `VERIFICATION_CODE_REFUSED`. A wait is still the server's own
+ * sentence: it is the one refusal written for the person. */
+function describeCode(error: unknown): string {
+  if (error instanceof ApiRefusal && error.retryAfterSeconds != null) {
+    return `${error.message} Try again in ${error.retryAfterSeconds}s.`;
+  }
+  if (error instanceof ApiRefusal) {
+    return VERIFICATION_CODE_REFUSED;
   }
   return 'Sign-in did not complete. See the console for detail.';
 }

@@ -1,0 +1,156 @@
+/* The authenticator-app enrolment on the account screen — ADR-0056 decisions
+   4 and 5. It sits inside `signin.css`'s card and borrows every one of its
+   shapes; what is here is only what that file has no class for: the drawn QR
+   code, the disclosure that hides the `otpauth://` link, and the grid the
+   recovery codes are shown in.
+
+   Written 2026-09-22. */
+
+/* The QR code. **Two fixed colours, not the theme's.** A code is read by a
+   camera or by a password manager decoding a screenshot; both want dark
+   modules on a light field, and the dark theme's page is nearly black. So
+   the paper is white and the modules are black in both themes, and this is
+   the one place in this client where that is right. */
+/* 280px is a floor, not a taste, and it is the size the arithmetic asks for.
+   Recomputed 2026-09-22 against the encoder's own capacity table
+   (`../qr/tables.ts`, byte mode, error-correction level M) rather than from
+   memory; the 220px here before was written when the encoder stopped at
+   version 10.
+
+   The URI is 110 bytes of fixed text plus the percent-encoded address
+   (`credentials.rs`'s `otpauth_uri`), and the server takes an address of up
+   to 320 characters (`operators.rs`). Module counts are ISO/IEC 18004's
+   4v+17 for version v, plus §9.1's two four-module quiet zones:
+
+     * An ordinary address, about 20 characters: 130 bytes, a version-8
+       symbol, 49 modules, 57 across. 4.9 CSS pixels per module at 280px.
+     * The longest address this deployment can really carry — 320 ASCII
+       characters, of which only the `@` and a handful of others
+       percent-encode: about 432 bytes, a version-16 symbol, 81 modules, 89
+       across. 3.1 pixels per module at 280px, which is the floor a camera
+       and a screenshot decoder want; at 220px it was 2.5 and the code was
+       drawn too small to read.
+     * The worst case the route's own limits allow — 320 characters that ALL
+       percent-encode to three bytes each, so 110 + 3×320 = 1,070 bytes: a
+       version-27 symbol, 125 modules, 133 across. 2.1 pixels per module at
+       280px.
+
+   **The box is NOT raised to cover that last one, and this is why.** Three
+   pixels per module across 133 modules is 399px. The card is 480px wide with
+   32px of padding either side, so its content column is 416px: a 399px code
+   leaves 17px for the setup key beside it, and the setup key is the half of
+   this screen that a person whose password manager cannot photograph the tab
+   depends on. Raising the box would take that away to serve an address of
+   320 characters that all percent-encode — which is not a mail address any
+   server would deliver to. The code is still drawn at that size; it is the
+   scan that would be unreliable, and the key beside it is the way through.
+   Said here rather than left for the next reader to rediscover. */
+.qr {
+  display: block;
+  flex: none;
+  /* Square, and never wider than what it is sitting in: a phone narrower
+     than the card would otherwise push the code past the edge, where a
+     camera cannot see all of it either. */
+  width: min(280px, 100%);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.qr__paper {
+  fill: #ffffff;
+}
+
+.qr__modules {
+  fill: #000000;
+}
+
+.qr__missing {
+  margin: 0 0 var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+/* The QR code first and large, and beside it "Or enter this setup key" —
+   `docs/UI-SPEC.md`, "First run and sign-in", screen 3, in those words.
+
+   **Side by side above 520px, stacked below it.** The media query was deleted
+   on 2026-09-22 and the block became a column on every viewport, which is the
+   spec's two things one under the other on a desktop that has room for both.
+   What sat beside the code then was a sentence — "Scan this with your
+   authenticator app" — and a sentence does set in a ladder in the ~124px the
+   card leaves next to a 280px code. So the sentence is gone (the line above
+   the code already says to scan it) and what is beside the code is the setup
+   key: a short label, a monospace string that wraps, and one button. A narrow
+   viewport stacks them, where the code is the thing and the key belongs under
+   it. 2026-09-22. */
+.authenticator__scan {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+
+/* The column beside the code. `min-width: 0` so the monospace key wraps
+   inside it instead of forcing the row wider than the card. */
+.authenticator__beside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .authenticator__scan {
+    flex-direction: column;
+    gap: var(--s2);
+  }
+}
+
+/* "Show the otpauth link" — a `<details>`, so it is closed by default, opens
+   without script, and is reachable from the keyboard as itself. */
+.authenticator__reveal {
+  margin: 0 0 var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3);
+}
+
+.authenticator__reveal summary {
+  font-size: var(--t-small);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.authenticator__reveal summary:hover,
+.authenticator__reveal summary:focus-visible {
+  color: var(--ink);
+}
+
+/* The ten recovery codes: two columns of monospace, selectable a code at a
+   time. `signin.css`'s `signin__codes` does the same job and this is the
+   same shape deliberately — it is here so the recovery screen does not have
+   to reach into a file this stream does not own. */
+.authenticator__codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1) var(--s3);
+  margin: 0 0 var(--s4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.authenticator__code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  user-select: all;
+}
+
+/* Two buttons side by side, each `signin__switch`'s shape. */
+.authenticator__row {
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+}

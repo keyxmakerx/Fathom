@@ -340,7 +340,7 @@ good … please proceed").*
 1. **A sole operator adding a second waits 24 hours** (admin §3.5's rule, ported). Stands.
 2. **Re-keying an operator from the host has no delay**, sealed and noticed. Stands.
 3. **Passwords.** Reopened by the owner: *"I really would prefer a password reset though … I want
-   high security."* The answer is ADR-0055 decision 10: a password with an app code beside it,
+   high security."* The answer is ADR-0055 decision 10: a password with an authenticator app beside it (ADR-0056 names it so),
    reset by mail for the password only, email never a factor, a passkey as the stronger second
    factor in the WebAuthn step later. Two further asks landed with it: the console on its own
    host with every operator control absent elsewhere (decision 9), and SMTP and the console

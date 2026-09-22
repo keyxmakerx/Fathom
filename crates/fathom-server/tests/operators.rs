@@ -31,7 +31,7 @@ use fathom_server::api::{
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
-use fathom_server::credentials::{self, CredentialStore};
+use fathom_server::credentials::{self, CredentialError, CredentialStore};
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant};
 use fathom_server::keys::{self, KeyRing};
@@ -1567,6 +1567,68 @@ async fn a_refused_redemption_leaves_a_sealed_entry_and_the_refusal_is_unchanged
     );
 }
 
+/// **A token of another purpose does not open the first-operator setup check,
+/// and asking does not spend it.**
+///
+/// ADR-0056 decision 1 put an unauthenticated route in front of
+/// `enrolment_tokens`: `POST /enrolment/operator/setup/check` takes a token and
+/// names the address it opens. `find_token` checks the purpose, and this is the
+/// test of that check — an account invitation, which is the other kind of token
+/// a person is ever handed, presented at the operator's door.
+///
+/// **Here and not in `tests/setup_state.rs`**, where the rest of that route's
+/// refusals live, because minting an account invitation needs a console session
+/// and this suite is where a console session already exists. The refusal is
+/// `CredentialError::TokenRefused`, which is the one variant
+/// `every_refused_setup_token_gets_the_same_bytes` proves the route renders as
+/// one 401 and one sentence, so the typed refusal here IS the same bytes there.
+///
+/// **The `operator` purpose is not tested because nothing can issue one.**
+/// ADR-0055 decision 10 replaced it with `setup` at both of its mints;
+/// `src/operators.rs` says so where the second one used to be: *"The `operator`
+/// purpose stays in the schema for the passkey step NEXT.md item 4 holds open;
+/// nothing issues one."* A test would have to write the row itself, and a row
+/// written around the seal is a test of the seal.
+#[tokio::test]
+async fn a_token_of_another_purpose_does_not_open_the_setup_check() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        operators_store.deployment().to_string(),
+    );
+
+    let address = unique("invited@example.org");
+    let invitation = operators_store
+        .create_account_shell(&operator.session, &address, "Invited")
+        .await
+        .expect("the console mints an account shell and its invitation");
+
+    let refused = creds.check_setup(&operators_store, &invitation.token).await;
+    assert!(
+        matches!(refused, Err(CredentialError::TokenRefused)),
+        "an account invitation named an address at the FIRST OPERATOR's setup door and was \
+         answered {refused:?}. A token opens the one door it was minted for"
+    );
+
+    // And asking spent nothing: the invitation still does what it was for. A
+    // check that quietly burned somebody's invitation would be an
+    // unauthenticated caller invalidating invitations they cannot use.
+    let rightful = SoftwareKey::random().expect("a keypair");
+    let redeemed = operators_store
+        .redeem_account_enrolment(&invitation.token, &address, &rightful.public_key())
+        .await;
+    assert!(
+        redeemed.is_ok(),
+        "the setup check spent an invitation it refused: {redeemed:?}"
+    );
+}
+
 /// **After a reissue, the first token is refused and the second redeems.**
 ///
 /// Finding B: `issue_account_enrolment` had no equivalent of
@@ -2771,6 +2833,19 @@ async fn raw_request(
     headers: &[(&str, String)],
     body: &[u8],
 ) -> (String, Vec<u8>) {
+    let (status, _head, body) = raw_request_full(addr, method, path, headers, body).await;
+    (status, body)
+}
+
+/// The same request with the response HEAD kept, for the claims that are about
+/// a header rather than a body.
+async fn raw_request_full(
+    addr: std::net::SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> (String, String, Vec<u8>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::net::TcpStream::connect(addr)
@@ -2803,7 +2878,109 @@ async fn raw_request(
         .nth(1)
         .unwrap_or_default()
         .to_string();
-    (status, body)
+    (status, head, body)
+}
+
+/// Sign a GET the way a browser would and keep the response head.
+async fn get_signed_full(
+    addr: std::net::SocketAddr,
+    path: &str,
+    operator: &Operator,
+    store: &SessionStore,
+) -> (String, String, Vec<u8>) {
+    let nonce = store
+        .issue_request_nonce(&operator.signed_in.session_id, &operator.signed_in.token)
+        .await
+        .expect("a nonce");
+    let counter = next_counter(store, &operator.signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &operator.signed_in.session_id,
+        "GET",
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let signature = operator.session_key.sign(&message);
+    let headers = [
+        (HEADER_SESSION, operator.signed_in.session_id.clone()),
+        (HEADER_NONCE, hex(&nonce)),
+        (HEADER_TIMESTAMP, unix_ms.to_string()),
+        (HEADER_COUNTER, counter.to_string()),
+        (HEADER_SIGNATURE, hex(&signature)),
+    ];
+    raw_request_full(addr, "GET", path, &headers, b"").await
+}
+
+/// **An admin answer says `Cache-Control: no-store`, like every other answer
+/// this server builds.**
+///
+/// `api.rs` has said so since it was written; `admin.rs` had a second
+/// `bytes_response` of its own that did not, and the 2026-09-22 review found
+/// it. What this route answers is a list of this deployment's operators, read
+/// under one session's authority — the last thing that may sit in a shared
+/// cache, where the next caller through that proxy may be allowed to read none
+/// of it.
+#[tokio::test]
+async fn an_admin_answer_says_no_store() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let (status, head, _) =
+        get_signed_full(addr, "/admin/operators", &operator, &sessions_store).await;
+    assert_eq!(status, "200", "the operator list reads: {head}");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "an operator list came back without `cache-control: no-store`, so a proxy between the \
+         browser and this server may keep it and offer it to the next caller:\n{head}"
+    );
+}
+
+/// **The admin byte builder says it too.** `GET /admin/operators` is the text
+/// listing; `GET /admin/notices` is built by `admin.rs`'s own
+/// `bytes_response`, the builder a checker found a revert of would leave
+/// every test green (2026-09-22). Pinned separately for that reason.
+#[tokio::test]
+async fn the_admin_byte_builder_says_no_store() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let (status, head, _) =
+        get_signed_full(addr, "/admin/notices", &operator, &sessions_store).await;
+    assert_eq!(status, "200", "the operator list reads: {head}");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "a notices answer came back without `cache-control: no-store`, so a proxy between the \
+         browser and this server may keep it and offer it to the next caller:\n{head}"
+    );
 }
 
 /// **Exactly one route in this server accepts anything password-shaped, and

@@ -1,8 +1,10 @@
-// The credential plane: the routes a person uses to set a password, enrol an
-// app code, take their backup codes, register this browser's key, and ask for
-// a reset. ADR-0055 decision 10, built server-side by stream (a) and spelled
-// byte for byte in `crates/fathom-server/src/api.rs`'s
-// `credential_router` block.
+// The credential plane: the routes a person uses to set a password, set up an
+// authenticator app, take their recovery codes, register this browser's key,
+// and ask for a reset. (The route names and the server's own identifiers keep
+// `totp` and `backup_code`: ADR-0056 decision 4 renames what a person reads,
+// not what is routed or stored.) ADR-0055 decision 10, built server-side by
+// stream (a) and spelled byte for byte in
+// `crates/fathom-server/src/api.rs`'s `credential_router` block.
 //
 // **Every body and every answer here is length-prefixed**, the framing
 // `../crypto/bytes.ts` carries and `crypto::read_lp` reads. The routes, as the
@@ -74,11 +76,12 @@ export function buildAddressBody(address: string): Uint8Array {
 // ---------------------------------------------------------------------------
 
 export interface TotpEnrolment {
-  /** `otpauth://totp/...`, shown as text. ADR-0055 decision 10: a QR encoder
-   * is not in this build, so the URI and the secret are both shown and the
-   * person types or copies one of them. */
+  /** `otpauth://totp/...`. ADR-0056 decision 5: the enrolment screen draws
+   * this as a QR code, in the page, from `../qr` — a password manager reads
+   * the secret only out of a picture. The URI itself stays on the screen
+   * behind a disclosure for whoever wants the link. */
   otpauthUri: string;
-  /** RFC 4648 base32, as the app asks for it. */
+  /** RFC 4648 base32 — the **setup key**, for typing in by hand. */
   secretBase32: string;
 }
 
@@ -93,7 +96,7 @@ export function parseTotpEnrolment(bytes: Uint8Array): TotpEnrolment {
 }
 
 /**
- * The backup codes: one `LP(code)` after another until the body runs out.
+ * The recovery codes: one `LP(code)` after another until the body runs out.
  *
  * Ten of them today (`credentials::BACKUP_CODE_COUNT`), each
  * `xxxx-xxxx-xxxx-xxxx`. The count is **not** asserted here — the server's own
@@ -127,21 +130,36 @@ export function parseKeyId(bytes: Uint8Array): string {
 
 /**
  * `SessionError::TotpRequired`, as it arrives: **403** and the sentence
- * `api.rs` fixes for it, `enrol an app code first`.
+ * `api.rs` fixes for it, `set up an authenticator first`.
  *
  * It is the one refusal in this client that means "go to a screen", not "you
- * may not": an account that holds the operator custody and has no app code
- * gets a session good for `/credentials/*` alone, and the only way out is the
- * enrolment that route serves. Matched on the status **and** the sentence,
- * because 403 alone is also `not authorised`, which means the opposite.
+ * may not": an account that holds the operator custody and has no confirmed
+ * authenticator gets a session good for `/credentials/*` alone, and the only
+ * way out is the enrolment that route serves. Matched on the status **and**
+ * the sentence, because 403 alone is also `not authorised`, which means the
+ * opposite.
+ *
+ * **Both sentences are matched, on purpose.** ADR-0056 decision 4 moves the
+ * vocabulary, and this sentence moved with it on 2026-09-22 — but a
+ * deployment restarts its halves one at a time, so for the length of one
+ * restart a client from this build can be talking to a server from the last
+ * one. A client that recognised only the new wording would answer that
+ * server's "go to the enrolment screen" with a dead end. The old sentence is
+ * matched until a build after the servers have all moved; deleting it is a
+ * one-line change and this comment is the note that it is owed.
  */
-export const TOTP_REQUIRED_SENTENCE = 'enrol an app code first';
+export const TOTP_REQUIRED_SENTENCE = 'set up an authenticator first';
+
+/** The same refusal as a server from before 2026-09-22 words it. Matched, not
+ * shown: no screen in this client prints either sentence. */
+export const TOTP_REQUIRED_SENTENCE_BEFORE_ADR_0056 = 'enrol an app code first';
 
 export function isTotpRequired(error: unknown): boolean {
+  if (!(error instanceof ApiRefusal) || error.status !== 403) return false;
+  const said = error.message.toLowerCase();
   return (
-    error instanceof ApiRefusal &&
-    error.status === 403 &&
-    error.message.toLowerCase().includes(TOTP_REQUIRED_SENTENCE)
+    said.includes(TOTP_REQUIRED_SENTENCE) ||
+    said.includes(TOTP_REQUIRED_SENTENCE_BEFORE_ADR_0056)
   );
 }
 
@@ -170,7 +188,8 @@ export async function appCodeEnrolmentRequired(): Promise<boolean> {
 }
 
 /**
- * Six digits is an app code; anything else the server tries as a backup code
+ * Six digits is a verification code; anything else the server tries as a
+ * recovery code
  * (`sessions.rs`'s `check_second_factor`). This client does not decide which
  * it is — it is stated here only so the sign-in screen can say so in plain
  * words on the one field that takes both.

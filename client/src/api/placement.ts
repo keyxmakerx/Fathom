@@ -212,9 +212,12 @@ export function useConsoleHost(): ConsoleHostState {
  *
  * So it is read from a challenge drawn for the operator this session already
  * is, and the nonce that comes with it is discarded. The cost is one
- * `session_nonces` row and one attempt against this source's sign-in budget
- * (thirty per fifteen minutes, `sessions::SignInLimits::defaults`), paid
- * **once per page load**, not per act.
+ * `session_nonces` row and one unit of this source's sign-in budget
+ * (forty-five per fifteen minutes, `sessions::SignInLimits::defaults`), paid
+ * **once per page load**, not per act. For scale: a two-step sign-in spends
+ * three of those units — the challenge, the second-factor probe and the
+ * completion (ADR-0056 decision 3, 2026-09-22) — and a one-shot sign-in
+ * spends two.
  *
  * The cheaper alternative is for sign-in to keep the deployment id it was
  * already told, which is one field on `state/sessionState.ts` and belongs to
@@ -302,7 +305,7 @@ export function parseOperatorKeyAnswer(bytes: Uint8Array): { keyId: string; oper
 }
 
 /** `POST /session`'s six fields (ADR-0055 decision 10). The operator plane
- * carries neither a password nor an app code: `sessions.rs`'s branch 1,
+ * carries neither a password nor a verification code: `sessions.rs`'s branch 1,
  * *"resolution 8 keeps `kind = 'operator'` a key sign-in"*. */
 export function buildOperatorSignInBody(
   sessionPubkey: Uint8Array,
@@ -325,8 +328,8 @@ export function buildOperatorSignInBody(
  * Two acts, in this order and no other:
  *
  *  1. `POST /admin/operators/self/key` with `LP(public_key)`, **signed by the
- *     ACCOUNT session** -- the person, with their password and their app code
- *     behind them. It is under `/admin`, so it only answers on a console host
+ *     ACCOUNT session** -- the person, with their password and their
+ *     authenticator behind them. It is under `/admin`, so it only answers on a console host
  *     (the lead's resolution 8), which is why `useConsoleHost()` gates the
  *     door that calls this.
  *  2. the operator's own sign-in, with that same browser key as the evidence

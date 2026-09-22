@@ -588,8 +588,17 @@ async fn a_backup_code_signs_in_once_and_then_never_again() {
     assert!(site_entries_of("backup_code_used").await >= 2);
 }
 
-/// **A wrong password is refused, and a right password with no code is refused
-/// once a code is enrolled.**
+/// **A wrong password is refused, and a right password with no code opens
+/// nothing once a code is enrolled.**
+///
+/// **Amended 2026-09-22 by ADR-0056 decision 3.** The empty-code case was
+/// `PasswordRefused` — one sentence, and the client had no way to tell "ask
+/// for the code" from "that was wrong". It is now the typed
+/// `SecondFactorNeeded`, which is what makes sign-in two steps. What the claim
+/// in the name says is unchanged and is what this still asserts: **no session
+/// is issued** by the password alone. The ADR names what the second step gives
+/// up — it tells whoever typed the right password that it was right — and why
+/// every surveyed product makes the same trade.
 #[tokio::test]
 async fn once_an_app_code_is_enrolled_the_password_alone_is_not_enough() {
     let _serial = SERIAL.lock().await;
@@ -601,8 +610,9 @@ async fn once_an_app_code_is_enrolled_the_password_alone_is_not_enough() {
 
     let refused = sign_in_with(&sessions, &enrolled.person, A_REAL_PASSWORD, "").await;
     assert!(
-        matches!(refused, Err(SessionError::PasswordRefused)),
-        "the app code is required once enrolled: {refused:?}"
+        matches!(refused, Err(SessionError::SecondFactorNeeded)),
+        "the app code is required once enrolled, and the client is told which screen comes \
+         next rather than being told its credential was wrong: {refused:?}"
     );
 
     let code = a_live_code(&enrolled.secret);

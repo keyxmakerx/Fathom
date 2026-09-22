@@ -1,18 +1,19 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
-import { signIn, signOut } from './api/auth';
+import { signIn } from './api/auth';
 import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
 import { bootstrapOperatorSession, useConsoleHost } from './api/placement';
+import { useSetupState } from './api/setup';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
 import { Console } from './components/console/Console';
-import { Enrol } from './components/Enrol';
+import { Enrol, invitationFromLocation } from './components/Enrol';
+import { FirstRun } from './components/FirstRun';
 import { Reset, tokenFromLocation } from './components/Reset';
-import { Setup } from './components/Setup';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
@@ -34,15 +35,17 @@ import {
 } from './state/sessionState';
 
 /**
- * Which door an unsigned-in visitor is at. Four since ADR-0055, and they are
- * not the same thing: `sign-in` takes an address, a password and an app code;
- * `enrol` redeems an invitation, which is still the key path and unchanged;
- * `setup` is the first operator's, for the token file the server wrote at its
- * first start; `reset` is "forgot my password" and the screen its link lands
- * on. Nobody self-registers (`docs/OPEN-QUESTIONS.md` B5), so no door creates
- * an account.
+ * Which door an unsigned-in visitor is at. Three since ADR-0056 decision 1
+ * took the setup door away: `sign-in` takes an address and a password, and a
+ * verification code when the server asks for one; `enrol` redeems an
+ * invitation, which is still the key path and unchanged; `reset` is "forgot
+ * my password" and the screen its link lands on. The first operator's setup
+ * is no longer a door at all — the server says whether this deployment has
+ * been set up, and while it has not, the first-run flow is the only screen
+ * there is. Nobody self-registers (`docs/OPEN-QUESTIONS.md` B5), so no door
+ * creates an account.
  */
-type Door = 'sign-in' | 'enrol' | 'setup' | 'reset';
+type Door = 'sign-in' | 'enrol' | 'reset';
 
 /**
  * Where a signed-in person is.
@@ -65,37 +68,71 @@ export default function App() {
   const [resetToken] = useState<string | null>(() =>
     typeof window === 'undefined' ? null : tokenFromLocation(window.location),
   );
-  const [door, setDoor] = useState<Door>(resetToken ? 'reset' : 'sign-in');
+  // ADR-0056 decision 6: an invitation is redeemed at the address it
+  // carries, `/invite#inv_…`, and the token is in the fragment so that it
+  // never reaches a request line or a log. Read once, before the first
+  // render, for the same reason the reset token is.
+  const [invitationToken] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : invitationFromLocation(window.location),
+  );
+  const [door, setDoor] = useState<Door>(
+    invitationToken ? 'enrol' : resetToken ? 'reset' : 'sign-in',
+  );
+
+  // The fragment is cleared from the address bar as soon as it has been
+  // read, so a reload, a bookmark or a pasted URL does not carry a live
+  // invitation token any further. `replaceState` leaves no history entry to
+  // go back to.
+  useEffect(() => {
+    if (invitationToken === null || typeof window === 'undefined') return;
+    window.history.replaceState(null, '', window.location.pathname);
+  }, [invitationToken]);
   const [view, setView] = useState<View>({ kind: 'home' });
 
   // ADR-0055 client (a): what the sign-in door is told by whatever sent the
-  // person back to it — a finished reset, a finished setup.
+  // person back to it — a finished reset, or a first run that set the
+  // password and could not sign in with it. (A finished first run lands on
+  // Home instead: ADR-0056 decision 2 step 5.)
   const [signInAddress, setSignInAddress] = useState<string | undefined>(undefined);
   const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
-  // ADR-0055 client (a): the app-code gate. `null` is "not asked yet";
-  // `true` is the server's own `enrol an app code first` refusal, which is
-  // a route to a screen and not a wall (`api/credentials.ts`).
+  // ADR-0055 client (a): the setup gate. `null` is "not asked yet"; `true`
+  // is the server's own `set up an authenticator first` refusal, which is a
+  // route to a screen and not a wall (`api/credentials.ts`, which also
+  // matches the sentence a server from before ADR-0056 sends).
   const [appCodeNeeded, setAppCodeNeeded] = useState<boolean | null>(null);
 
-  // ADR-0055 client (a): true once the first operator's setup screen has
-  // finished, so a live session does not pull the person off it halfway.
-  const [setupDone, setSetupDone] = useState(false);
+  // ADR-0056 decision 1: the server's one bit about this deployment, asked
+  // at boot beside the console-host flag. While it says `pending` the
+  // first-run flow is the whole of what this client shows; `done` is the
+  // sign-in door; an error is the sign-in door too, logged, because a server
+  // that could not answer never said this deployment was unconfigured.
+  const setupState = useSetupState();
+  useEffect(() => {
+    if (setupState.status === 'error') {
+      console.error(`GET /setup/state: ${setupState.message}`);
+    }
+  }, [setupState]);
+
+  // True once the first-run flow has finished, so that the bit above — read
+  // once per page load, and still `pending` in this page's memory — does not
+  // pull the person back to the start of the flow they have just completed.
+  const [firstRunDone, setFirstRunDone] = useState(false);
 
   // ADR-0055 client (a): the account's own credential screen is open.
   const [accountOpen, setAccountOpen] = useState(false);
 
   // The app-code gate, asked once per session: an account that holds the
-  // operator custody and has no app code gets a session good for
+  // operator custody and has no confirmed authenticator gets a session good for
   // `/credentials/*` alone, and the server says so with a typed refusal on
   // the first ordinary route. Asking one route on purpose puts the answer
   // here, where the screen can be chosen, rather than inside whichever
   // surface happened to fetch first.
   const sessionId = session?.sessionId ?? null;
   const sessionKind = session?.kind ?? null;
-  const midSetup = door === 'setup' && !setupDone;
+  const firstRun = setupState.status === 'ready' && setupState.state === 'pending' && !firstRunDone;
   useEffect(() => {
-    if (sessionId === null || sessionKind !== 'steward' || midSetup) {
+    if (sessionId === null || sessionKind !== 'steward' || firstRun) {
       setAppCodeNeeded(null);
       return;
     }
@@ -110,7 +147,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, sessionKind, midSetup]);
+  }, [sessionId, sessionKind, firstRun]);
 
   // ---------------------------------------------------------------------
   // ADR-0055 — the console entry (client streams (a) and (b), merged)
@@ -284,30 +321,62 @@ export default function App() {
     [],
   );
 
-  // ADR-0055 client (a): the setup door holds the screen even once its own
-  // sign-in has made a session — the password is set but the app code is
-  // not, and that session may do nothing else until it is.
-  if (midSetup) {
+  // ADR-0056 decisions 1 and 2: while the deployment is on its first run
+  // this is the only screen, and it holds even once its own sign-in has made
+  // a session — the password is set but the authenticator is not, and that
+  // session may do nothing else until it is.
+  //
+  // **What lands on Home is the session its last step makes, not the one it
+  // started with.** The mid-flow session is `A0`: a password and nothing
+  // else, minted before the authenticator existed. Every ordinary route
+  // takes it the moment the code is confirmed, because the setup gate reads
+  // the account's live credentials on each request rather than the session's
+  // assurance — but `POST /admin/operators/self/key` refuses `A0` outright
+  // (`operators.rs`), which is the one press the Site entry below makes. So
+  // the flow ends by signing in again with the code, and this lands on an
+  // `A0T` session the console takes; the entry works on the first press
+  // rather than taking itself away for the rest of the session.
+  //
+  // **And when it hands the person to the door** — the sign-in after the
+  // password failed, or they took step 5's way out because their app was not
+  // giving them a usable code: the token is spent and there is no step left
+  // to show, so the door takes over with the address filled in and the
+  // sentence the flow chose (`FirstRun.tsx`'s `PASSWORD_SET_NOTICE` or
+  // `AUTHENTICATOR_SET_NOTICE`).
+  //
+  // **This gate is the state route's answer, freshly asked.** `firstRunDone`
+  // below is not this page's guess: the flow asks `GET /setup/state` again
+  // before it calls, and calls only when the server says `done` or does not
+  // answer at all. A server still saying `pending` keeps the flow on screen
+  // with its own sentence and never reaches here — which is the only way
+  // this branch and the server can agree about which screen a deployment is
+  // on. The bit read at boot still says `pending` in this page's memory, so
+  // something has to carry the newer answer, and this is it.
+  if (firstRun) {
     return (
-      <Setup
-        onUseSignIn={() => setDoor('sign-in')}
-        onDone={async (address) => {
-          // The setup session is `A0` for its whole life and the operator
-          // routes refuse `A0`, so there is nothing left for it to do. Ended
-          // BEFORE this screen gives way, so that the gate below does not
-          // start a signed request against a session that is going away.
-          // Best effort: if the sign-out does not land, the row expires on
-          // its own and this browser has already forgotten it.
-          await signOut().catch(() => {});
-          setSetupDone(true);
+      <FirstRun
+        onDone={() => setFirstRunDone(true)}
+        onUseTheDoor={(address, notice) => {
+          setFirstRunDone(true);
           setSignInAddress(address);
-          setSignInNotice(
-            'Set up. Sign in with your password and a code from your app — the session that set this up was a ' +
-              'setup session and ends here.',
-          );
+          setSignInNotice(notice);
           setDoor('sign-in');
         }}
       />
+    );
+  }
+
+  // Nothing is drawn until the server has said which of the two screens this
+  // deployment is on. A door that appeared and was then replaced by the
+  // first-run flow would be a door that existed.
+  if (!session && setupState.status === 'loading') {
+    return (
+      <div className="signin">
+        <div className="signin__card">
+          <h1 className="signin__title">Fathom</h1>
+          <p className="signin__subtitle">Asking the server whether this deployment is set up…</p>
+        </div>
+      </div>
     );
   }
 
@@ -318,16 +387,22 @@ export default function App() {
       setDoor('sign-in');
     };
     if (door === 'enrol') {
-      return <Enrol onUseExistingKey={() => setDoor('sign-in')} />;
+      return (
+        <Enrol
+          initialToken={invitationToken ?? undefined}
+          onUseExistingKey={() => setDoor('sign-in')}
+        />
+      );
     }
     if (door === 'reset') {
       return <Reset initialToken={resetToken ?? undefined} onUseSignIn={toSignIn} />;
     }
+    // One link under the card (ADR-0056 decision 6): the reset door. The
+    // invitation has its own address and the setup door is the server's call,
+    // so neither is offered here.
     return (
       <SignIn
-        onRedeemInvitation={() => setDoor('enrol')}
         onForgotPassword={() => setDoor('reset')}
-        onFirstOperatorSetup={() => setDoor('setup')}
         initialAddress={signInAddress}
         notice={signInNotice}
       />
@@ -344,7 +419,7 @@ export default function App() {
   }
 
   // ADR-0055 client (a): the typed refusal routes here, and nowhere else is
-  // reachable from this session until the app code exists.
+  // reachable from this session until the authenticator app is enrolled.
   if (appCodeNeeded === true) {
     return (
       <Account
@@ -428,11 +503,11 @@ export default function App() {
           // to open: a place needs a design, and Home is where you pick one.
         }}
       >
-        {/* ADR-0055 client (a): the way to a person's own password and app
-            code. Everybody has both now, so this is not operator-side and
-            does not wait on the flag. */}
+        {/* ADR-0055 client (a): the way to a person's own password and
+            authenticator app. Everybody has both now, so this is not
+            operator-side and does not wait on the flag. */}
         <button type="button" className="account-entry" onClick={() => setAccountOpen(true)}>
-          Your password and app code
+          Your password and authenticator app
         </button>
         {/* ADR-0055: the console entry. Rendered only on a host the console
             answers on, and taken away for the rest of this session once the

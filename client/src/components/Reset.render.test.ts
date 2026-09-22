@@ -37,9 +37,9 @@ describe('the screen a reset link lands on', () => {
     expect(html).toContain('value="' + 'a'.repeat(64) + '"');
   });
 
-  it('says a reset does not sign anybody in and does not skip the app code', () => {
+  it('says a reset does not sign anybody in and does not skip the second factor', () => {
     expect(html).toMatch(/does not sign you in/i);
-    expect(html).toMatch(/app code/i);
+    expect(html).toMatch(/verification code/i);
   });
 });
 

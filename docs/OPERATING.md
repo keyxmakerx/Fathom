@@ -188,9 +188,9 @@ ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* 
 recover-operator <address>`, run where the key volume is mounted, works for an operator who
 **already exists** and is not disabled. It prints a one-shot ten-minute setup code to stdout — and
 only to stdout, never to the log, never to a file — that lets that person set a new password and
-enrol a new app code. **It also dispossesses whoever holds that seat right now**: every operator
+set up a new authenticator app. **It also dispossesses whoever holds that seat right now**: every operator
 key on the seat is retired, every live session of both the account and the operator is ended
-(as sealed revocations, which a restore does not undo), the app code and its backup codes are
+(as sealed revocations, which a restore does not undo), the authenticator and its recovery codes are
 cleared, and any seat hold from a mailed reset is cleared — so a stolen browser loses its access
 the moment the command runs. **It mints no new operator**: an address nobody is bound to gets a
 refusal and nothing is written. There is no delay, on purpose — the host already holds every key
@@ -219,11 +219,11 @@ read both expect it.
   factor), and writes a one-shot setup token to `FATHOM_BOOTSTRAP_TOKEN_FILE`, replacing the old
   build's token file if one is still there (that token is expired by this act). The log says
   `UPGRADE:` and names the path, never the token. Copy the file out as §"Sign in" of
-  `docs/RUNNING-IT.md` shows, set a password, enrol an app code. The act is a sealed
+  `docs/RUNNING-IT.md` shows, set a password, set up an authenticator app. The act is a sealed
   `operator_adopted` entry on the site chain, once; every later start finds the binding and does
   nothing. Three shapes are refused and logged instead of bound, with the address named: the
   account at that address is disabled; it is already bound to another operator; the bootstrapped
-  operator is disabled. If the address already holds an account with a confirmed app code, no
+  operator is disabled. If the address already holds an account with a confirmed authenticator, no
   token is written, whoever holds that account now holds the operator custody, and the log says
   so. Operators the old console created beside the first one have no binding either; they cannot
   sign in, the start lists them, and they should be disabled from the console. `recover-operator`

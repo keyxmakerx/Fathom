@@ -258,6 +258,25 @@ pub const MAX_UNIX_MS: i64 = 253_402_300_799_999;
 /// clears far more than the one row it adds.
 pub const SWEEP_BATCH: i64 = 256;
 
+/// How many times one source may ask `GET /setup/state` in a
+/// [`SignInLimits::window`].
+///
+/// **Six hundred a window, per source, and it is not the sign-in number.** The
+/// route is a page load — see [`SessionStore::check_setup_state_budget`] for
+/// why it has a bucket of its own — and a *source* is an address, which
+/// behind one office's egress is everybody in the office (a checker's point,
+/// 2026-09-22, against the first value of 120 that had been sized for one
+/// person's reloads). Forty people opening the app once a minute for a
+/// quarter of an hour is 600; an unauthenticated flood wants orders of
+/// magnitude more, and the answer behind it is one process-wide cached bit
+/// (`credentials::SETUP_STATE_CACHE`), so what this bounds is the request and
+/// not the database.
+///
+/// Not configurable: `FATHOM_SIGNIN_MAX_PER_SOURCE` is about sign-ins, and a
+/// deployment that needs to raise this one has not been seen. Give it its own
+/// variable when one is.
+pub const SETUP_STATE_MAX_PER_SOURCE: i32 = 600;
+
 /// §13 item 7's shape, which the design does not specify. See
 /// `migrations/0013_sessions.sql` §D for the argument and
 /// `migrations/0014_session_hardening.sql` §0 for the correction to it; this
@@ -271,14 +290,15 @@ pub struct SignInLimits {
     /// the address where it did not (`0014` §A).
     pub max_per_account: i32,
     /// `FATHOM_SIGNIN_MAX_PER_SOURCE`. **Attempts** from one source address,
-    /// counted at `/session/challenge` as well as at `/session`, so one
-    /// complete sign-in costs two.
+    /// counted at `/session/challenge` as well as at `/session`, so a
+    /// one-shot sign-in costs two and ADR-0056's two-step sign-in (challenge,
+    /// probe, completion) costs three.
     pub max_per_source: i32,
 }
 
 impl SignInLimits {
-    /// Fifteen minutes, ten failures per claimed identity, thirty attempts per
-    /// source.
+    /// Fifteen minutes, ten failures per claimed identity, forty-five attempts
+    /// per source.
     ///
     /// # Both numbers are rate limits. Neither is a lockout
     ///
@@ -304,14 +324,26 @@ impl SignInLimits {
     /// profile, a stale key), while a legitimate office behind one address
     /// signs in all morning.
     ///
-    /// **Thirty per source is fifteen complete sign-ins**, since `0014` counts
-    /// the challenge route too. A deployment behind a single NAT should raise
-    /// it; that is what `FATHOM_SIGNIN_MAX_PER_SOURCE` is for.
+    /// **Forty-five per source is fifteen complete sign-ins**, and the two
+    /// numbers are the whole of why this one moved on 2026-09-22. `0014`
+    /// counts the challenge route, so a sign-in cost two; ADR-0056 makes
+    /// sign-in two steps, and the 2026-09-22 review found the probe between
+    /// them free and repeatable — forty argon2id verifications on one
+    /// challenge for one unit of budget. The probe is charged now (see
+    /// [`SessionStore::sign_in_with_credentials`]), so an ordinary two-step
+    /// sign-in costs **three**: challenge, probe, completion. Thirty would
+    /// therefore have been ten sign-ins per window where it used to be
+    /// fifteen, which is a rate limit tightened on ordinary people by a change
+    /// aimed at an attacker. **45 ÷ 3 = 15**: what a shared source may do in a
+    /// window is exactly what it could do before.
+    ///
+    /// A deployment behind a single NAT should raise it; that is what
+    /// `FATHOM_SIGNIN_MAX_PER_SOURCE` is for.
     pub fn defaults() -> Self {
         Self {
             window: Duration::from_secs(15 * 60),
             max_per_account: 10,
-            max_per_source: 30,
+            max_per_source: 45,
         }
     }
 
@@ -936,8 +968,8 @@ pub enum SessionError {
     /// variant so the sealed `account_signin_failed` entry and the log line an
     /// operator reads say which of the causes it was.
     PasswordRefused,
-    /// This session's account holds the operator custody and has not enrolled
-    /// its app code, so the session is a **setup session**: accepted on
+    /// This session's account holds the operator custody and has not set up its
+    /// authenticator app, so the session is a **setup session**: accepted on
     /// `/credentials/*` and refused everywhere else.
     ///
     /// ADR-0055 decision 10 (*"such an account is taken to the enrolment screen
@@ -950,6 +982,40 @@ pub enum SessionError {
     /// factor, and the client has to be told that precisely, because the only
     /// way out is the screen that enrols it.
     TotpRequired,
+
+    // ---- ADR-0056 decision 3 ------------------------------------------
+    /// The address and the credential verify, the account holds a confirmed
+    /// authenticator, and no verification code was presented. **Step one of a
+    /// two-step sign-in**, and not a refusal of anything the caller got wrong.
+    ///
+    /// **Its own variant and not [`SessionError::SignInRefused`]**, because
+    /// the client has to know which of the two screens to draw next and a
+    /// uniform sentence cannot tell it. ADR-0056 decision 3 names what that
+    /// gives up in one paragraph — the second step tells whoever typed the
+    /// right password that it was right — and why every surveyed product
+    /// makes the same trade: it is not ASVS 6.3.8's rule, which is about
+    /// deducing a *valid user* from a *failed* challenge, and a wrong address
+    /// or a wrong credential still gets the one generic sentence here.
+    ///
+    /// **It costs one source unit and nothing else** (2026-09-22). The
+    /// transaction that produced it is rolled back — nothing is sealed,
+    /// nothing is counted against the account, and **the challenge nonce is
+    /// left unconsumed**, so step two re-posts the same challenge with the
+    /// verification code — and then one count for the request is committed on
+    /// its own against the source bucket.
+    ///
+    /// **Why the source count is not rolled back with the rest.** The build
+    /// that rolled back everything made this answer free and repeatable: one
+    /// challenge, one budget unit, and as many argon2id verifications as a
+    /// password holder cared to ask for, measured at forty on one nonce. The
+    /// account bucket still must not move — a person signing in correctly
+    /// passes through here — but the request itself has to cost the source
+    /// something, and one unit per request is what every other unauthenticated
+    /// route here costs. So a two-step sign-in costs **three** source units
+    /// (challenge, probe, completion) and
+    /// [`SignInLimits::defaults`] carries fifteen of them per window, as it
+    /// did before.
+    SecondFactorNeeded,
 }
 
 impl core::fmt::Display for SessionError {
@@ -1022,8 +1088,14 @@ impl core::fmt::Display for SessionError {
                  reason",
             ),
             Self::TotpRequired => f.write_str(
-                "this account holds the operator custody and has no app code enrolled, so its \
-                 session may do nothing but finish the setup (ADR-0055 decision 10)",
+                "this account holds the operator custody and has no authenticator set up, so \
+                 its session may do nothing but finish the setup (ADR-0055 decision 10)",
+            ),
+            // ADR-0056 decision 3.
+            Self::SecondFactorNeeded => f.write_str(
+                "this account holds a confirmed authenticator, so its sign-in needs the \
+                 verification code as well; no session is issued and the request costs its \
+                 source one unit of the sign-in budget",
             ),
         }
     }
@@ -1144,8 +1216,9 @@ impl SessionStore {
     /// 1. **The route is rate limited against the source bucket.** It was not,
     ///    and it writes a row: one anonymous POST was one permanent
     ///    `session_nonces` row, since nothing swept and the only deletes
-    ///    matched one exact nonce. It costs one count, so a complete sign-in
-    ///    costs two against `max_per_source` — see [`SignInLimits::defaults`].
+    ///    matched one exact nonce. It costs one count, so a one-shot sign-in
+    ///    costs two against `max_per_source` and a two-step one three — see
+    ///    [`SignInLimits::defaults`].
     /// 2. **The claimed address's keyed hash travels on the nonce row**
     ///    ([`claimed_address_key`], `0014` §A), for every bind nonce and not
     ///    only for the ones that resolve to nothing. §4.2 deliberately keeps
@@ -1237,7 +1310,10 @@ impl SessionStore {
     ///    limited.
     /// 2. **The nonce is consumed next**, by `DELETE ... RETURNING`. Consumed
     ///    means consumed: a failed attempt burns it, which is the fail-closed
-    ///    direction.
+    ///    direction. The one thing that does not burn it is the second-factor
+    ///    probe, and only because the whole transaction is rolled back — the
+    ///    delete is undone with everything else rather than skipped, so no
+    ///    path can reach a session on a nonce that has been spent.
     /// 3. The account, its disabled flag, its live signing key and that key's
     ///    own row seal.
     /// 4. The evidence signature, over the challenge recomputed from the
@@ -1344,6 +1420,27 @@ impl SessionStore {
             return Err(SessionError::Malformed("evidence signature"));
         }
 
+        // (1) The source bucket counts every attempt, not only the failures,
+        // and **it is charged before the sign-in transaction opens, in a
+        // committed transaction of its own** (ADR-0056 decision 3, second
+        // amendment, 2026-09-22). Two reasons, both found by a checker on the
+        // first shape of this: the second-factor probe rolls the sign-in
+        // transaction back, so a count taken inside it vanished and one
+        // challenge bought unbounded password verifications; and a charge
+        // taken AFTER the verification, on a second pool connection while the
+        // first was still held, was both cancellable by hanging up and a
+        // deadlock once `pool_size` probes arrived together. Charging first,
+        // on a connection that is returned before the next one is taken,
+        // closes all three: the count survives the rollback, is paid before
+        // the argon2id work it buys, and never holds two connections.
+        //
+        // **Both buckets are rate limits and neither is a lockout** — `0014`
+        // §0 carries the decision and [`SignInLimits::defaults`] carries the
+        // argument. What differs is not their nature but when they are
+        // consulted: the source bucket before anything is looked up, the
+        // account bucket on a path that has already failed.
+        let source_count = self.charge_source(source).await?;
+
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
@@ -1353,16 +1450,6 @@ impl SessionStore {
         sweep_expired_nonces(&tx).await?;
         sweep_expired_sessions(&tx).await?;
 
-        // (1) The source bucket counts every attempt, not only the failures.
-        // **Both buckets are rate limits and neither is a lockout** — `0014`
-        // §0 carries the decision and [`SignInLimits::defaults`] carries the
-        // argument. What differs is not their nature but when they are
-        // consulted: the source bucket before anything is looked up, the
-        // account bucket on a path that has already failed.
-        let source_count = self
-            .count_attempt(&tx, "source", source)
-            .await?
-            .unwrap_or(0);
         if source_count > self.limits.max_per_source {
             let e = self
                 .refuse(&tx, None, source, "rate_limited_source", kind)
@@ -1373,6 +1460,53 @@ impl SessionStore {
         }
 
         let outcome = self.attempt_sign_in(&tx, attempt).await;
+
+        // **ADR-0056 decision 3: the second-factor probe is a ROLLBACK and not
+        // a refusal — and it costs one source unit** (the 2026-09-22 review,
+        // second round).
+        //
+        // It is a protocol step. The client has the address and the credential
+        // right and is asking which screen to draw; the sealed sign-in that
+        // follows a moment later is the record of it, and a `*_signin_failed`
+        // entry here would relabel a person who is signing in correctly as a
+        // failure. So nothing this transaction did is kept:
+        //
+        // * **the nonce stays unconsumed**, which is what makes step two the
+        //   SAME challenge — one `/session/challenge` for the whole two-step
+        //   sign-in;
+        // * **the account bucket does not move**, because a person signing in
+        //   correctly passes through here and would otherwise spend their own
+        //   window on their own successful sign-ins;
+        // * **no entry is written**, so an unauthenticated caller cannot choose
+        //   how fast this deployment's sealed audit grows by probing.
+        //
+        // **What is NOT rolled back is one count against the source bucket**,
+        // committed below in a transaction of its own. The first round rolled
+        // back the count at (1) along with everything else, and that made this
+        // answer free and repeatable: the review drove forty probes on one
+        // nonce for one unit of budget, which is unlimited argon2id for
+        // anybody holding a password. A separate short transaction is how the
+        // count survives a rollback; giving it back by arithmetic on the row
+        // would be a second decision about a row another transaction may have
+        // moved.
+        //
+        // **The probe is a rollback.** The source unit it cost was committed
+        // before this transaction opened (above), so the rollback undoes the
+        // nonce delete, any entry and any account count and nothing else:
+        // step two re-posts the same challenge, and a caller who hangs up
+        // mid-verification has already paid.
+        //
+        // The decoy verification below is not run either: the real one has
+        // already happened, and a second would put half a second on the path
+        // the client takes to every ordinary sign-in.
+        //
+        // **A wrong credential on the same account is untouched** — it never
+        // reaches this arm, and it is still sealed, counted, generic, and it
+        // still consumes the nonce.
+        if matches!(outcome, Err((_, _, SessionError::SecondFactorNeeded))) {
+            tx.rollback().await?;
+            return Err(SessionError::SecondFactorNeeded);
+        }
 
         let result = match outcome {
             Ok(signed_in) => {
@@ -1484,6 +1618,85 @@ impl SessionStore {
         leave_session_custody(&tx).await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// **`GET /setup/state`'s own per-source budget**, counted in the same
+    /// window and the same table as the sign-in one and in a bucket of its
+    /// own: the key is `setup-state:` + the source, under the `source` kind
+    /// `0013` §D already has (the column's `CHECK` names two kinds, and the
+    /// `reset:` prefix on the account bucket is the precedent for a third
+    /// budget without a migration).
+    ///
+    /// **Why it is not the sign-in bucket** (2026-09-22). The state route is a
+    /// page load: the client asks it before it knows whether to draw the setup
+    /// flow or the sign-in door, and a browser asks it again on every reload.
+    /// Charged against the sign-in bucket, an office behind one address that
+    /// reloaded enough had its sign-ins refused by its own page loads — and,
+    /// worse, a 429 on this route takes the FIRST-RUN screen away, so a
+    /// deployment that is still pending looks finished to everyone behind that
+    /// address. Two buckets keep each fault inside its own route: a spent
+    /// state budget costs nobody a sign-in, and a spent sign-in budget costs
+    /// nobody the screen that tells them which door they are at.
+    ///
+    /// The cap is [`SETUP_STATE_MAX_PER_SOURCE`] and the refusal is the
+    /// ordinary [`SessionError::RateLimited`], so the answer carries the same
+    /// `Retry-After` every other capped route here sends and the client can
+    /// wait and ask again rather than guess.
+    ///
+    /// **It writes no sealed entry.** The sign-in cap's entry exists because a
+    /// sign-in failure is a fact an operator wants; a browser reloading a page
+    /// is not, and an unauthenticated caller choosing how fast the sealed audit
+    /// grows is the amplifier `0014` §B is written against.
+    pub async fn check_setup_state_budget(&self, source: &str) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let key = format!("setup-state:{source}");
+        let count = self.count_attempt(&tx, "source", &key).await?.unwrap_or(0);
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+
+        if count > SETUP_STATE_MAX_PER_SOURCE {
+            // The line names the bucket and not the person: it is a source
+            // address, which is what an operator needs to see a flood by.
+            tracing::info!(
+                bucket = %key,
+                "a source has spent its setup-state budget for this window"
+            );
+            return Err(SessionError::RateLimited {
+                retry_after_seconds: seconds_left_in_window(self.limits.window),
+            });
+        }
+        Ok(())
+    }
+
+    /// **Commit one count against the source bucket, on its own.**
+    ///
+    /// **The source bucket's count for one sign-in request, committed on its
+    /// own before the sign-in transaction opens**, and the count it reached.
+    ///
+    /// Its own transaction because the sign-in's may be rolled back — the
+    /// second-factor probe of ADR-0056 decision 3 is exactly that — and a
+    /// count that vanished with the rollback made the probe free (a checker
+    /// measured forty password verifications on one challenge, 2026-09-22).
+    /// Its own *connection*, returned before the sign-in takes one, because
+    /// the first fix held two at once and `pool_size` concurrent probes would
+    /// have waited on each other for ever.
+    ///
+    /// **It counts and it does not refuse.** The caller compares the count it
+    /// returns against the cap and refuses inside the sign-in transaction, as
+    /// it always did, so the sealed `rate_limited_source` entry is unchanged.
+    async fn charge_source(&self, source: &str) -> Result<i32, SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let count = self
+            .count_attempt(&tx, "source", source)
+            .await?
+            .unwrap_or(0);
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(count)
     }
 
     /// **The per-address budget for "forgot my password"**, counted against
@@ -1889,6 +2102,25 @@ impl SessionStore {
             // 3), which is what makes a lost phone recoverable without a
             // second field on the form nobody would fill in.
             if row.totp_confirmed() {
+                // **ADR-0056 decision 3, step one.** An empty code on an
+                // account that holds a confirmed authenticator is the client
+                // asking which screen to draw next, not a failed attempt: it
+                // has the address and the credential right and has nothing
+                // left to guess. Answered before `check_second_factor`, so no
+                // step is spent and no backup code is tried against an empty
+                // string — and the caller rolls this transaction back, so the
+                // nonce consumed at (2) is still there for step two to use.
+                //
+                // An account with NO confirmed authenticator falls through to
+                // the branch below and still gets its `A0` session on an empty
+                // code, exactly as it did before this ADR.
+                if totp_code.is_empty() {
+                    return Err((
+                        Some(AccountBucket::Account(account)),
+                        "second_factor_needed",
+                        SessionError::SecondFactorNeeded,
+                    ));
+                }
                 let checked = self
                     .check_second_factor(tx, &account, row, totp_code)
                     .await
@@ -2243,37 +2475,16 @@ impl SessionStore {
         };
 
         if write_entry {
-            let entry_type = match kind {
-                PrincipalKind::Steward => EntryType::AccountSigninFailed,
-                PrincipalKind::Operator => EntryType::OperatorSigninFailed,
+            let account = match bucket {
+                Some(AccountBucket::Account(account)) => Some(account.as_str()),
+                _ => None,
             };
-            let metadata = entry_metadata(
-                entry_type,
-                &[
-                    (
-                        "account",
-                        match bucket {
-                            Some(AccountBucket::Account(a)) => Json::Str(a.clone()),
-                            _ => Json::Null,
-                        },
-                    ),
-                    // The keyed hash and never the address (`0014` §A): an
-                    // operator can group a spray by it, and it is not a list
-                    // of what people typed.
-                    (
-                        "claimed_address_key",
-                        match bucket {
-                            Some(AccountBucket::ClaimedAddress(k)) => Json::Str(k.clone()),
-                            _ => Json::Null,
-                        },
-                    ),
-                    ("reason", Json::Str(reason.to_string())),
-                    ("principal_kind", Json::Str(kind.as_str().to_string())),
-                    ("rate_limited", Json::Bool(locked)),
-                ],
-            );
-            let _ =
-                chains::append_site(tx, &self.ring, &self.deployment, entry_type, &metadata).await;
+            let claimed = match bucket {
+                Some(AccountBucket::ClaimedAddress(key)) => Some(key.as_str()),
+                _ => None,
+            };
+            self.append_sign_in_refusal(tx, kind, account, claimed, reason, locked)
+                .await;
         }
 
         if locked {
@@ -2285,6 +2496,63 @@ impl SessionStore {
         }
     }
 
+    /// One sealed `*_signin_failed` entry, in the one spelling
+    /// [`SessionStore::refuse`] writes it.
+    ///
+    /// **Named rather than inlined, and with one caller on purpose.** The
+    /// ADR-0056 build gave it a second — the second-factor probe sealed a
+    /// refusal of its own — and the 2026-09-22 review found that entry
+    /// relabelling successful sign-ins as failures and bypassing the
+    /// once-per-window latch above. The probe is a rollback now (see
+    /// [`SessionStore::sign_in_with_credentials`]) and writes nothing, so this
+    /// is again exactly what `refuse` decided to write, and a future second
+    /// caller has to come past that history to be added.
+    ///
+    /// A failure to append is swallowed here exactly as it was inside
+    /// `refuse`: the refusal stands whether or not the record of it could be
+    /// written, and the append's own failure is logged where it happens.
+    ///
+    /// `claimed_address_key` is the keyed hash and never the address (`0014`
+    /// §A): an operator can group a spray by it, and it is not a list of what
+    /// people typed.
+    async fn append_sign_in_refusal(
+        &self,
+        tx: &Transaction<'_>,
+        kind: PrincipalKind,
+        account: Option<&str>,
+        claimed_address_key: Option<&str>,
+        reason: &'static str,
+        rate_limited: bool,
+    ) {
+        let entry_type = match kind {
+            PrincipalKind::Steward => EntryType::AccountSigninFailed,
+            PrincipalKind::Operator => EntryType::OperatorSigninFailed,
+        };
+        let metadata = entry_metadata(
+            entry_type,
+            &[
+                (
+                    "account",
+                    match account {
+                        Some(account) => Json::Str(account.to_string()),
+                        None => Json::Null,
+                    },
+                ),
+                (
+                    "claimed_address_key",
+                    match claimed_address_key {
+                        Some(key) => Json::Str(key.to_string()),
+                        None => Json::Null,
+                    },
+                ),
+                ("reason", Json::Str(reason.to_string())),
+                ("principal_kind", Json::Str(kind.as_str().to_string())),
+                ("rate_limited", Json::Bool(rate_limited)),
+            ],
+        );
+        let _ = chains::append_site(tx, &self.ring, &self.deployment, entry_type, &metadata).await;
+    }
+
     /// Increment one bucket's counter for the current window and return the
     /// new count.
     async fn count_attempt(
@@ -2293,10 +2561,7 @@ impl SessionStore {
         bucket_kind: &str,
         bucket_key: &str,
     ) -> Result<Option<i32>, SessionError> {
-        // A source key longer than the column allows is truncated rather than
-        // refused: the bucket is a bucket, and an oversized value is still
-        // usefully grouped by its first 128 characters.
-        let key: String = bucket_key.chars().take(128).collect();
+        let key = self::bucket_key(bucket_key);
         if key.is_empty() {
             return Ok(None);
         }
@@ -2326,6 +2591,11 @@ impl SessionStore {
     /// — because the only reason this statement cannot take the column name as
     /// a parameter is that SQL does not allow it, and "so we concatenated it"
     /// is how the next injection gets written.
+    ///
+    /// **The key goes through [`bucket_key`] and not through a copy of it.**
+    /// This function kept its own truncation until the 2026-09-22 review, which
+    /// is two places that decide which row is meant: a latch taken on one row
+    /// while the count lands on another is an entry written every time.
     async fn latch(
         &self,
         tx: &Transaction<'_>,
@@ -2333,7 +2603,7 @@ impl SessionStore {
         bucket_key: &str,
         which: Latch,
     ) -> Result<bool, SessionError> {
-        let key: String = bucket_key.chars().take(128).collect();
+        let key = self::bucket_key(bucket_key);
         let statement = match which {
             Latch::Locked => {
                 "UPDATE sign_in_attempts SET locked_entry_written = true \
@@ -3608,6 +3878,18 @@ fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
+/// One bucket's key as the column holds it.
+///
+/// A source key longer than the column allows is truncated rather than
+/// refused: the bucket is a bucket, and an oversized value is still usefully
+/// grouped by its first 128 characters. **One function, and every caller goes
+/// through it** — [`SessionStore::count_attempt`] and
+/// [`SessionStore::latch`] — so that the count and the latch cannot disagree
+/// about which row they mean.
+fn bucket_key(key: &str) -> String {
+    key.chars().take(128).collect()
+}
+
 /// The start of the current fixed window, as a `timestamptz` the database can
 /// compare. Computed here rather than in SQL so that both buckets and both
 /// statements agree on one value per call.
@@ -3774,7 +4056,16 @@ mod tests {
         assert_eq!(limits, SignInLimits::defaults());
         assert_eq!(limits.window, Duration::from_secs(900));
         assert_eq!(limits.max_per_account, 10);
-        assert_eq!(limits.max_per_source, 30);
+        // Forty-five since 2026-09-22, and the arithmetic is the point: a
+        // two-step sign-in costs three source units (challenge, probe,
+        // completion), so this is the same fifteen sign-ins a window thirty
+        // bought when a sign-in cost two. `SignInLimits::defaults` carries it.
+        assert_eq!(limits.max_per_source, 45);
+        assert_eq!(
+            limits.max_per_source / 3,
+            15,
+            "the number a shared source can actually sign in is what this default is chosen for"
+        );
     }
 
     #[test]

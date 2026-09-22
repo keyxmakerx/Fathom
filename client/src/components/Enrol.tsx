@@ -51,7 +51,8 @@ type Stage =
  * No password field: `POST /enrolment/account` takes `LP(token) ‖
  * LP(address) ‖ LP(public_key)` and nothing else, and ADR-0055 left this
  * door exactly as it was — an invitation is redeemed with a key, and the
- * password and app code are set afterwards on the account screen. The token
+ * password and authenticator app are set afterwards on the account screen.
+ * The token
  * is a bearer secret with one use, so it
  * is held only in this component's own state -- never a URL, a query
  * string, a log line, or `localStorage` -- and is cleared only once
@@ -63,6 +64,13 @@ export interface EnrolProps {
   /** Go back to sign-in, for a browser that already holds a key. Optional
    * so this screen still stands alone. */
   onUseExistingKey?: () => void;
+  /**
+   * A token this client already has — read out of the fragment of the
+   * address the invitation carries (`invitationFromLocation`, ADR-0056
+   * decision 6). The field opens with it in place; it is still the person's
+   * to edit, and the address an invitation needs is still asked for.
+   */
+  initialToken?: string;
 }
 
 /** What the token field says about itself as it is typed: which door, or
@@ -76,8 +84,8 @@ function kindOfTyped(token: string): TokenKind {
   }
 }
 
-export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
-  const [token, setToken] = useState('');
+export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
+  const [token, setToken] = useState(initialToken ?? '');
   const [address, setAddress] = useState('');
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -358,7 +366,7 @@ export function Enrol({ onUseExistingKey }: EnrolProps = {}) {
               'its operator and works once.'
             : 'An invitation is redeemed with the address it was sent to. Every token works once. Redeeming one ' +
               'asks for no password: the key this browser generates is what proves the account is yours. A ' +
-              'password and an app code are set afterwards, on your own account screen.'}
+              'password and an authenticator app are set afterwards, on your own account screen.'}
         </p>
 
         {onUseExistingKey && (
@@ -399,4 +407,32 @@ function describeRefusal(error: unknown, guessedOperator = false): string {
     return error.message;
   }
   return 'Did not complete, and this browser cannot say why. See the console for detail.';
+}
+
+/**
+ * The invitation token in the address bar, if the person followed the link
+ * the console minted — `/invite#inv_<64 hex>` (ADR-0056 decision 6).
+ *
+ * **The fragment, and only the fragment.** A fragment is not part of the
+ * request target (RFC 3986 §3.5), so a token carried there never reaches this
+ * server's request line, its access log or any proxy's — which is the whole
+ * reason the invitation carries it there rather than in a query string, and
+ * why this does not also read `?`. `App.tsx` clears it from the address bar
+ * as soon as it has been read, so a reload, a bookmark or a shared URL does
+ * not carry the token any further.
+ *
+ * The path is checked too: a `#inv_…` on some other page is not an invitation
+ * link, and opening a door on it would be this client guessing. A token of
+ * the wrong shape is ignored by nothing here and refused by `parseToken` when
+ * it is submitted, which is where every other malformed token is refused.
+ *
+ * Takes the location as an argument so a test can pass one, exactly as
+ * `Reset.tsx`'s `tokenFromLocation` does; `App.tsx` passes `window.location`.
+ */
+export function invitationFromLocation(location: { pathname?: string; hash?: string }): string | null {
+  const path = (location.pathname ?? '').replace(/\/+$/, '');
+  if (path !== '/invite') return null;
+  const fragment = (location.hash ?? '').replace(/^#/, '').trim();
+  if (fragment.length === 0) return null;
+  return fragment;
 }
