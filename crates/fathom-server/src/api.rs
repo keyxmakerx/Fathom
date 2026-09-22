@@ -550,6 +550,14 @@ pub fn credential_router(state: CredentialApiState) -> Router {
         .route("/credentials/reset", post(request_reset_handler))
         .route("/credentials/reset/redeem", post(redeem_reset_handler))
         .route("/enrolment/operator/setup", post(operator_setup_handler))
+        // ADR-0056 decisions 1 and 2. Beside the route they walk up to, and on
+        // every host for the same reason it is: a person reaches the setup
+        // screen at the address the token file was handed to them at.
+        .route(
+            "/enrolment/operator/setup/check",
+            post(operator_setup_check_handler),
+        )
+        .route("/setup/state", axum::routing::get(setup_state_handler))
         .with_state(state)
 }
 
@@ -775,6 +783,89 @@ async fn operator_setup_handler(
         .await
         .map_err(CredentialRefusal)?;
     Ok(empty_response())
+}
+
+/// `GET /setup/state` — has this deployment's first operator finished?
+///
+/// No body, no session, no signature. Answer: `LP("pending")` or `LP("done")`.
+///
+/// ADR-0056 decision 1. One bit about the DEPLOYMENT and never about an
+/// address: a visitor to a pending deployment is shown the setup screen, so
+/// this is what they would see anyway, and the per-address answers of
+/// `/session` are untouched in content and in time (ASVS 5.0.0 6.3.8).
+///
+/// **It spends no rate-limit budget, and that is deliberate.** The client asks
+/// this on every page load; counting it against the sign-in buckets would mean
+/// a person who reloads the sign-in page has spent what they need to sign in.
+/// What bounds the database work is the five-second cache inside
+/// [`crate::credentials::CredentialStore::setup_state`], which is
+/// deployment-wide rather than per source and so bounds a distributed caller
+/// too.
+async fn setup_state_handler(
+    State(state): State<CredentialApiState>,
+) -> Result<Response, CredentialRefusal> {
+    let answer = state
+        .credentials
+        .setup_state()
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(16);
+    crypto::lp(&mut out, answer.as_str().as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /enrolment/operator/setup/check` — whose setup does this token open?
+///
+/// Body: `LP(token)`. Answer: 200, `LP(address)`.
+///
+/// ADR-0056 decision 1: the address is never typed, so it can never mismatch.
+/// A read — the token is not spent and nothing is written — so the screen that
+/// follows still has to present it to `/enrolment/operator/setup`.
+///
+/// **One sentence for every refused token**, rendered inline below: wrong,
+/// spent, expired and token-shaped-but-nobody's are one fact from outside. A
+/// body that is not one length-prefixed field at all is still the surface's own
+/// `400 malformed request`, because that is a caller speaking a protocol this
+/// server does not, and saying so is not a fact about any token.
+///
+/// Rate limited against the same source bucket as the redemption beside it.
+async fn operator_setup_check_handler(
+    State(state): State<CredentialApiState>,
+    request: Request,
+) -> Result<Response, CredentialRefusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
+        .await
+        .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
+    let fields = read_fields(&body, 1)?;
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Operator, &source)
+        .await?;
+    let address = match state
+        .credentials
+        .check_setup(&state.operators, &fields[0])
+        .await
+    {
+        Ok(address) => address,
+        // **The sentence is this route's own, and it is rendered here.**
+        // `TokenRefused` reaches [`CredentialRefusal`] from three routes and
+        // renders as the uniform `sign-in refused` for the two that are about
+        // a credential; this one is about a token in a file, and a person
+        // holding the wrong file needs to be told which thing was refused.
+        // Wrong, spent and expired are one sentence, as they are everywhere
+        // else a token is presented.
+        Err(crate::credentials::CredentialError::TokenRefused) => {
+            tracing::info!(reason = "token_refused", "a setup token was refused");
+            return Ok((StatusCode::UNAUTHORIZED, "setup token refused\n").into_response());
+        }
+        Err(e) => return Err(CredentialRefusal(e)),
+    };
+    let mut out = Vec::with_capacity(64);
+    crypto::lp(&mut out, address.as_bytes());
+    Ok(bytes_response(out))
 }
 
 /// One credential-plane refusal, on its way to a status code and a sentence.
@@ -1032,6 +1123,16 @@ impl IntoResponse for Refusal {
             SessionError::TotpRequired => {
                 tracing::info!(reason = %self.0, "an app code must be enrolled first");
                 (StatusCode::FORBIDDEN, "enrol an app code first\n")
+            }
+            // ADR-0056 decision 3, step one of the two-step sign-in. **401 and
+            // its own sentence**: no session was issued, so it is not a 200,
+            // and the client has to know to ask for the verification code
+            // rather than to re-draw the first screen with a refusal on it.
+            // The sentence is the client's contract and is asserted byte for
+            // byte by `scripts/ci/first-operator-signin.mjs`.
+            SessionError::SecondFactorNeeded => {
+                tracing::info!(reason = %self.0, "a second factor is needed");
+                (StatusCode::UNAUTHORIZED, "second factor needed\n")
             }
             SessionError::NotSigned
             | SessionError::NoSuchSession

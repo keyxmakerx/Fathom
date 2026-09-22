@@ -5009,6 +5009,31 @@ impl OperatorStore {
         token: &[u8],
         purpose: Purpose,
     ) -> Result<TokenRow, OperatorError> {
+        self.find_token(tx, token, purpose, TokenUse::Spend).await
+    }
+
+    /// The lookup and every check [`OperatorStore::spend_token`] makes, with
+    /// the caller saying whether this is the act or a question about it.
+    ///
+    /// **ADR-0056 decision 1, step 1 of the setup flow** adds a caller that
+    /// asks whether a token is live without spending it, so that the setup
+    /// screen can name the address instead of asking a person to type it. One
+    /// function rather than two, because a second copy of the seal check, the
+    /// purpose check, the redemption check and the two expiry checks is a
+    /// second place for one of them to be forgotten — and the check route
+    /// would be exactly the place a caller would attack.
+    ///
+    /// The only difference [`TokenUse::Check`] makes is that a token presented
+    /// after its expiry is not recorded as presented: a read writes nothing,
+    /// and `note_expired`'s own doc explains that the record does not survive
+    /// the caller's rollback anyway.
+    async fn find_token(
+        &self,
+        tx: &Transaction<'_>,
+        token: &[u8],
+        purpose: Purpose,
+        using: TokenUse,
+    ) -> Result<TokenRow, OperatorError> {
         let hash = token_hash(token);
         let row = tx
             .query_opt(
@@ -5052,7 +5077,9 @@ impl OperatorStore {
             return Err(OperatorError::EnrolmentRefused);
         }
         if out.expires_at_unix <= now_unix() {
-            self.note_expired(tx, &out).await?;
+            if using == TokenUse::Spend {
+                self.note_expired(tx, &out).await?;
+            }
             return Err(OperatorError::EnrolmentRefused);
         }
         Ok(out)
@@ -6044,6 +6071,50 @@ impl OperatorStore {
         self.mark_redeemed(tx, &row, redeemed.seq).await?;
         Ok(operator)
     }
+
+    /// **Is this a live `purpose = 'setup'` token?** Answers which operator it
+    /// is for, spends nothing and writes nothing.
+    ///
+    /// ADR-0056 decision 1: the setup screen's first step asks this so that it
+    /// can name the address the token opens rather than asking a person to
+    /// type an address that could then not match. The token is still the whole
+    /// of the proof; this only moves where it is checked.
+    ///
+    /// **A read, and the caller may roll back.** No entry is appended, no
+    /// column moves, and [`OperatorStore::spend_setup_token`] is still the only
+    /// way a setup token stops being live. Every refusal is
+    /// [`OperatorError::EnrolmentRefused`] — wrong, spent, expired and
+    /// malformed alike — which is the same one message the redemption gives.
+    ///
+    /// **The caller must already hold `app.enrolment_custody`**, as `0015` §H
+    /// requires for reading `enrolment_tokens` at all.
+    pub async fn check_setup_token(
+        &self,
+        tx: &Transaction<'_>,
+        token: &[u8],
+    ) -> Result<String, OperatorError> {
+        let row = self
+            .find_token(tx, token, Purpose::Setup, TokenUse::Check)
+            .await?;
+        row.operator_id
+            .clone()
+            .ok_or(OperatorError::Corrupt("enrolment token subject"))
+    }
+}
+
+/// What a caller of [`OperatorStore::find_token`] is doing with the row.
+///
+/// Two values and no `From<&str>`, for the reason `sessions::Latch` states
+/// about its own closed set: the difference between reading a token and
+/// spending one is not a flag somebody should be able to compute from a
+/// string.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TokenUse {
+    /// The redemption itself, which may record a token presented after its
+    /// expiry.
+    Spend,
+    /// A question about the token. Writes nothing at all.
+    Check,
 }
 
 // ---------------------------------------------------------------------------

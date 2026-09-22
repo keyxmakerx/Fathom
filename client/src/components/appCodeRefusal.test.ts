@@ -3,17 +3,28 @@ import { describe, expect, it } from 'vitest';
 import { ApiRefusal } from '../api/errors';
 import { describeAppCodeRefusal } from './appCodeRefusal';
 
-describe('the app-code refusal on the account screen', () => {
+describe('the authenticator refusal on the account screen', () => {
   it('shows the sentence a 409 carries, verbatim', () => {
-    const sentence = 'this account already has an app code; replacing one is a recovery';
+    const sentence = 'this account already has a second factor; replacing one is a recovery';
     expect(describeAppCodeRefusal(new ApiRefusal(409, sentence, null))).toBe(sentence);
   });
 
   it('says what 409 means here when the 409 carries no sentence', () => {
     expect(describeAppCodeRefusal(new ApiRefusal(409, 'refused', null))).toMatch(
-      /already has an app code/,
+      /already has an authenticator app/,
     );
-    expect(describeAppCodeRefusal(new ApiRefusal(409, '', null))).toMatch(/already has an app code/);
+    expect(describeAppCodeRefusal(new ApiRefusal(409, '', null))).toMatch(
+      /already has an authenticator app/,
+    );
+  });
+
+  it('never says "app code" to a person', () => {
+    // ADR-0056 decision 4: "app code" leaves every user-facing string. This
+    // is the one sentence in this module that is this client's own words
+    // rather than the server's, so it is the one that can be asserted.
+    expect(describeAppCodeRefusal(new ApiRefusal(409, '', null)).toLowerCase()).not.toContain(
+      'app code',
+    );
   });
 
   it('leaves every other refusal exactly as it reads today', () => {

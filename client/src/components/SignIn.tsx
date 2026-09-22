@@ -1,22 +1,31 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { NoEnrolledKeyError, signIn } from '../api/auth';
+import { isSecondFactorNeeded, NoEnrolledKeyError, signIn } from '../api/auth';
 import { identityOfSlot, OPERATOR_PENDING_SLOT, type SlotIdentity } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
 import { listKeySlots } from '../crypto/keys';
 import '../styles/signin.css';
 
+/** What step two says it is doing, and for whom. A function rather than
+ * markup so that a runner with no DOM can check the wording: the second step
+ * is reached only through a live refusal from the server (ADR-0056
+ * decision 3), which a render-to-string pass cannot produce. */
+export function secondFactorIntro(address: string): string {
+  return `Signing in as ${address}. This account has an authenticator app, so it needs a code as well.`;
+}
+
+/** The hint under the one code field. Both kinds of code go in it, and the
+ * person who needs the second kind has already lost their phone (ADR-0056
+ * decisions 3 and 4). */
+export const VERIFICATION_CODE_HINT =
+  'Six digits from your authenticator app, or one of your recovery codes.';
+
 export interface SignInProps {
-  /** Go to the enrolment screen, which puts a key in this browser by
-   * redeeming an invitation. Optional so this screen still stands alone. */
-  onRedeemInvitation?: () => void;
-  /** Go to the forgot-password screen. */
+  /** Go to the forgot-password screen. The one link under this card
+   * (ADR-0056 decision 6). */
   onForgotPassword?: () => void;
-  /** Go to the first operator's setup screen, for the token the server wrote
-   * at its first start. */
-  onFirstOperatorSetup?: () => void;
-  /** Prefilled address — after a reset, or after setup, so the person does
-   * not retype what this client already knows. */
+  /** Prefilled address — after a reset, so the person does not retype what
+   * this client already knows. */
   initialAddress?: string;
   /** One sentence above the form, from whatever sent the person here (a
    * completed reset, a session that ended). Never a refusal: those come from
@@ -25,12 +34,20 @@ export interface SignInProps {
 }
 
 /**
- * Sign-in: the address, the password and the app code.
+ * Sign-in, in two steps: the address and the password, and then — only for an
+ * account that holds a confirmed authenticator — the verification code.
  *
- * **Any browser, no pairing** (ADR-0055 decision 6). Until 2026-09-21 this
- * screen had no password field because the server had nowhere to put one;
- * decision 10 puts the credential here, and the key this browser may hold is
- * now evidence sent beside it rather than the only way in. `signIn`
+ * **Why two steps** (ADR-0056 decision 3). One card with three fields asked
+ * everybody for a code most accounts do not have, and left the one field that
+ * takes a recovery code sitting under a label about an app. The server now
+ * answers a typed *second factor needed* to an address-and-password that
+ * verifies against an account with a confirmed authenticator, and that answer
+ * is what draws the second step. The ADR names what this gives up: the second
+ * step tells the person who typed the right password that it was right. Every
+ * surveyed product with a second factor makes the same trade, and a wrong
+ * address or a wrong password still gets one sentence.
+ *
+ * **Any browser, no pairing** (ADR-0055 decision 6). `signIn`
  * (`../api/auth.ts`) presents a stored key automatically when there is one —
  * nothing on this screen mentions it, because a person signing in has nothing
  * to decide about it.
@@ -41,23 +58,29 @@ export interface SignInProps {
  * password). The owner's rule, 2026-09-21: *"if they have access they have
  * access, it shouldn't be a selection"*.
  *
- * **One field for two kinds of code.** Six digits is the app code; one of the
- * ten backup codes goes in the same box, and the server tries it when the
- * first shape does not fit. The note under the field says so, because a
- * person reaching for a backup code has already lost their phone and should
- * not also have to guess where it goes.
+ * **One field for two kinds of code.** Six digits from the authenticator app;
+ * one of the ten recovery codes goes in the same box, and the server tries it
+ * when the first shape does not fit. The hint under the field says so,
+ * because a person reaching for a recovery code has already lost their phone
+ * and should not also have to guess where it goes. The field is
+ * `autocomplete="one-time-code"`, which is what a password manager looks for
+ * first, and its `inputMode` stays `text`: a numeric keypad would hide the
+ * letters a recovery code is made of.
+ *
+ * **No setup door.** The server says whether this deployment has been set up
+ * (ADR-0056 decision 1), so `App.tsx` shows the first-run flow or this card,
+ * and this card no longer offers a link to either. An invitation is redeemed
+ * at the address it carries, not from here.
  */
-export function SignIn({
-  onRedeemInvitation,
-  onForgotPassword,
-  onFirstOperatorSetup,
-  initialAddress,
-  notice,
-}: SignInProps) {
+export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps) {
   const [identities, setIdentities] = useState<SlotIdentity[] | null>(null);
   const [address, setAddress] = useState(initialAddress ?? '');
   const [password, setPassword] = useState('');
-  const [appCode, setAppCode] = useState('');
+  const [code, setCode] = useState('');
+  /** Which step the card is on. `second-factor` carries the address the
+   * server said it wanted a code for, so that the field above cannot be
+   * edited out from under the answer. */
+  const [secondFactorFor, setSecondFactorFor] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -88,13 +111,22 @@ export function SignIn({
     };
   }, []);
 
-  async function attempt(id: string, kind?: SlotIdentity['kind']) {
+  async function attempt(id: string, kind?: SlotIdentity['kind'], verificationCode = '') {
     setBusy(id);
     setRefusal(null);
     try {
-      await signIn(id, kind, { password, appCode });
+      await signIn(id, kind, { password, verificationCode });
     } catch (error) {
       console.error(error);
+      // ADR-0056 decision 3: this refusal is a step, not a wall. The address
+      // and the password verified and the account holds a confirmed
+      // authenticator; nothing was issued and nothing was spent.
+      if (isSecondFactorNeeded(error)) {
+        setSecondFactorFor(id);
+        setCode('');
+        setRefusal(null);
+        return;
+      }
       setRefusal(describe(error));
     } finally {
       setBusy(null);
@@ -103,6 +135,12 @@ export function SignIn({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (secondFactorFor !== null) {
+      // All three go up again: the server's one-request verification is
+      // unchanged, and nothing is issued until all of it verifies.
+      await attempt(secondFactorFor, undefined, code);
+      return;
+    }
     await attempt(address.trim());
   }
 
@@ -121,23 +159,72 @@ export function SignIn({
 
   const hasIdentities = identities !== null && identities.length > 0;
 
+  if (secondFactorFor !== null) {
+    return (
+      <div className="signin">
+        <form className="signin__card" onSubmit={(event) => void handleSubmit(event)}>
+          <h1 className="signin__title">Fathom</h1>
+          <p className="signin__subtitle">{secondFactorIntro(secondFactorFor)}</p>
+
+          <div className="signin__field">
+            <label className="signin__label" htmlFor="signin-code">
+              Verification code
+            </label>
+            <input
+              id="signin-code"
+              className="signin__input signin__input--mono"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              disabled={busy !== null}
+              required
+            />
+            <p className="signin__hint">{VERIFICATION_CODE_HINT}</p>
+          </div>
+
+          <button
+            className="signin__submit"
+            type="submit"
+            disabled={busy !== null || code.trim().length === 0}
+          >
+            {busy !== null ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          {refusal && (
+            <div className="signin__refusal" role="alert">
+              {refusal}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="signin__switch"
+            onClick={() => {
+              setSecondFactorFor(null);
+              setPassword('');
+              setCode('');
+              setRefusal(null);
+            }}
+          >
+            Sign in as someone else
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="signin">
-      <form className="signin__card" onSubmit={handleSubmit}>
+      <form className="signin__card" onSubmit={(event) => void handleSubmit(event)}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">
-          Sign in with your address and your password. The app code is the six-digit number from your
-          authenticator app, once you have enrolled one.
-        </p>
+        <p className="signin__subtitle">Sign in with your address and your password.</p>
 
         {notice && <p className="signin__notice">{notice}</p>}
-
-        {onFirstOperatorSetup && (
-          <p className="signin__hint">
-            First time on this server? This form cannot create a password. Use the setup link at the bottom of
-            this card with the token the server wrote.
-          </p>
-        )}
 
         {hasIdentities && (
           <div className="signin__identities">
@@ -190,28 +277,6 @@ export function SignIn({
           />
         </div>
 
-        <div className="signin__field">
-          <label className="signin__label" htmlFor="signin-code">
-            App code
-          </label>
-          <input
-            id="signin-code"
-            className="signin__input signin__input--mono"
-            type="text"
-            inputMode="text"
-            autoComplete="one-time-code"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={appCode}
-            onChange={(event) => setAppCode(event.target.value)}
-            disabled={busy !== null}
-          />
-          <p className="signin__hint">
-            Six digits from your app. Leave it empty until you have enrolled one. Lost the phone? Type one of your backup codes here instead — each works once.
-          </p>
-        </div>
-
         <button
           className="signin__submit"
           type="submit"
@@ -228,19 +293,7 @@ export function SignIn({
 
         {onForgotPassword && (
           <button type="button" className="signin__switch" onClick={onForgotPassword}>
-            Forgotten your password?
-          </button>
-        )}
-
-        {onRedeemInvitation && (
-          <button type="button" className="signin__switch" onClick={onRedeemInvitation}>
-            Invited? Redeem a token.
-          </button>
-        )}
-
-        {onFirstOperatorSetup && (
-          <button type="button" className="signin__switch" onClick={onFirstOperatorSetup}>
-            First time on this server? Set up the first operator with the token the server wrote at first start.
+            Forgot your password?
           </button>
         )}
       </form>
@@ -250,12 +303,12 @@ export function SignIn({
 
 /** What a refused sign-in says on this screen. The server answers one
  * sentence for every cause, on purpose, and that sentence is written for the
- * audit trail, not for the person typing. This lists every check that can
- * refuse, without guessing which one did -- the server does not say, and
- * this screen must not invent it. */
-const SIGN_IN_REFUSED =
-  'Sign-in refused. Check the address and the password, and the six digits if an app code is enrolled. ' +
-  'Never set a password on this server? Use the setup link below.';
+ * audit trail, not for the person typing. This says what the person can act
+ * on without guessing which check refused -- the server does not say, and
+ * this screen must not invent it. Since ADR-0056 decision 1 it no longer
+ * mentions setup: the server decides whether this deployment is on its first
+ * run, and if it were, this card would not be on the screen at all. */
+export const SIGN_IN_REFUSED = 'Sign-in refused. Check the address and the password.';
 
 /** The server's own wording where it is meant for the person (a wait); the
  * sentence above for a refusal; this client's own honest statement of "I

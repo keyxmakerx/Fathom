@@ -13,6 +13,18 @@
 // what the product does and a smoke test of a flow nobody uses is not a smoke
 // test.
 //
+// **Extended 2026-09-22 for ADR-0056.** Three checks join it, and they are the
+// three things the first-run flow asks the server before anybody is signed in:
+// whether setup is still pending, whose setup a token file opens, and whether a
+// verification code is needed. Every assertion that was here is still here.
+//
+//   0. GET  /setup/state               → LP("pending") before, LP("done") after
+//                                        (decision 1: one bit about the
+//                                        deployment, no session, no signature)
+//   0b. POST /enrolment/operator/setup/check  LP(token) → LP(address)
+//                                        (decision 1: the address is named by
+//                                        the server, never typed, and the
+//                                        token is not spent)
 //   1. POST /enrolment/operator/setup  LP(token) ‖ LP(credential)  → 200, empty
 //                                      (resolution 4: NO session; the client
 //                                      signs in immediately afterwards)
@@ -27,6 +39,10 @@
 //   5. compute a TOTP in Node          RFC 6238, HMAC-SHA-1 through WebCrypto
 //   6. POST /credentials/totp/confirm  signed, LP(code) → ten LP(backup_code)
 //   7. POST /credentials/key           signed, LP(public_key) → LP(key_id)
+//   7b. POST /session with an EMPTY code once the authenticator is confirmed
+//                                      → 401 "second factor needed" (decision
+//                                        3: sign-in is two steps, and step one
+//                                        issues nothing)
 //   8. the operator's own key sign-in, and a signed GET /admin/operators.
 //
 // **Step 8 needs a route stream (b) owns** — the one that registers an
@@ -194,6 +210,21 @@ async function post(path, body, headers = {}) {
   const bytes = new Uint8Array(await r.arrayBuffer());
   return { status: r.status, bytes, text: dec.decode(bytes) };
 }
+async function get(path) {
+  const r = await fetch(baseUrl + path, { method: 'GET' });
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  return { status: r.status, bytes, text: dec.decode(bytes) };
+}
+
+/// ADR-0056 decision 1: one length-prefixed word about the deployment, asked
+/// with no session and no signature at all.
+async function setupState() {
+  const r = await get('/setup/state');
+  if (r.status !== 200) fail('setup-state', `status ${r.status}: ${r.text.trim()}`);
+  const { value, rest } = readLp(r.bytes);
+  if (rest.length !== 0) fail('setup-state', 'the answer must carry exactly one field');
+  return dec.decode(value);
+}
 function fail(step, detail) {
   console.error(`FAIL ${step}: ${detail}`);
   process.exit(1);
@@ -283,8 +314,36 @@ async function signIn(kind, principal, { credential = '', appCode = '', evidence
   };
 }
 
-// 1. The setup token: set a password. No session comes back (resolution 4).
+// 0. Before anything: the deployment says setup is unfinished. This is what
+// decides whether a visitor sees the setup flow or a sign-in page at all
+// (ADR-0056 decisions 1 and 2), so a wrong answer here is a deployment nobody
+// can walk into.
+const stateBefore = await setupState();
+if (stateBefore !== 'pending') {
+  fail('setup-state', `before the token is redeemed the state must be "pending", got ${JSON.stringify(stateBefore)}`);
+}
+console.log('setup state: pending, so the client shows the setup flow');
+
+// 0b. The token names its own address, so nobody types one that could then not
+// match — the owner's ask, met by removing the field.
 const token = fromHex(readFileSync(tokenFile, 'utf8'));
+const checked = await post('/enrolment/operator/setup/check', lp(token));
+if (checked.status !== 200) fail('setup-check', `status ${checked.status}: ${checked.text.trim()}`);
+const namedAddress = dec.decode(readLp(checked.bytes).value);
+if (namedAddress !== address) {
+  fail('setup-check', `the server names ${JSON.stringify(namedAddress)} for this token, not ${JSON.stringify(address)}`);
+}
+console.log(`setup check: the token opens ${namedAddress}, and is not spent by asking`);
+
+// A token file that is not the one on the volume gets one sentence, whatever
+// is wrong with it.
+const refusedCheck = await post('/enrolment/operator/setup/check', lp(new Uint8Array(32)));
+if (refusedCheck.status !== 401 || refusedCheck.text !== 'setup token refused\n') {
+  fail('setup-check', `a token that was never issued must get 401 "setup token refused", got ${refusedCheck.status}: ${JSON.stringify(refusedCheck.text)}`);
+}
+console.log('setup check: a token that was never issued is refused in one sentence');
+
+// 1. The setup token: set a password. No session comes back (resolution 4).
 const setup = await post(
   '/enrolment/operator/setup',
   concat(lp(token), lp(utf8(CREDENTIAL))),
@@ -303,6 +362,21 @@ if (again.status !== 401) {
   fail('setup', `a spent setup token must be refused with 401, got ${again.status}: ${again.text.trim()}`);
 }
 console.log('setup: the token is spent (401 on a second use)');
+
+// And the spent token is refused by the check route in exactly the same words
+// as one that was never issued.
+const checkedAgain = await post('/enrolment/operator/setup/check', lp(token));
+if (checkedAgain.status !== 401 || checkedAgain.text !== 'setup token refused\n') {
+  fail('setup-check', `a spent token must get 401 "setup token refused", got ${checkedAgain.status}: ${JSON.stringify(checkedAgain.text)}`);
+}
+console.log('setup check: a spent token gets the same refusal, byte for byte');
+
+// The deployment's own bit has moved, and for ever.
+const stateAfter = await setupState();
+if (stateAfter !== 'done') {
+  fail('setup-state', `once the credential is set the state must be "done", got ${JSON.stringify(stateAfter)}`);
+}
+console.log('setup state: done, so the client shows the sign-in page from here on');
 
 // 2 and 3. Sign in with the address and the password. No app code yet, so this
 // is the `A0` setup session decision 10 describes: good for `/credentials/*`
@@ -354,6 +428,36 @@ console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
 // once per step (ADR-0055 decision 10, the replay rule), so a second app code
 // inside the same step is refused on purpose. The backup code proves the lost
 // phone path at the same time, and its single use is asserted right after.
+// **Step one first** (ADR-0056 decision 3): the client sends the address and
+// the credential with an empty code, and the server says a verification code is
+// needed instead of issuing a session. This is the request the browser makes on
+// the way to every ordinary sign-in.
+{
+  const sessionKey = await keyPair();
+  const sessionPub = await publicRaw(sessionKey);
+  const ch = await post(
+    '/session/challenge',
+    concat(lp(utf8('steward')), lp(utf8(address)), lp(sessionPub)),
+  );
+  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
+  const { value: nonce } = readLp(ch.bytes);
+  const probe = await post(
+    '/session',
+    concat(
+      lp(utf8('steward')),
+      lp(sessionPub),
+      lp(nonce),
+      lp(EMPTY),
+      lp(utf8(CREDENTIAL)),
+      lp(EMPTY),
+    ),
+  );
+  if (probe.status !== 401 || probe.text !== 'second factor needed\n') {
+    fail('second-factor', `an empty code on an account with an authenticator must be 401 "second factor needed", got ${probe.status}: ${JSON.stringify(probe.text)}`);
+  }
+  console.log('two steps: the password alone is answered "second factor needed", and no session is issued');
+}
+
 const withCode = await signIn('steward', address, {
   credential: CREDENTIAL,
   appCode: backupCodes[0],
@@ -418,7 +522,9 @@ if (!row) fail('register', `the register does not name ${operatorId}:\n${listTex
 if (!row.includes(address)) fail('register', `the register's row does not carry ${address}: ${row}`);
 console.log(`the register names the operator and their address: ${row}`);
 console.log(
-  'OK: the first operator set a password, enrolled an app code, signed in with both ' +
-    'factors, registered a browser key, registered it as their operator key, signed in ' +
-    'as the operator and read the register over HTTP',
+  'OK: the deployment said setup was pending, the token named its own address, the first ' +
+    'operator set a password, enrolled an authenticator app, was asked for a verification ' +
+    'code before any second sign-in, signed in with both factors, registered a browser key, ' +
+    'registered it as their operator key, signed in as the operator and read the register ' +
+    'over HTTP',
 );

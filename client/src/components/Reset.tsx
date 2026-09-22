@@ -45,8 +45,9 @@ type Stage =
  * Two steps, one screen, because they are two halves of one act and a person
  * arriving by link has no use for the first. Neither step signs anybody in:
  * decision 7's *"no automatic sign-in"*, and *"it never skips the app
- * code"* — after a reset the person signs in with the new password **and**
- * their app code, at the ordinary door.
+ * code"* — after a reset the person signs in with the new password **and** a
+ * verification code from their authenticator app, at the ordinary door
+ * (ADR-0056 decision 4 renames what is said, not what is checked).
  */
 export function Reset({ onUseSignIn, initialToken }: ResetProps) {
   const [address, setAddress] = useState('');
@@ -104,7 +105,7 @@ export function Reset({ onUseSignIn, initialToken }: ResetProps) {
     setAgain('');
     onUseSignIn?.(
       address.trim() || undefined,
-      'Password set. Sign in with it and your app code — a reset never skips the app code.',
+      'Password set. Sign in with it and a verification code — a reset never skips the second factor.',
     );
   }
 
@@ -200,7 +201,7 @@ export function Reset({ onUseSignIn, initialToken }: ResetProps) {
 
           <p className="signin__note">
             A reset link works once and expires. Setting a password here does not sign you in: you sign in afterwards
-            with the new password and your app code.
+            with the new password and a verification code from your authenticator app.
           </p>
 
           {onUseSignIn && (

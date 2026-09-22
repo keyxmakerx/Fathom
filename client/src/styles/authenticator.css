@@ -1,0 +1,105 @@
+/* The authenticator-app enrolment on the account screen — ADR-0056 decisions
+   4 and 5. It sits inside `signin.css`'s card and borrows every one of its
+   shapes; what is here is only what that file has no class for: the drawn QR
+   code, the disclosure that hides the `otpauth://` link, and the grid the
+   recovery codes are shown in.
+
+   Written 2026-09-22. */
+
+/* The QR code. **Two fixed colours, not the theme's.** A code is read by a
+   camera or by a password manager decoding a screenshot; both want dark
+   modules on a light field, and the dark theme's page is nearly black. So
+   the paper is white and the modules are black in both themes, and this is
+   the one place in this client where that is right. */
+/* 220px is a floor, not a taste: a version-10 symbol is 57 modules plus two
+   four-module quiet zones, so 220px leaves about 3.4 CSS pixels per module.
+   A camera, and a password manager decoding a screenshot of the tab, both
+   need several pixels per module; smaller than this and the longest
+   `otpauth://` URI this product can produce stops reading. */
+.qr {
+  display: block;
+  flex: none;
+  width: 220px;
+  height: 220px;
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.qr__paper {
+  fill: #ffffff;
+}
+
+.qr__modules {
+  fill: #000000;
+}
+
+.qr__missing {
+  margin: 0 0 var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+/* The QR and the words beside it. On a viewport narrower than the card, the
+   two of them do not fit side by side, so they stack. */
+.authenticator__scan {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  margin-bottom: var(--s4);
+}
+
+.authenticator__scan-text {
+  font-size: var(--t-body);
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .authenticator__scan {
+    flex-direction: column;
+  }
+}
+
+/* "Show the otpauth link" — a `<details>`, so it is closed by default, opens
+   without script, and is reachable from the keyboard as itself. */
+.authenticator__reveal {
+  margin: 0 0 var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s2) var(--s3);
+}
+
+.authenticator__reveal summary {
+  font-size: var(--t-small);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.authenticator__reveal summary:hover,
+.authenticator__reveal summary:focus-visible {
+  color: var(--ink);
+}
+
+/* The ten recovery codes: two columns of monospace, selectable a code at a
+   time. `signin.css`'s `signin__codes` does the same job and this is the
+   same shape deliberately — it is here so the recovery screen does not have
+   to reach into a file this stream does not own. */
+.authenticator__codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1) var(--s3);
+  margin: 0 0 var(--s4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.authenticator__code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  user-select: all;
+}
+
+/* Two buttons side by side, each `signin__switch`'s shape. */
+.authenticator__row {
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+}

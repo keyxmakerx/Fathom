@@ -23,7 +23,7 @@ import {
   type PrincipalKind,
 } from './constants';
 import { registerBrowserKey } from './credentials';
-import { refusalFrom } from './errors';
+import { ApiRefusal, refusalFrom } from './errors';
 import { signedFetchOn } from './signedFetch';
 
 /**
@@ -50,6 +50,28 @@ export class NoEnrolledKeyError extends Error {
     this.name = 'NoEnrolledKeyError';
     this.address = address;
   }
+}
+
+/**
+ * `SessionError::SecondFactorNeeded`, as it arrives: **401** and the sentence
+ * `api.rs` fixes for it, `second factor needed`.
+ *
+ * ADR-0056 decision 3: the address and the password verified, the account
+ * holds a confirmed authenticator, and no code came with them. It is the one
+ * 401 on this route that means "ask for the code", not "you may not": no
+ * session was issued, nothing was spent, and the sealed entry records it as a
+ * refusal with its own reason. Matched on the status **and** the sentence,
+ * because 401 alone is the uniform sign-in refusal, which means the opposite
+ * and must never route anywhere.
+ */
+export const SECOND_FACTOR_NEEDED_SENTENCE = 'second factor needed';
+
+export function isSecondFactorNeeded(error: unknown): boolean {
+  return (
+    error instanceof ApiRefusal &&
+    error.status === 401 &&
+    error.message.trim().toLowerCase().startsWith(SECOND_FACTOR_NEEDED_SENTENCE)
+  );
 }
 
 /**
@@ -89,7 +111,7 @@ export class NoEnrolledKeyError extends Error {
  * for every refusal the server itself can produce.
  *
  * **Since ADR-0055 decision 6 a key is no longer required at all.** The
- * address, a password and an app code sign in from any browser, with no
+ * address, a password and a verification code sign in from any browser, with no
  * pairing; a key this browser happens to hold is sent beside them as evidence
  * and is what makes the session `A1`. `credential` carries the other two
  * fields; both go on the wire empty when there is nothing to put in them,
@@ -101,7 +123,7 @@ export async function signIn(
   credential: SignInCredential = {},
 ): Promise<void> {
   const password = credential.password ?? '';
-  const appCode = credential.appCode ?? '';
+  const verificationCode = credential.verificationCode ?? '';
   const found = await findKey(address, kind);
   if (!found && password.length === 0) {
     throw new NoEnrolledKeyError(address, kind ?? (looksLikeOperatorId(address) ? PRINCIPAL_KIND_OPERATOR : PRINCIPAL_KIND_STEWARD));
@@ -144,13 +166,13 @@ export async function signIn(
   const challenge = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
   // No key in this browser is an ordinary state since ADR-0055 decision 6
   // ("any browser, no pairing"): the evidence field goes empty and the
-  // password and the app code are what the server checks. A key, when this
+  // password and the verification code are what the server checks. A key, when this
   // browser has one, still signs the challenge and still buys `A1`.
   const evidenceSig = enrolledKeyPair
     ? await signMessage(enrolledKeyPair.privateKey, challenge)
     : new Uint8Array(0);
 
-  const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, appCode);
+  const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, verificationCode);
   const signInResponse = await fetch('/session', {
     method: 'POST',
     body: signInBody as BodyInit,
@@ -186,19 +208,20 @@ export async function signIn(
   // here costs the next sign-in its `A1` and nothing else, so it must never
   // undo a sign-in that has already succeeded.
   //
-  // **Only when an app code was presented**, and the reason is a property of
-  // the server this client must not walk into: `sessions.rs` (4) gives
-  // `A1` to password + key even when no app code is enrolled yet, and the
-  // setup gate in `verify_inside` (4a) fires on `A0` alone. Registering a key
-  // for an operator-custody account that has not finished enrolling its app
-  // code would therefore turn its next session from a setup session into a
-  // full one. An app code in hand means the account is past that point.
-  // `Setup.tsx` registers the key explicitly, after the code is confirmed.
+  // **Only when a verification code was presented**, and the reason is a
+  // property of the server this client must not walk into: `sessions.rs` (4)
+  // gives `A1` to password + key even when no second factor is enrolled yet,
+  // and the setup gate in `verify_inside` fires on `A0` alone. Registering a
+  // key for an operator-custody account that has not finished enrolling its
+  // authenticator would therefore turn its next session from a setup session
+  // into a full one. A code in hand means the account is past that point.
+  // `FirstRun.tsx` passes `registerBrowserKey: false` for the sign-in it
+  // makes mid-flow, before the authenticator exists.
   if (
     credential.registerBrowserKey !== false &&
     kind === PRINCIPAL_KIND_STEWARD &&
     found === null &&
-    appCode.trim().length > 0
+    verificationCode.trim().length > 0
   ) {
     await registerBrowserKey(address).catch(() => {});
   }
@@ -209,19 +232,23 @@ export interface SignInCredential {
   /** The password. Empty for the key-only path, which is every operator
    * sign-in and every account that has never set one. */
   password?: string;
-  /** Six digits from the app, or one of the ten backup codes — the server
-   * tries the second when the first does not fit (`sessions.rs`'s
-   * `check_second_factor`), which is why the screen has one field. */
-  appCode?: string;
+  /** Six digits from the authenticator app, or one of the ten recovery
+   * codes — the server tries the second when the first does not fit
+   * (`sessions.rs`'s `check_second_factor`), which is why the screen has one
+   * field. Named for what a person is asked for (ADR-0056 decision 4); the
+   * wire field and the server's own identifiers are unchanged. */
+  verificationCode?: string;
   /** Register a key for this browser on success when it holds none. Default
-   * true; `Setup.tsx` passes `false` for the sign-in it makes mid-setup,
-   * before the app code exists. */
+   * true; `FirstRun.tsx` passes `false` for the sign-in it makes mid-flow,
+   * before the authenticator exists. */
   registerBrowserKey?: boolean;
 }
 
 /**
  * `POST /session`'s body: `LP(kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖
- * LP(evidence_sig) ‖ LP(password) ‖ LP(app_code)`.
+ * LP(evidence_sig) ‖ LP(password) ‖ LP(code)`. The sixth field is the
+ * server's `app_code` — a wire name, unchanged by ADR-0056 decision 4, which
+ * renames what a person reads and not what a route is called.
  *
  * Six fields since ADR-0055 decision 10 widened the route, and `api.rs`'s
  * `read_fields` refuses an inexact count — so the last two are sent on every
@@ -234,7 +261,7 @@ export function buildSignInBody(
   nonce: Uint8Array,
   evidenceSig: Uint8Array,
   password: string,
-  appCode: string,
+  verificationCode: string,
 ): Uint8Array {
   return concatBytes(
     lp(utf8(kind)),
@@ -242,7 +269,7 @@ export function buildSignInBody(
     lp(nonce),
     lp(evidenceSig),
     lp(utf8(password)),
-    lp(utf8(appCode.trim())),
+    lp(utf8(verificationCode.trim())),
   );
 }
 

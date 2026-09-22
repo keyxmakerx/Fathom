@@ -1412,6 +1412,71 @@ pub struct CredentialStore {
     ring: Arc<KeyRing>,
     deployment: String,
     reset_lifetime: Duration,
+    /// ADR-0056 decision 1's one bit, remembered for at most
+    /// [`SETUP_STATE_CACHE`]. See [`CredentialStore::setup_state`].
+    setup_state_cache: SetupStateCache,
+}
+
+/// Whether this deployment's first operator has finished setting up.
+///
+/// ADR-0056 decision 1. The two spellings are the wire's:
+/// `GET /setup/state` answers `LP(as_str())` and nothing else, so a client
+/// reads one word and never parses a document.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SetupState {
+    /// The first operator has no stored credential yet. The client shows the
+    /// setup flow and nothing else (decision 2).
+    Pending,
+    /// Setup is finished, or there is nothing to set up. For ever after.
+    Done,
+}
+
+impl SetupState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Done => "done",
+        }
+    }
+}
+
+/// How long [`CredentialStore::setup_state`] may answer from memory.
+///
+/// Five seconds, ADR-0056 decision 1's own number. Long enough that a burst of
+/// page loads is one query, short enough that a second browser watching a
+/// deployment being set up sees it finish without being told to reload.
+pub const SETUP_STATE_CACHE: Duration = Duration::from_secs(5);
+
+/// The remembered answer and when it was taken.
+///
+/// **A `std::sync::Mutex` and not an async one**: nothing is awaited while it
+/// is held, and a lock that cannot be held across an await cannot be the
+/// reason a request waits on another request's database round trip. A poisoned
+/// lock is treated as no cached answer — the query is the truth and is always
+/// available.
+#[derive(Default)]
+struct SetupStateCache(std::sync::Mutex<Option<(std::time::Instant, SetupState)>>);
+
+impl SetupStateCache {
+    fn get(&self) -> Option<SetupState> {
+        let held = self.0.lock().ok()?;
+        let (taken_at, state) = (*held)?;
+        (taken_at.elapsed() < SETUP_STATE_CACHE).then_some(state)
+    }
+
+    fn put(&self, state: SetupState) {
+        if let Ok(mut held) = self.0.lock() {
+            *held = Some((std::time::Instant::now(), state));
+        }
+    }
+
+    /// Drop the remembered answer, because the act that changes it has just
+    /// committed.
+    fn forget(&self) {
+        if let Ok(mut held) = self.0.lock() {
+            *held = None;
+        }
+    }
 }
 
 /// What enrolling an app code hands back, **once**.
@@ -1457,6 +1522,7 @@ impl CredentialStore {
             ring,
             deployment,
             reset_lifetime,
+            setup_state_cache: SetupStateCache::default(),
         }
     }
 
@@ -2390,7 +2456,139 @@ impl CredentialStore {
 
         leave_custody(&tx).await?;
         tx.commit().await?;
+        // The one bit `GET /setup/state` answers has just moved, and the cache
+        // must not answer "pending" for another five seconds to the very
+        // browser that did it.
+        self.setup_state_cache.forget();
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // ADR-0056 decisions 1 and 2 — the two reads the setup screen makes
+    // -----------------------------------------------------------------------
+
+    /// **Has this deployment's first operator finished setting up?** One bit
+    /// about the deployment, never about an address.
+    ///
+    /// ADR-0056 decision 1. `pending` while the install's first operator — the
+    /// operator bound (`0019` §A) to the account at `site_install.notice_address`
+    /// (`0015` §C), which on a native install is the one
+    /// `bootstrap_first_operator` minted and on an upgraded one is the adopted
+    /// operator — has no stored credential. `done` otherwise, and `done` when
+    /// there is no install record or no such account at all: the setup screen
+    /// would have nothing to offer, so sending a visitor to it would be a door
+    /// onto a wall.
+    ///
+    /// **Why it is here and not beside the bootstrap.** The bit is the state
+    /// of one column of `accounts`, this module is the only one that reads
+    /// that column, and `tests/operators.rs` forbids naming it in
+    /// `operators.rs` outside the handlers ADR-0055 allowlists. The act that
+    /// flips the bit — [`CredentialStore::redeem_setup`] — is a few lines
+    /// above.
+    ///
+    /// **It discloses nothing new.** A visitor to a pending deployment is
+    /// shown the setup screen; the answer is what they would see. The
+    /// per-address answers of `/session` are untouched in content and in time,
+    /// which is what ASVS 5.0.0 6.3.8 is about.
+    ///
+    /// **Cached for [`SETUP_STATE_CACHE`], deployment-wide.** The query is one
+    /// index lookup on each of three tables, and the client asks it on every
+    /// page load; the cache bounds what an unauthenticated caller can make
+    /// this deployment do to one query per five seconds however many callers
+    /// there are. A per-source rate limit would not — and, worse, the sign-in
+    /// buckets are the wrong instrument here: a person who reloads the sign-in
+    /// page ten times would have spent the budget they need to sign in.
+    pub async fn setup_state(&self) -> Result<SetupState, CredentialError> {
+        if let Some(state) = self.setup_state_cache.get() {
+            return Ok(state);
+        }
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        // `site_install` is readable under enrolment custody, the binding and
+        // the account under session custody (`0015` §H, `0019` §A, `0018` §E).
+        // The same pair `redeem_setup` above holds, for the same rows.
+        operators::enter_enrolment_custody(&tx).await?;
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT a.password_hash IS NULL \
+                   FROM site_install s \
+                   JOIN accounts a ON a.email = s.notice_address \
+                   JOIN operator_account_bindings b ON b.account_id = a.id \
+                  WHERE s.id = 'install'",
+                &[],
+            )
+            .await?;
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+
+        let state = match row {
+            Some(row) if row.get::<_, bool>(0) => SetupState::Pending,
+            _ => SetupState::Done,
+        };
+        self.setup_state_cache.put(state);
+        Ok(state)
+    }
+
+    /// **Is this a live setup token, and whose address does it open?**
+    ///
+    /// ADR-0056 decision 1, step 1 of the setup flow: the person pastes the
+    /// line from the token file and the server names the address, so the
+    /// address is never typed and can never mismatch. The owner's ask — *"give
+    /// an error if the email doesn't match"* — is met by removing the field.
+    ///
+    /// **It spends nothing and writes nothing.** The lookup is
+    /// `operators::check_setup_token`, which is `spend_setup_token`'s own
+    /// checks without the `UPDATE` and without the entry; this transaction
+    /// rolls back whatever it did, and there is nothing to roll back.
+    ///
+    /// Every refusal is [`CredentialError::TokenRefused`] — wrong, spent,
+    /// expired and malformed alike — and the route answers one sentence for
+    /// all of them.
+    pub async fn check_setup(
+        &self,
+        operators: &operators::OperatorStore,
+        token: &[u8],
+    ) -> Result<String, CredentialError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        // `redeem_setup`'s custodies minus `reset_custody`: nothing here
+        // writes a credential column, so nothing here asks for the capability
+        // that would let it.
+        operators::enter_enrolment_custody(&tx).await?;
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await?;
+
+        let operator = match operators.check_setup_token(&tx, token).await {
+            Ok(operator) => operator,
+            Err(_) => return Err(CredentialError::TokenRefused),
+        };
+        let account: Option<String> = tx
+            .query_opt(
+                "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+                &[&operator],
+            )
+            .await?
+            .map(|r| r.get(0));
+        // No binding, no account, no address on it: one refusal for each, as
+        // `redeem_setup` gives, because a caller holding a real token learns
+        // nothing from the difference and a caller holding none must not.
+        let Some(account) = account else {
+            return Err(CredentialError::TokenRefused);
+        };
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
+            return Err(CredentialError::TokenRefused);
+        };
+        if row.address.is_empty() {
+            return Err(CredentialError::TokenRefused);
+        }
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(row.address)
     }
 
     /// End every live session of one account, recording each.

@@ -950,6 +950,28 @@ pub enum SessionError {
     /// factor, and the client has to be told that precisely, because the only
     /// way out is the screen that enrols it.
     TotpRequired,
+
+    // ---- ADR-0056 decision 3 ------------------------------------------
+    /// The address and the credential verify, the account holds a confirmed
+    /// authenticator, and no verification code was presented. **Step one of a
+    /// two-step sign-in**, and not a refusal of anything the caller got wrong.
+    ///
+    /// **Its own variant and not [`SessionError::SignInRefused`]**, because
+    /// the client has to know which of the two screens to draw next and a
+    /// uniform sentence cannot tell it. ADR-0056 decision 3 names what that
+    /// gives up in one paragraph — the second step tells whoever typed the
+    /// right password that it was right — and why every surveyed product
+    /// makes the same trade: it is not ASVS 6.3.8's rule, which is about
+    /// deducing a *valid user* from a *failed* challenge, and a wrong address
+    /// or a wrong credential still gets the one generic sentence here.
+    ///
+    /// **It costs no rate-limit budget.** The client makes this probe on the
+    /// way to every ordinary sign-in, so counting it would spend an account's
+    /// window on its own successful sign-ins. What bounds it is
+    /// [`SessionStore::issue_challenge`], which counts the source bucket for
+    /// the nonce every probe needs, and the stored hash, which has to verify
+    /// before this answer is reachable at all.
+    SecondFactorNeeded,
 }
 
 impl core::fmt::Display for SessionError {
@@ -1024,6 +1046,11 @@ impl core::fmt::Display for SessionError {
             Self::TotpRequired => f.write_str(
                 "this account holds the operator custody and has no app code enrolled, so its \
                  session may do nothing but finish the setup (ADR-0055 decision 10)",
+            ),
+            // ADR-0056 decision 3.
+            Self::SecondFactorNeeded => f.write_str(
+                "this account holds a confirmed authenticator, so its sign-in needs the \
+                 verification code as well; no session is issued and no budget is spent",
             ),
         }
     }
@@ -1387,6 +1414,27 @@ impl SessionStore {
                 )
                 .await?;
                 Ok(signed_in.1)
+            }
+            // **ADR-0056 decision 3: the probe is sealed and costs nothing.**
+            // Answered before any other refusal arm so that none of what
+            // follows can reach it: no account bucket is counted, the source
+            // count this call made at (1) is given back, and the decoy
+            // verification below is not run — the real one has already
+            // happened, and a second would put half a second on the path the
+            // client takes to EVERY ordinary sign-in.
+            //
+            // The entry is still written, because an operator reading the site
+            // chain should see that somebody got this far with a credential
+            // that verified.
+            Err((bucket, reason, SessionError::SecondFactorNeeded)) => {
+                self.give_back_source_attempt(&tx, source).await;
+                let account = match &bucket {
+                    Some(AccountBucket::Account(account)) => Some(account.as_str()),
+                    _ => None,
+                };
+                self.append_sign_in_refusal(&tx, kind, account, None, reason, false)
+                    .await;
+                Err(SessionError::SecondFactorNeeded)
             }
             Err((bucket, reason, error)) => {
                 let counted = self
@@ -1889,6 +1937,24 @@ impl SessionStore {
             // 3), which is what makes a lost phone recoverable without a
             // second field on the form nobody would fill in.
             if row.totp_confirmed() {
+                // **ADR-0056 decision 3, step one.** An empty code on an
+                // account that holds a confirmed authenticator is the client
+                // asking which screen to draw next, not a failed attempt: it
+                // has the address and the credential right and has nothing
+                // left to guess. Answered before `check_second_factor`, so no
+                // step is spent and no backup code is tried against an empty
+                // string.
+                //
+                // An account with NO confirmed authenticator falls through to
+                // the branch below and still gets its `A0` session on an empty
+                // code, exactly as it did before this ADR.
+                if totp_code.is_empty() {
+                    return Err((
+                        Some(AccountBucket::Account(account)),
+                        "second_factor_needed",
+                        SessionError::SecondFactorNeeded,
+                    ));
+                }
                 let checked = self
                     .check_second_factor(tx, &account, row, totp_code)
                     .await
@@ -2243,37 +2309,16 @@ impl SessionStore {
         };
 
         if write_entry {
-            let entry_type = match kind {
-                PrincipalKind::Steward => EntryType::AccountSigninFailed,
-                PrincipalKind::Operator => EntryType::OperatorSigninFailed,
+            let account = match bucket {
+                Some(AccountBucket::Account(account)) => Some(account.as_str()),
+                _ => None,
             };
-            let metadata = entry_metadata(
-                entry_type,
-                &[
-                    (
-                        "account",
-                        match bucket {
-                            Some(AccountBucket::Account(a)) => Json::Str(a.clone()),
-                            _ => Json::Null,
-                        },
-                    ),
-                    // The keyed hash and never the address (`0014` §A): an
-                    // operator can group a spray by it, and it is not a list
-                    // of what people typed.
-                    (
-                        "claimed_address_key",
-                        match bucket {
-                            Some(AccountBucket::ClaimedAddress(k)) => Json::Str(k.clone()),
-                            _ => Json::Null,
-                        },
-                    ),
-                    ("reason", Json::Str(reason.to_string())),
-                    ("principal_kind", Json::Str(kind.as_str().to_string())),
-                    ("rate_limited", Json::Bool(locked)),
-                ],
-            );
-            let _ =
-                chains::append_site(tx, &self.ring, &self.deployment, entry_type, &metadata).await;
+            let claimed = match bucket {
+                Some(AccountBucket::ClaimedAddress(key)) => Some(key.as_str()),
+                _ => None,
+            };
+            self.append_sign_in_refusal(tx, kind, account, claimed, reason, locked)
+                .await;
         }
 
         if locked {
@@ -2285,6 +2330,86 @@ impl SessionStore {
         }
     }
 
+    /// One sealed `*_signin_failed` entry, in the one spelling both callers
+    /// use.
+    ///
+    /// Extracted from [`SessionStore::refuse`] for ADR-0056 decision 3, which
+    /// adds a second caller: the second-factor probe seals the same kind of
+    /// entry while counting nothing. Two copies of this metadata would be two
+    /// shapes on one chain, and the reader of a chain cannot ask which
+    /// function wrote a row.
+    ///
+    /// A failure to append is swallowed here exactly as it was inside
+    /// `refuse`: the refusal stands whether or not the record of it could be
+    /// written, and the append's own failure is logged where it happens.
+    ///
+    /// `claimed_address_key` is the keyed hash and never the address (`0014`
+    /// §A): an operator can group a spray by it, and it is not a list of what
+    /// people typed.
+    async fn append_sign_in_refusal(
+        &self,
+        tx: &Transaction<'_>,
+        kind: PrincipalKind,
+        account: Option<&str>,
+        claimed_address_key: Option<&str>,
+        reason: &'static str,
+        rate_limited: bool,
+    ) {
+        let entry_type = match kind {
+            PrincipalKind::Steward => EntryType::AccountSigninFailed,
+            PrincipalKind::Operator => EntryType::OperatorSigninFailed,
+        };
+        let metadata = entry_metadata(
+            entry_type,
+            &[
+                (
+                    "account",
+                    match account {
+                        Some(account) => Json::Str(account.to_string()),
+                        None => Json::Null,
+                    },
+                ),
+                (
+                    "claimed_address_key",
+                    match claimed_address_key {
+                        Some(key) => Json::Str(key.to_string()),
+                        None => Json::Null,
+                    },
+                ),
+                ("reason", Json::Str(reason.to_string())),
+                ("principal_kind", Json::Str(kind.as_str().to_string())),
+                ("rate_limited", Json::Bool(rate_limited)),
+            ],
+        );
+        let _ = chains::append_site(tx, &self.ring, &self.deployment, entry_type, &metadata).await;
+    }
+
+    /// Undo this call's own increment of the source bucket.
+    ///
+    /// **ADR-0056 decision 3.** The source count is taken before anything is
+    /// looked up, which is what makes it a guard rather than a verdict — and
+    /// it is therefore already spent by the time the second-factor probe is
+    /// recognised several steps later. Giving it back is the only way to keep
+    /// the guard where it belongs and still leave the counters where they
+    /// were, and it is exact: one row, this window, never below zero.
+    ///
+    /// A failure is not an error. The worst case is a counter one higher than
+    /// it should be, which is a rate limit that is one attempt stricter for
+    /// one window.
+    async fn give_back_source_attempt(&self, tx: &Transaction<'_>, source: &str) {
+        let key = bucket_key(source);
+        if key.is_empty() {
+            return;
+        }
+        let _ = tx
+            .execute(
+                "UPDATE sign_in_attempts SET attempts = GREATEST(attempts - 1, 0) \
+                  WHERE bucket_kind = 'source' AND bucket_key = $1 AND window_start = $2",
+                &[&key, &window_start(self.limits.window)],
+            )
+            .await;
+    }
+
     /// Increment one bucket's counter for the current window and return the
     /// new count.
     async fn count_attempt(
@@ -2293,10 +2418,7 @@ impl SessionStore {
         bucket_kind: &str,
         bucket_key: &str,
     ) -> Result<Option<i32>, SessionError> {
-        // A source key longer than the column allows is truncated rather than
-        // refused: the bucket is a bucket, and an oversized value is still
-        // usefully grouped by its first 128 characters.
-        let key: String = bucket_key.chars().take(128).collect();
+        let key = self::bucket_key(bucket_key);
         if key.is_empty() {
             return Ok(None);
         }
@@ -3606,6 +3728,16 @@ fn now_unix() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock is before 1970")
         .as_secs() as i64
+}
+
+/// One bucket's key as the column holds it.
+///
+/// A source key longer than the column allows is truncated rather than
+/// refused: the bucket is a bucket, and an oversized value is still usefully
+/// grouped by its first 128 characters. **One function since ADR-0056**, so
+/// that the count and the give-back cannot disagree about which row they mean.
+fn bucket_key(key: &str) -> String {
+    key.chars().take(128).collect()
 }
 
 /// The start of the current fixed window, as a `timestamptz` the database can

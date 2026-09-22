@@ -85,8 +85,9 @@
    it does not navigate anywhere, and a screen reader should hear it as
    the action it is. */
 .signin__switch {
-  /* One per line: since ADR-0055 there are three of these under the form
-     (reset, enrol, setup) and inline buttons ran into each other. */
+  /* One per line. ADR-0055 put three of these under the form and inline
+     buttons ran into each other; ADR-0056 decision 6 leaves one (the reset
+     door), and the rule stays because the reset screen still has two. */
   display: block;
   margin-top: var(--space-3, 12px);
   padding: 0;
@@ -156,11 +157,23 @@
    screen and the console entry. Same card, same rules, no new tokens: a
    heading for the sections a screen now has more than one of, a hint under
    a field, the monospace block a secret is read out of, and the list the
-   backup codes are shown in once. */
+   recovery codes are shown in once. */
 
 .signin__input--mono {
   font-family: var(--mono);
   font-size: var(--t-mono);
+}
+
+/* ADR-0056 decision 2 — the first run's progress line, "Step 2 of 5", above
+   the step's own heading. A person who has just installed a server should be
+   able to see how much of this there is; no new tokens, the label's own size
+   and colour. 2026-09-22. */
+.signin__progress {
+  margin: 0 0 var(--s1) 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
 
 .signin__notice {
@@ -259,7 +272,7 @@
   border: var(--rule-hair) solid var(--ink);
 }
 
-/* The way to a person's own password and app code, on Home. A text button,
+/* The way to a person's own password and authenticator app, on Home. A text button,
    the same shape `signin__switch` takes, because it is a way to somewhere
    and not a region of its own — see `App.tsx`'s note on placement. */
 .account-entry {

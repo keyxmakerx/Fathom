@@ -50,6 +50,14 @@ export default defineConfig({
       // own entry here. Without it the dev server answers 404 itself and the
       // failure looks like a missing route on the server.
       '/placement': { target: apiTarget, changeOrigin: true },
+      // ADR-0056 decision 1: `GET /setup/state`, unauthenticated, asked at
+      // boot before any door is drawn. It is not under `/enrolment` because
+      // it is a read about the deployment and not an enrolment act, so it
+      // needs its own entry here; without it the dev server answers its own
+      // 404 and the failure looks like a missing route on the server. (The
+      // check route, `POST /enrolment/operator/setup/check`, is already
+      // covered by the `/enrolment` entry above.) 2026-09-22.
+      '/setup': { target: apiTarget, changeOrigin: true },
       // ADR-0055 client (a): the credential plane —
       // `/credentials/password`, `/credentials/key`,
       // `/credentials/totp/*` and `/credentials/reset*`

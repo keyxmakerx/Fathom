@@ -3310,3 +3310,309 @@ async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_whic
         "the answer was {answer:?}, which does not say what happened"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0056 decision 3 — sign-in is two steps
+// ---------------------------------------------------------------------------
+//
+// The client asks for the address and the credential first, and the server
+// says whether a verification code is needed before drawing a field for one.
+// The probe is on the way to EVERY ordinary sign-in, which is why what it
+// costs is as much of the claim as what it answers.
+
+/// A challenge and a sign-in **from a source this test names**, so that the
+/// rate-limit rows the call touches can be read before and after it.
+/// [`adr55_sign_in`] draws a source of its own, which is right for every test
+/// that is not about the counters and useless for the ones that are.
+async fn adr56_sign_in_from(
+    store: &SessionStore,
+    address: &str,
+    credential: &str,
+    code: &str,
+    source: &str,
+) -> Result<SignedIn, SessionError> {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Steward, address, &pubkey, source)
+        .await?;
+    store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password: credential,
+            totp_code: code,
+            source,
+        })
+        .await
+}
+
+/// Everything one bucket has counted in the current window, summed: zero when
+/// the bucket has never been written.
+async fn adr56_attempts(bucket_kind: &str, bucket_key: &str) -> i64 {
+    adr55_superuser()
+        .await
+        .query_one(
+            "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
+              WHERE bucket_kind = $1 AND bucket_key = $2",
+            &[&bucket_kind, &bucket_key],
+        )
+        .await
+        .expect("read the bucket")
+        .get(0)
+}
+
+/// The sealed metadata of the newest `account_signin_failed` entry, opened the
+/// way an auditor holding the chain key would open it.
+async fn adr56_newest_refusal(pool: &Pool, ring: &Arc<KeyRing>) -> String {
+    let seq: i64 = adr55_superuser()
+        .await
+        .query_one(
+            "SELECT MAX(seq) FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'account_signin_failed'",
+            &[],
+        )
+        .await
+        .expect("a refusal entry must exist")
+        .get(0);
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let entry = chains::read_site_entry_verified(&tx, ring, seq)
+        .await
+        .expect("read the entry")
+        .expect("the seq must hold an entry");
+    let metadata = String::from_utf8_lossy(&entry.metadata).to_string();
+    tx.commit().await.expect("commit");
+    metadata
+}
+
+/// How many session rows one account holds right now.
+async fn adr56_sessions_of(account: &str) -> i64 {
+    adr55_superuser()
+        .await
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE principal_id = $1",
+            &[&account],
+        )
+        .await
+        .expect("count sessions")
+        .get(0)
+}
+
+/// The `assurance` column of one session row.
+async fn adr56_assurance_of(session_id: &str) -> String {
+    adr55_superuser()
+        .await
+        .query_one(
+            "SELECT assurance FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0)
+}
+
+/// **An empty verification code on an account that holds a confirmed
+/// authenticator asks for the second factor, issues nothing, and costs
+/// nothing.**
+///
+/// ADR-0056 decision 3, in one test because the three halves are one claim: a
+/// client that had to spend an attempt to find out which screen to draw would
+/// spend a person's own window signing them in.
+#[tokio::test]
+async fn an_empty_verification_code_asks_for_the_second_factor_and_spends_no_budget() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "twostep").await;
+    let account = enrolled.person.account.to_string();
+
+    let sessions_before = adr56_sessions_of(&account).await;
+    let account_before = adr56_attempts("account", &account).await;
+    let failed_before = failed_entries(&pool).await;
+
+    // The challenge costs one against the source bucket (`0014` §C) and is the
+    // only thing that may: the probe itself must give back whatever it took.
+    let source = a_source_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let challenge = store
+        .issue_challenge(
+            PrincipalKind::Steward,
+            &enrolled.person.address,
+            &pubkey,
+            &source,
+        )
+        .await
+        .expect("a challenge");
+    let source_after_challenge = adr56_attempts("source", &source).await;
+
+    let probed = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password: ADR55_PASSWORD,
+            totp_code: "",
+            source: &source,
+        })
+        .await;
+
+    assert!(
+        matches!(probed, Err(SessionError::SecondFactorNeeded)),
+        "an account with a confirmed authenticator and no code must be told which screen comes \
+         next, not given a session and not given the uniform refusal: {probed:?}"
+    );
+    assert_eq!(
+        adr56_sessions_of(&account).await,
+        sessions_before,
+        "no session is issued by step one"
+    );
+    assert_eq!(
+        adr56_attempts("source", &source).await,
+        source_after_challenge,
+        "the probe left the source bucket where the challenge left it. The client makes this \
+         request before every ordinary sign-in, so a count here is a count against the person \
+         who is signing in correctly"
+    );
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        account_before,
+        "and it counted nothing against the account either"
+    );
+
+    // It is still on the chain: an operator reading the site chain should see
+    // that somebody got this far with a credential that verified.
+    assert_eq!(
+        failed_entries(&pool).await - failed_before,
+        1,
+        "step one is sealed as a sign-in refusal"
+    );
+    let metadata = adr56_newest_refusal(&pool, &ring).await;
+    assert!(
+        metadata.contains("second_factor_needed"),
+        "the sealed entry must name the reason, and it says {metadata}"
+    );
+    assert!(
+        metadata.contains(&account),
+        "and name the account it was about: {metadata}"
+    );
+
+    // Step two: the same request, with a code the authenticator would produce.
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let signed_in = adr56_sign_in_from(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        &a_source_of_its_own(),
+    )
+    .await
+    .expect("the credential and a real verification code open a session");
+    assert_eq!(
+        adr56_assurance_of(&signed_in.session_id).await,
+        "A0T",
+        "and the session says a code made it"
+    );
+}
+
+/// **An account with no authenticator and an empty code still gets its `A0`
+/// session, exactly as it did before ADR-0056.**
+///
+/// The two-step answer is chosen by the STORED authenticator and never by
+/// which fields the caller filled in — the same rule ADR-0055 decision 10
+/// states for the credential branch. Without this, the probe could be made to
+/// fire for every account and the setup flow would have no way in at all: the
+/// first operator has no authenticator yet, and an empty code is all they have.
+#[tokio::test]
+async fn an_account_with_no_authenticator_still_signs_in_with_an_empty_code() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await;
+
+    let person = adr55_account(&pool, "nofactor").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+
+    let (signed_in, _key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential and no authenticator signs in on an empty code");
+    assert_eq!(
+        adr56_assurance_of(&signed_in.session_id).await,
+        "A0",
+        "an account with a credential and no second factor is `A0`, which is the session that \
+         reaches the screen that enrols one"
+    );
+}
+
+/// **Over the wire: 401 and one sentence the client can act on.**
+///
+/// The bytes are the contract the browser client and
+/// `scripts/ci/first-operator-signin.mjs` both read, and a status alone would
+/// not tell the two-step client from a refused credential.
+#[tokio::test]
+async fn the_second_factor_answer_is_401_and_says_what_is_missing() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "overthewire").await;
+
+    let addr = serve(api::router(ApiState {
+        sessions: Arc::clone(&store),
+        watch: Arc::new(EpochWatch::new()),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::header("x-forwarded-for"),
+    }))
+    .await;
+
+    let source = a_source_of_its_own();
+    for (credential, expected, why) in [
+        (
+            ADR55_PASSWORD,
+            "second factor needed\n",
+            "the sentence is the client's contract: it is what tells the second screen to open \
+             rather than the first one to redraw with a refusal on it",
+        ),
+        (
+            ADR55_WRONG_PASSWORD,
+            "sign-in refused\n",
+            "a wrong credential gets the one sentence ADR-0055 decision 7 and ASVS 5.0.0 6.3.8 \
+             ask for, whatever the account holds",
+        ),
+    ] {
+        let session_key = SoftwareKey::random().expect("a session keypair");
+        let pubkey = session_key.public_key();
+        let challenge = store
+            .issue_challenge(
+                PrincipalKind::Steward,
+                &enrolled.person.address,
+                &pubkey,
+                &source,
+            )
+            .await
+            .expect("a challenge");
+        let mut body = Vec::new();
+        lp(&mut body, b"steward");
+        lp(&mut body, &pubkey);
+        lp(&mut body, &challenge.nonce);
+        lp(&mut body, b"");
+        lp(&mut body, credential.as_bytes());
+        lp(&mut body, b"");
+        let (status, answer) = post_bytes(
+            addr,
+            "/session",
+            &body,
+            &[("x-forwarded-for", source.clone())],
+        )
+        .await;
+        assert_eq!(status, "401", "no session was issued, so it is not a 200");
+        assert_eq!(String::from_utf8_lossy(&answer), expected, "{why}");
+    }
+}
