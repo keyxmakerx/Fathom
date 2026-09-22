@@ -278,7 +278,7 @@ async function main() {
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.signin__card', { timeout: 15000 });
   await shot('the-door');
-  await page.click('text=Setting this server up for the first time?');
+  await page.click('text=First time on this server? Set up the first operator');
   await page.waitForSelector('#setup-token', { timeout: 10000 });
   await page.fill('#setup-token', token);
   await page.fill('#setup-address', ADDRESS);
