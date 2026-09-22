@@ -125,9 +125,19 @@ export function SignIn({
     <div className="signin">
       <form className="signin__card" onSubmit={handleSubmit}>
         <h1 className="signin__title">Fathom</h1>
-        <p className="signin__subtitle">Sign in with your address, your password and your app code.</p>
+        <p className="signin__subtitle">
+          Sign in with your address and your password. The app code is the six-digit number from your
+          authenticator app, once you have enrolled one.
+        </p>
 
         {notice && <p className="signin__notice">{notice}</p>}
+
+        {onFirstOperatorSetup && (
+          <p className="signin__hint">
+            First time on this server? This form cannot create a password. Use the setup link at the bottom of
+            this card with the token the server wrote.
+          </p>
+        )}
 
         {hasIdentities && (
           <div className="signin__identities">
@@ -230,7 +240,7 @@ export function SignIn({
 
         {onFirstOperatorSetup && (
           <button type="button" className="signin__switch" onClick={onFirstOperatorSetup}>
-            Setting this server up for the first time? Use the token the server wrote at first start.
+            First time on this server? Set up the first operator with the token the server wrote at first start.
           </button>
         )}
       </form>
@@ -238,15 +248,23 @@ export function SignIn({
   );
 }
 
-/** The server's own wording where it gave one; this client's own honest
- * statement of "I don't have that" where the server was never asked. Never
- * a guess at which check actually failed -- the server does not say, and
+/** What a refused sign-in says on this screen. The server answers one
+ * sentence for every cause, on purpose, and that sentence is written for the
+ * audit trail, not for the person typing. This lists every check that can
+ * refuse, without guessing which one did -- the server does not say, and
  * this screen must not invent it. */
+const SIGN_IN_REFUSED =
+  'Sign-in refused. Check the address and the password, and the six digits if an app code is enrolled. ' +
+  'Never set a password on this server? Use the setup link below.';
+
+/** The server's own wording where it is meant for the person (a wait); the
+ * sentence above for a refusal; this client's own honest statement of "I
+ * don't have that" where the server was never asked. */
 function describe(error: unknown): string {
   if (error instanceof ApiRefusal) {
     return error.retryAfterSeconds != null
       ? `${error.message} Try again in ${error.retryAfterSeconds}s.`
-      : error.message;
+      : SIGN_IN_REFUSED;
   }
   if (error instanceof NoEnrolledKeyError) {
     return error.message;
