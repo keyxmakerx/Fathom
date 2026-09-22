@@ -8,7 +8,9 @@ session to decide something already decided.
 **The target: a first usable version.** A person signs in, lands on a home page, draws a rack-first
 network diagram, saves it, finds it again in a basic inventory, and shares it view-only with a
 colleague, on the Docker stack, with the security foundation already built underneath. *Home and a
-basic inventory joined the target on 2026-09-15 (ADR-0046 §8).* Roughly six to nine sessions of the size of 2026-09-12/13.
+basic inventory joined the target on 2026-09-15 (ADR-0046 §8).* **Redefined by the owner on
+2026-09-22: usable means beta. Polished, the app basically done, a few features allowed to be
+missing, and the owner reaches a saved diagram unaided. Until then no document calls it usable.** Roughly six to nine sessions of the size of 2026-09-12/13.
 The vault, live multi-user editing, inventory, teaching, groups and LDAP come after, and are a
 comparable amount again.
 
