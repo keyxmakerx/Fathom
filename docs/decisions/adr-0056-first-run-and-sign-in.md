@@ -57,8 +57,9 @@ not see.
 ## Decisions
 
 1. **The server says whether setup is finished, for the deployment as a whole.**
-   `GET /setup/state`, unauthenticated but charged to the per-source budget like every other
-   unauthenticated route and answered `Cache-Control: no-store`, answers `LP("pending")` while the install's first operator
+   `GET /setup/state`, unauthenticated, charged to a per-source budget of its own (120 a window,
+   so page loads never spend sign-in attempts and an office behind one address is never shown
+   the wrong door for it) and answered `Cache-Control: no-store`, answers `LP("pending")` while the install's first operator
    has no stored credential (no password yet), and `LP("done")` afterwards, for ever. It is one bit
    about the deployment, never about an address, so ASVS 6.3.8 is untouched: the per-address
    answers stay identical in content and time. The bit is already visible to anyone who can reach
@@ -95,9 +96,14 @@ not see.
    again, over the **same challenge** (same nonce, same session key), and nothing is issued until
    all of it verifies. *Amended 2026-09-22 after the first checker:* the probe is a **rollback**,
    not a refusal. It writes no chain entry (it is a protocol step; the sealed sign-in that follows
-   is the record), counts nothing against any bucket, and leaves the challenge nonce unconsumed,
-   so a two-step sign-in costs exactly what a one-shot sign-in cost: one challenge, one session.
-   A wrong password is still a sealed, counted, generic refusal. **What this gives up, named:** the
+   is the record), counts nothing against the account, and leaves the challenge nonce unconsumed.
+   *Amended again the same day after the second checker*, who measured forty free password
+   verifications on one challenge: the probe **costs one source-bucket unit**, committed on its
+   own, so a password holder cannot turn one challenge into unbounded argon2id. A two-step
+   sign-in is therefore three counted requests (challenge, probe, completion) where a one-shot
+   sign-in was two, and the per-source budget rises from 30 to 45 per window so a shared source
+   still gets fifteen sign-ins a window. A wrong password is still a sealed, counted, generic
+   refusal that consumes the nonce. **What this gives up, named:** the
    second step tells the person who typed the right password that it was right. Every surveyed
    product with a second factor makes the same trade; it is not what 6.3.8 forbids (deducing a
    *valid user* from a *failed* challenge), and the sign-in rate limits and the account bucket
@@ -105,8 +111,10 @@ not see.
 4. **Names.** The factor is an **authenticator app**; the six digits are a **verification code**;
    the base32 secret is the **setup key**; the ten single-use codes are **recovery codes**. "App
    code" and "backup code" leave every user-facing string, the docs and the log lines meant for
-   people. Server identifiers, routes, column names and sealed entry types keep their names;
-   renaming a column is not a UX change.
+   people, and the one wire sentence a client matches on (`set up an authenticator first`, with
+   the client accepting the old sentence too for one restart's worth of skew). Server
+   identifiers, routes, column names and sealed entry types keep their names; renaming a column
+   is not a UX change.
 5. **The enrolment screen draws the QR code itself**, as inline SVG from a zero-dependency
    encoder, so `img-src` and the rest of the policy do not move. A password manager that
    photographs the page then works; one that pastes the setup key works already.
