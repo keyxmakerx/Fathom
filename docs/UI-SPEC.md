@@ -400,7 +400,7 @@ sign-in card, no links. When it answers *done*, the sign-in card. Ten comparable
 surveyed (`docs/archive/2026-09-22-first-run-survey.md`); eight redirect every visitor to one
 create-the-administrator page until one exists, and none shows a sign-in page with a setup link.
 
-**First run, six screens, one card, a progress line ("Step 2 of 6").**
+**First run, five screens, one card, a progress line ("Step 2 of 5"); Home is not a step.**
 1. *Welcome.* One sentence: this server has just been set up; prove you are the person who installed
    it. One field, **Setup token**, and under it where the file is and the one command that copies it
    out. A wrong token gets one sentence and stays on this screen.
@@ -413,8 +413,9 @@ create-the-administrator page until one exists, and none shows a sign-in page wi
    the sentence that each works once and stands in for the phone, a checkbox "I have saved these"
    that enables **Continue**.
 5. *Sign in with your new authenticator.* The address on show, one field, **Verification code**;
-   the card signs in with the password it still holds. This is the session that lands on Home.
-6. Home, signed in, the Site entry visible as today.
+   the card signs in with the password it still holds. This is the session that lands on Home,
+   signed in, the Site entry visible as today. One heading per screen: the card's progress line
+   above, the screen's own heading below, never both saying the step's name.
 
 **Sign-in, two steps on the same card.** Address and password, one button. When the server answers
 *second factor needed*, the card keeps the address on show and asks for one thing: **Verification

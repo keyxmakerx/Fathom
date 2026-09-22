@@ -2951,6 +2951,38 @@ async fn an_admin_answer_says_no_store() {
     );
 }
 
+/// **The admin byte builder says it too.** `GET /admin/operators` is the text
+/// listing; `GET /admin/notices` is built by `admin.rs`'s own
+/// `bytes_response`, the builder a checker found a revert of would leave
+/// every test green (2026-09-22). Pinned separately for that reason.
+#[tokio::test]
+async fn the_admin_byte_builder_says_no_store() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let (status, head, _) =
+        get_signed_full(addr, "/admin/notices", &operator, &sessions_store).await;
+    assert_eq!(status, "200", "the operator list reads: {head}");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "a notices answer came back without `cache-control: no-store`, so a proxy between the \
+         browser and this server may keep it and offer it to the next caller:\n{head}"
+    );
+}
+
 /// **Exactly one route in this server accepts anything password-shaped, and
 /// this test names it.**
 ///
