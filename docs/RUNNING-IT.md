@@ -118,20 +118,21 @@ your server is elsewhere.
 
 ### 5. Sign in
 
-**The first sign-in.** Open the client with the token file from step 3 in hand (`op_` and 64 hex
-digits); it opens the setup screen the client shows for exactly that shape of token (ADR-0055
-decision 10). Setup asks for the address (`FATHOM_OPERATOR_NOTICE_ADDRESS` — the token file does not
-carry it, because the first start bound the operator custody to that address, not to the file) and a
-password: 15 to 128 characters, no composition rules and no expiry, refused only if it is on the
-bundled common-password list or contains the address. Setting it signs you in to a setup-only
-session and moves straight to the app code: the screen shows the `otpauth://` URI and the secret as
-text (no QR code yet — OPEN-QUESTIONS A3), and asks for the six-digit code your app produces to
-confirm it. Confirming hands back **ten backup codes, shown once** — save them before leaving the
-screen; each is good for one sign-in in place of an app code, for a lost phone.
+**The first time (ADR-0056).** Open the client. The server knows setup is not finished and shows
+one guided flow and nothing else, five steps: paste the **setup token** from the file step 3 wrote
+(`op_` and 64 hex digits; the screen says where the file is); the server confirms the token and
+shows the address it was started with, so nothing is typed that could mismatch; choose a
+**password** of 15 to 128 characters, no composition rules and no expiry, refused only if it is on
+the bundled common-password list or contains the address; **set up your authenticator app** by
+scanning the QR code or entering the setup key, then typing the six-digit verification code it
+shows; save the **ten recovery codes**, shown once, each good for one sign-in in place of the
+authenticator, for a lost phone. You land on Home, signed in, with the operator console one press
+away.
 
-**Every sign-in after that** is the same three things, at the same door, on any browser: your
-address, your password and your app code (or one of the ten backup codes). No key is copied and no
-device is paired — decision 6.
+**Every sign-in after that**, on any browser, is two steps at one door: your address and your
+password; then, because your account has an authenticator, the verification code it shows, or one
+of the recovery codes in the same field. No key is copied and no device is paired (ADR-0055
+decision 6). A wrong address or password gets one sentence, whichever it was.
 
 **The console can live on its own host.** Set it from inside the console itself (decision 11: a
 warning, a countdown, and a window that reverts the move if nobody signs in on the new host in
@@ -224,8 +225,8 @@ side):
   `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
-To sign in the first time, read the one-time token the first start wrote and open the setup screen
-with it (§5 above says what follows):
+To sign in the first time, read the one-time token the first start wrote; the client's first-run
+flow asks for it on its first screen (§5 above says what follows):
 
 ```sh
 docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token

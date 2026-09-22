@@ -156,7 +156,7 @@ other.
 **The operator plane, as of 2026-09-21 (ADR-0055).** The address is the identity: the first start
 creates an account for `FATHOM_OPERATOR_NOTICE_ADDRESS` and binds the operator custody to it
 (`operator_account_bindings`); a person signs in with that address, a password (argon2id, 15 to 128
-characters) and a TOTP app code (RFC 6238, SHA-1, six digits, ten hashed backup codes for the lost
+characters) and a verification code from an authenticator app (RFC 6238 TOTP, SHA-1, six digits, ten hashed recovery codes for the lost
 phone) — `credentials.rs`, migration 0018. `FATHOM_SINGLE_OPERATOR` is retired; the quorum is
 `min(2, live independent operators)`, counted off the register at every act, so a sole operator adds
 a colleague alone after the 24-hour delay with no switch to ask for (migration 0019,
@@ -173,7 +173,7 @@ own host from inside the console (confirm-or-revert, a five-minute default windo
 console setting with a form (host, port, TLS mode, user, password, from-address) and no client
 behind it yet — every start says so when it is unset. Two response headers, CSP and HSTS, are on
 every response. **Not built**: sending mail, so no reset by mail and no notices by mail yet; a
-passkey as the phishing-resistant second factor NIST asks for (the app code is what ships); the
+passkey as the phishing-resistant second factor NIST asks for (the authenticator app is what ships); the
 console UI for a second operator's own signature on a request that needs one; and a way for the
 console to hand a newly requested colleague their own setup token (today it is minted and
 discarded — finish from the host with `recover-operator` once their account exists).
@@ -198,9 +198,11 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   identities this browser holds a key for, or looks a typed one up on both planes before any request.
   The first operator is named after the notice address.
 - **Superseded 2026-09-21 by ADR-0055, decision 10: no operator door is a key-only redemption any
-  more.** `Setup.tsx` is what the first-operator token opens now — a password, a TOTP app code shown
-  as an `otpauth://` URI and secret (no QR code, OPEN-QUESTIONS A3), ten backup codes shown once —
-  and `SignIn.tsx` is address, password and app code (or a backup code) for anyone with an account,
+  more.** the first-run flow is what a fresh or upgraded install shows until the first operator has a
+  password (`GET /setup/state`, ADR-0056): setup token, the address the server names, a password, the
+  authenticator app with a QR code drawn on the page and its setup key, ten recovery codes shown
+  once; `SignIn.tsx` is address and password, then the verification code when the server asks for
+  it, for anyone with an account
   operator custody included; a browser key is evidence sent alongside a session, not the only way
   in. `PlacementForm.tsx` sets the console's own host and sources, warns first, redirects, and
   confirms or reverts inside a window; `SmtpForm.tsx` writes the `smtp` setting (no mail client

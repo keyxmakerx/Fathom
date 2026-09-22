@@ -392,6 +392,40 @@ Two things this page has never specified, both found by drawing rather than by r
   page colour against an ink fill. Whether they stay page-coloured over a sheath fill, or invert, is
   not decided. It only arises for the glyph that has interior detail, which is this one.
 
+## First run and sign-in — 2026-09-22, ADR-0056
+
+**The server decides.** `GET /setup/state` says whether the deployment's first operator has a
+password yet. While it answers *pending*, the client shows the first-run flow and nothing else: no
+sign-in card, no links. When it answers *done*, the sign-in card. Ten comparable products were
+surveyed (`docs/archive/2026-09-22-first-run-survey.md`); eight redirect every visitor to one
+create-the-administrator page until one exists, and none shows a sign-in page with a setup link.
+
+**First run, five screens, one card, a progress line ("Step 2 of 5").**
+1. *Welcome.* One sentence: this server has just been set up; prove you are the person who installed
+   it. One field, **Setup token**, and under it where the file is and the one command that copies it
+   out. A wrong token gets one sentence and stays on this screen.
+2. *Choose a password.* The address the server was started with is shown, not typed. Password and
+   confirmation; "fifteen characters or more" inline.
+3. *Set up your authenticator app.* The QR code first, large; beside it "Or enter this setup key"
+   with the key in monospace and a copy button; a collapsed "Show the otpauth link"; one field,
+   **Verification code**, with "Enter the six digits the app shows to confirm it is set up."
+4. *Save your recovery codes.* Ten codes in a monospace grid, "Copy all", "Download as text file",
+   the sentence that each works once and stands in for the phone, a checkbox "I have saved these"
+   that enables **Done**.
+5. Home, signed in, the Site entry visible as today.
+
+**Sign-in, two steps on the same card.** Address and password, one button. When the server answers
+*second factor needed*, the card keeps the address on show and asks for one thing: **Verification
+code**, "Six digits from your authenticator app, or one of your recovery codes." A wrong code shows
+one sentence and stays there. Under the card, one link: "Forgot your password?". The identities
+this browser holds a key for stay above the fields as they are.
+
+**Names.** Authenticator app; verification code; setup key; recovery codes. Never "app code" or
+"backup code" in anything a person reads.
+
+**Invitations** are redeemed at their own address, `/invite#<token>`, which the console shows
+beside the token it minted; the Enrol screen opens with the token filled. No link under sign-in.
+
 ## Parked
 
 Nothing, as of 2026-09-16. The first-pass boards and the eight direction boards were retired on 2026-09-16 to
