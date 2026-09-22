@@ -166,10 +166,23 @@ type EnrolmentStage =
 
 /** Which of this component's two screens is up. The caller cannot see it
  * from the outside — the enrolment the server drew is held in here — and the
- * first run needs it: its progress line says which of six screens a person is
- * on, and the recovery codes are step 4 (ADR-0056 decision 2). `'done'` is
+ * first run needs it: its progress line says which of five screens a person
+ * is on, and the recovery codes are step 4 (ADR-0056 decision 2). `'done'` is
  * the moment the codes are dismissed, said once, beside `onDone`. */
 export type AuthenticatorEnrolmentStage = 'setup' | 'recovery' | 'done';
+
+/**
+ * Who writes the heading over this component's screens.
+ *
+ * `'own'` — it writes its own, which is what the account screen wants: this
+ * component is one section of that page and nothing above it names the step.
+ * `'none'` — the caller has already written one, and a second would be two
+ * headings on one screen. The first run is that caller: it draws its step
+ * name and its progress line over this component, and until 2026-09-22 drew
+ * them over the component's own heading as well, so steps 3 and 4 each showed
+ * the same thing twice.
+ */
+export type EnrolmentHeading = 'own' | 'none';
 
 export interface AuthenticatorEnrolmentProps {
   address: string;
@@ -178,6 +191,8 @@ export interface AuthenticatorEnrolmentProps {
    * secret is first drawn. Optional: the account screen has no progress line
    * and does not care. */
   onStage?: (stage: AuthenticatorEnrolmentStage) => void;
+  /** Default `'own'`. See [`EnrolmentHeading`]. */
+  heading?: EnrolmentHeading;
 }
 
 /**
@@ -199,7 +214,12 @@ export interface AuthenticatorEnrolmentProps {
  * decision 4); nothing here can fetch them again, so the step that dismisses
  * them asks the person to say they have them.
  */
-export function AuthenticatorEnrolment({ address, onDone, onStage }: AuthenticatorEnrolmentProps) {
+export function AuthenticatorEnrolment({
+  address,
+  onDone,
+  onStage,
+  heading = 'own',
+}: AuthenticatorEnrolmentProps) {
   const [stage, setStage] = useState<EnrolmentStage>({ kind: 'idle' });
   const [code, setCode] = useState('');
   const [saved, setSaved] = useState(false);
@@ -261,6 +281,7 @@ export function AuthenticatorEnrolment({ address, onDone, onStage }: Authenticat
     return (
       <RecoveryCodesStage
         address={address}
+        heading={heading}
         codes={stage.codes}
         saved={saved}
         onSavedChange={setSaved}
@@ -287,6 +308,7 @@ export function AuthenticatorEnrolment({ address, onDone, onStage }: Authenticat
     return (
       <AuthenticatorSetupStage
         address={address}
+        heading={heading}
         secretBase32={enrolment.secretBase32}
         otpauthUri={enrolment.otpauthUri}
         code={code}
@@ -302,7 +324,7 @@ export function AuthenticatorEnrolment({ address, onDone, onStage }: Authenticat
 
   return (
     <div className="signin__section">
-      <h2 className="signin__heading">Authenticator app</h2>
+      {heading === 'own' && <h2 className="signin__heading">Authenticator app</h2>}
       <p className="signin__body">
         A six-digit verification code from an authenticator app, beside your password. It is required for an account
         that holds the operator custody. An account that already has one cannot replace it here: that is a recovery,
@@ -329,6 +351,9 @@ export interface AuthenticatorSetupStageProps {
   /** Whose account the code is for. Shown, so that a person with accounts on
    * more than one server knows which one they are about to bind a phone to. */
   address: string;
+  /** Default `'own'`. See [`EnrolmentHeading`]: the first run writes the step
+   * name itself and passes `'none'`, so one screen carries one heading. */
+  heading?: EnrolmentHeading;
   /** The base32 secret, for typing in by hand — the **setup key**. */
   secretBase32: string;
   /** The same secret inside the `otpauth://` URI, which is what the QR code
@@ -360,6 +385,7 @@ export interface AuthenticatorSetupStageProps {
  */
 export function AuthenticatorSetupStage({
   address,
+  heading = 'own',
   secretBase32,
   otpauthUri,
   code,
@@ -372,23 +398,33 @@ export function AuthenticatorSetupStage({
 }: AuthenticatorSetupStageProps) {
   return (
     <form className="signin__section" onSubmit={onSubmit}>
-      <h2 className="signin__heading">Set up your authenticator app</h2>
+      {heading === 'own' && <h2 className="signin__heading">Set up your authenticator app</h2>}
       <p className="signin__body">
         For {address}. Scan the code with your authenticator app, then type the six digits it shows.
       </p>
 
+      {/* The code first and large, and **beside it the setup key** —
+          `docs/UI-SPEC.md`, "First run and sign-in", screen 3, in those
+          words. The sentence above already says to scan it, so the column
+          beside the picture carries the way in for a person whose app cannot
+          use a camera, which is the only other thing this screen offers.
+          `authenticator.css` stacks the two on a narrow viewport. */}
       <div className="authenticator__scan">
         <QrCode value={otpauthUri} label="The QR code for this account's authenticator app" />
-        <p className="authenticator__scan-text">Scan this with your authenticator app.</p>
+        <div className="authenticator__beside">
+          <p className="signin__label">Or enter this setup key</p>
+          <p className="signin__mono signin__mono--wrap" data-testid="totp-secret">
+            {secretBase32}
+          </p>
+          <button
+            type="button"
+            className="signin__switch"
+            onClick={() => onCopy?.('secret', secretBase32)}
+          >
+            {copied === 'secret' ? 'Copied.' : 'Copy the setup key'}
+          </button>
+        </div>
       </div>
-
-      <p className="signin__label">Or enter this setup key</p>
-      <p className="signin__mono signin__mono--wrap" data-testid="totp-secret">
-        {secretBase32}
-      </p>
-      <button type="button" className="signin__switch" onClick={() => onCopy?.('secret', secretBase32)}>
-        {copied === 'secret' ? 'Copied.' : 'Copy the setup key'}
-      </button>
 
       {/* Closed by default. The URI holds the setup key, so it is one more
           place the secret is on screen; the person who wants it knows they
@@ -440,6 +476,8 @@ export interface RecoveryCodesStageProps {
    * codes with no server named beside them are ten codes nobody dares
    * delete. */
   address: string;
+  /** Default `'own'`. See [`EnrolmentHeading`]. */
+  heading?: EnrolmentHeading;
   codes: readonly string[];
   /** The person's answer to "I have saved these". Held by the caller, so the
    * caller can clear it when this screen is left. */
@@ -461,6 +499,7 @@ export interface RecoveryCodesStageProps {
  */
 export function RecoveryCodesStage({
   address,
+  heading = 'own',
   codes,
   saved,
   onSavedChange,
@@ -471,7 +510,7 @@ export function RecoveryCodesStage({
 }: RecoveryCodesStageProps) {
   return (
     <div className="signin__section">
-      <h2 className="signin__heading">Save your recovery codes</h2>
+      {heading === 'own' && <h2 className="signin__heading">Save your recovery codes</h2>}
       <p className="signin__body">
         Each of these works once, and stands in for the phone: if you cannot reach your authenticator app, type one
         of them where the verification code goes. They are shown now and never again — the server keeps only their

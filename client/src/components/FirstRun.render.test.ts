@@ -6,17 +6,20 @@ import { AuthenticatorSetupStage, RecoveryCodesStage } from './Account';
 import {
   authenticatorStepIntro,
   AUTHENTICATOR_SET_NOTICE,
+  EnrolmentStage,
   FinalSignInStage,
   finalSignInStepIntro,
   FIRST_RUN_CODE_REFUSED,
   FIRST_RUN_STEPS,
   FirstRun,
+  HandedOverCard,
   PASSWORD_SET_NOTICE,
   PasswordStage,
   passwordStepIntro,
   progressLine,
   SETUP_TOKEN_REFUSED,
   SETUP_STILL_PENDING,
+  SETUP_STILL_PENDING_HEADING,
   stepNumber,
   TokenStage,
   type Step,
@@ -132,6 +135,37 @@ const stepFour = renderToStaticMarkup(
   }),
 );
 
+// And the cards this flow draws round those two stages, which is what a
+// person on steps 3 and 4 is actually looking at: the step name, the progress
+// line and the enrolment component underneath with its own heading turned
+// off. Rendered here because the duplicate heading was a property of the
+// COMPOSITION and neither half showed it alone.
+const stepThreeCard = renderToStaticMarkup(
+  createElement(EnrolmentStage, {
+    address: ADDRESS,
+    progress: progressLine(3),
+    onRecovery: false,
+    onStage: noop,
+    onDone: noop,
+  }),
+);
+const stepFourCard = renderToStaticMarkup(
+  createElement(EnrolmentStage, {
+    address: ADDRESS,
+    progress: progressLine(4),
+    onRecovery: true,
+    onStage: noop,
+    onDone: noop,
+  }),
+);
+
+/** Every `<h2 class="signin__heading">` in a piece of markup. The class is
+ * what the stylesheet draws as the heading of a card, so counting the class
+ * is counting what a person sees as one. */
+function headings(markup: string): string[] {
+  return markup.match(/<h2 class="signin__heading">/g) ?? [];
+}
+
 describe('the first run, step 1', () => {
   it('opens on the token and asks for nothing else', () => {
     expect(html).toContain('id="firstrun-token"');
@@ -190,13 +224,17 @@ describe('the first run, step 1', () => {
 
 describe('the steps and the progress line', () => {
   it('is five steps, ending in a sign-in with the new authenticator', () => {
+    // Five, not six: Home is where this lands, not a step it walks anybody
+    // through, and a progress line that promised six would leave a person
+    // waiting for a screen that never comes.
     expect(FIRST_RUN_STEPS).toEqual([
       'Welcome',
       'Choose a password',
       'Set up your authenticator app',
-      'Recovery codes',
+      'Save your recovery codes',
       'Sign in with your new authenticator',
     ]);
+    expect(FIRST_RUN_STEPS.length).toBe(5);
     expect(progressLine(2)).toBe('Step 2 of 5');
     expect(progressLine(5)).toBe('Step 5 of 5');
   });
@@ -231,6 +269,44 @@ describe('the steps and the progress line', () => {
       expect(number).toBeGreaterThanOrEqual(1);
       expect(number).toBeLessThanOrEqual(FIRST_RUN_STEPS.length);
     }
+  });
+});
+
+describe('one heading per screen', () => {
+  // The finding, 2026-09-22: steps 3 and 4 carried two. This flow drew the
+  // step name and then mounted the enrolment component, which drew its own —
+  // "Set up your authenticator app" under "Set up your authenticator app".
+  // The component's headings are off in this flow now (`heading="none"`), and
+  // the names in FIRST_RUN_STEPS are the words it would have used.
+  it('draws exactly one on every step of the flow', () => {
+    const screens: [string, string][] = [
+      ['step 1', stepOne],
+      ['step 2', stepTwo],
+      ['step 3', stepThreeCard],
+      ['step 4', stepFourCard],
+      ['step 5', stepFive],
+    ];
+    for (const [name, markup] of screens) {
+      expect(`${name}: ${headings(markup).length}`).toBe(`${name}: 1`);
+    }
+  });
+
+  it('says the step name once on steps 3 and 4, and the right number with it', () => {
+    expect(stepThreeCard).toContain('Step 3 of 5');
+    expect(stepThreeCard).toContain(FIRST_RUN_STEPS[2]);
+    expect(stepThreeCard.split(FIRST_RUN_STEPS[2]).length - 1).toBe(1);
+    expect(stepFourCard).toContain('Step 4 of 5');
+    expect(stepFourCard).toContain(FIRST_RUN_STEPS[3]);
+    expect(stepFourCard.split(FIRST_RUN_STEPS[3]).length - 1).toBe(1);
+  });
+
+  it('leaves the account screen’s own headings alone', () => {
+    // The same two stages, mounted the other way round: on a person's own
+    // account nothing above them names the step, so they write their own.
+    expect(headings(stepThree)).toHaveLength(1);
+    expect(headings(stepFour)).toHaveLength(1);
+    expect(stepThree).toContain('Set up your authenticator app');
+    expect(stepFour).toContain('Save your recovery codes');
   });
 });
 
@@ -403,8 +479,62 @@ describe('when the server still says this deployment is not set up', () => {
     // `App.tsx` gates the first-run flow on the state route's answer, so
     // handing over while the server says `pending` would be the two of them
     // disagreeing about which screen this deployment is on.
-    expect(SETUP_STILL_PENDING).toMatch(/has not been set up/);
-    expect(SETUP_STILL_PENDING).toMatch(/reload the page/i);
+    expect(SETUP_STILL_PENDING_HEADING).toMatch(/still reports that setup is not finished/);
+    expect(SETUP_STILL_PENDING).toMatch(/first operator has no password/);
+    expect(SETUP_STILL_PENDING).toMatch(/Try again/);
+  });
+
+  it('leads with the server’s answer, not with a congratulation', () => {
+    // The finding, 2026-09-22: this card's heading was the notice — "Your
+    // password and authenticator are set" — on the one screen where the
+    // server was answering that they were not, and there was nothing to
+    // press under it.
+    expect(SETUP_STILL_PENDING_HEADING).not.toMatch(/are set/i);
+    expect(SETUP_STILL_PENDING_HEADING).not.toBe(AUTHENTICATOR_SET_NOTICE);
+    expect(SETUP_STILL_PENDING_HEADING).not.toBe(PASSWORD_SET_NOTICE);
+  });
+
+  it('does not tell a person to reload when there is a button that re-reads it', () => {
+    expect(SETUP_STILL_PENDING).not.toMatch(/reload/i);
+  });
+
+  it('draws the heading and one button, and nothing that claims the setup worked', () => {
+    const stuck = renderToStaticMarkup(
+      createElement(HandedOverCard, {
+        address: ADDRESS,
+        notice: AUTHENTICATOR_SET_NOTICE,
+        handedOver: false,
+        refusal: SETUP_STILL_PENDING,
+        askingAgain: false,
+        onTryAgain: noop,
+      }),
+    );
+    expect(headings(stuck)).toHaveLength(1);
+    expect(stuck).toContain(SETUP_STILL_PENDING_HEADING);
+    expect(stuck).not.toContain(AUTHENTICATOR_SET_NOTICE);
+    expect(stuck).toContain('Try again');
+    expect(stuck.match(/<button/g)).toHaveLength(1);
+    expect(stuck).toContain('role="alert"');
+    // The door is not the next screen here, so nothing may send a person to
+    // it: `App.tsx` is showing this flow and not the door.
+    expect(stuck).not.toMatch(/sign in at the door/i);
+  });
+
+  it('leads with the notice, and offers nothing to press, once the door is the next screen', () => {
+    const over = renderToStaticMarkup(
+      createElement(HandedOverCard, {
+        address: ADDRESS,
+        notice: AUTHENTICATOR_SET_NOTICE,
+        handedOver: true,
+        refusal: null,
+        askingAgain: false,
+        onTryAgain: noop,
+      }),
+    );
+    expect(headings(over)).toHaveLength(1);
+    expect(over).toContain(AUTHENTICATOR_SET_NOTICE);
+    expect(over).not.toContain('Try again');
+    expect(over).toMatch(/sign in at the door as owner@example\.test/i);
   });
 });
 
@@ -417,7 +547,9 @@ describe('the words this flow uses', () => {
       stepOne,
       stepTwo,
       stepThree,
+      stepThreeCard,
       stepFour,
+      stepFourCard,
       stepFive,
       passwordStepIntro(ADDRESS),
       authenticatorStepIntro(ADDRESS),
@@ -426,6 +558,7 @@ describe('the words this flow uses', () => {
       PASSWORD_SET_NOTICE,
       AUTHENTICATOR_SET_NOTICE,
       SETUP_STILL_PENDING,
+      SETUP_STILL_PENDING_HEADING,
       FIRST_RUN_CODE_REFUSED,
       ...FIRST_RUN_STEPS,
     ]) {

@@ -7,7 +7,7 @@
 // `api/console.test.ts` already document: a test that asked the encoder what
 // the encoder produces would pass while the wire was wrong. 2026-09-22.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fromHex, toHex } from '../crypto/bytes';
 import {
@@ -131,6 +131,75 @@ describe('fetchSetupState', () => {
     );
     expect(calls).toBe(1);
     expect((error as ApiRefusal).status).toBe(500);
+  });
+});
+
+describe('the wait a 429 on the state route actually takes', () => {
+  // The four tests above send `retry-after: 0`, which is a wait that cannot
+  // be told from no wait at all: they prove the second ask happens and
+  // nothing about when. These two move a fake clock, so the pause between
+  // the two fetches is the thing being asserted. 2026-09-22.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Count the fetches, refuse the first with `retry-after`, answer the
+   * second. Returns the counter and the promise, unawaited: the point is what
+   * is true *before* the clock moves. */
+  function refuseThenAnswer(retryAfterSeconds: number) {
+    const calls = { n: 0 };
+    const stub = (async () => {
+      calls.n += 1;
+      return calls.n === 1
+        ? new Response('too many requests\n', {
+            status: 429,
+            headers: { 'retry-after': String(retryAfterSeconds) },
+          })
+        : new Response(fromHex('0700000070656e64696e67') as BodyInit);
+    }) as typeof globalThis.fetch;
+    return { calls, stub };
+  }
+
+  it('waits the five seconds the server asked for, and not a moment less', async () => {
+    vi.useFakeTimers();
+    const { calls, stub } = refuseThenAnswer(5);
+    const original = globalThis.fetch;
+    globalThis.fetch = stub;
+    try {
+      const pending = fetchSetupState();
+      // The refusal has been read; the second ask is behind the wait.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls.n).toBe(1);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(calls.n).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls.n).toBe(2);
+      await expect(pending).resolves.toBe('pending');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('bounds a two-minute ask to thirty seconds rather than blanking the page', async () => {
+    // A `Retry-After` of two minutes is two minutes of nothing on screen.
+    // The door, wrong as it is on a pending deployment, is a screen a person
+    // can act on, so the wait is capped and the second ask made.
+    vi.useFakeTimers();
+    const { calls, stub } = refuseThenAnswer(120);
+    const original = globalThis.fetch;
+    globalThis.fetch = stub;
+    try {
+      const pending = fetchSetupState();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls.n).toBe(1);
+      await vi.advanceTimersByTimeAsync(SETUP_STATE_MAX_WAIT_SECONDS * 1_000 - 1);
+      expect(calls.n).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls.n).toBe(2);
+      await expect(pending).resolves.toBe('pending');
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });
 

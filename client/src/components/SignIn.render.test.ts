@@ -5,9 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { isSecondFactorNeeded } from '../api/auth';
 import { ApiRefusal } from '../api/errors';
 import {
-  CHALLENGE_LIFETIME_MS,
   CHALLENGE_REUSE_BUDGET_MS,
-  challengeHasCertainlyExpired,
   challengeIsWorthPosting,
   SecondFactorStep,
   secondFactorIntro,
@@ -175,22 +173,8 @@ describe('the challenge step two holds, and how long it is worth holding', () =>
 
   it('stops reusing it well before the server would refuse it', () => {
     expect(challengeIsWorthPosting(issued, issued + CHALLENGE_REUSE_BUDGET_MS)).toBe(false);
-    expect(CHALLENGE_REUSE_BUDGET_MS).toBeLessThan(CHALLENGE_LIFETIME_MS);
-  });
-
-  it('calls a challenge certainly dead only past the server’s own lifetime', () => {
-    // The one transparent retry hangs off this, and it must not fire on a
-    // wrong code: a blind second attempt would spend two of the ten failures
-    // a window allows on one typo. The wire cannot be asked -- `sessions.rs`
-    // answers a stale nonce with `SignInRefused` under the reason
-    // `nonce_not_fresh`, which is the same 401 and the same `sign-in refused`
-    // body a wrong code gets.
-    expect(challengeHasCertainlyExpired(issued, issued + 1_000)).toBe(false);
-    expect(challengeHasCertainlyExpired(issued, issued + CHALLENGE_LIFETIME_MS - 1)).toBe(false);
-    expect(challengeHasCertainlyExpired(issued, issued + CHALLENGE_LIFETIME_MS)).toBe(true);
-  });
-
-  it('carries the server’s own lifetime, read off sessions.rs', () => {
-    expect(CHALLENGE_LIFETIME_MS).toBe(120_000);
+    // `sessions.rs`'s `NONCE_LIFETIME` is 120 seconds, so the budget leaves
+    // thirty for the round trip and the argon2id verification on this path.
+    expect(CHALLENGE_REUSE_BUDGET_MS).toBeLessThan(120_000);
   });
 });

@@ -6,16 +6,20 @@ import { redeemOperatorSetup } from '../api/credentials';
 import { parseToken } from '../api/enrolment';
 import { ApiRefusal } from '../api/errors';
 import { checkSetupToken, refreshSetupState, type SetupState } from '../api/setup';
-import { AuthenticatorEnrolment, describe } from './Account';
+import {
+  AuthenticatorEnrolment,
+  describe,
+  type AuthenticatorEnrolmentStage,
+} from './Account';
 import '../styles/signin.css';
 
 /**
- * The first run: one flow, five numbered steps and then Home — the ADR's six
- * screens, of which the sixth is the product itself. While the server says
- * `pending` it is the only thing this client shows (ADR-0056 decisions 1 and
- * 2). It replaces `Setup.tsx`, which was one long form behind a link on the
- * sign-in door — three fields and three doors for a person who has just
- * installed the thing.
+ * The first run: one flow, five numbered steps, and then Home — which is the
+ * product and not a sixth step, so nothing here counts it. While the server
+ * says `pending` this flow is the only thing this client shows (ADR-0056
+ * decisions 1 and 2). It replaces `Setup.tsx`, which was one long form behind
+ * a link on the sign-in door — three fields and three doors for a person who
+ * has just installed the thing.
  *
  * The steps, and who draws each:
  *
@@ -26,11 +30,14 @@ import '../styles/signin.css';
  *      cannot mismatch. `POST /enrolment/operator/setup` spends the token and
  *      sets the password; the sign-in straight after it is what turns the two
  *      into a session.  Here.
- *   3. **Set up your authenticator app**, and 4. **recovery codes** — the
- *      enrolment component on the account screen, which is the same two steps
- *      a person meets later from their own account and is not duplicated
- *      here. It says which of the two it is showing (`onStage`), so the
- *      progress line over it is the right number on both.
+ *   3. **Set up your authenticator app**, and 4. **Save your recovery
+ *      codes** — the enrolment component on the account screen, which is the
+ *      same two steps a person meets later from their own account and is not
+ *      duplicated here. It says which of the two it is showing (`onStage`),
+ *      so the progress line over it is the right number on both, and it is
+ *      mounted `heading="none"` so that the step name this flow writes is
+ *      the only heading on the screen. It drew its own as well until
+ *      2026-09-22, and steps 3 and 4 each said the same thing twice.
  *   5. **Sign in with your new authenticator.** Here, and it is the step that
  *      makes the flow land where the ADR says it lands.
  *
@@ -68,15 +75,18 @@ const PASSWORD_MINIMUM = 15;
 
 /** How many steps a person is walked through, and what each is called.
  * Steps 3 and 4 are drawn by the enrolment component, not here — they are
- * named in this one list so that the progress line and the ADR agree about
- * how long this is (ADR-0056 decision 2). The ADR's sixth screen is Home,
- * which this flow lands on and does not draw, so it is not counted here:
- * "Step 5 of 5" is the last thing this component says. */
+ * named in this one list so that the progress line and the screens agree
+ * about how long this is (ADR-0056 decision 2), and each name is the heading
+ * that step shows, because the enrolment component's own heading is off in
+ * this flow. **Five, not six.** Home is where the flow lands, not a step it
+ * walks anybody through, and a person counting screens against a progress
+ * line that promised six would be waiting for one that never comes: "Step 5
+ * of 5" is the last thing this component says. */
 export const FIRST_RUN_STEPS = [
   'Welcome',
   'Choose a password',
   'Set up your authenticator app',
-  'Recovery codes',
+  'Save your recovery codes',
   'Sign in with your new authenticator',
 ] as const;
 
@@ -146,7 +156,7 @@ export const AUTHENTICATOR_SET_NOTICE =
   'Your password and authenticator are set. Sign in with them.';
 
 /**
- * What this screen says when the server, asked again, still says this
+ * The heading over the card when the server, asked again, still says this
  * deployment has not been set up.
  *
  * It should not happen: the state route answers `done` from the moment the
@@ -154,10 +164,21 @@ export const AUTHENTICATOR_SET_NOTICE =
  * server has said it set one. If it does happen, handing the person to the
  * sign-in door would be this client deciding, against the server's own
  * answer, that the first run is over. So the flow stays where it is and says
- * what it was told; the console line beside it carries the detail.
+ * what it was told.
+ *
+ * **It says that, and not "your password and authenticator are set."** The
+ * notice was the heading here until 2026-09-22, which told a person their
+ * setup had worked on the one screen where the server was saying it had not,
+ * and then gave them nothing to press. The state of the deployment is the
+ * news on this screen; the sentence below carries what it means, and the
+ * button beside it re-reads the state.
  */
+export const SETUP_STILL_PENDING_HEADING = 'This server still reports that setup is not finished';
+
+/** What that screen says under the heading. Names what did happen, what the
+ * server is answering, and the one thing left to try. */
 export const SETUP_STILL_PENDING =
-  'This server still reports that it has not been set up. Nothing more can be done from this screen — reload the page, and if it opens on the first step again, the setup did not complete.';
+  'The setup token was spent, but this server still answers that its first operator has no password, so there is no door to hand you to. Try again — and if it keeps saying this, the setup did not complete, and the server’s log is where it says why.';
 
 /** What a refused code says at step 5. The server answers its uniform
  * sentence, and this screen does not repeat it: the password in hand is the
@@ -252,6 +273,10 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
   const [code, setCode] = useState('');
   const [step, setStep] = useState<Step>({ kind: 'token' });
   const [refusal, setRefusal] = useState<string | null>(null);
+  /** True while the "Try again" button on the still-pending card is asking
+   * the state route again. Its own flag, because that card is not a step and
+   * the step state is already where it is going to stay. */
+  const [askingAgain, setAskingAgain] = useState(false);
 
   const busy =
     step.kind === 'checking' ||
@@ -488,34 +513,43 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
     await leaveForTheDoor(address, AUTHENTICATOR_SET_NOTICE);
   }
 
+  /**
+   * The one thing the still-pending card offers: ask the state route again.
+   *
+   * The session is already ended and the token already spent by the time
+   * that card is on screen, so re-reading the bit is the only act left that
+   * can change anything — and it is the act that matters, because the answer
+   * this screen is stuck on is a `pending` that should have turned over. A
+   * `done` hands the person to the door on the spot ([`leaveForTheDoor`]);
+   * another `pending` leaves them here with the same sentence and the same
+   * button. 2026-09-22.
+   */
+  async function handleTryAgain(address: string, notice: string) {
+    setAskingAgain(true);
+    setRefusal(null);
+    try {
+      await leaveForTheDoor(address, notice);
+    } finally {
+      setAskingAgain(false);
+    }
+  }
+
   if (step.kind === 'handed-over') {
     // With a caller wired, this is seen for a moment or not at all: `App.tsx`
     // shows the door on the call and this component is gone. It is what a
     // person is left looking at in the two cases where it is not — nobody
     // wired the callback, or the server still says `pending` and the
     // handover was not made.
+    const { address, notice, handedOver } = step;
     return (
-      <div className="signin">
-        <div className="signin__card">
-          <h1 className="signin__title">Fathom</h1>
-          <h2 className="signin__heading">{step.notice}</h2>
-          {/* Only where the door is in fact the next screen. With the server
-              still saying `pending`, sending a person to a door this client
-              is not showing them would be an instruction they cannot
-              follow; the sentence in the alert below is what they have. */}
-          {step.handedOver && (
-            <p className="signin__subtitle">
-              The setup token was spent, so there is nothing left to redeem. Reload this page and
-              sign in at the door as {step.address}.
-            </p>
-          )}
-          {refusal && (
-            <div className="signin__refusal" role="alert">
-              {refusal}
-            </div>
-          )}
-        </div>
-      </div>
+      <HandedOverCard
+        address={address}
+        notice={notice}
+        handedOver={handedOver}
+        refusal={refusal}
+        askingAgain={askingAgain}
+        onTryAgain={() => void handleTryAgain(address, notice)}
+      />
     );
   }
 
@@ -538,36 +572,25 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
 
   if (step.kind === 'authenticator') {
     const address = step.address;
-    const onRecovery = step.screen === 'recovery';
     return (
-      <div className="signin">
-        <div className="signin__card">
-          <h1 className="signin__title">Fathom</h1>
-          <p className="signin__progress">{progress}</p>
-          <h2 className="signin__heading">{onRecovery ? FIRST_RUN_STEPS[3] : FIRST_RUN_STEPS[2]}</h2>
-          {/* Step 4 writes its own opening sentence — the codes are shown
-              once, and the screen that shows them says so in its own words.
-              Repeating it here would be two sentences about the same ten
-              codes, one of them this file's guess at the other. */}
-          {!onRecovery && <p className="signin__subtitle">{authenticatorStepIntro(address)}</p>}
-          <AuthenticatorEnrolment
-            address={address}
-            // Which of the enrolment's two screens is up, so the progress
-            // line above is right on both: the recovery codes are step 4 and
-            // were saying 3 (ADR-0056 decision 2). `'done'` is not a screen
-            // — `onDone` below moves this flow on.
-            onStage={(stage) => {
-              if (stage === 'done') return;
-              setStep({ kind: 'authenticator', address, screen: stage });
-            }}
-            onDone={() => {
-              setCode('');
-              setRefusal(null);
-              setStep({ kind: 'second-factor', address });
-            }}
-          />
-        </div>
-      </div>
+      <EnrolmentStage
+        address={address}
+        progress={progress}
+        onRecovery={step.screen === 'recovery'}
+        // Which of the enrolment's two screens is up, so the progress line
+        // above it is right on both: the recovery codes are step 4 and were
+        // saying 3 (ADR-0056 decision 2). `'done'` is not a screen —
+        // `onDone` below moves this flow on.
+        onStage={(stage) => {
+          if (stage === 'done') return;
+          setStep({ kind: 'authenticator', address, screen: stage });
+        }}
+        onDone={() => {
+          setCode('');
+          setRefusal(null);
+          setStep({ kind: 'second-factor', address });
+        }}
+      />
     );
   }
 
@@ -814,6 +837,135 @@ export function PasswordStage({
           address, the password and a verification code.
         </p>
       </form>
+    </div>
+  );
+}
+
+export interface HandedOverCardProps {
+  address: string;
+  /** [`PASSWORD_SET_NOTICE`] or [`AUTHENTICATOR_SET_NOTICE`] — what the door
+   * is being told, and the heading here when the door is where this is
+   * going. */
+  notice: string;
+  /** False when the state route still said `pending`, which is the one case
+   * where no caller was called and this card is the screen. */
+  handedOver: boolean;
+  refusal: string | null;
+  askingAgain: boolean;
+  onTryAgain: () => void;
+}
+
+/**
+ * The end of this flow: the card a person is left looking at once the token
+ * is spent and there is no step left to draw.
+ *
+ * Two states, and they are not the same screen:
+ *
+ * * **Handed over.** The server said `done`; the caller has been told, so
+ *   with `App.tsx` wired this is on screen for a moment or not at all. The
+ *   notice is the heading, because the notice is the news.
+ * * **Still pending.** The server, asked again, still says this deployment
+ *   has no first operator with a password. The heading is *that*
+ *   ([`SETUP_STILL_PENDING_HEADING`]) and not the notice: saying "your
+ *   password and authenticator are set" on the one screen where the server
+ *   is answering that they are not told a person their setup had worked and
+ *   then gave them nothing to press. There is one thing to press now, and it
+ *   does the only act that can change this screen — read the state route
+ *   again. 2026-09-22.
+ */
+export function HandedOverCard({
+  address,
+  notice,
+  handedOver,
+  refusal,
+  askingAgain,
+  onTryAgain,
+}: HandedOverCardProps) {
+  return (
+    <div className="signin">
+      <div className="signin__card">
+        <h1 className="signin__title">Fathom</h1>
+        <h2 className="signin__heading">{handedOver ? notice : SETUP_STILL_PENDING_HEADING}</h2>
+        {/* Only where the door is in fact the next screen. With the server
+            still saying `pending`, sending a person to a door this client is
+            not showing them would be an instruction they cannot follow; the
+            sentence in the alert below is what they have. */}
+        {handedOver && (
+          <p className="signin__subtitle">
+            The setup token was spent, so there is nothing left to redeem. Reload this page and sign
+            in at the door as {address}.
+          </p>
+        )}
+        {refusal && (
+          <div className="signin__refusal" role="alert">
+            {refusal}
+          </div>
+        )}
+        {!handedOver && (
+          <button
+            className="signin__submit"
+            type="button"
+            disabled={askingAgain}
+            onClick={onTryAgain}
+          >
+            {askingAgain ? 'Asking the server…' : 'Try again'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export interface EnrolmentStageProps {
+  address: string;
+  progress: string;
+  /** True on step 4 — the recovery codes. The enrolment component below owns
+   * which screen is up; this is what it said through `onStage`, and it is
+   * what the heading and the progress line are drawn from. */
+  onRecovery: boolean;
+  onStage: (stage: AuthenticatorEnrolmentStage) => void;
+  onDone: () => void;
+}
+
+/**
+ * Steps 3 and 4: the card this flow draws round the account screen's
+ * enrolment.
+ *
+ * **One heading.** This card writes the step name and the progress line; the
+ * enrolment is mounted `heading="none"` so it does not write the same thing
+ * again underneath. Until 2026-09-22 it did, and both steps carried two
+ * `signin__heading`s — the flow's and the component's, saying the same thing
+ * in two wordings. The names in [`FIRST_RUN_STEPS`] are the enrolment's own
+ * headings, so nothing is lost by turning them off.
+ *
+ * Exported and drawn from its props, like the other stages here: a screen no
+ * test can render is a screen whose wording nobody checks.
+ */
+export function EnrolmentStage({
+  address,
+  progress,
+  onRecovery,
+  onStage,
+  onDone,
+}: EnrolmentStageProps) {
+  return (
+    <div className="signin">
+      <div className="signin__card">
+        <h1 className="signin__title">Fathom</h1>
+        <p className="signin__progress">{progress}</p>
+        <h2 className="signin__heading">{onRecovery ? FIRST_RUN_STEPS[3] : FIRST_RUN_STEPS[2]}</h2>
+        {/* Step 4 writes its own opening sentence — the codes are shown
+            once, and the screen that shows them says so in its own words.
+            Repeating it here would be two sentences about the same ten
+            codes, one of them this file's guess at the other. */}
+        {!onRecovery && <p className="signin__subtitle">{authenticatorStepIntro(address)}</p>}
+        <AuthenticatorEnrolment
+          address={address}
+          heading="none"
+          onStage={onStage}
+          onDone={onDone}
+        />
+      </div>
     </div>
   );
 }

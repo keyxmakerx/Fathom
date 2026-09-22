@@ -212,9 +212,12 @@ export function useConsoleHost(): ConsoleHostState {
  *
  * So it is read from a challenge drawn for the operator this session already
  * is, and the nonce that comes with it is discarded. The cost is one
- * `session_nonces` row and one attempt against this source's sign-in budget
- * (thirty per fifteen minutes, `sessions::SignInLimits::defaults`), paid
- * **once per page load**, not per act.
+ * `session_nonces` row and one unit of this source's sign-in budget
+ * (forty-five per fifteen minutes, `sessions::SignInLimits::defaults`), paid
+ * **once per page load**, not per act. For scale: a two-step sign-in spends
+ * three of those units — the challenge, the second-factor probe and the
+ * completion (ADR-0056 decision 3, 2026-09-22) — and a one-shot sign-in
+ * spends two.
  *
  * The cheaper alternative is for sign-in to keep the deployment id it was
  * already told, which is one field on `state/sessionState.ts` and belongs to
