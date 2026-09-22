@@ -52,8 +52,23 @@ export function parseSetupState(bytes: Uint8Array): SetupState {
   return text;
 }
 
+/**
+ * How long this client waits for the state route before giving up on it.
+ *
+ * The route is a cached read on the server and answers in milliseconds, but
+ * it is asked at two moments where a hung socket would strand a person:
+ * at boot, where a screen is waiting on it, and again in `FirstRun.tsx` after
+ * a setup token has been spent, where the alternative to an answer is a flow
+ * with no next step. A timeout is a failure like any other here, and both
+ * callers treat a failure as "show the sign-in door" -- never as `pending`.
+ * 2026-09-22.
+ */
+const SETUP_STATE_TIMEOUT_MS = 5_000;
+
 export async function fetchSetupState(): Promise<SetupState> {
-  const response = await fetch('/setup/state');
+  const response = await fetch('/setup/state', {
+    signal: AbortSignal.timeout(SETUP_STATE_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw await refusalFrom(response);
   }
@@ -74,9 +89,27 @@ export function setupState(): Promise<SetupState> {
 }
 
 /** For a test that needs the next `setupState()` to ask again. Not called by
- * any screen: a page load is what refreshes this. */
+ * any screen: a page load, or `refreshSetupState()` below, is what refreshes
+ * this. */
 export function forgetSetupState(): void {
   stateOnce = null;
+}
+
+/**
+ * Ask again, and let every later caller on this page have the new answer.
+ *
+ * **The one moment the bit can change under an open page is the one this
+ * exists for.** `FirstRun.tsx` spends the setup token; the deployment stops
+ * being `pending` at that instant, and if the sign-in straight afterwards
+ * fails, the cached `pending` is the thing that would send the person back to
+ * a token step for a token that no longer exists. Asking again is how that
+ * screen finds out that the only thing left to do is sign in. Nothing else
+ * calls this: for every other screen the page load is the refresh.
+ * 2026-09-22.
+ */
+export function refreshSetupState(): Promise<SetupState> {
+  stateOnce = fetchSetupState();
+  return stateOnce;
 }
 
 export type SetupStateHook =

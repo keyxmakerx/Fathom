@@ -58,11 +58,21 @@ export class NoEnrolledKeyError extends Error {
  *
  * ADR-0056 decision 3: the address and the password verified, the account
  * holds a confirmed authenticator, and no code came with them. It is the one
- * 401 on this route that means "ask for the code", not "you may not": no
- * session was issued, nothing was spent, and the sealed entry records it as a
- * refusal with its own reason. Matched on the status **and** the sentence,
- * because 401 alone is the uniform sign-in refusal, which means the opposite
- * and must never route anywhere.
+ * 401 on this route that means "ask for the code", not "you may not".
+ *
+ * **It is a rollback, not a refusal.** The server answers this and then
+ * rolls its transaction back: no sealed entry (this is a protocol step, and
+ * the sign-in that follows is the record), nothing counted against any
+ * bucket, and the challenge nonce left UNSPENT. So the second step re-posts
+ * the SAME challenge -- the same session keypair, the same nonce, the same
+ * evidence signature -- with the code beside the password, and an ordinary
+ * two-step sign-in costs one challenge and one session, which is what a
+ * one-shot sign-in cost before ADR-0056. [`completeSignIn`] is the call that
+ * spends a challenge, and [`beginSignIn`] the one that gets it.
+ *
+ * Matched on the status **and** the sentence, because 401 alone is the
+ * uniform sign-in refusal, which means the opposite and must never route
+ * anywhere.
  */
 export const SECOND_FACTOR_NEEDED_SENTENCE = 'second factor needed';
 
@@ -116,14 +126,67 @@ export function isSecondFactorNeeded(error: unknown): boolean {
  * and is what makes the session `A1`. `credential` carries the other two
  * fields; both go on the wire empty when there is nothing to put in them,
  * because `POST /session` takes exactly six fields.
+ *
+ * **One shot.** This is [`beginSignIn`] and [`completeSignIn`] back to back,
+ * which is the whole of a sign-in for every caller that has everything to
+ * hand. `SignIn.tsx` calls the two halves itself, because ADR-0056
+ * decision 3's second step re-posts the challenge the first step got rather
+ * than asking for another one.
  */
 export async function signIn(
   address: string,
   kind?: PrincipalKind,
   credential: SignInCredential = {},
 ): Promise<void> {
+  await completeSignIn(await beginSignIn(address, kind, credential), credential);
+}
+
+/**
+ * A challenge in hand, and everything the second call needs to spend it:
+ * the session keypair it is bound to, the server's nonce, and the signature
+ * this browser's key made over it (empty when there is no key).
+ *
+ * **Held by the caller and passed back unread.** `SignIn.tsx` keeps one in
+ * component state between the two steps of a sign-in, which is the whole
+ * reason this type exists -- see [`isSecondFactorNeeded`]: the probe rolls
+ * the server's transaction back and leaves the nonce unspent, so the second
+ * step re-posts this same challenge rather than asking for another. It never
+ * goes to storage: the private half is a non-extractable `CryptoKey` and the
+ * rest is worthless once the nonce is spent or expires.
+ */
+export interface SignInChallenge {
+  /** The address the challenge was asked for, so a caller holding one does
+   * not have to remember which door it belongs to. */
+  readonly address: string;
+  /** The plane the slot decided on -- see [`signIn`]. */
+  readonly kind: PrincipalKind;
+  readonly sessionKeyPair: CryptoKeyPair;
+  readonly sessionPubkey: Uint8Array;
+  readonly serverNonce: Uint8Array;
+  readonly evidenceSig: Uint8Array;
+  /** The pending slot the evidence key came from, if any, so a success can
+   * promote exactly that one. */
+  readonly pendingSlot: string | null;
+  /** Whether this browser held a key for the address at all: what decides
+   * whether a key is registered after a successful sign-in. */
+  readonly heldAKey: boolean;
+}
+
+/**
+ * Step one of [`signIn`]: find the key, ask `POST /session/challenge`, and
+ * sign the challenge.
+ *
+ * Nothing is spent here and no credential is sent: the password and the code
+ * go up in [`completeSignIn`]. Throws [`NoEnrolledKeyError`] before any
+ * network call when this browser holds no key **and no password was typed**,
+ * and an [`ApiRefusal`](./errors.ts) for a refused challenge.
+ */
+export async function beginSignIn(
+  address: string,
+  kind?: PrincipalKind,
+  credential: SignInCredential = {},
+): Promise<SignInChallenge> {
   const password = credential.password ?? '';
-  const verificationCode = credential.verificationCode ?? '';
   const found = await findKey(address, kind);
   if (!found && password.length === 0) {
     throw new NoEnrolledKeyError(address, kind ?? (looksLikeOperatorId(address) ? PRINCIPAL_KIND_OPERATOR : PRINCIPAL_KIND_STEWARD));
@@ -134,19 +197,15 @@ export async function signIn(
   // custody to an account; the operator still signs in by key). So a
   // password with no key found means the steward plane, unless the caller
   // named one.
-  kind = found ? found.kind : (kind ?? PRINCIPAL_KIND_STEWARD);
-  const slot = keySlot(kind, address);
+  const plane = found ? found.kind : (kind ?? PRINCIPAL_KIND_STEWARD);
   const enrolledKeyPair = found?.pair ?? null;
-  // Which pending slot the key came from, if any, so success can promote
-  // exactly that one into `slot`.
-  const pendingSlot = found?.pendingSlot ?? null;
 
   const sessionKeyPair = await generateKeyPair();
   const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
 
   // Body: LP(principal_kind) || LP(address) || LP(session_pubkey)
   const challengeBody = concatBytes(
-    lp(utf8(kind)),
+    lp(utf8(plane)),
     lp(utf8(address)),
     lp(sessionPubkey),
   );
@@ -166,11 +225,42 @@ export async function signIn(
   const challenge = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
   // No key in this browser is an ordinary state since ADR-0055 decision 6
   // ("any browser, no pairing"): the evidence field goes empty and the
-  // password and the verification code are what the server checks. A key, when this
-  // browser has one, still signs the challenge and still buys `A1`.
+  // password and the verification code are what the server checks. A key, when
+  // this browser has one, still signs the challenge and still buys `A1`.
   const evidenceSig = enrolledKeyPair
     ? await signMessage(enrolledKeyPair.privateKey, challenge)
     : new Uint8Array(0);
+
+  return {
+    address,
+    kind: plane,
+    sessionKeyPair,
+    sessionPubkey,
+    serverNonce,
+    evidenceSig,
+    pendingSlot: found?.pendingSlot ?? null,
+    heldAKey: found !== null,
+  };
+}
+
+/**
+ * Step two: `POST /session` with the challenge in hand and whatever the
+ * person typed, and on success the session this browser holds from here on.
+ *
+ * **A challenge can be spent twice, and exactly twice, in one case.** When
+ * the answer is the second-factor probe (see [`isSecondFactorNeeded`]) the
+ * server rolled back and left the nonce unspent, so the caller may hand this
+ * same challenge back with the code beside the password. Every other refusal
+ * consumes the nonce, so a caller retrying after one needs a fresh
+ * [`beginSignIn`].
+ */
+export async function completeSignIn(
+  challenge: SignInChallenge,
+  credential: SignInCredential = {},
+): Promise<void> {
+  const password = credential.password ?? '';
+  const verificationCode = credential.verificationCode ?? '';
+  const { address, kind, sessionKeyPair, sessionPubkey, serverNonce, evidenceSig } = challenge;
 
   const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, verificationCode);
   const signInResponse = await fetch('/session', {
@@ -184,12 +274,12 @@ export async function signIn(
     new Uint8Array(await signInResponse.arrayBuffer()),
   );
 
-  if (pendingSlot !== null) {
+  if (challenge.pendingSlot !== null) {
     // The server just accepted a signature made with the pending key, so it
     // was enrolled after all -- move it to the enrolled slot. Best effort:
     // if this local write fails, the pending key is simply tried again next
     // time, at the cost of nothing beyond repeating this promotion.
-    await promotePendingKeyPair(pendingSlot, slot).catch(() => {});
+    await promotePendingKeyPair(challenge.pendingSlot, keySlot(kind, address)).catch(() => {});
   }
 
   setSession({
@@ -208,19 +298,23 @@ export async function signIn(
   // here costs the next sign-in its `A1` and nothing else, so it must never
   // undo a sign-in that has already succeeded.
   //
-  // **Only when a verification code was presented**, and the reason is a
-  // property of the server this client must not walk into: `sessions.rs` (4)
-  // gives `A1` to password + key even when no second factor is enrolled yet,
-  // and the setup gate in `verify_inside` fires on `A0` alone. Registering a
-  // key for an operator-custody account that has not finished enrolling its
-  // authenticator would therefore turn its next session from a setup session
-  // into a full one. A code in hand means the account is past that point.
-  // `FirstRun.tsx` passes `registerBrowserKey: false` for the sign-in it
-  // makes mid-flow, before the authenticator exists.
+  // **Only when a verification code was presented.** The setup gate in
+  // `sessions.rs`'s `verify_inside` is about the ACCOUNT's credentials and
+  // not about the session's assurance -- it asks whether the account's
+  // credential is a password with no second factor beside it, and it fires
+  // whatever the assurance -- so a key registered early does not step over
+  // it. What a key registered early does cost is ADR-0055 decision 9: the
+  // operator key needs a confirmed authenticator behind it, so an account key
+  // minted before the authenticator exists is harmless but pointless, and it
+  // is one more live key on the account for a browser that may never come
+  // back. A code in hand means the account is past that point. `FirstRun.tsx`
+  // passes `registerBrowserKey: false` for the sign-in it makes mid-flow,
+  // before the authenticator exists, and the enrolment screen registers the
+  // key itself the moment the code is confirmed.
   if (
     credential.registerBrowserKey !== false &&
     kind === PRINCIPAL_KIND_STEWARD &&
-    found === null &&
+    !challenge.heldAKey &&
     verificationCode.trim().length > 0
   ) {
     await registerBrowserKey(address).catch(() => {});

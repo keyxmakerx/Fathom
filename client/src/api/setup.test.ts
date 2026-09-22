@@ -17,6 +17,7 @@ import {
   forgetSetupState,
   parseSetupCheckAnswer,
   parseSetupState,
+  refreshSetupState,
   setupState,
 } from './setup';
 import { ApiRefusal } from './errors';
@@ -92,6 +93,49 @@ describe('setupState(), the one read per page load', () => {
     expect(calls).toBe(1);
     expect(first).toBe('done');
     expect(second).toBe('done');
+    forgetSetupState();
+  });
+});
+
+describe('refreshSetupState(), the one moment the bit can change', () => {
+  it('asks again and hands the new answer to every later caller', async () => {
+    // `FirstRun.tsx` spends the setup token, which is what makes this
+    // deployment stop being `pending`. If the sign-in after it fails, the
+    // cached `pending` is the one thing that would send the person back to a
+    // token step for a token that no longer exists.
+    forgetSetupState();
+    const answers = ['0700000070656e64696e67', '04000000646f6e65'];
+    let calls = 0;
+    const [first, second, cached] = await withFetch(
+      (async () => {
+        const body = answers[Math.min(calls, answers.length - 1)];
+        calls += 1;
+        return new Response(fromHex(body) as BodyInit);
+      }) as typeof globalThis.fetch,
+      async () => [await setupState(), await refreshSetupState(), await setupState()],
+    );
+    expect(calls).toBe(2);
+    expect(first).toBe('pending');
+    expect(second).toBe('done');
+    expect(cached).toBe('done');
+    forgetSetupState();
+  });
+
+  it('gives up rather than hanging, and says so as a failure', async () => {
+    // The timeout is an `AbortSignal`, so the caller sees a rejection and
+    // not a state: a screen that read a hung socket as `pending` would put a
+    // token field in front of a deployment that has been running for a year.
+    forgetSetupState();
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const error = await withFetch(
+      (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(init?.signal);
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }) as typeof globalThis.fetch,
+      () => refreshSetupState().catch((e: unknown) => e),
+    );
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(error).toBeInstanceOf(DOMException);
     forgetSetupState();
   });
 });

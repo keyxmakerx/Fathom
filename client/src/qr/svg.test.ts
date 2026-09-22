@@ -59,8 +59,12 @@ describe('the QR component', () => {
   });
 
   it('says so in words rather than failing when the value will not fit', () => {
+    // Past 2,331 bytes there is no larger symbol at level M. Nothing this
+    // client draws comes near it — the longest `otpauth://` URI the server
+    // can build is about 1,100 bytes — but the screen must not go blank if
+    // one ever did.
     const tooLong = renderToStaticMarkup(
-      createElement(QrCode, { value: 'x'.repeat(400), label: 'code' }),
+      createElement(QrCode, { value: 'x'.repeat(2332), label: 'code' }),
     );
     expect(tooLong).toContain('data-testid="qr-missing"');
     expect(tooLong).toMatch(/setup key/);

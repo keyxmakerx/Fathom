@@ -965,12 +965,16 @@ pub enum SessionError {
     /// deducing a *valid user* from a *failed* challenge, and a wrong address
     /// or a wrong credential still gets the one generic sentence here.
     ///
-    /// **It costs no rate-limit budget.** The client makes this probe on the
-    /// way to every ordinary sign-in, so counting it would spend an account's
-    /// window on its own successful sign-ins. What bounds it is
-    /// [`SessionStore::issue_challenge`], which counts the source bucket for
-    /// the nonce every probe needs, and the stored hash, which has to verify
-    /// before this answer is reachable at all.
+    /// **It costs nothing, because the transaction that produced it is rolled
+    /// back.** The client makes this probe on the way to every ordinary
+    /// sign-in, so counting it would spend an account's window on its own
+    /// successful sign-ins. Nothing is counted, nothing is sealed, and **the
+    /// challenge nonce is left unconsumed** — step two re-posts the same
+    /// challenge with the verification code, so the pair costs one challenge
+    /// and one sign-in, which is what a one-shot sign-in cost before ADR-0056.
+    /// What bounds it is [`SessionStore::issue_challenge`], which counts the
+    /// source bucket for the nonce every probe needs, and the stored hash,
+    /// which has to verify before this answer is reachable at all.
     SecondFactorNeeded,
 }
 
@@ -1264,7 +1268,10 @@ impl SessionStore {
     ///    limited.
     /// 2. **The nonce is consumed next**, by `DELETE ... RETURNING`. Consumed
     ///    means consumed: a failed attempt burns it, which is the fail-closed
-    ///    direction.
+    ///    direction. The one thing that does not burn it is the second-factor
+    ///    probe, and only because the whole transaction is rolled back — the
+    ///    delete is undone with everything else rather than skipped, so no
+    ///    path can reach a session on a nonce that has been spent.
     /// 3. The account, its disabled flag, its live signing key and that key's
     ///    own row seal.
     /// 4. The evidence signature, over the challenge recomputed from the
@@ -1401,6 +1408,38 @@ impl SessionStore {
 
         let outcome = self.attempt_sign_in(&tx, attempt).await;
 
+        // **ADR-0056 decision 3, as the 2026-09-22 review settled it: the
+        // second-factor probe is a ROLLBACK and not a refusal.**
+        //
+        // It is a protocol step. The client has the address and the credential
+        // right and is asking which screen to draw; the sealed sign-in that
+        // follows a moment later is the record of it, and a `*_signin_failed`
+        // entry here would relabel a person who is signing in correctly as a
+        // failure. So nothing this call did is kept:
+        //
+        // * **the nonce stays unconsumed**, which is what makes step two the
+        //   SAME challenge — one `/session/challenge` for the whole two-step
+        //   sign-in, so an ordinary sign-in costs the two source units it cost
+        //   before this ADR and not three;
+        // * **nothing is counted**, on either bucket. The source increment at
+        //   (1) is rolled back with everything else, which is exact where
+        //   giving it back with an `UPDATE` was arithmetic on a row another
+        //   transaction may have moved;
+        // * **no entry is written**, so an unauthenticated caller cannot choose
+        //   how fast this deployment's sealed audit grows by probing.
+        //
+        // The decoy verification below is not run either: the real one has
+        // already happened, and a second would put half a second on the path
+        // the client takes to every ordinary sign-in.
+        //
+        // **A wrong credential on the same account is untouched** — it never
+        // reaches this arm, and it is still sealed, counted, generic, and it
+        // still consumes the nonce.
+        if matches!(outcome, Err((_, _, SessionError::SecondFactorNeeded))) {
+            tx.rollback().await?;
+            return Err(SessionError::SecondFactorNeeded);
+        }
+
         let result = match outcome {
             Ok(signed_in) => {
                 // A success clears this window's failures for the account, so
@@ -1414,27 +1453,6 @@ impl SessionStore {
                 )
                 .await?;
                 Ok(signed_in.1)
-            }
-            // **ADR-0056 decision 3: the probe is sealed and costs nothing.**
-            // Answered before any other refusal arm so that none of what
-            // follows can reach it: no account bucket is counted, the source
-            // count this call made at (1) is given back, and the decoy
-            // verification below is not run — the real one has already
-            // happened, and a second would put half a second on the path the
-            // client takes to EVERY ordinary sign-in.
-            //
-            // The entry is still written, because an operator reading the site
-            // chain should see that somebody got this far with a credential
-            // that verified.
-            Err((bucket, reason, SessionError::SecondFactorNeeded)) => {
-                self.give_back_source_attempt(&tx, source).await;
-                let account = match &bucket {
-                    Some(AccountBucket::Account(account)) => Some(account.as_str()),
-                    _ => None,
-                };
-                self.append_sign_in_refusal(&tx, kind, account, None, reason, false)
-                    .await;
-                Err(SessionError::SecondFactorNeeded)
             }
             Err((bucket, reason, error)) => {
                 let counted = self
@@ -1943,7 +1961,8 @@ impl SessionStore {
                 // has the address and the credential right and has nothing
                 // left to guess. Answered before `check_second_factor`, so no
                 // step is spent and no backup code is tried against an empty
-                // string.
+                // string — and the caller rolls this transaction back, so the
+                // nonce consumed at (2) is still there for step two to use.
                 //
                 // An account with NO confirmed authenticator falls through to
                 // the branch below and still gets its `A0` session on an empty
@@ -2330,14 +2349,17 @@ impl SessionStore {
         }
     }
 
-    /// One sealed `*_signin_failed` entry, in the one spelling both callers
-    /// use.
+    /// One sealed `*_signin_failed` entry, in the one spelling
+    /// [`SessionStore::refuse`] writes it.
     ///
-    /// Extracted from [`SessionStore::refuse`] for ADR-0056 decision 3, which
-    /// adds a second caller: the second-factor probe seals the same kind of
-    /// entry while counting nothing. Two copies of this metadata would be two
-    /// shapes on one chain, and the reader of a chain cannot ask which
-    /// function wrote a row.
+    /// **Named rather than inlined, and with one caller on purpose.** The
+    /// ADR-0056 build gave it a second — the second-factor probe sealed a
+    /// refusal of its own — and the 2026-09-22 review found that entry
+    /// relabelling successful sign-ins as failures and bypassing the
+    /// once-per-window latch above. The probe is a rollback now (see
+    /// [`SessionStore::sign_in_with_credentials`]) and writes nothing, so this
+    /// is again exactly what `refuse` decided to write, and a future second
+    /// caller has to come past that history to be added.
     ///
     /// A failure to append is swallowed here exactly as it was inside
     /// `refuse`: the refusal stands whether or not the record of it could be
@@ -2384,32 +2406,6 @@ impl SessionStore {
         let _ = chains::append_site(tx, &self.ring, &self.deployment, entry_type, &metadata).await;
     }
 
-    /// Undo this call's own increment of the source bucket.
-    ///
-    /// **ADR-0056 decision 3.** The source count is taken before anything is
-    /// looked up, which is what makes it a guard rather than a verdict — and
-    /// it is therefore already spent by the time the second-factor probe is
-    /// recognised several steps later. Giving it back is the only way to keep
-    /// the guard where it belongs and still leave the counters where they
-    /// were, and it is exact: one row, this window, never below zero.
-    ///
-    /// A failure is not an error. The worst case is a counter one higher than
-    /// it should be, which is a rate limit that is one attempt stricter for
-    /// one window.
-    async fn give_back_source_attempt(&self, tx: &Transaction<'_>, source: &str) {
-        let key = bucket_key(source);
-        if key.is_empty() {
-            return;
-        }
-        let _ = tx
-            .execute(
-                "UPDATE sign_in_attempts SET attempts = GREATEST(attempts - 1, 0) \
-                  WHERE bucket_kind = 'source' AND bucket_key = $1 AND window_start = $2",
-                &[&key, &window_start(self.limits.window)],
-            )
-            .await;
-    }
-
     /// Increment one bucket's counter for the current window and return the
     /// new count.
     async fn count_attempt(
@@ -2448,6 +2444,11 @@ impl SessionStore {
     /// — because the only reason this statement cannot take the column name as
     /// a parameter is that SQL does not allow it, and "so we concatenated it"
     /// is how the next injection gets written.
+    ///
+    /// **The key goes through [`bucket_key`] and not through a copy of it.**
+    /// This function kept its own truncation until the 2026-09-22 review, which
+    /// is two places that decide which row is meant: a latch taken on one row
+    /// while the count lands on another is an entry written every time.
     async fn latch(
         &self,
         tx: &Transaction<'_>,
@@ -2455,7 +2456,7 @@ impl SessionStore {
         bucket_key: &str,
         which: Latch,
     ) -> Result<bool, SessionError> {
-        let key: String = bucket_key.chars().take(128).collect();
+        let key = self::bucket_key(bucket_key);
         let statement = match which {
             Latch::Locked => {
                 "UPDATE sign_in_attempts SET locked_entry_written = true \
@@ -3734,8 +3735,10 @@ fn now_unix() -> i64 {
 ///
 /// A source key longer than the column allows is truncated rather than
 /// refused: the bucket is a bucket, and an oversized value is still usefully
-/// grouped by its first 128 characters. **One function since ADR-0056**, so
-/// that the count and the give-back cannot disagree about which row they mean.
+/// grouped by its first 128 characters. **One function, and every caller goes
+/// through it** — [`SessionStore::count_attempt`] and
+/// [`SessionStore::latch`] — so that the count and the latch cannot disagree
+/// about which row they mean.
 fn bucket_key(key: &str) -> String {
     key.chars().take(128).collect()
 }

@@ -3,28 +3,46 @@ import { describe, expect, it } from 'vitest';
 import { ApiRefusal } from '../api/errors';
 import { describeAppCodeRefusal } from './appCodeRefusal';
 
+// **The sentences fed in here are the server's real ones, copied off the
+// wire.** The first cut of this test made one up, which is CLAUDE.md rule 2's
+// shape of mistake — a gate tested against what the checker needed rather
+// than against what the other side actually sends. Both of the server's
+// wordings are below: the one `credentials.rs` sends today, and the one
+// ADR-0056 decision 4 renames it to. Neither may reach a screen.
+
+/** `CredentialError::TotpAlreadyEnrolled`, `credentials.rs`, as it reads on
+ * the build this was written against. */
+const SERVER_409_TODAY =
+  'this account already has a confirmed app code. Replacing a live second factor from inside a session is not a form; it is a recovery, and it goes through the host command ADR-0055 decision 8 names';
+
+/** The same refusal after the rename ADR-0056 decision 4 asks for. */
+const SERVER_409_RENAMED =
+  'this account already has a confirmed authenticator. Replacing a live second factor from inside a session is not a form; it is a recovery, and it goes through the host command ADR-0055 decision 8 names';
+
 describe('the authenticator refusal on the account screen', () => {
-  it('shows the sentence a 409 carries, verbatim', () => {
-    const sentence = 'this account already has a second factor; replacing one is a recovery';
-    expect(describeAppCodeRefusal(new ApiRefusal(409, sentence, null))).toBe(sentence);
+  it('maps a 409 by status, and prints no sentence the server sent', () => {
+    for (const body of [SERVER_409_TODAY, SERVER_409_RENAMED, 'refused', '']) {
+      const shown = describeAppCodeRefusal(new ApiRefusal(409, body, null));
+      expect(shown).toBe(
+        'This account already has a confirmed authenticator. Replacing it is a recovery, done from the host with fathom-server recover-operator.',
+      );
+      // Not a substring of it, not a suffix on it, not a fallback when the
+      // body looks reasonable: the body goes nowhere.
+      expect(shown).not.toContain('ADR-0055');
+      expect(shown).not.toContain('from inside a session');
+    }
   });
 
-  it('says what 409 means here when the 409 carries no sentence', () => {
-    expect(describeAppCodeRefusal(new ApiRefusal(409, 'refused', null))).toMatch(
-      /already has an authenticator app/,
-    );
-    expect(describeAppCodeRefusal(new ApiRefusal(409, '', null))).toMatch(
-      /already has an authenticator app/,
-    );
-  });
-
-  it('never says "app code" to a person', () => {
-    // ADR-0056 decision 4: "app code" leaves every user-facing string. This
-    // is the one sentence in this module that is this client's own words
-    // rather than the server's, so it is the one that can be asserted.
-    expect(describeAppCodeRefusal(new ApiRefusal(409, '', null)).toLowerCase()).not.toContain(
-      'app code',
-    );
+  it('never says "app code" to a person, whatever the server said', () => {
+    // ADR-0056 decision 4: the name leaves every user-facing string. The
+    // server's own sentence still carries it today, which is exactly why
+    // this client does not relay it.
+    expect(SERVER_409_TODAY).toContain('app code');
+    for (const body of [SERVER_409_TODAY, SERVER_409_RENAMED, 'refused', '']) {
+      expect(describeAppCodeRefusal(new ApiRefusal(409, body, null)).toLowerCase()).not.toContain(
+        'app code',
+      );
+    }
   });
 
   it('leaves every other refusal exactly as it reads today', () => {

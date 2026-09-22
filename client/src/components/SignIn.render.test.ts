@@ -4,15 +4,23 @@ import { describe, expect, it } from 'vitest';
 
 import { isSecondFactorNeeded } from '../api/auth';
 import { ApiRefusal } from '../api/errors';
-import { secondFactorIntro, SIGN_IN_REFUSED, SignIn, VERIFICATION_CODE_HINT } from './SignIn';
+import {
+  SecondFactorStep,
+  secondFactorIntro,
+  SIGN_IN_REFUSED,
+  SignIn,
+  VERIFICATION_CODE_HINT,
+  VERIFICATION_CODE_REFUSED,
+} from './SignIn';
 
 // Render-to-string smoke tests, per `ConfigDrawer.render.test.ts`'s
 // precedent -- no DOM testing library is installed, so this checks the
 // markup the door produces, which is what a render-to-string pass can see.
 // Effects do not run here, so the identity list (IndexedDB) is absent and
 // the fields below are the whole of what a first paint shows. The second
-// step is reached only through a refusal from a live server, so its copy is
-// exported and checked directly. ADR-0056 decisions 3, 4 and 6. 2026-09-22.
+// step is reached only through an answer from a live server, so it is drawn
+// by a pure component this file renders with fixture props -- including the
+// props a wrong code leaves it in. ADR-0056 decisions 3, 4 and 6. 2026-09-22.
 
 const markup = () => renderToStaticMarkup(createElement(SignIn, {}));
 
@@ -82,6 +90,59 @@ describe('the sign-in door, step two', () => {
     expect(VERIFICATION_CODE_HINT).toBe(
       'Six digits from your authenticator app, or one of your recovery codes.',
     );
+  });
+});
+
+describe('the second step’s own markup', () => {
+  const noop = () => {};
+  const step = (refusal: string | null) =>
+    renderToStaticMarkup(
+      createElement(SecondFactorStep, {
+        address: 'owner@example.test',
+        code: '',
+        busy: false,
+        refusal,
+        onCode: noop,
+        onSubmit: noop,
+        onStartAgain: noop,
+      }),
+    );
+
+  it('asks for the code alone, and does not ask for the password again', () => {
+    const html = step(null);
+    expect(html).toContain('id="signin-code"');
+    expect(html).toMatch(/autocomplete="one-time-code"/i);
+    // `inputMode` stays text: a numeric keypad would hide the letters a
+    // recovery code is made of, and this one field takes both kinds.
+    expect(html).toMatch(/inputmode="text"/i);
+    expect(html).toContain(VERIFICATION_CODE_HINT);
+    expect(html).not.toContain('id="signin-password"');
+    expect(html).not.toContain('id="signin-address"');
+    // The address is said, so the person knows who they are signing in as
+    // without a field to edit it in.
+    expect(html).toContain('owner@example.test');
+  });
+
+  it('keeps a way back to the first step', () => {
+    expect(step(null)).toMatch(/Sign in as someone else/);
+  });
+
+  it('keeps a wrong code on this step, with one sentence and the field still there', () => {
+    const html = step(VERIFICATION_CODE_REFUSED);
+    expect(html).toContain(VERIFICATION_CODE_REFUSED);
+    expect(html).toContain('id="signin-code"');
+    expect(html).toContain('role="alert"');
+    // One sentence, and it names the code rather than the password: by this
+    // step the password has verified once, so the code is the only new thing
+    // in the request that can have been wrong.
+    expect(VERIFICATION_CODE_REFUSED.split('. ').length).toBe(1);
+    expect(VERIFICATION_CODE_REFUSED).toMatch(/recovery codes/);
+    expect(VERIFICATION_CODE_REFUSED).not.toMatch(/app code|backup code/i);
+  });
+
+  it('never says "app code" or "backup code"', () => {
+    expect(step(VERIFICATION_CODE_REFUSED)).not.toMatch(/app code/i);
+    expect(step(VERIFICATION_CODE_REFUSED)).not.toMatch(/backup code/i);
   });
 });
 

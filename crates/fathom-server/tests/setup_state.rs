@@ -20,6 +20,9 @@
 //! - **the credential is a real one.** Four words, twenty-seven characters,
 //!   past the fifteen-character floor and not on the bundled common list, for
 //!   the reason `tests/credentials.rs`'s header gives.
+//! - **the setup-state cache is process-wide and keyed by deployment**
+//!   (`credentials::forget_setup_state`), so a database of its own per test is
+//!   also a cache of its own per test.
 
 mod support;
 
@@ -30,7 +33,7 @@ use deadpool_postgres::Pool;
 use fathom_server::api::{self, CredentialApiState};
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
-use fathom_server::credentials::{CredentialError, CredentialStore, SetupState};
+use fathom_server::credentials::{self, CredentialError, CredentialStore, SetupState};
 use fathom_server::crypto::Key32;
 use fathom_server::keys::KeyRing;
 use fathom_server::operators::OperatorStore;
@@ -76,12 +79,12 @@ fn a_source_of_its_own() -> String {
 /// Everything one test needs, on a database of its own.
 ///
 /// **One store of each kind, shared with the router**, exactly as `main.rs`
-/// builds them: the setup-state cache lives in the `CredentialStore`, so a test
-/// that gave the surface a second one would be measuring two caches and the
-/// product has one.
+/// builds them: the stores carry the budget and the custodies, and a test that
+/// gave the surface a second set would be measuring something the product does
+/// not have. The setup-state cache is process-wide and keyed by this
+/// deployment's id, so the database of its own is a cache of its own too.
 struct Deployment {
     pool: Pool,
-    ring: Arc<KeyRing>,
     operators: Arc<OperatorStore>,
     credentials: Arc<CredentialStore>,
     sessions: Arc<SessionStore>,
@@ -114,7 +117,6 @@ async fn a_fresh_deployment(tag: &str) -> Deployment {
             SignInLimits::defaults(),
         )),
         pool,
-        ring,
     }
 }
 
@@ -130,19 +132,11 @@ impl Deployment {
         .await
     }
 
-    /// A second credential store, with a cache of its own.
-    ///
-    /// **For a test that needs two truthful answers inside five seconds.** The
-    /// cache ADR-0056 decision 1 allows is per process and lasts
-    /// `SETUP_STATE_CACHE`; the only acts that drop it are the ones this
-    /// server performs itself. A start-time act on another store — the
-    /// adoption — is invisible to it until the five seconds pass, which is the
-    /// staleness the decision names as acceptable and which a test must not
-    /// pretend away by sleeping through it.
-    async fn another_store(&self) -> CredentialStore {
+    /// This deployment's id, which is the key the setup-state cache and its
+    /// query counter are kept under.
+    async fn deployment(&self) -> String {
         let client = self.pool.get().await.expect("connection");
-        let id = chains::deployment_id(&**client).await.expect("deployment");
-        CredentialStore::new(self.pool.clone(), Arc::clone(&self.ring), id)
+        chains::deployment_id(&**client).await.expect("deployment")
     }
 }
 
@@ -272,11 +266,7 @@ async fn an_adopted_first_operator_is_pending_until_the_credential_is_set() {
     .expect("nor its principal row");
 
     assert_eq!(
-        it.another_store()
-            .await
-            .setup_state()
-            .await
-            .expect("the state reads"),
+        it.credentials.setup_state().await.expect("the state reads"),
         SetupState::Done,
         "before the adoption runs there is no account at the install address, and the setup \
          screen has nothing to offer"
@@ -307,6 +297,130 @@ async fn an_adopted_first_operator_is_pending_until_the_credential_is_set() {
     assert_eq!(
         it.credentials.setup_state().await.expect("the state reads"),
         SetupState::Done
+    );
+}
+
+/// **Concurrent first callers cause one query, not one query each.**
+///
+/// ADR-0056 decision 1 allows a five-second cache and rests the whole
+/// no-rate-limit argument of the ADR-0056 build on it. The 2026-09-22 review
+/// read the cache and found it was not single-flight: it was read, missed, and
+/// then every caller that had missed went to the pool. The pool has eight
+/// connections, the route is unauthenticated, and the answer arrives in
+/// milliseconds — so a crowd arriving on a stale answer was a crowd of queries
+/// and the cache bounded nothing at the moment it mattered.
+///
+/// **What is counted is the query and not the request.** `setup_state_queries`
+/// exists for this: a statistics view PostgreSQL updates asynchronously would
+/// make the test flaky rather than the claim true.
+#[tokio::test]
+async fn concurrent_first_callers_cause_one_setup_state_query() {
+    const TAG: &str = "setup_state_single_flight";
+    const CALLERS: usize = 16;
+    let it = a_fresh_deployment(TAG).await;
+    let deployment = it.deployment().await;
+
+    let address = unique("owner@example.org");
+    it.operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // Nothing has asked yet, so every one of these is a miss.
+    let before = credentials::setup_state_queries(&deployment);
+    let mut callers = Vec::with_capacity(CALLERS);
+    for _ in 0..CALLERS {
+        let store = Arc::clone(&it.credentials);
+        callers.push(tokio::spawn(async move {
+            store.setup_state().await.expect("the state reads")
+        }));
+    }
+    for caller in callers {
+        assert_eq!(
+            caller.await.expect("the task"),
+            SetupState::Pending,
+            "every caller gets the answer, whether it ran the query or waited for it"
+        );
+    }
+
+    assert_eq!(
+        credentials::setup_state_queries(&deployment) - before,
+        1,
+        "{CALLERS} callers arriving together on an empty cache ran more than one query. The \
+         first through must do the work and the rest must wait for its answer, or an \
+         unauthenticated caller chooses how many of this deployment's connections to take"
+    );
+}
+
+/// **`GET /setup/state` charges the per-source budget, like every other
+/// unauthenticated route here.**
+///
+/// The ADR-0056 build exempted it, on the argument that a person reloading the
+/// sign-in page should not spend what they need to sign in. What that left was
+/// one route on this server an unauthenticated caller could drive for nothing,
+/// and the cache it was exempted in favour of bounds the database and not the
+/// request. Both now: `check_source_budget` first, then the cache.
+#[tokio::test]
+async fn the_state_route_charges_the_source_budget() {
+    const TAG: &str = "setup_state_budget";
+    let it = a_fresh_deployment(TAG).await;
+    let addr = it.surface().await;
+    let source = a_source_of_its_own();
+    let su = support::superuser_on_isolated(TAG).await;
+    let counted = || async {
+        su.query_one(
+            "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
+              WHERE bucket_kind = 'source' AND bucket_key = $1",
+            &[&source],
+        )
+        .await
+        .expect("read the bucket")
+        .get::<_, i64>(0)
+    };
+
+    assert_eq!(counted().await, 0, "the source has spent nothing yet");
+    let (status, _) = raw_request(
+        addr,
+        "GET",
+        "/setup/state",
+        &[("x-forwarded-for", source.clone())],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        counted().await,
+        1,
+        "one unauthenticated read of the deployment's state must cost this source one unit of \
+         the budget it shares with /session and the setup routes"
+    );
+}
+
+/// **Every answer this surface builds says `Cache-Control: no-store`.**
+///
+/// The setup bit moves exactly once in a deployment's life. A browser or a
+/// proxy holding `pending` after it has moved sends the person who just
+/// finished setup back to step one of it, and the same header keeps a token's
+/// answer out of a shared cache on the way.
+#[tokio::test]
+async fn the_state_route_says_no_store() {
+    const TAG: &str = "setup_state_no_store";
+    let it = a_fresh_deployment(TAG).await;
+    let addr = it.surface().await;
+
+    let (status, head, _) = raw_request_full(
+        addr,
+        "GET",
+        "/setup/state",
+        &[("x-forwarded-for", a_source_of_its_own())],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(
+        head.to_ascii_lowercase()
+            .contains("cache-control: no-store"),
+        "the answer carries no cache-control: no-store, so a proxy may keep it:\n{head}"
     );
 }
 
@@ -412,6 +526,13 @@ async fn the_check_writes_nothing_to_the_chain() {
 /// The same anti-enumeration rule ADR-0055 decision 7 states for the credential
 /// routes: a caller must not be able to tell which of the causes refused them.
 /// One sentence, one status, the same headers.
+///
+/// **A token of ANOTHER PURPOSE is the one case not driven here**: minting an
+/// account invitation needs a console session, so it is driven where one
+/// already exists — `tests/operators.rs`,
+/// `a_token_of_another_purpose_does_not_open_the_setup_check`. It arrives at
+/// the same `CredentialError::TokenRefused` this test pins the bytes of, and
+/// the `operator` purpose cannot be minted at all in this build.
 ///
 /// **The expired case is produced by moving the expiry in the database**, the
 /// way `tests/operators.rs`'s own expiry fixture does, because a real token

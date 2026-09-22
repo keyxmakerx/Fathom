@@ -15,28 +15,32 @@ import { ApiRefusal } from '../api/errors';
 
 /**
  * **409 is the typed refusal for "this account already has a second factor"**
- * (`credentials::CredentialError::TotpAlreadyEnrolled`). When the server
- * sends one it sends a sentence with it, and that sentence is shown
- * verbatim: replacing an authenticator app is a recovery and not a form, and
- * the uniform *"sign-in refused"* reads as though the person had got
- * something wrong.
+ * (`credentials::CredentialError::TotpAlreadyEnrolled`), and this client maps
+ * it **by status**, to its own sentence.
  *
- * **Every other refusal keeps the wording it has today.** `api.rs` fixes one
- * sentence per status and sends the real reason nowhere but its own log --
- * *"a refusal that explained itself would tell an attacker which of the
- * checks they failed"* -- so nothing here interprets, translates or guesses
- * at a cause. On a server that does not send the 409 yet, this function is
- * the existing copy, unchanged.
+ * It used to print the server's body verbatim. That was wrong twice over:
+ *
+ * - **The wording is not this client's to control.** The sentence on the wire
+ *   was written for the server's own log and names an ADR by number; at the
+ *   time of the finding it also carried a name ADR-0056 decision 4 takes out
+ *   of everything a person reads. A client that prints whatever arrives
+ *   cannot promise what any screen says, and the promise is the decision.
+ * - **A server body is not a screen.** The rest of `api.rs` fixes one uniform
+ *   sentence per status on purpose — *"a refusal that explained itself would
+ *   tell an attacker which of the checks they failed"* — so the one route
+ *   that does explain itself is the exception, and reading it out is the
+ *   client choosing to relay something it did not write.
+ *
+ * Mapping by status is what makes the wording testable: whatever the server
+ * sends, this is what the person sees, and the test feeds it the server's
+ * real sentence to prove the body goes nowhere.
+ *
+ * **Every other refusal keeps the wording it has today.** Nothing here
+ * interprets, translates or guesses at a cause.
  */
 export function describeAppCodeRefusal(error: unknown): string {
   if (error instanceof ApiRefusal && error.status === 409) {
-    const sentence = error.message.trim();
-    if (sentence.length > 0 && sentence !== 'refused') {
-      return sentence;
-    }
-    // A 409 with nothing in it still means what 409 means here, and saying
-    // so is honest; inventing a longer explanation would not be.
-    return 'This account already has an authenticator app. Replacing one is a recovery, not a form: it goes through the host command.';
+    return ALREADY_ENROLLED;
   }
   if (error instanceof ApiRefusal) {
     return error.retryAfterSeconds != null
@@ -45,3 +49,9 @@ export function describeAppCodeRefusal(error: unknown): string {
   }
   return 'That did not complete. See the console for detail.';
 }
+
+/** The one sentence a 409 on the enrolment route turns into, in this client's
+ * own words: what happened, and the one way through it (ADR-0055 decision 8's
+ * host command, which the console's notices name the same way). */
+const ALREADY_ENROLLED =
+  'This account already has a confirmed authenticator. Replacing it is a recovery, done from the host with fathom-server recover-operator.';

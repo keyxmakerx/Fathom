@@ -1,6 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { isSecondFactorNeeded, NoEnrolledKeyError, signIn } from '../api/auth';
+import {
+  beginSignIn,
+  completeSignIn,
+  isSecondFactorNeeded,
+  NoEnrolledKeyError,
+  signIn,
+  type SignInChallenge,
+} from '../api/auth';
 import { identityOfSlot, OPERATOR_PENDING_SLOT, type SlotIdentity } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
 import { listKeySlots } from '../crypto/keys';
@@ -19,6 +26,22 @@ export function secondFactorIntro(address: string): string {
  * decisions 3 and 4). */
 export const VERIFICATION_CODE_HINT =
   'Six digits from your authenticator app, or one of your recovery codes.';
+
+/**
+ * What a refused code says, on the step where the code is the only thing
+ * that can have been wrong.
+ *
+ * The server answers its one uniform sentence here as everywhere else, and
+ * this screen does not repeat it: by the time this step is on screen the
+ * address and the password have verified once (that is what drew it), and
+ * the second post carries the same two plus the code. So naming the code is
+ * not a guess about which check refused — it is the only new thing in the
+ * request. One sentence, and it says what to do next, because a person
+ * reading it is either holding a code that has just rolled over or reaching
+ * for the envelope with the recovery codes in it.
+ */
+export const VERIFICATION_CODE_REFUSED =
+  'That code was not accepted — wait for your authenticator app’s next code and type it again, or use one of your recovery codes.';
 
 export interface SignInProps {
   /** Go to the forgot-password screen. The one link under this card
@@ -46,6 +69,16 @@ export interface SignInProps {
  * step tells the person who typed the right password that it was right. Every
  * surveyed product with a second factor makes the same trade, and a wrong
  * address or a wrong password still gets one sentence.
+ *
+ * **Two steps, one challenge.** The answer that draws step two is a
+ * rollback: the server wrote nothing, counted nothing and left the challenge
+ * nonce unspent, because this is a step in a sign-in and not a failure of
+ * one. So step two posts the challenge step one already holds — same session
+ * keypair, same nonce, same evidence signature — with the code beside the
+ * password, and an ordinary two-step sign-in costs a person exactly what a
+ * one-shot sign-in cost before. A refusal at step two is a real one: it
+ * consumes the nonce, so the try after it asks for a fresh challenge
+ * (`../api/auth.ts`'s `beginSignIn` and `completeSignIn`).
  *
  * **Any browser, no pairing** (ADR-0055 decision 6). `signIn`
  * (`../api/auth.ts`) presents a stored key automatically when there is one —
@@ -77,10 +110,11 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
   const [address, setAddress] = useState(initialAddress ?? '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  /** Which step the card is on. `second-factor` carries the address the
-   * server said it wanted a code for, so that the field above cannot be
-   * edited out from under the answer. */
-  const [secondFactorFor, setSecondFactorFor] = useState<string | null>(null);
+  /** Which step the card is on. Not `null` means step two, and it carries
+   * the address the server said it wanted a code for — so the field above
+   * cannot be edited out from under the answer — and the challenge that
+   * answer left unspent. */
+  const [secondFactor, setSecondFactor] = useState<SecondFactorState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -111,23 +145,60 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
     };
   }, []);
 
-  async function attempt(id: string, kind?: SlotIdentity['kind'], verificationCode = '') {
+  /** Step one: the address, the password, and no code. */
+  async function attempt(id: string, kind?: SlotIdentity['kind']) {
     setBusy(id);
     setRefusal(null);
     try {
-      await signIn(id, kind, { password, verificationCode });
+      const challenge = await beginSignIn(id, kind, { password });
+      try {
+        await completeSignIn(challenge, { password });
+      } catch (error) {
+        // ADR-0056 decision 3: this answer is a step, not a wall. The
+        // address and the password verified and the account holds a
+        // confirmed authenticator. The server rolled its transaction back —
+        // no entry, nothing counted, and the nonce still unspent — so the
+        // challenge in hand is the one step two posts again, with the code
+        // beside the password. Asking for a second challenge here would pay
+        // twice for one sign-in.
+        if (isSecondFactorNeeded(error)) {
+          setSecondFactor({ address: id, challenge });
+          setCode('');
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       console.error(error);
-      // ADR-0056 decision 3: this refusal is a step, not a wall. The address
-      // and the password verified and the account holds a confirmed
-      // authenticator; nothing was issued and nothing was spent.
-      if (isSecondFactorNeeded(error)) {
-        setSecondFactorFor(id);
-        setCode('');
-        setRefusal(null);
-        return;
-      }
       setRefusal(describe(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Step two: the same challenge, the same password, and the code. */
+  async function attemptWithCode(step: SecondFactorState, verificationCode: string) {
+    setBusy(step.address);
+    setRefusal(null);
+    try {
+      if (step.challenge) {
+        await completeSignIn(step.challenge, { password, verificationCode });
+      } else {
+        // The challenge this step arrived with has been spent by a refusal
+        // (below), so this try needs its own. `signIn` is the pair of calls
+        // back to back, which is exactly a fresh challenge and one post.
+        await signIn(step.address, undefined, { password, verificationCode });
+      }
+    } catch (error) {
+      console.error(error);
+      // A refused code is a sealed, counted refusal and it consumes the
+      // nonce — only the empty-code probe is rolled back. So whatever went
+      // wrong, the challenge is gone and the next try asks for a new one.
+      // The person stays on this step: the password is still right, and
+      // sending them back to type it again would be this screen's own
+      // invention.
+      setSecondFactor({ address: step.address, challenge: null });
+      setRefusal(describeCode(error));
     } finally {
       setBusy(null);
     }
@@ -135,10 +206,8 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (secondFactorFor !== null) {
-      // All three go up again: the server's one-request verification is
-      // unchanged, and nothing is issued until all of it verifies.
-      await attempt(secondFactorFor, undefined, code);
+    if (secondFactor !== null) {
+      await attemptWithCode(secondFactor, code);
       return;
     }
     await attempt(address.trim());
@@ -159,62 +228,22 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
 
   const hasIdentities = identities !== null && identities.length > 0;
 
-  if (secondFactorFor !== null) {
+  if (secondFactor !== null) {
     return (
-      <div className="signin">
-        <form className="signin__card" onSubmit={(event) => void handleSubmit(event)}>
-          <h1 className="signin__title">Fathom</h1>
-          <p className="signin__subtitle">{secondFactorIntro(secondFactorFor)}</p>
-
-          <div className="signin__field">
-            <label className="signin__label" htmlFor="signin-code">
-              Verification code
-            </label>
-            <input
-              id="signin-code"
-              className="signin__input signin__input--mono"
-              type="text"
-              inputMode="text"
-              autoComplete="one-time-code"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              disabled={busy !== null}
-              required
-            />
-            <p className="signin__hint">{VERIFICATION_CODE_HINT}</p>
-          </div>
-
-          <button
-            className="signin__submit"
-            type="submit"
-            disabled={busy !== null || code.trim().length === 0}
-          >
-            {busy !== null ? 'Signing in…' : 'Sign in'}
-          </button>
-
-          {refusal && (
-            <div className="signin__refusal" role="alert">
-              {refusal}
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="signin__switch"
-            onClick={() => {
-              setSecondFactorFor(null);
-              setPassword('');
-              setCode('');
-              setRefusal(null);
-            }}
-          >
-            Sign in as someone else
-          </button>
-        </form>
-      </div>
+      <SecondFactorStep
+        address={secondFactor.address}
+        code={code}
+        busy={busy !== null}
+        refusal={refusal}
+        onCode={setCode}
+        onSubmit={(event) => void handleSubmit(event)}
+        onStartAgain={() => {
+          setSecondFactor(null);
+          setPassword('');
+          setCode('');
+          setRefusal(null);
+        }}
+      />
     );
   }
 
@@ -301,6 +330,91 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
   );
 }
 
+/** Step two's state: who it is for, and the challenge step one left unspent
+ * — `null` once a refusal has consumed it, which is what tells the next try
+ * to ask for a fresh one. */
+interface SecondFactorState {
+  address: string;
+  challenge: SignInChallenge | null;
+}
+
+export interface SecondFactorStepProps {
+  /** The address the server asked for a code for. Shown, never editable:
+   * the code is bound to the account the password already verified against. */
+  address: string;
+  code: string;
+  busy: boolean;
+  refusal: string | null;
+  onCode: (code: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  /** Back to step one, with the password and the code cleared. */
+  onStartAgain: () => void;
+}
+
+/**
+ * Step two of the door: one field, and a way back.
+ *
+ * A pure component, drawn from its props alone, for the reason
+ * `Account.tsx`'s stages are: this step is reached only through a live answer
+ * from the server, and a screen no test can render is a screen whose wording
+ * nobody checks. `SignIn.render.test.ts` renders it with a refusal in hand,
+ * which is the state a wrong code leaves it in. ADR-0056 decisions 3 and 4.
+ * 2026-09-22.
+ */
+export function SecondFactorStep({
+  address,
+  code,
+  busy,
+  refusal,
+  onCode,
+  onSubmit,
+  onStartAgain,
+}: SecondFactorStepProps) {
+  return (
+    <div className="signin">
+      <form className="signin__card" onSubmit={onSubmit}>
+        <h1 className="signin__title">Fathom</h1>
+        <p className="signin__subtitle">{secondFactorIntro(address)}</p>
+
+        <div className="signin__field">
+          <label className="signin__label" htmlFor="signin-code">
+            Verification code
+          </label>
+          <input
+            id="signin-code"
+            className="signin__input signin__input--mono"
+            type="text"
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={code}
+            onChange={(event) => onCode(event.target.value)}
+            disabled={busy}
+            required
+          />
+          <p className="signin__hint">{VERIFICATION_CODE_HINT}</p>
+        </div>
+
+        <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+
+        {refusal && (
+          <div className="signin__refusal" role="alert">
+            {refusal}
+          </div>
+        )}
+
+        <button type="button" className="signin__switch" onClick={onStartAgain}>
+          Sign in as someone else
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /** What a refused sign-in says on this screen. The server answers one
  * sentence for every cause, on purpose, and that sentence is written for the
  * audit trail, not for the person typing. This says what the person can act
@@ -321,6 +435,19 @@ function describe(error: unknown): string {
   }
   if (error instanceof NoEnrolledKeyError) {
     return error.message;
+  }
+  return 'Sign-in did not complete. See the console for detail.';
+}
+
+/** The same, on step two, where the code is the only new thing in the
+ * request — see `VERIFICATION_CODE_REFUSED`. A wait is still the server's own
+ * sentence: it is the one refusal written for the person. */
+function describeCode(error: unknown): string {
+  if (error instanceof ApiRefusal && error.retryAfterSeconds != null) {
+    return `${error.message} Try again in ${error.retryAfterSeconds}s.`;
+  }
+  if (error instanceof ApiRefusal) {
+    return VERIFICATION_CODE_REFUSED;
   }
   return 'Sign-in did not complete. See the console for detail.';
 }

@@ -41,8 +41,12 @@
 //   7. POST /credentials/key           signed, LP(public_key) → LP(key_id)
 //   7b. POST /session with an EMPTY code once the authenticator is confirmed
 //                                      → 401 "second factor needed" (decision
-//                                        3: sign-in is two steps, and step one
-//                                        issues nothing)
+//                                        3: sign-in is two steps, step one
+//                                        issues nothing, and step two re-posts
+//                                        the SAME challenge -- the probe is a
+//                                        rollback, so the nonce survives it and
+//                                        a two-step sign-in costs one
+//                                        challenge, not two)
 //   8. the operator's own key sign-in, and a signed GET /admin/operators.
 //
 // **Step 8 needs a route stream (b) owns** — the one that registers an
@@ -268,12 +272,18 @@ async function signedPost(session, path, body) {
   return post(path, body ?? EMPTY, headers);
 }
 
-/// Steps 2 and 3: a fresh session keypair, a challenge over its public half,
-/// and the six-field sign-in body ADR-0055 decision 10 widened `POST /session`
-/// to.
-async function signIn(kind, principal, { credential = '', appCode = '', evidenceKey = null } = {}) {
+/// Step 2: a fresh session keypair and a challenge over its public half.
+///
+/// **Counted once, and once is what a whole sign-in costs.** ADR-0056 decision
+/// 3 as amended 2026-09-22: the second-factor probe is a rollback, so the nonce
+/// this hands back is still good afterwards and step two re-posts THIS
+/// challenge. A client that asked for a second one would be spending a second
+/// unit of its own rate-limit budget on the way to every ordinary sign-in.
+let challengesAsked = 0;
+async function challengeFor(kind, principal) {
   const sessionKey = await keyPair();
   const sessionPub = await publicRaw(sessionKey);
+  challengesAsked += 1;
   const ch = await post(
     '/session/challenge',
     concat(lp(utf8(kind)), lp(utf8(principal)), lp(sessionPub)),
@@ -281,27 +291,42 @@ async function signIn(kind, principal, { credential = '', appCode = '', evidence
   if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
   const { value: nonce, rest: afterNonce } = readLp(ch.bytes);
   const { value: deploymentId } = readLp(afterNonce);
+  return { sessionKey, sessionPub, nonce, deploymentId };
+}
 
+/// Step 3: the six-field sign-in body ADR-0055 decision 10 widened
+/// `POST /session` to, posted against a challenge already in hand. Returns the
+/// raw answer; the caller decides what a non-200 means, because "not a session"
+/// is the expected answer to step one.
+async function postSession(kind, ch, { credential = '', appCode = '', evidenceKey = null } = {}) {
   let evidence = EMPTY;
   if (evidenceKey) {
     const challenge = await sha256(
-      concat(lp(utf8('fathom/session/bind/v1')), lp(sessionPub), lp(nonce), lp(deploymentId)),
+      concat(
+        lp(utf8('fathom/session/bind/v1')),
+        lp(ch.sessionPub),
+        lp(ch.nonce),
+        lp(ch.deploymentId),
+      ),
     );
     evidence = await sign(evidenceKey, challenge);
   }
-
-  const si = await post(
+  return post(
     '/session',
     concat(
       lp(utf8(kind)),
-      lp(sessionPub),
-      lp(nonce),
+      lp(ch.sessionPub),
+      lp(ch.nonce),
       lp(evidence),
       lp(utf8(credential)),
       lp(utf8(appCode)),
     ),
   );
-  if (si.status !== 200) fail('sign-in', `status ${si.status}: ${si.text.trim()}`);
+}
+
+/// The four fields a session answer carries, with the keypair that will sign
+/// this session's requests.
+function readSession(si, sessionKey) {
   const { value: sessionIdBytes, rest: afterSid } = readLp(si.bytes);
   const { value: sessionToken, rest: afterTok } = readLp(afterSid);
   const { value: principalBytes } = readLp(afterTok.slice(8));
@@ -312,6 +337,15 @@ async function signIn(kind, principal, { credential = '', appCode = '', evidence
     key: sessionKey,
     principal: dec.decode(principalBytes),
   };
+}
+
+/// Steps 2 and 3 together, for the sign-ins that are one step: no second factor
+/// is enrolled yet, or the factor is a key.
+async function signIn(kind, principal, options = {}) {
+  const ch = await challengeFor(kind, principal);
+  const si = await postSession(kind, ch, options);
+  if (si.status !== 200) fail('sign-in', `status ${si.status}: ${si.text.trim()}`);
+  return readSession(si, ch.sessionKey);
 }
 
 // 0. Before anything: the deployment says setup is unfinished. This is what
@@ -428,61 +462,49 @@ console.log(`key: registered ${dec.decode(keyIdBytes)} for this browser`);
 // once per step (ADR-0055 decision 10, the replay rule), so a second app code
 // inside the same step is refused on purpose. The backup code proves the lost
 // phone path at the same time, and its single use is asserted right after.
-// **Step one first** (ADR-0056 decision 3): the client sends the address and
-// the credential with an empty code, and the server says a verification code is
-// needed instead of issuing a session. This is the request the browser makes on
-// the way to every ordinary sign-in.
-{
-  const sessionKey = await keyPair();
-  const sessionPub = await publicRaw(sessionKey);
-  const ch = await post(
-    '/session/challenge',
-    concat(lp(utf8('steward')), lp(utf8(address)), lp(sessionPub)),
-  );
-  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
-  const { value: nonce } = readLp(ch.bytes);
-  const probe = await post(
-    '/session',
-    concat(
-      lp(utf8('steward')),
-      lp(sessionPub),
-      lp(nonce),
-      lp(EMPTY),
-      lp(utf8(CREDENTIAL)),
-      lp(EMPTY),
-    ),
-  );
-  if (probe.status !== 401 || probe.text !== 'second factor needed\n') {
-    fail('second-factor', `an empty code on an account with an authenticator must be 401 "second factor needed", got ${probe.status}: ${JSON.stringify(probe.text)}`);
-  }
-  console.log('two steps: the password alone is answered "second factor needed", and no session is issued');
+// **The two steps are one challenge** (ADR-0056 decision 3 as amended
+// 2026-09-22). Step one sends the address and the credential with an empty
+// code; the server answers "second factor needed", issues nothing, and ROLLS
+// BACK -- so the nonce is untouched and step two re-posts the very same
+// challenge with the code in it. This is the request the browser makes on the
+// way to every ordinary sign-in, and if it cost a second challenge every
+// correct sign-in would pay for it.
+const askedBefore = challengesAsked;
+const twoStep = await challengeFor('steward', address);
+const probe = await postSession('steward', twoStep, { credential: CREDENTIAL });
+if (probe.status !== 401 || probe.text !== 'second factor needed\n') {
+  fail('second-factor', `an empty code on an account with an authenticator must be 401 "second factor needed", got ${probe.status}: ${JSON.stringify(probe.text)}`);
 }
+console.log('two steps: the password alone is answered "second factor needed", and no session is issued');
 
-const withCode = await signIn('steward', address, {
+const withCodeAnswer = await postSession('steward', twoStep, {
   credential: CREDENTIAL,
   appCode: backupCodes[0],
 });
-console.log(`two factors: signed in again as ${withCode.principal} with a password and a backup code`);
+if (withCodeAnswer.status !== 200) {
+  fail('second-factor', `step two re-posted the SAME challenge and was refused with ${withCodeAnswer.status}: ${JSON.stringify(withCodeAnswer.text)}. The probe must leave the nonce unconsumed, or every two-step sign-in costs a second challenge`);
+}
+const withCode = readSession(withCodeAnswer, twoStep.sessionKey);
+if (challengesAsked !== askedBefore + 1) {
+  fail('second-factor', `a two-step sign-in asked for ${challengesAsked - askedBefore} challenges; it must ask for one`);
+}
+console.log(`two factors: signed in as ${withCode.principal} on the same challenge, with a password and a backup code`);
+
+// The nonce IS spent now -- the rolled-back probe is the one step that does not
+// burn it -- and so is the backup code. Two claims, one request each.
+const thirdPost = await postSession('steward', twoStep, {
+  credential: CREDENTIAL,
+  appCode: backupCodes[0],
+});
+if (thirdPost.status === 200) fail('second-factor', 'a challenge that had already opened a session opened a second one');
+console.log(`two steps: the challenge is spent once it issues a session (${thirdPost.status})`);
+
 {
-  const sessionKey = await keyPair();
-  const sessionPub = await publicRaw(sessionKey);
-  const ch = await post(
-    '/session/challenge',
-    concat(lp(utf8('steward')), lp(utf8(address)), lp(sessionPub)),
-  );
-  if (ch.status !== 200) fail('challenge', `status ${ch.status}: ${ch.text.trim()}`);
-  const { value: nonce } = readLp(ch.bytes);
-  const again = await post(
-    '/session',
-    concat(
-      lp(utf8('steward')),
-      lp(sessionPub),
-      lp(nonce),
-      lp(EMPTY),
-      lp(utf8(CREDENTIAL)),
-      lp(utf8(backupCodes[0])),
-    ),
-  );
+  const ch = await challengeFor('steward', address);
+  const again = await postSession('steward', ch, {
+    credential: CREDENTIAL,
+    appCode: backupCodes[0],
+  });
   if (again.status === 200) fail('backup-code', 'a spent backup code signed in a second time');
   console.log(`backup code: spent, a second use is refused (${again.status})`);
 }

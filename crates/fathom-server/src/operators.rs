@@ -1227,6 +1227,10 @@ impl OperatorStore {
             .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
+        // As the adoption below: the first start has just created the operator
+        // ADR-0056 decision 1's bit is about, and the browser at the door must
+        // be told `pending` rather than whatever was remembered before it.
+        crate::credentials::forget_setup_state(&self.deployment);
         Ok(Bootstrap {
             operator_id: id,
             account_id,
@@ -2071,6 +2075,13 @@ impl OperatorStore {
             .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
+        // ADR-0056 decision 1's one bit has just come into existence: this
+        // deployment now has a first operator with no credential, so
+        // `GET /setup/state` must say `pending` to the very next caller. The
+        // cache is process-wide (`credentials::forget_setup_state`) precisely
+        // so that this path -- a startup act, with no `CredentialStore` in
+        // reach -- can drop it.
+        crate::credentials::forget_setup_state(&self.deployment);
         Ok(Adoption::Adopted(Adopted {
             operator_id: operator,
             account_id: account,

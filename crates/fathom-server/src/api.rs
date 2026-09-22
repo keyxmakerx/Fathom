@@ -794,16 +794,35 @@ async fn operator_setup_handler(
 /// this is what they would see anyway, and the per-address answers of
 /// `/session` are untouched in content and in time (ASVS 5.0.0 6.3.8).
 ///
-/// **It spends no rate-limit budget, and that is deliberate.** The client asks
-/// this on every page load; counting it against the sign-in buckets would mean
-/// a person who reloads the sign-in page has spent what they need to sign in.
-/// What bounds the database work is the five-second cache inside
-/// [`crate::credentials::CredentialStore::setup_state`], which is
-/// deployment-wide rather than per source and so bounds a distributed caller
+/// **It charges the per-source budget, like every other unauthenticated route
+/// here.** The ADR-0056 build exempted it on the argument that a person
+/// reloading the sign-in page would spend what they need to sign in; the
+/// 2026-09-22 review pointed out what that leaves — one route on this server
+/// that an unauthenticated caller may drive for nothing. It is counted first
+/// and by the same call `/enrolment/operator/setup/check` beside it makes, so a
+/// source that has spent its budget here has spent it there and at `/session`
 /// too.
+///
+/// **Two guards, not one, because they bound different things.** The budget
+/// bounds the requests one source may make; the cache inside
+/// [`crate::credentials::CredentialStore::setup_state`] bounds the database
+/// work a crowd of sources can cause, and it is single-flight, so C concurrent
+/// callers arriving on a stale answer cause one query and not C.
+///
+/// `Cache-Control: no-store`, from [`bytes_response`]: the bit moves once and
+/// a browser or a proxy holding `pending` after it has moved is a person sent
+/// back to step one of a setup that is finished.
 async fn setup_state_handler(
     State(state): State<CredentialApiState>,
+    request: Request,
 ) -> Result<Response, CredentialRefusal> {
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Operator, &source)
+        .await?;
     let answer = state
         .credentials
         .setup_state()
@@ -1015,10 +1034,21 @@ fn thirty_two(field: &[u8], what: &'static str) -> Result<[u8; 32], Refusal> {
         .map_err(|_| SessionError::Malformed(what).into())
 }
 
+/// One `200` carrying bytes, with the two headers every API answer here wants.
+///
+/// **`Cache-Control: no-store` on all of them.** Nothing this function returns
+/// is a document: it is a session, a token's answer, a deployment's current
+/// state, a design read under one person's authority. A cache between the
+/// browser and this server holding any of it is either a stale answer to a
+/// question whose answer has moved or one caller's bytes offered to the next,
+/// and neither is worth the round trip it would save.
 fn bytes_response(body: Vec<u8>) -> Response {
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
         body,
     )
         .into_response()

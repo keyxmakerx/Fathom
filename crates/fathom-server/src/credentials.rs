@@ -52,8 +52,8 @@
 //!    policy — which is a statement about the caller's OWN proposed password
 //!    and tells an attacker nothing they did not supply themselves.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use argon2::password_hash::phc::PasswordHash;
@@ -284,7 +284,7 @@ pub enum CredentialError {
     CodeRefused,
     /// This account has no app code enrolled yet, and the act needs one.
     NoTotpEnrolled,
-    /// This account already has a confirmed app code, so enrolment would
+    /// This account already has a confirmed authenticator, so enrolment would
     /// replace a live second factor from inside a session.
     TotpAlreadyEnrolled,
     /// A token — reset or setup — did not name a live row, or did and then
@@ -337,10 +337,15 @@ impl core::fmt::Display for CredentialError {
             Self::NoTotpEnrolled => {
                 f.write_str("this account has no app code enrolled, and this act needs one")
             }
+            // **ADR-0056 decision 4: "authenticator", not "app code".** This
+            // sentence is a 409's body and a client may print it, which makes
+            // it a user-facing string and not an identifier. The client maps
+            // the 409 by STATUS and prints its own words; this is what a
+            // `curl` and a log line say.
             Self::TotpAlreadyEnrolled => f.write_str(
-                "this account already has a confirmed app code. Replacing a live second factor \
-                 from inside a session is not a form; it is a recovery, and it goes through the \
-                 host command ADR-0055 decision 8 names",
+                "this account already has a confirmed authenticator. Replacing a live second \
+                 factor from inside a session is not a form; it is a recovery, and it goes \
+                 through the host command ADR-0055 decision 8 names",
             ),
             Self::TokenRefused => f.write_str(
                 "that token was refused. One message for every cause: unknown, already spent, \
@@ -658,11 +663,16 @@ fn base32_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// The `otpauth://` URI decision 10 says the client shows as text.
+/// The `otpauth://` URI the enrolment screen puts on the page.
 ///
-/// *"The client shows the TOTP secret and its `otpauth://` URI as text; a QR
-/// code needs an encoder the browser side may not import (OPEN-QUESTIONS A3)
-/// and can be hand-written later."*
+/// ADR-0055 decision 10 said the client would show it as text, because *"a QR
+/// code needs an encoder the browser side may not import"*. **ADR-0056
+/// decision 5 settled that**: the screen draws the QR code itself, as inline
+/// SVG from a zero-dependency encoder in `client/src/qr`, so the
+/// Content-Security-Policy does not move and a password manager that
+/// photographs the page can read the secret. The setup key and this URI are
+/// still on the page beside it, for manual entry and for the person who wants
+/// the link.
 ///
 /// The algorithm, digit count and period are stated explicitly rather than
 /// left to an application's defaults: the defaults happen to be these, and an
@@ -1412,9 +1422,6 @@ pub struct CredentialStore {
     ring: Arc<KeyRing>,
     deployment: String,
     reset_lifetime: Duration,
-    /// ADR-0056 decision 1's one bit, remembered for at most
-    /// [`SETUP_STATE_CACHE`]. See [`CredentialStore::setup_state`].
-    setup_state_cache: SetupStateCache,
 }
 
 /// Whether this deployment's first operator has finished setting up.
@@ -1447,34 +1454,98 @@ impl SetupState {
 /// deployment being set up sees it finish without being told to reload.
 pub const SETUP_STATE_CACHE: Duration = Duration::from_secs(5);
 
-/// The remembered answer and when it was taken.
+/// The remembered answer, **per process and not per store**.
 ///
-/// **A `std::sync::Mutex` and not an async one**: nothing is awaited while it
-/// is held, and a lock that cannot be held across an await cannot be the
-/// reason a request waits on another request's database round trip. A poisoned
-/// lock is treated as no cached answer — the query is the truth and is always
-/// available.
+/// ADR-0056 decision 1 calls the bit a fact about the deployment, and the two
+/// acts that can move it — `operators::bootstrap_first_operator` and
+/// `operators::adopt_first_operator_from_install` — run at startup against an
+/// `OperatorStore` that holds no `CredentialStore` at all. With a cache per
+/// store neither could reach it, so a browser at the door in the five seconds
+/// after a first start was told the wrong thing by the very server that had
+/// just changed it. A static is what both can reach.
+///
+/// **Keyed by deployment id.** One process serves one deployment in the
+/// product, but not in `cargo test`, where a binary drives several databases
+/// side by side; a single unkeyed slot would answer one deployment's question
+/// with another's fact, which is a correctness bug before it is a test
+/// nuisance.
+///
+/// Two locks, and they are not interchangeable:
+///
+/// * `answers` is a `std::sync::Mutex` because nothing is awaited while it is
+///   held, and a lock that cannot be held across an await cannot be the reason
+///   one request waits on another's database round trip. A poisoned lock is
+///   treated as no cached answer — the query is the truth and is always
+///   available.
+/// * `refresh` is a `tokio::sync::Mutex` and IS held across the query, which
+///   is the whole point of it: see [`CredentialStore::setup_state`].
 #[derive(Default)]
-struct SetupStateCache(std::sync::Mutex<Option<(std::time::Instant, SetupState)>>);
+struct SetupStateCache {
+    answers: std::sync::Mutex<HashMap<String, (std::time::Instant, SetupState)>>,
+    /// How many times the query has actually run, per deployment. See
+    /// [`setup_state_queries`].
+    queries: std::sync::Mutex<HashMap<String, u64>>,
+    /// The single-flight gate. One refresh in flight at a time, deployment or
+    /// no deployment: the gate exists to bound concurrent unauthenticated
+    /// callers, and a gate per deployment would be a map an unauthenticated
+    /// caller could grow.
+    refresh: tokio::sync::Mutex<()>,
+}
+
+/// The one cache, made on first use.
+static SETUP_STATE_CACHE_CELL: OnceLock<SetupStateCache> = OnceLock::new();
+
+fn setup_state_cache() -> &'static SetupStateCache {
+    SETUP_STATE_CACHE_CELL.get_or_init(SetupStateCache::default)
+}
+
+/// **Forget this deployment's remembered setup state**, because the act that
+/// changes it has just committed.
+///
+/// Called by [`CredentialStore::redeem_setup`], which is the act that finishes
+/// setup, and by the two startup acts in `operators.rs` that create the
+/// operator the bit is about. A caller that forgets to call it is not wrong for
+/// longer than [`SETUP_STATE_CACHE`]; a caller that calls it needlessly costs
+/// one query.
+pub fn forget_setup_state(deployment: &str) {
+    if let Ok(mut held) = setup_state_cache().answers.lock() {
+        held.remove(deployment);
+    }
+}
+
+/// How many times the setup-state query has actually run for one deployment.
+///
+/// **It exists so that the single-flight claim can be measured**, and it is the
+/// cheapest honest way to measure it: the alternative is a statistics view
+/// PostgreSQL updates asynchronously, which would make the test flaky rather
+/// than the claim true. It is per deployment and not per process for the same
+/// reason the cache is — a binary driving several databases at once would
+/// otherwise measure its neighbours. It counts, and it names nothing.
+pub fn setup_state_queries(deployment: &str) -> u64 {
+    setup_state_cache()
+        .queries
+        .lock()
+        .ok()
+        .and_then(|held| held.get(deployment).copied())
+        .unwrap_or(0)
+}
 
 impl SetupStateCache {
-    fn get(&self) -> Option<SetupState> {
-        let held = self.0.lock().ok()?;
-        let (taken_at, state) = (*held)?;
+    fn get(&self, deployment: &str) -> Option<SetupState> {
+        let held = self.answers.lock().ok()?;
+        let (taken_at, state) = *held.get(deployment)?;
         (taken_at.elapsed() < SETUP_STATE_CACHE).then_some(state)
     }
 
-    fn put(&self, state: SetupState) {
-        if let Ok(mut held) = self.0.lock() {
-            *held = Some((std::time::Instant::now(), state));
+    fn put(&self, deployment: &str, state: SetupState) {
+        if let Ok(mut held) = self.answers.lock() {
+            held.insert(deployment.to_string(), (std::time::Instant::now(), state));
         }
     }
 
-    /// Drop the remembered answer, because the act that changes it has just
-    /// committed.
-    fn forget(&self) {
-        if let Ok(mut held) = self.0.lock() {
-            *held = None;
+    fn count_query(&self, deployment: &str) {
+        if let Ok(mut held) = self.queries.lock() {
+            *held.entry(deployment.to_string()).or_insert(0) += 1;
         }
     }
 }
@@ -1522,7 +1593,6 @@ impl CredentialStore {
             ring,
             deployment,
             reset_lifetime,
-            setup_state_cache: SetupStateCache::default(),
         }
     }
 
@@ -2459,7 +2529,7 @@ impl CredentialStore {
         // The one bit `GET /setup/state` answers has just moved, and the cache
         // must not answer "pending" for another five seconds to the very
         // browser that did it.
-        self.setup_state_cache.forget();
+        forget_setup_state(&self.deployment);
         Ok(())
     }
 
@@ -2491,17 +2561,40 @@ impl CredentialStore {
     /// per-address answers of `/session` are untouched in content and in time,
     /// which is what ASVS 5.0.0 6.3.8 is about.
     ///
-    /// **Cached for [`SETUP_STATE_CACHE`], deployment-wide.** The query is one
-    /// index lookup on each of three tables, and the client asks it on every
-    /// page load; the cache bounds what an unauthenticated caller can make
-    /// this deployment do to one query per five seconds however many callers
-    /// there are. A per-source rate limit would not — and, worse, the sign-in
-    /// buckets are the wrong instrument here: a person who reloads the sign-in
-    /// page ten times would have spent the budget they need to sign in.
+    /// **Cached for [`SETUP_STATE_CACHE`], process-wide and single-flight.**
+    /// The query is one index lookup on each of three tables, and the client
+    /// asks it on every page load.
+    ///
+    /// The 2026-09-22 review measured what the cache actually bounded and found
+    /// it was not what the ADR-0056 build claimed: C concurrent callers arriving
+    /// while the answer was stale each ran the query, because the cache was
+    /// read, missed, and then every one of them went to the pool — eight
+    /// connections, and an unauthenticated caller choosing how many of them to
+    /// take. The gate below is the fix and it is the ordinary one: **the first
+    /// caller through does the work and the rest wait for its answer.** A
+    /// waiter re-reads the cache after taking the gate, so it takes the
+    /// refresher's answer rather than starting a second refresh behind it.
+    ///
+    /// An error is not cached, so a deployment whose database is down does not
+    /// hold a wrong answer for five seconds; the next caller retries.
+    ///
+    /// **The route charges the per-source budget as well** (`api.rs`). The
+    /// cache bounds the database and the budget bounds the request, and the
+    /// build that had only the first of those left one unauthenticated route
+    /// that cost nothing to call.
     pub async fn setup_state(&self) -> Result<SetupState, CredentialError> {
-        if let Some(state) = self.setup_state_cache.get() {
+        let cache = setup_state_cache();
+        if let Some(state) = cache.get(&self.deployment) {
             return Ok(state);
         }
+        // Single flight. Held across the query on purpose: what waits here is a
+        // request that would otherwise have been a second copy of the query the
+        // holder is already running.
+        let _refreshing = cache.refresh.lock().await;
+        if let Some(state) = cache.get(&self.deployment) {
+            return Ok(state);
+        }
+        cache.count_query(&self.deployment);
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         // `site_install` is readable under enrolment custody, the binding and
@@ -2529,7 +2622,7 @@ impl CredentialStore {
             Some(row) if row.get::<_, bool>(0) => SetupState::Pending,
             _ => SetupState::Done,
         };
-        self.setup_state_cache.put(state);
+        cache.put(&self.deployment, state);
         Ok(state)
     }
 

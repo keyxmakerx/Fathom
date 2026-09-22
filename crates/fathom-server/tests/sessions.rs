@@ -3301,12 +3301,12 @@ async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_whic
 
     assert_eq!(
         status, "409",
-        "an account that already has a confirmed app code asked to enrol another and was \
+        "an account that already has a confirmed authenticator asked to enrol another and was \
          answered {status} {answer:?}. A live session being told 'sign-in refused' is told its \
          session is the problem, and it is not"
     );
     assert!(
-        answer.contains("already has a confirmed app code"),
+        answer.contains("already has a confirmed authenticator"),
         "the answer was {answer:?}, which does not say what happened"
     );
 }
@@ -3319,35 +3319,6 @@ async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_whic
 // says whether a verification code is needed before drawing a field for one.
 // The probe is on the way to EVERY ordinary sign-in, which is why what it
 // costs is as much of the claim as what it answers.
-
-/// A challenge and a sign-in **from a source this test names**, so that the
-/// rate-limit rows the call touches can be read before and after it.
-/// [`adr55_sign_in`] draws a source of its own, which is right for every test
-/// that is not about the counters and useless for the ones that are.
-async fn adr56_sign_in_from(
-    store: &SessionStore,
-    address: &str,
-    credential: &str,
-    code: &str,
-    source: &str,
-) -> Result<SignedIn, SessionError> {
-    let session_key = SoftwareKey::random().expect("a session keypair");
-    let pubkey = session_key.public_key();
-    let challenge = store
-        .issue_challenge(PrincipalKind::Steward, address, &pubkey, source)
-        .await?;
-    store
-        .sign_in_with_credentials(&SignInAttempt {
-            kind: PrincipalKind::Steward,
-            session_pubkey: &pubkey,
-            nonce: &challenge.nonce,
-            evidence_sig: b"",
-            password: credential,
-            totp_code: code,
-            source,
-        })
-        .await
-}
 
 /// Everything one bucket has counted in the current window, summed: zero when
 /// the bucket has never been written.
@@ -3362,30 +3333,6 @@ async fn adr56_attempts(bucket_kind: &str, bucket_key: &str) -> i64 {
         .await
         .expect("read the bucket")
         .get(0)
-}
-
-/// The sealed metadata of the newest `account_signin_failed` entry, opened the
-/// way an auditor holding the chain key would open it.
-async fn adr56_newest_refusal(pool: &Pool, ring: &Arc<KeyRing>) -> String {
-    let seq: i64 = adr55_superuser()
-        .await
-        .query_one(
-            "SELECT MAX(seq) FROM chain_entries WHERE chain_kind = 'site' \
-               AND entry_type = 'account_signin_failed'",
-            &[],
-        )
-        .await
-        .expect("a refusal entry must exist")
-        .get(0);
-    let mut client = pool.get().await.expect("connection");
-    let tx = client.transaction().await.expect("begin");
-    let entry = chains::read_site_entry_verified(&tx, ring, seq)
-        .await
-        .expect("read the entry")
-        .expect("the seq must hold an entry");
-    let metadata = String::from_utf8_lossy(&entry.metadata).to_string();
-    tx.commit().await.expect("commit");
-    metadata
 }
 
 /// How many session rows one account holds right now.
@@ -3415,14 +3362,23 @@ async fn adr56_assurance_of(session_id: &str) -> String {
 }
 
 /// **An empty verification code on an account that holds a confirmed
-/// authenticator asks for the second factor, issues nothing, and costs
-/// nothing.**
+/// authenticator asks for the second factor and leaves every trace of the
+/// request behind it: no session, no entry, no count, and the challenge still
+/// usable.**
 ///
-/// ADR-0056 decision 3, in one test because the three halves are one claim: a
-/// client that had to spend an attempt to find out which screen to draw would
-/// spend a person's own window signing them in.
+/// ADR-0056 decision 3 as the 2026-09-22 review settled it. The halves are one
+/// claim, and the claim is about COST: the client makes this request on the way
+/// to every ordinary sign-in, so anything it spends is spent by the person who
+/// is signing in correctly.
+///
+/// **The measurement starts before the challenge**, which is the half the
+/// ADR-0056 build's own test missed. It read the source bucket after the
+/// challenge, so the second challenge step two needed — because the probe had
+/// consumed the nonce — was invisible, and an ordinary two-step sign-in cost
+/// three source units where a one-shot sign-in had cost two. What is asserted
+/// here is the whole journey: challenge, probe, sign-in, **two**.
 #[tokio::test]
-async fn an_empty_verification_code_asks_for_the_second_factor_and_spends_no_budget() {
+async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_challenge_unspent() {
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
@@ -3435,9 +3391,15 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_spends_no_bud
     let account_before = adr56_attempts("account", &account).await;
     let failed_before = failed_entries(&pool).await;
 
-    // The challenge costs one against the source bucket (`0014` §C) and is the
-    // only thing that may: the probe itself must give back whatever it took.
+    // From here to the session: one source of its own, read before anything
+    // has touched it.
     let source = a_source_of_its_own();
+    let source_before = adr56_attempts("source", &source).await;
+
+    // **One challenge for the whole two-step sign-in.** Step two re-posts this
+    // one — the same keypair, the same nonce, the same (absent) evidence
+    // signature — which is what makes the pair cost what a one-shot sign-in
+    // cost before this ADR.
     let session_key = SoftwareKey::random().expect("a session keypair");
     let pubkey = session_key.public_key();
     let challenge = store
@@ -3449,7 +3411,6 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_spends_no_bud
         )
         .await
         .expect("a challenge");
-    let source_after_challenge = adr56_attempts("source", &source).await;
 
     let probed = store
         .sign_in_with_credentials(&SignInAttempt {
@@ -3474,50 +3435,73 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_spends_no_bud
         "no session is issued by step one"
     );
     assert_eq!(
-        adr56_attempts("source", &source).await,
-        source_after_challenge,
-        "the probe left the source bucket where the challenge left it. The client makes this \
-         request before every ordinary sign-in, so a count here is a count against the person \
-         who is signing in correctly"
+        failed_entries(&pool).await,
+        failed_before,
+        "the probe sealed a sign-in FAILURE for somebody who is signing in correctly, and it did \
+         it past the once-per-window latch every other refusal goes through. It is a protocol \
+         step; the sealed sign-in a second later is the record"
     );
     assert_eq!(
         adr56_attempts("account", &account).await,
         account_before,
-        "and it counted nothing against the account either"
+        "and it counted nothing against the account"
     );
 
-    // It is still on the chain: an operator reading the site chain should see
-    // that somebody got this far with a credential that verified.
-    assert_eq!(
-        failed_entries(&pool).await - failed_before,
-        1,
-        "step one is sealed as a sign-in refusal"
-    );
-    let metadata = adr56_newest_refusal(&pool, &ring).await;
-    assert!(
-        metadata.contains("second_factor_needed"),
-        "the sealed entry must name the reason, and it says {metadata}"
-    );
-    assert!(
-        metadata.contains(&account),
-        "and name the account it was about: {metadata}"
-    );
-
-    // Step two: the same request, with a code the authenticator would produce.
+    // **Step two: the same challenge, with the code.** If the probe had
+    // consumed the nonce this would be refused and the client would have to ask
+    // for a second challenge — which is the source unit the old test could not
+    // see.
     let code = adr55_a_fresh_code(&enrolled.secret).await;
-    let signed_in = adr56_sign_in_from(
-        &store,
-        &enrolled.person.address,
-        ADR55_PASSWORD,
-        &code,
-        &a_source_of_its_own(),
-    )
-    .await
-    .expect("the credential and a real verification code open a session");
+    let signed_in = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password: ADR55_PASSWORD,
+            totp_code: &code,
+            source: &source,
+        })
+        .await
+        .expect(
+            "the probe left the challenge unconsumed, so the same nonce and the verification \
+             code open the session",
+        );
     assert_eq!(
         adr56_assurance_of(&signed_in.session_id).await,
         "A0T",
         "and the session says a code made it"
+    );
+
+    assert_eq!(
+        adr56_attempts("source", &source).await,
+        source_before + 2,
+        "an ordinary two-step sign-in must cost one challenge and one sign-in, which is what a \
+         one-shot sign-in cost before ADR-0056. Anything more is the person who signs in \
+         correctly paying for the shape of the conversation"
+    );
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        account_before,
+        "and the account bucket is where it started"
+    );
+
+    // And the nonce IS spent now: single use is single use, and the rolled-back
+    // probe is the one step that does not burn it.
+    let spent = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: b"",
+            password: ADR55_PASSWORD,
+            totp_code: &code,
+            source: &a_source_of_its_own(),
+        })
+        .await;
+    assert!(
+        matches!(spent, Err(SessionError::SignInRefused)),
+        "a third post of the same challenge, after it opened a session, must be refused: {spent:?}"
     );
 }
 

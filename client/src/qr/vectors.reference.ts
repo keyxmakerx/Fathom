@@ -35,11 +35,13 @@
 // `encode.ts` was written from ISO/IEC 18004. Pinning the matrices is what
 // makes the check survive none of these tools being installed.
 //
-// The ladder covers every version this encoder supports, 1 to 10: each block
-// plan in `tables.ts`, both character-count widths (8 bits to version 9, 16
+// The ladder covers versions 1 to 10 module for module: the small block
+// plans in `tables.ts`, both character-count widths (8 bits to version 9, 16
 // from version 10) and the version-information block that appears at version
 // 7. `mask` is recorded because a wrong penalty score picks a different mask
 // and every module then differs — a vector that did not pin it would hide it.
+// Versions 7 to 40 are pinned by digest in `QR_BOUNDARY_VECTORS` below, which
+// is where the rest of Table 9 and every alignment-pattern row is exercised.
 //
 // Written 2026-09-22.
 
@@ -799,4 +801,102 @@ export const QR_VECTORS: readonly QrVector[] = [
       '111111101100000111011110010010010111100000100000101010010',
     ],
   },
+];
+
+// ---------------------------------------------------------------------------
+// The boundary symbols, versions 7 to 40
+// ---------------------------------------------------------------------------
+//
+// Versions 7 and up, because the payload these pin is a real `otpauth://` URI
+// and the shortest of those is 122 bytes, which is exactly what 7-M holds.
+// Versions 1 to 6 are covered by the ladder above.
+//
+// Pinning thirty-four more full matrices would add a hundred thousand
+// characters of zeros and ones to this file, so these are pinned by digest instead: the same
+// fact, in 64 characters. A digest that matches is a matrix that matches
+// module for module, which is the whole of what the ladder above asserts.
+//
+// **What each one is.** The longest payload its version holds, so the pair
+// (version, bytes) is the capacity boundary itself; `encode.test.ts` also
+// asserts that one more byte moves to the next version, which is the assertion
+// that would catch a capacity table wrong by one in either direction. The
+// payload is the shape this client actually draws — an `otpauth://` URI with
+// the account name padded out — rather than a run of `x`, so what is checked
+// is what is used.
+//
+// **Where the digests came from.** Each is the SHA-256 of the module matrix
+// **qrcodegen 1.8.0** (PyPI, the Python edition of Project Nayuki's generator)
+// produced for that payload, run on **2026-09-22** as
+// `QrCode.encode_segments([QrSegment.make_bytes(text)], Ecc.MEDIUM, 1, 40, -1,
+// False)`, rows joined with newlines and `1` for a dark module — the same
+// provenance as the matrices above, and not this encoder's own output.
+//
+// **Read back a second way.** Every one of these thirty-four symbols was
+// drawn through `svg.ts`, the `<path>` geometry turned back into a bitmap,
+// and read by **zxing-cpp 3.1.1** (PyPI) on **2026-09-22**: all thirty-four
+// decoded to their exact input text. Matching one encoder could mean sharing its mistake;
+// being read by a decoder written by neither is the second source, and it is
+// the one that exercises the alignment-pattern centres, because a decoder
+// that cannot find them where the standard says they are cannot read
+// anything.
+
+/** The payload each boundary vector pins: the URI shape the enrolment screen
+ * draws, with the account name padded so the whole is exactly `bytes` bytes.
+ * ASCII throughout, so one character is one byte. */
+export function boundaryPayload(bytes: number): string {
+  const head = 'otpauth://totp/Fathom:';
+  const tail =
+    '@fathom.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Fathom&algorithm=SHA1&digits=6&period=30';
+  const padding = bytes - head.length - tail.length;
+  if (padding < 0) throw new Error(`${bytes} bytes is shorter than this URI shape`);
+  return head + 'a'.repeat(padding) + tail;
+}
+
+export interface QrBoundaryVector {
+  readonly version: number;
+  /** The largest byte-mode payload this version holds at level M — ISO/IEC
+   * 18004 Table 7's row, derived by `tables.ts` and pinned here as a fact. */
+  readonly bytes: number;
+  readonly size: number;
+  readonly mask: number;
+  /** SHA-256, hex, of the reference matrix: rows of `0` and `1` joined with
+   * `\n`. */
+  readonly sha256: string;
+}
+
+export const QR_BOUNDARY_VECTORS: readonly QrBoundaryVector[] = [
+  { version: 7, bytes: 122, size: 45, mask: 6, sha256: 'b97b01f0bd90340c443a6f002b38a2d2acbb613f02a696f2ca4c7aabd4c81fd2' },
+  { version: 8, bytes: 152, size: 49, mask: 2, sha256: 'e6b04076bb015b00f4ad2392b44255eb70e280c19603fa1a14ce7a17d6149221' },
+  { version: 9, bytes: 180, size: 53, mask: 6, sha256: 'b973f1a392c4d58344ed1ab5247e73da64b81b2ba4dbfc0fbb52d95bc6280691' },
+  { version: 10, bytes: 213, size: 57, mask: 1, sha256: 'c5c772b7fe076db227f533d28a88a6a4f2291da901dc965595aa8d1a28ef87d8' },
+  { version: 11, bytes: 251, size: 61, mask: 2, sha256: 'a6ca644c0c3e407d6a51626821b1306d5b2295bb62196b688719d903fcec9b97' },
+  { version: 12, bytes: 287, size: 65, mask: 1, sha256: '9f5e2121c3ec048b5a4a7622cfa44527308dde3d253a58e239bfa7ebe4d5ae62' },
+  { version: 13, bytes: 331, size: 69, mask: 1, sha256: 'c78250c4eaa237265eb54105760695682574a02ebd1d8dbed7571767e082e341' },
+  { version: 14, bytes: 362, size: 73, mask: 1, sha256: '5fcf85b9c8f663bfa0285dd13af900e3d278fc25be428b4b49a7f152d222cf81' },
+  { version: 15, bytes: 412, size: 77, mask: 1, sha256: '071bc50c3ec880d5b51f383bcaadb8c6f6479fe187ab9c6138a11db950cdf69c' },
+  { version: 16, bytes: 450, size: 81, mask: 1, sha256: '7d47898e47d4596dffcae81fd70dbae5dafe65f3cba94b546abc1ddcb55e8012' },
+  { version: 17, bytes: 504, size: 85, mask: 1, sha256: '7e57116699891fa7ca9aae0a1cae33e651bd7e0540617d26a0a2e67ec6dd149f' },
+  { version: 18, bytes: 560, size: 89, mask: 1, sha256: '56dcebf0be3e738614fa915a9a9d0c2f251ef91ad5fe5627d2405ca9cbe4c68d' },
+  { version: 19, bytes: 624, size: 93, mask: 1, sha256: '4303800a7094dfeed9dd7bcc2db378399cbb8b36a359644795ae7aa512d950c4' },
+  { version: 20, bytes: 666, size: 97, mask: 1, sha256: '7da0ebe1325d037ac0f0763f9cab7082afb877684eec1412199bb67fdada8464' },
+  { version: 21, bytes: 711, size: 101, mask: 1, sha256: 'cb93a5b6b11f1045dd305c8fe72ed6d62fbba7164c460ab42955d07092d54a6b' },
+  { version: 22, bytes: 779, size: 105, mask: 0, sha256: '68e494b177759b188e34f87634164310ef879c44eb6da96421dc1c7e3ba9a575' },
+  { version: 23, bytes: 857, size: 109, mask: 4, sha256: '0ffee8e51251d15bd0f8e90781ea4ebedb77b00c28e722e655c5e9786f788ddb' },
+  { version: 24, bytes: 911, size: 113, mask: 1, sha256: 'd962fc84b611d2d9bdbdf860872cd20fe766c745caf6687b8bb7b4cd3af50aa3' },
+  { version: 25, bytes: 997, size: 117, mask: 4, sha256: 'b4a20ea22187dbc0368cbe8c5f02367c92012b26a47fc3427348495f6b35463d' },
+  { version: 26, bytes: 1059, size: 121, mask: 1, sha256: 'a18b0fa6b1c2b5725f875637590b53d2677e08f3c4a069d5daf3a298631feade' },
+  { version: 27, bytes: 1125, size: 125, mask: 1, sha256: '4f41589a0050aa43b9932bed236adcab012156e949fd3c20e6c01ffce31a4997' },
+  { version: 28, bytes: 1190, size: 129, mask: 2, sha256: '143619abb6e90bca1a7cbe2388c2ff71e75ae9041b7b3e5801b51b70e4029cf6' },
+  { version: 29, bytes: 1264, size: 133, mask: 2, sha256: '2caac62cd51e3362d72274fda58f30eafaff88d3735e2c532724514d6809d67a' },
+  { version: 30, bytes: 1370, size: 137, mask: 2, sha256: '9a8912830e8e9089323d957952ba2306f37f4a31def591e649675f71f0258224' },
+  { version: 31, bytes: 1452, size: 141, mask: 2, sha256: 'c5b3bdc03fe3e4ed83b60292ed2768f5b7854f5d012199e4472635a5f7231d69' },
+  { version: 32, bytes: 1538, size: 145, mask: 2, sha256: '8a23892e4e3ffced0c6d9ad081c590e1e595bafdb349d4cff332b06e3133c574' },
+  { version: 33, bytes: 1628, size: 149, mask: 2, sha256: 'a4b9b8dcb1ff6c6f10eb59371fe2e1ffae71b2e67f4e89b45bafdb525c76bc09' },
+  { version: 34, bytes: 1722, size: 153, mask: 2, sha256: 'a1e021e9292d95c20fc4d84624034eb062aa2f8134316ed972a07e51242958bd' },
+  { version: 35, bytes: 1809, size: 157, mask: 1, sha256: 'bf1c78adab527af81955b7f55b41da9d042cb45fe8a7875cd64db3fbd6ca6224' },
+  { version: 36, bytes: 1911, size: 161, mask: 1, sha256: '1d23c081b8863bec66562e40fb13e8d2074d07eb30d3a4476c8277f760cab915' },
+  { version: 37, bytes: 1989, size: 165, mask: 1, sha256: 'ef6eef875174b8e3fce2aa77374916be0fd827e475eecb676432903773aa11b7' },
+  { version: 38, bytes: 2099, size: 169, mask: 1, sha256: 'e453cf38ece83210ab3cc6f47cf46ee60688af35e07fd791b1d68410b4767c01' },
+  { version: 39, bytes: 2213, size: 173, mask: 1, sha256: 'b73accc8c36cfc2d2a616c55d06c1b0e8717a74139faea7829d58ad0c600fa16' },
+  { version: 40, bytes: 2331, size: 177, mask: 1, sha256: 'c46fcc29a68719c04bbfca41bac1633fb6ecf319586bbaeabf53c93f04451d76' },
 ];

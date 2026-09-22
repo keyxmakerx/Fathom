@@ -20,8 +20,8 @@ export const QR_QUIET_ZONE = 4;
  * One `<path>` `d` for every dark module, with the quiet zone as the offset.
  *
  * Runs of dark modules along a row become one rectangle rather than one each:
- * a version-10 symbol is 3,249 modules and the path is drawn on every render
- * of the enrolment screen.
+ * a version-10 symbol is 3,249 modules, a version-40 one is 31,329, and the
+ * path is drawn on every render of the enrolment screen.
  */
 export function qrPath(modules: readonly (readonly boolean[])[], quiet = QR_QUIET_ZONE): string {
   const parts: string[] = [];

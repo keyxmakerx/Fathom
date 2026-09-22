@@ -1,4 +1,4 @@
-// A QR encoder: byte mode, error-correction level M, versions 1 to 10.
+// A QR encoder: byte mode, error-correction level M, versions 1 to 40.
 //
 // ADR-0056 decision 5 — *"the enrolment screen draws the QR code itself, as
 // inline SVG from a zero-dependency encoder, so `img-src` and the rest of the
@@ -9,11 +9,18 @@
 // because every other way of getting an image onto the page (`<img src=…>`, a
 // `data:` URI, a canvas turned into one) would need `img-src` opened.
 //
-// **Scope, and why it is this small.** Byte mode only: an `otpauth://` URI is
+// **Scope, and why it is this shape.** Byte mode only: an `otpauth://` URI is
 // not alphanumeric (lower case, `:`, `/`, `?`, `=`, `&` are all outside that
 // character set), so the other modes would be code with no caller. Level M
-// only, and versions 1 to 10 only: this product's URI is about 130 bytes and
-// 10-M holds 214. `encodeQr` refuses anything longer rather than guessing.
+// only, because that is the level ADR-0056 decision 5 names.
+//
+// **Every version, because the address decides the length and the server
+// decides the address.** The first cut stopped at version 10, which holds 213
+// bytes at level M; the URI is 110 bytes plus the percent-encoded address,
+// and the server takes addresses of up to 320 characters, so an address of
+// about a hundred characters threw `QrTooLongError` and the screen drew no
+// code at all. 40-M holds 2,331 bytes. `encodeQr` still refuses rather than
+// guessing past that, and `QrCode.tsx` says so in words if it ever happens.
 //
 // Everything here is written against ISO/IEC 18004, section by section, with
 // the section named at each step; nothing is copied from another encoder
@@ -39,7 +46,7 @@ import {
 } from './tables';
 
 export interface QrSymbol {
-  /** 1 to 10. */
+  /** 1 to 40. */
   readonly version: number;
   /** Modules per side, `4 * version + 17`. */
   readonly size: number;
@@ -50,13 +57,14 @@ export interface QrSymbol {
   readonly modules: readonly (readonly boolean[])[];
 }
 
-/** Thrown when the text does not fit in a 10-M symbol. The caller decides
- * what to say; this module does not write user-facing sentences. */
+/** Thrown when the text does not fit in a 40-M symbol — the largest QR symbol
+ * there is at this level, 2,331 bytes. The caller decides what to say; this
+ * module does not write user-facing sentences. */
 export class QrTooLongError extends Error {
   readonly byteLength: number;
 
   constructor(byteLength: number) {
-    super(`${byteLength} bytes does not fit a version-10 level-M QR symbol`);
+    super(`${byteLength} bytes does not fit a version-${MAX_VERSION} level-M QR symbol`);
     this.name = 'QrTooLongError';
     this.byteLength = byteLength;
   }

@@ -18,10 +18,10 @@ export interface AccountProps {
    * used to file this browser's key once the authenticator app exists. */
   address: string;
   /** `'app-code'` when the server has just refused an ordinary route with
-   * *"enrol an app code first"*: the account holds the operator custody and
-   * its session may do nothing else until the second factor is enrolled
-   * (ADR-0055 decision 10). `'settings'` is the ordinary screen a signed-in
-   * person opens themselves.
+   * its `CredentialError::NoTotpEnrolled`: the account holds the operator
+   * custody and its session may do nothing else until the second factor is
+   * enrolled (ADR-0055 decision 10). `'settings'` is the ordinary screen a
+   * signed-in person opens themselves.
    *
    * The name is the server's refusal, not a label anybody reads — ADR-0056
    * decision 4 renames what is shown, not what is routed. */
@@ -40,10 +40,10 @@ export interface AccountProps {
  * and set up the authenticator app.
  *
  * Both acts are `/credentials/*` routes, which is the one place a setup
- * session may reach — so this same screen serves the person who has just been
- * stopped by the server's *"enrol an app code first"* and the person who came
- * here on purpose. What changes between them is the sentence at the top and
- * whether there is a way out; the controls are the same controls.
+ * session may reach — so this same screen serves the person the server has
+ * just stopped for having no second factor and the person who came here on
+ * purpose. What changes between them is the sentence at the top and whether
+ * there is a way out; the controls are the same controls.
  *
  * **No old-password field.** The server's `POST /credentials/password` takes
  * one field, the new password, and the session's own signature is what proves
@@ -243,132 +243,43 @@ export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolme
 
   if (stage.kind === 'recovery') {
     return (
-      <div className="signin__section">
-        <h2 className="signin__heading">Save your recovery codes</h2>
-        <p className="signin__body">
-          Each of these works once, and stands in for the phone: if you cannot reach your authenticator app, type one
-          of them where the verification code goes. They are shown now and never again — the server keeps only their
-          hashes.
-        </p>
-        <ul className="authenticator__codes">
-          {stage.codes.map((recovery) => (
-            <li key={recovery} className="authenticator__code">
-              {recovery}
-            </li>
-          ))}
-        </ul>
-        <div className="authenticator__row">
-          <button
-            type="button"
-            className="signin__switch"
-            onClick={() => copy('recovery', recoveryCodeFile(address, stage.codes))}
-          >
-            {copied === 'recovery' ? 'Copied.' : 'Copy all'}
-          </button>
-          <button
-            type="button"
-            className="signin__switch"
-            onClick={() => downloadRecoveryCodes(address, stage.codes)}
-          >
-            Download as text file
-          </button>
-        </div>
-        {/* A button carrying the checkbox role, not an `<input type=checkbox>`:
-            `design/tokens.css` sets `appearance: none` on every input, which
-            leaves a native checkbox with nothing to draw. `aria-checked` is
-            what a screen reader reads, and it is the same control. */}
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={saved}
-          className={saved ? 'signin__toggle signin__toggle--on' : 'signin__toggle'}
-          onClick={() => setSaved((was) => !was)}
-        >
-          <span className="signin__toggle-box" aria-hidden="true">
-            {saved ? '✓' : ''}
-          </span>
-          <span>I have saved these.</span>
-        </button>
-        <button
-          className="signin__submit"
-          type="button"
-          disabled={!saved}
-          onClick={() => {
-            setStage({ kind: 'idle' });
-            onDone();
-          }}
-        >
-          Done
-        </button>
-      </div>
+      <RecoveryCodesStage
+        address={address}
+        codes={stage.codes}
+        saved={saved}
+        onSavedChange={setSaved}
+        onCopy={() => copy('recovery', recoveryCodeFile(address, stage.codes))}
+        copied={copied === 'recovery'}
+        onDownload={() => downloadRecoveryCodes(address, stage.codes)}
+        onDone={() => {
+          // **The flag does not outlive the screen.** It is the person's
+          // answer about THESE ten codes; carrying it into a second
+          // enrolment would arm the Done button before the second set had
+          // been looked at.
+          setSaved(false);
+          setCopied(null);
+          setStage({ kind: 'idle' });
+          onDone();
+        }}
+      />
     );
   }
 
   if (stage.kind === 'enrolled' || stage.kind === 'confirming') {
     const { enrolment } = stage;
     return (
-      <form className="signin__section" onSubmit={(event) => confirm(event, enrolment)}>
-        <h2 className="signin__heading">Set up your authenticator app</h2>
-
-        <div className="authenticator__scan">
-          <QrCode value={enrolment.otpauthUri} label="The QR code for this account's authenticator app" />
-          <p className="authenticator__scan-text">Scan this with your authenticator app.</p>
-        </div>
-
-        <p className="signin__label">Or enter this setup key</p>
-        <p className="signin__mono signin__mono--wrap" data-testid="totp-secret">
-          {enrolment.secretBase32}
-        </p>
-        <button type="button" className="signin__switch" onClick={() => copy('secret', enrolment.secretBase32)}>
-          {copied === 'secret' ? 'Copied.' : 'Copy the setup key'}
-        </button>
-
-        {/* Closed by default. The URI holds the setup key, so it is one more
-            place the secret is on screen; the person who wants it knows they
-            want it. */}
-        <details className="authenticator__reveal">
-          <summary>Show the otpauth link</summary>
-          <p className="signin__mono signin__mono--wrap" data-testid="totp-uri">
-            {enrolment.otpauthUri}
-          </p>
-          <button type="button" className="signin__switch" onClick={() => copy('uri', enrolment.otpauthUri)}>
-            {copied === 'uri' ? 'Copied.' : 'Copy the link'}
-          </button>
-        </details>
-
-        <div className="signin__field">
-          <label className="signin__label" htmlFor="account-code">
-            Verification code
-          </label>
-          <input
-            id="account-code"
-            className="signin__input signin__input--mono"
-            type="text"
-            inputMode="numeric"
-            // ADR-0056: Bitwarden finds this field by `autocomplete` first and
-            // by keywords second (`inline-menu-field-qualification.service.ts`).
-            autoComplete="one-time-code"
-            spellCheck={false}
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            disabled={stage.kind === 'confirming'}
-            required
-          />
-          <p className="signin__hint">Enter the six digits the app shows to confirm it is set up.</p>
-        </div>
-        <button
-          className="signin__submit"
-          type="submit"
-          disabled={stage.kind === 'confirming' || code.trim().length === 0}
-        >
-          {stage.kind === 'confirming' ? 'Checking…' : 'Confirm'}
-        </button>
-        {refusal && (
-          <div className="signin__refusal" role="alert">
-            {refusal}
-          </div>
-        )}
-      </form>
+      <AuthenticatorSetupStage
+        address={address}
+        secretBase32={enrolment.secretBase32}
+        otpauthUri={enrolment.otpauthUri}
+        code={code}
+        onCodeChange={setCode}
+        onSubmit={(event) => confirm(event, enrolment)}
+        refusal={refusal}
+        busy={stage.kind === 'confirming'}
+        onCopy={copy}
+        copied={copied}
+      />
     );
   }
 
@@ -393,6 +304,196 @@ export function AuthenticatorEnrolment({ address, onDone }: AuthenticatorEnrolme
           {refusal}
         </div>
       )}
+    </div>
+  );
+}
+
+export interface AuthenticatorSetupStageProps {
+  /** Whose account the code is for. Shown, so that a person with accounts on
+   * more than one server knows which one they are about to bind a phone to. */
+  address: string;
+  /** The base32 secret, for typing in by hand — the **setup key**. */
+  secretBase32: string;
+  /** The same secret inside the `otpauth://` URI, which is what the QR code
+   * says and what the password manager photographs. */
+  otpauthUri: string;
+  code: string;
+  onCodeChange: (code: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  /** A sentence to show, or `null`. Written by the caller; this component
+   * does not interpret errors. */
+  refusal: string | null;
+  /** True while the code is with the server. */
+  busy: boolean;
+  onCopy?: (what: 'secret' | 'uri', text: string) => void;
+  /** Which of the two copy buttons has just been pressed, if either. */
+  copied?: string | null;
+}
+
+/**
+ * Step 3 of ADR-0056 decision 2: the QR code, the setup key beside it, the
+ * `otpauth://` link for whoever wants it, and one field.
+ *
+ * **Pure and prop-driven**, so a test can render it with fixture data. The
+ * stateful `AuthenticatorEnrolment` above owns the enrolment the server drew
+ * and passes its two strings in; this component holds nothing. That split is
+ * the finding it closes: neither of the two screens ADR-0056 rewrote had a
+ * test that rendered it, because rendering them meant spending a real
+ * enrolment.
+ */
+export function AuthenticatorSetupStage({
+  address,
+  secretBase32,
+  otpauthUri,
+  code,
+  onCodeChange,
+  onSubmit,
+  refusal,
+  busy,
+  onCopy,
+  copied = null,
+}: AuthenticatorSetupStageProps) {
+  return (
+    <form className="signin__section" onSubmit={onSubmit}>
+      <h2 className="signin__heading">Set up your authenticator app</h2>
+      <p className="signin__body">
+        For {address}. Scan the code with your authenticator app, then type the six digits it shows.
+      </p>
+
+      <div className="authenticator__scan">
+        <QrCode value={otpauthUri} label="The QR code for this account's authenticator app" />
+        <p className="authenticator__scan-text">Scan this with your authenticator app.</p>
+      </div>
+
+      <p className="signin__label">Or enter this setup key</p>
+      <p className="signin__mono signin__mono--wrap" data-testid="totp-secret">
+        {secretBase32}
+      </p>
+      <button type="button" className="signin__switch" onClick={() => onCopy?.('secret', secretBase32)}>
+        {copied === 'secret' ? 'Copied.' : 'Copy the setup key'}
+      </button>
+
+      {/* Closed by default. The URI holds the setup key, so it is one more
+          place the secret is on screen; the person who wants it knows they
+          want it. */}
+      <details className="authenticator__reveal">
+        <summary>Show the otpauth link</summary>
+        <p className="signin__mono signin__mono--wrap" data-testid="totp-uri">
+          {otpauthUri}
+        </p>
+        <button type="button" className="signin__switch" onClick={() => onCopy?.('uri', otpauthUri)}>
+          {copied === 'uri' ? 'Copied.' : 'Copy the link'}
+        </button>
+      </details>
+
+      <div className="signin__field">
+        <label className="signin__label" htmlFor="account-code">
+          Verification code
+        </label>
+        <input
+          id="account-code"
+          className="signin__input signin__input--mono"
+          type="text"
+          inputMode="numeric"
+          // ADR-0056: Bitwarden finds this field by `autocomplete` first and
+          // by keywords second (`inline-menu-field-qualification.service.ts`).
+          autoComplete="one-time-code"
+          spellCheck={false}
+          value={code}
+          onChange={(event) => onCodeChange(event.target.value)}
+          disabled={busy}
+          required
+        />
+        <p className="signin__hint">Enter the six digits the app shows to confirm it is set up.</p>
+      </div>
+      <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>
+        {busy ? 'Checking…' : 'Confirm'}
+      </button>
+      {refusal && (
+        <div className="signin__refusal" role="alert">
+          {refusal}
+        </div>
+      )}
+    </form>
+  );
+}
+
+export interface RecoveryCodesStageProps {
+  /** The account the codes open. In the file and on the screen, because ten
+   * codes with no server named beside them are ten codes nobody dares
+   * delete. */
+  address: string;
+  codes: readonly string[];
+  /** The person's answer to "I have saved these". Held by the caller, so the
+   * caller can clear it when this screen is left. */
+  saved: boolean;
+  onSavedChange: (saved: boolean) => void;
+  onDone: () => void;
+  onCopy?: () => void;
+  copied?: boolean;
+  onDownload?: () => void;
+}
+
+/**
+ * Step 4 of ADR-0056 decision 2: the ten recovery codes, shown **once**.
+ *
+ * The server keeps only their hashes, so nothing can fetch them again; that
+ * is why leaving this screen is gated on the person saying they have them,
+ * and why the gate is a control they have to press rather than a sentence
+ * they can scroll past.
+ */
+export function RecoveryCodesStage({
+  address,
+  codes,
+  saved,
+  onSavedChange,
+  onDone,
+  onCopy,
+  copied = false,
+  onDownload,
+}: RecoveryCodesStageProps) {
+  return (
+    <div className="signin__section">
+      <h2 className="signin__heading">Save your recovery codes</h2>
+      <p className="signin__body">
+        Each of these works once, and stands in for the phone: if you cannot reach your authenticator app, type one
+        of them where the verification code goes. They are shown now and never again — the server keeps only their
+        hashes. They open {address}.
+      </p>
+      <ul className="authenticator__codes">
+        {codes.map((recovery) => (
+          <li key={recovery} className="authenticator__code">
+            {recovery}
+          </li>
+        ))}
+      </ul>
+      <div className="authenticator__row">
+        <button type="button" className="signin__switch" onClick={() => onCopy?.()}>
+          {copied ? 'Copied.' : 'Copy all'}
+        </button>
+        <button type="button" className="signin__switch" onClick={() => onDownload?.()}>
+          Download as text file
+        </button>
+      </div>
+      {/* A button carrying the checkbox role, not an `<input type=checkbox>`:
+          `design/tokens.css` sets `appearance: none` on every input, which
+          leaves a native checkbox with nothing to draw. `aria-checked` is
+          what a screen reader reads, and it is the same control. */}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={saved}
+        className={saved ? 'signin__toggle signin__toggle--on' : 'signin__toggle'}
+        onClick={() => onSavedChange(!saved)}
+      >
+        <span className="signin__toggle-box" aria-hidden="true">
+          {saved ? '✓' : ''}
+        </span>
+        <span>I have saved these.</span>
+      </button>
+      <button className="signin__submit" type="button" disabled={!saved} onClick={onDone}>
+        Done
+      </button>
     </div>
   );
 }
@@ -436,7 +537,11 @@ function downloadRecoveryCodes(address: string, codes: readonly string[]): void 
   document.body.append(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(href);
+  // **Revoked later, not on the next line.** `click()` only starts the
+  // download; a browser that has not yet read the blob when the URL is
+  // revoked saves an empty file, and the codes are on screen once. A few
+  // seconds is long past the read and long before the tab is closed.
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
 }
 
 /** The server's own sentence, verbatim, or this screen's honest "it did not

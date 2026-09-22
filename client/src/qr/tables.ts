@@ -1,23 +1,30 @@
-// The per-version numbers a QR symbol is built from, for versions 1 to 10 at
-// error-correction level M — which is all ADR-0056 decision 5 needs: an
-// `otpauth://` URI for this product is about 130 bytes and version 10-M holds
-// 214 of them.
+// The per-version numbers a QR symbol is built from, for versions 1 to 40 at
+// error-correction level M.
 //
-// Two of the three numbers are DERIVED rather than tabled, on purpose. The
-// capacity of a version follows from where the function patterns are, and the
-// split of data codewords into blocks follows from the block count, so the
-// only thing copied out of ISO/IEC 18004 Table 9 here is the pair
-// (error-correction codewords per block, number of blocks). A table that can
-// be computed is a table that can be wrong in one row and pass every test
-// that does not touch it.
+// **Why the whole range, when the first cut stopped at 10.** The address in an
+// `otpauth://` URI is whatever the server accepted, and the server accepts an
+// address of up to 320 characters; percent-encoded that is up to three bytes
+// each, on top of the 110 bytes the rest of this product's URI takes. Version
+// 10-M holds 213 bytes, so an address of about a hundred characters already
+// threw `QrTooLongError` and the enrolment screen drew no code at all — the
+// one thing ADR-0056 decision 5 exists to prevent, since a password manager
+// reads the secret only out of a picture. Version 40-M holds 2,331 bytes,
+// which covers every address the server will take with room over.
+//
+// Three of the four numbers are DERIVED rather than tabled, on purpose. The
+// capacity of a version follows from where the function patterns are; the
+// split of data codewords into blocks follows from the block count; and the
+// alignment-pattern centres follow from one spacing rule. The only thing
+// copied out of ISO/IEC 18004 Table 9 here is the pair (error-correction
+// codewords per block, number of blocks). A table that can be computed is a
+// table that can be wrong in one row and pass every test that does not touch
+// it.
 //
 // Written 2026-09-22.
 
-/** The versions this encoder covers. Beyond 10 the character-count indicator
- * and the alignment-pattern rule both change again, and nothing in this
- * product needs it. */
+/** The versions this encoder covers — all of them (ISO/IEC 18004 §6.5.1). */
 export const MIN_VERSION = 1;
-export const MAX_VERSION = 10;
+export const MAX_VERSION = 40;
 
 /** Level M — the level ADR-0056 decision 5 names. Its two-bit indicator in
  * the format information is `00` (ISO/IEC 18004 Table 12); the enum order in
@@ -25,8 +32,13 @@ export const MAX_VERSION = 10;
 export const ECC_LEVEL_M_INDICATOR = 0b00;
 
 /**
- * ISO/IEC 18004 Table 9, level M rows, versions 1–10:
+ * ISO/IEC 18004 Table 9, level M rows, versions 1–40:
  * `[error-correction codewords per block, number of blocks]`.
+ *
+ * The one irreducible table in this file, and nothing in it is taken on
+ * trust: every row is exercised by a symbol in `vectors.reference.ts`, and a
+ * wrong pair changes that version's block plan, so the pinned symbol stops
+ * matching and the independent decoder stops reading it.
  */
 const ECC_M: ReadonlyArray<readonly [number, number]> = [
   [10, 1], // 1-M
@@ -39,29 +51,69 @@ const ECC_M: ReadonlyArray<readonly [number, number]> = [
   [22, 4], // 8-M
   [22, 5], // 9-M
   [26, 5], // 10-M
-];
-
-/** Alignment-pattern centre coordinates, ISO/IEC 18004 Annex E. Version 1 has
- * none; every other version has one at each pair of these. */
-const ALIGNMENT_CENTRES: ReadonlyArray<readonly number[]> = [
-  [], // 1
-  [6, 18],
-  [6, 22],
-  [6, 26],
-  [6, 30],
-  [6, 34],
-  [6, 22, 38],
-  [6, 24, 42],
-  [6, 26, 46],
-  [6, 28, 50], // 10
+  [30, 5], // 11-M
+  [22, 8], // 12-M
+  [22, 9], // 13-M
+  [24, 9], // 14-M
+  [24, 10], // 15-M
+  [28, 10], // 16-M
+  [28, 11], // 17-M
+  [26, 13], // 18-M
+  [26, 14], // 19-M
+  [26, 16], // 20-M
+  [26, 17], // 21-M
+  [28, 17], // 22-M
+  [28, 18], // 23-M
+  [28, 20], // 24-M
+  [28, 21], // 25-M
+  [28, 23], // 26-M
+  [28, 25], // 27-M
+  [28, 26], // 28-M
+  [28, 28], // 29-M
+  [28, 29], // 30-M
+  [28, 31], // 31-M
+  [28, 33], // 32-M
+  [28, 35], // 33-M
+  [28, 37], // 34-M
+  [28, 38], // 35-M
+  [28, 40], // 36-M
+  [28, 43], // 37-M
+  [28, 45], // 38-M
+  [28, 47], // 39-M
+  [28, 49], // 40-M
 ];
 
 export function symbolSize(version: number): number {
   return version * 4 + 17;
 }
 
+/**
+ * Alignment-pattern centre coordinates, ISO/IEC 18004 Annex E — computed
+ * rather than copied, because Annex E is forty rows of numbers that follow
+ * one rule.
+ *
+ * The rule: version 1 has none; every other version has `floor(version/7) + 2`
+ * centres on each axis, the first at 6 and the last at `size - 7`, the rest
+ * evenly spaced with the spacing rounded **up** to an even number, and the
+ * wider gap left next to the first. Counting down from the last centre is
+ * what leaves it there.
+ *
+ * **Version 32 is the one row the rule does not produce** — it would give 28
+ * and Annex E says 26 — so it is named here rather than smoothed over.
+ * Checked two ways on 2026-09-22: the forty rows this returns were compared
+ * against the positions another implementation carries (qrcodegen 1.8.0), and
+ * every symbol in `vectors.reference.ts` was read back by a decoder that
+ * looks for these patterns where the standard puts them. A centre in the
+ * wrong place moves every data module after it.
+ */
 export function alignmentCentres(version: number): readonly number[] {
-  return ALIGNMENT_CENTRES[version - 1];
+  if (version <= 1) return [];
+  const count = Math.floor(version / 7) + 2;
+  const last = symbolSize(version) - 7;
+  const step = version === 32 ? 26 : 2 * Math.ceil((last - 6) / (2 * (count - 1)));
+  const centres = [6];
+  for (let i = count - 2; i >= 0; i -= 1) centres.push(last - step * i);
+  return centres;
 }
 
 /**
@@ -93,7 +145,7 @@ export function rawDataModules(version: number): number {
   return count;
 }
 
-/** Total codewords in a version. The modules left over (0 or 7 here) are the
+/** Total codewords in a version. The modules left over (0, 3, 4 or 7) are the
  * remainder bits, which are placed as light and carry nothing. */
 export function totalCodewords(version: number): number {
   return Math.floor(rawDataModules(version) / 8);

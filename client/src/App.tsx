@@ -12,7 +12,7 @@ import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode }
 import { Account } from './components/Account';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
-import { FirstRun } from './components/FirstRun';
+import { FirstRun, PASSWORD_SET_NOTICE } from './components/FirstRun';
 import { Reset, tokenFromLocation } from './components/Reset';
 import { Home } from './components/home';
 import type { DirectEntry } from './components/home';
@@ -90,8 +90,9 @@ export default function App() {
   const [view, setView] = useState<View>({ kind: 'home' });
 
   // ADR-0055 client (a): what the sign-in door is told by whatever sent the
-  // person back to it — a finished reset. (A finished first run lands on Home
-  // instead: ADR-0056 decision 2 step 5.)
+  // person back to it — a finished reset, or a first run that set the
+  // password and could not sign in with it. (A finished first run lands on
+  // Home instead: ADR-0056 decision 2 step 5.)
   const [signInAddress, setSignInAddress] = useState<string | undefined>(undefined);
   const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
@@ -322,12 +323,38 @@ export default function App() {
   // ADR-0056 decisions 1 and 2: while the deployment is on its first run
   // this is the only screen, and it holds even once its own sign-in has made
   // a session — the password is set but the authenticator is not, and that
-  // session may do nothing else until it is. On its last step the person
-  // lands on Home with that same session: the setup gate reads the account's
-  // live credentials on every request (`sessions.rs`'s `verify_inside`), so
-  // confirming the code is what opens the rest of the product.
+  // session may do nothing else until it is.
+  //
+  // **What lands on Home is the session its last step makes, not the one it
+  // started with.** The mid-flow session is `A0`: a password and nothing
+  // else, minted before the authenticator existed. Every ordinary route
+  // takes it the moment the code is confirmed, because the setup gate reads
+  // the account's live credentials on each request rather than the session's
+  // assurance — but `POST /admin/operators/self/key` refuses `A0` outright
+  // (`operators.rs`), which is the one press the Site entry below makes. So
+  // the flow ends by signing in again with the code, and this lands on an
+  // `A0T` session the console takes; the entry works on the first press
+  // rather than taking itself away for the rest of the session.
+  //
+  // **And when it cannot finish**, because the sign-in after the password
+  // failed: the token is spent and there is no step left to show, so the
+  // door takes over with the address filled in and one sentence saying what
+  // happened (`FirstRun.tsx`'s `PASSWORD_SET_NOTICE`). `firstRunDone` is
+  // what stops this branch from pulling the person back: the bit read at
+  // boot still says `pending` in this page's memory, and it is the flow, not
+  // the server, that knows the token has been spent.
   if (firstRun) {
-    return <FirstRun onDone={() => setFirstRunDone(true)} />;
+    return (
+      <FirstRun
+        onDone={() => setFirstRunDone(true)}
+        onPasswordSet={(address) => {
+          setFirstRunDone(true);
+          setSignInAddress(address);
+          setSignInNotice(PASSWORD_SET_NOTICE);
+          setDoor('sign-in');
+        }}
+      />
+    );
   }
 
   // Nothing is drawn until the server has said which of the two screens this
