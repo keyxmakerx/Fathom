@@ -19,7 +19,7 @@ use fathom_server::{db, keys, log_startup, migrate, rls, AppState};
 /// act, which a sole operator satisfies without declaring anything.
 ///
 /// CLAUDE.md rule 2's spirit, applied to configuration.
-const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by      ADR-0055 decision 3. Remove it from the environment and start again. The second signature      is now min(2, live independent operators), counted from the operator register: a      deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no      switch to do it.";
+const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by ADR-0055 decision 3. Remove it from the environment and start again. The second signature is now min(2, live independent operators), counted from the operator register: a deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no switch to do it.";
 
 /// Where the first operator's enrolment token is written -- on a first start,
 /// and nowhere else.
@@ -308,10 +308,8 @@ async fn main() -> ExitCode {
             let runtime_role_result = db::runtime_role(&config);
             let provision_result = match &runtime_role_result {
                 Ok(role) => {
-                    let runtime_password = config
-                        .database_password
-                        .as_ref()
-                        .map(|p| p.expose().as_str());
+                    let runtime_password = config.runtime_login_password();
+                    let runtime_password = runtime_password.as_ref().map(|p| p.expose().as_str());
                     Some(db::provision_runtime_login(&migrate_client, role, runtime_password).await)
                 }
                 Err(_) => None,
@@ -769,13 +767,13 @@ async fn main() -> ExitCode {
                     operator_id = %bootstrap.operator_id,
                     token_file = %path.display(),
                     expires_at_unix = bootstrap.invitation.expires_at_unix,
-                    "FIRST START: an operator was created and an enrolment token written. Read                      the file, redeem it in a browser, then delete it. The token is not in this                      log and will not be shown again."
+                    "FIRST START: an operator was created and an enrolment token written. Read the file, redeem it in a browser, then delete it. The token is not in this log and will not be shown again."
                 ),
                 Err(e) => {
                     tracing::error!(
                         error = %e,
                         token_file = %path.display(),
-                        "the first operator was created but their enrolment token could not be                          written, so nobody can redeem it; refusing to start. Point                          FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in --                          it must NOT be inside the read-only key volume -- and then run                          `fathom-server reissue-bootstrap-token` to mint a fresh one, which is                          still permitted because no operator key has been enrolled yet"
+                        "the first operator was created but their enrolment token could not be written, so nobody can redeem it; refusing to start. Point FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in -- it must NOT be inside the read-only key volume -- and then run `fathom-server reissue-bootstrap-token` to mint a fresh one, which is still permitted because no operator key has been enrolled yet"
                     );
                     return ExitCode::from(10);
                 }
@@ -954,7 +952,7 @@ async fn main() -> ExitCode {
             tracing::error!(
                 error = ?e,
                 notice_address_set = config.operator_notice_address.is_some(),
-                "could not bootstrap the first operator; refusing to start. On a first start, set                  FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator                  notices."
+                "could not bootstrap the first operator; refusing to start. On a first start, set FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator notices."
             );
             return ExitCode::from(9);
         }

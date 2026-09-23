@@ -732,6 +732,18 @@ impl Config {
             .as_ref()
             .map(|url| redact_database_url(url.expose()))
     }
+
+    /// The password the runtime role is given at startup: the password file's
+    /// when set, otherwise the one in `DATABASE_URL` (a from-source start).
+    pub fn runtime_login_password(&self) -> Option<Secret<String>> {
+        if let Some(password) = &self.database_password {
+            return Some(password.clone());
+        }
+        let parsed: tokio_postgres::Config = self.database_url.expose().parse().ok()?;
+        parsed
+            .get_password()
+            .map(|p| Secret::new(String::from_utf8_lossy(p).into_owned()))
+    }
 }
 
 #[cfg(test)]
@@ -745,6 +757,41 @@ mod tests {
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| (*v).to_string())
         }
+    }
+
+    #[test]
+    fn the_runtime_login_takes_the_url_password_when_there_is_no_file() {
+        let c = Config::from_lookup(env(&[(
+            "DATABASE_URL",
+            "postgres://fathom_app:from-url@127.0.0.1:5432/fathom",
+        )]))
+        .unwrap();
+        let password = c.runtime_login_password().expect("the URL carries one");
+        assert_eq!(password.expose(), "from-url");
+    }
+
+    #[test]
+    fn the_password_file_wins_over_the_url() {
+        let c = Config::from_lookup_and_files(
+            env(&[
+                (
+                    "DATABASE_URL",
+                    "postgres://fathom_app:from-url@db:5432/fathom",
+                ),
+                ("FATHOM_DB_PASSWORD_FILE", "/keys/db_app.pw"),
+            ]),
+            |_| Some("from-file\n".to_string()),
+        )
+        .unwrap();
+        let password = c.runtime_login_password().expect("the file carries one");
+        assert_eq!(password.expose(), "from-file");
+    }
+
+    #[test]
+    fn no_file_and_no_url_password_means_none() {
+        let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://fathom_app@db/fathom")]))
+            .unwrap();
+        assert!(c.runtime_login_password().is_none());
     }
 
     #[test]

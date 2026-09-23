@@ -904,7 +904,7 @@ pub fn spawn(
                                 tracing::warn!(
                                     threshold = threshold.as_str(),
                                     entry_type = threshold.entry_type().as_str(),
-                                    "the audit spool passed a bound named by §9; a sealed entry                                      was written on the site chain. Past a BOUND, design writes                                      are refused and reads continue."
+                                    "the audit spool passed a bound named by §9; a sealed entry was written on the site chain. Past a BOUND, design writes are refused and reads continue."
                                 );
                             }
                         }
