@@ -40,6 +40,17 @@ describe('Bar — what is present where', () => {
     expect(markup).toContain('aria-label="Zoom in"');
   });
 
+  it('shows only the lenses that change the place: Racks Cables and Routing; Inventory also Power and Owner', () => {
+    const racks = renderToStaticMarkup(createElement(Bar, BASE));
+    expect(racks).toContain('>Routing<');
+    expect(racks).not.toContain('>Links<');
+    expect(racks).not.toContain('>Power<');
+    const inventory = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
+    expect(inventory).toContain('>Power<');
+    expect(inventory).toContain('>Owner<');
+    expect(inventory).not.toContain('>Links<');
+  });
+
   it('in Inventory: Undo and Redo, but no zoom (there is no drawing to zoom)', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
     expect(markup).toContain('Undo');

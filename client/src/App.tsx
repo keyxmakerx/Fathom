@@ -19,6 +19,7 @@ import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
 import { DesignPlace } from './components/design/DesignPlace';
+import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
@@ -568,7 +569,10 @@ export default function App() {
     place: view.place,
     path,
     tree: <ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />,
-    onPlaceChange: (place: Place) => setView({ ...view, place }),
+    onPlaceChange: (place: Place) => {
+      if (!LENSES_IN[place].includes(lens)) setLens('cables');
+      setView({ ...view, place });
+    },
     onHome: () => setView({ kind: 'home' }),
   };
 

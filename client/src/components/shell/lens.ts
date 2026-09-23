@@ -18,6 +18,13 @@ export const LENS_LABEL: Record<Lens, string> = {
  * lens? Extracted so the lit/unlit decision is testable without rendering
  * anything (BRIEF.md "the lit one has an ink background and page-coloured
  * text"). */
+/** The lenses shown in each place: only those that change what it draws
+ * (the owner, 2026-09-23). Links, Power and Owner have no drawing yet. */
+export const LENSES_IN: Record<'racks' | 'inventory', readonly Lens[]> = {
+  racks: ['cables', 'routing'],
+  inventory: ['cables', 'routing', 'power', 'owner'],
+};
+
 export function isLensLit(candidate: Lens, active: Lens): boolean {
   return candidate === active;
 }

@@ -5,7 +5,7 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
-import { LENSES, LENS_LABEL } from './lens';
+import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
@@ -226,7 +226,7 @@ export function Bar({
           <>
             <Sep />
             <div className="shell-bar__lenses">
-              {LENSES.map((candidate) => (
+              {LENSES_IN[place].map((candidate) => (
                 <button
                   key={candidate}
                   type="button"
