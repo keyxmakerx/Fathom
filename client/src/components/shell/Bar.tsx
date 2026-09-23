@@ -62,6 +62,11 @@ export interface BarProps {
    * beside the undo/redo pair; absent everywhere there is nothing to be
    * read-only about (Home, or a writable design). */
   viewOnly?: boolean;
+  /** Where the brand goes: Home. Omitted on Home itself. */
+  onHome?: () => void;
+  /** The caller's own account-menu rows (Site, credentials, Home), above
+   * Theme and Sign out. A row is present only when it acts. */
+  menu?: ReactNode;
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -83,6 +88,8 @@ export function Bar({
   onRedo,
   account,
   viewOnly,
+  onHome,
+  menu,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -133,23 +140,41 @@ export function Bar({
   return (
     <div className="shell-bar" ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
-        <span className="shell-bar__brand">Fathom</span>
+        {onHome ? (
+          <button type="button" className="shell-bar__brand" onClick={onHome}>
+            Fathom
+          </button>
+        ) : (
+          <span className="shell-bar__brand">Fathom</span>
+        )}
         <Sep />
+        {/* With no design open (Home, Site) the two places are named but are
+            not controls: a place needs a design, and Home is where you pick
+            one. */}
         <div className="shell-bar__tabs">
-          <button
-            type="button"
-            className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-            onClick={() => onPlaceChange('racks')}
-          >
-            Racks
-          </button>
-          <button
-            type="button"
-            className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-            onClick={() => onPlaceChange('inventory')}
-          >
-            Inventory
-          </button>
+          {place === null ? (
+            <>
+              <span className="shell-bar__tab">Racks</span>
+              <span className="shell-bar__tab">Inventory</span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+                onClick={() => onPlaceChange('racks')}
+              >
+                Racks
+              </button>
+              <button
+                type="button"
+                className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+                onClick={() => onPlaceChange('inventory')}
+              >
+                Inventory
+              </button>
+            </>
+          )}
         </div>
         <Sep />
         <Popover
@@ -260,18 +285,18 @@ export function Bar({
           </>
         )}
 
-        <div className="shell-bar__undoredo">
-          <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
-            Undo
-          </button>
-          <button type="button" className="shell-chip shell-chip--ink" disabled={!canRedo} onClick={onRedo}>
-            Redo
-          </button>
-        </div>
-        {/* Zoom moves the camera, so it is absent wherever there is no
-            camera to move — Home here, as on the People and Site boards. */}
+        {/* Undo, Redo and zoom act on an open design, so they are absent
+            wherever there is none — Home and Site, as on their boards. */}
         {place !== null && (
           <>
+            <div className="shell-bar__undoredo">
+              <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
+                Undo
+              </button>
+              <button type="button" className="shell-chip shell-chip--ink" disabled={!canRedo} onClick={onRedo}>
+                Redo
+              </button>
+            </div>
             <Sep />
             <div className="shell-bar__zoom">
               <button type="button" className="shell-zoom-btn" aria-label="Zoom out" onClick={onZoomOut}>
@@ -282,9 +307,9 @@ export function Bar({
                 +
               </button>
             </div>
+            <Sep />
           </>
         )}
-        <Sep />
         <Popover
           align="right"
           renderTrigger={({ toggle, triggerRef, triggerProps }) => (
@@ -304,8 +329,7 @@ export function Bar({
             </button>
           )}
         >
-          <PopoverRow disabled>People and permissions</PopoverRow>
-          <PopoverRow disabled>Site</PopoverRow>
+          {menu}
           <PopoverRow onSelect={cycleTheme}>{THEME_LABEL[themeMode]}</PopoverRow>
           <PopoverRow onSelect={handleSignOut}>Sign out</PopoverRow>
         </Popover>

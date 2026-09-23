@@ -525,13 +525,14 @@ async function main() {
   );
 
   // ---- step 1: the Site entry, and the console ----------------------------
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 25000 });
   await page.waitForTimeout(800);
   check(
     'the console opened on the FIRST press: the first run ended on a session that had proved the second factor',
-    (await page.locator('.console-entry__refusal').count()) === 0,
+    (await page.locator('.home [role="alert"]').count()) === 0,
   );
   const operatorId = (await page.locator('.console__id').innerText()).trim();
   check('and the console names the operator id', /^[0-9A-HJKMNP-TV-Z]{26}$/.test(operatorId), operatorId);
@@ -682,6 +683,7 @@ async function main() {
     backDoor.twoStep,
     `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 20000 });
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });

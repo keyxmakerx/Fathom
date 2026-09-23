@@ -62,11 +62,14 @@ export interface ShellProps {
   onUndo: () => void;
   onRedo: () => void;
 
-  /** The 24×24 account square and its menu (ADR-0047 §3): People and
-   * permissions, Site (both present and disabled — this build has neither
-   * screen), Sign out, and the theme switch moved here from its own control
-   * (owner's decision, BRIEF.md "The account chip opens a menu"). */
+  /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
+   * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;
+  /** The caller's account-menu rows — Site, credentials, Home — each present
+   * only when it acts. People and permissions joins when it is built. */
+  menu?: ReactNode;
+  /** Where the brand goes: Home. Omitted on Home itself. */
+  onHome?: () => void;
 
   /** ADR-0052 §5: the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the

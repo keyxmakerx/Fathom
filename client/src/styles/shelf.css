@@ -84,7 +84,7 @@
 .drawing-shelf__compact-occupant--selected {
   background: var(--ink);
   border-color: var(--ink);
-  color: var(--paper);
+  color: var(--page);
 }
 
 .drawing-shelf__compact-occupant:focus-visible {

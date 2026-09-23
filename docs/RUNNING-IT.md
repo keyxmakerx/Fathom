@@ -127,7 +127,7 @@ the bundled common-password list or contains the address; **set up your authenti
 scanning the QR code or entering the setup key, then typing the six-digit verification code it
 shows; save the **ten recovery codes**, shown once, each good for one sign-in in place of the
 authenticator, for a lost phone; then sign in once with the code the app shows now. You land on
-Home, signed in, with the operator console one press away.
+Home, signed in; the operator console is **Site** in the account menu (top right).
 
 **Every sign-in after that**, on any browser, is two steps at one door: your address and your
 password; then, because your account has an authenticator, the verification code it shows, or one

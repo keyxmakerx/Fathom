@@ -31,9 +31,13 @@ export interface HomeProps {
    * one call site in the component that acts on it, firing at most once per
    * mount. What "lands there directly" means in practice — which place a
    * landed account opens in — is the caller's to decide once notified; this
-   * component only ever computes and reports the fact.
+   * component only ever computes and reports the fact. Omitted once it has
+   * fired, so that returning to Home stays on Home.
    */
-  onDirectEntry: (entry: DirectEntry) => void;
+  onDirectEntry?: (entry: DirectEntry) => void;
+  /** One sentence from elsewhere in the app that this person should read
+   * here — today, the server's refusal to open the Site console. */
+  notice?: string | null;
 }
 
 type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
@@ -52,7 +56,7 @@ type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } 
  * invented content would be exactly the "plausible-looking figure" this
  * project's rules forbid, so they are left off rather than faked empty.
  */
-export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: HomeProps) {
+export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry, notice }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
@@ -143,7 +147,7 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   // never as zero, so this cannot misfire mid-load. `landed` latches it so
   // a later reselection or refetch never fires it twice.
   useEffect(() => {
-    if (landed || organisations.status !== 'ready') {
+    if (landed || onDirectEntry === undefined || organisations.status !== 'ready') {
       return;
     }
     const soleOrgDesigns =
@@ -262,6 +266,11 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
       </aside>
 
       <main className="home__centre">
+        {notice && (
+          <p className="home__error" role="alert">
+            {notice}
+          </p>
+        )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
 
         <section className="home__section">

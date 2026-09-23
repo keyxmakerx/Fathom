@@ -126,39 +126,39 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return { devices, racks: view.racks.length, cables, ports };
   }, [doc, view.racks.length]);
 
-  const editorPane =
-    saveRefusal != null ? (
-      <div className="inventory-place__refusal">
-        {saveRefusal}
-        {/* ADR-0054 §1's refusal wash "offers reload" — see the matching
-            control in `RacksPlace.tsx`. */}
-        <button type="button" className="inventory-place__refusal-reload" onClick={reloadDesign}>
-          Reload
-        </button>
-      </div>
-    ) : doc != null ? (
-      <>
-        {EditorFor(
+  // ADR-0047: absent, not empty, when nothing is selected (see RacksPlace).
+  const selectedPanel =
+    doc != null
+      ? EditorFor(
           selection,
           view,
           {
             onEdit: canDraw ? handleEdit : undefined,
             onSelect: setSelection,
-            // ADR-0053 §5/§6, this session's brief item 4 — a reader may
-            // always read a device/port/rack's own Notes; only a writer may
-            // add or remove one (the same `canDraw` gate `onEdit` above
-            // already follows).
+            // ADR-0053 §5/§6 — a reader may read Notes; only a writer may
+            // add or remove one.
             notesOf: notesActions.notesOf,
             onAddNote: canDraw ? notesActions.onAddNote : undefined,
             onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
           },
           paletteFromCatalogue(catalogue),
-        )}
-        {selection != null ? (
-          <button type="button" className="inventory-place__show-on-rack" onClick={() => onShowOnRack(selection)}>
-            Show on rack
-          </button>
-        ) : null}
+        )
+      : null;
+  const editorPane =
+    saveRefusal != null ? (
+      <div className="inventory-place__refusal">
+        {saveRefusal}
+        {/* ADR-0054 §1's refusal wash "offers reload". */}
+        <button type="button" className="inventory-place__refusal-reload" onClick={reloadDesign}>
+          Reload
+        </button>
+      </div>
+    ) : selectedPanel != null && selection != null ? (
+      <>
+        {selectedPanel}
+        <button type="button" className="inventory-place__show-on-rack" onClick={() => onShowOnRack(selection)}>
+          Show on rack
+        </button>
       </>
     ) : null;
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 
 export interface PopoverTriggerArgs {
@@ -39,6 +39,9 @@ export interface PopoverProps {
  * It traps nothing: Tab moves through the page as normal. Escape closes it
  * and returns focus to whichever element opened it.
  */
+/** Lets a row close the pop-over it sits in once it has acted. */
+const CloseContext = createContext<() => void>(() => {});
+
 export function Popover({ renderTrigger, children, align = 'left', className }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -103,7 +106,7 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
       })}
       {open && (
         <div className={classes} role="menu" id={id} ref={popoverRef}>
-          {children}
+          <CloseContext.Provider value={() => setOpen(false)}>{children}</CloseContext.Provider>
         </div>
       )}
     </div>
@@ -117,11 +120,14 @@ export interface PopoverRowProps {
   disabled?: boolean;
   muted?: boolean;
   onSelect?: () => void;
+  /** `data-testid`, for the browser drives. */
+  testId?: string;
 }
 
 /** One row inside a `Popover` — BRIEF.md "rows of 12px text with 5px 12px
  * padding, the current row 700". A real `<button>`, since every row acts. */
-export function PopoverRow({ children, current = false, disabled = false, muted = false, onSelect }: PopoverRowProps) {
+export function PopoverRow({ children, current = false, disabled = false, muted = false, onSelect, testId }: PopoverRowProps) {
+  const close = useContext(CloseContext);
   const classes = [
     'shell-popover__row',
     current ? 'shell-popover__row--current' : '',
@@ -131,7 +137,20 @@ export function PopoverRow({ children, current = false, disabled = false, muted 
     .join(' ');
 
   return (
-    <button type="button" role="menuitem" className={classes} disabled={disabled} onClick={onSelect}>
+    <button
+      type="button"
+      role="menuitem"
+      className={classes}
+      disabled={disabled}
+      data-testid={testId}
+      onClick={() => {
+        // A row that acts closes its pop-over: the screen beneath may be a
+        // new one, and a menu left open over it swallows the next click.
+        if (!onSelect) return;
+        close();
+        onSelect();
+      }}
+    >
       {children}
     </button>
   );

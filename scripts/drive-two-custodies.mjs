@@ -556,6 +556,7 @@ async function main() {
     stateAfter,
   );
 
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
   check('Home, with the Site entry on a console host', true);
 
@@ -563,19 +564,20 @@ async function main() {
   await page.waitForSelector('.console__section', { timeout: 25000 });
   await page.waitForTimeout(1200);
   // Structure, not the sentence over it: the console draws a refusal in
-  // `.console-entry__refusal` when the session has not proved the second
+  // `.home [role="alert"]` when the session has not proved the second
   // factor, and the operator's id in `.console__id` when it has.
-  const refusedOnEntry = await page.locator('.console-entry__refusal').count();
+  const refusedOnEntry = await page.locator('.home [role="alert"]').count();
   check(
     'the console opened on the FIRST press: the flow ended on a session that had proved the second factor',
     refusedOnEntry === 0 && (await page.locator('.console__id').count()) === 1,
-    refusedOnEntry === 0 ? '' : (await page.locator('.console-entry__refusal').innerText()).slice(0, 90),
+    refusedOnEntry === 0 ? '' : (await page.locator('.home [role="alert"]').innerText()).slice(0, 90),
   );
   const operatorId = (await page.locator('.console__id').innerText()).trim();
   check('and it names the operator id', /^[0-9A-HJKMNP-TV-Z]{26}$/.test(operatorId), operatorId);
   await shot('the-console');
 
   // ---- 2. two sessions at once -------------------------------------------
+  await page.click('.shell-account');
   await page.click('[data-testid="console-home"]');
   await page.waitForSelector('.home', { timeout: 15000 });
   check(
@@ -593,6 +595,7 @@ async function main() {
   );
   await shot('home-again-from-the-console');
 
+  await page.click('.shell-account');
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });
   check(
@@ -747,15 +750,16 @@ async function main() {
     backDoor.twoStep,
     `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 25000 });
   await page.click('[data-testid="console-entry"]');
   await Promise.race([
     page.waitForSelector('.console__section', { timeout: 25000 }),
-    page.waitForSelector('.console-entry__refusal', { timeout: 25000 }),
+    page.waitForSelector('.home [role="alert"]', { timeout: 25000 }),
   ]).catch(() => {});
   await page.waitForTimeout(800);
   const secondEntry = await page
-    .locator('.console-entry__refusal')
+    .locator('.home [role="alert"]')
     .innerText()
     .catch(() => '');
   check(

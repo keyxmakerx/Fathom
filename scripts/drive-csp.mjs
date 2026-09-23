@@ -356,11 +356,13 @@ async function main() {
   await sample('Home, signed in');
 
   // The operator console, behind the Site entry.
+  await tab.click('.shell-account'); // Site is a row in the account menu
   if ((await tab.locator('[data-testid="console-entry"]').count()) === 1) {
     await tab.click('[data-testid="console-entry"]');
     await tab.waitForSelector('.console__section', { timeout: 25000 });
     await tab.waitForTimeout(1000);
     await sample('the operator console');
+    await tab.click('.shell-account');
     await tab.click('[data-testid="console-home"]');
     await tab.waitForSelector('.home', { timeout: 15000 });
     await sample('Home again, from the console');

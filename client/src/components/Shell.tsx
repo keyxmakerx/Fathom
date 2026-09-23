@@ -43,6 +43,8 @@ export function Shell({
   trail,
   children,
   viewOnly,
+  menu,
+  onHome,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -63,9 +65,13 @@ export function Shell({
         onRedo={onRedo}
         account={account}
         viewOnly={viewOnly}
+        menu={menu}
+        onHome={onHome}
       />
       <div className="shell__body">
-        <Strip rail={rail} />
+        {/* The folded rail exists where it has something to open (the Racks
+            palette); Home, Site and Inventory carry their own rails. */}
+        {rail != null && <Strip rail={rail} />}
         <main className="shell__drawing" aria-label="Drawing">
           {children}
         </main>

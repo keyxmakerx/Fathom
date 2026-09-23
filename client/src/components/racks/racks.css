@@ -28,8 +28,10 @@
 .racks-trail {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
+  min-width: 0;
   font-size: var(--t-small);
 }
 
@@ -58,7 +60,7 @@
 .racks-trail__row {
   display: flex;
   align-items: baseline;
-  gap: var(--s3);
+  gap: var(--s2);
   padding: var(--s2) var(--s4);
 }
 
@@ -78,13 +80,14 @@
 
 .racks-trail__col--when,
 .racks-trail__cell.racks-trail__col--when {
-  flex: 0 0 46px;
+  flex: 0 0 40px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .racks-trail__col--who,
 .racks-trail__cell.racks-trail__col--who {
-  flex: 0 0 92px;
+  flex: 0 0 84px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -92,7 +95,7 @@
 
 .racks-trail__col--what,
 .racks-trail__cell.racks-trail__col--what {
-  flex: 1 1 auto;
+  flex: 2 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -100,7 +103,7 @@
 
 .racks-trail__col--why,
 .racks-trail__cell.racks-trail__col--why {
-  flex: 0 0 170px;
+  flex: 1 1 0;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -109,8 +112,9 @@
 
 .racks-trail__col--seal,
 .racks-trail__cell.racks-trail__col--seal {
-  flex: 0 0 54px;
+  flex: 0 0 48px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .racks-trail__rows {

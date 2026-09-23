@@ -57,6 +57,15 @@
   white-space: nowrap;
 }
 
+/* The brand is the way back to Home from anywhere else. */
+button.shell-bar__brand {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .shell-bar__sep-wrap {
   display: flex;
   align-items: center;
@@ -89,8 +98,13 @@
   cursor: pointer;
 }
 
-.shell-bar__tab:hover {
+button.shell-bar__tab:hover {
   color: var(--ink);
+}
+
+/* With no design open the place names are orientation, not controls. */
+span.shell-bar__tab {
+  cursor: default;
 }
 
 .shell-bar__tab--on {
@@ -162,6 +176,9 @@
 }
 
 .shell-search {
+  /* The bar stretches its children so the place tabs can underline the
+     full 44px; the search box is the one fixed-height child and centres. */
+  align-self: center;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -404,6 +421,38 @@
   background: var(--surface-2);
   overflow-y: auto;
   padding: var(--s4);
+}
+
+/* The editor's own controls in the page's language (UI-SPEC "Look"):
+   square, flat, one hairline. Inline styles (segments, links) still win. */
+.shell-editor button {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+  cursor: pointer;
+}
+
+.shell-editor button:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.shell-editor input,
+.shell-editor select,
+.shell-editor textarea {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
+  max-width: 100%;
 }
 
 /* ADR-0053 §4 — the Trail panel, beside the drawing. Wider than the editor

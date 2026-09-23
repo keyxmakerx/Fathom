@@ -122,6 +122,14 @@ export default function App() {
   // ADR-0055 client (a): the account's own credential screen is open.
   const [accountOpen, setAccountOpen] = useState(false);
 
+  // Sign-out does not reload the page, so whatever was open belongs to the
+  // session that ended: the next sign-in starts on Home.
+  const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
+  useEffect(() => {
+    setView({ kind: 'home' });
+    setAccountOpen(false);
+  }, [accountSessionId]);
+
   // The app-code gate, asked once per session: an account that holds the
   // operator custody and has no confirmed authenticator gets a session good for
   // `/credentials/*` alone, and the server says so with a typed refusal on
@@ -310,16 +318,18 @@ export default function App() {
   // means, which the component deliberately left to its caller. Racks,
   // because the drawing is the product and Inventory is the other way to
   // reach the same graph.
-  const handleDirectEntry = useCallback(
-    (entry: DirectEntry) =>
-      setView({
-        kind: 'place',
-        place: 'racks',
-        organisation: entry.organisation,
-        design: entry.design,
-      }),
-    [],
-  );
+  //
+  // Once per sign-in: after that, going back to Home must stay on Home.
+  const [directEntrySession, setDirectEntrySession] = useState<string | null>(null);
+  const handleDirectEntry = useCallback((entry: DirectEntry) => {
+    setDirectEntrySession(getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null);
+    setView({
+      kind: 'place',
+      place: 'racks',
+      organisation: entry.organisation,
+      design: entry.design,
+    });
+  }, []);
 
   // ADR-0056 decisions 1 and 2: while the deployment is on its first run
   // this is the only screen, and it holds even once its own sign-in has made
@@ -437,6 +447,35 @@ export default function App() {
     address: session.address,
   };
 
+  // The account menu's own rows (ADR-0047 §3): each present only when it
+  // acts. Site is offered only on a host the console answers on, and goes
+  // once the server has said this account holds no operator custody.
+  const accountSessionOpen = accountSessionId !== null;
+  const backToHome = () => {
+    setView({ kind: 'home' });
+    setPlane(ACCOUNT_PLANE);
+  };
+  const menu =
+    session.kind === 'operator' ? (
+      <>
+        {accountSessionOpen && (
+          <PopoverRow testId="console-home" onSelect={backToHome}>
+            Home
+          </PopoverRow>
+        )}
+        <PopoverRow current>Site</PopoverRow>
+      </>
+    ) : (
+      <>
+        <PopoverRow onSelect={() => setAccountOpen(true)}>Password and authenticator</PopoverRow>
+        {consoleHost && !custodyRefused && (
+          <PopoverRow testId="console-entry" disabled={enteringConsole} onSelect={() => void enterConsole()}>
+            {enteringConsole ? 'Opening Site…' : 'Site'}
+          </PopoverRow>
+        )}
+      </>
+    );
+
   // Everything the two views share. `canUndo`/`canRedo`/`onUndo`/`onRedo`
   // are a stub HERE — always present, always disabled — because Home has no
   // open design to undo anything in; `DesignPlace.tsx` overrides all four
@@ -444,6 +483,7 @@ export default function App() {
   // the moment a place actually renders, so the bar's chips are real
   // wherever a design is open.
   const common = {
+    menu,
     presence: [],
     canUndo: false,
     canRedo: false,
@@ -470,22 +510,10 @@ export default function App() {
         path={[{ label: 'Site' }]}
         tree={null}
         onPlaceChange={() => {}}
+        // ADR-0055 decision 1: the account session did not end when this one
+        // began, so Home is a change of plane, not a sign-in.
+        onHome={accountSessionOpen ? backToHome : undefined}
       >
-        {/* ADR-0055 decision 1: the account session did not end when this
-            one began, so Home is a press away and not a sign-in away. The
-            two sessions are separate on the wire — different principals,
-            different tokens, different counters — and this button changes
-            which one the screen is showing, nothing else. */}
-        {getSessionOn(ACCOUNT_PLANE) !== null && (
-          <button
-            type="button"
-            className="console-home"
-            data-testid="console-home"
-            onClick={() => setPlane(ACCOUNT_PLANE)}
-          >
-            Home — your account session is still open
-          </button>
-        )}
         <Console operatorId={session.address} />
       </Shell>
     );
@@ -503,47 +531,12 @@ export default function App() {
           // to open: a place needs a design, and Home is where you pick one.
         }}
       >
-        {/* ADR-0055 client (a): the way to a person's own password and
-            authenticator app. Everybody has both now, so this is not
-            operator-side and does not wait on the flag. */}
-        <button type="button" className="account-entry" onClick={() => setAccountOpen(true)}>
-          Your password and authenticator app
-        </button>
-        {/* ADR-0055: the console entry. Rendered only on a host the console
-            answers on, and taken away for the rest of this session once the
-            server has said this account holds no operator custody —
-            otherwise there is nothing here at all (decision 9). */}
-        {consoleHost && !custodyRefused && (
-          <div className="console-entry">
-            <div className="console-entry__text">
-              <span className="console-entry__title">Site</span>
-              <span className="console-entry__note">
-                The operator console answers on this host. If you hold the operator custody, opening it registers
-                this browser's operator key and signs you in as the operator — a second session beside this one.
-                This one stays open: Home is one press away from there.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="console-entry__go"
-              data-testid="console-entry"
-              disabled={enteringConsole}
-              onClick={() => void enterConsole()}
-            >
-              {enteringConsole ? 'Opening…' : 'Open the Site console'}
-            </button>
-          </div>
-        )}
-        {consoleRefusal && (
-          <p className="console-entry__refusal" role="alert">
-            {consoleRefusal}
-          </p>
-        )}
         <Home
           address={session.address}
           onOpenRacks={openIn('racks')}
           onOpenInventory={openIn('inventory')}
-          onDirectEntry={handleDirectEntry}
+          onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
+          notice={consoleRefusal}
         />
       </Shell>
     );
@@ -576,6 +569,7 @@ export default function App() {
     path,
     tree: <ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />,
     onPlaceChange: (place: Place) => setView({ ...view, place }),
+    onHome: () => setView({ kind: 'home' }),
   };
 
   // ADR-0046 §8: Inventory is basic-but-real now, not a placeholder — both
