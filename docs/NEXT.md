@@ -77,7 +77,27 @@ comparable amount again.
 
 ---
 
-## Handoff — read this first (updated 2026-09-22)
+## Handoff — read this first (updated 2026-09-23)
+
+**2026-09-23, the owner's review of the running build.** PR #37 fixed the shell's defects (search
+box, empty editor, trail overflow, dead controls, zoom, hatching) and the from-source start. The
+owner decided:
+- **Search:** quick search drops from the bar's own box. Also wanted: a full-screen filter view
+  with rich and relational filters ("this IP and the devices that reach it"). Designer first.
+- **Trail:** folded to a strip on the right edge that opens to a full pane, with filters. Some
+  users may not see it; some who see it may not revert. Keep the maintenance mode and "see what
+  changed" (UI-SPEC "Tracked changes"). Change logs must be shippable to a logging server.
+- **Lens row:** hide Links, Power and Owner until designed. **Levels:** Site › Building › Closet
+  in the interface.
+- **Scale:** 100+ enterprise users in groups with privilege levels; API access later (read,
+  read-write, more).
+- **First run:** no code copied out of a file or log. Proposed: a setup password the admin
+  chooses in `.env` beside the address, a setup window, the token file kept for
+  `recover-operator` only. Waiting on the owner's yes, as are S1–S4 (console behind the account
+  sign-in, password change needs the current one, sign-in survives a reload with an idle
+  timeout, the organisation recovery key shown once).
+- **Broken drives:** `drive-config-drawer`, `drive-undo-notes` and `drive-first-design` no longer
+  match the code; repair them on one shared harness.
 
 **2026-09-22, ADR-0056.** The owner used the ADR-0055 build on a real install and said what was
 wrong with it: three fields, three links, a typed address to mismatch, a second factor a password
