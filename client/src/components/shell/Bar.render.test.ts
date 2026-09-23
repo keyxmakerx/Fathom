@@ -78,9 +78,13 @@ describe('Bar — what is present where', () => {
 });
 
 describe('Bar — the search box', () => {
-  it('is drawn in the bar with its shortcut', () => {
-    const markup = renderToStaticMarkup(createElement(Bar, BASE));
-    expect(markup).toContain('class="shell-search"');
+  it('is absent where there is nothing to search', () => {
+    expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-search');
+  });
+
+  it('is a live button with its shortcut when a search is offered', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, search: { run: () => [], choose: () => {} } }));
+    expect(markup).toContain('<button type="button" class="shell-search" aria-label="Search">');
     expect(markup).toContain('Ctrl K');
   });
 });

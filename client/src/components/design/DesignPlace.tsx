@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
+import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { getSession } from '../../state/sessionState';
@@ -10,6 +11,7 @@ import type { Selection } from '../drawing';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { redoable } from '../racks/trail';
+import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
 
@@ -236,8 +238,15 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `onRemoveNote` already are: a reader's Ctrl+Z or Undo chip does nothing
   // silently rather than writing a batch nobody with read-only access is
   // allowed to write.
+  // Quick search (the owner's option A): the open design; a choice shows it on the rack.
+  const search = {
+    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query) : []),
+    choose: (selection: Selection) => showOnRack(selection),
+  };
+
   const sharedShellProps = {
     ...shellProps,
+    search,
     canUndo: session.canDraw && undoCandidates.length > 0,
     canRedo: session.canDraw && redoCandidate != null,
     onUndo: handleUndo,

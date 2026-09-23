@@ -196,6 +196,114 @@ span.shell-bar__tab {
   padding: 0;
 }
 
+button.shell-search {
+  cursor: pointer;
+}
+
+/* Open: the box takes typing; results drop beneath it (the far-end picker's box). */
+.shell-search--open {
+  position: relative;
+  width: 180px;
+  padding: 0 var(--s2);
+  border-color: var(--ink);
+}
+
+.shell-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  color: var(--ink);
+}
+
+.shell-search__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -1px;
+  width: 440px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  z-index: var(--z-egress);
+}
+
+.shell-search__group {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s2) var(--s3) 2px;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.shell-search__group:first-child {
+  border-top: none;
+}
+
+.shell-search__row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px var(--s3) 5px var(--s4);
+  cursor: pointer;
+}
+
+.shell-search__row--on {
+  background: var(--surface);
+}
+
+.shell-search__row--on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rule-accent);
+  background: var(--ink);
+}
+
+.shell-search__name {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.shell-search__why {
+  font-size: var(--t-tab);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-search__none {
+  padding: var(--s3);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.shell-search__foot {
+  display: flex;
+  gap: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding: 6px var(--s3);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.shell-search__scope {
+  margin-left: auto;
+}
+
 .shell-search__label {
   font-size: var(--t-tab);
   color: var(--muted);

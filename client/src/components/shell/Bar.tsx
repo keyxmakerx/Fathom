@@ -10,7 +10,8 @@ import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathPart } from './path';
-import type { AccountInfo, Place, PresenceUser } from './types';
+import { SearchBox } from './SearchBox';
+import type { AccountInfo, Place, PresenceUser, ShellSearch } from './types';
 
 // BRIEF.md "The bar": "a hairline-bordered box ~180px". The magnifier alone
 // (the collapsed state) is a 24px square — see `.shell-search--collapsed`.
@@ -31,15 +32,6 @@ const THEME_NEXT: Record<'system' | Theme, 'system' | Theme> = {
   light: 'dark',
   dark: 'system',
 };
-
-function MagnifierIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
-      <circle cx="4.5" cy="4.5" r="3.5"></circle>
-      <path d="M7.2 7.2 L10.5 10.5"></path>
-    </svg>
-  );
-}
 
 export interface BarProps {
   place: Place | null;
@@ -66,6 +58,8 @@ export interface BarProps {
   viewOnly?: boolean;
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
+  /** Quick search; the box is absent without it. */
+  search?: ShellSearch;
   /** The caller's own account-menu rows (Site, credentials, Home), above
    * Theme and Sign out. A row is present only when it acts. */
   menu?: ReactNode;
@@ -93,6 +87,7 @@ export function Bar({
   viewOnly,
   onHome,
   menu,
+  search,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -244,21 +239,7 @@ export function Bar({
 
       <div className="shell-bar__spacer" />
 
-      <button
-        type="button"
-        className={searchCollapsed ? 'shell-search shell-search--collapsed' : 'shell-search'}
-        disabled
-        aria-label="Search"
-      >
-        <MagnifierIcon />
-        {!searchCollapsed && (
-          <>
-            <span className="shell-search__label">Search</span>
-            <span className="shell-search__spacer" />
-            <span className="shell-search__shortcut">Ctrl K</span>
-          </>
-        )}
-      </button>
+      {search && <SearchBox search={search} collapsed={searchCollapsed} />}
 
       <div className="shell-bar__trailing" ref={trailingRef}>
         {presence.length > 0 && (

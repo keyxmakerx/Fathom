@@ -46,6 +46,7 @@ export function Shell({
   viewOnly,
   menu,
   onHome,
+  search,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -69,6 +70,7 @@ export function Shell({
         viewOnly={viewOnly}
         menu={menu}
         onHome={onHome}
+        search={search}
       />
       <div className="shell__body">
         {/* The folded rail exists where it has something to open (the Racks

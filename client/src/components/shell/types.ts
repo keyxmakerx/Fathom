@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
 import type { PathPart } from './path';
+import type { SearchHit } from './search';
 
 export type { Lens } from './lens';
 export { LENSES, LENS_LABEL, isLensLit } from './lens';
@@ -11,6 +12,12 @@ export { pathToItems } from './path';
 /** BRIEF.md "The vocabulary": two places, nothing else gets the name. `null`
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
+
+/** Quick search: what a query finds, and what choosing a hit does. */
+export interface ShellSearch {
+  run: (query: string) => SearchHit[];
+  choose: (selection: SearchHit['selection']) => void;
+}
 
 /** One name chip in "who else is here". */
 export interface PresenceUser {
@@ -72,6 +79,8 @@ export interface ShellProps {
   menu?: ReactNode;
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
+  /** Quick search. Absent where there is nothing to search yet (Home, Site). */
+  search?: ShellSearch;
 
   /** ADR-0052 §5: the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the
