@@ -52,6 +52,8 @@ export interface BarProps {
   zoom: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  /** Fits the drawing into view; the percentage is the button. */
+  onZoomFit?: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -82,6 +84,7 @@ export function Bar({
   zoom,
   onZoomIn,
   onZoomOut,
+  onZoomFit,
   canUndo,
   canRedo,
   onUndo,
@@ -285,8 +288,8 @@ export function Bar({
           </>
         )}
 
-        {/* Undo, Redo and zoom act on an open design, so they are absent
-            wherever there is none — Home and Site, as on their boards. */}
+        {/* Undo and Redo act on an open design; zoom acts on the drawing,
+            so it is Racks only (Inventory is lists). */}
         {place !== null && (
           <>
             <div className="shell-bar__undoredo">
@@ -298,11 +301,21 @@ export function Bar({
               </button>
             </div>
             <Sep />
+          </>
+        )}
+        {place === 'racks' && (
+          <>
             <div className="shell-bar__zoom">
               <button type="button" className="shell-zoom-btn" aria-label="Zoom out" onClick={onZoomOut}>
                 &minus;
               </button>
-              <span className="shell-zoom-value">{zoom}%</span>
+              {onZoomFit ? (
+                <button type="button" className="shell-zoom-value" aria-label="Fit to view" onClick={onZoomFit}>
+                  {zoom}%
+                </button>
+              ) : (
+                <span className="shell-zoom-value">{zoom}%</span>
+              )}
               <button type="button" className="shell-zoom-btn" aria-label="Zoom in" onClick={onZoomIn}>
                 +
               </button>

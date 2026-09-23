@@ -41,6 +41,7 @@ import {
   rackAtPoint,
   snapDropToU,
   uToOffsetPx,
+  zoomAboutPaneCentre,
 } from './geometry';
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
@@ -181,6 +182,15 @@ export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null
   return !(isFirstRun && selected?.kind === 'chassis');
 }
 
+/** Fit every rack: used on mount and by the bar's percentage button. */
+function rackFitViewOptions(racks: readonly { id: string }[]) {
+  return {
+    nodes: racks.map((r) => ({ id: rackNodeId(r.id) })),
+    padding: 0.1,
+    maxZoom: CAMERA_STOPS.rack / 100,
+  };
+}
+
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
   selected: Selection | null;
@@ -189,6 +199,8 @@ export interface DrawingProps extends DrawingActions {
    * component is the one place that converts between the two. */
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** Bump to fit every rack into view (a counter, so a repeat press fires). */
+  fitRequest?: number;
   /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
    * (`RacksPlace.tsx`'s own computation, the one place capability is read).
    * `false` disables React Flow's own `nodesDraggable`/`nodesConnectable`
@@ -258,6 +270,7 @@ function DrawingInner({
   selected,
   zoom,
   onZoomChange,
+  fitRequest,
   onPlace,
   onMove,
   onSelect,
@@ -482,11 +495,7 @@ function DrawingInner({
     hasFitOnceRef.current = true;
     if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     const raf = requestAnimationFrame(() => {
-      void rf.fitView({
-        nodes: view.racks.map((r) => ({ id: rackNodeId(r.id) })),
-        padding: 0.1,
-        maxZoom: CAMERA_STOPS.rack / 100,
-      });
+      void rf.fitView(rackFitViewOptions(view.racks));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -502,9 +511,24 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackIdsKey, allRacksPositioned, rf]);
 
+  // The bar's − / + zoom about the centre of the pane, not the top-left.
   useEffect(() => {
-    setViewport((v) => (Math.round(v.zoom * 100) === zoom ? v : { ...v, zoom: zoom / 100 }));
+    setViewport((v) => {
+      if (Math.round(v.zoom * 100) === zoom) return v;
+      const nextZoom = zoom / 100;
+      const pane = containerRef.current;
+      if (pane == null) return { ...v, zoom: nextZoom };
+      return zoomAboutPaneCentre(v, nextZoom, pane.clientWidth, pane.clientHeight);
+    });
   }, [zoom]);
+
+  // The percentage button's fit; never fires on the first render.
+  const prevFitRequestRef = useRef(fitRequest);
+  useEffect(() => {
+    if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
+    prevFitRequestRef.current = fitRequest;
+    void rf.fitView(rackFitViewOptions(view.racks));
+  }, [fitRequest, rf, view.racks]);
 
   const handleViewportChange = useCallback(
     (vp: Viewport) => {

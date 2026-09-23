@@ -56,6 +56,8 @@ export interface ShellProps {
   zoom: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  /** Fits the drawing into view; the percentage is the button. */
+  onZoomFit?: () => void;
 
   canUndo: boolean;
   canRedo: boolean;

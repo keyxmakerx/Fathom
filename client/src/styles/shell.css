@@ -271,6 +271,10 @@ span.shell-bar__tab {
   text-align: center;
   color: var(--ink);
   font-variant-numeric: var(--num-tabular);
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 
 .shell-account {

@@ -40,6 +40,17 @@ describe('Bar — what is present where', () => {
     expect(markup).toContain('aria-label="Zoom in"');
   });
 
+  it('in Inventory: Undo and Redo, but no zoom (there is no drawing to zoom)', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: 'inventory' }));
+    expect(markup).toContain('Undo');
+    expect(markup).not.toContain('aria-label="Zoom in"');
+  });
+
+  it('the percentage fits the view only where a fit is offered', () => {
+    expect(renderToStaticMarkup(createElement(Bar, BASE))).toContain('<span class="shell-zoom-value">100%</span>');
+    expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onZoomFit: () => {} }))).toContain('aria-label="Fit to view"');
+  });
+
   it('with nothing open (Home, Site): the place names are not controls, and Undo, Redo and zoom are absent', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null }));
     expect(markup).toContain('<span class="shell-bar__tab">Racks</span>');

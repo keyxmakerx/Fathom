@@ -81,7 +81,7 @@
   --rule-style-proposed:      dashed;
   --rule-style-pending:       dotted;
   --hatch: repeating-linear-gradient(135deg,
-            var(--muted) 0 2px, transparent 2px 5px);
+            var(--hairline) 0 1px, transparent 1px 6px);
 
   /* --- radius and elevation ------------------------------ §10, §11 ----- */
   --radius: 0;             /* [C] deliberate. Read §10 before changing.     */

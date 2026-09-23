@@ -205,6 +205,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  // Bumped by the bar's percentage button; the drawing fits every rack.
+  const [fitRequest, setFitRequest] = useState(0);
 
   // "Show on rack" (`InventoryPlace.tsx`) — this session's brief item 5: a
   // caller landing here with something already chosen selects it and asks
@@ -600,7 +602,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : null;
 
   return (
-    <Shell {...shellProps} editor={editor} rail={rail} trail={trail} viewOnly={!canDraw}>
+    <Shell {...shellProps} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} trail={trail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -609,6 +611,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           selected={selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
+          fitRequest={fitRequest}
           onPlace={handlePlace}
           onMove={handleMove}
           onSelect={setSelection}

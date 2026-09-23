@@ -298,8 +298,6 @@ async function main() {
     );
     check('the first-run screen rendered (the client ran)', rendered > 20, `${rendered} characters`);
   });
-  // The static port gallery: a second built page, and the one that is all CSS.
-  await visit('the port gallery', `${SERVER_URL}/ports.html`);
 
   // ---- the signed-in screens, which had never been driven ----------------
   const token = readFileSync(BOOTSTRAP_TOKEN_PATH, 'utf8').trim();

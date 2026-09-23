@@ -33,6 +33,7 @@ export function Shell({
   zoom,
   onZoomIn,
   onZoomOut,
+  onZoomFit,
   canUndo,
   canRedo,
   onUndo,
@@ -59,6 +60,7 @@ export function Shell({
         zoom={zoom}
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
+        onZoomFit={onZoomFit}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={onUndo}
