@@ -94,9 +94,9 @@ owner decided:
 - **First run and sign-in:** approved 2026-09-24 as ADR-0057: a setup password in `.env`, Site
   behind the account sign-in, re-authenticated factor changes, sessions that survive a reload with
   timeouts, and the organisation claim with its recovery key shown once. Built in that order.
-- **Broken drives:** `drive-config-drawer`, `drive-undo-notes` and `drive-first-design` no longer
-  match the code; repair them on one shared harness. The trail is folded now: click "Open the
-  trail" before reading its rows.
+- **Drives:** `drive-config-drawer` and `drive-undo-notes` run again on one shared harness
+  (`scripts/drive-lib/`). `drive-first-design` is rewritten for password sign-in but not yet run:
+  it needs a superuser login to the local PostgreSQL that this container does not give by default.
 - **Built in PR #37:** quick search, the trail strip (in Racks and Inventory), the lens row, the
   level names. Still to design: the filter view, trail filters, modes and permissions.
 
