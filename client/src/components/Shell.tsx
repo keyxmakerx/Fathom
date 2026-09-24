@@ -2,6 +2,7 @@ import '../styles/shell.css';
 import { Bar } from './shell/Bar';
 import { Editor } from './shell/Editor';
 import { Strip } from './shell/Strip';
+import { TrailPane } from './shell/TrailPane';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -42,6 +43,8 @@ export function Shell({
   editor,
   rail,
   trail,
+  trailOpen,
+  onTrailOpenChange,
   children,
   viewOnly,
   menu,
@@ -80,13 +83,11 @@ export function Shell({
           {children}
         </main>
         {editor != null && <Editor>{editor}</Editor>}
-        {/* ADR-0053 §4 — the Trail panel, beside the drawing: its own aside,
-            not `Editor`'s (a selection's editor and the document's whole
-            trail are different things and may both be open at once). */}
+        {/* The trail folds to a strip on the right; it can be open beside the editor. */}
         {trail != null && (
-          <aside className="shell-trail" aria-label="Trail">
+          <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>
             {trail}
-          </aside>
+          </TrailPane>
         )}
       </div>
     </div>

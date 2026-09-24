@@ -15,7 +15,6 @@ import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
-import { Trail } from './Trail';
 import './racks.css';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`
@@ -155,25 +154,9 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * where no caller supplies it, the same "no action, not a disabled one"
    * shape `EditorActions.onSelect` already follows. */
   onOpenInventory?: (chassisId: string) => void;
-  /** ADR-0053 §4, this session's brief item 1 — the Trail panel's own "who,"
-   * held above this component (`DesignPlace.tsx`) since it comes off the
-   * session, not the document. `accountId === null` in the same gap
-   * `useDesignSession.ts`'s own comment on `handleEdit` names (between an
-   * expired session and the shell noticing). */
+  /** The signed-in account, stamped on each change as its actor. `null` in the
+   * moment between an expired session and the shell noticing. */
   accountId: string | null;
-  accountAddress: string | null;
-  /** `DesignPlace.tsx`'s own approximation of "present in the last version
-   * opened or saved" (that file's own header on what is and is not
-   * observable here). */
-  sealedBatchIds: ReadonlySet<string>;
-  /** ADR-0053 §3 — the refusal wash: a colleague's change in between, or a
-   * LOCAL-stamped batch nobody signed in wrote. `null` when the last undo
-   * or redo was not refused. */
-  undoRefusal: string | null;
-  /** ADR-0053 §4 — the comment box beneath the Trail, held one level up so
-   * it survives whichever change ends up sealed with it. */
-  pendingComment: string;
-  onPendingCommentChange: (text: string) => void;
   /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
    * into `EditorFor`'s own `actions` below. */
   notesActions: NotesActions;
@@ -195,11 +178,6 @@ export function RacksPlace(props: RacksPlaceProps) {
     initialFocus,
     onOpenInventory,
     accountId,
-    accountAddress,
-    sealedBatchIds,
-    undoRefusal,
-    pendingComment,
-    onPendingCommentChange,
     notesActions,
     ...shellProps
   } = props;
@@ -585,24 +563,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
-  // ADR-0053 §4, this session's brief item 1 — the Trail panel, beside the
-  // drawing. Absent with no document yet (nothing to show), the same
-  // "loading" gate `editor`/`Drawing` itself already reads off `doc`.
-  const trail =
-    doc != null ? (
-      <Trail
-        doc={doc}
-        accountId={accountId}
-        accountAddress={accountAddress}
-        sealedBatchIds={sealedBatchIds}
-        undoRefusal={undoRefusal}
-        pendingComment={pendingComment}
-        onPendingCommentChange={onPendingCommentChange}
-      />
-    ) : null;
-
   return (
-    <Shell {...shellProps} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} trail={trail} viewOnly={!canDraw}>
+    <Shell {...shellProps} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (

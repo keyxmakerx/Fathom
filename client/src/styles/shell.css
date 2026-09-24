@@ -567,10 +567,13 @@ button.shell-search {
   max-width: 100%;
 }
 
-/* ADR-0053 §4 — the Trail panel, beside the drawing. Wider than the editor
-   (`.shell-editor` above): "What changed"/"Why" both need real room, and
-   the two panels are never meant to compete for the same strip — the
-   editor still opens on a selection, the trail on the design itself. */
+/* The trail (ADR-0053 §4): folded to a strip on the right until opened.
+   Wider than the editor, since "What changed" and "Why" need the room. */
+.shell-trail-wrap {
+  display: flex;
+  flex-shrink: 0;
+}
+
 .shell-trail {
   width: 420px;
   flex-shrink: 0;
@@ -579,6 +582,36 @@ button.shell-search {
   overflow: hidden;
   display: flex;
   min-width: 0;
+}
+
+/* The right strip is one button: the handle, then the word "Trail". */
+.shell-strip--trail {
+  margin: 0;
+  padding: 6px 0 0;
+  border: none;
+  border-left: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-strip--trail:hover,
+.shell-strip--trail:hover .shell-strip__handle {
+  color: var(--ink);
+}
+
+.shell-strip--trail:focus-visible {
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: -2px;
+}
+
+.shell-strip__word {
+  writing-mode: vertical-rl;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
 
 /* Where the drawing will be. Session 4 of `docs/NEXT.md` builds the rack;

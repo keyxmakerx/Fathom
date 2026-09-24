@@ -77,11 +77,6 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
    * threaded straight into this place's own `EditorFor` call: "the one
    * editor" holds for Notes exactly as it does for every other field. */
   notesActions: NotesActions;
-  /** ADR-0053 §3 — "a refusal wash naming that change." `RacksPlace.tsx`
-   * shows this in its own `Trail`; Inventory has no Trail mounted, but an
-   * undo requested from here can refuse exactly the same way, so it goes in
-   * the Shell's own `trail` slot rather than landing nowhere. */
-  undoRefusal: string | null;
 }
 
 /**
@@ -95,7 +90,7 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  * unbuilt rather than a grid with nothing behind it.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, undoRefusal, lens, ...shellProps } = props;
+  const { session, onShowOnRack, notesActions, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
@@ -162,10 +157,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       </>
     ) : null;
 
-  const trail = undoRefusal != null ? <div className="inventory-place__refusal">{undoRefusal}</div> : null;
-
   return (
-    <Shell {...shellProps} lens={lens} editor={editorPane} trail={trail} viewOnly={!canDraw}>
+    <Shell {...shellProps} lens={lens} editor={editorPane} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (

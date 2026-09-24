@@ -97,7 +97,10 @@ owner decided:
   sign-in, password change needs the current one, sign-in survives a reload with an idle
   timeout, the organisation recovery key shown once).
 - **Broken drives:** `drive-config-drawer`, `drive-undo-notes` and `drive-first-design` no longer
-  match the code; repair them on one shared harness.
+  match the code; repair them on one shared harness. The trail is folded now: click "Open the
+  trail" before reading its rows.
+- **Built in PR #37:** quick search, the trail strip (in Racks and Inventory), the lens row, the
+  level names. Still to design: the filter view, trail filters, modes and permissions.
 
 **2026-09-22, ADR-0056.** The owner used the ADR-0055 build on a real install and said what was
 wrong with it: three fields, three links, a typed address to mismatch, a second factor a password
