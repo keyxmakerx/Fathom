@@ -91,11 +91,9 @@ owner decided:
   in the interface.
 - **Scale:** 100+ enterprise users in groups with privilege levels; API access later (read,
   read-write, more).
-- **First run:** no code copied out of a file or log. Proposed: a setup password the admin
-  chooses in `.env` beside the address, a setup window, the token file kept for
-  `recover-operator` only. Waiting on the owner's yes, as are S1–S4 (console behind the account
-  sign-in, password change needs the current one, sign-in survives a reload with an idle
-  timeout, the organisation recovery key shown once).
+- **First run and sign-in:** approved 2026-09-24 as ADR-0057: a setup password in `.env`, Site
+  behind the account sign-in, re-authenticated factor changes, sessions that survive a reload with
+  timeouts, and the organisation claim with its recovery key shown once. Built in that order.
 - **Broken drives:** `drive-config-drawer`, `drive-undo-notes` and `drive-first-design` no longer
   match the code; repair them on one shared harness. The trail is folded now: click "Open the
   trail" before reading its rows.
