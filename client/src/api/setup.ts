@@ -1,11 +1,16 @@
-// Whether this deployment has been set up yet, and whether a setup token is
+// Whether this deployment has been set up yet, and whether a setup secret is
 // live — ADR-0056 decisions 1 and 2, against the two routes the server stream
-// adds to `crates/fathom-server/src/api.rs`:
+// adds to `crates/fathom-server/src/api.rs`, amended by ADR-0057 decision 1:
 //
 // | Route | Signed | Body | Answer |
 // |---|---|---|---|
 // | `GET /setup/state` | no | — | `LP("pending" \| "done")` |
-// | `POST /enrolment/operator/setup/check` | no | `LP(token)` | `LP(address)` |
+// | `POST /enrolment/operator/setup/check` | no | `LP(setup_secret)` | `LP(address)` |
+//
+// `setup_secret` is either a recovery code `fathom-server recover-operator`
+// printed (parsed client-side, `../api/enrolment.ts`'s `parseToken`) or this
+// start's setup password, sent as what was typed, unmodified — the caller
+// decides which, this module carries whichever bytes it is handed.
 //
 // Both are unauthenticated by construction: there is no session before the
 // first operator has a password, so they go through plain `fetch` and
@@ -212,11 +217,13 @@ export function useSetupState(): SetupStateHook {
   return hook;
 }
 
-/** `LP(token)` — `POST /enrolment/operator/setup/check`. The 32 raw bytes
- * `./enrolment.ts`'s `parseToken` reads out of the pasted line; the prefix
- * never goes on the wire. */
-export function buildSetupCheckBody(token: Uint8Array): Uint8Array {
-  return concatBytes(lp(token));
+/** `LP(setup_secret)` — `POST /enrolment/operator/setup/check`. Either the 32
+ * raw bytes `./enrolment.ts`'s `parseToken` reads out of a pasted recovery
+ * code (the prefix never goes on the wire), or this start's setup password,
+ * exactly as typed (ADR-0057 decision 1) — the caller has already decided
+ * which. */
+export function buildSetupCheckBody(secret: Uint8Array): Uint8Array {
+  return concatBytes(lp(secret));
 }
 
 /** `LP(address)`, and nothing after it. */
@@ -229,21 +236,22 @@ export function parseSetupCheckAnswer(bytes: Uint8Array): string {
 }
 
 /**
- * `POST /enrolment/operator/setup/check` — is this token live, and whose
- * address does it name?
+ * `POST /enrolment/operator/setup/check` — is this setup secret live, and
+ * whose address does it name?
  *
- * A read: the token is not spent and nothing is sealed, so the person may
- * look before they choose a password, and the address is never typed and so
- * can never mismatch (ADR-0056 decision 2 step 1 — the owner's "give an error
- * if the email doesn't match" is met by removing the field). Every refusal is
- * a 401 with one sentence for wrong, spent, expired and malformed alike;
- * `FirstRun.tsx` shows its own copy for it and does not repeat the server's,
- * which is written for the audit trail.
+ * A read: nothing is spent and nothing is sealed, so the person may look
+ * before they choose a password, and the address is never typed and so can
+ * never mismatch (ADR-0056 decision 2 step 1 — the owner's "give an error if
+ * the email doesn't match" is met by removing the field). Every refusal is a
+ * 401 with one sentence for wrong, spent, expired, an expired window and
+ * setup closed altogether (ADR-0057 decision 1); `FirstRun.tsx`'s
+ * `SETUP_SECRET_REFUSED` is that same sentence, verbatim, rather than a
+ * second copy of it that could drift.
  */
-export async function checkSetupToken(token: Uint8Array): Promise<string> {
+export async function checkSetupToken(secret: Uint8Array): Promise<string> {
   const response = await fetch('/enrolment/operator/setup/check', {
     method: 'POST',
-    body: buildSetupCheckBody(token) as BodyInit,
+    body: buildSetupCheckBody(secret) as BodyInit,
   });
   if (!response.ok) {
     throw await refusalFrom(response);

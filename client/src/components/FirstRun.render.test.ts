@@ -17,7 +17,8 @@ import {
   PasswordStage,
   passwordStepIntro,
   progressLine,
-  SETUP_TOKEN_REFUSED,
+  SETUP_SECRET_REFUSED,
+  SETUP_SECRET_HINT,
   SETUP_STILL_PENDING,
   SETUP_STILL_PENDING_HEADING,
   stepNumber,
@@ -49,7 +50,7 @@ const stepOne = renderToStaticMarkup(
     progress: progressLine(1),
     busy: false,
     submitLabel: 'Continue',
-    refusal: SETUP_TOKEN_REFUSED,
+    refusal: SETUP_SECRET_REFUSED,
     onToken: noop,
     onSubmit: noop,
   }),
@@ -167,8 +168,12 @@ function headings(markup: string): string[] {
 }
 
 describe('the first run, step 1', () => {
-  it('opens on the token and asks for nothing else', () => {
+  it('opens on the setup password and asks for nothing else', () => {
     expect(html).toContain('id="firstrun-token"');
+    expect(html).toContain('Setup password');
+    // ADR-0057 decision 1: typed, not read off a screen -- masked like any
+    // other password field.
+    expect(html).toMatch(/id="firstrun-token"[^]*?type="password"/);
     // The address is the server's to name (decision 2 step 1): nothing is
     // typed here, which is the owner's "give an error if the email doesn't
     // match" met by removing the field. Step 2 shows it, read-only.
@@ -176,23 +181,14 @@ describe('the first run, step 1', () => {
     expect(html).not.toContain('id="firstrun-password"');
   });
 
-  it('says where the token is and how to copy it out', () => {
-    expect(html).toMatch(/docker compose cp/);
-    expect(html).toMatch(/first-operator-token/);
-  });
-
-  it('says the file is written at the first start, not on every restart', () => {
-    // `main.rs` writes it in two places and neither is an ordinary restart:
-    // FIRST START, when the first operator is created, and UPGRADE, when an
-    // older install is adopted. A hint that told a person to copy it again
-    // after the latest restart would send them looking for a change that
-    // never happened.
-    expect(html).toMatch(/written once, at the server(&#x27;|’)s first start/);
-    expect(html).toMatch(/an ordinary restart leaves it alone/);
-    expect(html).not.toMatch(/every restart/i);
-    // And what to do when the file is gone, which is the state that hint was
-    // reaching for.
+  it('says where the setup password comes from, and that a recovery code still works', () => {
+    // ADR-0057 decision 1: a temporary password in .env, not a code pulled
+    // out of a file or a log.
+    expect(html).toMatch(/FATHOM_SETUP_PASSWORD/);
+    expect(html).toMatch(/\.env/);
     expect(html).toMatch(/fathom-server recover-operator/);
+    // And the old token-file instructions are gone.
+    expect(html).not.toMatch(/docker compose cp/);
   });
 
   it('leads with the ADR’s own welcome, and counts the steps', () => {
@@ -203,8 +199,8 @@ describe('the first run, step 1', () => {
   });
 
   it('says the first step spends nothing', () => {
-    // `POST /enrolment/operator/setup/check` is a read: no chain entry, no
-    // token spent. A person who mistypes the line loses nothing by it.
+    // `POST /enrolment/operator/setup/check` is a read: no chain entry,
+    // nothing spent. A person who mistypes the line loses nothing by it.
     expect(html).toMatch(/Nothing is spent by this step/);
   });
 
@@ -217,8 +213,36 @@ describe('the first run, step 1', () => {
   });
 
   it('shows a refusal where the person is looking, without losing the field', () => {
-    expect(stepOne).toContain(SETUP_TOKEN_REFUSED);
+    expect(stepOne).toContain(SETUP_SECRET_REFUSED);
     expect(stepOne).toContain('id="firstrun-token"');
+  });
+
+  it('adds one generic hint under the refusal, and reveals nothing (security review item 7)', () => {
+    expect(stepOne).toContain(SETUP_SECRET_HINT);
+    expect(stepOne).toMatch(/FATHOM_SETUP_PASSWORD/);
+    expect(stepOne).toMatch(/docker compose up -d/);
+    // Nowhere without a refusal does this same-app text appear, because a
+    // hint under a refusal that is not there would be a state disclosure.
+    expect(html).not.toContain(SETUP_SECRET_HINT);
+  });
+
+  it('does not show the setup-secret hint under a rate-limit refusal (security review round 2)', () => {
+    // The rate-limit sentence `describe(error)` produces for a 429 -- "check
+    // FATHOM_SETUP_PASSWORD" would be actively wrong advice under "try again
+    // in N seconds," which is about timing and nothing about the secret.
+    const rateLimited = renderToStaticMarkup(
+      createElement(TokenStage, {
+        token: '',
+        progress: progressLine(1),
+        busy: false,
+        submitLabel: 'Continue',
+        refusal: 'Try again in 30 seconds.',
+        onToken: noop,
+        onSubmit: noop,
+      }),
+    );
+    expect(rateLimited).toContain('Try again in 30 seconds.');
+    expect(rateLimited).not.toContain(SETUP_SECRET_HINT);
   });
 });
 
@@ -421,11 +445,13 @@ describe('step 5, sign in with the new authenticator', () => {
   });
 });
 
-describe('the sentence a refused setup token gets', () => {
-  it('is the ADR’s, and names the token file rather than a cause', () => {
-    // Wrong, spent, expired and malformed are one answer on purpose.
-    expect(SETUP_TOKEN_REFUSED).toBe(
-      'Setup token is missing or invalid. Find the current token in the server’s token file.',
+describe('the sentence a refused setup secret gets', () => {
+  it('is the server’s own sentence, verbatim, and not a second copy of it', () => {
+    // ADR-0057 decision 1: wrong, spent, expired, an expired window and
+    // setup closed altogether are one answer on purpose, and this client
+    // shows the same words the server does rather than risk the two drifting.
+    expect(SETUP_SECRET_REFUSED).toBe(
+      'Setup password is missing, invalid or expired. Setup stays open for 30 minutes after the server starts.',
     );
   });
 });
@@ -554,7 +580,8 @@ describe('the words this flow uses', () => {
       passwordStepIntro(ADDRESS),
       authenticatorStepIntro(ADDRESS),
       finalSignInStepIntro(ADDRESS),
-      SETUP_TOKEN_REFUSED,
+      SETUP_SECRET_REFUSED,
+      SETUP_SECRET_HINT,
       PASSWORD_SET_NOTICE,
       AUTHENTICATOR_SET_NOTICE,
       SETUP_STILL_PENDING,

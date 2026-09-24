@@ -1,10 +1,10 @@
 # Running Fathom — 2026-09-21
 
 Two ways to start it: **Docker Compose**, one published port behind your own reverse proxy, which
-CI runs end to end on every push (image built, stack up, the first-operator token redeemed over
-HTTP, keys kept across a restart) and which needs one variable set first; and **from source**, for
-development. Both end in the same place: a server, a browser client, and one operator who can
-invite people.
+CI runs end to end on every push (image built, stack up, the first operator's setup password
+redeemed over HTTP, keys kept across a restart) and which needs two variables set first; and **from
+source**, for development. Both end in the same place: a server, a browser client, and one operator
+who can invite people.
 
 **Read `docs/STATE.md` for what is and is not built.** The short version, current as of
 2026-09-19 (read the actual page for the rest; this paragraph is corrected here because an
@@ -74,6 +74,7 @@ FATHOM_SCHEMA_ROOT="$PWD/schema" \
 FATHOM_MASTER_KEY="file:///var/lib/fathom/keys/master.key" \
 FATHOM_CHAIN_KEY="file:///var/lib/fathom/keys/chain.key" \
 FATHOM_OPERATOR_NOTICE_ADDRESS="you@example.com" \
+FATHOM_SETUP_PASSWORD='paste-here' \
 FATHOM_BIND="127.0.0.1:8080" \
 ./target/release/fathom-server
 ```
@@ -81,12 +82,18 @@ FATHOM_BIND="127.0.0.1:8080" \
 `FATHOM_OPERATOR_NOTICE_ADDRESS` has no default on purpose. It is the address the first operator is
 created against, and a guessed default would bootstrap an operator nobody can reach.
 
+Put `FATHOM_SETUP_PASSWORD` in single quotes -- an unquoted `$` or `#` changes it before the shell
+or `.env` ever hands it to the server -- and generate it with something like `openssl rand -base64
+24` rather than typing one. `'paste-here'` above is ten characters and the account password policy
+refuses anything under fifteen, on purpose: it cannot be copied out of this page and left in place
+by mistake the way a real-looking example could.
+
 A first start applies every migration, loads both keys, writes `deployment_started` to the audit
-chain, loads the equipment catalogue, and **creates the first operator's account with a one-time
-setup token** (ADR-0055 decision 10). The token opens a setup screen in the browser rather than
-enrolling a browser key — see §5 below. It is written to a file and never to the log, because logs
-get shipped off the machine and a token in a log is a token in whatever holds the logs. The log
-names the path.
+chain, loads the equipment catalogue, and **creates the first operator's account with no stored
+credential**. `FATHOM_SETUP_PASSWORD` — a temporary password in `.env`, ADR-0057 decision 1 — opens
+a setup screen in the browser for thirty minutes, rather than a code pulled out of a file or a log;
+see §5 below. Unset it, or set it to something the account password policy refuses, and setup stays
+closed; the log says which and how to fix it.
 
 Startup refuses rather than half-working. A catalogue that will not parse, a key it cannot read, a
 schema tree that fails a gate, a database role that turns out to be a superuser: each one is an exit
@@ -118,10 +125,11 @@ your server is elsewhere.
 
 ### 5. Sign in
 
-**The first time (ADR-0056).** Open the client. The server knows setup is not finished and shows
-one guided flow and nothing else, five steps: paste the **setup token** from the file step 3 wrote
-(`op_` and 64 hex digits; the screen says where the file is); the server confirms the token and
-shows the address it was started with, so nothing is typed that could mismatch; choose a
+**The first time (ADR-0056, ADR-0057 decision 1).** Open the client. The server knows setup is not
+finished and shows one guided flow and nothing else, five steps: type the **setup password** —
+`FATHOM_SETUP_PASSWORD` from step 3's `.env`, open for thirty minutes after the server starts; a
+recovery code from `fathom-server recover-operator` works in the same field — the server confirms
+it and shows the address it was started with, so nothing is typed that could mismatch; choose a
 **password** of 15 to 128 characters, no composition rules and no expiry, refused only if it is on
 the bundled common-password list or contains the address; **set up your authenticator app** by
 scanning the QR code or entering the setup key, then typing the six-digit verification code it
@@ -182,7 +190,9 @@ Fathom is one published port, plain HTTP, for your reverse proxy to point at, li
 service. From a clean checkout, on a machine with Docker:
 
 ```sh
-cp .env.example .env         # then set FATHOM_OPERATOR_NOTICE_ADDRESS in it
+cp .env.example .env         # then set FATHOM_OPERATOR_NOTICE_ADDRESS and FATHOM_SETUP_PASSWORD in
+                              # it -- the password in single quotes, generated with e.g.
+                              # `openssl rand -base64 24`
 docker compose up -d
 ```
 
@@ -225,22 +235,22 @@ side):
   `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
-To sign in the first time, read the one-time token the first start wrote; the client's first-run
-flow asks for it on its first screen (§5 above says what follows):
+To sign in the first time: open the page, and type the setup password you set in `.env` — the
+client's first-run flow asks for it on its first screen (§5 above says what follows). Nothing is
+copied out of the container and nothing is read from a log.
 
-```sh
-docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
-cat ./first-operator-token
-```
-
-The token is a bearer secret with one use; delete both copies once redeemed. If it is lost before
-that, `docker compose run --rm server recover-operator <address>` prints a fresh ten-minute setup
-code to stdout for the operator already bound to that address — it mints nothing new, and it works
-whether or not the first operator ever finished setup. `reissue-bootstrap-token` is kept as a
-deprecated alias. A deployment first started by a build before ADR-0055 has an operator and no
-binding; the first start of a newer build binds them to the install address and writes the same
-token file (`docs/OPERATING.md`, "What to check after an upgrade"), so start the server once on
-the new build before running `recover-operator` there.
+The password works once, and only for thirty minutes after the server started; after that, or once
+setup is done, remove `FATHOM_SETUP_PASSWORD` from `.env` and run `docker compose up -d` — a plain
+`docker compose restart` does not re-read `.env`
+(docker/compose `docs/reference/compose_restart.md`), so the container keeps the old value until you
+do. The server warns at every start while it is still set and no longer needed. If the window has
+closed and setup still is not done,
+`docker compose run --rm server recover-operator <address>` prints a fresh ten-minute setup code to
+stdout for the operator already bound to that address — it mints nothing new, and it works whether
+or not the first operator ever finished setup. `reissue-bootstrap-token` is kept as a deprecated
+alias. A deployment first started by a build before ADR-0055 has an operator and no binding; the
+first start of a newer build binds them to the install address, and the same setup-password window
+opens for them (`docs/OPERATING.md`, "What to check after an upgrade").
 
 **A blank page under uBlock Origin, and only "Loading failed for the module".** EasyPrivacy, on by
 default in uBlock Origin, carries the filter `/fathom.$domain=~fathom.care|~fathom.co.za|…` for the
@@ -275,9 +285,10 @@ answers everywhere, which the server says at startup. If a placement locks every
 host that confirmed it is gone, `fathom-server console-placement --reset` on the host clears it,
 sealed, back to whatever the environment variables say (or open, if neither is set).
 
-**What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, and nothing else. It is recorded
-once, at first start, and cannot be changed afterwards; a default would create an operator nobody
-can reach.
+**What is required of you.** `FATHOM_OPERATOR_NOTICE_ADDRESS`, recorded once at first start and
+never changeable afterwards — a default would create an operator nobody can reach — and
+`FATHOM_SETUP_PASSWORD` to open the first-run screen at all; without it setup stays closed and the
+log says so.
 
 **What runs.** Two containers plus the one-shot: PostgreSQL 18, and the server (distroless,
 read-only root, unprivileged), which serves the web client itself from the files baked into its
@@ -291,22 +302,21 @@ it. Two ways in, read from Arcane's source on 2026-09-19 (it drives Compose thro
 `docker/compose` library, v5, which knows inline configs):
 
 - **From the repository.** A GitOps sync pointed at this repository with the compose path
-  `compose.yaml`; the repository carries no `.env`, so put `FATHOM_OPERATOR_NOTICE_ADDRESS` in the
-  project's environment in Arcane, which it writes beside the compose file as `project.env` and
-  merges into `.env`.
+  `compose.yaml`; the repository carries no `.env`, so put `FATHOM_OPERATOR_NOTICE_ADDRESS` and
+  `FATHOM_SETUP_PASSWORD` in the project's environment in Arcane, which it writes beside the compose
+  file as `project.env` and merges into `.env`.
 - **Pasted.** Create a project, paste this file's contents as the compose file, and put
-  `FATHOM_OPERATOR_NOTICE_ADDRESS=you@example.com` in its environment. Leave `FATHOM_TAG` unset for
-  the newest published build, or pin `sha-<commit>`. The `build:` section is ignored unless a
-  build is asked for; the image is pulled.
+  `FATHOM_OPERATOR_NOTICE_ADDRESS=you@example.com` and `FATHOM_SETUP_PASSWORD=...` in its
+  environment. Leave `FATHOM_TAG` unset for the newest published build, or pin `sha-<commit>`. The
+  `build:` section is ignored unless a build is asked for; the image is pulled.
 
-Either way the first-operator token is read the same way as above; a front end's console on the
-`server` container will not do, because the image has no shell, so use `docker compose cp` from a
-terminal on the host.
+Either way the setup password opens the first screen the same way as above — typed into the page,
+nothing copied out of the container.
 
 **Proven where.** `.github/workflows/ci.yml`'s `compose` job builds the image from the checkout
 on every push and pull request (under a tag no registry holds, so it never pulls a published image
 in place of the one it built), brings the stack up, waits for the server's healthcheck, fetches
-`/health` and the client on the published port, reads the first-operator token, restarts the
+`/health` and the client on the published port, redeems the setup password over HTTP, restarts the
 server and checks the keys were kept. Before 2026-09-19 nobody had run this file at all, because
 the environment it was written in has no Docker daemon; four first-start faults were found by
 reading it and two more by that job's first runs.

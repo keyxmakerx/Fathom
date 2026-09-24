@@ -27,16 +27,16 @@
 mod support;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use deadpool_postgres::Pool;
 use fathom_server::api::{self, CredentialApiState};
 use fathom_server::chains;
 use fathom_server::client_address::ClientAddress;
-use fathom_server::credentials::{self, CredentialError, CredentialStore, SetupState};
+use fathom_server::credentials::{self, CredentialError, CredentialStore, SetupSecret, SetupState};
 use fathom_server::crypto::Key32;
 use fathom_server::keys::KeyRing;
-use fathom_server::operators::OperatorStore;
+use fathom_server::operators::{OperatorError, OperatorStore};
 use fathom_server::sessions::{SessionStore, SignInLimits};
 
 /// The same master key every other suite uses: ADR-0043 §4 stamps the
@@ -123,10 +123,21 @@ async fn a_fresh_deployment(tag: &str) -> Deployment {
 impl Deployment {
     /// The routes as `main.rs` mounts them, on a loopback port.
     async fn surface(&self) -> std::net::SocketAddr {
+        self.surface_with_setup_secret(None).await
+    }
+
+    /// [`Deployment::surface`], with an ADR-0057 setup secret live behind it
+    /// — the shape `main.rs` builds whenever `FATHOM_SETUP_PASSWORD` passes
+    /// the policy and this deployment's first operator is still pending.
+    async fn surface_with_setup_secret(
+        &self,
+        setup_secret: Option<credentials::SetupSecret>,
+    ) -> std::net::SocketAddr {
         serve(api::credential_router(CredentialApiState {
             sessions: Arc::clone(&self.sessions),
             credentials: Arc::clone(&self.credentials),
             operators: Arc::clone(&self.operators),
+            setup_secret,
             client_address: ClientAddress::header("x-forwarded-for"),
         }))
         .await
@@ -198,8 +209,10 @@ async fn the_state_is_pending_after_a_first_start_and_done_once_the_credential_i
     it.credentials
         .redeem_setup(
             &it.operators,
-            &bootstrap.invitation.token,
+            None,
+            &support::recovery_code_text(&bootstrap.invitation.token),
             A_REAL_CREDENTIAL,
+            "198.51.100.1",
         )
         .await
         .expect("the setup token sets the first operator's credential");
@@ -290,7 +303,13 @@ async fn an_adopted_first_operator_is_pending_until_the_credential_is_set() {
     );
 
     it.credentials
-        .redeem_setup(&it.operators, &invitation.token, A_REAL_CREDENTIAL)
+        .redeem_setup(
+            &it.operators,
+            None,
+            &support::recovery_code_text(&invitation.token),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
         .await
         .expect("the setup token sets the adopted operator's credential");
 
@@ -680,11 +699,14 @@ async fn the_check_names_the_address_and_leaves_the_token_live() {
         .bootstrap_first_operator(&address, &address)
         .await
         .expect("a first start with no operator mints one");
-    let token = bootstrap.invitation.token.to_vec();
+    // What a real client now sends -- security review round 2, item 5: the
+    // `op_` line, as typed text, not the 32 raw bytes a client-side decode
+    // used to produce.
+    let token = support::recovery_code_text(&bootstrap.invitation.token);
 
     let named = it
         .credentials
-        .check_setup(&it.operators, &token)
+        .check_setup(&it.operators, None, &token, "198.51.100.1")
         .await
         .expect("a live setup token names the address it opens");
     assert_eq!(named, address);
@@ -705,7 +727,13 @@ async fn the_check_names_the_address_and_leaves_the_token_live() {
     // Nothing was spent and nothing was written: the redemption still works,
     // which it could not if the check had marked the row.
     it.credentials
-        .redeem_setup(&it.operators, &token, A_REAL_CREDENTIAL)
+        .redeem_setup(
+            &it.operators,
+            None,
+            &token,
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
         .await
         .expect("the check spent nothing, so the setup screen can still finish");
 }
@@ -735,15 +763,16 @@ async fn the_check_writes_nothing_to_the_chain() {
             .get::<_, i64>(0)
     };
 
+    let token = support::recovery_code_text(&bootstrap.invitation.token);
     let before = entries().await;
     for _ in 0..5 {
         let _ = it
             .credentials
-            .check_setup(&it.operators, &bootstrap.invitation.token)
+            .check_setup(&it.operators, None, &token, "198.51.100.1")
             .await;
         let _ = it
             .credentials
-            .check_setup(&it.operators, b"not a token")
+            .check_setup(&it.operators, None, b"not a token", "198.51.100.1")
             .await;
     }
     assert_eq!(
@@ -786,10 +815,13 @@ async fn every_refused_setup_token_gets_the_same_bytes() {
     let su = support::superuser_on_isolated(TAG).await;
 
     // A token that was never issued, one made of nothing, and one whose bytes
-    // are not a token's length at all.
+    // are not a token's length at all. "Never issued" is the `op_` + hex
+    // SHAPE a real recovery code has -- security review round 2, item 5 --
+    // so this still exercises the database lookup that finds nothing, not
+    // just `parse_recovery_code`'s own shape check.
     let mut answers = Vec::new();
     for (what, token) in [
-        ("never issued", vec![9u8; 32]),
+        ("never issued", support::recovery_code_text(&[9u8; 32])),
         ("empty", Vec::new()),
         ("not token-shaped", b"op_paste-the-whole-line".to_vec()),
     ] {
@@ -798,17 +830,20 @@ async fn every_refused_setup_token_gets_the_same_bytes() {
 
     // A spent one: the setup finishes, and the file on the volume is now a
     // dead letter. This is the case a person actually hits.
+    let bootstrap_text = support::recovery_code_text(&bootstrap.invitation.token);
     it.credentials
         .redeem_setup(
             &it.operators,
-            &bootstrap.invitation.token,
+            None,
+            &bootstrap_text,
             A_REAL_CREDENTIAL,
+            "198.51.100.1",
         )
         .await
         .expect("the setup token sets the credential");
     answers.push((
         "spent".to_string(),
-        check_over_the_wire(addr, &bootstrap.invitation.token).await,
+        check_over_the_wire(addr, &bootstrap_text).await,
     ));
 
     // An expired one: a second token — ADR-0055 decision 8's break-glass code,
@@ -830,7 +865,11 @@ async fn every_refused_setup_token_gets_the_same_bytes() {
     .expect("move the expiry");
     answers.push((
         "expired".to_string(),
-        check_over_the_wire(addr, &reissued.invitation.token).await,
+        check_over_the_wire(
+            addr,
+            &support::recovery_code_text(&reissued.invitation.token),
+        )
+        .await,
     ));
 
     let (_, first) = answers.first().expect("five of them").clone();
@@ -845,17 +884,833 @@ async fn every_refused_setup_token_gets_the_same_bytes() {
     assert_eq!(first.0, "401", "and that one answer is a 401");
     assert_eq!(
         String::from_utf8_lossy(&first.2),
-        "setup token refused\n",
-        "the sentence names what was refused — a token in a file, not a credential — because a \
-         person holding the wrong file has to know which thing to fetch again"
+        format!("{}\n", credentials::SETUP_SECRET_REFUSED),
+        "ADR-0057 decision 1's one sentence for every refused setup secret, whichever of \
+         wrong, spent, expired or malformed caused it"
     );
 
     // The typed refusal underneath is the one every token path gives.
-    let refused = it.credentials.check_setup(&it.operators, b"rubbish").await;
+    let refused = it
+        .credentials
+        .check_setup(&it.operators, None, b"rubbish", "198.51.100.1")
+        .await;
     assert!(
         matches!(refused, Err(CredentialError::TokenRefused)),
         "got {refused:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 1 — the setup password, in place of the token file
+// ---------------------------------------------------------------------------
+
+/// A real setup password, of the shape a person would actually put in
+/// `.env`: past the fifteen-character floor, not on the bundled common list.
+const A_REAL_SETUP_PASSWORD: &str = "meadow-compass-ferry-eleven";
+
+/// **The right password, inside the window, answers the address and spends
+/// once.**
+///
+/// ADR-0057 decision 1: a match hands the in-memory token to the same check
+/// and spend path a recovery code already uses, so the check names the
+/// address without spending, and the redemption spends it — once.
+#[tokio::test]
+async fn the_right_setup_password_inside_the_window_checks_and_spends_once() {
+    const TAG: &str = "setup_password_right";
+    let it = a_fresh_deployment(TAG).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints a fresh setup token at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    // A read: the address, and nothing spent.
+    let named = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "198.51.100.1",
+        )
+        .await
+        .expect("the right password inside the window names the address");
+    assert_eq!(named, address);
+
+    // Over the wire, exactly the field a browser sends: what was typed,
+    // unmodified.
+    let addr = it.surface_with_setup_secret(Some(secret.clone())).await;
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/operator/setup/check",
+        &[("x-forwarded-for", a_source_of_its_own())],
+        &lp(A_REAL_SETUP_PASSWORD.as_bytes()),
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(read_lp(&body), address.as_bytes());
+
+    // The redemption spends the in-memory token, once.
+    it.credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
+        .await
+        .expect("the right password inside the window sets the credential");
+
+    let again = it
+        .credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "some-other-real-password-9",
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(again, Err(CredentialError::TokenRefused)),
+        "the in-memory token is single use, exactly as a token file's was: {again:?}"
+    );
+}
+
+/// **A wrong password is refused exactly like a bad token**: the same status,
+/// the same sentence, and no session.
+#[tokio::test]
+async fn a_wrong_setup_password_is_refused_like_a_bad_token() {
+    const TAG: &str = "setup_password_wrong";
+    let it = a_fresh_deployment(TAG).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("a fresh setup token");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    let refused = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            b"not-the-right-password-at-all",
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(CredentialError::TokenRefused)),
+        "got {refused:?}"
+    );
+
+    let addr = it.surface_with_setup_secret(Some(secret)).await;
+    let (status, _headers, body) =
+        check_over_the_wire(addr, b"not-the-right-password-at-all").await;
+    assert_eq!(status, "401");
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        format!("{}\n", credentials::SETUP_SECRET_REFUSED)
+    );
+}
+
+/// **After the window closes, the right password is refused too** — decision
+/// 1's *"Open for 30 minutes after the server starts. After that, setup is
+/// closed until a restart."* Driven with the window itself, not with a sleep:
+/// `SetupSecret::token_for`'s own unit tests in `credentials.rs` pin the exact
+/// second; this is the same claim over the wire.
+#[tokio::test]
+async fn the_setup_password_is_refused_once_its_window_has_closed() {
+    const TAG: &str = "setup_password_window";
+    let it = a_fresh_deployment(TAG).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("a fresh setup token");
+    // A window that closed before this test started: every real `Instant::now()`
+    // this call could observe is already past it.
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() - Duration::from_secs(1),
+    );
+
+    let refused = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(CredentialError::TokenRefused)),
+        "the window closed, so the right password is refused too: {refused:?}"
+    );
+}
+
+/// **Setup is closed with no live password at all**: `main.rs` never builds a
+/// [`SetupSecret`] when `FATHOM_SETUP_PASSWORD` is unset, too short, or on the
+/// bundled common list, so the field's only working shape left is a recovery
+/// code.
+#[tokio::test]
+async fn with_no_setup_secret_a_password_shaped_field_is_refused() {
+    const TAG: &str = "setup_password_closed";
+    let it = a_fresh_deployment(TAG).await;
+
+    let address = unique("owner@example.org");
+    it.operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // `main.rs` passes `None` for every one of these: unset, too short (under
+    // `PASSWORD_MIN`), and a bundled common password — the same policy
+    // `credentials::check_password` enforces for a person's own password.
+    for candidate in [A_REAL_SETUP_PASSWORD, "short", "aaaaaaaaaaaaaaaaaaaaaaaaaa"] {
+        let refused = it
+            .credentials
+            .check_setup(&it.operators, None, candidate.as_bytes(), "198.51.100.1")
+            .await;
+        assert!(
+            matches!(refused, Err(CredentialError::TokenRefused)),
+            "with no setup secret configured, {candidate:?} must be refused: {refused:?}"
+        );
+    }
+}
+
+/// **A recovery code still works, unchanged, with a setup password live
+/// beside it.** ADR-0057 decision 1: *"If it has the recovery-code shape ...
+/// handle it exactly as today."* The two paths do not interfere.
+#[tokio::test]
+async fn a_recovery_code_still_works_with_a_setup_password_live() {
+    const TAG: &str = "setup_password_recovery_still_works";
+    let it = a_fresh_deployment(TAG).await;
+
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // The in-memory setup secret this start would carry, exactly as main.rs
+    // builds one.
+    let this_starts_token = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints one at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        this_starts_token.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    // Break-glass, from the host, beside it — ADR-0055 decision 8's
+    // `fathom-server recover-operator`, minted independently.
+    let reissued = it
+        .operators
+        .recover_operator(&address)
+        .await
+        .expect("the host can mint a recovery code for a bound operator");
+    let reissued_text = support::recovery_code_text(&reissued.invitation.token);
+
+    let named = it
+        .credentials
+        .check_setup(&it.operators, Some(&secret), &reissued_text, "198.51.100.1")
+        .await
+        .expect("the recovery code still opens the check, password or no password");
+    assert_eq!(named, address);
+
+    it.credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            &reissued_text,
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
+        .await
+        .expect("the recovery code still redeems");
+
+    // And the setup password's own token is now refused too — not because the
+    // recovery redemption above "spent" it (it is a different row), but
+    // because `recover_operator` expires every OTHER live `purpose = 'setup'`
+    // token for this operator as part of running at all (ADR-0055 decision
+    // 8's own rule, kept unchanged). A live setup-password window a
+    // `recover-operator` run happens to cross does not survive it, the same
+    // as it would not survive a second restart minting a fresh one.
+    let after = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(after, Err(CredentialError::TokenRefused)),
+        "recover_operator expires every other live setup token for this operator, so the \
+         setup password's own token no longer resolves: {after:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The security review's two probes, as regression tests
+// ---------------------------------------------------------------------------
+
+/// **Two live setup-password tokens for one seat cannot both act.**
+///
+/// The blocking finding: two interchangeable containers, each minting its own
+/// `purpose = 'setup'` token at start, both matched the same
+/// `FATHOM_SETUP_PASSWORD`. Finishing setup through the first must leave the
+/// second refused, not merely spent-and-then-refused-later — the guard is
+/// `AND password_hash IS NULL` on the write itself, so a second live token
+/// that is still, on its own terms, unredeemed cannot overwrite the password
+/// the first one just set. `redeem_setup_by_token`'s own sweep — spending any
+/// setup-class token expires every other live one for the operator — would
+/// already refuse the second attempt on its own; this test's real claim is
+/// about the account row, so it reads the stored hash directly rather than
+/// trusting a refusal alone to mean nothing changed.
+#[tokio::test]
+async fn a_second_live_setup_token_cannot_overwrite_a_finished_setup() {
+    const TAG: &str = "setup_password_two_containers";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let forever = Instant::now() + Duration::from_secs(3600);
+    let t_a = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("container A mints its own token at start");
+    let t_b = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("container B mints its own token at start");
+    let a = SetupSecret::new(A_REAL_SETUP_PASSWORD, t_a.token, forever);
+    let b = SetupSecret::new(A_REAL_SETUP_PASSWORD, t_b.token, forever);
+
+    it.credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&a),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
+        .await
+        .expect("the installer finishes through container A");
+
+    let attacker = "attacker-chosen-passphrase-q7";
+    let through_b = it
+        .credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&b),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            attacker,
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(through_b, Err(CredentialError::TokenRefused)),
+        "container B must be refused once setup is finished: {through_b:?}"
+    );
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let stored_hash: Option<String> = su
+        .query_one(
+            "SELECT password_hash FROM accounts WHERE email = $1",
+            &[&address],
+        )
+        .await
+        .expect("read the account")
+        .get(0);
+    let stored_hash = stored_hash.expect("a password is stored");
+    assert!(
+        credentials::verify_password(&stored_hash, A_REAL_CREDENTIAL),
+        "the installer's own password must still be the one that verifies"
+    );
+    assert!(
+        !credentials::verify_password(&stored_hash, attacker),
+        "container B's password must never have been written"
+    );
+
+    // And the check route, reached through B, must not name the address
+    // either — decision 1's guard covers the read as well as the write.
+    let checked_through_b = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&b),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(checked_through_b, Err(CredentialError::TokenRefused)),
+        "the check route must refuse too, once setup is finished: {checked_through_b:?}"
+    );
+}
+
+/// **A recovery code minted before a restart cannot be beaten to the account
+/// row by that restart's own setup password.**
+///
+/// The second probe: `fathom-server recover-operator` mints a code, the
+/// server restarts and mints its own `purpose = 'setup'` token (T) for
+/// `FATHOM_SETUP_PASSWORD`, and the installer redeems the recovery code
+/// first. T must not still be able to set a different password afterwards.
+#[tokio::test]
+async fn a_setup_password_cannot_overwrite_a_setup_finished_by_a_recovery_code() {
+    const TAG: &str = "setup_password_recovery_first";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // The recovery code, minted first.
+    let reissued = it
+        .operators
+        .recover_operator(&address)
+        .await
+        .expect("the host can mint a recovery code for a bound operator");
+    // The restart: main.rs mints this start's own token.
+    let t = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints one at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        t.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    it.credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            &support::recovery_code_text(&reissued.invitation.token),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
+        .await
+        .expect("the installer uses the recovery code first");
+
+    let attacker = "attacker-chosen-passphrase-q7";
+    let through_t = it
+        .credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            attacker,
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(through_t, Err(CredentialError::TokenRefused)),
+        "T must be refused once the recovery code has finished setup: {through_t:?}"
+    );
+
+    let su = support::superuser_on_isolated(TAG).await;
+    let stored_hash: Option<String> = su
+        .query_one(
+            "SELECT password_hash FROM accounts WHERE email = $1",
+            &[&address],
+        )
+        .await
+        .expect("read the account")
+        .get(0);
+    let stored_hash = stored_hash.expect("a password is stored");
+    assert!(
+        credentials::verify_password(&stored_hash, A_REAL_CREDENTIAL),
+        "the recovery code's own password must still be the one that verifies"
+    );
+    assert!(
+        !credentials::verify_password(&stored_hash, attacker),
+        "the setup password must never have overwritten it"
+    );
+}
+
+/// **The brute-force limit — security review item 4.** Twenty refused setup
+/// secrets close the setup password comparison for the rest of this
+/// process; a recovery code, which is 256 bits and not a realistic guessing
+/// target, is untouched by it.
+#[tokio::test]
+async fn twenty_refused_setup_secrets_close_the_password_but_not_a_recovery_code() {
+    const TAG: &str = "setup_password_brute_force_limit";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let t = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints one at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        t.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    for attempt in 0..20 {
+        let refused = it
+            .credentials
+            .check_setup(
+                &it.operators,
+                Some(&secret),
+                b"not-the-right-password-at-all",
+                "198.51.100.1",
+            )
+            .await;
+        assert!(
+            matches!(refused, Err(CredentialError::TokenRefused)),
+            "attempt {attempt}: {refused:?}"
+        );
+    }
+
+    // The right password, tried for the very first time only after the
+    // limit, is refused too: the comparison itself has stopped running, not
+    // merely stopped matching this one wrong guess.
+    let after_limit = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            "198.51.100.1",
+        )
+        .await;
+    assert!(
+        matches!(after_limit, Err(CredentialError::TokenRefused)),
+        "the setup password must be closed once the limit is reached: {after_limit:?}"
+    );
+
+    // A recovery code, minted independently after the limit was reached,
+    // still works: the limit closes only the guessable half of setup.
+    let reissued = it
+        .operators
+        .recover_operator(&address)
+        .await
+        .expect("the host can still mint a recovery code once the limit is reached");
+    let named = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            &support::recovery_code_text(&reissued.invitation.token),
+            "198.51.100.1",
+        )
+        .await
+        .expect("a recovery code must still open the check after the limit is reached");
+    assert_eq!(named, address);
+}
+
+// ---------------------------------------------------------------------------
+// The security review's round-2 probes, as regression tests
+// ---------------------------------------------------------------------------
+
+/// A hand-rolled `join_all`: every future in `futs` is polled once, in
+/// order, on each pass, so every one of them runs up to its own first real
+/// `await` before any of them completes.
+///
+/// **Why this and not `futures::future::join_all`.** The property item A's
+/// test below relies on is not merely "these run concurrently" but the exact
+/// ORDER their synchronous prefixes run in: [`reserve_setup_secret_attempt`]
+/// (`credentials.rs`) is a plain `std::sync::Mutex`, never an `await`, so on
+/// the very first poll of each of these futures the reservation for that
+/// attempt happens deterministically before any of them reaches a real
+/// `await` (the connection pool). Polling index 0 first, then 1, then 2, and
+/// so on, on the very first pass, is what makes the reservation order match
+/// the array order — which is what turns "sixty concurrent attempts" into a
+/// test with a knowable answer rather than a flake.
+async fn poll_concurrently<F: std::future::Future>(futs: Vec<F>) -> Vec<F::Output> {
+    use std::task::Poll;
+    let mut futs: Vec<std::pin::Pin<Box<F>>> = futs.into_iter().map(Box::pin).collect();
+    let mut out: Vec<Option<F::Output>> = (0..futs.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut all_ready = true;
+        for (i, f) in futs.iter_mut().enumerate() {
+            if out[i].is_none() {
+                match f.as_mut().poll(cx) {
+                    Poll::Ready(v) => out[i] = Some(v),
+                    Poll::Pending => all_ready = false,
+                }
+            }
+        }
+        if all_ready {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
+    .await;
+    out.into_iter()
+        .map(|o| o.expect("polled to completion"))
+        .collect()
+}
+
+/// **Security review, round 2, item A: the refusal limit cannot be beaten by
+/// concurrency.**
+///
+/// Verified by the review with sixty concurrent checks against one setup
+/// password, fifty-nine wrong and the right one last: every one of the
+/// sixty got a live comparison, including the right password, because the
+/// budget was read, then compared, then spent, as three separate steps —
+/// sixty callers could each read "budget remains" before any of them had
+/// finished comparing anything. The fix makes the read and the spend one
+/// atomic step (`credentials::reserve_setup_secret_attempt`), so a burst
+/// this size can reserve at most twenty attempts between it, however they
+/// race.
+///
+/// This test reproduces the review's exact shape and, thanks to
+/// [`poll_concurrently`]'s deterministic first-pass ordering, has a
+/// deterministic answer: the twenty wrong guesses at indices 0 through 19
+/// take every reservation there is, so the right password — index 59, last
+/// in the burst — never gets a comparison at all and is refused along with
+/// everything after index 19. Before the fix this exact password, in this
+/// exact position, came back `Ok`.
+#[tokio::test]
+async fn a_burst_of_sixty_cannot_reserve_more_attempts_than_the_limit() {
+    const TAG: &str = "setup_password_burst";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints one at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    let wrong: Vec<String> = (0..59)
+        .map(|i| format!("wrong-guess-number-{i:03}-xyz"))
+        .collect();
+    let mut candidates: Vec<&[u8]> = wrong.iter().map(|w| w.as_bytes()).collect();
+    candidates.push(A_REAL_SETUP_PASSWORD.as_bytes());
+    assert_eq!(candidates.len(), 60, "fifty-nine wrong, the right one last");
+
+    let source = "203.0.113.9";
+    let futs: Vec<_> = candidates
+        .iter()
+        .map(|c| {
+            it.credentials
+                .check_setup(&it.operators, Some(&secret), c, source)
+        })
+        .collect();
+    let results = poll_concurrently(futs).await;
+
+    let right_answer = results.last().expect("sixty results");
+    assert!(
+        matches!(right_answer, Err(CredentialError::TokenRefused)),
+        "the right password, last in a sixty-wide burst, must be refused once twenty attempts \
+         ahead of it have already spent the budget: got {right_answer:?}"
+    );
+    assert!(
+        results
+            .iter()
+            .all(|r| matches!(r, Err(CredentialError::TokenRefused))),
+        "every one of the sixty must be refused -- fifty-nine for being wrong and the sixtieth \
+         for arriving with no budget left: {results:?}"
+    );
+
+    // And with the budget spent, the SAME right password, tried again on its
+    // own with nothing racing it, is refused too -- the comparison itself
+    // has stopped running, not merely lost the race that one time.
+    let after = it
+        .credentials
+        .check_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            source,
+        )
+        .await;
+    assert!(
+        matches!(after, Err(CredentialError::TokenRefused)),
+        "the limit must stay closed after the burst, not just during it: {after:?}"
+    );
+}
+
+/// **Security review, round 2, item B: a redemption racing a concurrent
+/// sweep does not corrupt the token it loses to.**
+///
+/// The cause: spending any setup-class token now expires the operator's
+/// every other live one (`operators::expire_live_tokens`, ADR-0057 decision
+/// 1's fix round). Redeeming the setup password's own token T and redeeming
+/// a recovery code R, minted before it, at the same moment, makes each
+/// redemption the other's concurrent expirer: T's redemption tries to expire
+/// R as "every other live token" while R's redemption is itself in flight,
+/// and the reverse. Verified by the review 3 of 3 with `tokio::join!`.
+///
+/// Exactly one of the two may win. Whichever does not must be refused
+/// cleanly — not corrupt the row it raced, and not leave the account with a
+/// password that verifies as neither of the two candidates.
+#[tokio::test]
+async fn a_setup_password_and_a_recovery_code_redeemed_at_once_cannot_corrupt_either_token() {
+    const TAG: &str = "setup_password_redemption_race";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+
+    // R, minted first -- "a recovery code minted before a restart."
+    let reissued = it
+        .operators
+        .recover_operator(&address)
+        .await
+        .expect("the host can mint a recovery code for a bound operator");
+    // T, the restart's own token.
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints one at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    let by_password = "harbour-quill-meadow-ninety";
+    let by_recovery = "copper-lantern-orchid-seven";
+    let r_text = support::recovery_code_text(&reissued.invitation.token);
+
+    let via_t = it.credentials.redeem_setup(
+        &it.operators,
+        Some(&secret),
+        A_REAL_SETUP_PASSWORD.as_bytes(),
+        by_password,
+        "192.0.2.3",
+    );
+    let via_r = it.credentials.redeem_setup(
+        &it.operators,
+        Some(&secret),
+        &r_text,
+        by_recovery,
+        "192.0.2.4",
+    );
+    let (t_result, r_result) = tokio::join!(via_t, via_r);
+
+    // Exactly one path won.
+    let t_won = t_result.is_ok();
+    let r_won = r_result.is_ok();
+    assert_ne!(
+        t_won, r_won,
+        "exactly one of the two concurrent redemptions must succeed, never both and never \
+         neither: T {t_result:?}, R {r_result:?}"
+    );
+
+    // The stored password is the winner's, and only the winner's.
+    let su = support::superuser_on_isolated(TAG).await;
+    let stored_hash: Option<String> = su
+        .query_one(
+            "SELECT password_hash FROM accounts WHERE email = $1",
+            &[&address],
+        )
+        .await
+        .expect("read the account")
+        .get(0);
+    let stored_hash = stored_hash.expect("one of the two redemptions set a password");
+    let winner_password = if t_won { by_password } else { by_recovery };
+    let loser_password = if t_won { by_recovery } else { by_password };
+    assert!(
+        credentials::verify_password(&stored_hash, winner_password),
+        "the winner's password must be the one stored"
+    );
+    assert!(
+        !credentials::verify_password(&stored_hash, loser_password),
+        "the loser's password must never have reached the account, whichever lost"
+    );
+
+    // Neither token row was corrupted: reading each back through the store's
+    // own check must not come back `Unverifiable` -- a seal that does not
+    // match what is actually stored. `Ok` (still live, the loser's own
+    // token when the loser's redemption never got as far as spending it) and
+    // `EnrolmentRefused` (spent, or expired by the winner's sweep) are both
+    // fine; a corrupt seal is the one answer that means this test failed.
+    let mut client = it.pool.get().await.expect("a connection");
+    let tx = client.transaction().await.expect("a transaction");
+    tx.batch_execute(
+        "SELECT set_config('app.design_capability', 'no', true); \
+         SELECT set_config('app.enrolment_custody', 'yes', true); \
+         SELECT set_config('app.operator_custody', 'yes', true);",
+    )
+    .await
+    .expect("the read custodies");
+    let t_check = it.operators.check_setup_token(&tx, &invitation.token).await;
+    let r_check = it
+        .operators
+        .check_setup_token(&tx, &reissued.invitation.token)
+        .await;
+    for (name, result) in [("T", &t_check), ("R", &r_check)] {
+        assert!(
+            !matches!(result, Err(OperatorError::Unverifiable(_))),
+            "{name}'s row seal must still verify after the race, whichever redemption won: \
+             {result:?}"
+        );
+    }
 }
 
 /// The check route's whole answer: status, headers and body, so that "the same

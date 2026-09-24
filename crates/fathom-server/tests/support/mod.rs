@@ -681,3 +681,24 @@ pub async fn superuser_client() -> tokio_postgres::Client {
     });
     client
 }
+
+/// **What a real client now sends for a recovery code — security review,
+/// round 2, item 5, finished.** `client/src/components/FirstRun.tsx`'s
+/// `setupSecretBytes` no longer decodes an `op_` line to raw bytes before
+/// sending it; it sends exactly what was typed, as UTF-8, and
+/// `credentials::parse_recovery_code` on the server is the one place left
+/// that decodes it. A test that still handed `redeem_setup` or `check_setup`
+/// a token's raw 32 bytes directly would be testing a wire shape no real
+/// client produces any more; this is what to hand them instead -- the same
+/// `op_` plus lower-case hex `fathom-server recover-operator` prints to
+/// stdout (`main.rs`) and `client/src/api/enrolment.ts`'s `formatToken`
+/// writes.
+#[allow(dead_code)]
+pub fn recovery_code_text(token: &[u8]) -> Vec<u8> {
+    let mut out = String::with_capacity(3 + token.len() * 2);
+    out.push_str("op_");
+    for byte in token {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out.into_bytes()
+}

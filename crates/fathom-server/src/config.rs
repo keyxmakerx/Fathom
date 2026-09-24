@@ -236,6 +236,29 @@ pub struct Config {
     /// requested at all.
     pub operator_notice_address: Option<String>,
 
+    /// ADR-0057 decision 1: a temporary setup password, set in `.env` rather
+    /// than read out of a file or a log. `FATHOM_SETUP_PASSWORD`, unset by
+    /// default.
+    ///
+    /// **Read at every start, like [`Config::operator_notice_address`]
+    /// beside it, and checked at every start** against the account password
+    /// policy `credentials::check_password` already enforces (fifteen to a
+    /// hundred twenty-eight characters, not on the bundled common list, not
+    /// containing the notice address): `main.rs` is where a failing or unset
+    /// value closes setup and says which, never here — this field only reads
+    /// what was given, so a `Config` on its own says nothing about whether
+    /// setup is open.
+    ///
+    /// **A [`Secret`] like every other credential this binary reads from the
+    /// environment.** Not trimmed: ADR-0057 decision 1's own client sends
+    /// what was typed, unmodified, so what this holds must be exactly what
+    /// was put in `.env` for the two to ever compare equal. **Empty is still
+    /// `None`, though**: `compose.yaml` passes this through
+    /// `${FATHOM_SETUP_PASSWORD:-}`, so a deployment that never set it in
+    /// `.env` has the variable arrive as an empty string, not an absent one,
+    /// and the two get different log lines in `main.rs`.
+    pub setup_password: Option<Secret<String>>,
+
     /// Where the first operator's enrolment token is written — by a first
     /// start, and by `fathom-server reissue-bootstrap-token`.
     /// `FATHOM_BOOTSTRAP_TOKEN_FILE`, default
@@ -600,6 +623,19 @@ impl Config {
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
 
+        // Filtered on emptiness, but the surviving value is NOT trimmed.
+        // `compose.yaml` passes this through `${FATHOM_SETUP_PASSWORD:-}`, so
+        // an operator who never set it in `.env` still has the variable
+        // ARRIVE, as an empty string, and without the filter that would read
+        // as "set to something" rather than "not set" — the wrong one of
+        // `main.rs`'s two log lines. A value that is not empty is kept
+        // exactly as given: ADR-0057 decision 1's client sends what was
+        // typed, unmodified, so what this holds must be exactly what was put
+        // in `.env` for the two to ever compare equal.
+        let setup_password = get("FATHOM_SETUP_PASSWORD")
+            .filter(|v| !v.is_empty())
+            .map(Secret::new);
+
         // Trimmed, and an all-whitespace value falls back to the default
         // exactly as `FATHOM_SCHEMA_ROOT` does: a template that filled
         // nothing in must not leave this server trying to create a file
@@ -705,6 +741,7 @@ impl Config {
             forwarded_hops,
             single_operator,
             operator_notice_address,
+            setup_password,
             bootstrap_token_file,
             firmware_dir,
             client_root,
@@ -1264,5 +1301,60 @@ mod tests {
             .expect("a migrate URL was configured");
         assert!(!logged.contains("hunter2"), "{logged}");
         assert!(logged.contains("db.internal"), "{logged}");
+    }
+
+    // ---- ADR-0057 decision 1: the setup password -------------------------
+
+    #[test]
+    fn no_setup_password_means_none() {
+        let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert!(c.setup_password.is_none());
+    }
+
+    #[test]
+    fn an_empty_setup_password_is_also_none() {
+        // `compose.yaml` passes this through `${FATHOM_SETUP_PASSWORD:-}`, so
+        // a deployment that never set it in `.env` still has the variable
+        // ARRIVE here as an empty string, not as an absent one. Without this,
+        // `main.rs` would log "does not meet policy" for a deployment that
+        // simply never configured setup, which is the wrong one of its two
+        // messages.
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_SETUP_PASSWORD", ""),
+        ]))
+        .unwrap();
+        assert!(c.setup_password.is_none());
+    }
+
+    #[test]
+    fn the_setup_password_is_read_exactly_as_given_and_not_trimmed() {
+        // The client sends what was typed, unmodified (ADR-0057 decision 1),
+        // so a value with meaningful leading or trailing characters must
+        // survive here unchanged for the two to ever compare equal.
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            (
+                "FATHOM_SETUP_PASSWORD",
+                " correct horse battery staple padding ",
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            c.setup_password.as_ref().map(|p| p.expose().as_str()),
+            Some(" correct horse battery staple padding ")
+        );
+    }
+
+    #[test]
+    fn the_setup_password_is_a_secret_like_every_other() {
+        let c = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_SETUP_PASSWORD", "hunter2-hunter2-hunter2"),
+        ]))
+        .unwrap();
+        for rendered in [format!("{c:?}"), format!("{c:#?}")] {
+            assert!(!rendered.contains("hunter2"), "{rendered}");
+        }
     }
 }
