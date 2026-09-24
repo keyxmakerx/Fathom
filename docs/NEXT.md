@@ -93,10 +93,12 @@ owner decided:
   read-write, more).
 - **First run and sign-in:** approved 2026-09-24 as ADR-0057: a setup password in `.env`, Site
   behind the account sign-in, re-authenticated factor changes, sessions that survive a reload with
-  timeouts, and the organisation claim with its recovery key shown once. Built in that order.
-- **Drives:** `drive-config-drawer` and `drive-undo-notes` run again on one shared harness
-  (`scripts/drive-lib/`). `drive-first-design` is rewritten for password sign-in but not yet run:
-  it needs a superuser login to the local PostgreSQL that this container does not give by default.
+  timeouts, and the organisation claim with its recovery key shown once. Built in that order;
+  the setup password is in (three security review rounds, verdict merge; small follow-ups open).
+- **Drives:** config-drawer, undo-notes, first-design, csp, console-placement and two-custodies
+  pass again (not re-run: branch-coverage, reconciled-paste). The drawing ones share
+  `scripts/drive-lib/harness.tsx`; the real-server ones start with a setup password and log in
+  with `scripts/drive-lib/db.mjs`.
 - **Built in PR #37:** quick search, the trail strip (in Racks and Inventory), the lens row, the
   level names. Still to design: the filter view, trail filters, modes and permissions.
 

@@ -43,6 +43,7 @@ import { webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 
 const ROOT = process.env.FATHOM_ROOT
   ?? fileURLToPath(new URL('..', import.meta.url));
@@ -53,8 +54,8 @@ const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? join(TARGET_DIR, 'debug', 'f
 const PORT = 18092;
 const SERVER_URL = `http://127.0.0.1:${PORT}`;
 const DB_NAME = 'fathom_place_csp';
-const RUNTIME_URL = `postgres://fathom_app@127.0.0.1:5432/${DB_NAME}`;
-const MIGRATE_URL = `postgres://fathom_test@127.0.0.1:5432/${DB_NAME}`;
+const RUNTIME_URL = runtimeUrl(DB_NAME);
+const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
 const ADDRESS = 'operator@fathom.invalid';
@@ -64,7 +65,8 @@ const CREDENTIAL = 'harbour-lantern-copper-nine';
 const work = mkdtempSync(join(tmpdir(), 'fathom-csp-'));
 const MASTER_KEY_PATH = join(work, 'master.key');
 const CHAIN_KEY_PATH = join(work, 'chain.key');
-const BOOTSTRAP_TOKEN_PATH = join(work, 'bootstrap.token');
+// The setup password the server is started with (ADR-0057); typed on the Welcome screen.
+const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
 
 let failures = 0;
 function check(what, ok, detail = '') {
@@ -81,7 +83,7 @@ function sh(cmd, args, options = {}) {
 }
 
 function psql(sql, { allowFailure = false } = {}) {
-  return sh('psql', ['-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-qc', sql], {
+  return sh('psql', ['-d', superuserUrl('postgres'), '-qc', sql], {
     allowFailure,
   });
 }
@@ -185,7 +187,7 @@ async function main() {
       FATHOM_MASTER_KEY: `file://${MASTER_KEY_PATH}`,
       FATHOM_CHAIN_KEY: `file://${CHAIN_KEY_PATH}`,
       FATHOM_OPERATOR_NOTICE_ADDRESS: ADDRESS,
-      FATHOM_BOOTSTRAP_TOKEN_FILE: BOOTSTRAP_TOKEN_PATH,
+      FATHOM_SETUP_PASSWORD: SETUP_PASSWORD,
       FATHOM_CLIENT_ROOT: `${ROOT}/client/dist`,
       FATHOM_BIND: `127.0.0.1:${PORT}`,
       // So the HSTS half of decision 12 can be exercised: the peer is
@@ -300,7 +302,7 @@ async function main() {
   });
 
   // ---- the signed-in screens, which had never been driven ----------------
-  const token = readFileSync(BOOTSTRAP_TOKEN_PATH, 'utf8').trim();
+  const token = SETUP_PASSWORD;
   const spent = new Set();
 
   await tab.goto(`${SERVER_URL}/`, { waitUntil: 'networkidle' });
@@ -434,6 +436,5 @@ try {
   rmSync(work, { recursive: true, force: true });
 }
 
-if (existsSync(BOOTSTRAP_TOKEN_PATH)) rmSync(BOOTSTRAP_TOKEN_PATH, { force: true });
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);
