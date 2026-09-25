@@ -49,8 +49,8 @@ use fathom_server::sessions::{
 /// configured key's id per database and refuses a second.
 const MASTER: [u8; 32] = [21; 32];
 
-/// **This binary gets a deployment of its own.** Its tag is `cred`, so the
-/// database it creates is `fathom_isolated_cred` and the two other ADR-0055
+/// **This binary gets a deployment of its own.** Its tag is `cred`, so its
+/// database is `fathom_isolated_<fingerprint>_cred` and the other ADR-0055
 /// streams' databases are somebody else's to drop.
 ///
 /// It needs one for the reason `tests/operators.rs` gives for its own: §6.3's
@@ -205,6 +205,8 @@ async fn sign_in_with(
             password,
             totp_code: code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -231,10 +233,24 @@ async fn try_verify(
     path: &str,
     body: &[u8],
 ) -> Result<VerifiedSession, SessionError> {
+    let counter = next_counter(&signed_in.session_id).await;
+    try_verify_with_counter(store, signed_in, session_key, method, path, body, counter).await
+}
+
+/// [`try_verify`], with the counter given: for a test on a pool of its own,
+/// where `next_counter`'s hardcoded, shared-deployment superuser cannot reach it.
+async fn try_verify_with_counter(
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    counter: i64,
+) -> Result<VerifiedSession, SessionError> {
     let nonce = store
         .issue_request_nonce(&signed_in.session_id, &signed_in.token)
         .await?;
-    let counter = next_counter(&signed_in.session_id).await;
     let unix_ms = now_ms();
     let message = sessions::request_bytes(
         &signed_in.session_id,
@@ -259,8 +275,29 @@ async fn try_verify(
         .await
 }
 
+/// [`verify`], over [`try_verify_with_counter`].
+async fn verify_with_counter(
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    counter: i64,
+) -> VerifiedSession {
+    try_verify_with_counter(store, signed_in, session_key, method, path, body, counter)
+        .await
+        .expect("a live session verifies its own signed request")
+}
+
 async fn next_counter(session_id: &str) -> i64 {
-    let mark: i64 = superuser()
+    next_counter_on("cred", session_id).await
+}
+
+/// [`next_counter`], against an isolated deployment of its own rather than
+/// the SHARED one `superuser()`'s hardcoded `TAG` reaches.
+async fn next_counter_on(tag: &str, session_id: &str) -> i64 {
+    let mark: i64 = support::superuser_on_isolated(tag)
         .await
         .query_one(
             "SELECT request_counter FROM sessions WHERE id = $1",
@@ -279,6 +316,8 @@ async fn next_counter(session_id: &str) -> i64 {
 /// claim these tests make is that a code a real authenticator would produce is
 /// accepted — and an authenticator computes from the secret the server showed
 /// it, which is this.
+///
+/// The PENDING secret, not the live one — read between `enrol_totp` and `confirm_totp`.
 async fn totp_secret_of(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8> {
     let mut client = pool.get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
@@ -298,9 +337,9 @@ async fn totp_secret_of(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8> {
         .await
         .expect("the credential key");
     let secret = row
-        .totp_secret(&key, &deployment, account)
-        .expect("open the secret")
-        .expect("a secret is enrolled");
+        .totp_pending_secret(&key, &deployment, account)
+        .expect("open the pending secret")
+        .expect("a secret is pending confirmation");
     tx.rollback().await.expect("rollback");
     secret
 }
@@ -353,7 +392,7 @@ async fn an_enrolled_account(
     )
     .await;
     credentials_store
-        .enrol_totp(&session)
+        .enrol_totp(&session, "", "")
         .await
         .expect("enrol an app code");
 
@@ -977,20 +1016,48 @@ async fn a_setup_token_sets_a_password_once_and_hands_back_no_session() {
 /// contracts name.
 #[tokio::test]
 async fn an_operator_session_requires_totp_before_it_is_usable() {
-    let _serial = SERIAL.lock().await;
-    let pool = deployment().await;
+    // Its own deployment: `confirm_totp` fails whole on an unverifiable
+    // operator lookup, so this needs a real, chain-verified operator.
     let ring = ring();
+    let pool = support::isolated_deployment("cred_totp_gate").await;
+    {
+        let client = pool.get().await.expect("connection");
+        chains::register_deployment(&**client)
+            .await
+            .expect("stamp the deployment id, exactly as main.rs does at startup");
+    }
     let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
     let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let operators = operator_store(&pool, Arc::clone(&ring)).await;
 
-    let person = an_account(&pool, "midsetup").await;
+    let address = unique("midsetup");
+    let bootstrap = operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one, sealed and chain-verified");
+    let person = Person {
+        account: bootstrap
+            .account_id
+            .parse()
+            .expect("the bootstrap's own account id parses"),
+        address,
+    };
     set_password_directly(&pool, &ring, &creds, &person, A_REAL_PASSWORD).await;
-    bind_to_a_new_operator(&pool, &person).await;
 
     let (signed_in, session_key) = sign_in_with(&sessions, &person, A_REAL_PASSWORD, "")
         .await
         .expect("the setup session exists — it has to, or the setup screen is unreachable");
-    assert_eq!(assurance_of(&signed_in.session_id).await, "A0");
+    // Not `assurance_of`: that reads the SHARED deployment, not this isolated one.
+    let assurance: String = support::superuser_on_isolated("cred_totp_gate")
+        .await
+        .query_one(
+            "SELECT assurance FROM sessions WHERE id = $1",
+            &[&signed_in.session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0);
+    assert_eq!(assurance, "A0");
 
     // Every route that is not the credentials surface refuses it.
     for path in [
@@ -999,7 +1066,17 @@ async fn an_operator_session_requires_totp_before_it_is_usable() {
         "/session",
         "/designs",
     ] {
-        let refused = try_verify(&sessions, &signed_in, &session_key, "GET", path, b"").await;
+        let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+        let refused = try_verify_with_counter(
+            &sessions,
+            &signed_in,
+            &session_key,
+            "GET",
+            path,
+            b"",
+            counter,
+        )
+        .await;
         assert!(
             matches!(refused, Err(SessionError::TotpRequired)),
             "{path} must refuse a setup session with a typed TotpRequired: {refused:?}"
@@ -1008,28 +1085,32 @@ async fn an_operator_session_requires_totp_before_it_is_usable() {
 
     // The credentials surface accepts it, which is how the app code is
     // enrolled at all.
-    let session = verify(
+    let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+    let session = verify_with_counter(
         &sessions,
         &signed_in,
         &session_key,
         "POST",
         "/credentials/totp/enrol",
         b"",
+        counter,
     )
     .await;
     assert_eq!(session.assurance(), Assurance::A0);
-    creds.enrol_totp(&session).await.expect("enrol");
+    creds.enrol_totp(&session, "", "").await.expect("enrol");
 
     // Registering a long-term key is refused WHILE the setup is unfinished —
     // the second factor has to exist before a key that outlives the session
     // does.
-    let session = verify(
+    let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+    let session = verify_with_counter(
         &sessions,
         &signed_in,
         &session_key,
         "POST",
         "/credentials/key",
         b"",
+        counter,
     )
     .await;
     let browser = SoftwareKey::random().expect("a keypair");
@@ -1042,13 +1123,15 @@ async fn an_operator_session_requires_totp_before_it_is_usable() {
     // Confirm the code, and the SAME session becomes ordinary — the gate is a
     // live re-read, not a flag baked into the session row.
     let secret = totp_secret_of(&pool, &ring, &person.account.to_string()).await;
-    let session = verify(
+    let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+    let session = verify_with_counter(
         &sessions,
         &signed_in,
         &session_key,
         "POST",
         "/credentials/totp/confirm",
         b"",
+        counter,
     )
     .await;
     creds
@@ -1056,13 +1139,15 @@ async fn an_operator_session_requires_totp_before_it_is_usable() {
         .await
         .expect("confirm");
 
-    let now_usable = try_verify(
+    let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+    let now_usable = try_verify_with_counter(
         &sessions,
         &signed_in,
         &session_key,
         "GET",
         "/organisations/x/capability",
         b"",
+        counter,
     )
     .await;
     assert!(
@@ -1071,13 +1156,15 @@ async fn an_operator_session_requires_totp_before_it_is_usable() {
     );
 
     // And the key it could not register a moment ago is registered now.
-    let session = verify(
+    let counter = next_counter_on("cred_totp_gate", &signed_in.session_id).await;
+    let session = verify_with_counter(
         &sessions,
         &signed_in,
         &session_key,
         "POST",
         "/credentials/key",
         b"",
+        counter,
     )
     .await;
     creds
@@ -1128,7 +1215,9 @@ async fn a_password_from_the_bundled_list_is_refused_at_the_route() {
         common.chars().count() >= credentials::PASSWORD_MIN,
         "the fixture must clear the length rule or it proves the wrong thing: {common:?}"
     );
-    let refused = creds.set_password(&session, &common).await;
+    let refused = creds
+        .set_password(&session, A_REAL_PASSWORD, &common, false)
+        .await;
     assert!(
         matches!(refused, Err(CredentialError::PasswordIsCommon)),
         "a password on the bundled list is refused however long it is: {refused:?}"
@@ -1146,7 +1235,7 @@ async fn a_password_from_the_bundled_list_is_refused_at_the_route() {
     )
     .await;
     creds
-        .set_password(&session, ANOTHER_REAL_PASSWORD)
+        .set_password(&session, A_REAL_PASSWORD, ANOTHER_REAL_PASSWORD, false)
         .await
         .expect("a real passphrase of the same shape is accepted");
 }
@@ -1175,7 +1264,12 @@ async fn a_password_containing_its_own_address_is_refused() {
     .await;
 
     let refused = creds
-        .set_password(&session, &format!("{}-and-then-some", person.address))
+        .set_password(
+            &session,
+            A_REAL_PASSWORD,
+            &format!("{}-and-then-some", person.address),
+            false,
+        )
         .await;
     assert!(
         matches!(refused, Err(CredentialError::PasswordContainsAddress)),
@@ -1254,6 +1348,8 @@ async fn a_second_browsers_key_signs_in_and_so_does_the_first() {
             password: A_REAL_PASSWORD,
             totp_code: &code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await
         .expect("the FIRST browser's key must still sign in after the second registered one");
@@ -1457,7 +1553,7 @@ async fn an_account_with_no_credential_carries_no_seal_until_it_has_one() {
     )
     .await;
     creds
-        .set_password(&session, ANOTHER_REAL_PASSWORD)
+        .set_password(&session, A_REAL_PASSWORD, ANOTHER_REAL_PASSWORD, false)
         .await
         .expect("change the password through the route");
 
@@ -1543,7 +1639,9 @@ async fn a_common_password_padded_to_the_length_floor_is_refused() {
             b"",
         )
         .await;
-        let refused = creds.set_password(&session, candidate).await;
+        let refused = creds
+            .set_password(&session, A_REAL_PASSWORD, candidate, false)
+            .await;
         assert!(
             matches!(refused, Err(CredentialError::PasswordIsCommon)),
             "{candidate:?} is a common password with padding on it: {refused:?}"
@@ -1562,7 +1660,7 @@ async fn a_common_password_padded_to_the_length_floor_is_refused() {
     )
     .await;
     creds
-        .set_password(&session, ANOTHER_REAL_PASSWORD)
+        .set_password(&session, A_REAL_PASSWORD, ANOTHER_REAL_PASSWORD, false)
         .await
         .expect("a four-word passphrase is not on any list");
 }
@@ -2019,6 +2117,8 @@ async fn one_failed_sign_in(
     // A password that is wrong for the known address and means nothing for the
     // unknown one — a real one, of the length a person types.
     lp(&mut body, b"orchard-thimble-marble-four");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     lp(&mut body, b"");
     let (status, headers, answer) =
         raw_post(addr, "/session", &body, &[("x-forwarded-for", &source)]).await;

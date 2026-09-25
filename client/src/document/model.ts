@@ -309,8 +309,20 @@ export function archiveField(doc: Document, element: string, field: string, repl
   ];
   const { entries, dropped } = pruneHistoryEntries(doc, appended);
   const record: HistoryRecord = { element, field, entries, truncated: (prior?.truncated ?? 0) + dropped };
-  const history = idx >= 0 ? doc.history.map((h, i) => (i === idx ? record : h)) : [...doc.history, record];
+  const history =
+    idx >= 0 ? doc.history.map((h, i) => (i === idx ? record : h)) : insertSorted(doc.history, record, compareHistoryRecord);
   return { ...doc, history };
+}
+
+/** `Snapshot`'s history order (`snap.rs`): nodes before edges, each by its id order, then the
+ * field's wire key. The server refuses a save whose history is out of this order. */
+export function compareHistoryRecord(a: { element: string; field: string }, b: { element: string; field: string }): number {
+  const aNode = NODE_KIND_BY_KEBAB.has(splitId(a.element)[0]);
+  const bNode = NODE_KIND_BY_KEBAB.has(splitId(b.element)[0]);
+  if (aNode !== bNode) return aNode ? -1 : 1;
+  const byElement = aNode ? compareNodeId(a.element, b.element) : compareEdgeId(a.element, b.element);
+  if (byElement !== 0) return byElement;
+  return FIELD_KEYS[a.field] - FIELD_KEYS[b.field];
 }
 
 export function replaceNode(doc: Document, id: string, update: (n: GraphNode) => GraphNode): Document {

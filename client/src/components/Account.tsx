@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import {
   confirmAppCode,
   enrolAppCode,
+  hasAuthenticator as fetchHasAuthenticator,
   registerBrowserKey,
   setPassword,
   type TotpEnrolment,
@@ -45,12 +46,31 @@ export interface AccountProps {
  * purpose. What changes between them is the sentence at the top and whether
  * there is a way out; the controls are the same controls.
  *
- * **No old-password field.** The server's `POST /credentials/password` takes
- * one field, the new password, and the session's own signature is what proves
- * the right to change it (`api.rs`'s `set_password_handler`). A second field
- * this client collected and did not send would be theatre.
+ * **ADR-0057 decision 3.** The password form now asks for the current
+ * password too — the server's `POST /credentials/password` checks it once
+ * one is set (ASVS 6.2.3) — and this screen asks `GET /credentials/status`
+ * once, on open, so the authenticator section knows whether it is a first
+ * enrolment or a replacement that needs re-authenticating.
  */
 export function Account({ address, purpose = 'settings', onDone, onClose }: AccountProps) {
+  // `null` while unknown; the authenticator section defaults to "first
+  // enrolment" until this answers, which is the state a fresh session with
+  // no authenticator would leave it in anyway.
+  const [hasAuthenticator, setHasAuthenticator] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchHasAuthenticator()
+      .then((confirmed) => {
+        if (!cancelled) setHasAuthenticator(confirmed);
+      })
+      .catch(() => {
+        if (!cancelled) setHasAuthenticator(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="signin">
       <div className="signin__card">
@@ -61,9 +81,13 @@ export function Account({ address, purpose = 'settings', onDone, onClose }: Acco
             : `Your credentials, ${address}.`}
         </p>
 
-        {purpose === 'settings' && <PasswordForm />}
+        {purpose === 'settings' && <PasswordForm address={address} />}
 
-        <AuthenticatorEnrolment address={address} onDone={() => onDone?.()} />
+        <AuthenticatorEnrolment
+          address={address}
+          onDone={() => onDone?.()}
+          requiresReauth={hasAuthenticator === true}
+        />
 
         {purpose === 'settings' && onClose && (
           <button type="button" className="signin__switch" onClick={onClose}>
@@ -75,8 +99,10 @@ export function Account({ address, purpose = 'settings', onDone, onClose }: Acco
   );
 }
 
-/** Set or change the password. `POST /credentials/password`, `LP(password)`. */
-export function PasswordForm() {
+/** Set or change the password (ADR-0057 decision 3). `address` finds this
+ * browser's enrolled key when `current` is left blank. */
+export function PasswordForm({ address }: { address: string }) {
+  const [current, setCurrent] = useState('');
   const [chosen, setChosen] = useState('');
   const [again, setAgain] = useState('');
   const [busy, setBusy] = useState(false);
@@ -96,7 +122,8 @@ export function PasswordForm() {
     }
     setBusy(true);
     try {
-      await setPassword(chosen);
+      await setPassword(address, current, chosen);
+      setCurrent('');
       setChosen('');
       setAgain('');
       setDone(true);
@@ -111,6 +138,21 @@ export function PasswordForm() {
   return (
     <form className="signin__section" onSubmit={handleSubmit}>
       <h2 className="signin__heading">Password</h2>
+      <div className="signin__field">
+        <label className="signin__label" htmlFor="account-current-password">
+          Current password
+        </label>
+        <input
+          id="account-current-password"
+          className="signin__input"
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+          disabled={busy}
+        />
+        <p className="signin__hint">Leave this blank if you have never set a password yet.</p>
+      </div>
       <div className="signin__field">
         <label className="signin__label" htmlFor="account-password">
           New password
@@ -193,6 +235,12 @@ export interface AuthenticatorEnrolmentProps {
   onStage?: (stage: AuthenticatorEnrolmentStage) => void;
   /** Default `'own'`. See [`EnrolmentHeading`]. */
   heading?: EnrolmentHeading;
+  /** True when this account already has a confirmed authenticator, so
+   * drawing a new one is a replacement and needs the current password and a
+   * current code from the one being replaced (ADR-0057 decision 3, ASVS
+   * 7.5.1). Default `false`: a first enrolment, which `FirstRun.tsx` is
+   * always for and needs neither. */
+  requiresReauth?: boolean;
 }
 
 /**
@@ -219,18 +267,26 @@ export function AuthenticatorEnrolment({
   onDone,
   onStage,
   heading = 'own',
+  requiresReauth = false,
 }: AuthenticatorEnrolmentProps) {
   const [stage, setStage] = useState<EnrolmentStage>({ kind: 'idle' });
   const [code, setCode] = useState('');
   const [saved, setSaved] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // ADR-0057 decision 3: the current password and a current code, asked
+  // only when replacing a confirmed authenticator.
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthCode, setReauthCode] = useState('');
 
   async function draw() {
     setRefusal(null);
     setStage({ kind: 'drawing' });
     try {
-      setStage({ kind: 'enrolled', enrolment: await enrolAppCode() });
+      const enrolment = requiresReauth ? await enrolAppCode(reauthPassword, reauthCode) : await enrolAppCode();
+      setReauthPassword('');
+      setReauthCode('');
+      setStage({ kind: 'enrolled', enrolment });
       onStage?.('setup');
     } catch (error) {
       console.error(error);
@@ -327,16 +383,56 @@ export function AuthenticatorEnrolment({
       {heading === 'own' && <h2 className="signin__heading">Authenticator app</h2>}
       <p className="signin__body">
         A six-digit verification code from an authenticator app, beside your password. It is required for an account
-        that holds the operator custody. An account that already has one cannot replace it here: that is a recovery,
-        and it goes through the host command, not a form.
+        that holds the operator custody.
+        {requiresReauth &&
+          ' This account already has one: replacing it needs the current password and a current code from it.'}
       </p>
+      {requiresReauth && (
+        <>
+          <div className="signin__field">
+            <label className="signin__label" htmlFor="authenticator-reauth-password">
+              Current password
+            </label>
+            <input
+              id="authenticator-reauth-password"
+              className="signin__input"
+              type="password"
+              autoComplete="current-password"
+              value={reauthPassword}
+              onChange={(event) => setReauthPassword(event.target.value)}
+              disabled={stage.kind === 'drawing'}
+            />
+          </div>
+          <div className="signin__field">
+            <label className="signin__label" htmlFor="authenticator-reauth-code">
+              Verification code
+            </label>
+            <input
+              id="authenticator-reauth-code"
+              className="signin__input signin__input--mono"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              spellCheck={false}
+              value={reauthCode}
+              onChange={(event) => setReauthCode(event.target.value)}
+              disabled={stage.kind === 'drawing'}
+            />
+            <p className="signin__hint">The current code from the authenticator being replaced.</p>
+          </div>
+        </>
+      )}
       <button
         className="signin__submit"
         type="button"
         onClick={draw}
-        disabled={stage.kind === 'drawing'}
+        disabled={stage.kind === 'drawing' || (requiresReauth && reauthCode.trim().length === 0)}
       >
-        {stage.kind === 'drawing' ? 'Drawing a secret…' : 'Set up an authenticator app'}
+        {stage.kind === 'drawing'
+          ? 'Drawing a secret…'
+          : requiresReauth
+            ? 'Replace the authenticator app'
+            : 'Set up an authenticator app'}
       </button>
       {refusal && (
         <div className="signin__refusal" role="alert">

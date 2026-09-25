@@ -510,9 +510,12 @@ async fn call(
     lp(&mut signin, &person.key.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six: a credential and an app code, both empty on the key-only
-    // branch this test drives. `read_fields` still refuses an inexact count,
-    // so the two empty fields are not optional.
+    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
+    // code and the operator plane's account-session endorsement, all empty
+    // on the key-only steward branch this test drives. `read_fields` still
+    // refuses an inexact count, so the four empty fields are not optional.
+    lp(&mut signin, b"");
+    lp(&mut signin, b"");
     lp(&mut signin, b"");
     lp(&mut signin, b"");
     let (status, answer) =

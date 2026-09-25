@@ -41,7 +41,13 @@ const K_ADDR: &str = "212edc063477103c813f4a77c1fd0e8c170a847b7125f88a99ab79dfa3
 const CLAIMED_ADDRESS_KEY: &str =
     "3aea48b2c431bdcb4fb1ee549c12f87b004ee61b08cb25fa1f79dee4f36dbe9b";
 const REVOCATION_ROW_MAC: &str = "a166bdfad551d6fc405e03a3a8e9cbd78ce0735c65bc412eaafc14fff63b0523";
-const ROW_MAC: &str = "253859015ed20330baa1a5b53ce37b863bd3b3d5e4d7be5bbc74d9c280a1b259";
+const ROW_MAC: &str = "82117615ec427470c5467365ecccc6d272a4c2c6b8ec7c309b677aedd6c01404";
+/// The same row with no `totp_verified_at` at all — omitted from the row
+/// state, not written as null, so a pre-`0027` seal still verifies.
+const ROW_MAC_NO_TOTP_VERIFIED_AT: &str =
+    "253859015ed20330baa1a5b53ce37b863bd3b3d5e4d7be5bbc74d9c280a1b259";
+/// A plausible instant between `ISSUED_AT` and `EXPIRES_AT`, not round.
+const TOTP_VERIFIED_AT: i64 = 1_760_000_050;
 const SIGNATURE: &str = "f7287814e9e2082c43eed17e320b25e0f016c610aacfc187c5240cf1c7e8774b2f910812429571d9122bc2c1930fc96c\
      843ebc1ab854444ba884b3f7702215df";
 
@@ -295,6 +301,7 @@ fn the_session_row_mac_matches_the_document() {
             row_version: ROW_VERSION,
             issued_at_unix: ISSUED_AT,
             expires_at_unix: EXPIRES_AT,
+            totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
         },
     );
     assert_eq!(
@@ -304,6 +311,43 @@ fn the_session_row_mac_matches_the_document() {
          not in PostgreSQL. The canonical row state it is taken over is assembled twice, once \
          here and once in Python"
     );
+}
+
+/// The same row without `totp_verified_at`: the pre-0027 shape, pinned in
+/// Python too.
+#[test]
+fn the_row_mac_with_no_totp_verified_at_matches_the_document() {
+    let key = Key32::from_bytes(
+        unhex(K_ROW_SITE)
+            .try_into()
+            .expect("the row key is 32 bytes"),
+    );
+    let challenge =
+        sessions::session_challenge(&session_key().public_key(), &SERVER_NONCE, DEPLOYMENT);
+    let digest = sessions::evidence_digest(&challenge, &EVIDENCE_SIG);
+    let pubkey = session_key().public_key();
+    let token_hash = sessions::token_hash(&TOKEN);
+    let mac = sessions::session_row_mac(
+        &key,
+        &SessionFacts {
+            id: SESSION_ID,
+            principal_id: PRINCIPAL_ID,
+            principal_kind: PrincipalKind::Steward,
+            token_hash: &token_hash,
+            session_pubkey: &pubkey,
+            bound_nonce: &SERVER_NONCE,
+            evidence_key_id: Some(EVIDENCE_KEY_ID),
+            evidence_sig: Some(&EVIDENCE_SIG),
+            assertion_digest: Some(&digest),
+            assurance: Assurance::A1,
+            chain_seq: CHAIN_SEQ,
+            row_version: ROW_VERSION,
+            issued_at_unix: ISSUED_AT,
+            expires_at_unix: EXPIRES_AT,
+            totp_verified_at_unix: None,
+        },
+    );
+    assert_eq!(hex(&mac), ROW_MAC_NO_TOTP_VERIFIED_AT);
 }
 
 #[test]
@@ -330,6 +374,7 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
         row_version: ROW_VERSION,
         issued_at_unix: ISSUED_AT,
         expires_at_unix: EXPIRES_AT,
+        totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
     };
     let base = sessions::session_row_mac(&key, &facts());
 
@@ -385,6 +430,14 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
             expires_at_unix: EXPIRES_AT + 1,
             ..facts()
         },
+        SessionFacts {
+            totp_verified_at_unix: None,
+            ..facts()
+        },
+        SessionFacts {
+            totp_verified_at_unix: Some(TOTP_VERIFIED_AT + 1),
+            ..facts()
+        },
     ];
     for (n, variant) in variants.iter().enumerate() {
         assert_ne!(
@@ -419,6 +472,7 @@ fn a_session_row_mac_is_not_an_authority_row_seal() {
             row_version: ROW_VERSION,
             issued_at_unix: ISSUED_AT,
             expires_at_unix: EXPIRES_AT,
+            totp_verified_at_unix: None,
         },
     );
     let elsewhere = authority::row_seal(

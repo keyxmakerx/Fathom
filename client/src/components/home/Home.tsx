@@ -38,6 +38,8 @@ export interface HomeProps {
   /** One sentence from elsewhere in the app that this person should read
    * here — today, the server's refusal to open the Site console. */
   notice?: string | null;
+  /** Opens the claim screen for a token received from someone else. */
+  onClaimOrganisation?: () => void;
 }
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
@@ -61,7 +63,14 @@ type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } 
  * invented content would be exactly the "plausible-looking figure" this
  * project's rules forbid, so they are left off rather than faked empty.
  */
-export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry, notice }: HomeProps) {
+export function Home({
+  address,
+  onOpenRacks,
+  onOpenInventory,
+  onDirectEntry,
+  notice,
+  onClaimOrganisation,
+}: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
@@ -247,7 +256,14 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry, not
         {organisations.status === 'loading' && <p className="home__muted">Loading…</p>}
         {organisations.status === 'error' && <p className="home__error">{organisations.message}</p>}
         {organisations.status === 'ready' && organisations.value.length === 0 && (
-          <p className="home__muted">You belong to no organisations yet.</p>
+          <>
+            <p className="home__muted">You belong to no organisations yet.</p>
+            {onClaimOrganisation && (
+              <button type="button" className="home__btn home__btn--small" onClick={onClaimOrganisation}>
+                Claim an organisation
+              </button>
+            )}
+          </>
         )}
         {organisations.status === 'ready' && organisations.value.length > 0 && (
           <ul className="home__org-list">

@@ -254,7 +254,7 @@ async fn a_confirmed_app_code(
     );
     let session = an_account_session(sessions_store, address, key).await;
     creds
-        .enrol_totp(&session)
+        .enrol_totp(&session, "", "")
         .await
         .expect("an account with the operator custody enrols an app code");
 
@@ -271,10 +271,12 @@ async fn a_confirmed_app_code(
         let totp_key = credentials::totp_key_for(&tx, ring)
             .await
             .expect("the credential key");
+        // The PENDING secret (`0027` §B, ADR-0057 decision 3): read between
+        // `enrol_totp` and `confirm_totp`, before the swap into the live slot.
         let secret = row
-            .totp_secret(&totp_key, operators.deployment(), account)
-            .expect("open the secret")
-            .expect("a secret is enrolled");
+            .totp_pending_secret(&totp_key, operators.deployment(), account)
+            .expect("open the pending secret")
+            .expect("a secret is pending confirmation");
         tx.rollback().await.expect("rollback");
         secret
     };
@@ -785,11 +787,66 @@ fn hex_to_32(hex: &str) -> [u8; 32] {
 /// Sign in on the OPERATOR plane, the way the browser that holds the operator
 /// key does. Hands back what a later request needs, so a test can ask whether
 /// that session is still alive.
+///
+/// Decision 2: also signs `account` in with `password` and `code` (no key
+/// evidence) and endorses this attempt with that session, fresh for real.
+#[allow(clippy::too_many_arguments)] // a test fixture's own parameter list, not a signature anything calls in the product
 async fn sign_in_as_operator(
+    pool: &Pool,
     sessions_store: &SessionStore,
     operator: &str,
+    account: &str,
     key: &SoftwareKey,
+    // The account's own password and a live second factor, empty for an
+    // account with neither set yet — `password_hash IS NOT NULL` requires
+    // both regardless of `key` (branch 2, ADR-0055 decision 10), so a
+    // caller whose account has since taken a password must supply it here.
+    password: &str,
+    code: &str,
 ) -> (SignedIn, SoftwareKey) {
+    let account_address = {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await
+            .expect("account custody");
+        let address: String = tx
+            .query_one("SELECT email FROM accounts WHERE id = $1", &[&account])
+            .await
+            .expect("the account row")
+            .get(0);
+        tx.commit().await.expect("commit");
+        address
+    };
+    let account_session_key = SoftwareKey::random().expect("an account session keypair");
+    let account_pubkey = account_session_key.public_key();
+    let account_source = a_source_of_its_own();
+    let account_challenge = sessions_store
+        .issue_challenge(
+            PrincipalKind::Steward,
+            &account_address,
+            &account_pubkey,
+            &account_source,
+        )
+        .await
+        .expect("an account challenge");
+    // No key evidence: a signature by `key` would win A1 over A0T, and A1
+    // never sets totp_verified_at — password and code alone proves it real.
+    let account_signed_in = sessions_store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &account_pubkey,
+            nonce: &account_challenge.nonce,
+            evidence_sig: b"",
+            password,
+            totp_code: code,
+            source: &account_source,
+            account_session_id: "",
+            account_session_sig: b"",
+        })
+        .await
+        .expect("the account holding the operator custody signs in with its password and code");
+
     let session_key = SoftwareKey::random().expect("a session keypair");
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
@@ -798,16 +855,22 @@ async fn sign_in_as_operator(
         .await
         .expect("a challenge");
     let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let evidence = key.sign(&digest);
+    let account_session_sig = account_session_key.sign(&digest);
     let signed_in = sessions_store
-        .sign_in(
-            PrincipalKind::Operator,
-            &pubkey,
-            &challenge.nonce,
-            &key.sign(&digest),
-            &source,
-        )
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Operator,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: &evidence,
+            password: "",
+            totp_code: "",
+            source: &source,
+            account_session_id: &account_signed_in.session_id,
+            account_session_sig: &account_session_sig,
+        })
         .await
-        .expect("an operator with an enrolled key signs in");
+        .expect("an operator with an enrolled key and a live account session signs in");
     (signed_in, session_key)
 }
 
@@ -836,6 +899,8 @@ async fn sign_in_with_password(
             password,
             totp_code: code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await
         .expect("an account with a password signs in");
@@ -933,14 +998,26 @@ async fn a_recovery_dispossesses_the_lost_browser() {
     assert!((15..=20).contains(&PASSWORD.len()));
     let session = an_account_session(&sessions_store, &address, &enrolled.key).await;
     creds
-        .set_password(&session, PASSWORD)
+        // `true`: this calls the store directly, standing in for the
+        // fresh-evidence check `api.rs` runs before it in the real route.
+        .set_password(&session, "", PASSWORD, true)
         .await
         .expect("the operator sets a password (ADR-0055 decision 10)");
 
     // **The lost browser**: an operator-plane session, signed in with the
     // operator key, verifying its own signed requests.
-    let (lost_browser, lost_key) =
-        sign_in_as_operator(&sessions_store, &enrolled.operator, &enrolled.key).await;
+    let (lost_browser, lost_key) = sign_in_as_operator(
+        &pool,
+        &sessions_store,
+        &enrolled.operator,
+        &enrolled.account,
+        &enrolled.key,
+        PASSWORD,
+        // A different backup code from the one the test spends further
+        // down for its own account session — each is single use.
+        &enrolled.backup_codes[0],
+    )
+    .await;
     try_verify(
         &sessions_store,
         &lost_browser,

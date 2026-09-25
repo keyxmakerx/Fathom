@@ -6,7 +6,7 @@ import { setRackField } from './edit';
 import { edgesIn, edgesOut, emptyDocument, formatEdgeId, formatNodeId, type Document } from './model';
 import { fitSupply, removeSupply } from './supplies';
 import { newUlid } from './ulid';
-import { viewOf } from './view';
+import { naturalLabelCompare, viewOf } from './view';
 
 const NOW = 1_700_000_000_000;
 
@@ -323,6 +323,124 @@ describe('shelves (ADR-0051 §1)', () => {
     const placed = placeChassis(withRack, rackId, MODEL, 3, 'front', { now: NOW });
     const view = viewOf(placed, [MODEL]);
     expect(view.racks[0].chassis[0].sketch).toBe(false);
+  });
+});
+
+describe('sketch device ports read in natural, numeric-aware label order', () => {
+  it('naturalLabelCompare: digit runs compare numerically, not lexicographically', () => {
+    expect(['eth10', 'eth2', 'eth1'].sort(naturalLabelCompare)).toEqual(['eth1', 'eth2', 'eth10']);
+    expect(['ge-0/0/10', 'ge-0/0/2'].sort(naturalLabelCompare)).toEqual(['ge-0/0/2', 'ge-0/0/10']);
+    // Equal digit value, different spelling ("007" vs "7") — falls through
+    // to comparing the rest, never treated as a tie that reorders nothing.
+    expect(naturalLabelCompare('a007', 'a7')).toBe(0);
+  });
+
+  it('a rack-mounted sketch chassis reads its ports in natural order, regardless of add order', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const { doc: withItem, chassisId } = bareChassis(withRack);
+    const placed = movePlacement(withItem, chassisId, { kind: 'rack', rackId, positionU: 1, face: 'front' }, { now: NOW });
+    // Typed out of order on purpose — `ge-0/0/10` before `ge-0/0/2`.
+    const withP10 = addSketchPort(placed, chassisId, { label: 'ge-0/0/10', connector: 'rj45', face: 'front' }, { now: NOW });
+    const withP2 = addSketchPort(withP10, chassisId, { label: 'ge-0/0/2', connector: 'rj45', face: 'front' }, { now: NOW });
+    const withP1 = addSketchPort(withP2, chassisId, { label: 'ge-0/0/1', connector: 'rj45', face: 'front' }, { now: NOW });
+
+    const view = viewOf(withP1, []);
+    expect(view.racks[0].chassis[0].ports.map((p) => p.label)).toEqual(['ge-0/0/1', 'ge-0/0/2', 'ge-0/0/10']);
+  });
+
+  it("a shelf occupant's sketch ports also read in natural order", () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const withShelf = createShelf(withRack, rackId, { label: 'Shelf', positionU: 20, now: NOW });
+    const shelfId = edgesIn(withShelf, rackId, 'MountedIn')[0].from;
+    const { doc: withItem, chassisId } = bareChassis(withShelf);
+    const withEth10 = addSketchPort(withItem, chassisId, { label: 'eth10', connector: 'rj45', face: 'front' }, { now: NOW });
+    const withEth1 = addSketchPort(withEth10, chassisId, { label: 'eth1', connector: 'rj45', face: 'front' }, { now: NOW });
+    const onShelf = placeOnShelf(withEth1, chassisId, shelfId, 1, { now: NOW });
+
+    const view = viewOf(onShelf, []);
+    expect(view.racks[0].shelves[0].occupants[0].ports.map((p) => p.label)).toEqual(['eth1', 'eth10']);
+  });
+
+  it("leaves a catalogued faceplate's own order alone — never natural-sorted", () => {
+    // Built raw with fixed `HasPort` edge ulids so document order is known
+    // and deliberately non-natural ("portB" before "portA").
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+
+    const NAMED_MODEL: CatalogueModel = {
+      ...MODEL,
+      psuSlots: [],
+      faceplates: [
+        {
+          face: 'front',
+          portCount: 2,
+          ports: [
+            { kind: 'RJ45', number: null, name: 'portB', uplink: false, row: 'top', column: 0, groupGapBefore: false },
+            { kind: 'RJ45', number: null, name: 'portA', uplink: false, row: 'bottom', column: 0, groupGapBefore: false },
+          ],
+        },
+      ],
+    };
+
+    const deviceId = formatNodeId('Device', newUlid(NOW));
+    const chassisId = formatNodeId('Chassis', newUlid(NOW));
+    const portBId = formatNodeId('PhysicalPort', newUlid(NOW));
+    const portAId = formatNodeId('PhysicalPort', newUlid(NOW));
+    const hasPortToB = formatEdgeId('HasPort', '01ARZ3NDEKTSV4RRFFQ69G5FA1');
+    const hasPortToA = formatEdgeId('HasPort', '01ARZ3NDEKTSV4RRFFQ69G5FA2');
+    const raw: Document = {
+      ...withRack,
+      nodes: [
+        ...withRack.nodes,
+        { id: deviceId, existence: newUlid(NOW), fields: {} },
+        {
+          id: chassisId,
+          existence: newUlid(NOW),
+          fields: { 'Chassis.model': { presence: 'set', prov: newUlid(NOW), value: 'EX4300-48P' } },
+        },
+        {
+          id: portBId,
+          existence: newUlid(NOW),
+          fields: {
+            'PhysicalPort.label': { presence: 'set', prov: newUlid(NOW), value: 'portB' },
+            'PhysicalPort.connector': { presence: 'set', prov: newUlid(NOW), value: 'rj45' },
+          },
+        },
+        {
+          id: portAId,
+          existence: newUlid(NOW),
+          fields: {
+            'PhysicalPort.label': { presence: 'set', prov: newUlid(NOW), value: 'portA' },
+            'PhysicalPort.connector': { presence: 'set', prov: newUlid(NOW), value: 'rj45' },
+          },
+        },
+      ],
+      edges: [
+        ...withRack.edges,
+        { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceId, to: chassisId, prov: newUlid(NOW), fields: {} },
+        { id: hasPortToB, from: chassisId, to: portBId, prov: newUlid(NOW), fields: {} },
+        { id: hasPortToA, from: chassisId, to: portAId, prov: newUlid(NOW), fields: {} },
+        {
+          id: formatEdgeId('MountedIn', newUlid(NOW)),
+          from: chassisId,
+          to: rackId,
+          prov: newUlid(NOW),
+          fields: {
+            'MountedIn.position_u': { presence: 'set', prov: newUlid(NOW), value: 3 },
+            'MountedIn.height_u': { presence: 'set', prov: newUlid(NOW), value: 1 },
+            'MountedIn.face': { presence: 'set', prov: newUlid(NOW), value: 'front' },
+          },
+        },
+      ],
+    };
+
+    const view = viewOf(raw, [NAMED_MODEL]);
+    expect(view.racks[0].chassis[0].ports.map((p) => p.label)).toEqual(['portB', 'portA']);
   });
 });
 

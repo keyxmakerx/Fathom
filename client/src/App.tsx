@@ -1,15 +1,23 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import type { FormEvent } from 'react';
 
-import { signIn } from './api/auth';
+import { beginSignIn, completeSignIn, isSecondFactorNeeded, type SignInChallenge } from './api/auth';
 import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
-import { bootstrapOperatorSession, useConsoleHost } from './api/placement';
+import {
+  beginOperatorBootstrap,
+  completeOperatorBootstrap,
+  useConsoleHost,
+  type OperatorBootstrapChallenge,
+} from './api/placement';
 import { useSetupState } from './api/setup';
+import type { OrganisationClaim } from './api/console';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
+import { ClaimOrganisation } from './components/claim';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
@@ -33,6 +41,7 @@ import {
   setPlane,
   setSession,
   subscribe,
+  type ActiveSession,
 } from './state/sessionState';
 
 /**
@@ -60,6 +69,15 @@ type Door = 'sign-in' | 'enrol' | 'reset';
 type View =
   | { kind: 'home' }
   | { kind: 'place'; place: Place; organisation: Organisation; design: DesignSummary };
+
+/**
+ * An operator sign-in `enterConsole` is waiting on a verification code for
+ * (ADR-0057 decision 2): which of the two ways in it was on, and the
+ * unspent challenge to retry with.
+ */
+type OperatorSignInPending =
+  | { kind: 'existing'; challenge: SignInChallenge }
+  | { kind: 'bootstrap'; accountSession: ActiveSession; bootstrap: OperatorBootstrapChallenge };
 
 export default function App() {
   const session = useSyncExternalStore(subscribe, getSession);
@@ -123,12 +141,17 @@ export default function App() {
   // ADR-0055 client (a): the account's own credential screen is open.
   const [accountOpen, setAccountOpen] = useState(false);
 
+  // The organisation claim screen (ADR-0057 decision 5). `token`/`noticeAddress`
+  // set: handed over from "Claim it now"; absent: Home's own "Claim an organisation".
+  const [claiming, setClaiming] = useState<{ token?: Uint8Array; noticeAddress?: string } | null>(null);
+
   // Sign-out does not reload the page, so whatever was open belongs to the
   // session that ended: the next sign-in starts on Home.
   const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
   useEffect(() => {
     setView({ kind: 'home' });
     setAccountOpen(false);
+    setClaiming(null);
   }, [accountSessionId]);
 
   // The app-code gate, asked once per session: an account that holds the
@@ -186,6 +209,12 @@ export default function App() {
   const [enteringConsole, setEnteringConsole] = useState(false);
   const [consoleRefusal, setConsoleRefusal] = useState<string | null>(null);
   const [custodyRefused, setCustodyRefused] = useState(false);
+  // ADR-0057 decision 2: the account session endorsing an operator sign-in
+  // needs a fresh verification code when its own proof has gone stale. Held
+  // here so the inline prompt below can retry with the SAME challenge —
+  // `SecondFactorNeeded` is a rollback, and the nonce it left is still good.
+  const [operatorCodePending, setOperatorCodePending] = useState<OperatorSignInPending | null>(null);
+  const [operatorCode, setOperatorCode] = useState('');
 
   async function enterConsole() {
     const accountSession = getSessionOn(ACCOUNT_PLANE);
@@ -198,6 +227,7 @@ export default function App() {
     }
     setEnteringConsole(true);
     setConsoleRefusal(null);
+    setOperatorCodePending(null);
     try {
       // **A key this browser already holds for an operator is the way in.**
       // The operator plane is still a key sign-in (decision 10's last line),
@@ -207,10 +237,18 @@ export default function App() {
       // the database rather than by any rule.
       const existing = await operatorSlotHeldHere();
       if (existing) {
+        const challenge = await beginSignIn(existing, PRINCIPAL_KIND_OPERATOR);
         try {
-          await signIn(existing, PRINCIPAL_KIND_OPERATOR);
+          await completeSignIn(challenge);
           return;
         } catch (error) {
+          if (isSecondFactorNeeded(error)) {
+            // The SAME challenge, held: `SecondFactorNeeded` is a rollback
+            // and leaves its nonce unspent, so the retry re-posts it rather
+            // than asking for another.
+            setOperatorCodePending({ kind: 'existing', challenge });
+            return;
+          }
           // The key this browser holds is not one the server will take —
           // retired, or from an install that has been rebuilt. Fall through
           // and pick the custody up again with a new one.
@@ -222,11 +260,17 @@ export default function App() {
       // of the principal (`live_operator_keys`, the lead's resolution 1), so
       // one key per browser per custody is the shape, and reusing the
       // account's would collide with itself the next time this ran.
-      const { session: operatorSession } = await bootstrapOperatorSession(
-        accountSession,
-        await generateKeyPair(),
-      );
-      setSession(operatorSession);
+      const bootstrap = await beginOperatorBootstrap(accountSession, await generateKeyPair());
+      try {
+        const { session: operatorSession } = await completeOperatorBootstrap(accountSession, bootstrap);
+        setSession(operatorSession);
+      } catch (error) {
+        if (isSecondFactorNeeded(error)) {
+          setOperatorCodePending({ kind: 'bootstrap', accountSession, bootstrap });
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       console.error(error);
       const refusal = error instanceof ApiRefusal ? error.message : null;
@@ -239,6 +283,57 @@ export default function App() {
       // is worth a second press.
       if (error instanceof ApiRefusal && (error.status === 403 || error.status === 404)) {
         setCustodyRefused(true);
+      }
+    } finally {
+      setEnteringConsole(false);
+    }
+  }
+
+  /** Retry the pending operator sign-in with the verification code just
+   * typed, over the same challenge (ADR-0057 decision 2). */
+  async function submitOperatorCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!operatorCodePending) return;
+    setEnteringConsole(true);
+    setConsoleRefusal(null);
+    try {
+      if (operatorCodePending.kind === 'existing') {
+        await completeSignIn(operatorCodePending.challenge, { verificationCode: operatorCode });
+      } else {
+        const { session: operatorSession } = await completeOperatorBootstrap(
+          operatorCodePending.accountSession,
+          operatorCodePending.bootstrap,
+          operatorCode,
+        );
+        setSession(operatorSession);
+      }
+      setOperatorCodePending(null);
+      setOperatorCode('');
+    } catch (error) {
+      console.error(error);
+      setConsoleRefusal(error instanceof ApiRefusal ? error.message : 'That code was not accepted.');
+      setOperatorCode('');
+      // A wrong code spends the challenge's nonce like any refusal, so a
+      // retry against it always fails — fetch a fresh one instead.
+      try {
+        if (operatorCodePending.kind === 'existing') {
+          setOperatorCodePending({
+            kind: 'existing',
+            challenge: await beginSignIn(operatorCodePending.challenge.address, PRINCIPAL_KIND_OPERATOR),
+          });
+        } else {
+          setOperatorCodePending({
+            kind: 'bootstrap',
+            accountSession: operatorCodePending.accountSession,
+            bootstrap: await beginOperatorBootstrap(
+              operatorCodePending.accountSession,
+              await generateKeyPair(),
+            ),
+          });
+        }
+      } catch (refreshError) {
+        console.error(refreshError);
+        setOperatorCodePending(null);
       }
     } finally {
       setEnteringConsole(false);
@@ -429,6 +524,21 @@ export default function App() {
     return <Account address={session.address} onClose={() => setAccountOpen(false)} />;
   }
 
+  // The organisation claim screen (ADR-0057 decision 5). Needs a steward
+  // session to redeem against, so it never renders for the operator plane.
+  if (claiming !== null && session.kind === 'steward') {
+    return (
+      <ClaimOrganisation
+        accountAddress={session.address}
+        accountId={session.accountId}
+        initialToken={claiming.token}
+        initialNoticeAddress={claiming.noticeAddress}
+        onDone={() => setClaiming(null)}
+        onCancel={() => setClaiming(null)}
+      />
+    );
+  }
+
   // ADR-0055 client (a): the typed refusal routes here, and nowhere else is
   // reachable from this session until the authenticator app is enrolled.
   if (appCodeNeeded === true) {
@@ -456,6 +566,13 @@ export default function App() {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
   };
+  // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
+  // carries the freshly minted claim across so ClaimOrganisation needs no typing.
+  const claimNow = (claim: OrganisationClaim) => {
+    setView({ kind: 'home' });
+    setPlane(ACCOUNT_PLANE);
+    setClaiming({ token: claim.token, noticeAddress: claim.noticeAddress });
+  };
   const menu =
     session.kind === 'operator' ? (
       <>
@@ -469,7 +586,34 @@ export default function App() {
     ) : (
       <>
         <PopoverRow onSelect={() => setAccountOpen(true)}>Password and authenticator</PopoverRow>
-        {consoleHost && !custodyRefused && (
+        {consoleHost && !custodyRefused && operatorCodePending && (
+          // ADR-0057 decision 2: a live account session endorses Site, and
+          // one whose own second-factor proof has gone stale needs a
+          // current code beside it — asked right here, in the same place
+          // Site is entered, rather than on a screen of its own.
+          <form
+            className="popover-row popover-row--form"
+            data-testid="console-code-prompt"
+            onSubmit={(event) => void submitOperatorCode(event)}
+          >
+            <label htmlFor="console-verification-code">Verification code</label>
+            <input
+              id="console-verification-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              spellCheck={false}
+              value={operatorCode}
+              onChange={(event) => setOperatorCode(event.target.value)}
+              disabled={enteringConsole}
+              required
+            />
+            <button type="submit" disabled={enteringConsole || operatorCode.trim().length === 0}>
+              {enteringConsole ? 'Checking…' : 'Continue'}
+            </button>
+          </form>
+        )}
+        {consoleHost && !custodyRefused && !operatorCodePending && (
           <PopoverRow testId="console-entry" disabled={enteringConsole} onSelect={() => void enterConsole()}>
             {enteringConsole ? 'Opening Site…' : 'Site'}
           </PopoverRow>
@@ -515,7 +659,7 @@ export default function App() {
         // began, so Home is a change of plane, not a sign-in.
         onHome={accountSessionOpen ? backToHome : undefined}
       >
-        <Console operatorId={session.address} />
+        <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
       </Shell>
     );
   }
@@ -538,6 +682,7 @@ export default function App() {
           onOpenInventory={openIn('inventory')}
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal}
+          onClaimOrganisation={() => setClaiming({})}
         />
       </Shell>
     );

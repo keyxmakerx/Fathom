@@ -40,15 +40,30 @@
 //                                      signs in immediately afterwards)
 //   2. POST /session/challenge         LP("steward") ‖ LP(address) ‖ LP(session_pubkey)
 //                                      → LP(nonce) ‖ LP(deployment_id)
-//   3. POST /session                   six fields: LP(kind) ‖ LP(session_pubkey)
+//   3. POST /session                   eight fields: LP(kind) ‖ LP(session_pubkey)
 //                                      ‖ LP(nonce) ‖ LP(evidence_sig) ‖ LP(credential)
 //                                      ‖ LP(app_code)   [the WIRE field name,
 //                                        which ADR-0056 decision 4 leaves
 //                                        alone; what a person is shown is a
 //                                        "verification code"]
+//                                      ‖ LP(account_session_id) ‖ LP(account_session_sig)
+//                                        [ADR-0057 decision 2: an operator
+//                                        sign-in also proves a live account
+//                                        session of the operator's own bound
+//                                        account, by that session's own key
+//                                        signing this same challenge digest;
+//                                        empty on every steward sign-in]
 //                                      → LP(session_id) ‖ LP(token) ‖ u64(expires)
 //                                        ‖ LP(principal_id)
-//   4. POST /credentials/totp/enrol    signed, empty → LP(otpauth_uri) ‖ LP(secret_base32)
+//   4. POST /credentials/totp/enrol    signed, LP(current_credential) ‖ LP(code)
+//                                      → LP(otpauth_uri) ‖ LP(secret_base32)
+//                                      (ADR-0057 decision 3: both fields are
+//                                      sent empty and unchecked here, because
+//                                      this is a first enrolment and the
+//                                      account holds no confirmed authenticator
+//                                      yet; a re-enrolment over a confirmed one
+//                                      needs the current password AND a
+//                                      current code, ASVS 7.5.1)
 //   5. compute a TOTP in Node          RFC 6238, HMAC-SHA-1 through WebCrypto
 //   6. POST /credentials/totp/confirm  signed, LP(code) → ten LP(recovery code)
 //   7. POST /credentials/key           signed, LP(public_key) → LP(key_id)
@@ -311,23 +326,34 @@ async function challengeFor(kind, principal) {
   return { sessionKey, sessionPub, nonce, deploymentId };
 }
 
-/// Step 3: the six-field sign-in body ADR-0055 decision 10 widened
-/// `POST /session` to, posted against a challenge already in hand. Returns the
+/// Step 3: the eight-field sign-in body ADR-0055 decision 10 widened
+/// `POST /session` to, and ADR-0057 decision 2 widened again with the two
+/// fields at the end. Posted against a challenge already in hand. Returns the
 /// raw answer; the caller decides what a non-200 means, because "not a session"
 /// is the expected answer to step one.
-async function postSession(kind, ch, { credential = '', appCode = '', evidenceKey = null } = {}) {
-  let evidence = EMPTY;
-  if (evidenceKey) {
-    const challenge = await sha256(
-      concat(
-        lp(utf8('fathom/session/bind/v1')),
-        lp(ch.sessionPub),
-        lp(ch.nonce),
-        lp(ch.deploymentId),
-      ),
-    );
-    evidence = await sign(evidenceKey, challenge);
-  }
+///
+/// **`accountSession`, ADR-0057 decision 2:** an operator-plane sign-in must
+/// also carry proof of a live account session of the operator's own bound
+/// account -- a signature by THAT session's own key over this same challenge
+/// digest (`session_challenge` in `sessions.rs`, the very digest the evidence
+/// signature above is over). The account session's id travels alongside it so
+/// the server knows which row to check the signature against.
+async function postSession(
+  kind,
+  ch,
+  { credential = '', appCode = '', evidenceKey = null, accountSession = null } = {},
+) {
+  const challenge = await sha256(
+    concat(
+      lp(utf8('fathom/session/bind/v1')),
+      lp(ch.sessionPub),
+      lp(ch.nonce),
+      lp(ch.deploymentId),
+    ),
+  );
+  const evidence = evidenceKey ? await sign(evidenceKey, challenge) : EMPTY;
+  const accountSessionId = accountSession ? utf8(accountSession.id) : EMPTY;
+  const accountSessionSig = accountSession ? await sign(accountSession.key, challenge) : EMPTY;
   return post(
     '/session',
     concat(
@@ -337,6 +363,8 @@ async function postSession(kind, ch, { credential = '', appCode = '', evidenceKe
       lp(evidence),
       lp(utf8(credential)),
       lp(utf8(appCode)),
+      lp(accountSessionId),
+      lp(accountSessionSig),
     ),
   );
 }
@@ -440,8 +468,14 @@ console.log('setup state: done, so the client shows the sign-in page from here o
 const session = await signIn('steward', address, { credential: CREDENTIAL });
 console.log(`signed in: session ${session.id} for ${session.principal}`);
 
-// 4. Enrol the authenticator app.
-const enrol = await signedPost(session, '/credentials/totp/enrol', EMPTY);
+// 4. Enrol the authenticator app. A first enrolment, with no confirmed
+// authenticator on the account yet, needs neither the current password nor a
+// code (ADR-0057 decision 3): both fields travel empty.
+const enrol = await signedPost(
+  session,
+  '/credentials/totp/enrol',
+  concat(lp(EMPTY), lp(EMPTY)),
+);
 if (enrol.status !== 200) fail('totp-enrol', `status ${enrol.status}: ${enrol.text.trim()}`);
 const { value: uriBytes, rest: afterUri } = readLp(enrol.bytes);
 const { value: secretBytes } = readLp(afterUri);
@@ -551,12 +585,34 @@ const operatorId = dec.decode(operatorIdBytes);
 console.log(`operator key: ${dec.decode(opKeyIdBytes)} registered for operator ${operatorId}`);
 
 // 9. The operator sign-in: the operator custody is still a key sign-in
-// (resolution 8), with the browser's key as the evidence and no password.
-const op = await signIn('operator', operatorId, { evidenceKey: browserKey });
+// (resolution 8), with the browser's key as the evidence and no password --
+// but ADR-0057 decision 2 now also asks Site for the account: this sign-in
+// must carry a signature by `withCode`, the live account session above, over
+// this same challenge. `withCode` proved its second factor moments ago
+// (the two-step sign-in just above), so it is fresh and no verification code
+// is asked for a second time.
+const op = await signIn('operator', operatorId, {
+  evidenceKey: browserKey,
+  accountSession: withCode,
+});
 if (op.principal !== operatorId) {
   fail('operator-sign-in', `the session names ${op.principal}, not ${operatorId}`);
 }
-console.log(`operator: signed in as ${operatorId} with the browser key`);
+console.log(`operator: signed in as ${operatorId} with the browser key, endorsed by the account session`);
+
+// And the operator key ALONE, with no account session at all, is refused --
+// Site needs the account (ADR-0057 decision 2), so the key by itself is not
+// enough even though it verifies.
+// The status AND the body, not merely "not 200": a 500 or a 404 would also pass that.
+const bareChallenge = await challengeFor('operator', operatorId);
+const bareOp = await postSession('operator', bareChallenge, { evidenceKey: browserKey });
+if (bareOp.status !== 401 || bareOp.text !== 'sign-in refused\n') {
+  fail(
+    'operator-sign-in',
+    `an operator key alone, with no account session at all, must get 401 "sign-in refused", got ${bareOp.status}: ${JSON.stringify(bareOp.text)}`,
+  );
+}
+console.log(`operator: the key alone, with no account session, is refused (${bareOp.status} "${bareOp.text.trim()}")`);
 
 // 10. One signed read of the register, which must name this operator and
 // the notice address the first start bound the custody to.

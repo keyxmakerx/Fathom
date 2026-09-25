@@ -221,19 +221,8 @@ async fn set_account_disabled(
 // §6.2 — organisation shells
 // ---------------------------------------------------------------------------
 
-/// `POST /admin/organisations` — §6.2's shell and its enrolment claim.
-///
-/// Body: `LP(display_name)`.
-/// Answer: `LP(shell) ‖ LP(token) ‖ LP(token_id) ‖ u64(expires_at)`.
-///
-/// **There is no route here that redeems the claim**, and that is deliberate:
-/// redemption runs §6.1's genesis, which needs a root public key, an id salt
-/// and one or more signed genesis grants. `api.rs` already records why no grant
-/// crosses this boundary yet — §3.8's *"everything that changes when a proposal
-/// crosses a real HTTP boundary"* is its own open question, and answering it
-/// under a surface built in the same hour would be answering it by accident.
-/// `operators::redeem_organisation_claim` is the act; the route lands with the
-/// authority layer's own surface.
+/// `POST /admin/organisations`: `LP(display_name)` → `LP(shell) ‖ LP(token) ‖
+/// LP(token_id) ‖ u64(expires_at) ‖ LP(notice_address)`. Redeemed via `POST /enrolment/organisation`, not here.
 async fn create_organisation_shell(
     State(state): State<AdminState>,
     signed: Signed,
@@ -242,16 +231,17 @@ async fn create_organisation_shell(
     let fields = read_fields(&signed.body, 1)?;
     let display_name = text(&fields[0], "display name")?;
 
-    let (shell, invitation) = state
+    let (shell, invitation, notice_address) = state
         .operators
         .create_organisation_shell(&session, &display_name)
         .await
         .map_err(AdminRefusal)?;
-    let mut out = Vec::with_capacity(128);
+    let mut out = Vec::with_capacity(160);
     crypto::lp(&mut out, shell.as_bytes());
     crypto::lp(&mut out, &invitation.token);
     crypto::lp(&mut out, invitation.id.as_bytes());
     crypto::u64_le(&mut out, invitation.expires_at_unix as u64);
+    crypto::lp(&mut out, notice_address.as_bytes());
     Ok(bytes_response(out))
 }
 

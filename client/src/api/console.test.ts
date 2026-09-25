@@ -16,6 +16,7 @@ import {
   parseInvitationAnswer,
   parseNotices,
   parseOperatorList,
+  parseOrganisationClaimAnswer,
   parseOrganisationList,
   parsePendingAnswer,
   settingRequestBytes,
@@ -26,6 +27,24 @@ const INVITATION_HEX =
   '1a00000030314a584143434f554e5449444558414d504c4530303030303120000000000102' +
   '030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f1900000030314a58' +
   '544f4b454e49444558414d504c4530303030303031803bb16a00000000';
+
+describe('parseOrganisationClaimAnswer (admin.rs create_organisation_shell)', () => {
+  it('reads an invitation plus LP(notice_address)', () => {
+    // The same independently produced vector as INVITATION_HEX, with one more
+    // field appended: lp(b"root@example.test").
+    const hex = `${INVITATION_HEX}11000000726f6f74406578616d706c652e74657374`;
+    const claim = parseOrganisationClaimAnswer(fromHex(hex));
+    expect(claim.subject).toBe('01JXACCOUNTIDEXAMPLE000001');
+    expect(claim.tokenId).toBe('01JXTOKENIDEXAMPLE0000001');
+    expect(claim.expiresAtUnix).toBe(1_790_000_000);
+    expect(claim.noticeAddress).toBe('root@example.test');
+  });
+
+  it('refuses a trailing byte', () => {
+    const hex = `${INVITATION_HEX}11000000726f6f74406578616d706c652e74657374ff`;
+    expect(() => parseOrganisationClaimAnswer(fromHex(hex))).toThrow(/trailing/);
+  });
+});
 
 describe('parseInvitationAnswer (admin.rs invitation_response)', () => {
   it('reads LP(subject) || LP(token) || LP(token_id) || u64(expires_at)', () => {

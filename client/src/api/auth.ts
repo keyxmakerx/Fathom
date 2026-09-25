@@ -13,7 +13,7 @@ import {
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
-import { heldSessions, setSession } from '../state/sessionState';
+import { ACCOUNT_PLANE, getSessionOn, heldSessions, setSession } from '../state/sessionState';
 import {
   keySlot,
   looksLikeOperatorId,
@@ -171,6 +171,7 @@ export interface SignInChallenge {
   readonly sessionKeyPair: CryptoKeyPair;
   readonly sessionPubkey: Uint8Array;
   readonly serverNonce: Uint8Array;
+  readonly deploymentId: string;
   readonly evidenceSig: Uint8Array;
   /** The pending slot the evidence key came from, if any, so a success can
    * promote exactly that one. */
@@ -245,6 +246,7 @@ export async function beginSignIn(
     sessionKeyPair,
     sessionPubkey,
     serverNonce,
+    deploymentId,
     evidenceSig,
     pendingSlot: found?.pendingSlot ?? null,
     heldAKey: found !== null,
@@ -268,9 +270,36 @@ export async function completeSignIn(
 ): Promise<void> {
   const password = credential.password ?? '';
   const verificationCode = credential.verificationCode ?? '';
-  const { address, kind, sessionKeyPair, sessionPubkey, serverNonce, evidenceSig } = challenge;
+  const { address, kind, sessionKeyPair, sessionPubkey, serverNonce, deploymentId, evidenceSig } = challenge;
 
-  const signInBody = buildSignInBody(kind, sessionPubkey, serverNonce, evidenceSig, password, verificationCode);
+  // ADR-0057 decision 2: on the operator plane, a live account session must
+  // endorse this attempt over its own challenge digest -- the operator key
+  // alone is refused. There is nothing to endorse with on the account
+  // plane, so the two fields go up empty there.
+  let accountSessionId = '';
+  let accountSessionSig: Uint8Array = new Uint8Array(0);
+  if (kind === PRINCIPAL_KIND_OPERATOR) {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) {
+      throw new Error(
+        'Site needs a live account session to sign in with (ADR-0057 decision 2): none is held.',
+      );
+    }
+    const digest = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
+    accountSessionSig = await signMessage(accountSession.sessionKeyPair.privateKey, digest);
+    accountSessionId = accountSession.sessionId;
+  }
+
+  const signInBody = buildSignInBody(
+    kind,
+    sessionPubkey,
+    serverNonce,
+    evidenceSig,
+    password,
+    verificationCode,
+    accountSessionId,
+    accountSessionSig,
+  );
   const signInResponse = await fetch('/session', {
     method: 'POST',
     body: signInBody as BodyInit,
@@ -348,14 +377,17 @@ export interface SignInCredential {
 
 /**
  * `POST /session`'s body: `LP(kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖
- * LP(evidence_sig) ‖ LP(password) ‖ LP(code)`. The sixth field is the
- * server's `app_code` — a wire name, unchanged by ADR-0056 decision 4, which
- * renames what a person reads and not what a route is called.
+ * LP(evidence_sig) ‖ LP(password) ‖ LP(code) ‖ LP(account_session_id) ‖
+ * LP(account_session_sig)`. The sixth field is the server's `app_code` — a
+ * wire name, unchanged by ADR-0056 decision 4, which renames what a person
+ * reads and not what a route is called. The last two are ADR-0057 decision
+ * 2's account-session endorsement, empty on the steward plane.
  *
- * Six fields since ADR-0055 decision 10 widened the route, and `api.rs`'s
- * `read_fields` refuses an inexact count — so the last two are sent on every
- * path, empty where there is nothing to put in them. Exported so
- * `auth.test.ts` can check the framing without a network call.
+ * Eight fields since decision 2 widened the route again (four since
+ * ADR-0055 decision 10 first did), and `api.rs`'s `read_fields` refuses an
+ * inexact count — so every field is sent on every path, empty where there
+ * is nothing to put in it. Exported so `auth.test.ts` can check the framing
+ * without a network call.
  */
 export function buildSignInBody(
   kind: PrincipalKind,
@@ -364,6 +396,8 @@ export function buildSignInBody(
   evidenceSig: Uint8Array,
   password: string,
   verificationCode: string,
+  accountSessionId: string,
+  accountSessionSig: Uint8Array,
 ): Uint8Array {
   return concatBytes(
     lp(utf8(kind)),
@@ -372,6 +406,8 @@ export function buildSignInBody(
     lp(evidenceSig),
     lp(utf8(password)),
     lp(utf8(verificationCode.trim())),
+    lp(utf8(accountSessionId)),
+    lp(accountSessionSig),
   );
 }
 

@@ -125,6 +125,22 @@ export type EditorChange =
   | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: 'front' | 'rear' }
   /** ADR-0051 §1 — the reverse: `commands.ts`'s `removeSketchPort`. */
   | { kind: 'remove-sketch-port'; chassisId: string; portId: string }
+  /** ADR-0051 §1 — a numbered range of sketch ports in one batch
+   * (`commands.ts`'s `addSketchPortRange`): `labelPrefix` + each whole
+   * number `first`..`last`, one shared connector/service/face. */
+  | {
+      kind: 'add-sketch-port-range';
+      chassisId: string;
+      labelPrefix: string;
+      first: number;
+      last: number;
+      connector: string;
+      service: string | null;
+      face: 'front' | 'rear';
+    }
+  /** ADR-0051 §1 — "Duplicate a device" (`commands.ts`'s `duplicateDevice`).
+   * Shown only on a rack-mounted chassis's own panel. */
+  | { kind: 'duplicate-device'; chassisId: string }
   /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
    * `label` is required (`PassiveNode.label`, schema card "1" — this
    * session's brief item 1); `model` names a catalogue entry from the
@@ -172,7 +188,11 @@ export type EditorChange =
  * to survive. `void` means the edit was accepted, or the failure is not one
  * this editor names beside a field (e.g. the document moved under us,
  * `UnknownReferenceError`) — either way the caller leaves the document as
- * it was. */
+ * it was.
+ *
+ * Exception: `'duplicate-device'` always writes its copy, placed or not,
+ * and reuses `{ refused }` as a NOTICE when the copy landed unplaced — the
+ * document did still change. */
 export interface EditorActions {
   /** Optional — ADR-0052 §5's view-only rendering: a caller that holds only
    * `read` capability (`RacksPlace.tsx`'s `canDraw`) omits this entirely

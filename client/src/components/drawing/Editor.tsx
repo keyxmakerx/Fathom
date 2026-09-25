@@ -474,6 +474,22 @@ export function removeSketchPortChange(chassisId: string, portId: string): Edito
   return { kind: 'remove-sketch-port', chassisId, portId };
 }
 
+export function addSketchPortRangeChange(
+  chassisId: string,
+  labelPrefix: string,
+  first: number,
+  last: number,
+  connector: string,
+  service: string | null,
+  face: 'front' | 'rear',
+): EditorChange {
+  return { kind: 'add-sketch-port-range', chassisId, labelPrefix, first, last, connector, service, face };
+}
+
+export function duplicateDeviceChange(chassisId: string): EditorChange {
+  return { kind: 'duplicate-device', chassisId };
+}
+
 export function createShelfChange(
   rackId: string,
   positionU: number,
@@ -901,10 +917,16 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
  * (the schema's own `PhysicalPort.connector` enum, `document/compat.ts`'s
  * `PORT_CONNECTOR_VALUES` — the same vocabulary `commands.ts`'s
  * `addSketchPort` itself refuses outside of), service (its optional
- * `PhysicalPort.service`, `PORT_SERVICE_VALUES`, blank means unset) and face. */
+ * `PhysicalPort.service`, `PORT_SERVICE_VALUES`, blank means unset) and
+ * face. A "range" mode adds a label prefix plus first/last number
+ * (`commands.ts`'s `addSketchPortRange`); "one port" stays the default. */
 function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions: EditorActions }) {
   const [open, setIsOpen] = useState(false);
+  const [mode, setMode] = useState<'single' | 'range'>('single');
   const [label, setLabel] = useState('');
+  const [rangePrefix, setRangePrefix] = useState('');
+  const [rangeFirst, setRangeFirst] = useState('0');
+  const [rangeLast, setRangeLast] = useState('0');
   const [connector, setConnector] = useState<string>(PORT_CONNECTOR_VALUES[0]);
   const [service, setService] = useState('');
   const [face, setFace] = useState<'front' | 'rear'>('front');
@@ -929,6 +951,27 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   }
 
   function commit() {
+    if (mode === 'range') {
+      const first = Number(rangeFirst);
+      const last = Number(rangeLast);
+      if (!Number.isInteger(first) || !Number.isInteger(last)) {
+        setRefusal('first and last must be whole numbers');
+        return;
+      }
+      const result = doEdit(
+        addSketchPortRangeChange(chassisId, rangePrefix, first, last, connector, service.length > 0 ? service : null, face),
+      );
+      if (result?.refused) {
+        setRefusal(result.refused);
+        return;
+      }
+      setRefusal(null);
+      setIsOpen(false);
+      setRangePrefix('');
+      setRangeFirst('0');
+      setRangeLast('0');
+      return;
+    }
     const result = doEdit(addSketchPortChange(chassisId, label, connector, service.length > 0 ? service : null, face));
     if (result?.refused) {
       setRefusal(result.refused);
@@ -942,7 +985,23 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
 
   return (
     <div className="drawing-editor__field">
-      <input placeholder="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <div style={{ display: 'flex', gap: 'var(--s2)' }}>
+        <label>
+          <input type="radio" checked={mode === 'single'} onChange={() => setMode('single')} /> one port
+        </label>
+        <label>
+          <input type="radio" checked={mode === 'range'} onChange={() => setMode('range')} /> a range
+        </label>
+      </div>
+      {mode === 'single' ? (
+        <input placeholder="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+      ) : (
+        <>
+          <input placeholder="label prefix, e.g. ge-0/0/" value={rangePrefix} onChange={(e) => setRangePrefix(e.target.value)} />
+          <input placeholder="first" value={rangeFirst} onChange={(e) => setRangeFirst(e.target.value)} />
+          <input placeholder="last" value={rangeLast} onChange={(e) => setRangeLast(e.target.value)} />
+        </>
+      )}
       <select value={connector} onChange={(e) => setConnector(e.target.value)}>
         {PORT_CONNECTOR_VALUES.map((c) => (
           <option key={c} value={c}>
@@ -993,6 +1052,29 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
         </div>
       ))}
       <AddSketchPortForm chassisId={chassisId} actions={actions} />
+    </div>
+  );
+}
+
+/** ADR-0051 §1 — "Duplicate": `commands.ts`'s `duplicateDevice`, shown only
+ * on a rack-mounted chassis's panel. May carry a NOTICE, not a refusal
+ * (`contract.ts`'s `EditorActions.onEdit`). */
+function DuplicateDeviceControl({ chassisId, actions }: { chassisId: string; actions: EditorActions }) {
+  const [notice, setNotice] = useState<string | null>(null);
+  const onEdit = actions.onEdit;
+  if (!onEdit) return null;
+
+  function commit() {
+    const result = onEdit!(duplicateDeviceChange(chassisId));
+    setNotice(result?.refused ?? null);
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <button type="button" onClick={commit}>
+        Duplicate
+      </button>
+      {notice != null ? <div style={CAUTION_STYLE}>{notice}</div> : null}
     </div>
   );
 }
@@ -1486,6 +1568,8 @@ export function EditorFor(
         {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
             current one marked. */}
         <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
+
+        <DuplicateDeviceControl chassisId={chassis.id} actions={actions} />
 
         {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
             hostname and the capture, so its notes are `HasNote`'d off

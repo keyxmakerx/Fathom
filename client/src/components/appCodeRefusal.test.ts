@@ -13,23 +13,23 @@ import { describeAppCodeRefusal } from './appCodeRefusal';
 /** `CredentialError::TotpAlreadyEnrolled`, `credentials.rs`, as it reads on
  * the build this was written against. */
 const SERVER_409_TODAY =
-  'this account already has a confirmed app code. Replacing a live second factor from inside a session is not a form; it is a recovery, and it goes through the host command ADR-0055 decision 8 names';
+  'this account already has a confirmed app code, and there is no new one pending confirmation. Enrol a replacement first';
 
-/** The same refusal after the rename ADR-0056 decision 4 asks for. */
+/** The same refusal after the rename ADR-0056 decision 4 asks for, and the
+ * reopening ADR-0057 decision 3 gives it: a 409 now means nothing is
+ * pending, not that nothing may ever replace it. */
 const SERVER_409_RENAMED =
-  'this account already has a confirmed authenticator. Replacing a live second factor from inside a session is not a form; it is a recovery, and it goes through the host command ADR-0055 decision 8 names';
+  'this account already has a confirmed authenticator, and there is no new one pending confirmation. Enrol a replacement first';
 
 describe('the authenticator refusal on the account screen', () => {
   it('maps a 409 by status, and prints no sentence the server sent', () => {
     for (const body of [SERVER_409_TODAY, SERVER_409_RENAMED, 'refused', '']) {
       const shown = describeAppCodeRefusal(new ApiRefusal(409, body, null));
-      expect(shown).toBe(
-        'This account already has a confirmed authenticator. Replacing it is a recovery, done from the host with fathom-server recover-operator.',
-      );
+      expect(shown).toBe('There is no new authenticator pending confirmation. Draw a new one first.');
       // Not a substring of it, not a suffix on it, not a fallback when the
       // body looks reasonable: the body goes nowhere.
-      expect(shown).not.toContain('ADR-0055');
-      expect(shown).not.toContain('from inside a session');
+      expect(shown).not.toContain('ADR-0057');
+      expect(shown).not.toContain('pending confirmation. Enrol');
     }
   });
 

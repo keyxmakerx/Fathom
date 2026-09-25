@@ -94,10 +94,10 @@ describe('parseSignInAnswer (crates/fathom-server/src/api.rs sign_in_handler)', 
 });
 
 // ADR-0055 client (a): the body `POST /session` reads with
-// `read_fields(&body, 6)`. Built here from the same hand-rolled `u32le` the
-// tests above use, so the expectation does not come from the encoder under
-// test.
-describe('buildSignInBody (api.rs sign_in_handler, six fields since ADR-0055 decision 10)', () => {
+// `read_fields(&body, 8)` since ADR-0057 decision 2 widened it again. Built
+// here from the same hand-rolled `u32le` the tests above use, so the
+// expectation does not come from the encoder under test.
+describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 decision 2)', () => {
   const pubkey = Uint8Array.from([0x04, ...Array.from({ length: 64 }, (_, i) => i)]);
   const nonce = Uint8Array.from(Array.from({ length: 32 }, (_, i) => 255 - i));
 
@@ -106,9 +106,18 @@ describe('buildSignInBody (api.rs sign_in_handler, six fields since ADR-0055 dec
     return [...u32le(list.length), ...list];
   }
 
-  it('writes kind, session pubkey, nonce, evidence, password and verification code in that order', () => {
+  it('writes kind, session pubkey, nonce, evidence, password, verification code and the account endorsement in that order', () => {
     const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 9));
-    const body = buildSignInBody('steward', pubkey, nonce, evidence, 'harbour-lantern-copper-nine', '123456');
+    const body = buildSignInBody(
+      'steward',
+      pubkey,
+      nonce,
+      evidence,
+      'harbour-lantern-copper-nine',
+      '123456',
+      '',
+      new Uint8Array(0),
+    );
 
     expect(Array.from(body)).toEqual([
       ...lpField('steward'),
@@ -117,30 +126,67 @@ describe('buildSignInBody (api.rs sign_in_handler, six fields since ADR-0055 dec
       ...lpOf(evidence),
       ...lpField('harbour-lantern-copper-nine'),
       ...lpField('123456'),
+      ...lpField(''),
+      ...lpOf(new Uint8Array(0)),
     ]);
   });
 
-  it('sends the two new fields empty on the key-only path rather than omitting them', () => {
-    // `read_fields` refuses an inexact count, so a four-field body is a 400
-    // and not a shorter version of the same request.
+  it('sends the account-session fields on the operator plane', () => {
     const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 1));
-    const body = buildSignInBody('operator', pubkey, nonce, evidence, '', '');
-    const tail = Array.from(body).slice(-8);
-    expect(tail).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    const accountSessionSig = Uint8Array.from(Array.from({ length: 64 }, () => 7));
+    const body = buildSignInBody(
+      'operator',
+      pubkey,
+      nonce,
+      evidence,
+      '',
+      '',
+      '01JXACCOUNTSESSION0000001',
+      accountSessionSig,
+    );
+    expect(Array.from(body).slice(-lpOf(accountSessionSig).length)).toEqual(lpOf(accountSessionSig));
     expect(Array.from(body).length).toBe(
-      lpField('operator').length + lpOf(pubkey).length + lpOf(nonce).length + lpOf(evidence).length + 4 + 4,
+      lpField('operator').length +
+        lpOf(pubkey).length +
+        lpOf(nonce).length +
+        lpOf(evidence).length +
+        4 +
+        4 +
+        lpField('01JXACCOUNTSESSION0000001').length +
+        lpOf(accountSessionSig).length,
     );
   });
 
   it('sends an empty evidence field when this browser holds no key', () => {
-    const body = buildSignInBody('steward', pubkey, nonce, new Uint8Array(0), 'a-real-password-here', '');
+    const body = buildSignInBody(
+      'steward',
+      pubkey,
+      nonce,
+      new Uint8Array(0),
+      'a-real-password-here',
+      '',
+      '',
+      new Uint8Array(0),
+    );
     const afterKindAndKeys = lpField('steward').length + lpOf(pubkey).length + lpOf(nonce).length;
     expect(Array.from(body).slice(afterKindAndKeys, afterKindAndKeys + 4)).toEqual([0, 0, 0, 0]);
   });
 
   it('trims the code, because a pasted one carries whitespace and the server does not trim', () => {
-    const body = buildSignInBody('steward', pubkey, nonce, new Uint8Array(0), 'p', ' 000111 \n');
-    expect(Array.from(body).slice(-10)).toEqual(lpField('000111'));
+    const body = buildSignInBody(
+      'steward',
+      pubkey,
+      nonce,
+      new Uint8Array(0),
+      'p',
+      ' 000111 \n',
+      '',
+      new Uint8Array(0),
+    );
+    const tail = lpField('') // account_session_id
+      .concat(lpOf(new Uint8Array(0))); // account_session_sig
+    const withoutTail = Array.from(body).slice(0, Array.from(body).length - tail.length);
+    expect(withoutTail.slice(-10)).toEqual(lpField('000111'));
   });
 });
 
@@ -178,6 +224,7 @@ describe('completeSignIn, twice on one challenge', () => {
       sessionKeyPair,
       sessionPubkey,
       serverNonce,
+      deploymentId: 'dep',
       evidenceSig: new Uint8Array(0),
       pendingSlot: null,
       heldAKey: false,
@@ -223,8 +270,13 @@ describe('completeSignIn, twice on one challenge', () => {
     expect(Array.from(posts[1].body.slice(0, uptoPassword))).toEqual(
       Array.from(posts[0].body.slice(0, uptoPassword)),
     );
-    // The first post carries an empty code; the second carries the code.
-    expect(Array.from(posts[0].body).slice(-4)).toEqual([0, 0, 0, 0]);
-    expect(Array.from(posts[1].body).slice(-10)).toEqual(lpField('123456'));
+    // The last two fields — the account-session endorsement — are empty on
+    // the steward plane on both posts (ADR-0057 decision 2).
+    expect(Array.from(posts[0].body).slice(-8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(Array.from(posts[1].body).slice(-8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    // The first post carries an empty code; the second carries the code —
+    // both followed by those same eight zero bytes.
+    expect(Array.from(posts[0].body).slice(-12, -8)).toEqual([0, 0, 0, 0]);
+    expect(Array.from(posts[1].body).slice(-18, -8)).toEqual(lpField('123456'));
   });
 });

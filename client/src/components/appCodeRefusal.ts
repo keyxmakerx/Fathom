@@ -14,9 +14,13 @@
 import { ApiRefusal } from '../api/errors';
 
 /**
- * **409 is the typed refusal for "this account already has a second factor"**
- * (`credentials::CredentialError::TotpAlreadyEnrolled`), and this client maps
- * it **by status**, to its own sentence.
+ * **409 is the typed refusal for "nothing is pending confirmation"**
+ * (`credentials::CredentialError::TotpAlreadyEnrolled`) — reachable only from
+ * confirming with no fresh enrolment in flight, since ADR-0057 decision 3
+ * reopened the old "an account may enrol only once" rule: a confirmed
+ * authenticator is now replaced from inside a session, given the current
+ * password and a current code (`AuthenticatorEnrolment`'s own re-auth
+ * fields). This client maps 409 **by status**, to its own sentence.
  *
  * It used to print the server's body verbatim. That was wrong twice over:
  *
@@ -51,7 +55,6 @@ export function describeAppCodeRefusal(error: unknown): string {
 }
 
 /** The one sentence a 409 on the enrolment route turns into, in this client's
- * own words: what happened, and the one way through it (ADR-0055 decision 8's
- * host command, which the console's notices name the same way). */
+ * own words. */
 const ALREADY_ENROLLED =
-  'This account already has a confirmed authenticator. Replacing it is a recovery, done from the host with fathom-server recover-operator.';
+  'There is no new authenticator pending confirmation. Draw a new one first.';

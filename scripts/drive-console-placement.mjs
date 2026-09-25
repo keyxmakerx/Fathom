@@ -22,8 +22,13 @@
 //      window and what happens if nobody signs in there; saves with a
 //      one-minute window; shows the countdown; and redirects the browser to
 //      the new host;
-//   4. decision 9's absence: an operator session on a host the console does
-//      not answer on renders NO operator control at all;
+//   4. decision 9's absence: an account signed in on a host the console does
+//      not answer on gets NO Site entry at all — absent, not hidden. (Before
+//      ADR-0057 decision 2 this step signed in as the operator alone, key
+//      only, to show the sign-in ROUTE is not host-confined even though the
+//      console UI is; decision 2 makes that path unreachable from a cold
+//      browser on any host, so this step now drives what is left reachable
+//      and still decision 9's own claim — see the comment at the step.)
 //   5. the revert: after the window runs out unconfirmed, the console answers
 //      again on the host it was moved off, reached by a two-step sign-in at
 //      the ordinary door (ADR-0056 decision 3), and the client works there.
@@ -398,22 +403,6 @@ async function signInThroughTheDoor(page, { address, password, code, label }) {
   }
 }
 
-/**
- * Sign in as the operator with the key this browser already holds.
- *
- * The door lists the identities a browser has a key for, and pressing an
- * operator's signs in on the spot (it is a key sign-in and carries no
- * password). The row is found by the operator ID it shows, not by the word
- * beside it: the id is what this drive already knows, and the word is copy.
- */
-async function signInAsTheOperator(page, operatorId) {
-  await page.waitForSelector('.signin__identity', { timeout: 20000 });
-  const row = page.locator('.signin__identity', {
-    has: page.locator('.signin__identity-id', { hasText: operatorId }),
-  });
-  await row.first().click();
-}
-
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -637,22 +626,45 @@ async function main() {
   await shot('09-landed-on-the-new-host');
 
   // ---- step 4: decision 9's absence on a host the console does not answer --
-  // The operator sign-in itself is not gated by `admin_exposure` (the build
-  // contracts' open issue 8), so this is reachable: the client signs in with
-  // the operator key this browser filed when the console entry was pressed,
-  // and then offers nothing, because `useConsoleHost()` said no.
+  //
+  // **ADR-0057 decision 2 changed what this step can show.** The operator
+  // plane now needs a live ACCOUNT session to endorse any sign-in
+  // (`sessions.rs`'s `verify_account_endorsement`), and the one door to an
+  // account session is the ordinary sign-in screen — which a signed-in
+  // browser never shows again. So there is no longer a "sign in as the
+  // operator alone, key only, from a cold browser" path on ANY host, which
+  // is what this step used to drive to prove the sign-in route itself is not
+  // host-confined. That server-side claim (`admin_exposure` gates `/admin`,
+  // not `/session`) still holds and is unchanged by this ADR; it is no
+  // longer reachable through this browser-only drive without reimplementing
+  // the account-session endorsement's signature inside the page, which is
+  // more machinery than this step is for. What it drives instead, and what
+  // decision 9 still promises: the account signs in on this host exactly as
+  // it does anywhere (account sign-in is not console-confined), lands on
+  // Home, and the Site entry decision 9 calls *absent, not hidden* is not in
+  // the menu at all — nothing to click, not a control disabled or hidden by
+  // CSS.
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  await signInAsTheOperator(page, operatorId);
-  await page.waitForSelector('.console__absent', { timeout: 15000 });
-  const absent = await page.locator('.console').innerText();
+  await signInThroughTheDoor(page, {
+    address: ADDRESS,
+    password: CREDENTIAL,
+    code: recoveryCodes[1],
+    label: 'signing in on the host the console no longer answers on',
+  });
+  await page.click('.shell-account');
+  await page.waitForTimeout(300);
   check(
-    'an operator session on a non-console host renders no operator control at all',
-    (await page.locator('.console form').count()) === 0 &&
-      (await page.locator('.console button').count()) === 0,
-    `${await page.locator('.console form').count()} forms, ${await page.locator('.console button').count()} buttons`,
+    'the Site entry is absent, not merely hidden, once this host is not the console (decision 9)',
+    (await page.locator('[data-testid="console-entry"]').count()) === 0,
   );
-  check('and it says where the console went', /does not answer on/.test(absent));
-  await shot('10-operator-controls-absent-off-host');
+  check(
+    'and nothing operator-shaped renders anywhere on the page either',
+    (await page.locator('.console').count()) === 0,
+  );
+  await shot('10-no-site-entry-off-host');
+  // Signed in here on purpose (`signInThroughTheDoor` lands on `.home`);
+  // step 5 navigates fresh, which drops this browser's in-memory session
+  // exactly as a real navigation to another host would.
 
   // ---- step 5: the revert --------------------------------------------------
   const waitMs = Math.max(0, 62_000 - (Date.now() - movedAt));
@@ -754,14 +766,18 @@ async function main() {
   //     step in a two-step sign-in and not a failed one (the server rolls
   //     back, writes no entry and leaves the nonce unspent; it charges the
   //     source bucket and nothing else). Exactly one per two-step sign-in,
-  //     and this drive makes TWO_STEP_SIGN_INS of them. The first run's last
-  //     step sends the code with the password, so it never reaches the probe,
-  //     and the operator's key sign-in carries its evidence at once.
+  //     and this drive makes TWO_STEP_SIGN_INS of them: step 4's account
+  //     sign-in through the door (proving decision 9 with the account, since
+  //     ADR-0057 decision 2 makes a cold-browser operator-key-only sign-in
+  //     unreachable) and step 5's revert sign-in. Both go through the door
+  //     with the password only, so both hit the probe before the code is
+  //     sent; the operator's own sign-in carries its account-session
+  //     endorsement and, once fresh, its evidence at once.
   //
   // Anything else -- a 404 from a console request made where the console does
   // not answer, say -- is this client asking for something it was told not to,
   // and it fails the drive whatever status it wears.
-  const TWO_STEP_SIGN_INS = 1;
+  const TWO_STEP_SIGN_INS = 2;
   const say = (f) => `${f.method} ${f.pathname} → ${f.status}`;
   const isProbe = (f) => f.method === 'POST' && f.pathname === '/session' && f.status === 401;
   const isTestSend = (f) =>

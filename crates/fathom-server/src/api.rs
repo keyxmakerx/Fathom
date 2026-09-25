@@ -34,11 +34,8 @@
 //!
 //! # What is NOT here
 //!
-//! * **No grant endpoints.** `GrantProposal`, `sign_grant`, `second_grant` and
-//!   the rest of the authority API stay in-process in this step. §3.8's
-//!   closing paragraph names *"everything that changes when a proposal crosses
-//!   a real HTTP boundary"* as its own open question, and answering it under a
-//!   surface built in the same hour would be answering it by accident.
+//! * **No grant endpoints, with one exception:** `POST /enrolment/organisation`
+//!   (ADR-0057 decision 5, at the end of this file). Grant proposals otherwise stay in-process (§3.8).
 //! * **No design or vault routes.** They are the next step, and they compose
 //!   [`Signed`] exactly as the demonstration route below does.
 //! * **No credential of any kind in any file this adds** (§1.4).
@@ -53,10 +50,11 @@ use axum::routing::post;
 use axum::Router;
 use deadpool_postgres::Transaction;
 
-use crate::authority::Capability;
+use crate::authority::{self, Capability};
 use crate::crypto;
 use crate::grants::{self, Authority, AuthorityError, EpochWatch};
 use crate::keys;
+use crate::operators::{OperatorError, OperatorStore};
 use crate::repo::{OrganisationId, ScopeId};
 use crate::sessions::{
     self, PrincipalKind, SessionError, SessionStore, SignedRequest, VerifiedSession,
@@ -298,9 +296,14 @@ async fn challenge_handler(
 
 /// `POST /session` — sign-in.
 ///
-/// Body, **six fields since ADR-0055 decision 10**:
+/// Body, **eight fields since ADR-0057 decision 2**:
 /// `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)
-///  ‖ LP(password) ‖ LP(totp_code)`.
+///  ‖ LP(password) ‖ LP(totp_code) ‖ LP(account_session_id)
+///  ‖ LP(account_session_sig)`. The last two are empty on the steward plane;
+/// on the operator plane they carry the id of a live session of the
+/// operator's own bound account and a signature by that session's key over
+/// this attempt's own challenge, binding the two together — without them the
+/// operator's key alone is refused.
 /// Answer, unchanged:
 /// `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
 ///
@@ -317,10 +320,10 @@ async fn challenge_handler(
 /// fails the build if a password-shaped field appears in any other handler in
 /// `api.rs`, `admin.rs` or `operators.rs`.
 ///
-/// **The count is still exact.** `read_fields(&body, 6)` refuses a body with
-/// five fields and a body with seven, so a client built against either shape
+/// **The count is still exact.** `read_fields(&body, 8)` refuses a body with
+/// seven fields and a body with nine, so a client built against either shape
 /// is told it is wrong rather than having a field silently dropped — which is
-/// the same rule that used to be the reason there were four.
+/// the same rule that used to be the reason there were four, then six.
 async fn sign_in_handler(
     State(state): State<ApiState>,
     request: Request,
@@ -329,7 +332,7 @@ async fn sign_in_handler(
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
-    let fields = read_fields(&body, 6)?;
+    let fields = read_fields(&body, 8)?;
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
     let password = text(&fields[4], "credential")?;
@@ -337,6 +340,7 @@ async fn sign_in_handler(
     // operator reads: "verification code", the name on the screen (ADR-0056
     // decision 4).
     let totp_code = text(&fields[5], "verification code")?;
+    let account_session_id = text(&fields[6], "account session")?;
 
     let signed_in = state
         .sessions
@@ -348,6 +352,8 @@ async fn sign_in_handler(
             password: &password,
             totp_code: &totp_code,
             source: &source,
+            account_session_id: &account_session_id,
+            account_session_sig: &fields[7],
         })
         .await?;
 
@@ -561,6 +567,10 @@ pub struct CredentialApiState {
 pub fn credential_router(state: CredentialApiState) -> Router {
     Router::new()
         .route("/credentials/password", post(set_password_handler))
+        .route(
+            "/credentials/status",
+            axum::routing::get(credential_status_handler),
+        )
         .route("/credentials/key", post(register_key_handler))
         .route("/credentials/totp/enrol", post(enrol_totp_handler))
         .route("/credentials/totp/confirm", post(confirm_totp_handler))
@@ -612,22 +622,71 @@ async fn verified(state: &CredentialApiState, signed: &Signed) -> Result<Verifie
     Ok(session)
 }
 
-/// `POST /credentials/password` — set or change this session's own password.
-///
-/// Body: `LP(new_credential)`. Answer: 200, empty.
+/// `POST /credentials/password`. Body: `LP(current) ‖ LP(new) ‖
+/// LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)`, the last three non-empty only for a first password.
 async fn set_password_handler(
+    State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 5)?;
+    let current = text(&fields[0], "current credential")?;
+    let chosen = text(&fields[1], "credential")?;
+    let account = session.principal_id();
+
+    // Charged once, unconditionally, before anything below is verified.
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+
+    let fresh_evidence_verified =
+        if fields[2].is_empty() && fields[3].is_empty() && fields[4].is_empty() {
+            false
+        } else {
+            let nonce = thirty_two(&fields[3], "nonce")?;
+            state
+                .sessions
+                .verify_fresh_evidence(&account, &fields[2], &nonce, &fields[4])
+                .await
+                .is_ok()
+        };
+
+    state
+        .credentials
+        .set_password(&session, &current, &chosen, fresh_evidence_verified)
+        .await
+        .map_err(CredentialRefusal)?;
+    // A successful change must not spend the budget the attempt reserved.
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
+    Ok(empty_response())
+}
+
+/// `GET /credentials/status` — does this session's account have a confirmed
+/// authenticator? ADR-0057 decision 3: the account screen's own question,
+/// the smallest read that answers it.
+///
+/// No body. Answer: `LP("yes"|"no")`.
+async fn credential_status_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
-    let fields = read_fields(&signed.body, 1)?;
-    let chosen = text(&fields[0], "credential")?;
-    state
+    let _ = read_fields(&signed.body, 0)?;
+    let confirmed = state
         .credentials
-        .set_password(&session, &chosen)
+        .totp_confirmed(&session)
         .await
         .map_err(CredentialRefusal)?;
-    Ok(empty_response())
+    let mut out = Vec::with_capacity(8);
+    crypto::lp(&mut out, if confirmed { b"yes" } else { b"no" });
+    Ok(bytes_response(out))
 }
 
 /// `POST /credentials/key` — register this browser's long-term key.
@@ -649,29 +708,45 @@ async fn register_key_handler(
     Ok(bytes_response(out))
 }
 
-/// `POST /credentials/totp/enrol` — draw an app-code secret.
-///
-/// Body: empty. Answer: `LP(otpauth_uri) ‖ LP(secret_base32)`.
+/// `POST /credentials/totp/enrol` — draws a secret into the PENDING slot.
+/// Body: `LP(current) ‖ LP(code)`, both empty unless replacing a confirmed one.
 async fn enrol_totp_handler(
     State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
     signed: Signed,
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
-    let _ = read_fields(&signed.body, 0)?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 2)?;
+    let current = text(&fields[0], "current credential")?;
+    let code = text(&fields[1], "verification code")?;
+    let account = session.principal_id();
+
+    // Charged once, unconditionally, before anything below is verified.
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+
     let enrolment = state
         .credentials
-        .enrol_totp(&session)
+        .enrol_totp(&session, &current, &code)
         .await
         .map_err(CredentialRefusal)?;
+    // A successful draw must not spend the budget the attempt reserved.
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
     let mut out = Vec::with_capacity(256);
     crypto::lp(&mut out, enrolment.otpauth_uri.as_bytes());
     crypto::lp(&mut out, enrolment.secret_base32.as_bytes());
     Ok(bytes_response(out))
 }
 
-/// `POST /credentials/totp/confirm` — prove the app code works.
-///
-/// Body: `LP(app_code)`. Answer: ten `LP(backup_code)` fields, once.
+/// `POST /credentials/totp/confirm`. Body: `LP(app_code)`. Answer: ten
+/// `LP(backup_code)` fields, once. Ends this account's other sessions on success.
 async fn confirm_totp_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
@@ -1015,7 +1090,9 @@ impl IntoResponse for CredentialRefusal {
                 tracing::info!(reason = %self.0, "credential act refused");
                 (StatusCode::CONFLICT, format!("{}\n", self.0)).into_response()
             }
-            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled => {
+            // A wrong current password renders exactly as a wrong code does:
+            // neither is an integrity alarm, so neither logs at error severity.
+            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::CurrentPasswordRefused => {
                 tracing::info!(reason = %self.0, "credential act refused");
                 Refusal::from(SessionError::SignInRefused).into_response()
             }
@@ -1269,5 +1346,155 @@ impl IntoResponse for Refusal {
             }
         };
         (status, body).into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 5 — the organisation claim. Account-plane, not
+// admin.rs: the steward who holds the claim redeems it, never an operator.
+// ---------------------------------------------------------------------------
+
+/// Everything `POST /enrolment/organisation` needs.
+#[derive(Clone)]
+pub struct ClaimApiState {
+    pub sessions: Arc<SessionStore>,
+    pub operators: Arc<OperatorStore>,
+    pub client_address: crate::client_address::ClientAddress,
+}
+
+/// The claim route, ready to `merge` into the main router.
+pub fn claim_router(state: ClaimApiState) -> Router {
+    Router::new()
+        .route(
+            "/enrolment/organisation",
+            post(redeem_organisation_claim_handler),
+        )
+        .with_state(state)
+}
+
+/// `POST /enrolment/organisation` — ADR-0057 decision 5. `subject` travels
+/// on the wire but `redeem_organisation_claim` refuses any grant whose subject is not the session's own.
+async fn redeem_organisation_claim_handler(
+    State(state): State<ClaimApiState>,
+    request: Request,
+) -> Result<Response, Refusal> {
+    // Computed from the request before `Signed::from_request_for` consumes
+    // it, exactly as `challenge_handler` and `sign_in_handler` already do.
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let signed = Signed::from_request_for(request, &state.sessions).await?;
+    let fields = read_fields(&signed.body, 9)?;
+    let token = &fields[0];
+    let notice_address = text(&fields[1], "notice address")?;
+    let root_pubkey = &fields[2];
+    if root_pubkey.len() != authority::PUBLIC_KEY_LEN {
+        return Err(SessionError::Malformed("organisation root key").into());
+    }
+    let id_salt: [u8; 16] = fixed_bytes(&fields[3], "organisation id salt")?;
+    // Kept as text: turning it into an id is `redeem_organisation_claim_over_http`'s
+    // job, not this handler's — see that function's own doc for why.
+    let subject_text = text(&fields[4], "grant subject")?;
+    let subject_pubkey = &fields[5];
+    if subject_pubkey.len() != authority::PUBLIC_KEY_LEN {
+        return Err(SessionError::Malformed("account public key").into());
+    }
+    let effective_from_unix = parse_unix(&fields[6], "grant effective-from")?;
+    let expires_at_unix = parse_unix(&fields[7], "grant expiry")?;
+    let signature: [u8; 64] = fixed_bytes(&fields[8], "grant signature")?;
+    // `0011`'s CHECK refuses an inverted window at the database; checked
+    // here too, plus `effective_from > 0`, for this route's own 400.
+    if !(effective_from_unix > 0 && effective_from_unix < expires_at_unix) {
+        return Err(SessionError::Malformed("grant time window").into());
+    }
+
+    // The same per-source budget the unauthenticated redemption routes spend
+    // (`admin.rs`): the claim token is a bearer secret too, session or not.
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Steward, &source)
+        .await?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+
+    let organisation = state
+        .operators
+        .redeem_organisation_claim_over_http(
+            &session,
+            token,
+            &notice_address,
+            root_pubkey,
+            &id_salt,
+            &subject_text,
+            authority::key_fingerprint(subject_pubkey),
+            effective_from_unix,
+            expires_at_unix,
+            signature,
+        )
+        .await
+        .map_err(OrganisationClaimRefusal)?;
+
+    let mut out = Vec::with_capacity(32);
+    crypto::lp(&mut out, organisation.to_string().as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `N` raw bytes, exactly — a length-prefixed field this route reads as a
+/// fixed-size array rather than as text (a key, a salt, a signature).
+fn fixed_bytes<const N: usize>(field: &[u8], what: &'static str) -> Result<[u8; N], Refusal> {
+    field
+        .try_into()
+        .map_err(|_| SessionError::Malformed(what).into())
+}
+
+/// A decimal Unix timestamp, LP-wrapped as text like every other numeric
+/// field this client sends alongside byte fields.
+fn parse_unix(field: &[u8], what: &'static str) -> Result<i64, Refusal> {
+    text(field, what)?
+        .parse::<i64>()
+        .map_err(|_| SessionError::Malformed(what).into())
+}
+
+/// One claim refusal, on its way to a status code and a sentence. Uniform
+/// like `admin.rs`'s `AdminRefusal`: every ordinary refusal is one sentence; only an integrity failure alarms.
+struct OrganisationClaimRefusal(OperatorError);
+
+impl From<OrganisationClaimRefusal> for Refusal {
+    fn from(e: OrganisationClaimRefusal) -> Self {
+        match e.0 {
+            OperatorError::EnrolmentRefused
+            | OperatorError::Authority(AuthorityError::Signature(_)) => {
+                tracing::info!(reason = %e.0, "organisation claim refused");
+                Refusal::from(SessionError::SignInRefused)
+            }
+            OperatorError::Malformed(what) => Refusal::from(SessionError::Malformed(what)),
+            OperatorError::Unverifiable(what) => {
+                tracing::error!(reason = %e.0, "integrity check failed");
+                Refusal::from(SessionError::Unverifiable(what))
+            }
+            other => {
+                tracing::error!(reason = %other, "organisation claim request failed");
+                Refusal::from(SessionError::Corrupt("organisation claim"))
+            }
+        }
+    }
+}
+
+impl IntoResponse for OrganisationClaimRefusal {
+    fn into_response(self) -> Response {
+        Refusal::from(self).into_response()
     }
 }

@@ -3,7 +3,7 @@
 **Status:** accepted 2026-09-24, on the owner's answers to closed questions (2026-09-23 and
 2026-09-24). **Amends** ADR-0055 decisions 2 and 10 (the token file) and ADR-0056 decision 2
 step 1 (the Setup token field). **Answers** the root-private-key question in `docs/NEXT.md`.
-Everything else in both ADRs stands.
+Everything else in both ADRs stands. **Amended** 2026-09-25: decisions 6 to 8.
 
 ## The ask, in the owner's words
 
@@ -56,6 +56,32 @@ to this tool."* Then: *"an env password that is temporary? but it's filled out i
    organisation's **recovery key**, to download or print, with "I have saved this" before going on.
    The browser then forgets it; the server never receives it.
 
+## Amendment, 2026-09-25: what a reload keeps
+
+The owner left this to the lead ("decide based off what others say and do"), with two limits: it
+must work in Firefox, and stay usable for a normal person and for an admin who is not always setting
+up and cleaning up. Research read 2026-09-25: the WebCrypto spec and the Chromium, Firefox and WebKit
+sources (a stored key stays non-extractable, but Chromium writes its raw bytes to the profile);
+mdn/browser-compat-data (Web Locks from Firefox 96, BroadcastChannel from 38); the OWASP Session
+Management Cheat Sheet ("Binding the Session ID to Other User Properties": an address check detects
+hijacking but a shared NAT or proxy defeats it); NIST SP 800-63B-4 (at AAL2, idle no more than 1 hour
+and overall no more than 24; session secrets should not persist across a restart); and, from search
+results only (the pages are blocked here), Okta ending admin console sessions when their address
+changes, on by default.
+
+6. **Site is not kept across a reload.** Decision 2's 15-minute grace lives only in the tab's
+   memory. After a reload, or from a copied browser profile, opening Site needs a fresh code. The
+   account session is kept, as decision 4 says.
+7. **Site is tied to its address.** A Site session ends when a request comes from another address
+   (IPv4 exactly, IPv6 by its /64), and the person opens Site again with a code. An address change
+   does not end an account session: laptops, VPNs and phones change address, and mainstream
+   products do not sign people out for it. The change is recorded with the session.
+   `FATHOM_SESSION_ADDRESS_CHECK` is `site` (the default), `all` or `off`.
+8. **Signed-in browsers are listed.** Each person can see their signed-in browsers (browser, address,
+   last active) and sign any of them out (ASVS 5.0.0 7.5.2). Admins get the same list for everyone
+   with People and permissions (7.4.5). A new browser needs the password and a code, not an admin's
+   approval. To stop a person, disable the account, which ends every session (7.4.2).
+
 ## What it gives up
 
 - A secret in `.env` lives on the host's disk until removed. So does every key in ADR-0043, and the
@@ -63,10 +89,12 @@ to this tool."* Then: *"an env password that is temporary? but it's filled out i
 - A reload no longer asks for the password. A stolen unlocked laptop keeps the tab's session until
   the idle timeout, as any web session does.
 - A lost recovery key cannot be re-shown. Break-glass for that organisation then needs its stewards.
+- The address check is a tripwire, not a lock: someone on the same network shares the address. A
+  copied profile used from that network lasts until the idle limit.
 
 ## Order of work
 
 A: the setup password (server, client Welcome, `scripts/ci/first-operator-signin.mjs`,
 `docs/RUNNING-IT.md`, `docs/OPERATING.md`). B: Site behind the account, and factor changes. C: the
-reload and the timeouts. D: the claim route and the recovery key. A checker attacks each stream
-before it is merged.
+reload, the timeouts and decisions 6 and 7; then decision 8's own list. D: the claim route and the
+recovery key. A checker attacks each stream before it is merged.

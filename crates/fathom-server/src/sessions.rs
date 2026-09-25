@@ -193,6 +193,10 @@ const A_DECOY_HASH: &str =
 /// nothing yet reads that register.
 pub const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 
+/// ADR-0057 decision 2: how old the account session's own TOTP proof may be
+/// before an operator sign-in it endorses also needs a fresh code.
+pub const SECOND_FACTOR_FRESHNESS: Duration = Duration::from_secs(15 * 60);
+
 /// How long a challenge nonce — sign-in or per-request — stays usable.
 ///
 /// Two minutes covers a human reading a prompt and a browser producing a
@@ -697,8 +701,20 @@ pub struct SignInAttempt<'a> {
     /// before this build and every operator sign-in.
     pub password: &'a str,
     /// Six digits is an app code; anything else is tried as a backup code.
+    /// On the operator plane (ADR-0057 decision 2) this is the freshness
+    /// code, checked against the account named by `account_session_id`
+    /// rather than against the operator.
     pub totp_code: &'a str,
     pub source: &'a str,
+    /// ADR-0057 decision 2. On the operator plane, the id of a live session
+    /// of the operator's own bound account. Empty on the steward plane and
+    /// on every sign-in this build made before this decision, which the
+    /// operator branch now refuses for exactly that reason.
+    pub account_session_id: &'a str,
+    /// A signature by that account session's own key over this attempt's own
+    /// challenge (`session_challenge`), binding the two together. Empty on
+    /// the steward plane.
+    pub account_session_sig: &'a [u8],
 }
 
 /// What a caller must present on every request that reaches a design payload
@@ -1348,6 +1364,8 @@ impl SessionStore {
             password: "",
             totp_code: "",
             source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await
     }
@@ -1748,6 +1766,122 @@ impl SessionStore {
         Ok(within)
     }
 
+    /// Charges the account and source buckets once, before anything is
+    /// verified, so a right guess is refused too once a bucket is over cap.
+    pub async fn charge_credential_refusal(
+        &self,
+        account: &str,
+        source: &str,
+    ) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let account_count = self
+            .count_attempt(&tx, "account", account)
+            .await?
+            .unwrap_or(0);
+        let source_count = self
+            .count_attempt(&tx, "source", source)
+            .await?
+            .unwrap_or(0);
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        if account_count > self.limits.max_per_account || source_count > self.limits.max_per_source
+        {
+            Err(SessionError::RateLimited {
+                retry_after_seconds: seconds_left_in_window(self.limits.window),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Gives back the unit [`Self::charge_credential_refusal`] reserved for
+    /// an attempt that then succeeded — a successful change spends nothing.
+    pub async fn refund_credential_charge(&self, account: &str, source: &str) {
+        let Ok(mut client) = self.pool.get().await else {
+            return;
+        };
+        let Ok(tx) = client.transaction().await else {
+            return;
+        };
+        if enter_session_custody(&tx).await.is_err() {
+            return;
+        }
+        for (kind, key) in [("account", account), ("source", source)] {
+            let key = self::bucket_key(key);
+            if key.is_empty() {
+                continue;
+            }
+            let _ = tx
+                .execute(
+                    "UPDATE sign_in_attempts SET attempts = GREATEST(attempts - 1, 0) \
+                      WHERE bucket_kind = $1 AND bucket_key = $2 AND window_start = $3",
+                    &[&kind, &key, &window_start(self.limits.window)],
+                )
+                .await;
+        }
+        let _ = leave_session_custody(&tx).await;
+        let _ = tx.commit().await;
+    }
+
+    /// A fresh signature by a live enrolled key over a bind-purpose
+    /// challenge — what a no-password account's first password change needs.
+    pub async fn verify_fresh_evidence(
+        &self,
+        account: &str,
+        session_pubkey: &[u8],
+        nonce: &[u8; 32],
+        evidence_sig: &[u8],
+    ) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+
+        let consumed = tx
+            .query_opt(
+                "DELETE FROM session_nonces \
+                  WHERE nonce = $1 AND purpose = 'bind' AND expires_at > now() \
+                  RETURNING session_pubkey, principal_id, principal_kind",
+                &[&nonce.to_vec()],
+            )
+            .await?;
+        let Some(consumed) = consumed else {
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(SessionError::SignInRefused);
+        };
+        let bound_pubkey: Vec<u8> = consumed.get(0);
+        let principal: Option<String> = consumed.get(1);
+        let principal_kind: Option<String> = consumed.get(2);
+        if bound_pubkey != session_pubkey
+            || principal.as_deref() != Some(account)
+            || principal_kind.as_deref() != Some(PrincipalKind::Steward.as_str())
+        {
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(SessionError::SignInRefused);
+        }
+
+        set_account_id(&tx, account).await?;
+        let challenge = session_challenge(session_pubkey, nonce, &self.deployment);
+        let verified = grants::verify_by_any_live_key(
+            &tx,
+            &self.ring,
+            account,
+            &challenge,
+            evidence_sig,
+            now_unix(),
+        )
+        .await;
+
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        verified
+            .map(|_| ())
+            .map_err(|_| SessionError::SignInRefused)
+    }
+
     /// The part of [`SessionStore::sign_in`] that can fail without the
     /// transaction being poisoned. Returns the bucket the failure belongs to
     /// alongside the error, so it can be counted against the right one.
@@ -1764,6 +1898,8 @@ impl SessionStore {
             evidence_sig,
             password,
             totp_code,
+            account_session_id,
+            account_session_sig,
             ..
         } = *attempt;
         // (2) Consume the nonce. `DELETE ... RETURNING` is the whole of
@@ -2013,6 +2149,89 @@ impl SessionStore {
                         SessionError::SignInRefused,
                     ));
                 }
+
+                // ADR-0057 decision 2: Site needs the account. The operator
+                // key alone no longer opens a session — a live session of
+                // the operator's own bound account must also endorse this
+                // attempt, over its own challenge, or it is refused exactly
+                // as a bad operator key is.
+                let endorsing_account = operators::account_of_operator(tx, &self.ring, &account)
+                    .await
+                    .map_err(|e| match e {
+                        operators::OperatorError::Unverifiable(what) => (
+                            Some(AccountBucket::Account(account.clone())),
+                            "operator_binding_unverifiable",
+                            SessionError::Unverifiable(what),
+                        ),
+                        _ => (
+                            Some(AccountBucket::Account(account.clone())),
+                            "operator_not_bound",
+                            SessionError::SignInRefused,
+                        ),
+                    })?;
+                let totp_verified_at = self
+                    .verify_account_endorsement(
+                        tx,
+                        &endorsing_account,
+                        account_session_id,
+                        account_session_sig,
+                        &challenge,
+                    )
+                    .await
+                    .map_err(|e| {
+                        (
+                            Some(AccountBucket::Account(account.clone())),
+                            "account_session_endorsement",
+                            e,
+                        )
+                    })?;
+
+                // Freshness: a stale, or absent, TOTP proof on the endorsing
+                // session needs a current code beside it — the same typed
+                // answer ADR-0056 decision 3's two-step sign-in gives, so
+                // the caller learns to ask for one rather than being refused
+                // outright.
+                let fresh = totp_verified_at
+                    .map(|at| now.saturating_sub(at) <= SECOND_FACTOR_FRESHNESS.as_secs() as i64)
+                    .unwrap_or(false);
+                if !fresh {
+                    if totp_code.is_empty() {
+                        return Err((
+                            Some(AccountBucket::Account(account.clone())),
+                            "operator_second_factor_needed",
+                            SessionError::SecondFactorNeeded,
+                        ));
+                    }
+                    let credentials_row =
+                        credentials::read_credentials(tx, &self.ring, &endorsing_account)
+                            .await
+                            .map_err(|_| {
+                                (
+                                    Some(AccountBucket::Account(account.clone())),
+                                    "database",
+                                    SessionError::Corrupt("account credentials"),
+                                )
+                            })?
+                            .ok_or_else(|| {
+                                (
+                                    Some(AccountBucket::Account(account.clone())),
+                                    "no_such_account",
+                                    SessionError::SignInRefused,
+                                )
+                            })?;
+                    let checked = self
+                        .check_second_factor(tx, &endorsing_account, &credentials_row, totp_code)
+                        .await
+                        .map_err(|e| (Some(AccountBucket::Account(account.clone())), "totp", e))?;
+                    if !checked {
+                        return Err((
+                            Some(AccountBucket::Account(account.clone())),
+                            "operator_totp_refused",
+                            SessionError::PasswordRefused,
+                        ));
+                    }
+                }
+
                 match operators::live_operator_keys(tx, &self.ring, &account, now).await {
                     Ok(keys) if !keys.is_empty() => {
                         // **The operator plane verifies here**, where the
@@ -2080,6 +2299,9 @@ impl SessionStore {
         // of the account's live keys it was made with: `key` is `Some` exactly
         // when one of them verified it.
         let mut assurance = Assurance::A1;
+        // ADR-0057 decision 2: when this sign-in itself verified a TOTP
+        // code, for the row's own `totp_verified_at`.
+        let mut totp_verified_now = false;
 
         if by_password {
             let row = credentials
@@ -2133,6 +2355,7 @@ impl SessionStore {
                     ));
                 }
                 assurance = Assurance::A0T;
+                totp_verified_now = true;
             } else {
                 // No app code yet. A steward with no operator custody gets a
                 // full `A0` session — design §5.1, and it is how they reach
@@ -2235,6 +2458,7 @@ impl SessionStore {
             issued_at_unix: now,
             expires_at_unix,
             request_counter: 0,
+            totp_verified_at_unix: totp_verified_now.then_some(now),
         };
         let mac = self
             .row_mac(tx, &row)
@@ -2275,9 +2499,10 @@ impl SessionStore {
                  (id, principal_id, principal_kind, token_hash, session_pubkey, session_alg, \
                   bound_nonce, evidence_key_id, evidence_sig, assertion_digest, assurance, \
                   chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac, \
-                  evidence_operator_key_id) \
+                  evidence_operator_key_id, totp_verified_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16)",
+                     to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16, \
+                     to_timestamp($17))",
             &[
                 &row.id,
                 &row.principal_id,
@@ -2295,6 +2520,7 @@ impl SessionStore {
                 &(row.expires_at_unix as f64),
                 &mac.to_vec(),
                 &operator_evidence,
+                &row.totp_verified_at_unix.map(|v| v as f64),
             ],
         )
         .await
@@ -2315,6 +2541,44 @@ impl SessionStore {
                 account_id: account,
             },
         ))
+    }
+
+    /// ADR-0057 decision 2: the account session endorsing an operator
+    /// sign-in. Checked before the operator's own key, so a stolen operator
+    /// key alone stops here.
+    ///
+    /// Live (not expired, not signed out, its row MAC intact), naming
+    /// `account`, and signing `challenge` — the operator sign-in's own
+    /// challenge digest — with the key that session was issued. Returns
+    /// when that session last verified a TOTP code, for the caller to weigh
+    /// against [`SECOND_FACTOR_FRESHNESS`].
+    async fn verify_account_endorsement(
+        &self,
+        tx: &Transaction<'_>,
+        account: &str,
+        account_session_id: &str,
+        account_session_sig: &[u8],
+        challenge: &[u8; 32],
+    ) -> Result<Option<i64>, SessionError> {
+        if account_session_id.is_empty() {
+            return Err(SessionError::SignInRefused);
+        }
+        let Some(row) = read_session(tx, account_session_id).await? else {
+            return Err(SessionError::SignInRefused);
+        };
+        if is_revoked(tx, &row.id).await? {
+            return Err(SessionError::SignInRefused);
+        }
+        self.check_row_mac(tx, &row).await?;
+        if row.expires_at_unix <= now_unix() {
+            return Err(SessionError::SignInRefused);
+        }
+        if row.principal_kind != PrincipalKind::Steward || row.principal_id != account {
+            return Err(SessionError::SignInRefused);
+        }
+        authority::verify_es256(&row.session_pubkey, challenge, account_session_sig)
+            .map_err(|_| SessionError::SignInRefused)?;
+        Ok(row.totp_verified_at_unix)
     }
 
     /// The second factor at sign-in: an app code, or a backup code standing in
@@ -3133,66 +3397,43 @@ impl SessionStore {
     ) -> Result<(), SessionError> {
         enter_session_custody(tx).await?;
         let principal = session.actor.to_string();
-
-        // The entry first, then the row whose MAC covers its seq: no record,
-        // no sign-out, which is the order `attempt_sign_in` uses for the same
-        // reason (§0, "stopping the log stops the act").
-        // §7.2 names `account_signed_out` and, since `0015`, `operator_signed_out`
-        // — two types rather than one with a `principal_kind` field, because
-        // the type is what a reader holding only the chain key can group by,
-        // and an operator's acts must be legible as operator acts to whoever
-        // audits the operator plane.
-        let entry_type = match session.kind {
-            PrincipalKind::Steward => EntryType::AccountSignedOut,
-            PrincipalKind::Operator => EntryType::OperatorSignedOut,
-        };
-        let appended = chains::append_site(
+        revoke_one(
             tx,
             &self.ring,
             &self.deployment,
-            entry_type,
-            &entry_metadata(
-                entry_type,
-                &[
-                    ("session", Json::Str(session.id.clone())),
-                    ("account", Json::Str(principal.clone())),
-                    (
-                        "principal_kind",
-                        Json::Str(session.kind.as_str().to_string()),
-                    ),
-                ],
-            ),
+            session.kind,
+            &principal,
+            &session.id,
         )
         .await?;
-
-        let facts = RevocationFacts {
-            session_id: &session.id,
-            principal_id: &principal,
-            reason: SIGNED_OUT,
-            chain_seq: appended.seq,
-            row_version: 1,
-        };
-        let key = grants::site_row_key(tx, &self.ring).await?;
-        let mac = revocation_row_mac(&key, &facts);
-
-        tx.execute(
-            "INSERT INTO session_revocations \
-                 (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
-             VALUES ($1, $2, $3, $4, 1, $5) \
-             ON CONFLICT (session_id) DO NOTHING",
-            &[
-                &facts.session_id,
-                &facts.principal_id,
-                &facts.reason,
-                &facts.chain_seq,
-                &mac.to_vec(),
-            ],
-        )
-        .await?;
-
-        delete_session(tx, &session.id).await?;
         leave_session_custody(tx).await?;
         Ok(())
+    }
+
+    /// End every OTHER session of one principal, on one plane — ASVS 7.4.3,
+    /// after a password or authenticator change (ADR-0057 decision 3). The
+    /// caller's own session, `except_session_id`, is left alone.
+    ///
+    /// Used on the account plane for the account whose credential changed,
+    /// and on the operator plane for the operator it holds the custody of,
+    /// if any — `except_session_id` is empty there, since the session doing
+    /// the changing is never an operator one.
+    pub async fn end_other_sessions(
+        &self,
+        tx: &Transaction<'_>,
+        kind: PrincipalKind,
+        principal_id: &str,
+        except_session_id: &str,
+    ) -> Result<(), SessionError> {
+        end_other_sessions(
+            tx,
+            &self.ring,
+            &self.deployment,
+            kind,
+            principal_id,
+            except_session_id,
+        )
+        .await
     }
 
     /// Disable or re-enable an account, and record it on the site chain
@@ -3354,6 +3595,11 @@ struct SessionRow {
     issued_at_unix: i64,
     expires_at_unix: i64,
     request_counter: i64,
+    /// ADR-0057 decision 2: when this session's own sign-in last verified a
+    /// TOTP code. `None` for a session that never did — a key-only sign-in,
+    /// or one made before the account had a confirmed authenticator. Not
+    /// inside the row MAC; `0027` says why.
+    totp_verified_at_unix: Option<i64>,
 }
 
 impl SessionRow {
@@ -3373,6 +3619,7 @@ impl SessionRow {
             row_version: self.row_version,
             issued_at_unix: self.issued_at_unix,
             expires_at_unix: self.expires_at_unix,
+            totp_verified_at_unix: self.totp_verified_at_unix,
         }
     }
 }
@@ -3399,6 +3646,8 @@ pub struct SessionFacts<'a> {
     pub row_version: i32,
     pub issued_at_unix: i64,
     pub expires_at_unix: i64,
+    /// Decision 2's freshness clock, inside the MAC (`0027`'s header).
+    pub totp_verified_at_unix: Option<i64>,
 }
 
 /// §4.3's `row_mac`, in `authority::row_seal`'s construction under the
@@ -3483,6 +3732,11 @@ fn session_row_state(row: &SessionFacts<'_>) -> Vec<u8> {
         Json::Str(hex(row.session_pubkey)),
     );
     map.insert("token_hash".to_string(), Json::Str(hex(row.token_hash)));
+    // Left OUT of the map when unset, not written as null: an old seal
+    // must still recompute unchanged after this column arrives.
+    if let Some(at) = row.totp_verified_at_unix {
+        map.insert("totp_verified_at".to_string(), Json::Int(at));
+    }
     Json::Obj(map).to_canonical_bytes()
 }
 
@@ -3541,6 +3795,91 @@ fn revocation_row_state(facts: &RevocationFacts<'_>) -> Vec<u8> {
         Json::Str(facts.session_id.to_string()),
     );
     Json::Obj(map).to_canonical_bytes()
+}
+
+/// A free function so `credentials.rs` can end an account's other sessions
+/// inside its OWN transaction, atomically with the change that triggers it.
+pub async fn end_other_sessions(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    deployment: &str,
+    kind: PrincipalKind,
+    principal_id: &str,
+    except_session_id: &str,
+) -> Result<(), SessionError> {
+    enter_session_custody(tx).await?;
+    let rows = tx
+        .query(
+            "SELECT id FROM sessions \
+              WHERE principal_id = $1 AND principal_kind = $2 AND id <> $3",
+            &[&principal_id, &kind.as_str(), &except_session_id],
+        )
+        .await?;
+    for row in &rows {
+        let session_id: String = row.get(0);
+        revoke_one(tx, ring, deployment, kind, principal_id, &session_id).await?;
+    }
+    leave_session_custody(tx).await?;
+    Ok(())
+}
+
+/// One session, signed out: the entry, the revocation row, the delete —
+/// what [`SessionStore::sign_out_in`] and [`end_other_sessions`] reduce to.
+async fn revoke_one(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    deployment: &str,
+    kind: PrincipalKind,
+    principal_id: &str,
+    session_id: &str,
+) -> Result<(), SessionError> {
+    let entry_type = match kind {
+        PrincipalKind::Steward => EntryType::AccountSignedOut,
+        PrincipalKind::Operator => EntryType::OperatorSignedOut,
+    };
+    let appended = chains::append_site(
+        tx,
+        ring,
+        deployment,
+        entry_type,
+        &entry_metadata(
+            entry_type,
+            &[
+                ("session", Json::Str(session_id.to_string())),
+                ("account", Json::Str(principal_id.to_string())),
+                ("principal_kind", Json::Str(kind.as_str().to_string())),
+            ],
+        ),
+    )
+    .await?;
+
+    let facts = RevocationFacts {
+        session_id,
+        principal_id,
+        reason: SIGNED_OUT,
+        chain_seq: appended.seq,
+        row_version: 1,
+    };
+    let key = grants::site_row_key(tx, ring).await?;
+    let mac = revocation_row_mac(&key, &facts);
+
+    tx.execute(
+        "INSERT INTO session_revocations \
+             (session_id, principal_id, reason, chain_seq, row_version, row_mac) \
+         VALUES ($1, $2, $3, $4, 1, $5) \
+         ON CONFLICT (session_id) DO NOTHING",
+        &[
+            &facts.session_id,
+            &facts.principal_id,
+            &facts.reason,
+            &facts.chain_seq,
+            &mac.to_vec(),
+        ],
+    )
+    .await?;
+
+    delete_session(tx, session_id).await?;
+    Ok(())
 }
 
 /// Has this session id been recorded as signed out (`0014` §D)?
@@ -3648,7 +3987,8 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
                     COALESCE(evidence_key_id, evidence_operator_key_id), \
                     evidence_sig, assertion_digest, assurance, chain_seq, \
                     row_version, EXTRACT(EPOCH FROM issued_at)::bigint, \
-                    EXTRACT(EPOCH FROM expires_at)::bigint, request_counter \
+                    EXTRACT(EPOCH FROM expires_at)::bigint, request_counter, \
+                    EXTRACT(EPOCH FROM totp_verified_at)::bigint \
                FROM sessions WHERE id = $1",
             &[&id],
         )
@@ -3680,6 +4020,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
         issued_at_unix: row.get(12),
         expires_at_unix: row.get(13),
         request_counter: row.get(14),
+        totp_verified_at_unix: row.get(15),
     }))
 }
 
@@ -4200,6 +4541,83 @@ mod tests {
              m={} — the string is not being parsed and no work is being done",
             started.elapsed(),
             credentials::ARGON2_M_COST
+        );
+    }
+
+    /// `session_row_state` at 396e7be, frozen, before this column existed.
+    fn session_row_state_396e7be(row: &SessionFacts<'_>) -> Vec<u8> {
+        let mut map = std::collections::BTreeMap::new();
+        map.insert(
+            "assertion_digest".to_string(),
+            match row.assertion_digest {
+                Some(d) => Json::Str(hex(d)),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "assurance".to_string(),
+            Json::Str(row.assurance.as_str().to_string()),
+        );
+        map.insert("bound_nonce".to_string(), Json::Str(hex(row.bound_nonce)));
+        map.insert(
+            "evidence_key_id".to_string(),
+            match row.evidence_key_id {
+                Some(id) => Json::Str(id.to_string()),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "evidence_sig".to_string(),
+            match row.evidence_sig {
+                Some(sig) => Json::Str(hex(sig)),
+                None => Json::Null,
+            },
+        );
+        map.insert("expires_at".to_string(), Json::Int(row.expires_at_unix));
+        map.insert("issued_at".to_string(), Json::Int(row.issued_at_unix));
+        map.insert(
+            "principal_id".to_string(),
+            Json::Str(row.principal_id.to_string()),
+        );
+        map.insert(
+            "principal_kind".to_string(),
+            Json::Str(row.principal_kind.as_str().to_string()),
+        );
+        map.insert(
+            "session_pubkey".to_string(),
+            Json::Str(hex(row.session_pubkey)),
+        );
+        map.insert("token_hash".to_string(), Json::Str(hex(row.token_hash)));
+        Json::Obj(map).to_canonical_bytes()
+    }
+
+    #[test]
+    fn a_row_state_with_totp_verified_at_unset_matches_the_pre_0027_encoding() {
+        let pubkey = [3u8; 33];
+        let token_hash = [4u8; 32];
+        let nonce = [5u8; 32];
+        let facts = SessionFacts {
+            id: "01JQZ0000000000000000000AA",
+            principal_id: "01JQZ0000000000000000000BB",
+            principal_kind: PrincipalKind::Steward,
+            token_hash: &token_hash,
+            session_pubkey: &pubkey,
+            bound_nonce: &nonce,
+            evidence_key_id: None,
+            evidence_sig: None,
+            assertion_digest: None,
+            assurance: Assurance::A0,
+            chain_seq: 1,
+            row_version: 1,
+            issued_at_unix: 1_760_000_000,
+            expires_at_unix: 1_760_003_600,
+            totp_verified_at_unix: None,
+        };
+        assert_eq!(
+            session_row_state(&facts),
+            session_row_state_396e7be(&facts),
+            "an account upgraded from before `0027` must still verify: its seal never covered \
+             a key this build now omits too, rather than writing as null"
         );
     }
 }

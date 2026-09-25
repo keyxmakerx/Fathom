@@ -79,6 +79,26 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-23)
 
+**The backlog is in GitHub issues** (from 2026-09-25, #39 onward). A new ask becomes an issue; this
+file keeps only what is in flight and how to work.
+
+**2026-09-25, the owner's full picture.** Homelab up to an ISP: customer networks and office
+locations (different designs), and offices generally. Wanted, in the owner's words where it
+matters:
+- **Views:** an enterprise overview across all sites, with easy-to-reach connection points; the
+  site map (proposal C); an office floor map, ideally by uploading an existing drawing and pulling
+  out the walls while dropping text, arrows and boxes; networks as a list and as a drawing
+  (proposals A and B, both chosen, so ADR-0046's "two places" reopens); the rack view; and a
+  canvas where equipment or a whole rack is pulled out, looked at and connected freely.
+- **Flow tracing:** "zoom inside and see a TCP from one service, what firewall it interacts with,
+  how it routes internally", to the destination: the route, why, and potential issues. Also a
+  teaching tool.
+- **Engines,** one per platform: OPNsense, Arista, Linux/Docker, Ubiquiti, and ISP gear (Calix,
+  Nokia), each knowing its commands and connectivity.
+- **Order agreed:** a working install and hand drawing first; then A, C, B and the canvas; then the
+  enterprise overview. Floor-plan import, flow tracing and new engines each start as a research
+  spike.
+
 **2026-09-23, the owner's review of the running build.** PR #37 fixed the shell's defects (search
 box, empty editor, trail overflow, dead controls, zoom, hatching) and the from-source start. The
 owner decided:

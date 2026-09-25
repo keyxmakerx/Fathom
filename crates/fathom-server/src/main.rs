@@ -1136,6 +1136,14 @@ async fn main() -> ExitCode {
         client_address: client_address.clone(),
     };
 
+    // ---- ADR-0057 decision 5: the organisation claim ----------------------
+    // Built before `AdminState` takes `operators` by value.
+    let claim_api = fathom_server::api::ClaimApiState {
+        sessions: Arc::clone(&sessions),
+        operators: Arc::clone(&operators),
+        client_address: client_address.clone(),
+    };
+
     let admin = fathom_server::admin::AdminState {
         // ADR-0055 stream (c): cloned rather than moved -- the placement
         // router beside this one needs the same session store.
@@ -1237,6 +1245,9 @@ async fn main() -> ExitCode {
     // `/session` — deliberately NOT inside `admin_router` and so not behind
     // `admin_exposure`, per the lead's resolution 8.
     .merge(fathom_server::api::credential_router(credential_api))
+    // ADR-0057 decision 5. Account-plane, on every host, for the same reason
+    // the credential routes are.
+    .merge(fathom_server::api::claim_router(claim_api))
     .merge(fathom_server::design_api::router(designs))
     .merge(admin_router);
     if let Some(store) = firmware {
