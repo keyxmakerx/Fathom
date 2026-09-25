@@ -4,19 +4,25 @@ import type { CatalogueModel } from '../api/catalogue';
 import { FieldValueError } from './edit';
 import {
   AlreadyPlacedError,
+  DuplicatePortLabelError,
   InvalidFixedToTargetError,
+  InvalidPortRangeError,
+  ModelMismatchError,
   NotAShelfError,
+  PortRangeTooLargeError,
   RackOverlapError,
   RackRangeError,
   SketchOnCatalogueChassisError,
   SlotTakenError,
   UnknownReferenceError,
   addSketchPort,
+  addSketchPortRange,
   createBoard,
   createRack,
   createShelf,
   createSketchDevice,
   createSurface,
+  duplicateDevice,
   fixTo,
   moveChassis,
   movePlacement,
@@ -841,6 +847,218 @@ describe('addSketchPort / removeSketchPort', () => {
     expect(() =>
       removeSketchPort(doc, chassisId, 'physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAV', { now: NOW }),
     ).toThrow(UnknownReferenceError);
+  });
+});
+
+describe('addSketchPortRange', () => {
+  /** `edgesOut` sorts by edge id, not insertion order — same-`now` ULIDs tie
+   * on their random bits. Reads labels off the batch's own `add_node` ops
+   * instead, which preserve mint order. */
+  function portLabelsInBatchOrder(doc: Document, batch: Document['batches'][number]): string[] {
+    const labels: string[] = [];
+    for (const op of batch.ops) {
+      if (op.type === 'add_node' && op.node.startsWith('physical-port:')) {
+        labels.push(readPhysicalPortFields(findNode(doc, op.node)!).label!);
+      }
+    }
+    return labels;
+  }
+
+  it('creates the right labels in order, as one batch', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const next = addSketchPortRange(
+      doc,
+      chassisId,
+      { labelPrefix: 'ge-0/0/', first: 0, last: 3, connector: 'rj45', face: 'front' },
+      { now: NOW },
+    );
+    expect(next.batches).toHaveLength(1);
+    expect(next.batches[0].label).toBe('add 4 ports');
+    expect(portLabelsInBatchOrder(next, next.batches[0])).toEqual(['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2', 'ge-0/0/3']);
+    expect(edgesOut(next, chassisId, 'HasPort')).toHaveLength(4);
+  });
+
+  it('writes the one shared connector, service and face on every port', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const next = addSketchPortRange(
+      doc,
+      chassisId,
+      { labelPrefix: 'eth', first: 0, last: 1, connector: 'sfp_plus', service: 'ethernet', face: 'rear' },
+      { now: NOW },
+    );
+    for (const e of edgesOut(next, chassisId, 'HasPort')) {
+      const fields = readPhysicalPortFields(findNode(next, e.to)!);
+      expect(fields.connector).toBe('sfp_plus');
+      expect(fields.service).toBe('ethernet');
+      expect(fields.face).toBe('rear');
+    }
+  });
+
+  it('a single port stays exactly as easy: first === last makes one port', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const next = addSketchPortRange(
+      doc,
+      chassisId,
+      { labelPrefix: 'ge-0/0/', first: 47, last: 47, connector: 'rj45', face: 'front' },
+      { now: NOW },
+    );
+    const ports = edgesOut(next, chassisId, 'HasPort');
+    expect(ports).toHaveLength(1);
+    expect(readPhysicalPortFields(findNode(next, ports[0].to)!).label).toBe('ge-0/0/47');
+  });
+
+  it('refuses a label already live on this chassis, writing nothing', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const withOne = addSketchPort(doc, chassisId, { label: 'eth2', connector: 'rj45', face: 'front' }, { now: NOW });
+    expect(() =>
+      addSketchPortRange(
+        withOne,
+        chassisId,
+        { labelPrefix: 'eth', first: 0, last: 3, connector: 'rj45', face: 'front' },
+        { now: NOW },
+      ),
+    ).toThrow(DuplicatePortLabelError);
+    expect(edgesOut(withOne, chassisId, 'HasPort')).toHaveLength(1);
+  });
+
+  it('refuses a first number greater than the last, writing nothing', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    expect(() =>
+      addSketchPortRange(doc, chassisId, { labelPrefix: 'eth', first: 5, last: 2, connector: 'rj45', face: 'front' }, { now: NOW }),
+    ).toThrow(InvalidPortRangeError);
+    expect(edgesOut(doc, chassisId, 'HasPort')).toHaveLength(0);
+  });
+
+  it('refuses more than 256 ports in one go, writing nothing', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    expect(() =>
+      addSketchPortRange(doc, chassisId, { labelPrefix: 'eth', first: 0, last: 256, connector: 'rj45', face: 'front' }, { now: NOW }),
+    ).toThrow(PortRangeTooLargeError);
+    expect(edgesOut(doc, chassisId, 'HasPort')).toHaveLength(0);
+  });
+
+  it('256 ports in one go is allowed — the limit is inclusive', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const next = addSketchPortRange(
+      doc,
+      chassisId,
+      { labelPrefix: 'eth', first: 0, last: 255, connector: 'rj45', face: 'front' },
+      { now: NOW },
+    );
+    expect(edgesOut(next, chassisId, 'HasPort')).toHaveLength(256);
+  });
+
+  it('refuses a chassis that already has a catalogue model', () => {
+    const { doc, rackId } = rackOf(42);
+    const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
+    expect(() =>
+      addSketchPortRange(
+        placed,
+        chassisId,
+        { labelPrefix: 'eth', first: 0, last: 2, connector: 'rj45', face: 'front' },
+        { now: NOW },
+      ),
+    ).toThrow(SketchOnCatalogueChassisError);
+  });
+});
+
+describe('duplicateDevice', () => {
+  function sketchDeviceInRack(rackHeightU = 42): { doc: Document; rackId: string; chassisId: string } {
+    const { doc, rackId } = rackOf(rackHeightU);
+    const withDevice = createSketchDevice(doc, { hostname: 'src-01', now: NOW });
+    const chassisId = withDevice.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const placed = movePlacement(withDevice, chassisId, { kind: 'rack', rackId, positionU: 1, face: 'front' }, { now: NOW });
+    const withPorts = addSketchPortRange(
+      placed,
+      chassisId,
+      { labelPrefix: 'eth', first: 0, last: 2, connector: 'rj45', service: 'ethernet', face: 'front' },
+      { now: NOW },
+    );
+    // A raw `Chassis.serial`, bypassing `document/edit.ts` (off limits to
+    // this test file) — enough to prove it is not copied.
+    const withSerial: Document = {
+      ...withPorts,
+      nodes: withPorts.nodes.map((n) =>
+        n.id === chassisId
+          ? { ...n, fields: { ...n.fields, 'Chassis.serial': { presence: 'set' as const, prov: newUlid(NOW), value: 'SN-1' } } }
+          : n,
+      ),
+    };
+    return { doc: withSerial, rackId, chassisId };
+  }
+
+  it("copies a sketch device's ports, and no identifying field", () => {
+    const { doc, chassisId } = sketchDeviceInRack();
+    const result = duplicateDevice(doc, chassisId, { now: NOW });
+    expect(result.placed).toBe(true);
+
+    const hasChassis = edgesIn(result.doc, result.chassisId, 'HasChassis')[0];
+    const copyDevice = findNode(result.doc, hasChassis.from)!;
+    expect(copyDevice.fields['Device.hostname']).toBeUndefined();
+
+    const copyChassis = findNode(result.doc, result.chassisId)!;
+    expect(readChassisFields(copyChassis)).toEqual({ model: undefined, serial: undefined });
+
+    const copyPorts = edgesOut(result.doc, result.chassisId, 'HasPort').map((e) => readPhysicalPortFields(findNode(result.doc, e.to)!));
+    expect(copyPorts).toHaveLength(3);
+    for (const p of copyPorts) {
+      expect(p.connector).toBe('rj45');
+      expect(p.service).toBe('ethernet');
+      expect(p.face).toBe('front');
+    }
+    expect(copyPorts.map((p) => p.label).sort()).toEqual(['eth0', 'eth1', 'eth2']);
+
+    // One batch.
+    expect(result.doc.batches).toHaveLength(doc.batches.length + 1);
+    expect(result.doc.batches[result.doc.batches.length - 1].label).toBe('duplicate device');
+  });
+
+  it('places the copy at the next free position in the same rack', () => {
+    const { doc, chassisId, rackId } = sketchDeviceInRack();
+    // The source sits at U1 (`sketchDeviceInRack`'s own placement) — the
+    // next free run starts right after it, at U2.
+    const result = duplicateDevice(doc, chassisId, { now: NOW });
+    const mounted = edgesOut(result.doc, result.chassisId, 'MountedIn')[0];
+    expect(mounted).toBeDefined();
+    expect(mounted.to).toBe(rackId);
+    expect(readMountedInFields(mounted)).toEqual({ positionU: 2, heightU: 1, face: 'front' });
+  });
+
+  it('leaves the copy unplaced, but written, when the rack has no free run', () => {
+    const { doc, chassisId } = sketchDeviceInRack(1);
+    const result = duplicateDevice(doc, chassisId, { now: NOW });
+    expect(result.placed).toBe(false);
+    expect(edgesOut(result.doc, result.chassisId, 'MountedIn')).toHaveLength(0);
+    // Still written — a Device, a Chassis, and its copied ports.
+    expect(findNode(result.doc, result.chassisId)).toBeDefined();
+    expect(edgesOut(result.doc, result.chassisId, 'HasPort')).toHaveLength(3);
+  });
+
+  it("copies a catalogued device's own model, drawing a fresh faceplate", () => {
+    const { doc, rackId } = rackOf(42);
+    const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
+    const sourcePortCount = edgesOut(placed, chassisId, 'HasPort').length;
+
+    const result = duplicateDevice(placed, chassisId, { catalogue: [MODEL_1U], now: NOW });
+    expect(result.placed).toBe(true);
+    const copyChassis = findNode(result.doc, result.chassisId)!;
+    expect(readChassisFields(copyChassis)).toEqual({ model: 'EX4300-48P', serial: undefined });
+    expect(edgesOut(result.doc, result.chassisId, 'HasPort')).toHaveLength(sourcePortCount);
+    expect(edgesOut(result.doc, result.chassisId, 'FittedIn')).toHaveLength(2);
+  });
+
+  it('refuses a catalogued source with no matching CatalogueModel supplied', () => {
+    const { doc, rackId } = rackOf(42);
+    const placed = placeChassis(doc, rackId, MODEL_1U, 12, 'front', { now: NOW });
+    const chassisId = edgesIn(placed, rackId, 'MountedIn')[0].from;
+    expect(() => duplicateDevice(placed, chassisId, { now: NOW })).toThrow(ModelMismatchError);
+  });
+
+  it('refuses a chassis that is not rack-mounted', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    expect(() => duplicateDevice(doc, chassisId, { now: NOW })).toThrow(UnknownReferenceError);
   });
 });
 

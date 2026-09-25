@@ -124,10 +124,13 @@ describe('EditorFor — ADR-0052 §5 reader rendering (no EditorActions.onEdit)'
     // only the generic one.
     expect(markup).not.toContain('+ add a port');
     expect(markup).not.toContain('+ add a shelf');
+    expect(markup).not.toContain('a range');
+    expect(markup).not.toContain('Duplicate');
   });
 
   it('a writer (onEdit present) still gets the interactive controls this reader does not', () => {
     const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, { onEdit: () => {} }));
     expect(markup).toContain('<button');
+    expect(markup).toContain('Duplicate');
   });
 });

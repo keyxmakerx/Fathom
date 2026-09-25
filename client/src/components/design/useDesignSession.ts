@@ -24,16 +24,22 @@ import { ConditionalSave } from './conditionalSave';
 import type { EditorChange } from '../drawing';
 import {
   AlreadyPlacedError,
+  DuplicatePortLabelError,
   InvalidFixedToTargetError,
+  InvalidPortRangeError,
+  ModelMismatchError,
   NotAShelfError,
+  PortRangeTooLargeError,
   RackOverlapError,
   RackRangeError,
   SketchOnCatalogueChassisError,
   SlotTakenError,
   SURFACE_FORMS,
   addSketchPort,
+  addSketchPortRange,
   createShelf,
   createSurface,
+  duplicateDevice,
   isSurfaceForm,
   movePlacement,
   removeSketchPort,
@@ -85,7 +91,11 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
     error instanceof SlotTakenError ||
     error instanceof AlreadyPlacedError ||
     error instanceof InvalidFixedToTargetError ||
-    error instanceof SketchOnCatalogueChassisError
+    error instanceof SketchOnCatalogueChassisError ||
+    error instanceof InvalidPortRangeError ||
+    error instanceof PortRangeTooLargeError ||
+    error instanceof DuplicatePortLabelError ||
+    error instanceof ModelMismatchError
   ) {
     return { refused: error.message };
   }
@@ -241,6 +251,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
       // being `undefined` then falls back to each command's own default.
       const accountId = getSession()?.accountId;
       const opts = accountId !== undefined ? { actor: accountId } : undefined;
+      // Set only by `'duplicate-device'` — a `{ refused }`-shaped NOTICE,
+      // not a refusal (`contract.ts`'s `EditorActions.onEdit`).
+      let placementNotice: string | undefined;
       try {
         let next: Document;
         if (change.kind === 'device') {
@@ -307,6 +320,26 @@ export function useDesignSession(organisationId: string, designId: string, capab
           );
         } else if (change.kind === 'remove-sketch-port') {
           next = removeSketchPort(doc, change.chassisId, change.portId, opts);
+        } else if (change.kind === 'add-sketch-port-range') {
+          next = addSketchPortRange(
+            doc,
+            change.chassisId,
+            {
+              labelPrefix: change.labelPrefix,
+              first: change.first,
+              last: change.last,
+              connector: change.connector,
+              service: change.service ?? undefined,
+              face: change.face,
+            },
+            opts,
+          );
+        } else if (change.kind === 'duplicate-device') {
+          const result = duplicateDevice(doc, change.chassisId, { catalogue, ...opts });
+          next = result.doc;
+          if (!result.placed) {
+            placementNotice = 'Duplicated — no free position in this rack, so the copy is unplaced.';
+          }
         } else if (change.kind === 'create-shelf') {
           const model = change.model
             ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
@@ -319,6 +352,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
           next = createSurface(doc, change.premisesId, { label: change.label, form: change.form, ...opts });
         }
         applyDocChange(next);
+        if (placementNotice !== undefined) return { refused: placementNotice };
       } catch (e) {
         return refusalFor(e);
       }

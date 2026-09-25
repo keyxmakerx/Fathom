@@ -5,8 +5,10 @@ import type { ClosetView, EditorActions } from './contract';
 import {
   EditorFor,
   addSketchPortChange,
+  addSketchPortRangeChange,
   createShelfChange,
   createSurfaceChange,
+  duplicateDeviceChange,
   moveToRackChange,
   moveToShelfChange,
   moveToSurfaceChange,
@@ -336,6 +338,14 @@ describe('EditorFor', () => {
     expect(markup).toContain('Surface');
   });
 
+  it('renders "Duplicate" on a rack-mounted chassis\'s own panel for a writer, absent for a reader', () => {
+    const writerMarkup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
+    expect(writerMarkup).toContain('Duplicate');
+
+    const readerMarkup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, {}) as never);
+    expect(readerMarkup).not.toContain('Duplicate');
+  });
+
   it('renders a sketch chassis with "no catalogue entry", its typed ports and "+ add a port" — a catalogued chassis shows neither', () => {
     const sketchMarkup = renderToStaticMarkup(
       EditorFor({ kind: 'chassis', id: 'chassis-2' }, SKETCH_VIEW, NOOP_ACTIONS) as never,
@@ -535,6 +545,23 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
       chassisId: 'chassis:1',
       portId: 'physical-port:2',
     });
+  });
+
+  it('addSketchPortRangeChange carries the prefix, first, last and a null service when left blank', () => {
+    expect(addSketchPortRangeChange('chassis:1', 'ge-0/0/', 0, 47, 'rj45', null, 'front')).toEqual({
+      kind: 'add-sketch-port-range',
+      chassisId: 'chassis:1',
+      labelPrefix: 'ge-0/0/',
+      first: 0,
+      last: 47,
+      connector: 'rj45',
+      service: null,
+      face: 'front',
+    });
+  });
+
+  it('duplicateDeviceChange names the chassis', () => {
+    expect(duplicateDeviceChange('chassis:1')).toEqual({ kind: 'duplicate-device', chassisId: 'chassis:1' });
   });
 
   it('createShelfChange carries a null model when none was chosen', () => {

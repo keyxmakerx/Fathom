@@ -448,6 +448,37 @@ function explicitFaceOf(face: string | undefined): 'front' | 'rear' | undefined 
   return face === 'front' || face === 'rear' ? face : undefined;
 }
 
+/** Natural, numeric-aware compare for a typed-by-hand port's own label —
+ * `"eth2"` before `"eth10"`, not lexicographic order. Splits into runs of
+ * digits and non-digits, comparing digit runs numerically. */
+export function naturalLabelCompare(a: string, b: string): number {
+  const parts = /\d+|\D+/g;
+  const aParts = a.match(parts) ?? [];
+  const bParts = b.match(parts) ?? [];
+  const len = Math.max(aParts.length, bParts.length);
+  for (let i = 0; i < len; i += 1) {
+    const ap = aParts[i] ?? '';
+    const bp = bParts[i] ?? '';
+    if (ap === bp) continue;
+    const aIsNum = /^\d+$/.test(ap);
+    const bIsNum = /^\d+$/.test(bp);
+    if (aIsNum && bIsNum) {
+      const diff = Number(ap) - Number(bp);
+      if (diff !== 0) return diff;
+      continue; // e.g. "007" vs "7" — same value, keep comparing the rest
+    }
+    return ap < bp ? -1 : ap > bp ? 1 : 0;
+  }
+  return 0;
+}
+
+/** Sorted only when hand-typed (`hasCatalogueModel` false) — a catalogued
+ * faceplate's own order is never touched. */
+function sortIfHandTyped(ports: PortView[], hasCatalogueModel: boolean): PortView[] {
+  if (hasCatalogueModel) return ports;
+  return [...ports].sort((a, b) => naturalLabelCompare(a.label, b.label));
+}
+
 /** One port, matched against EVERY faceplate the catalogue model declares
  * (ADR-0050 §1: the rear elevation needs a chassis's rear faceplate ports
  * exactly as the front elevation needs its front ones, regardless of which
@@ -710,9 +741,12 @@ function chassisView(
     return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
   });
 
-  const ports = otherEdges
-    .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
-    .filter((p): p is PortView => p !== undefined);
+  const ports = sortIfHandTyped(
+    otherEdges
+      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+      .filter((p): p is PortView => p !== undefined),
+    catalogueModel !== undefined,
+  );
 
   const psuInlets = psuInletsOf(doc, chassisId, catalogueModel, closetRackIds);
   const fittedInlets = psuInlets.filter((p) => p.fitted);
@@ -771,9 +805,12 @@ function occupantView(
     // would simply drop the port from the view entirely, never drawn
     // anywhere — `design/places/renders/Shelf.png`'s own `nuc-01` shows its
     // C14 inlet listed under one PORTS heading, not a separate strip.
-    const ports = hasPorts
-      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
-      .filter((p): p is PortView => p !== undefined);
+    const ports = sortIfHandTyped(
+      hasPorts
+        .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+        .filter((p): p is PortView => p !== undefined),
+      catalogueModel !== undefined,
+    );
     return {
       id: itemId,
       kind: 'chassis',
@@ -788,9 +825,12 @@ function occupantView(
   const passiveFields = readPassiveNodeFields(node);
   const model = passiveFields.model ?? null;
   const catalogueModel = passiveFields.model ? catalogueMatch(catalogue, passiveFields.model) : undefined;
-  const ports = hasPorts
-    .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
-    .filter((p): p is PortView => p !== undefined);
+  const ports = sortIfHandTyped(
+    hasPorts
+      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+      .filter((p): p is PortView => p !== undefined),
+    catalogueModel !== undefined,
+  );
   return {
     id: itemId,
     kind: 'passive',
@@ -863,9 +903,12 @@ function fixtureView(
       const portNode = findNode(doc, e.to);
       return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
     });
-    ports = otherEdges
-      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
-      .filter((p): p is PortView => p !== undefined);
+    ports = sortIfHandTyped(
+      otherEdges
+        .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+        .filter((p): p is PortView => p !== undefined),
+      catalogueModel !== undefined,
+    );
     psuInlets = psuInletsOf(doc, itemId, catalogueModel, closetRackIds);
   } else {
     const passiveFields = readPassiveNodeFields(node);
@@ -873,9 +916,12 @@ function fixtureView(
     model = passiveFields.model ?? null;
     form = passiveFields.form ?? null;
     const catalogueModel = passiveFields.model ? catalogueMatch(catalogue, passiveFields.model) : undefined;
-    ports = edgesOut(doc, itemId, 'HasPort')
-      .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
-      .filter((p): p is PortView => p !== undefined);
+    ports = sortIfHandTyped(
+      edgesOut(doc, itemId, 'HasPort')
+        .map((e) => portView(doc, e.to, catalogueModel?.faceplates ?? [], catalogueModel !== undefined, closetRackIds))
+        .filter((p): p is PortView => p !== undefined),
+      catalogueModel !== undefined,
+    );
     psuInlets = [];
   }
 

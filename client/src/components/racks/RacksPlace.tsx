@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { captureOf } from '../../document/capture';
+import { connectPorts, disconnect, type Sheath } from '../../document/cables';
 import { SURFACE_FORMS, createSketchDevice, moveChassis, movePlacement, placeChassis } from '../../document/commands';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
@@ -501,6 +502,37 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange, accountId],
   );
 
+  // UI-SPEC "Drag-to-connect" — `DrawingActions.onConnect` was left unwired
+  // here; `document/cables.ts`'s `connectPorts` is the write side, wired
+  // the same way `handlePlace`/`handleMove` are.
+  const handleConnect = useCallback(
+    (fromPortId: string, toPortId: string, sheath: Sheath) => {
+      if (doc == null) return;
+      try {
+        applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath }, actorOpts(accountId)));
+      } catch {
+        // As `handlePlace`/`handleMove` above.
+      }
+    },
+    [doc, applyDocChange, accountId],
+  );
+
+  // UI-SPEC "Delete/Backspace on a selected cable" — the canvas's own
+  // shortcut was left unwired like `onConnect`; same `document/cables.ts`
+  // `disconnect` the editor panel's own "Disconnect" button already reaches
+  // through `handleEdit`'s `'cable-disconnect'` kind, not a second command.
+  const handleDisconnect = useCallback(
+    (cableId: string) => {
+      if (doc == null) return;
+      try {
+        applyDocChange(disconnect(doc, cableId, actorOpts(accountId)));
+      } catch {
+        // As `handleConnect` above.
+      }
+    },
+    [doc, applyDocChange, accountId],
+  );
+
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession` — this session's brief item 1 — so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
@@ -576,6 +608,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           fitRequest={fitRequest}
           onPlace={handlePlace}
           onMove={handleMove}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
           onSelect={setSelection}
           canDraw={canDraw}
           renderConfigDrawer={renderConfigDrawer}
