@@ -1,0 +1,318 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .sep { width: 1px; height: 24px; background: #D2D7DD; flex-shrink: 0; }
+    .lens { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #14171A; }
+    .lens.on { background: #14171A; color: #FFFFFF; border-color: #14171A; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #5C6772; }
+    .chip.ink { border-color: #14171A; color: #14171A; }
+    .zb { width: 20px; height: 20px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #14171A; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; align-items: baseline; }
+    .row .k { width: 92px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+    .mrow { display: flex; padding: 3px 12px; gap: 8px; font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12px; white-space: nowrap; }
+    .mrow .t { color: #5C6772; margin-left: auto; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; position: relative;">
+
+  <!-- THE BAR: the shell's, with a third place. ADR-0046 names two; this board asks whether there is a third. -->
+  <div style="height: 47px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 16px; gap: 12px; flex-shrink: 0;">
+    <div style="display: flex; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: stretch;">
+      <div class="place">Racks</div>
+      <div class="place">Inventory</div>
+      <div class="place on">Networks</div>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+      <span>Hillside</span><span>&rsaquo;</span><span>Home</span><span>&rsaquo;</span><span style="color: #14171A; font-weight: 700;">House</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="lens">Cables</span>
+      <span class="lens on">Links</span>
+      <span class="lens">Routing</span>
+      <span class="lens">Power</span>
+      <span class="lens">Owner</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; border: 1px solid #D2D7DD; display: flex; align-items: center; justify-content: center;">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#5C6772" stroke-width="1.2"><circle cx="4.5" cy="4.5" r="3.5"></circle><path d="M7.2 7.2 L10.5 10.5"></path></svg>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip">Sam K.</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="chip ink">Undo</span>
+      <span class="chip ink">Redo</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="zb">&minus;</span>
+      <span class="mono" style="font-size: 11px; min-width: 36px; text-align: center; color: #14171A;">100%</span>
+      <span class="zb">+</span>
+    </div>
+    <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+    <div style="display: flex; align-items: center;">
+      <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">AL</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- THE STRIP -->
+    <div style="width: 28px; border-right: 1px solid #D2D7DD; background: #F2F4F6; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding-top: 6px; gap: 12px;">
+      <div style="font-size: 11px; line-height: 16px; color: #5C6772;">&rsaquo;</div>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="2.5" y="1.5" width="11" height="13"></rect><path d="M4.5 1.5 V14.5 M11.5 1.5 V14.5 M4.5 5.5 H11.5 M4.5 8.5 H11.5 M4.5 11.5 H11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><rect x="3.5" y="5.5" width="9" height="9"></rect><path d="M6.5 5.5 V2.5 H9.5 V5.5 M5.5 14.5 V11.5 M8 14.5 V11.5 M10.5 14.5 V11.5"></path></svg>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#14171A" stroke-width="1"><path d="M1.5 4.5 H14.5 M1.5 8 H14.5 M1.5 11.5 H14.5"></path><circle cx="5" cy="4.5" r="1.2" fill="#14171A"></circle><circle cx="10" cy="8" r="1.2" fill="#14171A"></circle><circle cx="7" cy="11.5" r="1.2" fill="#14171A"></circle></svg>
+    </div>
+
+    <!-- THE DRAWING: bands are networks, boxes are devices, a dot is an interface on a band. -->
+    <div style="flex-grow: 1; position: relative; overflow: hidden; background: #FFFFFF;">
+      <svg width="1096" height="819" viewBox="0 0 1096 819" style="position: absolute; left: 0; top: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" stroke="#D2D7DD" stroke-width="1"></line></pattern>
+        </defs>
+
+        <!-- ===== BANDS. The left column (48-200) is the band's own; no drop lands there. ===== -->
+        <!-- VLAN 10, selected: ink outline and a hairline ring -->
+        <rect x="45" y="197" width="1006" height="50" fill="none" stroke="#14171A" stroke-width="1" stroke-dasharray="2 2"></rect>
+        <rect x="48" y="200" width="1000" height="44" fill="#F2F4F6" stroke="#14171A" stroke-width="1.5"></rect>
+        <text x="60" y="218" font-size="11" font-weight="700" fill="#14171A">VLAN 10 &middot; Servers</text>
+        <text x="60" y="234" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.10.0/24</text>
+        <text x="1036" y="227" font-size="10" fill="#14171A" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">gateway fw-01 igc1.10 &middot; zone LAN &middot; 7 interfaces</text>
+
+        <rect x="48" y="272" width="1000" height="44" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+        <text x="60" y="290" font-size="11" font-weight="700" fill="#14171A">VLAN 20 &middot; Clients</text>
+        <text x="60" y="306" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.20.0/24</text>
+        <text x="1036" y="299" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">gateway fw-01 igc1.20 &middot; zone LAN &middot; 12 interfaces</text>
+
+        <rect x="48" y="344" width="1000" height="44" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+        <text x="60" y="362" font-size="11" font-weight="700" fill="#14171A">VLAN 30 &middot; IoT</text>
+        <text x="60" y="378" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.30.0/24</text>
+        <text x="1036" y="371" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">gateway fw-01 igc1.30 &middot; zone IOT &middot; 9 interfaces</text>
+
+        <rect x="48" y="416" width="1000" height="44" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+        <text x="60" y="434" font-size="11" font-weight="700" fill="#14171A">VLAN 40 &middot; Guest</text>
+        <text x="60" y="450" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.40.0/24</text>
+        <text x="1036" y="443" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">gateway fw-01 igc1.40 &middot; zone GUEST &middot; 2 interfaces</text>
+
+        <!-- Docker networks: bands of the same kind, hatched at the edge because they live inside one host -->
+        <rect x="48" y="500" width="1000" height="44" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+        <rect x="48" y="500" width="10" height="44" fill="url(#hatch)"></rect>
+        <text x="70" y="518" font-size="11" font-weight="700" fill="#14171A">app_net &middot; on dock-01</text>
+        <text x="70" y="534" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">172.18.0.0/16</text>
+        <text x="1036" y="527" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">bridge &middot; published through bond0 &middot; 2 containers</text>
+
+        <rect x="48" y="556" width="1000" height="44" fill="#F2F4F6" stroke="#D2D7DD"></rect>
+        <rect x="48" y="556" width="10" height="44" fill="url(#hatch)"></rect>
+        <text x="70" y="574" font-size="11" font-weight="700" fill="#14171A">db_net &middot; on dock-01</text>
+        <text x="70" y="590" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">172.19.0.0/16</text>
+        <text x="1036" y="583" font-size="10" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">bridge &middot; not published &middot; 2 containers</text>
+
+        <!-- ===== DROPS, muted: a virtual link has no sheath. Those on the selected band in ink. ===== -->
+        <g stroke="#5C6772" stroke-width="1" fill="none">
+          <!-- fw-01: one unit per VLAN on igc1 -->
+          <path d="M 280 118 V 272"></path>
+          <path d="M 310 118 V 344"></path>
+          <path d="M 340 118 V 416"></path>
+          <!-- sw-core: access groups and the trunk -->
+          <path d="M 500 118 V 272"></path>
+          <path d="M 540 118 V 344"></path>
+          <path d="M 590 118 V 460"></path>
+          <!-- ap-loft: eth0 tagged 20, 30, 40 -->
+          <path d="M 830 118 V 460"></path>
+          <!-- sw-study: uplink tagged 20, 30 -->
+          <path d="M 1000 118 V 388"></path>
+          <!-- dock-01: containers to app_net and db_net -->
+          <path d="M 260 690 V 544"></path>
+          <path d="M 290 690 V 600"></path>
+          <path d="M 400 690 V 544"></path>
+          <path d="M 530 690 V 600"></path>
+          <!-- dock-02: macvlan on eth0 to VLAN 30 -->
+          <path d="M 770 690 V 388"></path>
+          <path d="M 900 690 V 388"></path>
+        </g>
+        <g stroke="#14171A" stroke-width="1.2" fill="none">
+          <path d="M 250 118 V 200"></path>
+          <path d="M 460 118 V 200"></path>
+          <path d="M 740 118 V 200"></path>
+          <path d="M 225 610 V 244"></path>
+          <path d="M 700 610 V 244"></path>
+        </g>
+
+        <!-- landing dots -->
+        <g fill="#5C6772">
+          <circle cx="280" cy="272" r="3"></circle><circle cx="310" cy="344" r="3"></circle><circle cx="340" cy="416" r="3"></circle>
+          <circle cx="500" cy="272" r="3"></circle><circle cx="540" cy="344" r="3"></circle>
+          <circle cx="590" cy="272" r="3"></circle><circle cx="590" cy="344" r="3"></circle><circle cx="590" cy="416" r="3"></circle>
+          <circle cx="830" cy="272" r="3"></circle><circle cx="830" cy="344" r="3"></circle><circle cx="830" cy="416" r="3"></circle>
+          <circle cx="1000" cy="272" r="3"></circle><circle cx="1000" cy="344" r="3"></circle>
+          <circle cx="260" cy="544" r="3"></circle><circle cx="290" cy="600" r="3"></circle><circle cx="400" cy="544" r="3"></circle><circle cx="530" cy="600" r="3"></circle>
+          <circle cx="770" cy="388" r="3"></circle><circle cx="900" cy="388" r="3"></circle>
+        </g>
+        <g fill="#14171A">
+          <circle cx="250" cy="200" r="3.5"></circle><circle cx="460" cy="200" r="3.5"></circle><circle cx="740" cy="200" r="3.5"></circle>
+          <circle cx="590" cy="200" r="3.5"></circle>
+          <circle cx="225" cy="244" r="3.5"></circle><circle cx="700" cy="244" r="3.5"></circle>
+        </g>
+
+        <!-- drop labels: the interface that touches the band -->
+        <g font-size="9" font-family="'DejaVu Sans Mono', Menlo, monospace" fill="#5C6772">
+          <text x="255" y="195" fill="#14171A">igc1.10</text>
+          <text x="285" y="267">igc1.20</text>
+          <text x="315" y="339">igc1.30</text>
+          <text x="345" y="411">igc1.40</text>
+          <text x="465" y="195" fill="#14171A">Et1&ndash;3 &middot; untagged</text>
+          <text x="505" y="267">Et10&ndash;24 &middot; untagged</text>
+          <text x="545" y="339">Et30&ndash;36 &middot; untagged</text>
+          <text x="595" y="195" fill="#14171A">Et49 &middot; trunk 10 20 30 40</text>
+          <text x="745" y="195" fill="#14171A">eth0 &middot; untagged</text>
+          <text x="835" y="267">eth0 &middot; tagged</text>
+          <text x="995" y="267" text-anchor="end">port 8 &middot; tagged</text>
+          <text x="220" y="258" fill="#14171A" text-anchor="end">bond0 &middot; 10.0.10.20</text>
+          <text x="705" y="258" fill="#14171A">eth0 &middot; 10.0.10.21</text>
+          <text x="905" y="401">iot_mac &middot; macvlan</text>
+        </g>
+
+        <!-- ===== DEVICES ABOVE ===== -->
+        <g transform="translate(210,48)">
+          <rect x="0" y="0" width="180" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">fw-01</text>
+          <text x="10" y="36" font-size="10" fill="#5C6772">OPNsense &middot; custom box</text>
+          <text x="10" y="50" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">firewall &middot; R1 U2 &middot; 4 zones</text>
+          <text x="10" y="63" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">igc0 WAN &middot; igc1 trunk &middot; wg0</text>
+        </g>
+        <g transform="translate(430,48)">
+          <rect x="0" y="0" width="210" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">sw-core</text>
+          <text x="10" y="36" font-size="10" fill="#5C6772">Arista &middot; 48 &times; 1G, 4 &times; SFP+</text>
+          <text x="10" y="50" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">switch &middot; R1 U5 &middot; 31 of 52</text>
+          <text x="10" y="63" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">4 VLANs &middot; 1 trunk</text>
+        </g>
+        <g transform="translate(660,48)">
+          <rect x="0" y="0" width="110" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">nas-01</text>
+          <text x="10" y="36" font-size="10" fill="#5C6772">4-bay NAS</text>
+          <text x="10" y="50" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">server &middot; R1 U8</text>
+        </g>
+        <g transform="translate(790,48)">
+          <rect x="0" y="0" width="140" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">ap-loft</text>
+          <text x="10" y="36" font-size="10" fill="#5C6772">Ubiquiti &middot; access point</text>
+          <text x="10" y="50" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">ceiling &middot; landing</text>
+          <text x="10" y="63" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">3 SSIDs &rarr; 3 VLANs</text>
+        </g>
+        <g transform="translate(950,48)">
+          <rect x="0" y="0" width="100" height="70" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">sw-study</text>
+          <text x="10" y="36" font-size="10" fill="#5C6772">Ubiquiti &middot; 8-port</text>
+          <text x="10" y="50" font-size="10" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">switch &middot; Study</text>
+        </g>
+
+        <!-- ===== DOCKER HOSTS BELOW, containers inside ===== -->
+        <g transform="translate(210,610)">
+          <rect x="0" y="0" width="440" height="150" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">dock-01</text>
+          <text x="432" y="18" font-size="10" fill="#5C6772" text-anchor="end">Docker host &middot; R1 U10 &middot; bond0 = 2 &times; 10G</text>
+          <text x="10" y="36" font-size="9" fill="#5C6772" letter-spacing="1">CONTAINERS &middot; 3</text>
+          <rect x="30" y="80" width="120" height="50" fill="#FAFBFC" stroke="#14171A"></rect>
+          <text x="40" y="98" font-size="11" font-weight="700" fill="#14171A">gitea</text>
+          <text x="40" y="112" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">172.18.0.3 &middot; :3000</text>
+          <text x="40" y="123" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">app_net, db_net</text>
+          <rect x="170" y="80" width="120" height="50" fill="#FAFBFC" stroke="#14171A"></rect>
+          <text x="180" y="98" font-size="11" font-weight="700" fill="#14171A">grafana</text>
+          <text x="180" y="112" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">172.18.0.4 &middot; :3001</text>
+          <text x="180" y="123" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">app_net</text>
+          <rect x="310" y="80" width="120" height="50" fill="#FAFBFC" stroke="#14171A"></rect>
+          <text x="320" y="98" font-size="11" font-weight="700" fill="#14171A">postgres</text>
+          <text x="320" y="112" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">172.19.0.2</text>
+          <text x="320" y="123" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">db_net &middot; not published</text>
+        </g>
+        <g transform="translate(680,610)">
+          <rect x="0" y="0" width="300" height="150" fill="#FFFFFF" stroke="#14171A" stroke-width="1.25"></rect>
+          <circle cx="11" cy="14" r="2.5" fill="#14171A"></circle>
+          <text x="18" y="18" font-size="12" font-weight="700" fill="#14171A">dock-02</text>
+          <text x="292" y="18" font-size="10" fill="#5C6772" text-anchor="end">Docker host &middot; R1 U11</text>
+          <text x="10" y="36" font-size="9" fill="#5C6772" letter-spacing="1">CONTAINERS &middot; 2</text>
+          <rect x="30" y="80" width="120" height="50" fill="#FAFBFC" stroke="#14171A"></rect>
+          <text x="40" y="98" font-size="11" font-weight="700" fill="#14171A">home-assistant</text>
+          <text x="40" y="112" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.30.50</text>
+          <text x="40" y="123" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">iot_mac</text>
+          <rect x="160" y="80" width="120" height="50" fill="#FAFBFC" stroke="#14171A"></rect>
+          <text x="170" y="98" font-size="11" font-weight="700" fill="#14171A">pihole</text>
+          <text x="170" y="112" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">10.0.30.53 &middot; :53</text>
+          <text x="170" y="123" font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">iot_mac</text>
+        </g>
+
+        <!-- canvas hint -->
+        <text x="48" y="800" font-size="10" fill="#5C6772">A band is a network. A dot is an interface on it; one line through several bands is a trunk. Boxes are placed by hand. Nothing here is a cable, so nothing here has a colour.</text>
+      </svg>
+    </div>
+
+    <!-- THE EDITOR, reading the selected band. Same panel as everywhere. -->
+    <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">VLAN 10 &middot; Servers</span>
+        <span style="font-size: 10px; color: #5C6772;">network &middot; vlan</span>
+      </div>
+      <div class="row"><span class="k">vlan id</span><span class="mono">10</span></div>
+      <div class="row"><span class="k">name</span><span class="mono">Servers</span></div>
+      <div class="row"><span class="k">subnet</span><span class="mono">10.0.10.0/24</span></div>
+      <div class="row"><span class="k">gateway</span><span class="mono">fw-01 &middot; igc1.10 &middot; 10.0.10.1</span></div>
+      <div class="row"><span class="k">zone</span><span class="mono">LAN &middot; on fw-01</span></div>
+      <div class="row"><span class="k">carried by</span><span class="mono">sw-core, fw-01, dock-01, dock-02, nas-01</span></div>
+
+      <div class="lbl" style="padding: 12px 12px 4px;">Interfaces &middot; 7</div>
+      <div class="mrow"><span>sw-core &middot; Et1</span><span class="t">untagged &rarr; dock-01</span></div>
+      <div class="mrow"><span>sw-core &middot; Et2</span><span class="t">untagged &rarr; dock-02</span></div>
+      <div class="mrow"><span>sw-core &middot; Et3</span><span class="t">untagged &rarr; nas-01</span></div>
+      <div class="mrow"><span>sw-core &middot; Et49</span><span class="t">tagged &rarr; fw-01 igc1</span></div>
+      <div class="mrow"><span>fw-01 &middot; igc1.10</span><span class="t">10.0.10.1/24</span></div>
+      <div class="mrow"><span>dock-01 &middot; bond0</span><span class="t">10.0.10.20/24</span></div>
+      <div class="mrow" style="border-bottom: 1px solid #D2D7DD; padding-bottom: 8px;"><span>dock-02 &middot; eth0</span><span class="t">10.0.10.21/24</span></div>
+
+      <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; flex-direction: column; gap: 6px;">
+        <div style="border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Show on rack</div>
+        <div style="border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Attach an interface</div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Selecting a band opens this panel, as selecting anything does. Dragging a box moves the picture and nothing in the estate.</div>
+    </div>
+  </div>
+
+  <!-- THE CAPTION STRIP -->
+  <div style="height: 34px; border-top: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0;">
+    <span style="font-size: 12px;">B &middot; Networks as a drawing: a third place. ADR-0046 names two places and no logical view; choosing this board reopens that on merit.</span>
+    <span style="flex-grow: 1;"></span>
+    <span style="font-size: 11px; color: #5C6772;">Every name, address, count and time on this board is a sample.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
