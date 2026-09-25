@@ -1609,10 +1609,9 @@ async fn a_token_of_another_purpose_does_not_open_the_setup_check() {
         .await
         .expect("the console mints an account shell and its invitation");
 
-    // The `op_` + hex shape a real client now sends (security review round
-    // 2, item 5), so this reaches the database lookup and is refused for
-    // the reason this test names -- the wrong purpose -- not merely for
-    // not parsing.
+    // The `op_` + hex shape a real client sends, so this reaches the
+    // database lookup and is refused for the reason this test names — the
+    // wrong purpose — not merely for not parsing.
     let refused = creds
         .check_setup(
             &operators_store,

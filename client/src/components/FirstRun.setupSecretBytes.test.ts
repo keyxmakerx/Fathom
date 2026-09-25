@@ -1,21 +1,7 @@
-// What `setupSecretBytes` actually sends for what a person typed into step
-// 1's field.
-//
-// Round 1 (security review item 2) fixed the function so a hex-shaped
-// setup password was no longer silently parsed as a token: only an
-// explicit `op` prefix was decoded, everything else went as typed.
-//
-// Round 2 (security review item 5, finished) found that decision itself
-// still went wrong for two real shapes -- `op3f9c…` with no underscore, and
-// a hyphenated `OP-3f9c9…` -- both of which `parseToken`'s own lenient
-// rules accept as a token even though either could be exactly what an
-// installer typed as a setup password. The fix moves the decision off the
-// client entirely: `setupSecretBytes` now UTF-8 encodes whatever was typed
-// and nothing else, every time, `op_` codes included.
-// `credentials::parse_recovery_code` on the server is the one place left
-// that decides whether the same text is shaped like a recovery code, and
-// only after the setup password itself has already been compared and
-// missed.
+// What `setupSecretBytes` sends for what a person typed into step 1's field:
+// its UTF-8 bytes, unmodified, every time, `op_` codes included. The client
+// decides nothing about the shape; `credentials::parse_recovery_code` on the
+// server is the one place that decides whether it is a recovery code.
 
 import { describe, expect, it } from 'vitest';
 

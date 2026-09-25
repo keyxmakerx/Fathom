@@ -227,13 +227,11 @@ pub const OPERATOR_KEY_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
 /// *"Open for 30 minutes after the server starts. After that, setup is
 /// closed until a restart."*
 ///
-/// **The token's own row expiry too**, since the security review's item 3:
-/// [`operators::OperatorStore::issue_setup_token`] mints
-/// [`SetupSecret`]'s token at exactly this lifetime rather than
+/// The token's own row expiry too: [`operators::OperatorStore::issue_setup_token`]
+/// mints [`SetupSecret`]'s token at exactly this lifetime rather than
 /// `operators::ENROLMENT_TOKEN_LIFETIME`'s seventy-two hours, so the window
-/// this process enforces in memory and the window the row itself would still
-/// answer to after this process exits are the same window, not the first
-/// nested inside a much longer second one nobody was told about.
+/// this process enforces in memory matches the window the row still answers
+/// to after this process exits.
 pub const SETUP_SECRET_WINDOW: Duration = Duration::from_secs(30 * 60);
 
 /// **How many live keys one account's browser keyring may hold: ten.**
@@ -2488,50 +2486,35 @@ impl CredentialStore {
 
     /// The first operator's setup screen, server half.
     ///
-    /// ADR-0057 decision 1 amends ADR-0055 decision 10's last bullet: there is
-    /// no token file. The first LP field is the **setup secret**, and
-    /// [`CredentialStore::redeem_setup`] below tries it as a live `purpose =
-    /// 'setup'` token first — a recovery code `fathom-server recover-operator`
-    /// printed is exactly that shape, and is handled exactly as before — and,
-    /// only if that fails, as this start's setup password. This is the token
-    /// path both fall back to: it sets the password, enrols the app code and
-    /// saves the backup codes once the token itself is proven.
+    /// ADR-0057 decision 1: no token file. The first LP field is the **setup
+    /// secret**, and [`CredentialStore::redeem_setup`] below tries it as a
+    /// live `purpose = 'setup'` token first — a recovery code `fathom-server
+    /// recover-operator` printed is exactly that shape — and, only on a miss,
+    /// as this start's setup password. Either way, this sets the password,
+    /// enrols the app code and saves the backup codes once the token is
+    /// proven.
     ///
-    /// **It returns no session**, on the lead's resolution 4: the client signs
-    /// in with `POST /session` immediately afterwards, which is one more round
-    /// trip and one fewer way for a token to become a session without the
-    /// password being checked.
+    /// **Returns no session**: the client signs in with `POST /session`
+    /// immediately afterwards, one fewer way for a token to become a session
+    /// without the password being checked.
     ///
     /// The token is a `purpose = 'setup'` row (`0019` §B), spent through
-    /// `operators::spend_setup_token` so that the seal check, the expiry check
-    /// and the `enrolment_token_redeemed` entry are the ones the operator plane
-    /// already uses rather than a second copy of them here.
-    /// `require_pending` is `true` only for the setup-password-derived call
-    /// [`CredentialStore::redeem_setup`] makes — never for a raw token, a
-    /// recovery code included. **The security review that found the blocking
-    /// issue this exists to close, in full**: two live `purpose = 'setup'`
-    /// tokens for one operator (two containers each minting their own at
-    /// start, or a recovery code minted before a restart standing beside the
-    /// new start's own) both matched the same `FATHOM_SETUP_PASSWORD`, so
-    /// finishing setup through one left the other able to overwrite the
-    /// password it had just set — through a *different*, still-live DB row,
-    /// which single-use-per-token alone does nothing to stop. `require_pending`
-    /// closes it two ways, together:
+    /// `operators::spend_setup_token`. `require_pending` is `true` only for
+    /// the setup-password-derived call, never for a raw token: it guards
+    /// against two live `purpose = 'setup'` tokens for one operator both
+    /// matching `FATHOM_SETUP_PASSWORD`, where finishing setup through one
+    /// could let the other overwrite the password just set. Two guards,
+    /// together:
     ///
-    /// 1. **The `UPDATE` itself is guarded**, `AND password_hash IS NULL`,
-    ///    and a caller who does not know the row already has a stored
-    ///    password gets zero updated rows and [`CredentialError::TokenRefused`].
-    ///    This is what closes the RACE: two transactions racing this same
-    ///    guarded statement each take the row lock in turn, the loser's
-    ///    `WHERE` re-evaluates under it and no longer matches, and it is
-    ///    Postgres's own MVCC doing the serialising, not a check this code
-    ///    could be timed around.
-    /// 2. **Spending any setup-class token, either way, expires every other
-    ///    live one for the same operator** — [`operators::OperatorStore::expire_live_tokens`],
-    ///    the exact sweep [`operators::OperatorStore::recover_operator`]
-    ///    already ran before this fix, ported to the path that did not have
-    ///    it. A second still-live token minted before this one is no longer
-    ///    presentable at all, guard or no guard.
+    /// 1. **The `UPDATE` is guarded**, `AND password_hash IS NULL`: a caller
+    ///    who does not know the row already has a password gets zero updated
+    ///    rows and [`CredentialError::TokenRefused`]. Two transactions racing
+    ///    this statement serialise on Postgres's own row lock and MVCC.
+    /// 2. **Spending any setup-class token expires every other live one for
+    ///    the same operator** ([`operators::OperatorStore::expire_live_tokens`],
+    ///    the same sweep [`operators::OperatorStore::recover_operator`]
+    ///    runs). A second still-live token is no longer presentable at all,
+    ///    guard or no guard.
     async fn redeem_setup_by_token(
         &self,
         operators: &operators::OperatorStore,
@@ -2670,23 +2653,14 @@ impl CredentialStore {
     ///
     /// **Compared against the in-memory setup password first, and only on a
     /// miss is `candidate` even asked whether it is shaped like a recovery
-    /// code.** The security review's item 5, both rounds. Round 1: the other
-    /// order sent a hash of every candidate — including a candidate that was
-    /// in fact the real setup password — to PostgreSQL as a bind parameter
-    /// before the in-process comparison ever ran, which is a derivative of
-    /// the secret reaching a system that did not need it for every wrong
-    /// guess and every right one alike. `SetupSecret::token_for` is a fixed
-    /// pair of SHA-256 digests compared in this process, nothing sent
-    /// anywhere. Round 2, finished: on a miss, `candidate` is no longer
-    /// assumed to already BE a raw token — [`parse_recovery_code`] decides
-    /// whether the text is shaped like one (an `op_` line, tolerant of case,
-    /// spaces and hyphens, the same as `client/src/api/enrolment.ts`'s
-    /// `parseToken`) and only a candidate that parses reaches the database
-    /// at all, decoded, exactly as [`CredentialStore::redeem_setup_by_token`]
-    /// has always tried one. A recovery code `fathom-server recover-operator`
-    /// prints reaches the database this way and needs nothing more: it will
-    /// as a rule not equal the setup password, so the first comparison is a
-    /// fast, certain miss and the second is what redeems it.
+    /// code.** `SetupSecret::token_for` is a fixed pair of SHA-256 digests
+    /// compared in this process, nothing sent anywhere, so a wrong guess
+    /// never reaches PostgreSQL. On a miss, [`parse_recovery_code`] decides
+    /// whether the text is shaped like a token (an `op_` line, tolerant of
+    /// case, spaces and hyphens, matching `client/src/api/enrolment.ts`'s
+    /// `parseToken`); only a candidate that parses reaches the database,
+    /// decoded, exactly as [`CredentialStore::redeem_setup_by_token`] tries
+    /// one.
     ///
     /// `setup_secret` is `None` whenever `FATHOM_SETUP_PASSWORD` is unset,
     /// fails the account password policy, or this deployment's first operator
@@ -2700,10 +2674,9 @@ impl CredentialStore {
     /// fact from outside, as decision 1 asks, and the route above renders one
     /// sentence for it.
     ///
-    /// **`source` is for the security review's item 4 and nothing else** — a
-    /// process-wide brute-force limit on the setup password. It is never read
-    /// from, only logged beside a refusal, and never touches the account or
-    /// the candidate.
+    /// `source` is for the process-wide brute-force limit on the setup
+    /// password: never read from, only logged beside a refusal, and never
+    /// touches the account or the candidate.
     pub async fn redeem_setup(
         &self,
         operators: &operators::OperatorStore,
@@ -2728,32 +2701,19 @@ impl CredentialStore {
         candidate: &[u8],
         new_password: &str,
     ) -> Result<(), CredentialError> {
-        // The brute-force limit closes ONLY this comparison — the security
-        // review's item 4 names it "close setup", and this is the half of
-        // setup that is actually guessable; the raw-token path just below is
-        // 256 bits and stays open, because a recovery code is how a person
-        // holding one gets back in and a flood of wrong passwords must not
-        // be able to take that away too.
+        // The brute-force limit closes only this comparison: the raw-token
+        // path below is 256 bits and stays open, since a flood of wrong
+        // passwords must not close the way a recovery code gets back in.
         //
-        // **The reservation happens before `token_for`, in the same
-        // critical section as the count check — round 2 of the security
-        // review.** Round 1 read the count, then compared, then counted only
-        // a refusal, all as separate steps; sixty concurrent callers each
-        // read "not yet closed" before any of them had finished a single
-        // comparison, so all sixty compared, including the right password
-        // arriving last in the burst, well past where twenty ought to have
-        // closed it. `reserve_setup_secret_attempt` makes "is there budget"
-        // and "spend one unit of it" one atomic step, so at most
-        // [`SETUP_SECRET_REFUSAL_LIMIT`] concurrent attempts — right or
-        // wrong — ever reach a comparison at all.
+        // The reservation happens before `token_for`, in the same critical
+        // section as the count check ([`reserve_setup_secret_attempt`]), so
+        // at most [`SETUP_SECRET_REFUSAL_LIMIT`] concurrent attempts — right
+        // or wrong — ever reach a comparison at all.
         if let Some(secret) = setup_secret {
             if reserve_setup_secret_attempt(&self.deployment) {
                 if let Some(token) = secret.token_for(candidate, std::time::Instant::now()) {
-                    // The setup password matched: the caller has proven they
-                    // hold it, so give the reserved unit back regardless of
-                    // what the redemption itself goes on to decide — a new
-                    // password the policy refuses must not spend the same
-                    // budget a wrong setup password does.
+                    // The password matched: refund the unit regardless of
+                    // what the redemption itself decides next.
                     refund_setup_secret_attempt(&self.deployment);
                     return self
                         .redeem_setup_by_token(operators, &token, new_password, true)
@@ -2761,10 +2721,9 @@ impl CredentialStore {
                 }
             }
         }
-        // Security review, round 2, item 5, finished: the client sends
-        // exactly what was typed now, `op_` codes included, so this is the
-        // only place that decides whether the same text is shaped like a
-        // recovery code at all. Anything that is not reaches no database.
+        // The client sends exactly what was typed, `op_` codes included, so
+        // this is the only place that decides whether the text is shaped
+        // like a recovery code. Anything that is not reaches no database.
         match parse_recovery_code(candidate) {
             Some(token) => {
                 self.redeem_setup_by_token(operators, &token, new_password, false)
@@ -2953,19 +2912,16 @@ impl CredentialStore {
     /// `POST /enrolment/operator/setup/check` — ADR-0057 decision 1's "setup
     /// secret" in front of [`CredentialStore::check_setup_by_token`].
     ///
-    /// **Compared against the in-memory setup password first**, exactly as
-    /// [`CredentialStore::redeem_setup`] now does and for the same reason
-    /// (the security review's item 5, both rounds): only a miss asks
+    /// Compared against the in-memory setup password first, exactly as
+    /// [`CredentialStore::redeem_setup`]: only a miss asks
     /// [`parse_recovery_code`] whether `candidate` is shaped like a recovery
-    /// code at all, which is what a recovery code `fathom-server
-    /// recover-operator` prints needs — it will as a rule miss the first
-    /// comparison and be found by the second.
+    /// code, which is what a code `fathom-server recover-operator` prints
+    /// needs.
     ///
-    /// `source` is [`CredentialStore::redeem_setup`]'s own: logged beside a
-    /// refusal, and the budget [`reserve_setup_secret_attempt`] spends is the
-    /// same process-wide one — one budget across both routes, since a caller
-    /// can check for free and then redeem, and a limit that only watched one
-    /// of the two routes would not be a limit.
+    /// `source` is [`CredentialStore::redeem_setup`]'s own, and the budget
+    /// [`reserve_setup_secret_attempt`] spends is the same process-wide one:
+    /// one budget across both routes, so a caller cannot check for free in a
+    /// loop that a redeem-only limit would not see.
     pub async fn check_setup(
         &self,
         operators: &operators::OperatorStore,
@@ -2989,9 +2945,7 @@ impl CredentialStore {
         candidate: &[u8],
     ) -> Result<String, CredentialError> {
         // See `redeem_setup_trying_password_first`: the limit closes only
-        // this comparison, never the raw-token path a recovery code needs,
-        // and the reservation is atomic with the count check for the same
-        // reason (security review, round 2, item A).
+        // this comparison, never the raw-token path a recovery code needs.
         if let Some(secret) = setup_secret {
             if reserve_setup_secret_attempt(&self.deployment) {
                 if let Some(token) = secret.token_for(candidate, std::time::Instant::now()) {
@@ -2999,8 +2953,7 @@ impl CredentialStore {
                 }
             }
         }
-        // Security review, round 2, item 5, finished: see
-        // `redeem_setup_trying_password_first`.
+        // See `redeem_setup_trying_password_first`.
         match parse_recovery_code(candidate) {
             Some(token) => self.check_setup_by_token(operators, &token, false).await,
             None => Err(CredentialError::TokenRefused),
@@ -3194,14 +3147,10 @@ pub struct SetupSecret {
     hash: [u8; 32],
     token: [u8; 32],
     /// The instant after which the window is closed, however live the
-    /// underlying token row still is. **`Instant`, not a wall-clock
-    /// timestamp** — the security review's item 6: a step in the system
-    /// clock (NTP, a manual change, a leap second) must not open or close
-    /// this window early or late, so it is measured against this process's
-    /// own monotonic clock, the one thing [`std::time::Instant`] is for.
-    /// Still a plain value the caller computes and not read here, so a test
-    /// can set it to anything without controlling any clock at all —
-    /// decision 1's *"make the window injectable for tests"*.
+    /// underlying token row still is. `Instant`, not a wall-clock timestamp:
+    /// a step in the system clock must not open or close this window early
+    /// or late. Computed by the caller and not read here, so a test can set
+    /// it without controlling any clock at all.
     closes_at: std::time::Instant,
 }
 
@@ -3236,34 +3185,20 @@ impl SetupSecret {
 }
 
 // ---------------------------------------------------------------------------
-// Security review item 5, finished — only a recovery-code shape reaches the
-// database as a token
+// Only a recovery-code shape reaches the database as a token
 // ---------------------------------------------------------------------------
 
-/// **The one place left that decides whether typed text is shaped like a
-/// recovery code — security review, round 2, item 5.**
+/// The one place that decides whether typed text is shaped like a recovery
+/// code. `FirstRun.tsx`'s `setupSecretBytes` sends exactly what was typed,
+/// as UTF-8, `op_` codes included — the client decides nothing about the
+/// shape.
 ///
-/// Round 1 had the CLIENT decide this (`setupSecretBytes`,
-/// `client/src/components/FirstRun.tsx`): an explicit `op_` prefix was
-/// decoded to raw bytes before the request was ever sent, and everything
-/// else went as typed. The round-2 probes found two shapes that decided it
-/// wrong — `op3f9c…` with no underscore, and a hyphenated `OP-3f9c9…` — both
-/// of which the client's own lenient `parseToken` reads as a token (its
-/// prefix is `(op|inv|org)_?`, the underscore optional, and its own noise
-/// filter throws hyphens away before the prefix is even read), and either
-/// could in principle be what an installer actually typed as a setup
-/// password, not a recovery code at all.
-///
-/// The fix moves the decision here, and makes the client stop making it at
-/// all: `FirstRun.tsx`'s `setupSecretBytes` now sends exactly what was
-/// typed, as UTF-8, every time, `op_` codes included. The setup password is
-/// still compared first, in memory, byte for byte
-/// ([`SetupSecret::token_for`]) — so a real setup password that happens to
-/// LOOK like a recovery code still matches on the first comparison and never
-/// reaches this function at all. Only once that comparison misses does this
-/// decide whether the same text is shaped like a recovery code; anything it
-/// says no to is refused without a database query, exactly as if there were
-/// no fallback at all.
+/// The setup password is compared first, in memory, byte for byte
+/// ([`SetupSecret::token_for`]), so a real setup password that happens to
+/// look like a recovery code still matches there and never reaches this
+/// function. Only once that comparison misses does this decide whether the
+/// text is shaped like a recovery code; anything it says no to is refused
+/// without a database query.
 ///
 /// **The same tolerance the client's `parseToken` has** — noise (whitespace,
 /// a soft hyphen a terminal's line wrap can insert, a byte-order mark a
@@ -3299,7 +3234,7 @@ fn parse_recovery_code(candidate: &[u8]) -> Option<[u8; 32]> {
 }
 
 // ---------------------------------------------------------------------------
-// Security review item 4 — the brute-force limit on the setup password
+// The brute-force limit on the setup password
 // ---------------------------------------------------------------------------
 
 /// How many attempts against the setup password this process permits, per
@@ -3329,26 +3264,13 @@ fn setup_secret_refusals() -> &'static std::sync::Mutex<HashMap<String, u32>> {
     SETUP_SECRET_REFUSALS.get_or_init(Default::default)
 }
 
-/// **Reserve one attempt against `deployment`'s budget, atomically —
-/// security review, round 2, item A.**
+/// Reserve one attempt against `deployment`'s budget, atomically: the check
+/// and the spend are one critical section under `setup_secret_refusals`'s
+/// lock, so a `true` answer has already spent its unit before the caller
+/// compares anything, and a `false` answer means the budget was already
+/// gone — the caller must not touch the database on its strength.
 ///
-/// Round 1 checked the budget, compared, and counted only an actual
-/// refusal — three separate steps, none of them holding the lock across the
-/// others. The round-2 probe fired sixty concurrent checks, fifty-nine
-/// wrong and the right one last; every one of the sixty read "budget
-/// remains" before any of them had finished a single comparison, so every
-/// one of the sixty compared, the right password included, long after
-/// twenty attempts ought to have closed it.
-///
-/// The fix: the check and the spend are one critical section, under the
-/// same lock `setup_secret_refusals` always used, so a `true` answer has
-/// already spent its unit before the caller ever compares anything, and a
-/// `false` answer means somebody else already spent the last one — the
-/// caller must not touch the database on the strength of a budget that was
-/// gone before this call started.
-///
-/// Logged once, loudly, on the call that crosses the limit — the closing
-/// line always was.
+/// Logged once, loudly, on the call that crosses the limit.
 fn reserve_setup_secret_attempt(deployment: &str) -> bool {
     let mut refusals = setup_secret_refusals()
         .lock()
@@ -3931,8 +3853,7 @@ mod tests {
 
     // ---- ADR-0057 decision 1: the setup password, held in memory ---------
     //
-    // `Instant` cannot be constructed at an arbitrary point (security review
-    // item 6: that is the whole reason it is not `SystemTime`), so every test
+    // `Instant` cannot be constructed at an arbitrary point, so every test
     // below fixes one `base = Instant::now()` and reasons only in `Duration`s
     // added to or before it — never a sleep, and never the system clock.
 
@@ -4013,7 +3934,7 @@ mod tests {
         assert_eq!(secret.token_for(b"", base), None);
     }
 
-    // ---- security review item 4: the brute-force limit -------------------
+    // ---- the setup password's brute-force limit ---------------------------
 
     #[test]
     fn the_limit_closes_the_password_at_twenty_and_not_before() {
@@ -4056,13 +3977,10 @@ mod tests {
         }
     }
 
-    /// Security review, round 2, item A's own burst, reproduced with real OS
-    /// threads rather than cooperative async scheduling: two hundred of them
-    /// racing [`reserve_setup_secret_attempt`] for the same deployment at
-    /// once. Exactly [`SETUP_SECRET_REFUSAL_LIMIT`] may come back `true` —
-    /// not more, which is what a lost update under the race would look like,
-    /// and not fewer, which would be a caller refused for budget that was
-    /// never actually spent.
+    /// Two hundred real OS threads racing [`reserve_setup_secret_attempt`]
+    /// for the same deployment at once. Exactly [`SETUP_SECRET_REFUSAL_LIMIT`]
+    /// may come back `true` — not more (a lost update under the race), not
+    /// fewer (a caller refused for budget never actually spent).
     #[test]
     fn two_hundred_real_threads_cannot_reserve_more_than_the_limit_between_them() {
         let deployment = "unit-test-brute-force-thread-burst";
@@ -4085,8 +4003,7 @@ mod tests {
         assert_eq!(stored, Some(SETUP_SECRET_REFUSAL_LIMIT));
     }
 
-    // ---- security review item 5, finished: only a recovery-code shape ----
-    // ---- reaches the database ----------------------------------------
+    // ---- only a recovery-code shape reaches the database -----------------
 
     #[test]
     fn an_op_prefixed_sixty_four_hex_parses_whatever_noise_surrounds_it() {

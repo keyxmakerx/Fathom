@@ -905,11 +905,10 @@ async fn main() -> ExitCode {
                 }
                 Ok(Some(operator_id)) => match operators.issue_setup_token(&operator_id).await {
                     Ok(invitation) => {
-                        // `Instant`, not `SystemTime`: the window is measured
-                        // against this process's own monotonic clock, so a
-                        // wall-clock step -- NTP, a manual change, a leap
-                        // second -- cannot open or close it early. Security
-                        // review, item 6.
+                        // `Instant`, not `SystemTime`: measured against this
+                        // process's own monotonic clock, so a wall-clock
+                        // step (NTP, a manual change, a leap second) cannot
+                        // open or close the window early.
                         let closes_at = std::time::Instant::now()
                             + fathom_server::credentials::SETUP_SECRET_WINDOW;
                         tracing::warn!(

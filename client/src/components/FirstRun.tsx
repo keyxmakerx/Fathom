@@ -14,52 +14,34 @@ import {
 import '../styles/signin.css';
 
 /**
- * The first run: one flow, five numbered steps, and then Home — which is the
- * product and not a sixth step, so nothing here counts it. While the server
- * says `pending` this flow is the only thing this client shows (ADR-0056
- * decisions 1 and 2). It replaces `Setup.tsx`, which was one long form behind
- * a link on the sign-in door — three fields and three doors for a person who
- * has just installed the thing.
+ * The first run: one flow, five numbered steps, and then Home — not a sixth
+ * step. While the server says `pending` this flow is the only thing this
+ * client shows (ADR-0056 decisions 1 and 2). Replaces `Setup.tsx`.
  *
  * The steps, and who draws each:
  *
- *   1. **Welcome.** The setup password from the server's `.env`
- *      (ADR-0057 decision 1), or a recovery code
- *      `fathom-server recover-operator` printed, checked against
+ *   1. **Welcome.** The setup password from the server's `.env` (ADR-0057
+ *      decision 1), or a recovery code, checked against
  *      `POST /enrolment/operator/setup/check`, which spends nothing and
  *      answers with the address it opens. Here.
  *   2. **Choose a password** for that address — shown, never typed, so it
  *      cannot mismatch. `POST /enrolment/operator/setup` spends the setup
- *      secret and sets the password; the sign-in straight after it is what
- *      turns the two into a session.  Here.
+ *      secret and sets the password; the sign-in right after turns the two
+ *      into a session. Here.
  *   3. **Set up your authenticator app**, and 4. **Save your recovery
- *      codes** — the enrolment component on the account screen, which is the
- *      same two steps a person meets later from their own account and is not
- *      duplicated here. It says which of the two it is showing (`onStage`),
- *      so the progress line over it is the right number on both, and it is
- *      mounted `heading="none"` so that the step name this flow writes is
- *      the only heading on the screen. It drew its own as well until
- *      2026-09-22, and steps 3 and 4 each said the same thing twice.
- *   5. **Sign in with your new authenticator.** Here, and it is the step that
- *      makes the flow land where the ADR says it lands.
+ *      codes** — the enrolment component on the account screen, mounted
+ *      `heading="none"` so this flow's own step name is the only heading.
+ *   5. **Sign in with your new authenticator.** Here.
  *
- * **Why step 5 exists.** The session made at step 2 was minted from a
+ * **Why step 5 exists.** The session made at step 2 is minted from a
  * password alone, before the authenticator existed, so it is `A0`, and
- * `operators.rs`'s `register_own_operator_key` refuses `A0` outright — the
- * one press on Home that opens the operator console would be answered 403 and
- * the entry would take itself away for the rest of the session. Every other
- * route takes the `A0` session the moment the code is confirmed, because the
- * setup gate reads the account's live credentials on each request, so this
- * was invisible until somebody pressed Site. One more sign-in, with the code
- * the person has just proved they can produce, ends the setup session and
- * lands them on Home with an `A0T` one that the console takes.
+ * `operators.rs`'s `register_own_operator_key` refuses `A0` outright for
+ * Site. One more sign-in, with the code just proved workable, ends the
+ * setup session and lands on Home with an `A0T` session Site takes.
  *
- * **And the way out of step 5.** A person whose app is not giving them a code
- * they can use can take the ordinary door instead — and that button ends the
- * setup session first (`handleUseTheDoor`). It did not, and so handed the
- * person to the door still holding the `A0` session this step exists to
- * replace: they landed on Home on it and the Site entry was refused, which is
- * the state the paragraph above describes. 2026-09-22.
+ * **The way out of step 5**: the ordinary door, which ends the setup
+ * session first (`handleUseTheDoor`), so nobody lands on Home still
+ * holding the `A0` session this step exists to replace.
  *
  * The setup secret is held in this component's own state only — never a URL,
  * a query string, a log line or `localStorage` — and cleared the moment the
@@ -75,15 +57,10 @@ import '../styles/signin.css';
  * screen had already told them. */
 const PASSWORD_MINIMUM = 15;
 
-/** How many steps a person is walked through, and what each is called.
- * Steps 3 and 4 are drawn by the enrolment component, not here — they are
- * named in this one list so that the progress line and the screens agree
- * about how long this is (ADR-0056 decision 2), and each name is the heading
- * that step shows, because the enrolment component's own heading is off in
- * this flow. **Five, not six.** Home is where the flow lands, not a step it
- * walks anybody through, and a person counting screens against a progress
- * line that promised six would be waiting for one that never comes: "Step 5
- * of 5" is the last thing this component says. */
+/** How many steps a person is walked through, and what each is called
+ * (ADR-0056 decision 2). Steps 3 and 4 are drawn by the enrolment component,
+ * not here, but named here so the progress line and screens agree. Five, not
+ * six: Home is where the flow lands, not a step it walks anybody through. */
 export const FIRST_RUN_STEPS = [
   'Welcome',
   'Choose a password',
@@ -135,11 +112,9 @@ export function finalSignInStepIntro(address: string): string {
 export const SETUP_SECRET_REFUSED =
   'Setup password is missing, invalid or expired. Setup stays open for 30 minutes after the server starts.';
 
-/** One plain, generic line under [`SETUP_SECRET_REFUSED`] — security review
- * item 7: the refusal itself stays exactly as it is, one sentence for every
- * cause, and reveals nothing; this is what a person actually does next,
- * naming the file and the exact command, and it is the same line whatever
- * caused the refusal, so it reveals no state either. */
+/** One plain, generic line under [`SETUP_SECRET_REFUSED`]: what to do next,
+ * naming the file and the command. Same line whatever caused the refusal,
+ * so it reveals no state either. */
 export const SETUP_SECRET_HINT =
   'Check FATHOM_SETUP_PASSWORD in .env: 15+ characters, not a common password, in single ' +
   'quotes. After changing it, run docker compose up -d.';
@@ -281,31 +256,18 @@ export function stepNumber(step: Step): number {
 }
 
 /**
- * What the field on step 1 actually sends, wherever it is read again —
- * ADR-0057 decision 1's "setup secret".
+ * What the field on step 1 actually sends — ADR-0057 decision 1's "setup
+ * secret".
  *
- * **Encodes. Does not decide anything — security review, round 2, item 5,
- * finished.** Round 1 had this function decide whether the typed line was a
- * recovery code (an explicit `op_` prefix) or the setup password, client
- * side, and that decision was itself wrong for two real shapes the round-2
- * probes found: `op3f9c…` with no underscore, and a hyphenated
- * `OP-3f9c9…` — both of which `parseToken`'s own lenient rules (the `_`
- * after `op` optional, hyphens discarded as noise before the prefix is even
- * read) accept as a token, even though either could be exactly what an
- * installer had typed as a setup password. A client-side decision cannot be
- * more careful than the server's own comparison is, because the server is
- * the one place that actually knows `FATHOM_SETUP_PASSWORD`'s bytes — so the
- * decision moved there. This function no longer makes one: it sends exactly
- * what was typed, as UTF-8, unmodified and never trimmed, every time, `op_`
- * codes included. `credentials::parse_recovery_code` on the server compares
- * the setup password first, in memory, and only on a miss decides whether
- * the same text is shaped like a recovery code at all.
+ * Encodes. Does not decide anything: it sends exactly what was typed, as
+ * UTF-8, unmodified and never trimmed, `op_` codes included. Only the server
+ * (`credentials::parse_recovery_code`) decides whether a miss against the
+ * setup password is shaped like a recovery code — it is the one place that
+ * knows `FATHOM_SETUP_PASSWORD`'s bytes, so a client-side guess about the
+ * shape can never be as reliable.
  *
- * Exported for `FirstRun.setupSecretBytes.test.ts`'s own reason: a test that
- * could not see what this sends could not be a test of it.
- *
- * One function so step 1's check and step 2's redemption can never read the
- * same typed line two different ways.
+ * Exported for `FirstRun.setupSecretBytes.test.ts`. One function so step 1's
+ * check and step 2's redemption read the same typed line the same way.
  */
 export function setupSecretBytes(typed: string): Uint8Array {
   return utf8(typed);
@@ -709,11 +671,9 @@ export function TokenStage({
           />
           {/* ADR-0057 decision 1: a temporary password in the server's .env,
               not a code pulled out of a file or a log. A recovery code from
-              `fathom-server recover-operator` still works, typed into the
-              same field — the SERVER tells the two shapes apart now
-              (`credentials::parse_recovery_code`, security review round 2,
-              item 5, finished), and this client sends exactly what was
-              typed, unmodified, and decides nothing (`setupSecretBytes`). */}
+              `fathom-server recover-operator` still works in the same field —
+              the server tells the two shapes apart (`parse_recovery_code`);
+              this client sends exactly what was typed (`setupSecretBytes`). */}
           <p className="signin__hint">
             The FATHOM_SETUP_PASSWORD you set in the server&apos;s .env file. Given a recovery
             code by <code>fathom-server recover-operator</code>? Enter that instead.
@@ -727,11 +687,9 @@ export function TokenStage({
         {refusal && (
           <div className="signin__refusal" role="alert">
             {refusal}
-            {/* Only under the setup-secret refusal, never under a rate-limit
-                message (`describe(error)` above, when the server answered
-                429) -- security review round 2's small items. A "check your
-                password" hint under "try again in N seconds" would be
-                actively wrong advice. */}
+            {/* Only under the setup-secret refusal, never a rate-limit one:
+                "check your password" would be wrong advice under "try
+                again in N seconds". */}
             {refusal === SETUP_SECRET_REFUSED && <p className="signin__hint">{SETUP_SECRET_HINT}</p>}
           </div>
         )}

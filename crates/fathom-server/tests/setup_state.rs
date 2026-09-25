@@ -699,9 +699,7 @@ async fn the_check_names_the_address_and_leaves_the_token_live() {
         .bootstrap_first_operator(&address, &address)
         .await
         .expect("a first start with no operator mints one");
-    // What a real client now sends -- security review round 2, item 5: the
-    // `op_` line, as typed text, not the 32 raw bytes a client-side decode
-    // used to produce.
+    // What a real client sends: the `op_` line, as typed text.
     let token = support::recovery_code_text(&bootstrap.invitation.token);
 
     let named = it
@@ -816,9 +814,8 @@ async fn every_refused_setup_token_gets_the_same_bytes() {
 
     // A token that was never issued, one made of nothing, and one whose bytes
     // are not a token's length at all. "Never issued" is the `op_` + hex
-    // SHAPE a real recovery code has -- security review round 2, item 5 --
-    // so this still exercises the database lookup that finds nothing, not
-    // just `parse_recovery_code`'s own shape check.
+    // shape a real recovery code has, so this exercises the database lookup
+    // that finds nothing, not just `parse_recovery_code`'s own shape check.
     let mut answers = Vec::new();
     for (what, token) in [
         ("never issued", support::recovery_code_text(&[9u8; 32])),
@@ -1192,7 +1189,7 @@ async fn a_recovery_code_still_works_with_a_setup_password_live() {
 }
 
 // ---------------------------------------------------------------------------
-// The security review's two probes, as regression tests
+// Regression tests: two live setup-password tokens for one seat
 // ---------------------------------------------------------------------------
 
 /// **Two live setup-password tokens for one seat cannot both act.**
@@ -1378,10 +1375,9 @@ async fn a_setup_password_cannot_overwrite_a_setup_finished_by_a_recovery_code()
     );
 }
 
-/// **The brute-force limit — security review item 4.** Twenty refused setup
-/// secrets close the setup password comparison for the rest of this
-/// process; a recovery code, which is 256 bits and not a realistic guessing
-/// target, is untouched by it.
+/// **The brute-force limit.** Twenty refused setup secrets close the setup
+/// password comparison for the rest of this process; a recovery code, which
+/// is 256 bits and not a realistic guessing target, is untouched by it.
 #[tokio::test]
 async fn twenty_refused_setup_secrets_close_the_password_but_not_a_recovery_code() {
     const TAG: &str = "setup_password_brute_force_limit";
@@ -1609,23 +1605,21 @@ fn is_deadlock_operator<T>(result: &Result<T, OperatorError>) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// The security review's round-2 probes, as regression tests
+// Regression tests: concurrency against the setup-password budget
 // ---------------------------------------------------------------------------
 
 /// A hand-rolled `join_all`: every future in `futs` is polled once, in
 /// order, on each pass, so every one of them runs up to its own first real
 /// `await` before any of them completes.
 ///
-/// **Why this and not `futures::future::join_all`.** The property item A's
-/// test below relies on is not merely "these run concurrently" but the exact
-/// ORDER their synchronous prefixes run in: [`reserve_setup_secret_attempt`]
-/// (`credentials.rs`) is a plain `std::sync::Mutex`, never an `await`, so on
-/// the very first poll of each of these futures the reservation for that
-/// attempt happens deterministically before any of them reaches a real
-/// `await` (the connection pool). Polling index 0 first, then 1, then 2, and
-/// so on, on the very first pass, is what makes the reservation order match
-/// the array order — which is what turns "sixty concurrent attempts" into a
-/// test with a knowable answer rather than a flake.
+/// **Why this and not `futures::future::join_all`.** The test below relies
+/// on the exact ORDER their synchronous prefixes run in:
+/// [`reserve_setup_secret_attempt`] (`credentials.rs`) is a plain
+/// `std::sync::Mutex`, never an `await`, so on the first poll of each future
+/// the reservation happens deterministically before any of them reaches a
+/// real `await` (the connection pool). Polling index 0 first, then 1, and so
+/// on makes the reservation order match the array order — a knowable answer
+/// rather than a flake.
 async fn poll_concurrently<F: std::future::Future>(futs: Vec<F>) -> Vec<F::Output> {
     use std::task::Poll;
     let mut futs: Vec<std::pin::Pin<Box<F>>> = futs.into_iter().map(Box::pin).collect();
@@ -1652,26 +1646,18 @@ async fn poll_concurrently<F: std::future::Future>(futs: Vec<F>) -> Vec<F::Outpu
         .collect()
 }
 
-/// **Security review, round 2, item A: the refusal limit cannot be beaten by
-/// concurrency.**
+/// **The refusal limit cannot be beaten by concurrency.**
 ///
-/// Verified by the review with sixty concurrent checks against one setup
-/// password, fifty-nine wrong and the right one last: every one of the
-/// sixty got a live comparison, including the right password, because the
-/// budget was read, then compared, then spent, as three separate steps —
-/// sixty callers could each read "budget remains" before any of them had
-/// finished comparing anything. The fix makes the read and the spend one
-/// atomic step (`credentials::reserve_setup_secret_attempt`), so a burst
-/// this size can reserve at most twenty attempts between it, however they
-/// race.
+/// Sixty concurrent checks against one setup password, fifty-nine wrong and
+/// the right one last. `credentials::reserve_setup_secret_attempt` makes the
+/// budget read and spend one atomic step, so a burst this size can reserve
+/// at most twenty attempts between it, however they race.
 ///
-/// This test reproduces the review's exact shape and, thanks to
-/// [`poll_concurrently`]'s deterministic first-pass ordering, has a
-/// deterministic answer: the twenty wrong guesses at indices 0 through 19
+/// Thanks to [`poll_concurrently`]'s deterministic first-pass ordering, the
+/// answer is deterministic: the twenty wrong guesses at indices 0 through 19
 /// take every reservation there is, so the right password — index 59, last
 /// in the burst — never gets a comparison at all and is refused along with
-/// everything after index 19. Before the fix this exact password, in this
-/// exact position, came back `Ok`.
+/// everything after index 19.
 #[tokio::test]
 async fn a_burst_of_sixty_cannot_reserve_more_attempts_than_the_limit() {
     const TAG: &str = "setup_password_burst";
@@ -1742,16 +1728,15 @@ async fn a_burst_of_sixty_cannot_reserve_more_attempts_than_the_limit() {
     );
 }
 
-/// **Security review, round 2, item B: a redemption racing a concurrent
-/// sweep does not corrupt the token it loses to.**
+/// **A redemption racing a concurrent sweep does not corrupt the token it
+/// loses to.**
 ///
-/// The cause: spending any setup-class token now expires the operator's
-/// every other live one (`operators::expire_live_tokens`, ADR-0057 decision
-/// 1's fix round). Redeeming the setup password's own token T and redeeming
-/// a recovery code R, minted before it, at the same moment, makes each
-/// redemption the other's concurrent expirer: T's redemption tries to expire
-/// R as "every other live token" while R's redemption is itself in flight,
-/// and the reverse. Verified by the review 3 of 3 with `tokio::join!`.
+/// Spending any setup-class token expires the operator's every other live
+/// one (`operators::expire_live_tokens`, ADR-0057 decision 1). Redeeming the
+/// setup password's own token T and redeeming a recovery code R, minted
+/// before it, at the same moment, makes each redemption the other's
+/// concurrent expirer: T's redemption tries to expire R as "every other live
+/// token" while R's redemption is itself in flight, and the reverse.
 ///
 /// Exactly one of the two may win. Whichever does not must be refused
 /// cleanly — not corrupt the row it raced, and not leave the account with a

@@ -238,25 +238,14 @@ pub struct Config {
 
     /// ADR-0057 decision 1: a temporary setup password, set in `.env` rather
     /// than read out of a file or a log. `FATHOM_SETUP_PASSWORD`, unset by
-    /// default.
+    /// default. Read here, but checked against the account password policy
+    /// and logged only in `main.rs` — this field just reads what was given.
     ///
-    /// **Read at every start, like [`Config::operator_notice_address`]
-    /// beside it, and checked at every start** against the account password
-    /// policy `credentials::check_password` already enforces (fifteen to a
-    /// hundred twenty-eight characters, not on the bundled common list, not
-    /// containing the notice address): `main.rs` is where a failing or unset
-    /// value closes setup and says which, never here — this field only reads
-    /// what was given, so a `Config` on its own says nothing about whether
-    /// setup is open.
-    ///
-    /// **A [`Secret`] like every other credential this binary reads from the
-    /// environment.** Not trimmed: ADR-0057 decision 1's own client sends
-    /// what was typed, unmodified, so what this holds must be exactly what
-    /// was put in `.env` for the two to ever compare equal. **Empty is still
-    /// `None`, though**: `compose.yaml` passes this through
-    /// `${FATHOM_SETUP_PASSWORD:-}`, so a deployment that never set it in
-    /// `.env` has the variable arrive as an empty string, not an absent one,
-    /// and the two get different log lines in `main.rs`.
+    /// A [`Secret`] like every other credential this binary reads from the
+    /// environment. Not trimmed: the client sends what was typed,
+    /// unmodified, so this must match `.env` exactly. Empty is still `None`:
+    /// `compose.yaml`'s `${FATHOM_SETUP_PASSWORD:-}` makes an unset variable
+    /// arrive as `""`, not absent.
     pub setup_password: Option<Secret<String>>,
 
     /// Where the first operator's enrolment token is written — by a first
@@ -623,15 +612,9 @@ impl Config {
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
 
-        // Filtered on emptiness, but the surviving value is NOT trimmed.
-        // `compose.yaml` passes this through `${FATHOM_SETUP_PASSWORD:-}`, so
-        // an operator who never set it in `.env` still has the variable
-        // ARRIVE, as an empty string, and without the filter that would read
-        // as "set to something" rather than "not set" — the wrong one of
-        // `main.rs`'s two log lines. A value that is not empty is kept
-        // exactly as given: ADR-0057 decision 1's client sends what was
-        // typed, unmodified, so what this holds must be exactly what was put
-        // in `.env` for the two to ever compare equal.
+        // Filtered on emptiness (compose passes an unset variable through as
+        // `""`), but not trimmed: the client sends what was typed,
+        // unmodified, so this must match `.env` exactly.
         let setup_password = get("FATHOM_SETUP_PASSWORD")
             .filter(|v| !v.is_empty())
             .map(Secret::new);
@@ -1313,12 +1296,7 @@ mod tests {
 
     #[test]
     fn an_empty_setup_password_is_also_none() {
-        // `compose.yaml` passes this through `${FATHOM_SETUP_PASSWORD:-}`, so
-        // a deployment that never set it in `.env` still has the variable
-        // ARRIVE here as an empty string, not as an absent one. Without this,
-        // `main.rs` would log "does not meet policy" for a deployment that
-        // simply never configured setup, which is the wrong one of its two
-        // messages.
+        // compose passes an unset variable through as `""`, not absent.
         let c = Config::from_lookup(env(&[
             ("DATABASE_URL", "postgres://u@h/db"),
             ("FATHOM_SETUP_PASSWORD", ""),
@@ -1329,9 +1307,8 @@ mod tests {
 
     #[test]
     fn the_setup_password_is_read_exactly_as_given_and_not_trimmed() {
-        // The client sends what was typed, unmodified (ADR-0057 decision 1),
-        // so a value with meaningful leading or trailing characters must
-        // survive here unchanged for the two to ever compare equal.
+        // The client sends what was typed, unmodified, so leading and
+        // trailing characters must survive unchanged.
         let c = Config::from_lookup(env(&[
             ("DATABASE_URL", "postgres://u@h/db"),
             (

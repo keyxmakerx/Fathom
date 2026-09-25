@@ -773,18 +773,16 @@ async fn redeem_reset_handler(
 
 /// `POST /enrolment/operator/setup` — the first operator's setup screen.
 ///
-/// Body: `LP(setup_secret) ‖ LP(new_credential)`. Answer: **200, empty, and no
-/// session** — the lead's resolution 4: the client signs in with `POST
-/// /session` immediately afterwards, which is one more round trip and one
-/// fewer way for a token to become a session without the password being
-/// checked.
+/// Body: `LP(setup_secret) ‖ LP(new_credential)`. Answer: 200, empty, no
+/// session — the client signs in with `POST /session` immediately
+/// afterwards, one fewer way for a token to become a session without the
+/// password being checked.
 ///
-/// **ADR-0057 decision 1**: the first field is no longer only a token from a
-/// file. It is tried as one first — a recovery code `fathom-server
-/// recover-operator` printed is that shape and is handled exactly as before
-/// — and, only then, as this start's setup password; `credentials.rs`'s
-/// `redeem_setup` carries the two-path account in full. A refusal here is
-/// still [`crate::credentials::CredentialError::TokenRefused`], rendered
+/// ADR-0057 decision 1: the first field is tried as a live setup token first
+/// (a recovery code `fathom-server recover-operator` printed is that shape)
+/// and, only on a miss, as this start's setup password;
+/// `credentials::redeem_setup` carries the two-path account. A refusal here
+/// is [`crate::credentials::CredentialError::TokenRefused`], rendered
 /// exactly as a bad token always has been.
 async fn operator_setup_handler(
     State(state): State<CredentialApiState>,

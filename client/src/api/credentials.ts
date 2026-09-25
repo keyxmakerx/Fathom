@@ -204,9 +204,9 @@ export function looksLikeAppCode(code: string): boolean {
 
 /** `POST /enrolment/operator/setup` — spend the setup secret (ADR-0057
  * decision 1: a recovery code, or this start's setup password) and set the
- * first operator's password. Answers nothing: the client signs in afterwards
- * (the lead's resolution 4), which is one more round trip and one fewer way
- * for a token to become a session without the password being checked. */
+ * first operator's password. Answers nothing: the client signs in
+ * afterwards, one fewer way for a token to become a session without the
+ * password being checked. */
 export async function redeemOperatorSetup(secret: Uint8Array, password: string): Promise<void> {
   await unsigned('/enrolment/operator/setup', buildTokenAndPasswordBody(secret, password));
 }

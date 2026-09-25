@@ -1213,19 +1213,14 @@ impl OperatorStore {
         // changed is which screen the token opens, and `0019` §B is the CHECK
         // that lets the column say so.
         //
-        // **`SETUP_SECRET_WINDOW`, not `ENROLMENT_TOKEN_LIFETIME` — security
-        // review, round 2, item 3, finished.** This invitation is never
-        // handed to anybody (`main.rs`: no token file is written, ADR-0057
-        // decision 1); `issue_setup_token` mints the one that is, below,
-        // once `main.rs` knows whether `FATHOM_SETUP_PASSWORD` is even set.
-        // Round 1 shortened THAT token's row lifetime to match the window a
-        // person actually sees and left this one, and the adoption path's
-        // twin of it, still minting for seventy-two hours: a live, spendable,
-        // unheld secret sitting in the database for three days after nobody
-        // could still be holding it. It is inert either way — 256 bits, nobody
-        // ever reads it back — but the smaller a dead credential's own window
-        // is, the smaller the blast radius of finding out that claim was
-        // wrong.
+        // `SETUP_SECRET_WINDOW`, not `ENROLMENT_TOKEN_LIFETIME`. This
+        // invitation is never handed to anybody (`main.rs`: no token file is
+        // written, ADR-0057 decision 1); `issue_setup_token` mints the one
+        // that is, below, once `main.rs` knows whether `FATHOM_SETUP_PASSWORD`
+        // is even set. A shorter row lifetime here matches the window a
+        // person actually sees, rather than leaving a live, unheld secret in
+        // the database for three days after nobody could still be holding
+        // it.
         let invitation = self
             .issue_token(
                 &tx,
@@ -5192,27 +5187,17 @@ impl OperatorStore {
     /// the second sees no row — and the seal is what makes it single-use
     /// against whoever holds the database.
     ///
-    /// **`AND expired_at IS NULL AND row_version = $6` since the security
-    /// review's round 2, item B.** Spending any setup-class token now
-    /// expires the operator's every other live one
-    /// ([`OperatorStore::expire_live_tokens`], called by
-    /// `credentials::CredentialStore::redeem_setup_by_token` right after this
-    /// one spends), which makes every redemption a concurrent expirer of
-    /// whatever else is live for the same operator — verified 3 of 3 with
-    /// `tokio::join!`: a setup password redeemed at the same moment as a
-    /// recovery code minted before it, racing to spend two different tokens
-    /// for the same operator. The old guard checked only `redeemed_at`, so a
-    /// concurrent expiry of THIS row (racing to expire it as the OTHER
-    /// token's "every other live one") could commit first, unnoticed —
-    /// `redeemed_at` was still `NULL`, the guard still matched, and this
-    /// `UPDATE` clobbered the row with a seal computed from the facts read
-    /// before the race, `expired_at_unix` stale at zero. The row that came
-    /// out held both `redeemed_at` and `expired_at`, sealed as if only one of
-    /// them were true, and no later read of it could verify. The read that
-    /// produced `row` and this write are now tied to the SAME row version —
-    /// `row_version = $6` is that version, not the new one — so anything that
-    /// touched this row in between, expiry included, makes `updated` zero
-    /// instead of corrupt, and the caller gets an ordinary refusal.
+    /// `AND expired_at IS NULL AND row_version = $6`: spending any
+    /// setup-class token expires the operator's every other live one
+    /// ([`OperatorStore::expire_live_tokens`]), so a redemption can race a
+    /// concurrent expiry of this same row. `redeemed_at IS NULL` alone would
+    /// let that expiry commit first, unnoticed, and this `UPDATE` then
+    /// clobber the row with a seal computed from stale facts — both
+    /// `redeemed_at` and `expired_at` set but sealed as if only one were
+    /// true, unverifiable ever after. Tying this write to the exact
+    /// `row_version` the read of `row` saw makes anything that touched the
+    /// row in between (expiry included) an ordinary refusal, `updated ==
+    /// 0`, instead of that.
     async fn mark_redeemed(
         &self,
         tx: &Transaction<'_>,
@@ -6064,35 +6049,22 @@ impl OperatorStore {
     /// Issue a `purpose = 'setup'` token for an operator who already exists —
     /// this is where ADR-0057 decision 1's T is minted, at every start.
     ///
-    /// **Its lifetime is the setup password's own window, not the seventy-two
-    /// hours every other enrolment token gets.** The security review that
-    /// found the blocking issue this fix round closes also found the second
-    /// half of it: `main.rs` enforces the thirty-minute window in memory
-    /// (`credentials::SetupSecret`'s own `closes_at`), but until this fix the
-    /// row underneath stayed live for seventy-two hours regardless — the
-    /// window a person reads at the console was fiction the database did not
-    /// share. A token nobody redeemed inside its own thirty minutes is now
-    /// unusable within the hour, not the week, wherever it came from: the
-    /// bootstrap invitation a first start mints and this flow never uses, the
-    /// adoption invitation the same, or the token an earlier start minted
-    /// here and nobody redeemed.
-    ///
-    /// **That sentence was false about the first two of those three until the
-    /// security review's round 2, item 3** — this function's own token got
-    /// the shorter window in round 1, and `bootstrap_first_operator`'s
-    /// invitation and `adopt_first_operator_from_install`'s stayed at
-    /// seventy-two hours, unheld by anyone, until round 2 shortened those two
-    /// mints as well. All three now share this one constant.
+    /// Its lifetime is the setup password's own window
+    /// ([`credentials::SETUP_SECRET_WINDOW`]), not the seventy-two hours
+    /// every other enrolment token gets: `main.rs` enforces that window in
+    /// memory (`credentials::SetupSecret`'s `closes_at`), and the row
+    /// underneath must not outlive it, wherever the token came from — the
+    /// bootstrap invitation, the adoption invitation, or one minted here at
+    /// an earlier start and never redeemed. All three share this one
+    /// constant.
     ///
     /// **Deliberately not an active sweep of every other live setup-class
     /// token for this operator.** Two containers of the same deployment
-    /// starting close together each mint their own T here, and both must
-    /// stay independently presentable until one of them is actually
-    /// REDEEMED — [`CredentialStore::redeem_setup_by_token`]'s guarded
-    /// `UPDATE` and its own sweep (spending any one expires every other live
-    /// one) are what the review's fix for the blocking issue relies on, and
-    /// a sweep here would pre-empt that scenario a start earlier than the
-    /// fix is meant to be exercised, rather than closing it.
+    /// starting close together each mint their own token here, and both must
+    /// stay independently presentable until one is actually redeemed —
+    /// [`CredentialStore::redeem_setup_by_token`]'s guarded `UPDATE` and its
+    /// own sweep (spending any one expires every other live one) are what
+    /// that relies on; a sweep here would pre-empt it a start too early.
     ///
     /// Returns the token exactly once.
     pub async fn issue_setup_token(&self, operator: &str) -> Result<Invitation, OperatorError> {

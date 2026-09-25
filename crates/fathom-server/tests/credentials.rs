@@ -1923,9 +1923,7 @@ async fn a_reset_token(
 }
 
 /// Issue a `purpose = 'setup'` enrolment token for one operator, in the shape
-/// a real client now sends it — security review round 2, item 5:
-/// `support::recovery_code_text`'s `op_` plus hex, not the 32 raw bytes a
-/// client-side decode used to produce.
+/// a real client sends: `support::recovery_code_text`'s `op_` plus hex.
 async fn a_setup_token(operators: &OperatorStore, operator: &str) -> Vec<u8> {
     let token = operators
         .issue_setup_token(operator)
