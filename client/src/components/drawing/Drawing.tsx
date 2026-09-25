@@ -182,11 +182,22 @@ export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null
   return !(isFirstRun && selected?.kind === 'chassis');
 }
 
-/** Fit every rack: used on mount and by the bar's percentage button. */
+/** Fit every rack: used on mount, landing at the rack stop. */
 function rackFitViewOptions(racks: readonly { id: string }[]) {
   return {
     nodes: racks.map((r) => ({ id: rackNodeId(r.id) })),
     padding: 0.1,
+    maxZoom: CAMERA_STOPS.rack / 100,
+  };
+}
+
+/** Fit every rack AND surface: the bar's own "Fit to view" — the whole
+ * closet. `minZoom` goes below `MIN_ZOOM` to match the bar's own +/- floor. */
+function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readonly { id: string }[]) {
+  return {
+    nodes: [...racks.map((r) => ({ id: rackNodeId(r.id) })), ...surfaces.map((s) => ({ id: surfaceNodeId(s.id) }))],
+    padding: 0.1,
+    minZoom: 0.1,
     maxZoom: CAMERA_STOPS.rack / 100,
   };
 }
@@ -522,13 +533,14 @@ function DrawingInner({
     });
   }, [zoom]);
 
-  // The percentage button's fit; never fires on the first render.
+  // The percentage button's fit; never fires on the first render. Frames
+  // every rack and every surface — the whole closet, not just its racks.
   const prevFitRequestRef = useRef(fitRequest);
   useEffect(() => {
     if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
     prevFitRequestRef.current = fitRequest;
-    void rf.fitView(rackFitViewOptions(view.racks));
-  }, [fitRequest, rf, view.racks]);
+    void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? []));
+  }, [fitRequest, rf, view.racks, view.surfaces]);
 
   const handleViewportChange = useCallback(
     (vp: Viewport) => {

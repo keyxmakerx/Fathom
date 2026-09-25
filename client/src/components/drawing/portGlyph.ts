@@ -30,6 +30,9 @@ const ALIASES: Record<string, PortKind> = {
   lc: 'lc',
   fibre: 'lc',
   fiber: 'lc',
+  // SC is drawn with the LC glyph until the Legend board draws its own
+  // (`docs/UI-SPEC.md` "Owed to the boards").
+  sc: 'lc',
   c14: 'c14',
   // `C13` is its own `PortKind` in the catalogue (`fathom_corpus::catalogue`
   // — a PDU's outlet, not a device's inlet: the two ends of one cord). The
@@ -56,6 +59,12 @@ const ALIASES: Record<string, PortKind> = {
   // spelling, not the catalogue's, so the glyph table needs both.
   nema515r: 'c14',
   nema515p: 'c14',
+  // The rest of `schema/schema.yaml`'s `PhysicalPort.connector` enum draws
+  // as `generic` since none of the five named glyphs fits.
+  mpo: 'generic',
+  f: 'generic',
+  bnc: 'generic',
+  other: 'generic',
 };
 
 export function portKindFor(connector: string): PortKind | null {

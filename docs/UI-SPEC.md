@@ -381,6 +381,8 @@ column in band 1 at true size, 40×13 and no bail, captioned "wide cage, four la
 line says four and should say five; and the `Faceplate` board's rear QSFP+ placeholder is currently
 a bailed SFP+ at 40×16 and should be this glyph at 40×13.
 
+SC is drawn with the LC glyph until the Legend board draws its own.
+
 Two things this page has never specified, both found by drawing rather than by reading:
 
 - **The zoom at which ports become hit targets has no number here.** "Ports fade in as they become

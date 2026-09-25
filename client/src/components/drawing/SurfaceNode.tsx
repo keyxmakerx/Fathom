@@ -398,9 +398,11 @@ function FixtureBox({
         {singleFed && <span className="drawing-chassis__single-fed">single-fed</span>}
         {oneFitted && <span className="drawing-chassis__one-fitted">one fitted</span>}
       </div>
+      {/* Short: the fixture box is fixed-width (92px, 40px on the floor),
+          always too small for "no catalogue entry — typed" in full. */}
       {noCatalogueEntry ? (
-        <span className="drawing-surface__typed" aria-label="typed by hand">
-          no catalogue entry — typed
+        <span className="drawing-surface__typed" aria-label="no catalogue entry — typed by hand">
+          typed
         </span>
       ) : (
         <span className="drawing-surface__fixture-model">{usage ? pduUsageLabel(usage) : fixture.model}</span>

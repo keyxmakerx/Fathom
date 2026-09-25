@@ -1,9 +1,7 @@
-/** The five port glyphs of `docs/UI-SPEC.md` "Ports". One interface, one
- * size rule: `scale` 1 is the Legend board's true size, which is also the
- * size the Faceplate board draws every port at. Nothing here takes a
- * colour — a port glyph is ink on page, never a sheath. */
+/** `generic` is the fallback for a connector none of the five names, so
+ * nothing draws as nothing. Takes no colour: ink on page, never a sheath. */
 
-export type PortKind = 'rj45' | 'sfp-plus' | 'lc' | 'c14' | 'qsfp-plus';
+export type PortKind = 'rj45' | 'sfp-plus' | 'lc' | 'c14' | 'qsfp-plus' | 'generic';
 
 export interface PortGlyphProps {
   /** Filled = cabled, hollow = free. */

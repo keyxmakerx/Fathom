@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { addSketchPort, createRack, createShelf, createSurface, fixTo, movePlacement, placeChassis, placeOnShelf } from './commands';
+import {
+  addSketchPort,
+  createRack,
+  createShelf,
+  createSketchDevice,
+  createSurface,
+  fixTo,
+  movePlacement,
+  placeChassis,
+  placeOnShelf,
+} from './commands';
 import { setRackField } from './edit';
-import { edgesIn, edgesOut, emptyDocument, formatEdgeId, formatNodeId, type Document } from './model';
+import { edgesIn, edgesOut, emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document } from './model';
 import { fitSupply, removeSupply } from './supplies';
 import { newUlid } from './ulid';
 import { naturalLabelCompare, viewOf } from './view';
@@ -537,5 +547,37 @@ describe('ClosetView.surfaces (ADR-0051 §1)', () => {
     const fixture = view.surfaces[0].fixtures[0];
     expect(fixture.kind).toBe('chassis');
     expect(fixture.psuInlets).toHaveLength(2);
+  });
+
+  it('a rack-mounted sketch chassis has no PSU slot to route a typed C14 into, so it stays in ports', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
+    const withDevice = createSketchDevice(withRack, { hostname: 'fw-01', now: NOW });
+    const chassisId = withDevice.nodes.find(
+      (n) => !withRack.nodes.some((o) => o.id === n.id) && parseNodeId(n.id).kind === 'Chassis',
+    )!.id;
+    const moved = movePlacement(withDevice, chassisId, { kind: 'rack', rackId, positionU: 1, face: 'front' }, { now: NOW });
+    const withPort = addSketchPort(moved, chassisId, { label: 'power', connector: 'c14', service: 'power', face: 'rear' }, { now: NOW });
+
+    const chassis = viewOf(withPort, []).racks[0].chassis[0];
+    expect(chassis.psuInlets).toHaveLength(0);
+    expect(chassis.ports.map((p) => p.connector)).toContain('c14');
+  });
+
+  it('a surface fixture\'s own typed C14 has nowhere to route either, so it stays in ports too', () => {
+    const { doc, premisesId } = premisesDoc();
+    const withSurface = createSurface(doc, premisesId, { label: 'Desk', form: 'desk', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const withDevice = createSketchDevice(withSurface, { hostname: 'fw-01', now: NOW });
+    const chassisId = withDevice.nodes.find(
+      (n) => !withSurface.nodes.some((o) => o.id === n.id) && parseNodeId(n.id).kind === 'Chassis',
+    )!.id;
+    const fixed = fixTo(withDevice, chassisId, surfaceId, { xMm: 0, yMm: 0 }, { now: NOW });
+    const withPort = addSketchPort(fixed, chassisId, { label: 'power', connector: 'c14', service: 'power', face: 'rear' }, { now: NOW });
+
+    const fixture = viewOf(withPort, []).surfaces[0].fixtures[0];
+    expect(fixture.psuInlets).toHaveLength(0);
+    expect(fixture.ports.map((p) => p.connector)).toContain('c14');
   });
 });

@@ -16,6 +16,7 @@ import {
   seedConflictingChange,
   seedConnectedDevices,
   seedEmptyDesign,
+  seedFreestanding,
   seedSingleDevice,
 } from './drive-seed';
 
@@ -88,6 +89,7 @@ async function main() {
   if (scene === 'trail') doc = seedConnectedDevices(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
+  else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

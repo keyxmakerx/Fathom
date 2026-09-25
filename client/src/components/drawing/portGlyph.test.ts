@@ -33,4 +33,15 @@ describe('portKindFor', () => {
     expect(portKindFor('rs232')).toBeNull();
     expect(portKindFor('')).toBeNull();
   });
+
+  it('draws SC with the LC glyph (docs/UI-SPEC.md "Owed to the boards")', () => {
+    expect(portKindFor('sc')).toBe('lc');
+  });
+
+  it('every other schema.yaml PhysicalPort.connector value draws something, never vanishes', () => {
+    expect(portKindFor('mpo')).toBe('generic');
+    expect(portKindFor('f')).toBe('generic');
+    expect(portKindFor('bnc')).toBe('generic');
+    expect(portKindFor('other')).toBe('generic');
+  });
 });
