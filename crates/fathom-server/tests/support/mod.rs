@@ -578,10 +578,22 @@ async fn migration_lock_on_the_shared_database() -> tokio_postgres::Client {
     client
 }
 
-/// What [`isolated_deployment`] calls its database.
+/// What [`isolated_deployment`] calls its database. It carries a fingerprint of
+/// the shared test database, so two checkouts testing at once never drop each other's.
 #[allow(dead_code)]
 pub fn isolated_database_name(tag: &str) -> String {
-    format!("fathom_isolated_{tag}")
+    let shared: tokio_postgres::Config = migrate_test_database_url()
+        .parse()
+        .expect("the migration URL must parse");
+    // FNV-1a: stable across runs and toolchains, and always eight characters.
+    let mut scope: u32 = 0x811c_9dc5;
+    for byte in shared.get_dbname().unwrap_or("fathom_test").bytes() {
+        scope = (scope ^ u32::from(byte)).wrapping_mul(0x0100_0193);
+    }
+    let name = format!("fathom_isolated_{scope:08x}_{tag}");
+    // PostgreSQL cuts longer names silently, and two cut names could collide.
+    assert!(name.len() <= 63, "isolated database name too long: {name}");
+    name
 }
 
 /// The RUNTIME role's connection string for one isolated deployment's own
