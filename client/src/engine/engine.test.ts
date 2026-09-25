@@ -17,6 +17,11 @@ import { allDictPlatforms } from './frames';
 import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
+import { connectPorts } from '../document/cables';
+import { addSketchPort, createSketchDevice } from '../document/commands';
+import { emptyDocument, type Document } from '../document/model';
+import { writePlain } from '../document/plain';
+import { undo } from '../document/undo';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = path.resolve(__dirname, '../../public/engine/fathom_wasm.wasm');
@@ -377,5 +382,32 @@ describe('DICT_PLATFORMS covers every directory under corpus/dict/', () => {
     for (const name of booted) {
       expect(excluded.has(name), `"${name}" is in both DICT_PLATFORMS and DICT_PLATFORMS_EXCLUDED`).toBe(false);
     }
+  });
+});
+
+describe('a design stays saveable after undo', () => {
+  it('undoing a drawn cable and two drawn ports still loads through the Rust reader', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_000_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    let doc = emptyDocument();
+    const chassis: string[] = [];
+    const ports: string[] = [];
+    for (const label of ['eth0', 'eth1']) {
+      const before = doc;
+      doc = createSketchDevice(doc, step());
+      chassis.push(added(before, doc, 'chassis:'));
+      const beforePort = doc;
+      doc = addSketchPort(doc, chassis[chassis.length - 1], { label, connector: 'rj45', face: 'front' }, step());
+      ports.push(added(beforePort, doc, 'physical-port:'));
+    }
+    doc = connectPorts(doc, ports[0], ports[1], {}, step());
+    // The cable first, then both ports: newest first, as Ctrl Z would.
+    for (const batch of doc.batches.slice(-3).reverse()) doc = undo(doc, batch.id, step());
+
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
   });
 });
