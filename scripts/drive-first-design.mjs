@@ -66,6 +66,9 @@ const ROOT = process.env.FATHOM_ROOT
 const CHROME = process.env.PW_CHROMIUM
   || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const CLIENT = ROOT + '/client';
+// As the other real-server drives: a given binary, else the (possibly shared) target dir.
+const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
+const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? resolve(TARGET_DIR, 'debug', 'fathom-server');
 const SHOTS = '/tmp/claude-0/';
 mkdirSync(SHOTS, { recursive: true });
 
@@ -476,11 +479,13 @@ async function main() {
   const seed = JSON.parse(readFileSync(SEED_OUTPUT_PATH, 'utf8'));
   check('seed produced a steward and a drawer with distinct addresses', seed.steward.address !== seed.drawer.address);
 
-  console.log('==> building fathom-server');
-  sh('cargo', ['build', '-p', 'fathom-server'], { cwd: ROOT, stdio: 'inherit' });
+  if (!process.env.FATHOM_SERVER_BIN) {
+    console.log('==> building fathom-server');
+    sh('cargo', ['build', '-p', 'fathom-server'], { cwd: ROOT, stdio: 'inherit' });
+  }
 
   console.log('==> starting fathom-server on ' + SERVER_URL);
-  serverProc = spawn(`${ROOT}/target/debug/fathom-server`, [], {
+  serverProc = spawn(SERVER_BIN, [], {
     cwd: ROOT,
     env: {
       ...process.env,
