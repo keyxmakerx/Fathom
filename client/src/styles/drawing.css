@@ -1073,6 +1073,9 @@
    provenance mark `.drawing-shelf__typed` already gives a sketch shelf
    occupant, never a risk colour. */
 .drawing-surface__typed {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
   font-size: var(--t-micro);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -1081,6 +1084,8 @@
   padding: 0 3px;
   line-height: 1.4;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .drawing-surface__port-row {

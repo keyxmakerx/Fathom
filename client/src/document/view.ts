@@ -729,14 +729,10 @@ function chassisView(
   const heightU = catalogueModel?.rackUnits ?? mountedFields.heightU ?? 1;
 
   const hasPorts = edgesOut(doc, chassisId, 'HasPort');
-  // A fixed slot's `c14` inlet lives directly on the chassis (`psuInletsOf`
-  // reads it back out below) — kept out of `ports` here regardless of
-  // whether a catalogue model is known, the same connector token a real
-  // faceplate could in principle use, but these particular nodes never come
-  // from one. A hot-swap slot's inlet is never a `HasPort` child of the
-  // chassis at all (it lives on the `PowerSupply`), so no filtering is
-  // needed for those.
+  // Filters the chassis's `c14` PSU inlet out of `ports` only when a
+  // catalogue model exists to route it into `psuInlets` instead.
   const otherEdges = hasPorts.filter((e) => {
+    if (!catalogueModel) return true;
     const portNode = findNode(doc, e.to);
     return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
   });
@@ -899,7 +895,10 @@ function fixtureView(
     form = null;
     const catalogueModel = chassisFields.model ? catalogueMatch(catalogue, chassisFields.model) : undefined;
     const hasPorts = edgesOut(doc, itemId, 'HasPort');
+    // `chassisView`'s own choice: a sketch fixture has no PSU slot for a
+    // typed `c14` to route into, so it stays in `ports` rather than vanish.
     const otherEdges = hasPorts.filter((e) => {
+      if (!catalogueModel) return true;
       const portNode = findNode(doc, e.to);
       return portNode === undefined || readPhysicalPortFields(portNode).connector !== 'c14';
     });

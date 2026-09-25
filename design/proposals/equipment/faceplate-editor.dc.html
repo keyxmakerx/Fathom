@@ -1,0 +1,668 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    .lbl { font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: #5C6772; }
+    .mono { font-family: 'DejaVu Sans Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .place { padding: 0 12px; display: flex; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5C6772; }
+    .place.on { color: #14171A; font-weight: 700; border-bottom: 4px solid #14171A; }
+    .sep { width: 1px; height: 24px; background: #D2D7DD; flex-shrink: 0; }
+    .lens { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #14171A; }
+    .lens.on { background: #14171A; color: #FFFFFF; border-color: #14171A; }
+    .chip { border: 1px solid #D2D7DD; padding: 2px 8px; font-size: 11px; line-height: 14px; color: #5C6772; }
+    .chip.ink { border-color: #14171A; color: #14171A; }
+    .fchip { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; line-height: 16px; color: #14171A; }
+    .fchip.off { border-color: #D2D7DD; color: #5C6772; }
+    .fchip.dark { background: #14171A; color: #FFFFFF; }
+    .btn { border: 1px solid #14171A; padding: 2px 10px; font-size: 11px; line-height: 16px; color: #14171A; background: #FFFFFF; }
+    .row { display: flex; border-bottom: 1px solid #D2D7DD; padding: 6px 12px; gap: 8px; align-items: center; }
+    .row .k { width: 76px; font-size: 11px; color: #5C6772; flex-shrink: 0; }
+    .field { border: 1px solid #14171A; background: #FFFFFF; padding: 2px 8px; font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12.5px; flex-grow: 1; line-height: 18px; }
+    .field.ghost { border-color: #D2D7DD; color: #5C6772; }
+    .field.narrow { flex-grow: 0; width: 56px; }
+    .pal { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #D2D7DD; padding: 3px 8px 3px 6px; font-size: 11px; line-height: 14px; color: #14171A; background: #FFFFFF; }
+    .pal.lift { border: 2px solid #14171A; padding: 2px 7px 2px 5px; }
+    .pal svg { display: block; }
+    .radio { display: flex; align-items: center; gap: 8px; padding: 3px 12px; font-size: 12px; }
+    .radio .dot { width: 11px; height: 11px; border: 1px solid #5C6772; border-radius: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .radio .dot.on { border-color: #14171A; }
+    .radio .dot.on::after { content: ''; width: 5px; height: 5px; background: #14171A; }
+    .face { display: flex; justify-content: space-between; padding: 3px 12px; font-size: 12px; }
+    .face .t { color: #5C6772; font-size: 11px; }
+    .cap { height: 34px; border-top: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 16px; gap: 16px; flex-shrink: 0; }
+    .cap .n { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cap .s { font-size: 11px; color: #5C6772; white-space: nowrap; }
+    .frame { border-top: 3px solid #14171A; display: flex; flex-direction: column; }
+    .prow { display: flex; padding: 5px 12px; gap: 10px; align-items: center; border-bottom: 1px solid #D2D7DD; font-size: 12px; }
+    .prow .m { font-family: 'DejaVu Sans Mono', Menlo, monospace; font-size: 12px; }
+    .prow .t { color: #5C6772; font-size: 11px; margin-left: auto; white-space: nowrap; }
+    .prow.mute { color: #5C6772; }
+    .thumb { width: 120px; height: 14px; border: 1px solid #14171A; flex-shrink: 0; position: relative; background: #FFFFFF; }
+    .thumb.mute { border-color: #5C6772; }
+  </style>
+</helmet>
+<div style="width: 1440px; display: flex; flex-direction: column; background: #FFFFFF; font-family: 'Liberation Sans', Inter, Helvetica, Arial, sans-serif; color: #14171A; font-size: 13px; line-height: 20px; position: relative;">
+
+  <!-- MASTHEAD for the board. Four frames follow, each with its own caption strip. -->
+  <div style="padding: 14px 20px 10px; border-bottom: 3px solid #14171A; display: flex; align-items: baseline; gap: 16px;">
+    <div style="font-size: 21px; font-weight: 700; line-height: 24px; white-space: nowrap;">E &middot; Drawing equipment</div>
+    <div style="color: #5C6772; font-size: 13px;">For issue #62. A box with no catalogue model gets drawn, not typed: the plate at its true size, ports dragged onto a grid, a group laid out by a preset, a slot, marks that are only marks. Then the drawing at the rack, a box with sides, and the drawing kept as a model.</div>
+  </div>
+
+  <!-- ====================================================================================== -->
+  <!-- FRAME 1: THE FACEPLATE EDITOR. The faceplate stop with the drawing tools on. Front and    -->
+  <!-- rear stack, as the approved Faceplate board stacks them; the tab says which one is live. -->
+  <!-- ====================================================================================== -->
+  <div style="width: 1440px; height: 900px; display: flex; flex-direction: column; position: relative;">
+
+    <!-- THE BAR: the shell's. Racks is current; the camera is at the faceplate stop. -->
+    <div style="height: 47px; border-bottom: 3px solid #14171A; display: flex; align-items: stretch; padding: 0 16px; gap: 12px; flex-shrink: 0;">
+      <div style="display: flex; align-items: center; font-size: 15px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;">Fathom</div>
+      <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+      <div style="display: flex; align-items: stretch;">
+        <div class="place on">Racks</div>
+        <div class="place">Inventory</div>
+      </div>
+      <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+        <span>Hillside</span><span>&rsaquo;</span><span>Home</span><span>&rsaquo;</span><span>R1</span><span>&rsaquo;</span><span style="color: #14171A; font-weight: 700;">U2 &middot; fw-01</span>
+      </div>
+      <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span class="lens on">Cables</span>
+        <span class="lens">Links</span>
+        <span class="lens">Routing</span>
+        <span class="lens">Power</span>
+        <span class="lens">Owner</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5C6772;">
+        <div class="sep" style="margin-right: 6px;"></div>
+        <span>zoom 260% &middot; faceplate</span>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; align-items: center;">
+        <div style="width: 180px; height: 24px; border: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 8px; gap: 6px;">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#5C6772" stroke-width="1.2"><circle cx="4.5" cy="4.5" r="3.5"></circle><path d="M7.2 7.2 L10.5 10.5"></path></svg>
+          <span style="font-size: 11px; color: #5C6772;">Search</span>
+          <span style="flex-grow: 1;"></span>
+          <span class="mono" style="font-size: 11px; color: #5C6772;">Ctrl K</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span class="chip">Sam K.</span>
+      </div>
+      <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span class="chip ink">Undo</span>
+        <span class="chip ink">Redo</span>
+      </div>
+      <div style="display: flex; align-items: center;"><div class="sep"></div></div>
+      <div style="display: flex; align-items: center;">
+        <div style="width: 24px; height: 24px; background: #14171A; color: #FFFFFF; font-size: 10px; display: flex; align-items: center; justify-content: center;">AL</div>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+      <!-- THE CANVAS SIDE -->
+      <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;">
+
+        <!-- the face tabs. Sides are greyed because fw-01 is rack gear. -->
+        <div style="height: 34px; border-bottom: 1px solid #D2D7DD; background: #FAFBFC; display: flex; align-items: center; padding: 0 12px; gap: 6px; flex-shrink: 0;">
+          <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; margin-right: 8px;">Drawing fw-01</span>
+          <span class="fchip dark">Front</span>
+          <span class="fchip">Rear</span>
+          <span class="fchip off">Left</span>
+          <span class="fchip off">Right</span>
+          <span style="font-size: 11px; color: #5C6772; margin-left: 4px;">sides &middot; free-standing boxes only</span>
+          <span style="flex-grow: 1;"></span>
+          <span style="font-size: 11px; color: #5C6772;">snap to grid</span>
+          <span class="fchip dark" style="padding: 2px 8px;">on</span>
+          <span class="sep" style="height: 18px; margin: 0 6px;"></span>
+          <span class="mono" style="font-size: 11px; color: #5C6772;">1U &middot; 482.6 &times; 44.45 mm</span>
+        </div>
+
+        <!-- THE PALETTE: by connector. Set a count first to place a block. Marks after the rule. -->
+        <div style="height: 68px; border-bottom: 1px solid #D2D7DD; display: flex; flex-wrap: wrap; align-content: center; align-items: center; padding: 0 12px; gap: 6px 6px; flex-shrink: 0;">
+          <span class="lbl" style="margin-right: 4px; width: 78px;">Connectors</span>
+          <span class="pal"><svg width="22" height="16" viewBox="-11 -8 22 16"><path d="M-10 -3 L-10 7 L10 7 L10 -3 L5 -3 L5 -7 L-5 -7 L-5 -3 Z" fill="#FFFFFF" stroke="#14171A"/></svg>RJ45</span>
+          <span class="pal"><svg width="28" height="16" viewBox="-14 -10 28 16"><rect x="-13" y="-5" width="26" height="10" fill="#FFFFFF" stroke="#14171A"/><line x1="-13" y1="0" x2="13" y2="0" stroke="#14171A" stroke-width="0.8"/><path d="M-10 -5 L-10 -8 L-3 -8 L-3 -5" fill="none" stroke="#14171A"/></svg>SFP+</span>
+          <span class="pal"><svg width="34" height="16" viewBox="-17 -8 34 16"><rect x="-16" y="-5" width="32" height="10" fill="#FFFFFF" stroke="#14171A"/><line x1="-8" y1="-5" x2="-8" y2="5" stroke="#14171A" stroke-width="0.8"/><line x1="0" y1="-5" x2="0" y2="5" stroke="#14171A" stroke-width="0.8"/><line x1="8" y1="-5" x2="8" y2="5" stroke="#14171A" stroke-width="0.8"/></svg>QSFP28</span>
+          <span class="pal lift"><svg width="22" height="16" viewBox="-11 -8 22 16"><rect x="-9" y="-4" width="18" height="8" fill="#FFFFFF" stroke="#14171A"/><rect x="-6" y="-1.5" width="12" height="3" fill="none" stroke="#14171A" stroke-width="0.8"/></svg>USB</span>
+          <span class="pal"><svg width="22" height="16" viewBox="-11 -8 22 16"><path d="M-10 -3 L-10 7 L10 7 L10 -3 L5 -3 L5 -7 L-5 -7 L-5 -3 Z" fill="#FFFFFF" stroke="#14171A"/><text x="0" y="5" font-size="6" text-anchor="middle" fill="#14171A" font-family="'DejaVu Sans Mono', Menlo, monospace">con</text></svg>Console</span>
+          <span class="pal"><svg width="22" height="16" viewBox="-11 -8 22 16"><path d="M-10 -4 L-6 -7 L6 -7 L10 -4 L10 4 L6 7 L-6 7 L-10 4 Z" fill="#FFFFFF" stroke="#14171A"/><circle cx="-4" cy="2" r="1.2" fill="#14171A"/><circle cx="4" cy="2" r="1.2" fill="#14171A"/><rect x="-1" y="-4.5" width="2" height="3.5" fill="#14171A"/></svg>Power C14</span>
+          <span style="font-size: 11px; color: #5C6772; margin-left: 6px;">count</span>
+          <span class="field narrow" style="padding: 1px 6px; line-height: 16px; width: 40px; font-size: 11px;">&times; 4</span>
+          <span style="font-size: 10px; color: #5C6772;">more than one places a group</span>
+          <span style="flex-basis: 100%; height: 0;"></span>
+          <span class="lbl" style="margin-right: 4px; width: 78px;">Slots</span>
+          <span class="pal"><svg width="26" height="16" viewBox="0 0 26 16"><rect x="0.5" y="0.5" width="25" height="15" fill="#FAFBFC" stroke="#14171A"/><path d="M8 4 L10 2 L16 2 L18 4 L18 10 L16 12 L10 12 L8 10 Z" fill="none" stroke="#14171A" stroke-width="0.9"/></svg>PSU bay</span>
+          <span class="sep" style="height: 18px; margin: 0 8px;"></span>
+          <span class="lbl" style="margin-right: 4px;">Marks</span>
+          <span class="pal"><svg width="14" height="16" viewBox="-7 -8 14 16"><circle cx="0" cy="0" r="3.5" fill="#FFFFFF" stroke="#14171A"/></svg>status light</span>
+          <span class="pal"><svg width="16" height="16" viewBox="-8 -8 16 16"><circle cx="0" cy="0" r="6" fill="#FFFFFF" stroke="#14171A"/><line x1="0" y1="-5" x2="0" y2="-1" stroke="#14171A" stroke-width="1.2"/></svg>button</span>
+          <span class="pal"><svg width="18" height="16" viewBox="0 0 18 16"><rect x="0.5" y="0.5" width="17" height="15" fill="url(#hatchP)" stroke="#5C6772"/></svg>fan grille</span>
+          <span class="pal"><svg width="18" height="16" viewBox="0 0 18 16"><text x="1" y="12" font-size="11" font-weight="700" fill="#14171A">Aa</text></svg>label</span>
+        </div>
+
+        <!-- THE CANVAS: the faceplate stop, drawing on. -->
+        <div style="flex-grow: 1; position: relative; overflow: hidden;">
+          <svg width="1124" height="717" viewBox="0 0 1124 717" style="position: absolute; inset: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+            <defs>
+              <!-- The approved glyphs, from the Faceplate and Legend boards. -->
+              <symbol id="rj45" viewBox="-11 -10 22 20"><path d="M-11 -5 L-11 10 L11 10 L11 -5 L6 -5 L6 -10 L-6 -10 L-6 -5 Z"/></symbol>
+              <symbol id="sfp" viewBox="-14 -9.5 28 16"><rect x="-14" y="-6.5" width="28" height="13"/><line x1="-14" y1="0" x2="14" y2="0" stroke-width="0.8"/><path d="M-11 -6.5 L-11 -9.5 L-3 -9.5 L-3 -6.5" fill="none" stroke-width="1"/></symbol>
+              <symbol id="qsfp" viewBox="-20 -6.5 40 13"><rect x="-20" y="-6.5" width="40" height="13"/><line x1="-10" y1="-6.5" x2="-10" y2="6.5" stroke-width="0.8"/><line x1="0" y1="-6.5" x2="0" y2="6.5" stroke-width="0.8"/><line x1="10" y1="-6.5" x2="10" y2="6.5" stroke-width="0.8"/></symbol>
+              <symbol id="c14" viewBox="-11 -8 22 16"><path d="M-11 -4 L-7 -8 L7 -8 L11 -4 L11 4 L7 8 L-7 8 L-11 4 Z" fill="none"/><circle cx="-5" cy="2" r="1.4"/><circle cx="5" cy="2" r="1.4"/><rect x="-1.2" y="-5" width="2.4" height="4"/></symbol>
+              <symbol id="usb" viewBox="-10 -6 20 12"><rect x="-10" y="-6" width="20" height="12"/><rect x="-7" y="-3" width="14" height="3" fill="none" stroke-width="0.8"/></symbol>
+              <!-- the snapping grid: a dot at every 12 px, drawn as four quarter-dots so the tile edges complete them -->
+              <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#D2D7DD"/><circle cx="12" cy="0" r="1" fill="#D2D7DD"/><circle cx="0" cy="12" r="1" fill="#D2D7DD"/><circle cx="12" cy="12" r="1" fill="#D2D7DD"/></pattern>
+              <!-- the fan grille hatch: tokens' --hatch, 135deg, hairline -->
+              <pattern id="hatchP" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="5" stroke="#5C6772" stroke-width="0.9"/></pattern>
+            </defs>
+
+            <!-- faded neighbour above, so the rack is never lost -->
+            <g opacity="0.25">
+              <rect x="22" y="8" width="1080" height="40" fill="#FFFFFF" stroke="#14171A"/>
+              <text x="36" y="33" font-size="15" fill="#14171A" font-weight="700">sw-core</text>
+              <text x="1088" y="33" font-size="12" fill="#5C6772" text-anchor="end">U3</text>
+            </g>
+
+            <!-- the mm rule: the plate's true width, not the grid -->
+            <g font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">
+              <line x1="22" y1="76" x2="1102" y2="76" stroke="#5C6772" stroke-width="1"/>
+              <g stroke="#5C6772" stroke-width="1">
+                <line x1="22" y1="70" x2="22" y2="76"/><line x1="133.9" y1="70" x2="133.9" y2="76"/><line x1="245.8" y1="70" x2="245.8" y2="76"/><line x1="357.7" y1="70" x2="357.7" y2="76"/><line x1="469.6" y1="70" x2="469.6" y2="76"/><line x1="581.5" y1="70" x2="581.5" y2="76"/><line x1="693.4" y1="70" x2="693.4" y2="76"/><line x1="805.2" y1="70" x2="805.2" y2="76"/><line x1="917.1" y1="70" x2="917.1" y2="76"/><line x1="1029" y1="70" x2="1029" y2="76"/><line x1="1102" y1="70" x2="1102" y2="76"/>
+              </g>
+              <text x="24" y="66">0</text><text x="135.9" y="66">50</text><text x="247.8" y="66">100</text><text x="359.7" y="66">150</text><text x="471.6" y="66">200</text><text x="583.5" y="66">250</text><text x="695.4" y="66">300</text><text x="807.2" y="66">350</text><text x="919.1" y="66">400</text><text x="1102" y="66" text-anchor="end">482.6 mm</text>
+            </g>
+            <!-- the U rule at the left -->
+            <g font-size="9" fill="#5C6772" font-family="'DejaVu Sans Mono', Menlo, monospace">
+              <line x1="12" y1="88" x2="12" y2="208" stroke="#5C6772"/><line x1="8" y1="88" x2="16" y2="88" stroke="#5C6772"/><line x1="8" y1="208" x2="16" y2="208" stroke="#5C6772"/>
+              <text x="4" y="152" transform="rotate(-90 4 152)" text-anchor="middle">1U</text>
+            </g>
+
+            <!-- ===== FRONT, live. 1U full width at 1080 x 120; the grid is 12 px, a third of the port pitch. ===== -->
+            <g transform="translate(22,88)">
+              <rect x="0" y="0" width="1080" height="120" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+              <rect x="0" y="0" width="1080" height="120" fill="url(#grid)"/>
+
+              <!-- marks: a text label, a status light, a power button -->
+              <text x="14" y="40" font-size="14" fill="#14171A" font-weight="700">fw-01</text>
+              <circle cx="20" cy="76" r="3.5" fill="#FFFFFF" stroke="#14171A"/>
+              <circle cx="52" cy="76" r="7" fill="#FFFFFF" stroke="#14171A"/><line x1="52" y1="70" x2="52" y2="75" stroke="#14171A" stroke-width="1.2"/>
+              <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace"><text x="20" y="98">sts</text><text x="52" y="98">pwr</text></g>
+
+              <!-- mark: a fan grille -->
+              <rect x="84" y="12" width="60" height="96" fill="url(#hatchP)" stroke="#5C6772"/>
+
+              <!-- eight RJ45 in one row, igc0 and igc1 already cabled (filled), so their cables came with them -->
+              <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+                <use href="#rj45" x="180" y="36" width="22" height="20" fill="#14171A"/>
+                <use href="#rj45" x="216" y="36" width="22" height="20" fill="#14171A"/>
+                <use href="#rj45" x="252" y="36" width="22" height="20"/>
+                <use href="#rj45" x="288" y="36" width="22" height="20"/>
+                <use href="#rj45" x="324" y="36" width="22" height="20"/>
+                <use href="#rj45" x="360" y="36" width="22" height="20"/>
+                <use href="#rj45" x="396" y="36" width="22" height="20"/>
+                <use href="#rj45" x="432" y="36" width="22" height="20"/>
+              </g>
+              <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+                <text x="191" y="72">igc0</text><text x="227" y="72">igc1</text><text x="263" y="72">igc2</text><text x="299" y="72">igc3</text><text x="335" y="72">igc4</text><text x="371" y="72">igc5</text><text x="407" y="72">igc6</text><text x="443" y="72">igc7</text>
+              </g>
+
+              <!-- console -->
+              <use href="#rj45" x="516" y="36" width="22" height="20" fill="#FFFFFF" stroke="#14171A"/>
+              <text x="527" y="72" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">con</text>
+
+              <!-- USB, being dragged in: the hollow dashed outline is where it will land, snapped -->
+              <use href="#usb" x="552" y="36" width="20" height="12" fill="none" stroke="#14171A" stroke-dasharray="2 2"/>
+              <text x="562" y="72" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" opacity="0.6">usb</text>
+
+              <!-- the selected block: four SFP+ cages at the right, two rows -->
+              <rect x="950" y="6" width="84" height="92" fill="none" stroke="#14171A" stroke-dasharray="3 2"/>
+              <g fill="#14171A"><rect x="948" y="4" width="5" height="5"/><rect x="1031" y="4" width="5" height="5"/><rect x="948" y="95" width="5" height="5"/><rect x="1031" y="95" width="5" height="5"/></g>
+              <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+                <use href="#sfp" x="960" y="24" width="28" height="16"/>
+                <use href="#sfp" x="996" y="24" width="28" height="16"/>
+                <use href="#sfp" x="960" y="60" width="28" height="16"/>
+                <use href="#sfp" x="996" y="60" width="28" height="16"/>
+              </g>
+              <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+                <text x="974" y="19">xe0</text><text x="1010" y="19">xe1</text><text x="974" y="90">xe2</text><text x="1010" y="90">xe3</text>
+              </g>
+              <text x="938" y="56" font-size="10" fill="#5C6772" text-anchor="end">group &middot; 4 &times; SFP+ &middot; xe0&ndash;xe3 &middot; two rows, odd on top</text>
+            </g>
+
+            <!-- the drag: the USB glyph in hand, and the crosshair ring the size of a port -->
+            <g transform="translate(22,88)">
+              <use href="#usb" x="576" y="22" width="20" height="12" fill="#FFFFFF" stroke="#14171A" stroke-width="1.2"/>
+              <g transform="translate(586,28)">
+                <circle r="9" fill="none" stroke="#14171A" stroke-width="1.5"/>
+                <line x1="-13" y1="0" x2="-9" y2="0" stroke="#14171A" stroke-width="1.5"/><line x1="9" y1="0" x2="13" y2="0" stroke="#14171A" stroke-width="1.5"/>
+                <line x1="0" y1="-13" x2="0" y2="-9" stroke="#14171A" stroke-width="1.5"/><line x1="0" y1="9" x2="0" y2="13" stroke="#14171A" stroke-width="1.5"/>
+              </g>
+            </g>
+            <text x="22" y="228" font-size="11" fill="#5C6772">USB from the palette, in hand. The dashed outline is where it lands: the grid has pulled it to the next point beside con. Release adds the port to fw-01, on the front. Esc drops it.</text>
+
+            <!-- ===== REAR, stacked under the front as the faceplate stop already does; dimmed because the tab is on Front ===== -->
+            <text x="22" y="262" font-size="10" fill="#5C6772" letter-spacing="1">REAR &middot; 1 PSU SLOT, ITS C14 THE PORT &middot; 2 MARKS &middot; THE REAR TAB MAKES IT LIVE</text>
+            <g transform="translate(22,274)" opacity="0.45">
+              <rect x="0" y="0" width="1080" height="120" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+              <!-- slot: a PSU bay. A supply is a part in a slot; the C14 is the port. -->
+              <rect x="12" y="10" width="150" height="100" fill="#FAFBFC" stroke="#14171A"/>
+              <text x="20" y="24" font-size="10" fill="#14171A" font-weight="700">PSU</text>
+              <text x="154" y="24" font-size="9" fill="#5C6772" text-anchor="end">slot</text>
+              <use href="#c14" x="64" y="36" width="44" height="32" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+              <text x="86" y="98" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">ac in</text>
+              <!-- marks: two fan grilles -->
+              <rect x="200" y="12" width="60" height="96" fill="url(#hatchP)" stroke="#5C6772"/>
+              <rect x="272" y="12" width="60" height="96" fill="url(#hatchP)" stroke="#5C6772"/>
+              <text x="1066" y="66" font-size="12" fill="#5C6772" text-anchor="end">fw-01 &middot; rear</text>
+            </g>
+
+            <!-- faded neighbour below -->
+            <g opacity="0.25">
+              <rect x="22" y="420" width="1080" height="40" fill="#FFFFFF" stroke="#14171A"/>
+              <text x="36" y="445" font-size="15" fill="#14171A" font-weight="700">pdu-01</text>
+              <text x="1088" y="445" font-size="12" fill="#5C6772" text-anchor="end">U1</text>
+            </g>
+          </svg>
+
+          <div style="position: absolute; left: 22px; bottom: 20px; width: 560px; border: 1px solid #D2D7DD; background: #FAFBFC; padding: 12px; font-size: 12px; line-height: 18px;">
+            <div class="lbl" style="margin-bottom: 4px;">Rules at this level</div>
+            The plate is the size you set: U height and full or half width for rack gear, width &times; height &times; depth in mm for a free-standing box. Ports snap to a grid at a third of the pitch the rack draws them at, so a drawn box and a catalogue box sit alike. Dragging a connector on <b>adds a port to fw-01 on this face</b>; the drawing adds only its position. A <b>group</b> (four SFP+ cages, twelve RJ45) is one thing, placed together and laid out by a preset. A <b>slot</b> holds a part; its inlet is the port. A mark is only a mark: it never takes a cable.
+          </div>
+        </div>
+      </div>
+
+      <!-- THE EDITOR PANEL. Same panel as every selection. -->
+      <div style="width: 316px; border-left: 1px solid #D2D7DD; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+          <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Draw fw-01</span>
+          <span style="font-size: 10px; color: #5C6772;">sketch &middot; no model yet</span>
+        </div>
+
+        <div class="row"><span class="k">kind</span>
+          <span style="display: flex; gap: 6px;"><span class="fchip">Rack gear</span><span class="fchip off">Free-standing</span></span>
+        </div>
+        <div class="row"><span class="k">height</span><span class="field narrow">1</span><span style="font-size: 11px; color: #5C6772;">U</span>
+          <span class="k" style="width: auto; margin-left: 8px;">width</span>
+          <span style="display: flex; gap: 6px;"><span class="fchip">Full</span><span class="fchip off">Half</span></span>
+        </div>
+        <div class="row"><span class="k">size in mm</span><span class="field ghost">482.6 &times; 44.45</span></div>
+
+        <div class="lbl" style="padding: 12px 12px 4px;">Selected &middot; group &middot; 4 &times; SFP+</div>
+        <div class="row"><span class="k">names</span><span class="field">xe0 &ndash; xe3</span></div>
+        <div class="row"><span class="k">face</span><span class="field ghost">front</span></div>
+        <div class="row"><span class="k">at</span><span class="field ghost">right edge &middot; snapped</span></div>
+        <div style="padding: 8px 12px 2px; font-size: 11px; color: #5C6772;">layout preset</div>
+        <div class="radio"><span class="dot"></span>one row</div>
+        <div class="radio"><span class="dot on"></span>two rows, odd on top</div>
+        <div class="radio" style="padding-bottom: 8px; border-bottom: 1px solid #D2D7DD;"><span class="dot"></span>two rows, 1&ndash;12 on top</div>
+
+        <div class="lbl" style="padding: 12px 12px 4px;">Faces</div>
+        <div class="face"><span>Front</span><span class="t">8 RJ45 &middot; group of 4 SFP+ &middot; con &middot; 4 marks</span></div>
+        <div class="face"><span>Rear</span><span class="t">1 PSU slot, C14 &middot; 2 marks</span></div>
+        <div class="face" style="color: #5C6772; padding-bottom: 8px; border-bottom: 1px solid #D2D7DD;"><span>Left &middot; Right</span><span class="t">rack gear has none</span></div>
+
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; gap: 8px;">
+          <div style="flex-grow: 1; border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Done</div>
+          <div style="width: 90px; border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Cancel</div>
+        </div>
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD;">
+          <div style="border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Save as a model&hellip;</div>
+          <div style="font-size: 11px; color: #5C6772; line-height: 16px; margin-top: 6px;">Writes this drawing into the organisation&rsquo;s own engine as a model, unvouched, to place again in every design. Frame 4.</div>
+        </div>
+
+        <div style="flex-grow: 1;"></div>
+        <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Every port here is the port you cable; a mark is never a port. Count and names live in the record, as they do when typed; the drawing adds a face and a place on it.</div>
+      </div>
+    </div>
+
+    <div class="cap">
+      <span class="n">1 &middot; The faceplate editor for one box: fw-01, a custom 1U box, its plate at the size set in the panel, ports dragged onto a snapping grid from a palette by connector, a group of four SFP+ selected and laid out by a preset, a PSU slot, marks.</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="s">sample data throughout</span>
+    </div>
+  </div>
+
+  <!-- ====================================================================================== -->
+  <!-- FRAME 2: A HAND-DRAWN SWITCH AT THE RACK'S FACEPLATE STOP. Nothing about it says drawn.   -->
+  <!-- ====================================================================================== -->
+  <div class="frame" style="height: 440px;">
+    <div style="height: 32px; border-bottom: 1px solid #D2D7DD; display: flex; align-items: center; padding: 0 20px; gap: 8px; font-size: 11px; background: #FAFBFC;">
+      <span>Hillside</span><span style="color: #D2D7DD;">&rsaquo;</span><span>Home</span><span style="color: #D2D7DD;">&rsaquo;</span><span>R1</span><span style="color: #D2D7DD;">&rsaquo;</span><span style="font-weight: 700;">U3 &middot; sw-core</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="lbl">Colour ports by</span>
+      <span style="border: 1px solid #14171A; padding: 2px 10px;">Link</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; color: #5C6772;">VLAN</span>
+      <span style="border: 1px solid #D2D7DD; padding: 2px 10px; color: #5C6772;">Subnet</span>
+      <span style="width: 1px; height: 18px; background: #D2D7DD; margin: 0 6px;"></span>
+      <span style="color: #5C6772;">zoom 340% &middot; scroll out to see the rack</span>
+    </div>
+    <div style="flex-grow: 1; position: relative;">
+      <svg width="1440" height="340" viewBox="0 0 1440 340" style="position: absolute; inset: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+        <!-- FRONT -->
+        <g transform="translate(120,16)">
+          <rect x="0" y="0" width="1200" height="160" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+          <rect x="0" y="0" width="1200" height="36" fill="#F2F4F6" stroke="#14171A" stroke-width="1"/>
+          <text x="16" y="24" font-size="16" fill="#14171A" font-weight="700">sw-core</text>
+          <text x="100" y="24" font-size="12" fill="#5C6772">24 + 4 switch, 1U &middot; your engine &middot; unvouched &middot; U3 &middot; ours</text>
+          <text x="1184" y="24" font-size="12" fill="#5C6772" text-anchor="end">24 &times; RJ45 &middot; 4 &times; SFP+ &middot; con &middot; mgmt &middot; rear: 1 &times; C14</text>
+
+          <text x="32" y="66" font-size="11" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">odd</text>
+          <text x="32" y="110" font-size="11" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">even</text>
+
+          <!-- top row: 1, 3, ... 23 -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <use href="#rj45" x="40" y="52" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="76" y="52" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="112" y="52" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="148" y="52" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="184" y="52" width="22" height="20"/>
+            <use href="#rj45" x="220" y="52" width="22" height="20"/>
+            <use href="#rj45" x="256" y="52" width="22" height="20"/>
+            <use href="#rj45" x="292" y="52" width="22" height="20"/>
+            <use href="#rj45" x="328" y="52" width="22" height="20"/>
+            <use href="#rj45" x="364" y="52" width="22" height="20"/>
+            <use href="#rj45" x="400" y="52" width="22" height="20"/>
+            <use href="#rj45" x="436" y="52" width="22" height="20"/>
+          </g>
+          <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="51" y="86">1</text><text x="87" y="86">3</text><text x="123" y="86">5</text><text x="159" y="86">7</text><text x="195" y="86">9</text><text x="231" y="86">11</text><text x="267" y="86">13</text><text x="303" y="86">15</text><text x="339" y="86">17</text><text x="375" y="86">19</text><text x="411" y="86">21</text><text x="447" y="86">23</text>
+          </g>
+          <!-- bottom row: 2, 4, ... 24 -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <use href="#rj45" x="40" y="96" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="76" y="96" width="22" height="20" fill="#14171A"/>
+            <use href="#rj45" x="112" y="96" width="22" height="20"/>
+            <use href="#rj45" x="148" y="96" width="22" height="20"/>
+            <use href="#rj45" x="184" y="96" width="22" height="20"/>
+            <use href="#rj45" x="220" y="96" width="22" height="20"/>
+            <use href="#rj45" x="256" y="96" width="22" height="20"/>
+            <use href="#rj45" x="292" y="96" width="22" height="20"/>
+            <use href="#rj45" x="328" y="96" width="22" height="20"/>
+            <use href="#rj45" x="364" y="96" width="22" height="20"/>
+            <use href="#rj45" x="400" y="96" width="22" height="20"/>
+            <use href="#rj45" x="436" y="96" width="22" height="20"/>
+          </g>
+          <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="51" y="130">2</text><text x="87" y="130">4</text><text x="123" y="130">6</text><text x="159" y="130">8</text><text x="195" y="130">10</text><text x="231" y="130">12</text><text x="267" y="130">14</text><text x="303" y="130">16</text><text x="339" y="130">18</text><text x="375" y="130">20</text><text x="411" y="130">22</text><text x="447" y="130">24</text>
+          </g>
+
+          <!-- the SFP+ block, 2 x 2, 25-28, 25 cabled -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <use href="#sfp" x="520" y="54" width="28" height="16" fill="#14171A"/>
+            <use href="#sfp" x="556" y="54" width="28" height="16"/>
+            <use href="#sfp" x="520" y="98" width="28" height="16"/>
+            <use href="#sfp" x="556" y="98" width="28" height="16"/>
+          </g>
+          <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+            <text x="534" y="49">25</text><text x="570" y="49">26</text><text x="534" y="128">27</text><text x="570" y="128">28</text>
+          </g>
+
+          <!-- con and mgmt at the right, as drawn -->
+          <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+            <use href="#rj45" x="1120" y="52" width="22" height="20"/>
+            <use href="#rj45" x="1160" y="52" width="22" height="20" fill="#14171A"/>
+          </g>
+          <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace"><text x="1131" y="86">con</text><text x="1171" y="86">mgmt</text></g>
+          <!-- marks: status light and label, as drawn -->
+          <circle cx="1131" cy="112" r="3.5" fill="#FFFFFF" stroke="#14171A"/>
+          <text x="1131" y="130" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">sts</text>
+        </g>
+
+        <!-- REAR, stacked under the front -->
+        <g transform="translate(120,196)">
+          <rect x="0" y="0" width="1200" height="110" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+          <rect x="0" y="0" width="1200" height="30" fill="#F2F4F6" stroke="#14171A" stroke-width="1"/>
+          <text x="16" y="20" font-size="13" fill="#14171A" font-weight="700">sw-core &middot; rear</text>
+          <text x="1184" y="20" font-size="11" fill="#5C6772" text-anchor="end">1 &times; PSU (fixed) &middot; 2 fan grilles</text>
+          <rect x="40" y="40" width="50" height="56" fill="url(#hatchP)" stroke="#5C6772"/>
+          <rect x="100" y="40" width="50" height="56" fill="url(#hatchP)" stroke="#5C6772"/>
+          <g transform="translate(1020,36)">
+            <rect x="0" y="0" width="150" height="66" fill="#FAFBFC" stroke="#14171A"/>
+            <text x="8" y="14" font-size="10" fill="#14171A" font-weight="700">PSU</text>
+            <text x="142" y="14" font-size="9" fill="#5C6772" text-anchor="end">fixed</text>
+            <use href="#c14" x="55" y="20" width="40" height="28" fill="#14171A" stroke="#14171A" stroke-width="1.5"/>
+            <circle cx="12" cy="56" r="3" fill="#14171A"/><text x="20" y="59" font-size="9" fill="#5C6772">fed &middot; pdu-01 outlet 4</text>
+          </g>
+          <text x="400" y="72" font-size="10" fill="#5C6772">Front and rear stack when zoomed. At rack scale the rear is a flip.</text>
+        </g>
+
+        <text x="120" y="318" font-size="11" fill="#5C6772">The preset numbered the group the way the label on a box reads: odd over even, 1 to 24. Filled is cabled, hollow is free; only type-compatible ports light during a drag.</text>
+        <text x="120" y="332" font-size="11" fill="#5C6772">Nothing says it was drawn by hand except its band: your own engine, unvouched, because no one has signed it.</text>
+      </svg>
+    </div>
+    <div class="cap">
+      <span class="n">2 &middot; sw-core, a 24 + 4 switch from the organisation&rsquo;s own engine, laid out with the preset &ldquo;two rows, odd on top&rdquo;, at the rack&rsquo;s faceplate stop: front above, rear below, the same glyphs, pitch and rules as a signed model.</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="s">sample data throughout</span>
+    </div>
+  </div>
+
+  <!-- ====================================================================================== -->
+  <!-- FRAME 3: A FREE-STANDING BOX ON A SHELF. True size at rack scale; one face at a time at  -->
+  <!-- the faceplate stop, flipped by the control. Three states drawn side by side.             -->
+  <!-- ====================================================================================== -->
+  <div class="frame" style="height: 430px;">
+    <div style="flex-grow: 1; position: relative;">
+      <svg width="1440" height="396" viewBox="0 0 1440 396" style="position: absolute; inset: 0;" font-family="'Liberation Sans', Inter, Helvetica, Arial, sans-serif">
+
+        <!-- the two ways a free-standing box is placed, ADR-0051: sits-on a shelf, or fixed-to a surface -->
+        <g transform="translate(40,24)">
+          <text x="0" y="0" font-size="10" fill="#5C6772" letter-spacing="1">R1 &middot; ON A SHELF &middot; SITS-ON, SLOT 1</text>
+          <g transform="translate(0,12)">
+            <line x1="24" y1="0" x2="24" y2="120" stroke="#14171A"/><line x1="224" y1="0" x2="224" y2="120" stroke="#14171A"/>
+            <g font-size="9" fill="#5C6772" text-anchor="end" font-family="'DejaVu Sans Mono', Menlo, monospace">
+              <text x="18" y="24">9</text><text x="18" y="64">8</text><text x="18" y="104">7</text>
+            </g>
+            <g stroke="#D2D7DD"><line x1="24" y1="40" x2="224" y2="40"/><line x1="24" y1="80" x2="224" y2="80"/></g>
+            <rect x="26" y="2" width="196" height="36" fill="#FFFFFF" stroke="#14171A"/><text x="34" y="24" font-size="11" fill="#14171A" font-weight="700">fw-01</text>
+            <!-- U8: a shelf, a passive that takes the U; fw-02 sits on it at its true width (190 of 450 mm) -->
+            <rect x="26" y="72" width="196" height="6" fill="#F2F4F6" stroke="#14171A"/>
+            <rect x="30" y="53" width="83" height="19" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+            <text x="36" y="66" font-size="10" fill="#14171A" font-weight="700">fw-02</text>
+            <text x="216" y="66" font-size="9" fill="#5C6772" text-anchor="end">shelf</text>
+          </g>
+          <text x="0" y="150" font-size="10" fill="#5C6772">The shelf is a passive that takes the U; the box</text>
+          <text x="0" y="164" font-size="10" fill="#5C6772">sits on it in a left-to-right slot, at its true width.</text>
+
+          <text x="0" y="200" font-size="10" fill="#5C6772" letter-spacing="1">CABIN &middot; ON A DESK &middot; FIXED-TO, 0.3 M</text>
+          <g transform="translate(0,212)">
+            <!-- a surface draws as a flat panel: the desk, 1.4 m, with the box at its position -->
+            <rect x="24" y="0" width="200" height="60" fill="#FAFBFC" stroke="#14171A"/>
+            <text x="30" y="12" font-size="9" fill="#5C6772">desk &middot; 1.4 m</text>
+            <rect x="67" y="32" width="27" height="20" fill="#FFFFFF" stroke="#14171A" stroke-width="1.5"/>
+            <line x1="24" y1="56" x2="67" y2="56" stroke="#5C6772" stroke-dasharray="2 2"/>
+            <text x="45" y="30" font-size="8" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">0.3 m</text>
+            <text x="100" y="46" font-size="9" fill="#14171A" font-weight="700">fw-02</text>
+          </g>
+          <text x="0" y="292" font-size="10" fill="#5C6772">A desk is a surface of the premises; the box is</text>
+          <text x="0" y="306" font-size="10" fill="#5C6772">fixed to it at a position. Wall, board, floor and</text>
+          <text x="0" y="320" font-size="10" fill="#5C6772">ceiling are the other surfaces. Same faces either way.</text>
+        </g>
+
+        <!-- FRONT state -->
+        <g transform="translate(300,24)">
+          <text x="0" y="0" font-size="10" fill="#5C6772" letter-spacing="1">FW-02 &middot; FREE-STANDING &middot; 190 &times; 44 &times; 130 MM</text>
+          <g transform="translate(0,14)" font-size="11">
+            <rect x="0" y="0" width="52" height="20" fill="#14171A"/><text x="26" y="14" fill="#FFFFFF" text-anchor="middle">Front</text>
+            <rect x="58" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="84" y="14" fill="#14171A" text-anchor="middle">Rear</text>
+            <rect x="116" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="142" y="14" fill="#14171A" text-anchor="middle">Left</text>
+            <rect x="174" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="200" y="14" fill="#14171A" text-anchor="middle">Right</text>
+          </g>
+          <g transform="translate(0,52)">
+            <rect x="0" y="0" width="380" height="88" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+            <text x="10" y="32" font-size="12" fill="#14171A" font-weight="700">fw-02</text>
+            <circle cx="16" cy="56" r="3" fill="#FFFFFF" stroke="#14171A"/>
+            <text x="16" y="74" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">sts</text>
+            <g fill="#FFFFFF" stroke="#14171A" stroke-width="1">
+              <use href="#rj45" x="80" y="28" width="22" height="20" fill="#14171A"/>
+              <use href="#rj45" x="116" y="28" width="22" height="20" fill="#14171A"/>
+              <use href="#rj45" x="152" y="28" width="22" height="20"/>
+              <use href="#rj45" x="188" y="28" width="22" height="20"/>
+              <use href="#rj45" x="250" y="28" width="22" height="20"/>
+              <use href="#usb" x="292" y="32" width="20" height="12"/>
+            </g>
+            <g font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">
+              <text x="91" y="62">igc0</text><text x="127" y="62">igc1</text><text x="163" y="62">igc2</text><text x="199" y="62">igc3</text><text x="261" y="62">con</text><text x="302" y="62">usb</text>
+            </g>
+            <circle cx="350" cy="40" r="7" fill="#FFFFFF" stroke="#14171A"/><line x1="350" y1="34" x2="350" y2="39" stroke="#14171A" stroke-width="1.2"/>
+            <text x="350" y="62" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">pwr</text>
+          </g>
+          <text x="0" y="160" font-size="10" fill="#5C6772">190 mm wide. Four RJ45, console, USB, a light, a button.</text>
+        </g>
+
+        <!-- REAR state -->
+        <g transform="translate(720,24)">
+          <text x="0" y="0" font-size="10" fill="#5C6772" letter-spacing="1">THE SAME BOX &middot; FLIPPED TO REAR</text>
+          <g transform="translate(0,14)" font-size="11">
+            <rect x="0" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="26" y="14" fill="#14171A" text-anchor="middle">Front</text>
+            <rect x="58" y="0" width="52" height="20" fill="#14171A"/><text x="84" y="14" fill="#FFFFFF" text-anchor="middle">Rear</text>
+            <rect x="116" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="142" y="14" fill="#14171A" text-anchor="middle">Left</text>
+            <rect x="174" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="200" y="14" fill="#14171A" text-anchor="middle">Right</text>
+          </g>
+          <g transform="translate(0,52)">
+            <rect x="0" y="0" width="380" height="88" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+            <use href="#c14" x="16" y="28" width="40" height="28" fill="#14171A" stroke="#14171A" stroke-width="1.5"/>
+            <text x="36" y="70" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">ac in</text>
+            <rect x="90" y="10" width="120" height="68" fill="url(#hatchP)" stroke="#5C6772"/>
+            <circle cx="250" cy="44" r="4" fill="#FFFFFF" stroke="#14171A"/>
+            <text x="250" y="64" font-size="9" fill="#5C6772" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace">reset</text>
+            <text x="370" y="48" font-size="10" fill="#5C6772" text-anchor="end">fw-02 &middot; rear</text>
+          </g>
+          <text x="0" y="160" font-size="10" fill="#5C6772">The C14 is fed, so it is filled. The grille and the reset button are marks.</text>
+        </g>
+
+        <!-- LEFT state -->
+        <g transform="translate(1140,24)">
+          <text x="0" y="0" font-size="10" fill="#5C6772" letter-spacing="1">FLIPPED TO LEFT &middot; 130 MM DEEP</text>
+          <g transform="translate(0,14)" font-size="11">
+            <rect x="0" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="26" y="14" fill="#14171A" text-anchor="middle">Front</text>
+            <rect x="58" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="84" y="14" fill="#14171A" text-anchor="middle">Rear</text>
+            <rect x="116" y="0" width="52" height="20" fill="#14171A"/><text x="142" y="14" fill="#FFFFFF" text-anchor="middle">Left</text>
+            <rect x="174" y="0" width="52" height="20" fill="#FFFFFF" stroke="#14171A"/><text x="200" y="14" fill="#14171A" text-anchor="middle">Right</text>
+          </g>
+          <g transform="translate(0,52)">
+            <rect x="0" y="0" width="260" height="88" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+            <rect x="40" y="14" width="180" height="60" fill="url(#hatchP)" stroke="#5C6772"/>
+          </g>
+          <text x="0" y="160" font-size="10" fill="#5C6772">A vent, no ports. A side may carry a port; most do not.</text>
+        </g>
+
+        <!-- the rule under the three states -->
+        <g transform="translate(300,228)">
+          <rect x="0" y="0" width="1100" height="1" fill="#D2D7DD"/>
+          <text x="0" y="28" font-size="12" fill="#14171A">At the faceplate stop a free-standing box shows <tspan font-weight="700">one face at a time</tspan>; the control flips it, and a flip is a state change: the new face pulses once and settles. The three frames above are three states of one control.</text>
+          <text x="0" y="50" font-size="12" fill="#14171A">Sides exist only for a free-standing box, because only a box on a shelf or a desk has a side anyone can reach. Rack gear has a front and a rear, and at rack scale the rear is the rack&rsquo;s own flip.</text>
+          <text x="0" y="80" font-size="11" fill="#5C6772">In the editor the same box gets the size row in mm, and the Left and Right tabs come alive. Depth is what makes a side plate: 130 mm here, so the side is 130 wide and 44 tall at the same scale as the front.</text>
+          <text x="0" y="98" font-size="11" fill="#5C6772">Whether it sits on a shelf or is fixed to a desk, a wall or the floor, it opens at the faceplate stop by the same camera as everything else, and the editor moves it between rack, shelf and surface.</text>
+        </g>
+      </svg>
+    </div>
+    <div class="cap">
+      <span class="n">3 &middot; fw-02, a free-standing box: on a shelf in the rack or fixed to a desk, at its true size, and at the faceplate stop one face at a time, the control flipping between Front, Rear, Left and Right; sides are for free-standing boxes only.</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="s">sample data throughout</span>
+    </div>
+  </div>
+
+  <!-- ====================================================================================== -->
+  <!-- FRAME 4: SAVE AS A MODEL. The drawing becomes a model of the organisation's own.        -->
+  <!-- ====================================================================================== -->
+  <div class="frame" style="height: 420px;">
+    <div style="flex-grow: 1; position: relative; display: flex; gap: 40px; padding: 20px 40px;">
+
+      <!-- the surface that slides in from the right when "Save as a model" is pressed -->
+      <div style="width: 400px; border: 1px solid #14171A; background: #FAFBFC; display: flex; flex-direction: column; flex-shrink: 0;">
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+          <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Save as a model</span>
+          <span style="font-size: 10px; color: #5C6772;">from fw-01&rsquo;s drawing &middot; into your engine</span>
+        </div>
+        <div class="row"><span class="k">name</span><span class="field">1U firewall, 8 + 4</span></div>
+        <div class="row"><span class="k">kind</span>
+          <span style="display: flex; gap: 6px;"><span class="fchip">Firewall</span><span class="fchip off">Switch</span><span class="fchip off">Server</span><span class="fchip off">Other</span></span>
+        </div>
+        <div class="row"><span class="k">size</span><span class="field ghost">1U &middot; full width &middot; from the drawing</span></div>
+        <div class="row"><span class="k">faces</span><span class="field ghost">front 8 RJ45, group of 4 SFP+, con &middot; rear 1 PSU slot</span></div>
+        <div class="row"><span class="k">citation</span><span class="field">drawn from the unit on the bench, 25 Sep 2026</span></div>
+        <div class="row"><span class="k">engine</span><span style="font-size: 12px;">Hillside &middot; your own &middot; every design</span><span class="chip" style="margin-left: auto;">unvouched</span></div>
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; gap: 8px;">
+          <div style="flex-grow: 1; border: 1px solid #14171A; background: #14171A; color: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Save model</div>
+          <div style="width: 90px; border: 1px solid #14171A; background: #FFFFFF; padding: 5px 0; text-align: center; font-size: 12px;">Cancel</div>
+        </div>
+        <div style="padding: 8px 12px; font-size: 11px; color: #5C6772; line-height: 16px;">fw-01 keeps its plate and now points at the model. A box placed from the model gets the plate, the ports and their names; it never gets fw-01&rsquo;s cables, addresses or config.</div>
+        <div style="flex-grow: 1;"></div>
+        <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">The catalogue file is written into the organisation&rsquo;s own engine, unsigned, so it shows as unvouched wherever it is placed. The citation says where the layout came from. Export as a pull request comes once engines live in their own repositories.</div>
+      </div>
+
+      <!-- the place-a-device picker, later, in another design -->
+      <div style="flex-grow: 1; border: 1px solid #D2D7DD; background: #FFFFFF; display: flex; flex-direction: column;">
+        <div style="padding: 10px 12px; border-bottom: 1px solid #D2D7DD; display: flex; justify-content: space-between; align-items: baseline;">
+          <span style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;">Place a device</span>
+          <span style="font-size: 10px; color: #5C6772;">Hillside &rsaquo; Cabin &rsaquo; R1 &rsaquo; U4 &middot; later, in another design</span>
+        </div>
+        <div style="padding: 8px 12px; border-bottom: 1px solid #D2D7DD;">
+          <span style="border: 1px solid #D2D7DD; background: #FFFFFF; padding: 3px 8px; display: inline-flex; align-items: center; gap: 6px; width: 300px;">
+            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><circle cx="4.5" cy="4.5" r="3.5" fill="none" stroke="#5C6772"></circle><path d="M7.2 7.2 L10 10" stroke="#5C6772" fill="none"></path></svg>
+            <span style="font-size: 11px; color: #5C6772;">Filter models</span>
+          </span>
+        </div>
+        <div class="lbl" style="padding: 10px 12px 4px; border-bottom: 1px solid #14171A;">Your engine &middot; Hillside &middot; unsigned, so unvouched</div>
+        <div class="prow" style="background: #F2F4F6; border-left: 4px solid #14171A; padding-left: 8px;">
+          <span class="thumb"><svg width="118" height="12" viewBox="0 0 118 12" style="display:block"><g fill="#14171A"><rect x="18" y="4" width="3" height="4"/><rect x="22" y="4" width="3" height="4"/><rect x="26" y="4" width="3" height="4"/><rect x="30" y="4" width="3" height="4"/><rect x="34" y="4" width="3" height="4"/><rect x="38" y="4" width="3" height="4"/><rect x="42" y="4" width="3" height="4"/><rect x="46" y="4" width="3" height="4"/><rect x="56" y="4" width="3" height="4"/><rect x="104" y="2" width="4" height="3"/><rect x="109" y="2" width="4" height="3"/><rect x="104" y="7" width="4" height="3"/><rect x="109" y="7" width="4" height="3"/></g><rect x="8" y="1" width="6" height="10" fill="url(#hatchP)"/></svg></span>
+          <span class="m" style="font-weight: 700;">1U firewall, 8 + 4</span>
+          <span style="font-size: 11px; color: #5C6772;">firewall &middot; 1U &middot; 8 RJ45 &middot; group of 4 SFP+ &middot; con &middot; 1 PSU slot</span>
+          <span class="chip">unvouched</span>
+          <span class="t">drawn from the unit &middot; 25 Sep &middot; placed 1</span>
+        </div>
+        <div class="prow">
+          <span class="thumb" style="width: 48px;"><svg width="46" height="12" viewBox="0 0 46 12" style="display:block"><g fill="#14171A"><rect x="10" y="4" width="3" height="4"/><rect x="14" y="4" width="3" height="4"/><rect x="18" y="4" width="3" height="4"/><rect x="22" y="4" width="3" height="4"/><rect x="30" y="4" width="3" height="4"/><rect x="35" y="5" width="3" height="2"/></g></svg></span>
+          <span class="m">Small firewall, 4 + con</span>
+          <span style="font-size: 11px; color: #5C6772;">firewall &middot; free-standing &middot; 190 &times; 44 &times; 130 mm</span>
+          <span class="chip">unvouched</span>
+          <span class="t">drawn from the unit &middot; 25 Sep &middot; placed 3</span>
+        </div>
+        <div class="lbl" style="padding: 10px 12px 4px; border-bottom: 1px solid #14171A;">Signed engines</div>
+        <div class="prow mute">
+          <span class="thumb mute"><svg width="118" height="12" viewBox="0 0 118 12" style="display:block"><g fill="#5C6772"><rect x="6" y="2" width="3" height="3"/><rect x="10" y="2" width="3" height="3"/><rect x="14" y="2" width="3" height="3"/><rect x="18" y="2" width="3" height="3"/><rect x="22" y="2" width="3" height="3"/><rect x="26" y="2" width="3" height="3"/><rect x="30" y="2" width="3" height="3"/><rect x="34" y="2" width="3" height="3"/><rect x="38" y="2" width="3" height="3"/><rect x="42" y="2" width="3" height="3"/><rect x="46" y="2" width="3" height="3"/><rect x="50" y="2" width="3" height="3"/><rect x="6" y="7" width="3" height="3"/><rect x="10" y="7" width="3" height="3"/><rect x="14" y="7" width="3" height="3"/><rect x="18" y="7" width="3" height="3"/><rect x="22" y="7" width="3" height="3"/><rect x="26" y="7" width="3" height="3"/><rect x="30" y="7" width="3" height="3"/><rect x="34" y="7" width="3" height="3"/><rect x="38" y="7" width="3" height="3"/><rect x="42" y="7" width="3" height="3"/><rect x="46" y="7" width="3" height="3"/><rect x="50" y="7" width="3" height="3"/><rect x="100" y="2" width="4" height="3"/><rect x="105" y="2" width="4" height="3"/><rect x="100" y="7" width="4" height="3"/><rect x="105" y="7" width="4" height="3"/></g></svg></span>
+          <span class="m">48-port PoE+ switch, 1U</span>
+          <span style="font-size: 11px;">catalogue &middot; 48 RJ45 &middot; 4 SFP+ &middot; 2 QSFP+ rear</span>
+          <span class="t">engine catalogue</span>
+        </div>
+        <div class="prow mute">
+          <span class="thumb mute"><svg width="118" height="12" viewBox="0 0 118 12" style="display:block"><g fill="#5C6772"><rect x="90" y="4" width="3" height="4"/><rect x="94" y="4" width="3" height="4"/><rect x="102" y="4" width="6" height="4"/></g></svg></span>
+          <span class="m">2U server, 4 bays</span>
+          <span style="font-size: 11px;">catalogue &middot; 2 RJ45 &middot; 2 SFP+ &middot; 2 PSU rear</span>
+          <span class="t">engine catalogue</span>
+        </div>
+        <div class="prow" style="border-bottom: none; border-top: 1px dashed #D2D7DD; color: #5C6772;">
+          <span class="thumb" style="border-style: dashed; border-color: #5C6772;"></span>
+          <span class="m">Sketch a box</span>
+          <span style="font-size: 11px;">no model &middot; give it ports by hand, or draw it</span>
+          <span class="t">frame 1</span>
+        </div>
+        <div style="flex-grow: 1;"></div>
+        <div style="border-top: 1px solid #D2D7DD; padding: 8px 12px; font-size: 10px; color: #5C6772; line-height: 15px;">Your engine and the signed ones are one list with two headings; the only difference is the mark. A placed box records which model it came from, so the estate can be asked &ldquo;where are all the 8 + 4 firewalls&rdquo; the same way it is asked about a signed part.</div>
+      </div>
+    </div>
+    <div class="cap">
+      <span class="n">4 &middot; Save as a model: the drawn box is written into the organisation&rsquo;s own engine, unvouched, with a citation, and offered beside the signed engines when a device is placed in any design.</span>
+      <span style="flex-grow: 1;"></span>
+      <span class="s">Every name, count and size here is a sample.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
