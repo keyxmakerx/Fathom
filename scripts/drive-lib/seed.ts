@@ -233,3 +233,33 @@ export function seedFreestanding(catalogue: CatalogueModel[], me: string): Docum
 
   return working;
 }
+
+/** Five sketch devices and no rack: a and b cabled together, c and d not, e for the subnet.
+ * The drive adds the networks itself through the Add network editor. */
+export function seedNetworksScene(catalogue: CatalogueModel[], me: string): Document {
+  void catalogue; // sketch devices need no catalogue model
+  let doc = emptyDocument();
+
+  function sketchDevice(hostname: string, portLabel: string): { deviceId: string; chassisId: string; portId: string } {
+    const beforeDevice = doc;
+    doc = createSketchDevice(doc, { hostname, actor: me });
+    const deviceId = newestNode(beforeDevice, doc, 'Device');
+    const chassisId = newestNode(beforeDevice, doc, 'Chassis');
+    const beforePort = doc;
+    doc = addSketchPort(doc, chassisId, { label: portLabel, connector: 'rj45', face: 'front' }, { actor: me });
+    const portId = newestNode(beforePort, doc, 'PhysicalPort');
+    return { deviceId, chassisId, portId };
+  }
+
+  const a = sketchDevice('sketch-a', 'Et1');
+  const b = sketchDevice('sketch-b', 'Et1');
+  const sheath: Sheath = 'blue';
+  doc = connectPorts(doc, a.portId, b.portId, { sheath }, { actor: me });
+
+  sketchDevice('sketch-c', 'Et1');
+  sketchDevice('sketch-d', 'Et1');
+
+  sketchDevice('sketch-e', 'wg0');
+
+  return doc;
+}

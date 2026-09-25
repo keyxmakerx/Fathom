@@ -117,7 +117,16 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 105 -> 109 on 2026-09-19 (ADR-0053, schema 0.10): `HasNote` from the
     // `Notable` class resolves to three pairs (Device, PhysicalPort, Rack)
     // -> Note, and `Note` joining `Placeable` adds (Note, LayoutPin).
-    assert_eq!(resolved, 109, "the containment pair set moved");
+    //
+    // 109 -> 115 (ADR-0058, schema 0.11): `HasContainerNetwork`
+    // (Device -> ContainerNetwork), `HasContainer` (Device -> Container) and
+    // `HasPublishedPort` (Container -> PublishedPort) each add one pair — +3
+    // — and joining `Placeable` adds three more (ContainerNetwork, Container,
+    // PublishedPort) -> LayoutPin through `HasLayoutPin` — +3. `AttachedTo`
+    // and `ParentUnit` are NOT here for `MountedIn`'s reason: both
+    // targets (`ContainerNetwork`, `LogicalUnit`) already have a real
+    // containment parent, so both are `reference`.
+    assert_eq!(resolved, 115, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -137,7 +146,12 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 46 as of 2026-09-18: `HasSurface` (ADR-0051 §1, schema 0.8), Premises -> Surface.
     // `SitsOn` and `FixedTo` are REFERENCE and do not count here.
     // 47 as of 2026-09-18: `HasCapture` (ADR-0052 §3, schema 0.9), Device -> Capture.
-    assert_eq!(containment, 48); // `HasNote` is containment (2026-09-19)
+    // 48: `HasNote` (ADR-0053 §5, schema 0.10), Notable -> Note.
+    // 49-51 (ADR-0058, schema 0.11): `HasContainerNetwork`
+    // (Device -> ContainerNetwork), `HasContainer` (Device -> Container),
+    // `HasPublishedPort` (Container -> PublishedPort). `AttachedTo` and
+    // `ParentUnit` are REFERENCE and do not count here.
+    assert_eq!(containment, 51);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

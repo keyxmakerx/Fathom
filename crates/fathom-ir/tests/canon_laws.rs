@@ -140,7 +140,19 @@ fn schema_version_is_the_trees() {
     // keys, 330-332. 62 §16.2 prices a new node kind, fields on a new declarer and
     // a new edge kind all MINOR; an old build keeps the unrecognised kind in
     // `unknown` rather than refusing the file. Nothing existing moved.
-    assert_eq!(SCHEMA_VERSION, "0.10");
+    //
+    // 0.10 -> 0.11: ADR-0058, networks in Inventory; Docker on its
+    // host. Three new node kinds `ContainerNetwork`, `Container`, `PublishedPort`
+    // (all `emits: false`, join `Placeable`), nine fields all on their new
+    // declarers. Five new edge kinds -- `HasContainerNetwork`, `HasContainer`,
+    // `HasPublishedPort` (containment, `HasVlan`'s shape), `AttachedTo` and
+    // `ParentUnit` (reference, `MountedIn`'s shape: both targets already have
+    // a containment parent) -- one field, `AttachedTo.address`. Ten new field
+    // keys, 333-342. 62 §16.2 prices a new node kind, fields on a new declarer and
+    // a new edge kind all MINOR; an old build keeps the unrecognised kind in
+    // `unknown` rather than refusing the file. Nothing existing moved. Decision 6:
+    // the reader still opens a 0.10 payload and the writer always writes 0.11.
+    assert_eq!(SCHEMA_VERSION, "0.11");
 }
 
 #[test]
@@ -656,7 +668,12 @@ fn dispatch_names_every_registry_key() {
     //
     // 329 -> 332 on 2026-09-19: ADR-0053 §5's three keys -- `Note.text`, `.how`,
     // `.line_count` (330-332) -- appended after `Capture.shape`.
-    assert_eq!(FIELD_KEYS.len(), 332, "the registry grew or shrank");
+    //
+    // 332 -> 342: ADR-0058's ten keys -- `ContainerNetwork.name`,
+    // `.driver`, `.subnet`, `.gateway` (333-336), `Container.name` (337),
+    // `PublishedPort.protocol`, `.container_port`, `.host_port`, `.host_address`
+    // (338-341), `AttachedTo.address` (342) -- appended after `Note.line_count`.
+    assert_eq!(FIELD_KEYS.len(), 342, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

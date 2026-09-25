@@ -70,14 +70,14 @@ fn shipped_tree_declaration_counts_hold() {
     // `.line_count`, 329 -> 332). `how` is an INLINE enum, so the enum FILE
     // count does not move. The builder moved every other tripwire in the tree
     // before the container restarted under it; this block was the one left.
-    assert_eq!(tree.kinds.len(), 55, "kind count");
-    assert_eq!(tree.edges.len(), 101, "edge count (93 + 8 derived)");
+    assert_eq!(tree.kinds.len(), 58, "kind count");
+    assert_eq!(tree.edges.len(), 106, "edge count (98 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 5, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 332, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 342, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -133,7 +133,16 @@ fn shipped_tree_declaration_counts_hold() {
     // are the existing `Text`. The `class` count stays 4 -- no class added -- but
     // `Placeable` widens to include `Capture`, exactly as it widened for `Surface`, and
     // the noticer below still holds. `PortHost` is untouched -- a capture hosts no ports.
-    assert_eq!(tree.version.as_deref(), Some("0.10"));
+    //
+    // 0.10 -> 0.11 is ADR-0058 (networks in Inventory; Docker on its host)
+    // and moves five of the counts above: +3 kinds (`ContainerNetwork`, `Container`,
+    // `PublishedPort`, 55 -> 58), +5 edges (`HasContainerNetwork`, `HasContainer`,
+    // `HasPublishedPort`, `AttachedTo`, `ParentUnit`, 101 -> 106), +10 field keys
+    // (333-342, 332 -> 342). Scalars, enum FILE count and import scopes are unmoved --
+    // every field reuses an existing scalar or an inline enum (`driver`). The `class`
+    // count stays 5 -- no class added -- but `Placeable` widens to include all three,
+    // exactly as it widened for `Capture` and `Note`, and the noticer below still holds.
+    assert_eq!(tree.version.as_deref(), Some("0.11"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

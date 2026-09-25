@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.10"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.11"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -186,6 +186,32 @@ schema:
                     # stays literally true, because Rack still declares no `notes`-shaped
                     # field of its own; a note is a node reached through HasNote, never a
                     # field. Whole change = MINOR.
+                    #
+                    # 0.11 is ADR-0058 (networks in Inventory; Docker on its host,
+                    # 2026-09-25), all additive. Three new node kinds, ContainerNetwork,
+                    # Container and PublishedPort, all emits: false, config layer, owned by
+                    # Device (Container's PublishedPort owned by Container) -- a Docker guest
+                    # is a node in the same graph as a switch, not a Device field (62 §16.2:
+                    # "New node kind" is minor, three times). Nine fields, all on their new
+                    # declarers (62 §16.2: fields on a new declarer are minor). Five new edge
+                    # kinds -- HasContainerNetwork, HasContainer, HasPublishedPort
+                    # (containment, HasVlan's and HasCapture's own shape), AttachedTo and
+                    # ParentUnit (reference, MountedIn's own shape: both targets already have
+                    # a containment parent) (62 §16.2: "New edge kind" is minor, five times).
+                    # One field on AttachedTo, address (fields on a new declarer are minor).
+                    # The Placeable class widens by three members (ADR-0036's and ADR-0051
+                    # §1's own precedent: a class widening is "New enum variant"-shaped in
+                    # 62's table). Ten new field keys, 333-342 (ContainerNetwork.name/.driver/
+                    # .subnet/.gateway, Container.name, PublishedPort.protocol/
+                    # .container_port/.host_port/.host_address, AttachedTo.address). Three
+                    # new L0 constraint declarations (vlanmember.same-device,
+                    # parentunit.same-host, attachedto.same-host) -- declarations only, the
+                    # same shape as occupies.same-device; they add no field, edge or kind and
+                    # move no count in this function. No kind removed, no retype, no tuple
+                    # reordered, no containment moved for anything that already had one.
+                    # Whole change = MINOR. Decision 6 holds regardless: the client and server
+                    # read 0.10 payloads and write 0.11, so a design saved before this lands
+                    # keeps opening after it.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -391,6 +417,12 @@ classes:
       # a schema decision about whether it CAN be placed, and this class is
       # the latter.
       - Note
+      # ADR-0058. A Docker network, container or published port draws as a box on its
+      # host's config drawer like Capture and Note do -- `fathom-layout` draws every live
+      # node the class membership test insists on.
+      - ContainerNetwork
+      - Container
+      - PublishedPort
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
@@ -455,9 +487,13 @@ kinds:
 
           `server` is one variant and not four. A NAS, a hypervisor host, a container
           host and a bare-metal application server differ in what is INSTALLED on them,
-          not in what they are, and the schema does not model installed software.
-          Splitting them would be a variant per product category, which is exactly how
-          an enum stops meaning anything.
+          not in what they are, and `role` does not carry that distinction -- splitting it
+          would be a variant per product category, which is exactly how an enum stops
+          meaning anything. A container HOST's own containers and Docker networks are
+          modelled anyway, as ContainerNetwork, Container and PublishedPort (ADR-0058
+          decision 3) -- three kinds on the device's config layer, not a fourth `role`.
+          A guest is a node in the same graph as a switch, the approved Hypervisor board's
+          own words; `role` only ever names what the box in the rack IS FOR.
 
           `access_point` is the 802.11 term, not a vendor's. It earns a variant because
           it is a distinct network function that every home lab and every branch office
@@ -1676,6 +1712,66 @@ kinds:
     identity:
       - [ owner(Notable), text ]   # weak by design -- see doc. The node id, not this tuple, is what
                                     # who-and-when (the existence provenance) is asked of.
+
+  # ADR-0058 (networks in Inventory; Docker on its host, 2026-09-25). Appended at the tail
+  # because order is wire identity (62 §13) -- Note's own precedent. Driver names verified
+  # at raw.githubusercontent.com/docker/docs/main/content/manuals/engine/network/drivers/
+  # _index.md, read 2026-09-25: bridge, host, overlay, ipvlan, macvlan, none are Docker's
+  # own six; `other` is this schema's escape hatch, as elsewhere in this tree.
+  - kind: ContainerNetwork
+    layer: config
+    emits: false
+    doc: |
+      A Docker network on its host (ADR-0058 decision 3): `docker network create`'s name,
+      driver and subnets. Owned by Device -- a container network lives and dies with the
+      host daemon that holds it, the same reasoning that keeps Container off this graph as
+      anything grander than a box on its host.
+
+      NOTHING PARSES THIS YET -- A2 writes the reader. Declared now so schema 0.11 is the
+      only bump ADR-0058 needs (its own "order of work").
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: "—", doc: "docker network create's NAME." }
+      - { name: driver, type: "enum { bridge, host, none, macvlan, ipvlan, overlay, other }", card: "1", emit: "—", doc: "Docker's own six, this file's own header comment cites the source; `other` is this schema's escape hatch, not Docker's." }
+      - { name: subnet, type: IpPrefix, card: "0..n", emit: "—", doc: "docker network create --subnet, one or more." }
+      - { name: gateway, type: IpAddr, card: "0..n", emit: "—", doc: "docker network create --gateway, one or more." }
+    identity:
+      - [ owner(Device), name ]
+
+  - kind: Container
+    layer: config
+    emits: false
+    doc: |
+      A Docker container on its host (ADR-0058 decision 3 and decision 5): the name only.
+      No environment, command or label fields -- compose files keep passwords there, and a
+      credential is protected by never arriving (CLAUDE.md rule 4).
+
+      NOTHING PARSES THIS YET -- A2 writes the reader. Declared now for the same one-bump
+      reason ContainerNetwork is.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: "—", doc: "docker run --name, or the compose service name." }
+    identity:
+      - [ owner(Device), name ]
+
+  - kind: PublishedPort
+    layer: config
+    emits: false
+    doc: |
+      Destination NAT on the host, held exactly as `docker run -p` states it (ADR-0058
+      decision 4), so a later flow tracer can follow it. Two things until NatAction has a
+      shape, then one NatRule.
+
+      NOTHING PARSES THIS YET -- A2 writes the reader. Declared now for the same one-bump
+      reason ContainerNetwork is.
+    fields:
+      - { name: protocol, type: IpProtocol, card: "1", emit: "—", doc: "6 (tcp) or 17 (udp), docker run -p's /proto suffix (raw.githubusercontent.com/docker/docs/main/content/manuals/engine/network/port-publishing.md, read 2026-09-25: \"-p 8080:80/udp\" maps UDP; unsuffixed maps TCP). VERIFY: whether -p also accepts /sctp was not found on that page or elsewhere in docker/docs." }
+      - { name: container_port, type: L4Port, card: "1", emit: "—" }
+      - { name: host_port, type: L4Port, card: "0..1", emit: "—", doc: "Absent means Docker assigned an ephemeral host port." }
+      - { name: host_address, type: IpAddr, card: "0..1", emit: "—", doc: "docker run -p's optional bind address. Absent means the daemon's default bind address: all host addresses, 0.0.0.0 and [::], unless the daemon is set otherwise (docker/docs content/manuals/engine/network/port-publishing.md, \"Setting the default bind address\", read 2026-09-25)." }
+    identity:
+      # [protocol, host_port] alone collides on two Docker-assigned ephemeral
+      # host ports (both host_port absent) and on the same host port bound to
+      # two addresses. container_port and host_address separate both cases.
+      - [ owner(Container), protocol, container_port, host_address, host_port ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -2974,6 +3070,68 @@ edges:
       non-root node to have exactly one containment parent, the same reason every other
       containment edge in this tree exists.
 
+  # ADR-0058 (networks in Inventory; Docker on its host, 2026-09-25). Appended at the tail
+  # because order is wire identity (62 §13) -- HasNote's own precedent.
+  - edge: HasContainerNetwork
+    class: containment
+    from: [Device]
+    to: [ContainerNetwork]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0058 decision 3. A Docker network lives and dies with its host, HasVlan's own shape.
+  - edge: HasContainer
+    class: containment
+    from: [Device]
+    to: [Container]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0058 decision 3.
+  - edge: HasPublishedPort
+    class: containment
+    from: [Container]
+    to: [PublishedPort]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0058 decision 3.
+  - edge: AttachedTo
+    class: reference
+    from: [Container]
+    to: [ContainerNetwork]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: address, type: InterfaceAddress, card: "0..n", emit: "—", doc: "The container's address on this network, where Docker assigned or the user stated one." }
+    emit_dict: null
+    doc: ADR-0058 decision 3. A container attaches to one network several times only through several AttachedTo edges, never a repeated field.
+  - edge: ParentUnit
+    class: reference
+    from: [ContainerNetwork]
+    to: [LogicalUnit]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0058 decision 3. Where a macvlan or ipvlan network rides a real interface, the
+      unit it parents. A REFERENCE EDGE, MountedIn's own reason: LogicalUnit already has a
+      containment parent (its InterfaceLike, via HasUnit) and containment is a forest.
+
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
   # and after every mutation batch (11 §3.5; 62 §11). produced_by is an InferenceRuleId.
@@ -3082,6 +3240,45 @@ constraints:
       hardware" edge and the layer separation rots in a month.
       NOTE (form vs content): device_of() and owner(to) are not 62 §12.3 grammar productions;
       19's content is transcribed as written — a grammar gap to file.
+  - id: vlanmember.same-device
+    edge: VlanMember
+    level: L0
+    require: "device_of(from) == owner(to)"
+    on_violation: reject_write
+    doc: |
+      ADR-0058. A LogicalUnit joins a Vlan on its own device only -- Vlan is contained by
+      Device directly (HasVlan), so owner(to) already names it. Same shape as
+      occupies.same-device; only the editor enforces this (ADR-0058 "What it gives up") and
+      the derivation must cope with a payload that breaks it.
+      NOTE (form vs content): device_of() and owner(to) are not 62 §12.3 grammar
+      productions -- occupies.same-device's own gap, transcribed the same way.
+  - id: parentunit.same-host
+    edge: ParentUnit
+    level: L0
+    require: "owner(from) == device_of(to)"
+    on_violation: reject_write
+    doc: |
+      ADR-0058. A macvlan or ipvlan ContainerNetwork parents a unit on its own host only --
+      ContainerNetwork is contained by Device directly (HasContainerNetwork), so owner(from)
+      already names it. Only the editor enforces this; the derivation must cope with a
+      payload that breaks it.
+      NOTE (form vs content): device_of() and owner(from) are not 62 §12.3 grammar
+      productions -- occupies.same-device's own gap, transcribed the same way.
+  - id: attachedto.same-host
+    edge: AttachedTo
+    level: L0
+    require: "to.driver != overlay implies owner(from) == owner(to)"
+    on_violation: reject_write
+    doc: |
+      ADR-0058. A container attaches to a network on its own host, except an overlay
+      network, which by definition spans hosts (raw.githubusercontent.com/docker/docs/main/
+      content/manuals/engine/network/drivers/_index.md, read 2026-09-25 -- "Overlay networks
+      connect multiple Docker daemons together"). Only the editor enforces this; the
+      derivation must cope with a payload that breaks it.
+      NOTE (form vs content): `to.driver` field access on an edge's target, and the implies
+      exception itself, are not 62 §12.3 grammar productions -- the grammar cannot say this
+      one today, so it is said in prose here rather than silently dropping the exception
+      (ipsec-vpn.mode-binds-interface's own precedent for a grammar gap left in place).
   - id: passthrough.same-owner
     edge: PassThrough
     level: L0

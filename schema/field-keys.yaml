@@ -419,3 +419,15 @@ fields:
   Note.text: 330
   Note.how: 331
   Note.line_count: 332
+  # ADR-0058 (networks in Inventory; Docker on its host, 2026-09-25). Appended at the
+  # tail with the next integers, which is the only way a key is ever assigned.
+  ContainerNetwork.name: 333
+  ContainerNetwork.driver: 334
+  ContainerNetwork.subnet: 335
+  ContainerNetwork.gateway: 336
+  Container.name: 337
+  PublishedPort.protocol: 338
+  PublishedPort.container_port: 339
+  PublishedPort.host_port: 340
+  PublishedPort.host_address: 341
+  AttachedTo.address: 342

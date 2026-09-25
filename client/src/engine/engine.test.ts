@@ -20,6 +20,7 @@ import { fileLoader } from './wasm';
 import { connectPorts } from '../document/cables';
 import { addSketchPort, createSketchDevice } from '../document/commands';
 import { emptyDocument, type Document } from '../document/model';
+import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
 
@@ -408,6 +409,38 @@ describe('a design stays saveable after undo', () => {
     // The cable first, then both ports: newest first, as Ctrl Z would.
     for (const batch of doc.batches.slice(-3).reverse()) doc = undo(doc, batch.id, step());
 
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  it('addVlan, addSubnet and removeVlanNetwork each still load through the Rust reader after undo', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_100_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const beforePort = doc;
+    doc = addSketchPort(doc, chassisId, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portId = added(beforePort, doc, 'physical-port:');
+
+    doc = addVlan(doc, { vlanId: 10, attach: [{ target: { kind: 'port', portId, interfaceName: 'Et1' } }] }, step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const beforeSecondVlan = doc;
+    doc = addVlan(doc, { vlanId: 10, attach: [{ target: { kind: 'port', portId, interfaceName: 'Et1' } }] }, step());
+    const vlanNodeId = added(beforeSecondVlan, doc, 'vlan:');
+    const unitId = added(beforeSecondVlan, doc, 'logical-unit:');
+
+    doc = addSubnet(doc, { prefix: '10.0.10.0/24', attach: [{ target: { kind: 'unit', unitId }, address: '10.0.10.5/24' }] }, step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    doc = removeVlanNetwork(doc, [vlanNodeId], step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
   });
 });

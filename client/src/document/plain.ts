@@ -16,8 +16,10 @@
 // here (never reimplement a gate the format already has one for).
 //
 import { toCanonicalBytes, parseCanonical, type CanonValue } from './canon';
-import { SCHEMA_VERSION } from '../../../schema/generated/ir_types';
+import { SCHEMA_VERSION, type NodeKind, type EdgeKind } from '../../../schema/generated/ir_types';
 import {
+  parseNodeId,
+  parseEdgeId,
   type Batch,
   type Document,
   type FieldEntry,
@@ -37,11 +39,50 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
+// ADR-0058 decision 6: 0.11 is additive, so a payload declared at an older
+// version reads exactly like a current one. Every older version this reader
+// still opens, and no other -- byte-identical to
+// `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10'];
+
+// Kinds 0.11 (ADR-0058) added. A payload declared at an older version cannot
+// legitimately hold one -- its editor never had the kind -- so finding one
+// is a sign the header is lying, not a design to open. Mirrors
+// `fathom_workspace::{NODE_KINDS_SINCE_0_11, EDGE_KINDS_SINCE_0_11}`.
+const NODE_KINDS_SINCE_0_11: ReadonlySet<NodeKind> = new Set(['ContainerNetwork', 'Container', 'PublishedPort']);
+const EDGE_KINDS_SINCE_0_11: ReadonlySet<EdgeKind> = new Set([
+  'HasContainerNetwork',
+  'HasContainer',
+  'HasPublishedPort',
+  'AttachedTo',
+  'ParentUnit',
+]);
+
+function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
+  if (declared !== '0.10') return;
+  for (const n of doc.nodes) {
+    const kind = parseNodeId(n.id).kind;
+    if (NODE_KINDS_SINCE_0_11.has(kind)) {
+      throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
+    }
+  }
+  for (const e of doc.edges) {
+    const kind = parseEdgeId(e.id).kind;
+    if (EDGE_KINDS_SINCE_0_11.has(kind)) {
+      throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
+    }
+  }
+}
+
 export type PlainErrorReason =
   | { kind: 'not-plain-face' }
   | { kind: 'unsupported-face-version'; found: string }
   | { kind: 'missing-plaintext-banner' }
   | { kind: 'schema-version-mismatch'; found: string; supported: string }
+  /** A declared older version's editor never had this kind (ADR-0058
+   * decision 6) -- distinct from `schema-version-mismatch`, which is about
+   * the header's version token itself, not what it holds. */
+  | { kind: 'kind-not-in-declared-version'; declaredVersion: string; elementKind: string }
   | { kind: 'malformed-header'; line: number }
   | { kind: 'json'; message: string }
   | { kind: 'shape'; path: string; expected: string };
@@ -65,6 +106,8 @@ function plainErrorMessage(r: PlainErrorReason): string {
       return 'line 2 is not the plaintext banner, verbatim';
     case 'schema-version-mismatch':
       return `schema version "${r.found}" does not match the supported "${r.supported}"`;
+    case 'kind-not-in-declared-version':
+      return `${r.elementKind} does not exist in schema ${r.declaredVersion}`;
     case 'malformed-header':
       return `malformed header at line ${r.line}`;
     case 'json':
@@ -119,7 +162,7 @@ export function readPlain(bytes: Uint8Array): Document {
     throw new PlainError({ kind: 'malformed-header', line: 3 });
   }
   const declared = line3.slice('schema '.length);
-  if (declared !== SCHEMA_VERSION) {
+  if (declared !== SCHEMA_VERSION && !ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) {
     throw new PlainError({
       kind: 'schema-version-mismatch',
       found: declared,
@@ -137,7 +180,9 @@ export function readPlain(bytes: Uint8Array): Document {
   } catch (e) {
     throw new PlainError({ kind: 'json', message: e instanceof Error ? e.message : String(e) });
   }
-  return jsonToDocument(json);
+  const doc = jsonToDocument(json);
+  rejectKindsTooNewForDeclaredVersion(declared, doc);
+  return doc;
 }
 
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {

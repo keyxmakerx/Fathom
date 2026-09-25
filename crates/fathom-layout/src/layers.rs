@@ -363,6 +363,15 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     test admits every kind but the pin, not because anything in
         //     this build actually drags a note around a diagram.
         | NodeKind::Note
+        //     ADR-0058: a Docker network, container or published port is a
+        //     per-host fact with no geometry, the same shape as `Capture` and
+        //     `Note` above. `56` has no row for any of
+        //     the three — it predates Docker entirely — so all three are
+        //     drawn UNTABLED. Nothing draws them yet (A2 writes the reader);
+        //     they join `Placeable` for the same reason `Note` does.
+        | NodeKind::ContainerNetwork
+        | NodeKind::Container
+        | NodeKind::PublishedPort
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a
