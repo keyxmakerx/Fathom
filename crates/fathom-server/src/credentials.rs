@@ -74,7 +74,7 @@ use crate::grants::{self, AuthorityError};
 use crate::ids;
 use crate::keys::KeyRing;
 use crate::operators::{self, OperatorError};
-use crate::sessions::{PrincipalKind, SessionError, VerifiedSession};
+use crate::sessions::{self, PrincipalKind, SessionError, VerifiedSession};
 
 // ---------------------------------------------------------------------------
 // The labels
@@ -86,6 +86,10 @@ const KDF_CREDENTIALS_TOTP: &[u8] = b"fathom/credentials/totp/v1";
 
 /// The AEAD's additional data for a sealed TOTP secret.
 const AAD_CREDENTIALS_TOTP: &[u8] = b"fathom/credentials/totp/aad/v1";
+
+/// A separate label from [`AAD_CREDENTIALS_TOTP`], so the pending and live
+/// secrets cannot be swapped by copying ciphertext between the two columns.
+const AAD_CREDENTIALS_TOTP_PENDING: &[u8] = b"fathom/credentials/totp/pending/aad/v1";
 
 /// Hash tag of a backup code. `0018` §C names it.
 const TAG_BACKUP_CODE: &[u8] = b"fathom/credentials/backup/code/v1";
@@ -110,6 +114,12 @@ pub const LABELS: &[(&str, &str)] = &[
         "the AEAD's additional data for a sealed TOTP secret: LP(tag) ‖ LP(deployment) ‖ \
          LP(account) ‖ u32(key_epoch), so a secret lifted onto another account's row or \
          another deployment does not open",
+    ),
+    (
+        "fathom/credentials/totp/pending/aad/v1",
+        "the AEAD's additional data for a PENDING TOTP secret, drawn but not yet confirmed \
+         (ADR-0057 decision 3): its own label so a ciphertext cannot be swapped between the \
+         pending and live slots and still open",
     ),
     (
         "fathom/credentials/backup/code/v1",
@@ -290,6 +300,11 @@ pub enum CredentialError {
     /// Contains the account's own address. ADR-0055 decision 10.
     PasswordContainsAddress,
 
+    /// The current password did not verify, on `/credentials/password` or on
+    /// an authenticator change (ADR-0057 decision 3, ASVS 6.2.3 and 7.5.1).
+    /// Rendered exactly as a wrong sign-in password.
+    CurrentPasswordRefused,
+
     /// The app code did not verify, or has already been used for its own step.
     /// One variant for both, because they are one fact from outside.
     CodeRefused,
@@ -341,6 +356,10 @@ impl core::fmt::Display for CredentialError {
                 "a password must not contain the address it opens, in any case: the address is \
                  the one thing an attacker already knows",
             ),
+            Self::CurrentPasswordRefused => f.write_str(
+                "sign-in refused. One message for every cause, so that an attacker cannot tell \
+                 a wrong current password from any other refusal",
+            ),
             Self::CodeRefused => f.write_str(
                 "that code was refused. One message for every cause, so that a caller cannot \
                  tell a wrong code from one that has already been used",
@@ -353,10 +372,16 @@ impl core::fmt::Display for CredentialError {
             // it a user-facing string and not an identifier. The client maps
             // the 409 by STATUS and prints its own words; this is what a
             // `curl` and a log line say.
+            //
+            // **ADR-0057 decision 3 reopens what this sentence used to say**:
+            // a confirmed authenticator no longer needs the host command to
+            // replace — `enrol_totp` takes the current password and a
+            // current code and starts a new one over it. This is what is
+            // left refused: a CONFIRM with no enrolment pending, because
+            // `enrol_totp` already re-authenticated whoever is replacing one.
             Self::TotpAlreadyEnrolled => f.write_str(
-                "this account already has a confirmed authenticator. Replacing a live second \
-                 factor from inside a session is not a form; it is a recovery, and it goes \
-                 through the host command ADR-0055 decision 8 names",
+                "this account already has a confirmed authenticator, and there is no new one \
+                 pending confirmation. Enrol a replacement first",
             ),
             Self::TokenRefused => f.write_str(
                 "that token was refused. One message for every cause: unknown, already spent, \
@@ -818,6 +843,16 @@ fn totp_aad(deployment: &str, account: &str, epoch: i32) -> Vec<u8> {
     aad
 }
 
+/// [`totp_aad`], for the PENDING secret slot (ADR-0057 decision 3).
+fn totp_pending_aad(deployment: &str, account: &str, epoch: i32) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(96);
+    crypto::lp(&mut aad, AAD_CREDENTIALS_TOTP_PENDING);
+    crypto::lp(&mut aad, deployment.as_bytes());
+    crypto::lp(&mut aad, account.as_bytes());
+    crypto::u32_le(&mut aad, epoch as u32);
+    aad
+}
+
 /// The credential columns of one account, as every path here reads them.
 #[derive(Clone, Debug, Default)]
 pub struct CredentialRow {
@@ -833,6 +868,14 @@ pub struct CredentialRow {
     /// Carried as well as [`CredentialRow::totp_enrolled`] because the seal
     /// covers the instant and not only the fact (`0025` §A).
     pub totp_enrolled_at_unix: i64,
+    /// A secret drawn by `enrol_totp`, not yet proven by `confirm_totp` —
+    /// separate from the live columns above so an abandoned draw cannot touch them.
+    pub totp_pending_secret_ct: Option<Vec<u8>>,
+    pub totp_pending_secret_nonce: Option<Vec<u8>>,
+    pub totp_pending_secret_key_epoch: Option<i32>,
+    /// `totp_pending_enrolled_at` as seconds since the epoch, zero when
+    /// unset.
+    pub totp_pending_enrolled_at_unix: i64,
     /// `0025` §A. `None` is "this account has never had a credential", which
     /// is legal and is what every account created before `0018` is.
     pub credential_seal: Option<Vec<u8>>,
@@ -889,6 +932,29 @@ impl CredentialRow {
             .try_into()
             .map_err(|_| CredentialError::Corrupt("totp secret nonce"))?;
         let aad = totp_aad(deployment, account, epoch);
+        Ok(Some(crypto::open(key, &nonce, ct, &aad)?))
+    }
+
+    /// The PENDING secret, opened. `None` when nothing has been drawn since
+    /// the live one (if any) was last confirmed.
+    pub fn totp_pending_secret(
+        &self,
+        key: &Key32,
+        deployment: &str,
+        account: &str,
+    ) -> Result<Option<Vec<u8>>, CredentialError> {
+        let (Some(ct), Some(nonce), Some(epoch)) = (
+            self.totp_pending_secret_ct.as_ref(),
+            self.totp_pending_secret_nonce.as_ref(),
+            self.totp_pending_secret_key_epoch,
+        ) else {
+            return Ok(None);
+        };
+        let nonce: [u8; crypto::NONCE_LEN] = nonce
+            .as_slice()
+            .try_into()
+            .map_err(|_| CredentialError::Corrupt("totp pending secret nonce"))?;
+        let aad = totp_pending_aad(deployment, account, epoch);
         Ok(Some(crypto::open(key, &nonce, ct, &aad)?))
     }
 }
@@ -953,6 +1019,23 @@ fn credential_state_bytes(row: &CredentialRow) -> Vec<u8> {
         "operator_key_hold_until_unix".to_string(),
         Json::Int(row.operator_key_hold_until_unix),
     );
+    // Left OUT of the map when empty, not written as null: an old seal
+    // must still recompute unchanged after these columns arrive.
+    if let Some(ct) = &row.totp_pending_secret_ct {
+        map.insert("totp_pending_secret_ct".to_string(), Json::Str(hex(ct)));
+        map.insert(
+            "totp_pending_secret_nonce".to_string(),
+            Json::Str(hex(row.totp_pending_secret_nonce.as_deref().unwrap_or(&[]))),
+        );
+        map.insert(
+            "totp_pending_secret_key_epoch".to_string(),
+            Json::Int(row.totp_pending_secret_key_epoch.unwrap_or(0) as i64),
+        );
+        map.insert(
+            "totp_pending_enrolled_at_unix".to_string(),
+            Json::Int(row.totp_pending_enrolled_at_unix),
+        );
+    }
     Json::Obj(map).to_canonical_bytes()
 }
 
@@ -992,6 +1075,9 @@ fn has_a_credential(row: &CredentialRow) -> bool {
         || row.totp_secret_key_epoch.is_some()
         || row.totp_enrolled
         || row.totp_last_step.is_some()
+        || row.totp_pending_secret_ct.is_some()
+        || row.totp_pending_secret_nonce.is_some()
+        || row.totp_pending_secret_key_epoch.is_some()
 }
 
 /// **The refusal.** A credential state that this server did not write is
@@ -1057,7 +1143,10 @@ async fn read_credentials_unverified(
                     totp_secret_key_epoch, totp_enrolled_at IS NOT NULL, totp_last_step, \
                     COALESCE(EXTRACT(EPOCH FROM operator_key_hold_until)::bigint, 0), \
                     COALESCE(EXTRACT(EPOCH FROM totp_enrolled_at)::bigint, 0), \
-                    credential_seal, credential_row_version, COALESCE(credential_seq, 0) \
+                    credential_seal, credential_row_version, COALESCE(credential_seq, 0), \
+                    totp_pending_secret_ct, totp_pending_secret_nonce, \
+                    totp_pending_secret_key_epoch, \
+                    COALESCE(EXTRACT(EPOCH FROM totp_pending_enrolled_at)::bigint, 0) \
                FROM accounts WHERE id = $1",
             &[&account],
         )
@@ -1076,6 +1165,10 @@ async fn read_credentials_unverified(
         credential_seal: row.get(9),
         credential_row_version: row.get(10),
         credential_seq: row.get(11),
+        totp_pending_secret_ct: row.get(12),
+        totp_pending_secret_nonce: row.get(13),
+        totp_pending_secret_key_epoch: row.get(14),
+        totp_pending_enrolled_at_unix: row.get(15),
     }))
 }
 
@@ -1700,20 +1793,14 @@ impl CredentialStore {
     // POST /credentials/password
     // -----------------------------------------------------------------------
 
-    /// Set or change this session's own password.
-    ///
-    /// **Rate limit.** None of its own, and the lead's resolution 12 is why:
-    /// the password budget is `sign_in_attempts`' existing per-address counter
-    /// (ten failures per fifteen minutes, no lockout) plus the per-source
-    /// bucket, both of which are spent at `POST /session` where a wrong
-    /// password is actually guessed. This route does not guess anything — it
-    /// already holds a verified session, which cost a single-use nonce and an
-    /// ES256 signature, and `sessions::MAX_OUTSTANDING_NONCES` bounds how many
-    /// of those one browser may have in flight.
+    /// The current password, once set, else `fresh_evidence_verified` (decision 3).
+    /// Ends this account's other sessions and its operator plane's, in this transaction.
     pub async fn set_password(
         &self,
         session: &VerifiedSession,
+        current_password: &str,
         new_password: &str,
+        fresh_evidence_verified: bool,
     ) -> Result<(), CredentialError> {
         let account = self.acting_account(session)?;
         let mut client = self.pool.get().await?;
@@ -1724,6 +1811,17 @@ impl CredentialStore {
             return Err(CredentialError::Corrupt("account"));
         };
         check_password(new_password, &row.address)?;
+        match row.password_hash.as_deref() {
+            Some(stored) => {
+                if !verify_password(stored, current_password) {
+                    return Err(CredentialError::CurrentPasswordRefused);
+                }
+            }
+            None if !fresh_evidence_verified => {
+                return Err(CredentialError::CurrentPasswordRefused);
+            }
+            None => {}
+        }
         let hash = hash_password(new_password)?;
 
         let appended = chains::append_site(
@@ -1761,6 +1859,15 @@ impl CredentialStore {
         )
         .await?;
 
+        end_other_sessions_after_credential_change(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &account,
+            session.id(),
+        )
+        .await?;
+
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(())
@@ -1770,17 +1877,13 @@ impl CredentialStore {
     // POST /credentials/totp/enrol
     // -----------------------------------------------------------------------
 
-    /// Draw a fresh app-code secret, seal it, and hand back the `otpauth://`
-    /// URI and the base32 text decision 10 says the client shows.
-    ///
-    /// **Shown once.** There is no route that reads the secret back out, and
-    /// this one refuses once the code has been confirmed — so a session that
-    /// has been taken over cannot quietly replace a live second factor. The way
-    /// back from a lost phone is a backup code, or ADR-0055 decision 8's host
-    /// command; it is not a form.
+    /// Draw a fresh app-code secret into the PENDING slot only — replacing a
+    /// CONFIRMED one needs the current password and a current code (decision 3).
     pub async fn enrol_totp(
         &self,
         session: &VerifiedSession,
+        current_password: &str,
+        verification_code: &str,
     ) -> Result<TotpEnrolment, CredentialError> {
         let account = self.acting_account(session)?;
         let mut client = self.pool.get().await?;
@@ -1791,7 +1894,25 @@ impl CredentialStore {
             return Err(CredentialError::Corrupt("account"));
         };
         if row.totp_confirmed() {
-            return Err(CredentialError::TotpAlreadyEnrolled);
+            if let Some(stored) = row.password_hash.as_deref() {
+                if !verify_password(stored, current_password) {
+                    return Err(CredentialError::CurrentPasswordRefused);
+                }
+            }
+            let key = totp_key_for(&tx, &self.ring).await?;
+            let live_secret = row
+                .totp_secret(&key, &self.deployment, &account)?
+                .ok_or(CredentialError::NoTotpEnrolled)?;
+            if verify_totp(
+                &live_secret,
+                verification_code,
+                now_unix(),
+                row.totp_last_step,
+            )
+            .is_none()
+            {
+                return Err(CredentialError::CodeRefused);
+            }
         }
 
         let mut secret = [0u8; TOTP_SECRET_LEN];
@@ -1799,36 +1920,24 @@ impl CredentialStore {
 
         let key = totp_key_for(&tx, &self.ring).await?;
         let nonce = crypto::random_nonce()?;
-        let aad = totp_aad(&self.deployment, &account, CHAIN_KEY_EPOCH);
+        let aad = totp_pending_aad(&self.deployment, &account, CHAIN_KEY_EPOCH);
         let ciphertext = crypto::seal(&key, &nonce, &secret, &aad)?;
 
-        // **`totp_enrolled_at` moves now and not at confirmation**, because
-        // `0018` §B's `accounts_totp_secret_is_whole` CHECK correlates all four
-        // columns and a secret cannot be at rest without it. What "confirmed"
-        // means is `totp_last_step`, which the next request sets — see
-        // `CredentialRow::totp_confirmed`, which carries the report.
-        // `0025`: the pending secret is at rest, so it is sealed at rest, in
-        // the same statement. No entry is appended here — see
-        // `credential_state_bytes` — so the seq already on the row stands
-        // until the confirmation writes its own.
-        //
-        // **`totp_enrolled_at` is an explicit instant and no longer `now()`**,
-        // because the seal covers it: a value the database chose is a value
-        // this server would have to read back before it could seal it.
+        // An explicit instant, not `now()`: the seal covers it, and a value
+        // the database chose is one this server would have to read back first.
         let enrolled_at = now_unix();
         let mut next = row.clone();
-        next.totp_secret_ct = Some(ciphertext.clone());
-        next.totp_secret_nonce = Some(nonce.to_vec());
-        next.totp_secret_key_epoch = Some(CHAIN_KEY_EPOCH);
-        next.totp_enrolled = true;
-        next.totp_enrolled_at_unix = enrolled_at;
-        next.totp_last_step = None;
+        next.totp_pending_secret_ct = Some(ciphertext.clone());
+        next.totp_pending_secret_nonce = Some(nonce.to_vec());
+        next.totp_pending_secret_key_epoch = Some(CHAIN_KEY_EPOCH);
+        next.totp_pending_enrolled_at_unix = enrolled_at;
         let row_key = grants::site_row_key(&tx, &self.ring).await?;
         let seal = next_seal(&row_key, &account, &mut next, None);
         tx.execute(
             "UPDATE accounts \
-                SET totp_secret_ct = $2, totp_secret_nonce = $3, totp_secret_key_epoch = $4, \
-                    totp_enrolled_at = to_timestamp($5::bigint), totp_last_step = NULL, \
+                SET totp_pending_secret_ct = $2, totp_pending_secret_nonce = $3, \
+                    totp_pending_secret_key_epoch = $4, \
+                    totp_pending_enrolled_at = to_timestamp($5::bigint), \
                     credential_seal = $6, credential_row_version = $7, credential_seq = $8 \
               WHERE id = $1",
             &[
@@ -1857,16 +1966,8 @@ impl CredentialStore {
     // POST /credentials/totp/confirm
     // -----------------------------------------------------------------------
 
-    /// Prove the app code works, and take the ten backup codes.
-    ///
-    /// The code that confirms is spent by the same `totp_last_step` rule every
-    /// later one is, so the confirming code cannot be replayed at sign-in a
-    /// moment later.
-    ///
-    /// The ten backup codes are minted in **the same transaction** as the
-    /// confirmation, so there is no window in which the app code is real and no
-    /// lost-phone path exists — `0018` §C's requirement, moved from enrolment
-    /// to confirmation for the reason `CredentialRow::totp_confirmed` gives.
+    /// Proves the code against the PENDING secret, swaps it into the live
+    /// columns, and ends this account's other sessions, all in this transaction.
     pub async fn confirm_totp(
         &self,
         session: &VerifiedSession,
@@ -1880,14 +1981,18 @@ impl CredentialStore {
         let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
             return Err(CredentialError::Corrupt("account"));
         };
-        if row.totp_confirmed() {
-            return Err(CredentialError::TotpAlreadyEnrolled);
-        }
         let key = totp_key_for(&tx, &self.ring).await?;
-        let Some(secret) = row.totp_secret(&key, &self.deployment, &account)? else {
-            return Err(CredentialError::NoTotpEnrolled);
+        let Some(pending_secret) = row.totp_pending_secret(&key, &self.deployment, &account)?
+        else {
+            // Nothing pending: never drawn, or already swapped in and
+            // cleared — `totp_confirmed()` tells the two apart.
+            return Err(if row.totp_confirmed() {
+                CredentialError::TotpAlreadyEnrolled
+            } else {
+                CredentialError::NoTotpEnrolled
+            });
         };
-        let Some(step) = verify_totp(&secret, code, now_unix(), row.totp_last_step) else {
+        let Some(step) = verify_totp(&pending_secret, code, now_unix(), None) else {
             return Err(CredentialError::CodeRefused);
         };
 
@@ -1906,24 +2011,45 @@ impl CredentialStore {
         )
         .await?;
 
-        // **The advance IS the guard**, the shape `spend_backup_code` uses one
-        // function up: two confirmations racing on one code both read the same
-        // `NULL` high-water mark, and only the `UPDATE` sees the other. The
-        // row lock serialises them and the loser gets rowcount 0, which is
-        // `CodeRefused` — decision 10's *"a code accepted once"*, made true by
-        // the write rather than by the read that preceded it.
+        // The advance IS the guard: a racing confirm's row lock serialises
+        // it, and the loser gets rowcount 0, which is `CodeRefused`.
         let row_key = grants::site_row_key(&tx, &self.ring).await?;
+        // Re-sealed, not copied: the pending ciphertext is bound to a
+        // different AAD than the live column's, so it would not open there.
+        let live_nonce = crypto::random_nonce()?;
+        let live_aad = totp_aad(
+            &self.deployment,
+            &account,
+            row.totp_pending_secret_key_epoch.unwrap_or(CHAIN_KEY_EPOCH),
+        );
+        let live_ciphertext = crypto::seal(&key, &live_nonce, &pending_secret, &live_aad)?;
         let mut next = row.clone();
+        next.totp_secret_ct = Some(live_ciphertext);
+        next.totp_secret_nonce = Some(live_nonce.to_vec());
+        next.totp_secret_key_epoch = next.totp_pending_secret_key_epoch.take();
+        next.totp_pending_secret_ct = None;
+        next.totp_pending_secret_nonce = None;
+        next.totp_enrolled = true;
+        next.totp_enrolled_at_unix = next.totp_pending_enrolled_at_unix;
+        next.totp_pending_enrolled_at_unix = 0;
         next.totp_last_step = Some(step);
         let seal = next_seal(&row_key, &account, &mut next, Some(appended.seq));
         let advanced = tx
             .execute(
                 "UPDATE accounts \
-                    SET totp_last_step = $2, credential_seal = $3, \
-                        credential_row_version = $4, credential_seq = $5 \
-                  WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+                    SET totp_secret_ct = $2, totp_secret_nonce = $3, \
+                        totp_secret_key_epoch = $4, totp_enrolled_at = to_timestamp($5::bigint), \
+                        totp_last_step = $6, totp_pending_secret_ct = NULL, \
+                        totp_pending_secret_nonce = NULL, totp_pending_secret_key_epoch = NULL, \
+                        totp_pending_enrolled_at = NULL, credential_seal = $7, \
+                        credential_row_version = $8, credential_seq = $9 \
+                  WHERE id = $1 AND totp_pending_secret_ct IS NOT NULL",
                 &[
                     &account,
+                    &next.totp_secret_ct,
+                    &next.totp_secret_nonce,
+                    &next.totp_secret_key_epoch,
+                    &next.totp_enrolled_at_unix,
                     &step,
                     &seal,
                     &next.credential_row_version,
@@ -1950,9 +2076,39 @@ impl CredentialStore {
             codes.push(code);
         }
 
+        end_other_sessions_after_credential_change(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &account,
+            session.id(),
+        )
+        .await?;
+
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(codes)
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /credentials/status
+    // -----------------------------------------------------------------------
+
+    /// Does this session's account have a confirmed authenticator? ADR-0057
+    /// decision 3: the account screen shows it, and this is the smallest
+    /// read for that — one column, no secret, no key material.
+    pub async fn totp_confirmed(&self, session: &VerifiedSession) -> Result<bool, CredentialError> {
+        let account = self.acting_account(session)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_credential_custody(&tx, &account).await?;
+        let confirmed = read_credentials(&tx, &self.ring, &account)
+            .await?
+            .map(|row| row.totp_confirmed())
+            .unwrap_or(false);
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(confirmed)
     }
 
     // -----------------------------------------------------------------------
@@ -3396,6 +3552,48 @@ async fn holds_operator_custody_here(
     held
 }
 
+/// Ends `account`'s other sessions, and its operator plane's, in the SAME
+/// transaction as the change: not bound is a no-op, any OTHER lookup failure fails the whole change.
+async fn end_other_sessions_after_credential_change(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    deployment: &str,
+    account: &str,
+    except_session_id: &str,
+) -> Result<(), CredentialError> {
+    sessions::end_other_sessions(
+        tx,
+        ring,
+        deployment,
+        PrincipalKind::Steward,
+        account,
+        except_session_id,
+    )
+    .await?;
+
+    tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+        .await?;
+    let operator = operators::operator_of_account(tx, ring, account).await;
+    tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
+        .await?;
+    match operator {
+        Ok(operator_id) => {
+            sessions::end_other_sessions(
+                tx,
+                ring,
+                deployment,
+                PrincipalKind::Operator,
+                &operator_id,
+                "",
+            )
+            .await?;
+        }
+        Err(OperatorError::NotBoundToAnOperator) => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
 /// `0018` §E's unauthenticated capability. **No `app.account_id`**: the reset
 /// pair has no session and resolves its account from the address on record or
 /// from the token, never from a caller's claim.
@@ -3503,19 +3701,84 @@ pub fn backup_code_seal_for(
 mod tests {
     use super::*;
 
+    /// `credential_state_bytes` at 396e7be, frozen, before the pending slot existed.
+    fn credential_state_bytes_396e7be(row: &CredentialRow) -> Vec<u8> {
+        let mut map = std::collections::BTreeMap::new();
+        map.insert(
+            "password_hash".to_string(),
+            match &row.password_hash {
+                Some(hash) => Json::Str(hash.clone()),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "totp_secret_ct".to_string(),
+            match &row.totp_secret_ct {
+                Some(ct) => Json::Str(hex(ct)),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "totp_secret_nonce".to_string(),
+            match &row.totp_secret_nonce {
+                Some(nonce) => Json::Str(hex(nonce)),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "totp_secret_key_epoch".to_string(),
+            match row.totp_secret_key_epoch {
+                Some(epoch) => Json::Int(epoch as i64),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "totp_enrolled_at_unix".to_string(),
+            Json::Int(row.totp_enrolled_at_unix),
+        );
+        map.insert(
+            "totp_confirmed".to_string(),
+            Json::Bool(row.totp_confirmed()),
+        );
+        map.insert(
+            "operator_key_hold_until_unix".to_string(),
+            Json::Int(row.operator_key_hold_until_unix),
+        );
+        Json::Obj(map).to_canonical_bytes()
+    }
+
+    #[test]
+    fn a_row_with_no_pending_secret_matches_the_pre_0027_encoding() {
+        let row = CredentialRow {
+            address: "owner@example.test".to_string(),
+            password_hash: Some("$argon2id$fixture$".to_string()),
+            totp_enrolled: true,
+            totp_last_step: Some(42),
+            totp_enrolled_at_unix: 1_760_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            credential_state_bytes(&row),
+            credential_state_bytes_396e7be(&row),
+            "an account upgraded from before `0027` must still verify: its seal never covered \
+             the pending-slot keys this build now omits too, rather than writing them as null"
+        );
+    }
+
     #[test]
     fn the_label_list_names_every_label_this_module_uses() {
         let listed: Vec<&str> = LABELS.iter().map(|(name, _)| *name).collect();
         for label in [
             KDF_CREDENTIALS_TOTP,
             AAD_CREDENTIALS_TOTP,
+            AAD_CREDENTIALS_TOTP_PENDING,
             TAG_BACKUP_CODE,
             TAG_RESET_TOKEN,
         ] {
             let label = std::str::from_utf8(label).expect("a label is text");
             assert!(listed.contains(&label), "{label} is not in LABELS");
         }
-        assert_eq!(listed.len(), 4, "LABELS lists a label nothing uses");
+        assert_eq!(listed.len(), 5, "LABELS lists a label nothing uses");
     }
 
     #[test]

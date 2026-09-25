@@ -23,6 +23,12 @@ describe('the account screen', () => {
     expect(html).toContain('owner@example.test');
   });
 
+  it('asks for the current password too (ADR-0057 decision 3)', () => {
+    const html = renderToStaticMarkup(createElement(Account, { address: 'owner@example.test' }));
+    expect(html).toContain('id="account-current-password"');
+    expect(html).toContain('autoComplete="current-password"');
+  });
+
   it('for a person the server sent here, leads with why and drops the password form', () => {
     const html = renderToStaticMarkup(
       createElement(Account, { address: 'owner@example.test', purpose: 'app-code' }),
@@ -56,6 +62,25 @@ describe('the authenticator enrolment', () => {
     expect(closed).not.toContain('data-testid="qr"');
   });
 
+  it('asks for neither a password nor a code on a first enrolment', () => {
+    expect(closed).not.toContain('id="authenticator-reauth-password"');
+    expect(closed).not.toContain('id="authenticator-reauth-code"');
+  });
+
+  it('asks for the current password and a current code before replacing a confirmed one (ADR-0057 decision 3)', () => {
+    const html = renderToStaticMarkup(
+      createElement(AuthenticatorEnrolment, {
+        address: 'owner@example.test',
+        onDone: () => {},
+        requiresReauth: true,
+      }),
+    );
+    expect(html).toContain('id="authenticator-reauth-password"');
+    expect(html).toContain('autoComplete="current-password"');
+    expect(html).toContain('id="authenticator-reauth-code"');
+    expect(html).toContain('autoComplete="one-time-code"');
+    expect(html).toMatch(/Replace the authenticator app/);
+  });
 });
 
 describe('the authenticator setup stage, rendered', () => {
@@ -105,7 +130,7 @@ describe('the authenticator setup stage, rendered', () => {
     // Case-insensitive: this renderer writes the attribute the way the JSX
     // prop is spelled, and HTML attribute names are case-insensitive, so
     // what reaches a browser is `autocomplete` either way.
-    expect(html).toMatch(/autocomplete="one-time-code"/i);
+    expect(html).toMatch(/autoComplete="one-time-code"/i);
     expect(html).toMatch(/Verification code/);
   });
 

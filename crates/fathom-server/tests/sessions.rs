@@ -872,6 +872,173 @@ async fn signing_out_deletes_the_row_and_the_next_request_is_refused() {
 }
 
 // ---------------------------------------------------------------------------
+// `verify_fresh_evidence`: the evidence check for accounts with no password
+// (ADR-0057 decision 3)
+// ---------------------------------------------------------------------------
+
+/// A bind-purpose challenge for `address`, and the digest a signature over
+/// it must cover — the same construction a sign-in checks.
+async fn a_bind_challenge(store: &SessionStore, address: &str) -> (Vec<u8>, [u8; 32], [u8; 32]) {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Steward, address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    (pubkey.to_vec(), challenge.nonce, digest)
+}
+
+#[tokio::test]
+async fn a_good_signature_over_a_fresh_challenge_passes_verify_fresh_evidence() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+
+    let (pubkey, nonce, digest) = a_bind_challenge(&store, &estate.steward.address).await;
+    let evidence = estate.steward.key.sign(&digest);
+    let r = store
+        .verify_fresh_evidence(
+            &estate.steward.account.to_string(),
+            &pubkey,
+            &nonce,
+            &evidence,
+        )
+        .await;
+    assert!(
+        r.is_ok(),
+        "a real signature by the account's own enrolled key over a fresh challenge passes: {r:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_reused_nonce_is_refused_by_verify_fresh_evidence() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+
+    let (pubkey, nonce, digest) = a_bind_challenge(&store, &estate.steward.address).await;
+    let evidence = estate.steward.key.sign(&digest);
+    let account = estate.steward.account.to_string();
+    store
+        .verify_fresh_evidence(&account, &pubkey, &nonce, &evidence)
+        .await
+        .expect("the first presentation spends the nonce and passes");
+    let r = store
+        .verify_fresh_evidence(&account, &pubkey, &nonce, &evidence)
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "the same nonce presented again is refused: {r:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_signature_by_the_wrong_key_is_refused_by_verify_fresh_evidence() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+
+    let (pubkey, nonce, digest) = a_bind_challenge(&store, &estate.steward.address).await;
+    let stranger = SoftwareKey::random().expect("a keypair");
+    let evidence = stranger.sign(&digest);
+    let r = store
+        .verify_fresh_evidence(
+            &estate.steward.account.to_string(),
+            &pubkey,
+            &nonce,
+            &evidence,
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "a signature by a key this account never enrolled is refused: {r:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_challenge_bound_to_another_account_is_refused_by_verify_fresh_evidence() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+    let other = an_account(&pool, "other").await;
+
+    let (pubkey, nonce, digest) = a_bind_challenge(&store, &estate.steward.address).await;
+    let evidence = estate.steward.key.sign(&digest);
+    let r = store
+        .verify_fresh_evidence(&other.account.to_string(), &pubkey, &nonce, &evidence)
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "a nonce bound to one account's address does not vouch for another: {r:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_retired_keys_signature_is_refused_by_verify_fresh_evidence() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+
+    let at = now_unix() - 60;
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, estate.organisation, estate.steward.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let key = grants::signing_key_of(&tx, &estate.steward.account.to_string())
+        .await
+        .expect("read")
+        .expect("a key");
+    let signature = estate.steward.key.sign(&authority::retire_bytes(
+        &estate.steward.account.to_string(),
+        &key.fpr,
+        &key.fpr,
+        at,
+    ));
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    grants::retire_key(&tx, &auth, &key.id, &signature, at)
+        .await
+        .expect("a holder may retire their own key");
+    tx.commit().await.expect("commit");
+
+    let (pubkey, nonce, digest) = a_bind_challenge(&store, &estate.steward.address).await;
+    let evidence = estate.steward.key.sign(&digest);
+    let r = store
+        .verify_fresh_evidence(
+            &estate.steward.account.to_string(),
+            &pubkey,
+            &nonce,
+            &evidence,
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "a key retired before the challenge is not live and does not vouch for anything: {r:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // §4.2 — the sign-in binding
 // ---------------------------------------------------------------------------
 
@@ -1101,9 +1268,12 @@ async fn one_failed_sign_in(
     lp(&mut body, &wrong.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six: a credential and an app code, both empty on the key-only
-    // branch this test drives. `read_fields` still refuses an inexact count,
-    // so the two empty fields are not optional.
+    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
+    // code and the operator plane's account-session endorsement, all empty
+    // on the key-only steward branch this test drives. `read_fields` still
+    // refuses an inexact count, so the four empty fields are not optional.
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
     let (status, answer, headers) = post_bytes_full(
@@ -1680,9 +1850,12 @@ async fn call_over_http(
     lp(&mut body, &person.key.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six: a credential and an app code, both empty on the key-only
-    // branch this test drives. `read_fields` still refuses an inexact count,
-    // so the two empty fields are not optional.
+    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
+    // code and the operator plane's account-session endorsement, all empty
+    // on the key-only steward branch this test drives. `read_fields` still
+    // refuses an inexact count, so the four empty fields are not optional.
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
     let (status, answer) = post_bytes(addr, "/session", &body, forwarded).await;
@@ -2432,7 +2605,7 @@ async fn an_account_disabled_before_the_request_arrives_is_refused_by_the_route(
 // they count rows of a table other suites share, and the shared test database
 // is one deployment several binaries write to.
 
-/// This section's own database: `fathom_isolated_sess`.
+/// This section's own database: `fathom_isolated_<fingerprint>_sess`.
 const ADR55_TAG: &str = "sess";
 
 static ADR55_DEPLOYMENT: tokio::sync::OnceCell<Pool> = tokio::sync::OnceCell::const_new();
@@ -2575,6 +2748,8 @@ async fn adr55_sign_in(
             password,
             totp_code: code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -2640,9 +2815,8 @@ async fn adr55_assurance_of(session_id: &str) -> String {
         .get(0)
 }
 
-/// The secret this account's app code is computed from, opened as the server
-/// opens it — because what these tests present is what a real authenticator
-/// would be showing.
+/// The secret this account's app code is computed from — the PENDING one,
+/// read between `enrol_totp` and `confirm_totp`.
 async fn adr55_totp_secret(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8> {
     let mut client = pool.get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
@@ -2662,9 +2836,9 @@ async fn adr55_totp_secret(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8
         .await
         .expect("the credential key");
     let secret = row
-        .totp_secret(&key, &deployment, account)
-        .expect("open the secret")
-        .expect("a secret is enrolled");
+        .totp_pending_secret(&key, &deployment, account)
+        .expect("open the pending secret")
+        .expect("a secret is pending confirmation");
     tx.rollback().await.expect("rollback");
     secret
 }
@@ -2718,7 +2892,10 @@ async fn adr55_enrolled(
     )
     .await
     .expect("a live session verifies its own signed request");
-    creds.enrol_totp(&session).await.expect("enrol an app code");
+    creds
+        .enrol_totp(&session, "", "")
+        .await
+        .expect("enrol an app code");
 
     let secret = adr55_totp_secret(pool, ring, &person.account.to_string()).await;
     let session = adr55_try_verify(
@@ -2798,6 +2975,9 @@ async fn adr55_credential_surface(
 /// `/session/nonce`, which the credential router does not mount; the nonce is
 /// not what these tests are about, and the signature over method, path, body
 /// digest, nonce, time and counter is assembled exactly as the client does.
+///
+/// Carries its own `x-forwarded-for`, so calls in different tests do not
+/// share one peer address and tip over each other's source budget.
 async fn adr55_signed_post(
     addr: std::net::SocketAddr,
     store: &SessionStore,
@@ -2831,6 +3011,7 @@ async fn adr55_signed_post(
             (HEADER_TIMESTAMP, unix_ms.to_string()),
             (HEADER_COUNTER, counter.to_string()),
             (HEADER_SIGNATURE, hex(&session_key.sign(&message))),
+            ("x-forwarded-for", a_source_of_its_own()),
         ],
         body,
     )
@@ -2904,6 +3085,8 @@ async fn one_app_code_presented_by_four_sign_ins_at_once_opens_exactly_one_sessi
                     password: ADR55_PASSWORD,
                     totp_code: &code,
                     source: &source,
+                    account_session_id: "",
+                    account_session_sig: b"",
                 })
                 .await
         }));
@@ -3239,8 +3422,14 @@ async fn a_credential_refused_by_the_policy_says_which_rule_it_broke() {
         chosen.chars().count() >= credentials::PASSWORD_MIN,
         "the fixture has to clear the length rule, or this test proves the wrong refusal"
     );
+    // Five fields now; the last three (fresh-evidence) go unread since this
+    // account already has a password.
     let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
     lp(&mut body, chosen.as_bytes());
+    lp(&mut body, b"");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
     let (status, answer) = adr55_signed_post(
         addr,
         &store,
@@ -3263,16 +3452,16 @@ async fn a_credential_refused_by_the_policy_says_which_rule_it_broke() {
     );
 }
 
-/// **Asking to enrol a second app code over a live one is a conflict, and it
-/// says so.**
+/// **ADR-0057 decision 3: enrolling a second app code over a live one needs
+/// the current password and a current code — and is refused without them,
+/// generically, rather than as the old flat `TotpAlreadyEnrolled` 409.**
 ///
-/// It was rendered as `SessionError::SignInRefused`: `401 sign-in refused`, to
-/// a caller holding a live, verified session. That reads as "your session
-/// died" and sends a client back to the door it has just come through, when
-/// the real answer is that replacing a live second factor from inside a
-/// session is not a form at all — it is ADR-0055 decision 8's host command.
+/// This is the exact refusal `docs/decisions/adr-0057-…` reopens: a
+/// confirmed authenticator no longer blocks replacement from inside a
+/// session outright, but it does re-authenticate the replacement (ASVS
+/// 7.5.1). No code at all is the plainest way to fail that.
 #[tokio::test]
-async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_which() {
+async fn authenticator_re_enrolment_without_a_code_is_refused() {
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
@@ -3292,25 +3481,518 @@ async fn enrolling_a_second_app_code_over_a_live_one_is_a_conflict_and_says_whic
     .await
     .expect("a credential and a real six-digit code open a session");
 
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, b"");
     let (status, answer) = adr55_signed_post(
         addr,
         &store,
         &signed_in,
         &session_key,
         "/credentials/totp/enrol",
-        b"",
+        &body,
     )
     .await;
 
     assert_eq!(
-        status, "409",
-        "an account that already has a confirmed authenticator asked to enrol another and was \
-         answered {status} {answer:?}. A live session being told 'sign-in refused' is told its \
-         session is the problem, and it is not"
+        status, "401",
+        "the right password and no code is refused generically, not with a 409 that discloses \
+         which check it failed: {answer:?}"
     );
+}
+
+/// **ADR-0057 decision 3, the positive case: the right password and a
+/// current code from the authenticator being replaced draws a new one.**
+#[tokio::test]
+async fn authenticator_re_enrolment_with_the_right_password_and_code_works() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "replacing").await;
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("a credential and a real six-digit code open a session");
+
+    // The confirming code just spent this 30-second step (`totp_last_step`),
+    // so the re-authenticating one has to be a fresh one, waited for exactly
+    // as `adr55_a_fresh_code` already does for the sign-in above.
+    let reauth_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, reauth_code.as_bytes());
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/totp/enrol",
+        &body,
+    )
+    .await;
+
+    assert_eq!(
+        status, "200",
+        "the right password and a current code re-authenticate a replacement: {answer:?}"
+    );
+}
+
+/// Starting a re-enrolment, even one never confirmed, must not turn the
+/// account's second factor off.
+#[tokio::test]
+async fn an_abandoned_re_enrolment_leaves_the_old_authenticator_live() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "abandon").await;
+
+    let before = adr55_sign_in(&store, &enrolled.person.address, ADR55_PASSWORD, "", None).await;
     assert!(
-        answer.contains("already has a confirmed authenticator"),
-        "the answer was {answer:?}, which does not say what happened"
+        matches!(before, Err(SessionError::SecondFactorNeeded)),
+        "before any re-enrolment, the password alone is refused: {before:?}"
+    );
+
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("the confirmed authenticator signs in");
+
+    // Draw a replacement, re-authenticated as decision 3 requires, and then
+    // abandon it — no confirm follows.
+    let reauth_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let enrol_session = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .enrol_totp(&enrol_session, ADR55_PASSWORD, &reauth_code)
+        .await
+        .expect("a re-enrolment draws a pending secret");
+
+    // The OLD authenticator's code, still live, still opens a session.
+    let old_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let after = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &old_code,
+        None,
+    )
+    .await;
+    assert!(
+        after.is_ok(),
+        "an abandoned re-enrolment must not disable the authenticator it never replaced: \
+         {after:?}"
+    );
+
+    // A second enrol attempt is refused exactly as a first is — an
+    // abandoned pending secret is not a silent exemption.
+    let enrol_session2 = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    let second = creds.enrol_totp(&enrol_session2, "", "").await;
+    assert!(
+        second.is_err(),
+        "a second enrol attempt, with an abandoned pending secret already on the row, still \
+         needs the current password and a current code: {second:?}"
+    );
+}
+
+/// `confirm_totp` swaps the pending secret into the live slot, and the
+/// authenticator it replaced stops working.
+#[tokio::test]
+async fn confirm_totp_swaps_the_pending_secret_in_and_retires_the_old_code() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "swap").await;
+
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("the confirmed authenticator signs in");
+
+    let reauth_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let enrol_session = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .enrol_totp(&enrol_session, ADR55_PASSWORD, &reauth_code)
+        .await
+        .expect("a re-enrolment draws a pending secret");
+
+    let new_secret = adr55_totp_secret(&pool, &ring, &enrolled.person.account.to_string()).await;
+    assert_ne!(
+        new_secret, enrolled.secret,
+        "the pending secret is a genuinely new one"
+    );
+
+    let new_code = adr55_a_fresh_code(&new_secret).await;
+    let confirm_session = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/confirm",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .confirm_totp(&confirm_session, &new_code)
+        .await
+        .expect("a real code against the pending secret confirms the swap");
+
+    let stale_old_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let with_old = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &stale_old_code,
+        None,
+    )
+    .await;
+    assert!(
+        with_old.is_err(),
+        "the old authenticator's code must stop working once the new one is confirmed: \
+         {with_old:?}"
+    );
+
+    let next_new_code = adr55_a_fresh_code(&new_secret).await;
+    let with_new = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &next_new_code,
+        None,
+    )
+    .await;
+    assert!(
+        with_new.is_ok(),
+        "the newly confirmed authenticator's code signs in: {with_new:?}"
+    );
+}
+
+/// Every attempt at `/credentials/password` charges the account budget
+/// before the current password is checked.
+#[tokio::test]
+async fn a_current_password_budget_is_charged_before_verification_and_refuses_a_right_guess_once_over_the_cap(
+) {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let person = adr55_account(&pool, "budget").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    let (signed_in, session_key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential signs in");
+    let account = person.account.to_string();
+
+    // `SignInLimits::defaults().max_per_account` is 10: the account bucket is
+    // over the cap once an eleventh charge lands.
+    for i in 0..10 {
+        let mut body = Vec::new();
+        lp(&mut body, ADR55_WRONG_PASSWORD.as_bytes());
+        lp(&mut body, b"meadow-compass-ferry-eleven");
+        lp(&mut body, b"");
+        lp(&mut body, b"");
+        lp(&mut body, b"");
+        let (status, answer) = adr55_signed_post(
+            addr,
+            &store,
+            &signed_in,
+            &session_key,
+            "/credentials/password",
+            &body,
+        )
+        .await;
+        assert_eq!(
+            status, "401",
+            "attempt {i}: a wrong current password is the ordinary sign-in refusal: {answer:?}"
+        );
+    }
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        10,
+        "ten wrong-current-password attempts charged the account bucket ten times, whether or \
+         not each one was ever verified"
+    );
+
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, b"meadow-compass-ferry-eleven");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/password",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "429",
+        "once the account bucket is over the cap, even the RIGHT current password is refused: \
+         {answer:?}"
+    );
+}
+
+/// `/credentials/totp/enrol` is charged before the code is checked, as the
+/// password route is.
+#[tokio::test]
+async fn a_re_enrolment_code_budget_is_charged_before_verification_and_refuses_a_right_code_once_over_the_cap(
+) {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "codebudget").await;
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("the confirmed authenticator signs in");
+    let account = enrolled.person.account.to_string();
+
+    let now_step = credentials::totp_step(now_unix());
+    let live: Vec<String> = (-1..=1)
+        .map(|d| credentials::totp_code(&enrolled.secret, now_step + d))
+        .collect();
+    let mut charged = 0;
+    let mut n: u32 = 0;
+    while charged < 10 {
+        let guess = format!("{:06}", 100_000 + n * 7919);
+        n += 1;
+        if live.contains(&guess) {
+            continue;
+        }
+        charged += 1;
+        let mut body = Vec::new();
+        lp(&mut body, ADR55_PASSWORD.as_bytes());
+        lp(&mut body, guess.as_bytes());
+        let (status, answer) = adr55_signed_post(
+            addr,
+            &store,
+            &signed_in,
+            &session_key,
+            "/credentials/totp/enrol",
+            &body,
+        )
+        .await;
+        assert_eq!(
+            status, "401",
+            "wrong-code attempt {charged}: refused generically: {answer:?}"
+        );
+    }
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        10,
+        "ten wrong re-enrolment codes charged the account bucket ten times"
+    );
+
+    let real_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, real_code.as_bytes());
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/totp/enrol",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "429",
+        "once the account bucket is over the cap, even a real current code is refused: \
+         {answer:?}"
+    );
+}
+
+/// A successful credential change refunds the unit it reserved, on both
+/// /credentials/password and /credentials/totp/enrol.
+#[tokio::test]
+async fn a_successful_credential_change_does_not_spend_the_account_budget() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+    let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let person = adr55_account(&pool, "refund").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    let (signed_in, session_key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential signs in");
+    let account = person.account.to_string();
+    let before = adr56_attempts("account", &account).await;
+
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, b"meadow-compass-ferry-eleven");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
+    lp(&mut body, b"");
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/password",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the right current password succeeds: {answer:?}"
+    );
+    assert_eq!(
+        adr56_attempts("account", &account).await,
+        before,
+        "a successful password change refunds the unit it reserved"
+    );
+
+    let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "refund-enrol").await;
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, session_key) = adr55_sign_in(
+        &store,
+        &enrolled.person.address,
+        ADR55_PASSWORD,
+        &code,
+        None,
+    )
+    .await
+    .expect("the confirmed authenticator signs in");
+    let enrol_account = enrolled.person.account.to_string();
+    let enrol_before = adr56_attempts("account", &enrol_account).await;
+
+    let reauth_code = adr55_a_fresh_code(&enrolled.secret).await;
+    let mut body = Vec::new();
+    lp(&mut body, ADR55_PASSWORD.as_bytes());
+    lp(&mut body, reauth_code.as_bytes());
+    let (status, answer) = adr55_signed_post(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        "/credentials/totp/enrol",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the right password and code succeed: {answer:?}"
+    );
+    assert_eq!(
+        adr56_attempts("account", &enrol_account).await,
+        enrol_before,
+        "a successful re-enrolment refunds the unit it reserved"
+    );
+}
+
+/// An operator binding that cannot be verified fails the whole credential
+/// change, proven against a forged, zero-sealed binding.
+#[tokio::test]
+async fn a_credential_change_is_refused_whole_when_the_bound_operator_cannot_be_verified() {
+    let _serial = ADR55_SERIAL.lock().await;
+    let pool = adr55_deployment().await;
+    let ring = ring();
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
+
+    let person = adr55_account(&pool, "atomic").await;
+    adr55_set_password(&pool, &person, ADR55_PASSWORD).await;
+    adr55_bind_to_an_operator(&person).await;
+
+    let (signed_in, session_key) = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a steward with a credential signs in");
+    let session = adr55_try_verify(
+        &store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/password",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+
+    let r = creds
+        .set_password(
+            &session,
+            ADR55_PASSWORD,
+            "meadow-compass-ferry-eleven",
+            false,
+        )
+        .await;
+    assert!(
+        r.is_err(),
+        "an unverifiable operator binding must fail the WHOLE credential change, not just the \
+         session-ending step that discovers it: {r:?}"
+    );
+
+    let still = adr55_sign_in(&store, &person.address, ADR55_PASSWORD, "", None).await;
+    assert!(
+        still.is_ok(),
+        "the refused change must not have partially committed a new password: {still:?}"
     );
 }
 
@@ -3431,6 +4113,8 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             password: ADR55_PASSWORD,
             totp_code: "",
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await;
 
@@ -3471,6 +4155,8 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             password: ADR55_PASSWORD,
             totp_code: &code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await
         .expect(
@@ -3508,6 +4194,8 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             password: ADR55_PASSWORD,
             totp_code: &code,
             source: &a_source_of_its_own(),
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await;
     assert!(
@@ -3570,6 +4258,8 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
                 password: ADR55_PASSWORD,
                 totp_code: "",
                 source: &source,
+                account_session_id: "",
+                account_session_sig: b"",
             })
             .await;
         assert!(
@@ -3609,6 +4299,8 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             password: ADR55_PASSWORD,
             totp_code: &code,
             source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await
         .expect("the probes left the challenge unconsumed");
@@ -3640,6 +4332,8 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             password: "harbour-lantern-copper-ten",
             totp_code: "",
             source: &wrong_source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await;
     assert!(
@@ -3665,6 +4359,8 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             password: ADR55_PASSWORD,
             totp_code: &adr55_a_fresh_code(&enrolled.secret).await,
             source: &wrong_source,
+            account_session_id: "",
+            account_session_sig: b"",
         })
         .await;
     assert!(
@@ -3756,6 +4452,8 @@ async fn the_second_factor_answer_is_401_and_says_what_is_missing() {
         lp(&mut body, &challenge.nonce);
         lp(&mut body, b"");
         lp(&mut body, credential.as_bytes());
+        lp(&mut body, b"");
+        lp(&mut body, b"");
         lp(&mut body, b"");
         let (status, answer) = post_bytes(
             addr,

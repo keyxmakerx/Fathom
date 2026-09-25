@@ -40,8 +40,8 @@ use fathom_server::operators::{
 };
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
-    self, Assurance, PrincipalKind, SessionError, SessionStore, SignInLimits, SignedIn,
-    VerifiedSession,
+    self, Assurance, PrincipalKind, SessionError, SessionStore, SignInAttempt, SignInLimits,
+    SignedIn, VerifiedSession,
 };
 
 /// The same master key every other suite in this crate uses: ADR-0043 §4
@@ -335,7 +335,7 @@ async fn a_bootstrapped_operator(operators: &OperatorStore, sessions: &SessionSt
         .await
         .clone();
 
-    let (signed_in, session_key) = sign_in_as_operator(sessions, &id, &key).await;
+    let (signed_in, session_key) = sign_in_as_operator(TAG, sessions, operators, &id, &key).await;
     let session = verify(sessions, &signed_in, &session_key, "POST", "/admin/x", b"").await;
     Operator {
         id,
@@ -449,7 +449,7 @@ async fn a_confirmed_app_code(
     );
     let session = an_account_session(sessions_store, account, key, "/credentials/totp/enrol").await;
     creds
-        .enrol_totp(&session)
+        .enrol_totp(&session, "", "")
         .await
         .expect("an account with the operator custody enrols an app code");
 
@@ -466,7 +466,7 @@ async fn a_confirmed_app_code(
 }
 
 /// The secret an authenticator would be computing from, opened the way the
-/// server opens it.
+/// server opens it — the PENDING one, read between `enrol_totp` and `confirm_totp`.
 async fn totp_secret_of(pool: &Pool, ring: &KeyRing, deployment: &str, account: &str) -> Vec<u8> {
     let mut client = pool.get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
@@ -481,9 +481,9 @@ async fn totp_secret_of(pool: &Pool, ring: &KeyRing, deployment: &str, account: 
         .await
         .expect("the credential key");
     let secret = row
-        .totp_secret(&key, deployment, account)
-        .expect("open the secret")
-        .expect("a secret is enrolled");
+        .totp_pending_secret(&key, deployment, account)
+        .expect("open the pending secret")
+        .expect("a secret is pending confirmation");
     tx.rollback().await.expect("rollback");
     secret
 }
@@ -511,6 +511,30 @@ async fn account_of_operator(operators: &OperatorStore, operator: &str) -> Strin
     account
 }
 
+/// As [`account_of_operator`], but `None` rather than a panic when there is
+/// no binding — for a fixture that deliberately has none (a minted operator
+/// row, ADR-0057 decision 2's own refusal tests).
+async fn account_of_operator_opt(operators: &OperatorStore, operator: &str) -> Option<String> {
+    let mut client = operators.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let account = tx
+        .query_opt(
+            "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+            &[&operator],
+        )
+        .await
+        .expect("query the binding")
+        .map(|row| row.get(0));
+    tx.commit().await.expect("commit");
+    account
+}
+
 /// **The first operator of a deployment of this test's own**, all the way to a
 /// signed-in operator session: the bootstrap, the browser's account key, the
 /// account session, and the operator key registered from it.
@@ -519,7 +543,11 @@ async fn account_of_operator(operators: &OperatorStore, operator: &str) -> Strin
 /// deployment, where the bootstrap happens once and is remembered; this one is
 /// for a database that has nothing in it yet, which is the state every
 /// ADR-0055 stream (b) test below needs.
-async fn a_lone_operator(operators: &OperatorStore, sessions_store: &SessionStore) -> Operator {
+async fn a_lone_operator(
+    tag: &str,
+    operators: &OperatorStore,
+    sessions_store: &SessionStore,
+) -> Operator {
     let address = unique("owner@example.org");
     let bootstrap = operators
         .bootstrap_first_operator(&address, &address)
@@ -549,7 +577,7 @@ async fn a_lone_operator(operators: &OperatorStore, sessions_store: &SessionStor
         .expect("the account holding the operator custody registers its browser key");
 
     let (signed_in, session_key) =
-        sign_in_as_operator(sessions_store, &bootstrap.operator_id, &key).await;
+        sign_in_as_operator(tag, sessions_store, operators, &bootstrap.operator_id, &key).await;
     let session = verify(
         sessions_store,
         &signed_in,
@@ -594,40 +622,371 @@ async fn operator_holding(key: &SoftwareKey) -> String {
 /// mechanism an account uses** (§4.5, and the brief's first item): a fresh
 /// session keypair, a challenge derived from its public half, and the enrolled
 /// operator key signing that challenge.
+///
+/// Decision 2: also signs in and endorses with the operator's own bound
+/// account, via a real fresh password-and-code sign-in (no superuser forgery).
 async fn sign_in_as_operator(
+    tag: &str,
     store: &SessionStore,
+    operators: &OperatorStore,
     operator: &str,
     key: &SoftwareKey,
 ) -> (SignedIn, SoftwareKey) {
     let session_key = SoftwareKey::random().expect("a session keypair");
-    let signed_in = try_sign_in_as_operator(store, operator, key, &session_key)
+    let signed_in = try_sign_in_as_operator(tag, store, operators, operator, key, &session_key)
         .await
-        .expect("an operator with an enrolled key signs in");
+        .expect("an operator with an enrolled key and a live account session signs in");
     (signed_in, session_key)
 }
 
+/// Whether a cached endorsing session's row is gone or revoked — the only
+/// condition the fixture retry below may mint a fresh replacement for.
+async fn cached_session_is_gone_or_revoked(tag: &str, session_id: &str) -> bool {
+    let su = support::superuser_on_isolated(tag).await;
+    let row: i64 = su
+        .query_one(
+            "SELECT count(*) FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("count sessions")
+        .get(0);
+    let revoked: i64 = su
+        .query_one(
+            "SELECT count(*) FROM session_revocations WHERE session_id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("count revocations")
+        .get(0);
+    row == 0 || revoked > 0
+}
+
 async fn try_sign_in_as_operator(
+    tag: &str,
     store: &SessionStore,
+    operators: &OperatorStore,
     operator: &str,
     key: &SoftwareKey,
     session_key: &SoftwareKey,
 ) -> Result<SignedIn, SessionError> {
+    // No binding at all (a fixture that deliberately mints an operator row
+    // with none) means there is no account whose session could endorse
+    // this, so the attempt is refused exactly as the server refuses one.
+    let Some(account) = account_of_operator_opt(operators, operator).await else {
+        return Err(SessionError::SignInRefused);
+    };
+    // One retry, on a fresh mint, only when the cached session is gone or
+    // revoked — not for any other refusal, which would hide a real one.
+    for attempt in 0..2 {
+        let (account_signed_in, account_session_key) = if attempt == 0 {
+            fresh_endorsing_session(tag, store, operators, &account).await
+        } else {
+            mint_endorsing_session(tag, store, operators, &account).await
+        };
+
+        let pubkey = session_key.public_key();
+        let source = a_source_of_its_own();
+        let challenge = store
+            .issue_challenge(PrincipalKind::Operator, operator, &pubkey, &source)
+            .await?;
+        let digest =
+            sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+        let evidence = key.sign(&digest);
+        let account_session_sig = account_session_key.sign(&digest);
+        let result = store
+            .sign_in_with_credentials(&SignInAttempt {
+                kind: PrincipalKind::Operator,
+                session_pubkey: &pubkey,
+                nonce: &challenge.nonce,
+                evidence_sig: &evidence,
+                password: "",
+                totp_code: "",
+                source: &source,
+                account_session_id: &account_signed_in.session_id,
+                account_session_sig: &account_session_sig,
+            })
+            .await;
+        if attempt == 0
+            && matches!(result, Err(SessionError::SignInRefused))
+            && cached_session_is_gone_or_revoked(tag, &account_signed_in.session_id).await
+        {
+            continue;
+        }
+        return result;
+    }
+    unreachable!("the loop above always returns on its second pass")
+}
+
+/// A password a fixture account gets once, only so [`fresh_endorsing_session`]
+/// can prove a real second factor through the password-and-code branch.
+const FRESH_ENDORSEMENT_PASSWORD: &str = "checker-fixture-endorsement-password-one";
+
+/// Writes `accounts.password_hash` directly, unconditionally, then clears
+/// it back to `NULL` at once — not through `set_password`, which ends other sessions.
+async fn write_fixture_password(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    account: &str,
+    password: Option<&str>,
+) {
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
+        .await
+        .expect("reset custody");
+    let mut row = credentials::read_credentials(&tx, ring, account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    let hash = password.map(|p| credentials::hash_password(p).expect("hash"));
+    row.password_hash = hash.clone();
+    let seal = credentials::seal_for_write(&tx, ring, account, &mut row, None)
+        .await
+        .expect("seal the credential columns");
+    let updated = tx
+        .execute(
+            "UPDATE accounts \
+                SET password_hash = $2, credential_seal = $3, credential_row_version = $4, \
+                    credential_seq = $5 \
+              WHERE id = $1",
+            &[
+                &account,
+                &hash,
+                &seal,
+                &row.credential_row_version,
+                &row.seq_column(),
+            ],
+        )
+        .await
+        .expect("write the fixture password");
+    assert_eq!(
+        updated, 1,
+        "the fixture password must land on exactly one row: {account}"
+    );
+    tx.execute("SELECT set_config('app.reset_custody', 'no', true)", &[])
+        .await
+        .expect("leave reset custody");
+    tx.commit().await.expect("commit");
+}
+
+/// The live, CONFIRMED secret an account's authenticator would be computing
+/// from — [`totp_secret_of`]'s live half.
+async fn live_totp_secret_of(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    deployment: &str,
+    account: &str,
+) -> (Vec<u8>, Option<i64>) {
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+        .await
+        .expect("session custody");
+    let row = credentials::read_credentials(&tx, ring, account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    let key = credentials::totp_key_for(&tx, ring)
+        .await
+        .expect("the credential key");
+    let secret = row
+        .totp_secret(&key, deployment, account)
+        .expect("open the secret")
+        .expect("the account's app code is confirmed by the time an operator sign-in needs it");
+    let last_step = row.totp_last_step;
+    tx.rollback().await.expect("rollback");
+    (secret, last_step)
+}
+
+/// A code for a step `last_step` has not already spent — waits for the
+/// clock, since `verify_totp`'s replay guard refuses a stale one.
+async fn fresh_totp_code(secret: &[u8], last_step: Option<i64>) -> String {
+    loop {
+        let step = credentials::totp_step(now_unix());
+        if last_step.is_none_or(|last| step > last) {
+            return credentials::totp_code(secret, step);
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// One cached, REALLY-verified account session per (tag, account) — a real
+/// password-and-code sign-in, not a superuser write, since the row MAC now covers freshness.
+type EndorsementCacheKey = (String, String);
+struct CachedEndorsement {
+    session_id: String,
+    token: [u8; 32],
+    expires_at_unix: i64,
+    minted_at_unix: i64,
+    scalar: [u8; 32],
+}
+static FRESH_ENDORSEMENT: std::sync::OnceLock<
+    tokio::sync::Mutex<std::collections::HashMap<EndorsementCacheKey, CachedEndorsement>>,
+> = std::sync::OnceLock::new();
+
+async fn fresh_endorsing_session(
+    tag: &str,
+    store: &SessionStore,
+    operators: &OperatorStore,
+    account: &str,
+) -> (SignedIn, SoftwareKey) {
+    let lock =
+        FRESH_ENDORSEMENT.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let cache_key = (tag.to_string(), account.to_string());
+    let now = now_unix();
+    // Held across the whole mint, not just the check: a racing caller must
+    // wait for the previous mint rather than stomp its password write.
+    let mut guard = lock.lock().await;
+    // A minute of margin inside the session's own lifetime and the
+    // fifteen-minute freshness window, so a slow test never straddles the edge.
+    if let Some(cached) = guard.get(&cache_key) {
+        if now < cached.expires_at_unix - 60
+            && now - cached.minted_at_unix < sessions::SECOND_FACTOR_FRESHNESS.as_secs() as i64 - 60
+        {
+            let session_key = SoftwareKey::from_bytes(&cached.scalar).expect("a valid scalar");
+            return (
+                SignedIn {
+                    session_id: cached.session_id.clone(),
+                    token: cached.token,
+                    expires_at_unix: cached.expires_at_unix,
+                    account_id: account.to_string(),
+                },
+                session_key,
+            );
+        }
+    }
+
+    mint_and_cache(account, &mut guard, cache_key, now, store, operators).await
+}
+
+/// Unconditionally mints and re-caches — [`try_sign_in_as_operator`]'s one
+/// retry, for a cached entry that read as fresh but was refused anyway.
+async fn mint_endorsing_session(
+    tag: &str,
+    store: &SessionStore,
+    operators: &OperatorStore,
+    account: &str,
+) -> (SignedIn, SoftwareKey) {
+    let lock =
+        FRESH_ENDORSEMENT.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let cache_key = (tag.to_string(), account.to_string());
+    let now = now_unix();
+    let mut guard = lock.lock().await;
+    mint_and_cache(account, &mut guard, cache_key, now, store, operators).await
+}
+
+async fn mint_and_cache(
+    account: &str,
+    guard: &mut tokio::sync::MutexGuard<
+        '_,
+        std::collections::HashMap<EndorsementCacheKey, CachedEndorsement>,
+    >,
+    cache_key: EndorsementCacheKey,
+    now: i64,
+    store: &SessionStore,
+    operators: &OperatorStore,
+) -> (SignedIn, SoftwareKey) {
+    let ring = ring();
+    write_fixture_password(
+        operators.pool(),
+        &ring,
+        account,
+        Some(FRESH_ENDORSEMENT_PASSWORD),
+    )
+    .await;
+    let (secret, last_step) =
+        live_totp_secret_of(operators.pool(), &ring, operators.deployment(), account).await;
+
+    let address = account_address(store, account).await;
+    // A scalar generated by hand, not `SoftwareKey::random()`, so its bytes
+    // can rebuild an equivalent key on reuse — `SoftwareKey` exposes none of its own.
+    let (scalar, session_key) = loop {
+        let bytes = *Key32::random().expect("randomness").expose();
+        if let Some(key) = SoftwareKey::from_bytes(&bytes) {
+            break (bytes, key);
+        }
+    };
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
     let challenge = store
-        .issue_challenge(PrincipalKind::Operator, operator, &pubkey, &source)
-        .await?;
+        .issue_challenge(PrincipalKind::Steward, &address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    // A code for a step not already spent: the confirming code just used
+    // the current step, and `verify_totp`'s replay guard refuses it again.
+    let code = fresh_totp_code(&secret, last_step).await;
+    let signed_in = store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            // No key evidence: a signature present would win A1 over A0T,
+            // and A1 is the one branch that never sets totp_verified_at.
+            evidence_sig: b"",
+            password: FRESH_ENDORSEMENT_PASSWORD,
+            totp_code: &code,
+            source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
+        })
+        .await;
+    // Put back at once: every other caller of this account assumes
+    // key-only sign-in and would be refused for the rest of the process otherwise.
+    write_fixture_password(operators.pool(), &ring, account, None).await;
+    let signed_in =
+        signed_in.expect("the fixture account signs in with its password and a live code");
+
+    guard.insert(
+        cache_key,
+        CachedEndorsement {
+            session_id: signed_in.session_id.clone(),
+            token: signed_in.token,
+            expires_at_unix: signed_in.expires_at_unix,
+            minted_at_unix: now,
+            scalar,
+        },
+    );
+    (signed_in, session_key)
+}
+
+/// A live session, session key and all, of an account signing in with its
+/// own enrolled key alone — [`SessionStore::sign_in`], not the
+/// password-and-code route. What [`try_sign_in_as_operator`] endorses an
+/// operator sign-in with.
+struct AccountKeySignIn {
+    signed_in: SignedIn,
+    session_key: SoftwareKey,
+}
+
+async fn an_account_key_sign_in(
+    store: &SessionStore,
+    account: &str,
+    key: &SoftwareKey,
+) -> AccountKeySignIn {
+    let address = account_address(store, account).await;
+    let session_key = SoftwareKey::random().expect("an account session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Steward, &address, &pubkey, &source)
+        .await
+        .expect("an account challenge");
     let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
-    let evidence = key.sign(&digest);
-    store
+    let signed_in = store
         .sign_in(
-            PrincipalKind::Operator,
+            PrincipalKind::Steward,
             &pubkey,
             &challenge.nonce,
-            &evidence,
+            &key.sign(&digest),
             &source,
         )
         .await
+        .expect("the account holding the operator custody signs in with its own key");
+    AccountKeySignIn {
+        signed_in,
+        session_key,
+    }
 }
 
 /// One verified session, the way `api::Signed` produces one: a fresh nonce, a
@@ -719,6 +1078,300 @@ async fn site_entries_of(entry_type: &str) -> i64 {
         .await
         .expect("count entries")
         .get(0)
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 2: the endorsement, attacked. No superuser UPDATE
+// stands in for freshness anywhere below.
+// ---------------------------------------------------------------------------
+
+/// One operator-plane challenge, held open so a caller can sign its digest
+/// with whichever keys a scenario needs, including replaying an old one.
+struct OperatorAttempt<'a> {
+    store: &'a SessionStore,
+    session_key: SoftwareKey,
+    nonce: [u8; 32],
+    digest: [u8; 32],
+    source: String,
+}
+
+async fn begin_operator_attempt<'a>(
+    store: &'a SessionStore,
+    operator: &'a str,
+) -> OperatorAttempt<'a> {
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Operator, operator, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    OperatorAttempt {
+        store,
+        session_key,
+        nonce: challenge.nonce,
+        digest,
+        source,
+    }
+}
+
+impl OperatorAttempt<'_> {
+    async fn finish(
+        &self,
+        operator_sig: &[u8],
+        endorsing_session_id: &str,
+        endorsing_sig: &[u8],
+        code: &str,
+    ) -> Result<SignedIn, SessionError> {
+        self.store
+            .sign_in_with_credentials(&SignInAttempt {
+                kind: PrincipalKind::Operator,
+                session_pubkey: &self.session_key.public_key(),
+                nonce: &self.nonce,
+                evidence_sig: operator_sig,
+                password: "",
+                totp_code: code,
+                source: &self.source,
+                account_session_id: endorsing_session_id,
+                account_session_sig: endorsing_sig,
+            })
+            .await
+    }
+}
+
+/// Another account's live, fresh session cannot endorse this operator's
+/// sign-in — the name check binds it to the operator's OWN account.
+#[tokio::test]
+async fn an_endorsement_by_another_account_s_session_is_refused() {
+    const TAG: &str = "b_endorse_other";
+    let (pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+
+    let other_key = SoftwareKey::random().expect("a keypair");
+    let other = repo::create_account(&pool, &unique("other@example.org"), "Other")
+        .await
+        .expect("create account")
+        .id
+        .to_string();
+    an_account_browser_key(&operators, &other, &other_key).await;
+    let other = an_account_key_sign_in(&sessions_store, &other, &other_key).await;
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = other.session_key.sign(&attempt.digest);
+    let r = attempt
+        .finish(
+            &operator_sig,
+            &other.signed_in.session_id,
+            &endorsing_sig,
+            "",
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "a genuinely live, correctly signed session of a DIFFERENT account must not endorse this \
+         operator's sign-in: {r:?}"
+    );
+}
+
+/// **A signed-out (revoked) session of the right account cannot endorse.**
+#[tokio::test]
+async fn an_endorsement_by_a_signed_out_session_is_refused() {
+    const TAG: &str = "b_endorse_out";
+    let (pool, operators, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+
+    let signed_out = an_account_key_sign_in(&sessions_store, &account, &op.key).await;
+    {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        sessions::end_other_sessions(
+            &tx,
+            &ring,
+            operators.deployment(),
+            PrincipalKind::Steward,
+            &account,
+            "not-a-real-session-id",
+        )
+        .await
+        .expect("end every session of this account, including the one just minted");
+        tx.commit().await.expect("commit");
+    }
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = signed_out.session_key.sign(&attempt.digest);
+    let r = attempt
+        .finish(
+            &operator_sig,
+            &signed_out.signed_in.session_id,
+            &endorsing_sig,
+            "",
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "a signed-out session, even one that would otherwise verify and name the right account, \
+         must not endorse: {r:?}"
+    );
+}
+
+/// An OPERATOR session cannot endorse an operator sign-in — the endorsement
+/// is a Steward-plane fact, and an operator session is the wrong plane.
+#[tokio::test]
+async fn an_operator_session_cannot_endorse_its_own_sign_in() {
+    const TAG: &str = "b_endorse_op";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = op.session_key.sign(&attempt.digest);
+    let r = attempt
+        .finish(&operator_sig, &op.signed_in.session_id, &endorsing_sig, "")
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "the operator's own operator-plane session must not stand in for its account's \
+         endorsement: {r:?}"
+    );
+}
+
+/// **A signature by a key that is not the endorsing session's own is
+/// refused**, however correctly it names the right session id.
+#[tokio::test]
+async fn an_endorsement_signed_by_the_wrong_key_is_refused() {
+    const TAG: &str = "b_endorse_wrongkey";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, _) = fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+    let stranger = SoftwareKey::random().expect("a keypair");
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let wrong_sig = stranger.sign(&attempt.digest);
+    let r = attempt
+        .finish(&operator_sig, &fresh.session_id, &wrong_sig, "")
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "the right session id, signed by a key that is not that session's, must be refused: \
+         {r:?}"
+    );
+}
+
+/// A signature is bound to the challenge it signed: replayed against a
+/// second, freshly issued one, it is refused.
+#[tokio::test]
+async fn an_endorsement_signature_cannot_be_replayed_on_a_new_challenge() {
+    const TAG: &str = "b_endorse_replay";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+
+    let first = begin_operator_attempt(&sessions_store, &op.id).await;
+    let first_operator_sig = op.key.sign(&first.digest);
+    let first_endorsing_sig = fresh_key.sign(&first.digest);
+    let ok = first
+        .finish(
+            &first_operator_sig,
+            &fresh.session_id,
+            &first_endorsing_sig,
+            "",
+        )
+        .await;
+    assert!(
+        ok.is_ok(),
+        "the baseline, correctly signed attempt succeeds: {ok:?}"
+    );
+
+    let second = begin_operator_attempt(&sessions_store, &op.id).await;
+    let second_operator_sig = op.key.sign(&second.digest);
+    let r = second
+        .finish(
+            &second_operator_sig,
+            &fresh.session_id,
+            &first_endorsing_sig,
+            "",
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "the same endorsement signature, presented against a NEW challenge, is refused: {r:?}"
+    );
+}
+
+/// A stale endorsing session (key-only, `totp_verified_at` unset) needs a
+/// live code beside it: none asks, wrong is refused, right signs in.
+#[tokio::test]
+async fn a_stale_endorsing_session_asks_for_a_code_and_accepts_only_the_right_one() {
+    const TAG: &str = "b_stepup";
+    let (pool, operators, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (secret, last_step) =
+        live_totp_secret_of(&pool, &ring, operators.deployment(), &account).await;
+
+    let stale = an_account_key_sign_in(&sessions_store, &account, &op.key).await;
+
+    let no_code = begin_operator_attempt(&sessions_store, &op.id).await;
+    let op_sig = op.key.sign(&no_code.digest);
+    let endorse_sig = stale.session_key.sign(&no_code.digest);
+    let r = no_code
+        .finish(&op_sig, &stale.signed_in.session_id, &endorse_sig, "")
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SecondFactorNeeded)),
+        "a stale endorsing session with no code asks for the second factor: {r:?}"
+    );
+
+    let wrong_code = begin_operator_attempt(&sessions_store, &op.id).await;
+    let op_sig = op.key.sign(&wrong_code.digest);
+    let endorse_sig = stale.session_key.sign(&wrong_code.digest);
+    let r = wrong_code
+        .finish(&op_sig, &stale.signed_in.session_id, &endorse_sig, "000000")
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::PasswordRefused)),
+        "a stale endorsing session with the WRONG code is refused, not admitted: {r:?}"
+    );
+
+    let code = fresh_totp_code(&secret, last_step).await;
+    let right_code = begin_operator_attempt(&sessions_store, &op.id).await;
+    let op_sig = op.key.sign(&right_code.digest);
+    let endorse_sig = stale.session_key.sign(&right_code.digest);
+    let ok = right_code
+        .finish(&op_sig, &stale.signed_in.session_id, &endorse_sig, &code)
+        .await;
+    assert!(
+        ok.is_ok(),
+        "a stale endorsing session with the RIGHT code signs in: {ok:?}"
+    );
+
+    // And that same code, already spent, does not work again on a fresh
+    // challenge.
+    let replay = begin_operator_attempt(&sessions_store, &op.id).await;
+    let op_sig = op.key.sign(&replay.digest);
+    let endorse_sig = stale.session_key.sign(&replay.digest);
+    let r = replay
+        .finish(&op_sig, &stale.signed_in.session_id, &endorse_sig, &code)
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::PasswordRefused)),
+        "a code already spent at one step-up is refused on a second challenge, not honoured \
+         again: {r:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1717,8 +2370,8 @@ async fn the_interlock_cannot_be_satisfied_by_one_operator_asserting_twice() {
     // register is moving a number the tests around this one read.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
-    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
+    let colleague = a_second_operator(TAG, &operators_store, &sessions_store, &operator).await;
     counts_towards_quorum(&operators_store, &operator.id).await;
     counts_towards_quorum(&operators_store, &colleague.id).await;
     assert_eq!(
@@ -1948,7 +2601,7 @@ async fn quorum_one_drops_the_second_signature_and_keeps_the_delay() {
     const TAG: &str = "ops_quorum_one";
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
 
     let key = unique("cadence");
     request_and_expect_applied(&operators_store, &operator, &key, b"first").await;
@@ -2029,14 +2682,14 @@ async fn a_request_stamped_under_quorum_one_is_refused_and_still_seconded_when_q
     // few milliseconds before a boundary.)
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
 
     // A colleague, minted while the quorum is still 1. They have signed in,
     // so `0015` §G's independence window -- seven days -- is the only thing
     // keeping them out of the count, and that is exactly the lead's
     // resolution 9: a quorum of two that demanded a seconder the trigger
     // refuses would be a deadlock with a number in front of it.
-    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    let colleague = a_second_operator(TAG, &operators_store, &sessions_store, &operator).await;
     assert_eq!(
         operators_store
             .live_independent_operators()
@@ -2166,8 +2819,8 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
     // fix (c) wrote it, after the delay, with no race to lose.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let first = a_lone_operator(&operators_store, &sessions_store).await;
-    let second = a_second_operator(&operators_store, &sessions_store, &first).await;
+    let first = a_lone_operator(TAG, &operators_store, &sessions_store).await;
+    let second = a_second_operator(TAG, &operators_store, &sessions_store, &first).await;
 
     // Both operators past the independence window, so the quorum is 2 and a
     // second signature is required at all. Backdating is legitimate here and
@@ -2252,7 +2905,7 @@ async fn a_disabled_operator_stops_at_the_next_request() {
     let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
     let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
     let first = a_bootstrapped_operator(&operators_store, &sessions_store).await;
-    let second = a_second_operator(&operators_store, &sessions_store, &first).await;
+    let second = a_second_operator(TAG, &operators_store, &sessions_store, &first).await;
 
     // The second operator's session works.
     verify(
@@ -2292,7 +2945,15 @@ async fn a_disabled_operator_stops_at_the_next_request() {
 
     // And they cannot sign in again either.
     let fresh = SoftwareKey::random().expect("a session keypair");
-    let refused = try_sign_in_as_operator(&sessions_store, &second.id, &second.key, &fresh).await;
+    let refused = try_sign_in_as_operator(
+        TAG,
+        &sessions_store,
+        &operators_store,
+        &second.id,
+        &second.key,
+        &fresh,
+    )
+    .await;
     assert!(
         matches!(refused, Err(SessionError::SignInRefused)),
         "a disabled operator does not sign in: {refused:?}"
@@ -2325,6 +2986,7 @@ impl Operator {
 /// assertion, the delay, and — in single-operator mode — no second signature,
 /// which is the documented configuration and not a skip flag.
 async fn a_second_operator(
+    tag: &str,
     operators_store: &OperatorStore,
     sessions_store: &SessionStore,
     by: &Operator,
@@ -2375,8 +3037,14 @@ async fn a_second_operator(
         .await
         .expect("the new operator's account registers its browser key (ADR-0055 decision 1)");
 
-    let (signed_in, session_key) =
-        sign_in_as_operator(sessions_store, &invitation.subject, &key).await;
+    let (signed_in, session_key) = sign_in_as_operator(
+        tag,
+        sessions_store,
+        operators_store,
+        &invitation.subject,
+        &key,
+    )
+    .await;
     let session = verify(
         sessions_store,
         &signed_in,
@@ -2448,7 +3116,15 @@ async fn an_operator_row_minted_in_the_database_cannot_sign_in() {
         .expect("the superuser can write a keyring row, seal and all");
 
     let session_key = SoftwareKey::random().expect("a session keypair");
-    let refused = try_sign_in_as_operator(&sessions_store, &minted, &key, &session_key).await;
+    let refused = try_sign_in_as_operator(
+        TAG,
+        &sessions_store,
+        &operators_store,
+        &minted,
+        &key,
+        &session_key,
+    )
+    .await;
     assert!(
         matches!(
             refused,
@@ -2560,8 +3236,14 @@ async fn every_write_path_to_an_operator_session_row_works_with_no_key_custody_s
 
     // (4) DELETE — sign-out, on a session of its own so the one above stays as
     //     it is. It writes a revocation row and removes the session.
-    let (signed_in, session_key) =
-        sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    let (signed_in, session_key) = sign_in_as_operator(
+        TAG,
+        &sessions_store,
+        &operators_store,
+        &operator.id,
+        &operator.key,
+    )
+    .await;
     let session = verify(
         &sessions_store,
         &signed_in,
@@ -2588,7 +3270,14 @@ async fn every_write_path_to_an_operator_session_row_works_with_no_key_custody_s
     // (5) DELETE — the sweep. Age a live operator session past its expiry and
     //     drive the path that sweeps (`sign_in` pays for the growth of all
     //     three session tables, `0014` §C).
-    let (aged, _key) = sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    let (aged, _key) = sign_in_as_operator(
+        TAG,
+        &sessions_store,
+        &operators_store,
+        &operator.id,
+        &operator.key,
+    )
+    .await;
     // Both timestamps move, because `0013`'s own `CHECK (expires_at >
     // issued_at)` is a rule about a session and not about the clock -- the same
     // shape `tests/sessions.rs` uses to age one.
@@ -2602,7 +3291,14 @@ async fn every_write_path_to_an_operator_session_row_works_with_no_key_custody_s
         )
         .await
         .expect("age the session");
-    let _ = sign_in_as_operator(&sessions_store, &operator.id, &operator.key).await;
+    let _ = sign_in_as_operator(
+        TAG,
+        &sessions_store,
+        &operators_store,
+        &operator.id,
+        &operator.key,
+    )
+    .await;
     let swept: i64 = superuser
         .query_one(
             "SELECT count(*) FROM sessions WHERE id = $1",
@@ -3407,7 +4103,7 @@ async fn a_sole_operator_adds_a_second_alone_and_it_applies_after_the_delay() {
     let (_pool, operators, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
 
-    let operator = a_lone_operator(&operators, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators, &sessions_store).await;
     assert_eq!(
         operators
             .live_independent_operators()
@@ -3494,11 +4190,11 @@ async fn disabling_the_last_live_operator_is_refused() {
     const TAG: &str = "ops_last_operator";
     let (_pool, operators, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let operator = a_lone_operator(&operators, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators, &sessions_store).await;
 
     // An operator cannot disable themselves -- a different rule, refused
     // earlier, so the floor needs a second operator to be visible at all.
-    let colleague = a_second_operator(&operators, &sessions_store, &operator).await;
+    let colleague = a_second_operator(TAG, &operators, &sessions_store, &operator).await;
 
     let acting = colleague
         .session_for(&sessions_store, "POST", "/admin/operators/x/disabled", b"")
@@ -3563,7 +4259,7 @@ async fn recover_operator_refuses_an_unknown_address_and_mints_nothing() {
     const TAG: &str = "ops_recover_unknown";
     let (_pool, operators, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let operator = a_lone_operator(&operators, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators, &sessions_store).await;
 
     let su = support::superuser_on_isolated(TAG).await;
     let before_operators: i64 = su
@@ -3666,8 +4362,8 @@ async fn the_seat_hold_refuses_a_key_and_another_operator_clears_it() {
     const TAG: &str = "ops_seat_hold";
     let (_pool, operators, sessions_store, ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let operator = a_lone_operator(&operators, &sessions_store).await;
-    let colleague = a_second_operator(&operators, &sessions_store, &operator).await;
+    let operator = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let colleague = a_second_operator(TAG, &operators, &sessions_store, &operator).await;
 
     let account = account_of_operator(&operators, &colleague.id).await;
     let su = support::superuser_on_isolated(TAG).await;
@@ -3814,7 +4510,7 @@ async fn the_new_operator_routes_are_mounted_and_answer() {
     const TAG: &str = "ops_routes";
     let (pool, operators_store, sessions_store, ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
 
     let state = AdminState {
         sessions: Arc::new(SessionStore::new(
@@ -4181,8 +4877,8 @@ async fn the_bootstrap_adds_a_third_operator_when_its_only_colleague_cannot_seco
     const TAG: &str = "ops_quorum_per_requester";
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
-    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
+    let colleague = a_second_operator(TAG, &operators_store, &sessions_store, &operator).await;
     // Seven days pass for both. This is the exact state the checker
     // reproduced in SQL against the live schema.
     counts_towards_quorum(&operators_store, &operator.id).await;
@@ -4263,8 +4959,8 @@ async fn a_seconder_the_requester_created_is_a_typed_refusal_and_not_an_alarm() 
     // to mint the colleague, and the rest of this test happens inside it.
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
-    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
+    let colleague = a_second_operator(TAG, &operators_store, &sessions_store, &operator).await;
     counts_towards_quorum(&operators_store, &operator.id).await;
     counts_towards_quorum(&operators_store, &colleague.id).await;
 
@@ -4319,8 +5015,8 @@ async fn a_backdate_without_a_reseal_is_an_alarm_and_not_a_quorum_of_one() {
     const TAG: &str = "ops_signin_sealed";
     let (_pool, operators_store, sessions_store, _ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
-    let colleague = a_second_operator(&operators_store, &sessions_store, &operator).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
+    let colleague = a_second_operator(TAG, &operators_store, &sessions_store, &operator).await;
     counts_towards_quorum(&operators_store, &operator.id).await;
     counts_towards_quorum(&operators_store, &colleague.id).await;
     assert_eq!(
@@ -4370,7 +5066,7 @@ async fn mark_first_independent_signin_records_once_and_keeps_the_row_verifying(
     const TAG: &str = "ops_mark_first_signin";
     let (_pool, operators_store, sessions_store, ring) =
         a_fresh_deployment(TAG, Duration::from_secs(2)).await;
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
 
     let mut client = operators_store.pool().get().await.expect("connection");
     let tx = client.transaction().await.expect("begin");
@@ -4784,7 +5480,7 @@ async fn the_adoption_retires_the_old_flows_keys_and_ends_its_sessions() {
     let (pool, operators_store, sessions_store, ring) =
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
 
-    let operator = a_lone_operator(&operators_store, &sessions_store).await;
+    let operator = a_lone_operator(TAG, &operators_store, &sessions_store).await;
     let account = account_of_operator(&operators_store, &operator.id).await;
     let address = account_address(&sessions_store, &account).await;
     assert_eq!(

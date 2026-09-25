@@ -174,6 +174,12 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
         .await
         .clone();
 
+    // Decision 2: also endorses with a real password-and-code sign-in
+    // (`fresh_endorsing_session`), not a superuser write.
+    let account = account_of_operator(operators, &id).await;
+    let (account_signed_in, account_session_key) =
+        fresh_endorsing_session(operators, sessions, &account).await;
+
     let session_key = SoftwareKey::random().expect("a session keypair");
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
@@ -183,16 +189,21 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
         .expect("a challenge");
     let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
     let evidence = key.sign(&digest);
+    let account_session_sig = account_session_key.sign(&digest);
     let signed_in = sessions
-        .sign_in(
-            PrincipalKind::Operator,
-            &pubkey,
-            &challenge.nonce,
-            &evidence,
-            &source,
-        )
+        .sign_in_with_credentials(&sessions::SignInAttempt {
+            kind: PrincipalKind::Operator,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: &evidence,
+            password: "",
+            totp_code: "",
+            source: &source,
+            account_session_id: &account_signed_in.session_id,
+            account_session_sig: &account_session_sig,
+        })
         .await
-        .expect("an operator with an enrolled key signs in");
+        .expect("an operator with an enrolled key and a live account session signs in");
     let session = verify(sessions, &signed_in, &session_key, "POST", "/admin/x", b"").await;
     Operator {
         id,
@@ -201,6 +212,174 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
         session_key,
         session,
     }
+}
+
+/// A password so [`fresh_endorsing_session`] can prove a real second factor.
+const FRESH_ENDORSEMENT_PASSWORD: &str = "checker-fixture-endorsement-password-one";
+
+/// Writes `accounts.password_hash` directly, unconditionally, then clears
+/// it back to `NULL` at once — not through `set_password`, which ends other sessions.
+async fn write_fixture_password(account: &str, password: Option<&str>) {
+    let pool = deployment().await;
+    let ring = ring();
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
+        .await
+        .expect("reset custody");
+    let mut row = credentials::read_credentials(&tx, &ring, account)
+        .await
+        .expect("read")
+        .expect("the account exists");
+    let hash = password.map(|p| credentials::hash_password(p).expect("hash"));
+    row.password_hash = hash.clone();
+    let seal = credentials::seal_for_write(&tx, &ring, account, &mut row, None)
+        .await
+        .expect("seal the credential columns");
+    let updated = tx
+        .execute(
+            "UPDATE accounts \
+                SET password_hash = $2, credential_seal = $3, credential_row_version = $4, \
+                    credential_seq = $5 \
+              WHERE id = $1",
+            &[
+                &account,
+                &hash,
+                &seal,
+                &row.credential_row_version,
+                &row.seq_column(),
+            ],
+        )
+        .await
+        .expect("write the fixture password");
+    assert_eq!(
+        updated, 1,
+        "the fixture password must land on exactly one row: {account}"
+    );
+    tx.execute("SELECT set_config('app.reset_custody', 'no', true)", &[])
+        .await
+        .expect("leave reset custody");
+    tx.commit().await.expect("commit");
+}
+
+/// A code for a step `last_step` has not already spent — waits for the
+/// clock, since `verify_totp`'s replay guard refuses a stale one.
+async fn fresh_totp_code(secret: &[u8], last_step: Option<i64>) -> String {
+    loop {
+        let step = credentials::totp_step(now_seconds());
+        if last_step.is_none_or(|last| step > last) {
+            return credentials::totp_code(secret, step);
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// One cached, REALLY-verified account session — a real password-and-code
+/// sign-in, not a superuser write, since the row MAC now covers freshness.
+struct CachedEndorsement {
+    session_id: String,
+    token: [u8; 32],
+    expires_at_unix: i64,
+    minted_at_unix: i64,
+    scalar: [u8; 32],
+}
+static FRESH_ENDORSEMENT: tokio::sync::OnceCell<tokio::sync::Mutex<Option<CachedEndorsement>>> =
+    tokio::sync::OnceCell::const_new();
+
+async fn fresh_endorsing_session(
+    operators: &OperatorStore,
+    store: &SessionStore,
+    account: &str,
+) -> (SignedIn, SoftwareKey) {
+    let lock = FRESH_ENDORSEMENT
+        .get_or_init(|| async { tokio::sync::Mutex::new(None) })
+        .await;
+    let now = now_seconds();
+    // Held across the whole mint, not just the check: a racing caller must
+    // wait for the previous mint rather than stomp its password write.
+    let mut guard = lock.lock().await;
+    if let Some(cached) = guard.as_ref() {
+        if now < cached.expires_at_unix - 60 && now - cached.minted_at_unix < 900 - 60 {
+            let session_key = SoftwareKey::from_bytes(&cached.scalar).expect("a valid scalar");
+            return (
+                SignedIn {
+                    session_id: cached.session_id.clone(),
+                    token: cached.token,
+                    expires_at_unix: cached.expires_at_unix,
+                    account_id: account.to_string(),
+                },
+                session_key,
+            );
+        }
+    }
+
+    write_fixture_password(account, Some(FRESH_ENDORSEMENT_PASSWORD)).await;
+    let (secret, last_step) = {
+        let ring = ring();
+        let mut client = operators.pool().get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await
+            .expect("session custody");
+        let row = credentials::read_credentials(&tx, &ring, account)
+            .await
+            .expect("read")
+            .expect("the account exists");
+        let totp_key = credentials::totp_key_for(&tx, &ring)
+            .await
+            .expect("the credential key");
+        let secret = row
+            .totp_secret(&totp_key, operators.deployment(), account)
+            .expect("open the secret")
+            .expect("the account's app code is confirmed by the time an operator sign-in needs it");
+        let last_step = row.totp_last_step;
+        tx.rollback().await.expect("rollback");
+        (secret, last_step)
+    };
+
+    let address = account_address(store, account).await;
+    let (scalar, session_key) = loop {
+        let bytes = *Key32::random().expect("randomness").expose();
+        if let Some(key) = SoftwareKey::from_bytes(&bytes) {
+            break (bytes, key);
+        }
+    };
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = store
+        .issue_challenge(PrincipalKind::Steward, &address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let code = fresh_totp_code(&secret, last_step).await;
+    let signed_in = store
+        .sign_in_with_credentials(&sessions::SignInAttempt {
+            kind: PrincipalKind::Steward,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            // No key evidence: a signature present would win A1 over A0T,
+            // and A1 is the one branch that never sets totp_verified_at.
+            evidence_sig: b"",
+            password: FRESH_ENDORSEMENT_PASSWORD,
+            totp_code: &code,
+            source: &source,
+            account_session_id: "",
+            account_session_sig: b"",
+        })
+        .await;
+    // Put back at once, whichever way that went — every OTHER caller of this
+    // account assumes branch 1 (key-only).
+    write_fixture_password(account, None).await;
+    let signed_in =
+        signed_in.expect("the fixture account signs in with its password and a live code");
+
+    *guard = Some(CachedEndorsement {
+        session_id: signed_in.session_id.clone(),
+        token: signed_in.token,
+        expires_at_unix: signed_in.expires_at_unix,
+        minted_at_unix: now,
+        scalar,
+    });
+    (signed_in, session_key)
 }
 
 /// The browser's key on the account itself, the act `POST /credentials/key`
@@ -240,7 +419,7 @@ async fn a_confirmed_app_code(
     );
     let session = an_account_session(sessions_store, account, key, "/credentials/totp/enrol").await;
     creds
-        .enrol_totp(&session)
+        .enrol_totp(&session, "", "")
         .await
         .expect("an account with the operator custody enrols an app code");
 
@@ -257,10 +436,12 @@ async fn a_confirmed_app_code(
         let totp_key = credentials::totp_key_for(&tx, &ring())
             .await
             .expect("the credential key");
+        // The PENDING secret (`0027` §B, ADR-0057 decision 3): read between
+        // `enrol_totp` and `confirm_totp`, before the swap into the live slot.
         let secret = row
-            .totp_secret(&totp_key, operators.deployment(), account)
-            .expect("open the secret")
-            .expect("a secret is enrolled");
+            .totp_pending_secret(&totp_key, operators.deployment(), account)
+            .expect("open the pending secret")
+            .expect("a secret is pending confirmation");
         tx.rollback().await.expect("rollback");
         secret
     };
@@ -281,6 +462,29 @@ fn now_seconds() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64
+}
+
+/// The account bound to this operator's custody, for a database this binary
+/// bootstrapped itself.
+async fn account_of_operator(operators: &OperatorStore, operator: &str) -> String {
+    let mut client = operators.pool().get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute(
+        "SELECT set_config('app.operator_custody', 'yes', true)",
+        &[],
+    )
+    .await
+    .expect("operator custody");
+    let account: String = tx
+        .query_one(
+            "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+            &[&operator],
+        )
+        .await
+        .expect("ADR-0055 decision 1: every operator this build creates is bound to an account")
+        .get(0);
+    tx.commit().await.expect("commit");
+    account
 }
 
 async fn account_address(sessions_store: &SessionStore, account: &str) -> String {

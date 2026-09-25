@@ -128,6 +128,8 @@ ISSUED_AT = 1_760_000_000
 EXPIRES_AT = 1_760_043_200
 CHAIN_SEQ = 12
 ROW_VERSION = 1
+# A plausible instant between ISSUED_AT and EXPIRES_AT, not round.
+TOTP_VERIFIED_AT = 1_760_000_050
 
 # ---------------------------------------------------------------------------
 # P-256, in plain Python, for the ES256 half
@@ -350,21 +352,21 @@ revocation_row_mac = mac(
     + lp(revocation_row_state),
 )
 
-row_state = canon(
-    {
-        "assertion_digest": hexs(evidence_digest),
-        "assurance": ASSURANCE.decode(),
-        "bound_nonce": hexs(SERVER_NONCE),
-        "evidence_key_id": EVIDENCE_KEY_ID.decode(),
-        "evidence_sig": hexs(EVIDENCE_SIG),
-        "expires_at": EXPIRES_AT,
-        "issued_at": ISSUED_AT,
-        "principal_id": PRINCIPAL_ID.decode(),
-        "principal_kind": PRINCIPAL_KIND.decode(),
-        "session_pubkey": hexs(SESSION_PUBKEY),
-        "token_hash": hexs(token_hash),
-    }
-)
+row_state_dict = {
+    "assertion_digest": hexs(evidence_digest),
+    "assurance": ASSURANCE.decode(),
+    "bound_nonce": hexs(SERVER_NONCE),
+    "evidence_key_id": EVIDENCE_KEY_ID.decode(),
+    "evidence_sig": hexs(EVIDENCE_SIG),
+    "expires_at": EXPIRES_AT,
+    "issued_at": ISSUED_AT,
+    "principal_id": PRINCIPAL_ID.decode(),
+    "principal_kind": PRINCIPAL_KIND.decode(),
+    "session_pubkey": hexs(SESSION_PUBKEY),
+    "token_hash": hexs(token_hash),
+    "totp_verified_at": TOTP_VERIFIED_AT,
+}
+row_state = canon(row_state_dict)
 
 row_mac = mac(
     k_row_site,
@@ -374,6 +376,21 @@ row_mac = mac(
     + u64_le(CHAIN_SEQ)
     + u32_le(ROW_VERSION)
     + lp(row_state),
+)
+
+# A row from before `totp_verified_at` existed: the key is left out, not
+# written as null, so an old seal still recomputes unchanged.
+row_state_no_totp_verified_at = canon(
+    {k: v for k, v in row_state_dict.items() if k != "totp_verified_at"}
+)
+row_mac_no_totp_verified_at = mac(
+    k_row_site,
+    lp(TAG_ROW)
+    + lp(b"sessions")
+    + lp(SESSION_ID)
+    + u64_le(CHAIN_SEQ)
+    + u32_le(ROW_VERSION)
+    + lp(row_state_no_totp_verified_at),
 )
 
 # ---------------------------------------------------------------------------
@@ -423,6 +440,8 @@ if __name__ == "__main__":
         ("REVOCATION_ROW_MAC", revocation_row_mac),
         ("ROW_STATE", row_state),
         ("ROW_MAC", row_mac),
+        ("ROW_STATE_NO_TOTP_VERIFIED_AT", row_state_no_totp_verified_at),
+        ("ROW_MAC_NO_TOTP_VERIFIED_AT", row_mac_no_totp_verified_at),
         ("SIGNATURE", SIGNATURE_OVER_REQUEST_BYTES),
     ]:
         print(rust(name, value))

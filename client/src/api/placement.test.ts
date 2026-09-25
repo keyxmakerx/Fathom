@@ -194,11 +194,14 @@ describe('the operator custody an account picks up', () => {
     expect(() => parseOperatorKeyAnswer(fromHex(`${hex}ff`))).toThrow(/trailing/);
   });
 
-  it("signs the operator in with six fields, the last two empty: the operator plane carries no password", () => {
+  it("signs the operator in with eight fields, the last three empty: the operator plane carries no password, and a fresh account session needs no code", () => {
     const body = buildOperatorSignInBody(
       new Uint8Array([4, 5, 6]),
       new Uint8Array([7, 8]),
       new Uint8Array([9]),
+      '',
+      '',
+      new Uint8Array(0),
     );
     expect(toHex(body)).toBe(
       '080000006f70657261746f72' + // LP("operator")
@@ -206,7 +209,30 @@ describe('the operator custody an account picks up', () => {
         '020000000708' + //            LP(nonce)
         '0100000009' + //              LP(evidence signature)
         '00000000' + //                LP("") -- no password
-        '00000000', //                 LP("") -- no app code
+        '00000000' + //                LP("") -- no verification code
+        '00000000' + //                LP("") -- no account session id
+        '00000000', //                 LP("") -- no account session signature
+    );
+  });
+
+  it('carries a verification code and the account-session endorsement when both are given', () => {
+    const body = buildOperatorSignInBody(
+      new Uint8Array([4]),
+      new Uint8Array([7]),
+      new Uint8Array([9]),
+      '123456',
+      '01JXACCT0000000000000001',
+      new Uint8Array([1, 2]),
+    );
+    expect(toHex(body)).toBe(
+      '080000006f70657261746f72' + // LP("operator")
+        '0100000004' + //              LP(session public key)
+        '0100000007' + //              LP(nonce)
+        '0100000009' + //              LP(evidence signature)
+        '00000000' + //                LP("") -- no password
+        '06000000313233343536' + //    LP("123456")
+        '1800000030314a584143435430303030303030303030303030303031' + // LP(account session id)
+        '020000000102', //             LP(account session signature)
     );
   });
 });

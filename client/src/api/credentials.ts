@@ -13,12 +13,19 @@
 // | Route | Signed | Body | Answer |
 // |---|---|---|---|
 // | `POST /enrolment/operator/setup` | no | `LP(token) ‖ LP(password)` | empty |
-// | `POST /credentials/password` | yes | `LP(password)` | empty |
-// | `POST /credentials/totp/enrol` | yes | empty | `LP(otpauth_uri) ‖ LP(secret)` |
+// | `POST /credentials/password` | yes | `LP(current_password) ‖ LP(password) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)` | empty |
+// | `GET /credentials/status` | yes | empty | `LP("yes"\|"no")` |
+// | `POST /credentials/totp/enrol` | yes | `LP(current_password) ‖ LP(code)` | `LP(otpauth_uri) ‖ LP(secret)` |
 // | `POST /credentials/totp/confirm` | yes | `LP(app_code)` | ten `LP(backup_code)` |
 // | `POST /credentials/key` | yes | `LP(public_key)` | `LP(key_id)` |
 // | `POST /credentials/reset` | no | `LP(address)` | empty, always |
 // | `POST /credentials/reset/redeem` | no | `LP(token) ‖ LP(password)` | empty |
+//
+// ADR-0057 decisions 2 and 3: the current password (once one is set) is
+// required to change the password, and the current password plus a current
+// code is required to replace a confirmed authenticator — both empty for
+// the one exception each has (the first-run setup session; a first
+// enrolment).
 //
 // The setup and reset routes are unauthenticated by construction — there is no
 // session to sign with yet — so they go through plain `fetch` and
@@ -27,11 +34,18 @@
 // reaches a route that composes `Signed`.
 
 import { concatBytes, lp, readLp, utf8 } from '../crypto/bytes';
-import { exportPublicKeyRaw, generateKeyPair, putEnrolledKeyPair } from '../crypto/keys';
+import {
+  exportPublicKeyRaw,
+  generateKeyPair,
+  getEnrolledKeyPair,
+  putEnrolledKeyPair,
+  signMessage,
+} from '../crypto/keys';
+import { sessionChallenge } from '../crypto/session';
+import { PRINCIPAL_KIND_STEWARD } from './constants';
 import { ApiRefusal, refusalFrom } from './errors';
 import { signedFetch } from './signedFetch';
 
-const EMPTY = new Uint8Array(0);
 const decoder = new TextDecoder();
 
 // ---------------------------------------------------------------------------
@@ -46,9 +60,66 @@ export function buildTokenAndPasswordBody(token: Uint8Array, password: string): 
   return concatBytes(lp(token), lp(utf8(password)));
 }
 
-/** `LP(password)` — `POST /credentials/password`. */
-export function buildPasswordBody(password: string): Uint8Array {
-  return concatBytes(lp(utf8(password)));
+/**
+ * `LP(current) ‖ LP(new) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)`
+ * — the last three are [`freshEvidence`]'s, non-empty only with no current password.
+ */
+export function buildPasswordBody(
+  currentPassword: string,
+  password: string,
+  evidence: FreshEvidence | null,
+): Uint8Array {
+  return concatBytes(
+    lp(utf8(currentPassword)),
+    lp(utf8(password)),
+    lp(evidence?.sessionPubkey ?? new Uint8Array(0)),
+    lp(evidence?.nonce ?? new Uint8Array(0)),
+    lp(evidence?.evidenceSig ?? new Uint8Array(0)),
+  );
+}
+
+/** What [`freshEvidence`] gathers, and [`buildPasswordBody`] sends. */
+interface FreshEvidence {
+  readonly sessionPubkey: Uint8Array;
+  readonly nonce: Uint8Array;
+  readonly evidenceSig: Uint8Array;
+}
+
+/**
+ * A fresh signature by this browser's own enrolled key over a bind-purpose
+ * challenge; `null` when this browser holds no enrolled key for `address`.
+ */
+async function freshEvidence(address: string): Promise<FreshEvidence | null> {
+  const enrolledKeyPair = await getEnrolledKeyPair(address);
+  if (!enrolledKeyPair) return null;
+
+  const sessionKeyPair = await generateKeyPair();
+  const sessionPubkey = await exportPublicKeyRaw(sessionKeyPair.publicKey);
+  const challengeBody = concatBytes(lp(utf8(PRINCIPAL_KIND_STEWARD)), lp(utf8(address)), lp(sessionPubkey));
+  const challengeResponse = await fetch('/session/challenge', {
+    method: 'POST',
+    body: challengeBody as BodyInit,
+  });
+  if (!challengeResponse.ok) {
+    throw await refusalFrom(challengeResponse);
+  }
+  const challengeOut = new Uint8Array(await challengeResponse.arrayBuffer());
+  const { value: nonce, rest } = readLp(challengeOut);
+  const { value: deploymentIdBytes } = readLp(rest);
+  const deploymentId = new TextDecoder().decode(deploymentIdBytes);
+
+  const challenge = await sessionChallenge(sessionPubkey, nonce, deploymentId);
+  const evidenceSig = await signMessage(enrolledKeyPair.privateKey, challenge);
+  return { sessionPubkey, nonce, evidenceSig };
+}
+
+/** `LP(current_password) ‖ LP(code)` — `POST /credentials/totp/enrol`
+ * (ADR-0057 decision 3). Both empty for a first enrolment; non-empty and
+ * checked when the account already has a confirmed authenticator —
+ * `currentPassword` only when one is set on the account, `code` always, a
+ * current one from the authenticator being replaced. */
+export function buildReauthBody(currentPassword: string, code: string): Uint8Array {
+  return concatBytes(lp(utf8(currentPassword)), lp(utf8(code.trim())));
 }
 
 /** `LP(app_code)` — `POST /credentials/totp/confirm`. The code is sent as it
@@ -211,14 +282,32 @@ export async function redeemOperatorSetup(secret: Uint8Array, password: string):
   await unsigned('/enrolment/operator/setup', buildTokenAndPasswordBody(secret, password));
 }
 
-/** `POST /credentials/password` — set or change this session's own password. */
-export async function setPassword(password: string): Promise<void> {
-  await signedFetch('POST', '/credentials/password', buildPasswordBody(password));
+/**
+ * `POST /credentials/password`. `currentPassword` required once set; `''`
+ * gathers `address`'s fresh evidence instead (the account's first password).
+ */
+export async function setPassword(address: string, currentPassword: string, password: string): Promise<void> {
+  const evidence = currentPassword === '' ? await freshEvidence(address) : null;
+  await signedFetch('POST', '/credentials/password', buildPasswordBody(currentPassword, password, evidence));
 }
 
-/** `POST /credentials/totp/enrol` — draw a secret. One per session. */
-export async function enrolAppCode(): Promise<TotpEnrolment> {
-  return parseTotpEnrolment(await signedFetch('POST', '/credentials/totp/enrol', EMPTY));
+/** `GET /credentials/status` — does this session's account have a
+ * confirmed authenticator? ADR-0057 decision 3: the account screen's own
+ * question. */
+export async function hasAuthenticator(): Promise<boolean> {
+  const answer = await signedFetch('GET', '/credentials/status');
+  const { value } = readLp(answer);
+  return decoder.decode(value) === 'yes';
+}
+
+/** `POST /credentials/totp/enrol` — draw a secret. A first enrolment needs
+ * nothing beyond the session; replacing a confirmed authenticator needs the
+ * current password and a current code from the one being replaced
+ * (ADR-0057 decision 3, ASVS 7.5.1). */
+export async function enrolAppCode(currentPassword = '', code = ''): Promise<TotpEnrolment> {
+  return parseTotpEnrolment(
+    await signedFetch('POST', '/credentials/totp/enrol', buildReauthBody(currentPassword, code)),
+  );
 }
 
 /** `POST /credentials/totp/confirm` — prove the code works and take the backup

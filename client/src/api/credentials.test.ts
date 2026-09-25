@@ -47,9 +47,36 @@ describe('the credential request bodies (api.rs credential_router)', () => {
     ]);
   });
 
-  it('frames LP(password) alone for POST /credentials/password', () => {
-    expect(Array.from(buildPasswordBody('a-password-of-real-length'))).toEqual([
+  it('frames LP(current_password) || LP(password) || three empty evidence fields for POST /credentials/password, with no evidence', () => {
+    expect(
+      Array.from(buildPasswordBody('the-old-one-fifteen-plus', 'a-password-of-real-length', null)),
+    ).toEqual([
+      ...lpField('the-old-one-fifteen-plus'),
       ...lpField('a-password-of-real-length'),
+      ...lpBytes([]),
+      ...lpBytes([]),
+      ...lpBytes([]),
+    ]);
+  });
+
+  it('frames the fresh-evidence fields when given (ADR-0057 decision 3, item 6)', () => {
+    const sessionPubkey = [0x04, ...Array.from({ length: 8 }, (_, i) => i)];
+    const nonce = Array.from({ length: 32 }, (_, i) => i);
+    const evidenceSig = Array.from({ length: 64 }, (_, i) => 255 - i);
+    expect(
+      Array.from(
+        buildPasswordBody('', 'a-password-of-real-length', {
+          sessionPubkey: Uint8Array.from(sessionPubkey),
+          nonce: Uint8Array.from(nonce),
+          evidenceSig: Uint8Array.from(evidenceSig),
+        }),
+      ),
+    ).toEqual([
+      ...lpField(''),
+      ...lpField('a-password-of-real-length'),
+      ...lpBytes(sessionPubkey),
+      ...lpBytes(nonce),
+      ...lpBytes(evidenceSig),
     ]);
   });
 
@@ -80,10 +107,13 @@ describe('the credential request bodies (api.rs credential_router)', () => {
     // `text()` on the server is `String::from_utf8`, so the length prefix
     // counts bytes. A client that counted characters would frame a body the
     // server reads as truncated.
-    const body = Array.from(buildPasswordBody('pässwörd-långt-nog-för-det'));
+    const body = Array.from(buildPasswordBody('', 'pässwörd-långt-nog-för-det', null));
     const expected = Array.from(new TextEncoder().encode('pässwörd-långt-nog-för-det'));
-    expect(body.slice(0, 4)).toEqual(u32le(expected.length));
-    expect(body.length).toBe(4 + expected.length);
+    // The empty current-password field comes first: LP("") is four zero bytes.
+    expect(body.slice(0, 4)).toEqual([0, 0, 0, 0]);
+    expect(body.slice(4, 8)).toEqual(u32le(expected.length));
+    // Then the password, then the three empty evidence fields: LP("") each.
+    expect(body.length).toBe(4 + 4 + expected.length + 4 + 4 + 4);
   });
 });
 

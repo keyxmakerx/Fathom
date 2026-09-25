@@ -172,6 +172,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0026_operator_adoption.sql",
         sql: include_str!("../migrations/0026_operator_adoption.sql"),
     },
+    // ADR-0057 decision 2: `sessions.totp_verified_at`, so an operator
+    // sign-in can tell how stale the account session endorsing it is.
+    Migration {
+        version: 27,
+        name: "0027_operator_signin_needs_the_account.sql",
+        sql: include_str!("../migrations/0027_operator_signin_needs_the_account.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

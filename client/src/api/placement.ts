@@ -304,13 +304,18 @@ export function parseOperatorKeyAnswer(bytes: Uint8Array): { keyId: string; oper
   };
 }
 
-/** `POST /session`'s six fields (ADR-0055 decision 10). The operator plane
- * carries neither a password nor a verification code: `sessions.rs`'s branch 1,
- * *"resolution 8 keeps `kind = 'operator'` a key sign-in"*. */
+/** `POST /session`'s eight fields (ADR-0055 decision 10, ADR-0057 decision
+ * 2). The operator plane carries no password: `sessions.rs`'s branch 1,
+ * *"resolution 8 keeps `kind = 'operator'` a key sign-in"*. It does carry
+ * the account-session endorsement decision 2 requires, and a verification
+ * code when that session's own second-factor proof has gone stale. */
 export function buildOperatorSignInBody(
   sessionPubkey: Uint8Array,
   nonce: Uint8Array,
   evidenceSig: Uint8Array,
+  verificationCode: string,
+  accountSessionId: string,
+  accountSessionSig: Uint8Array,
 ): Uint8Array {
   return concatBytes(
     lp(utf8(PRINCIPAL_KIND_OPERATOR)),
@@ -318,7 +323,9 @@ export function buildOperatorSignInBody(
     lp(nonce),
     lp(evidenceSig),
     lp(new Uint8Array(0)),
-    lp(new Uint8Array(0)),
+    lp(utf8(verificationCode.trim())),
+    lp(utf8(accountSessionId)),
+    lp(accountSessionSig),
   );
 }
 
@@ -354,10 +361,28 @@ export function buildOperatorSignInBody(
  * and a console that does not answer on this host are all one of those and
  * none of them is interpreted here.
  */
-export async function bootstrapOperatorSession(
+/**
+ * Step one of [`bootstrapOperatorSession`]: register the browser's operator
+ * key and prepare its sign-in, without spending it. Split out so that a
+ * `SecondFactorNeeded` answer to step two (ADR-0057 decision 2) can be
+ * retried with a code, over the SAME challenge, rather than re-registering
+ * the key — `operator_keys.fpr` is UNIQUE, and a second registration of the
+ * same key is refused by the database.
+ */
+export interface OperatorBootstrapChallenge {
+  operatorId: string;
+  keyId: string;
+  sessionKeyPair: CryptoKeyPair;
+  sessionPubkey: Uint8Array;
+  nonce: Uint8Array;
+  deployment: string;
+  evidence: Uint8Array;
+}
+
+export async function beginOperatorBootstrap(
   accountSession: ActiveSession,
   browserKey: CryptoKeyPair,
-): Promise<OperatorBootstrap> {
+): Promise<OperatorBootstrapChallenge> {
   const live = getSession();
   if (!live || live.sessionId !== accountSession.sessionId) {
     throw new Error('the account session must be the live session before its operator key is registered');
@@ -386,9 +411,34 @@ export async function bootstrapOperatorSession(
   );
   const bound = await sessionChallenge(sessionPubkey, nonce, deployment);
   const evidence = await signMessage(browserKey.privateKey, bound);
+  return { operatorId, keyId, sessionKeyPair, sessionPubkey, nonce, deployment, evidence };
+}
+
+/**
+ * Step two: spend the challenge [`beginOperatorBootstrap`] prepared,
+ * endorsed by the account session (ADR-0057 decision 2), with a
+ * verification code when that session's own proof has gone stale --
+ * [`isSecondFactorNeeded`](./auth.ts) says so, and the SAME challenge is
+ * posted again with one.
+ */
+export async function completeOperatorBootstrap(
+  accountSession: ActiveSession,
+  bootstrap: OperatorBootstrapChallenge,
+  verificationCode = '',
+): Promise<OperatorBootstrap> {
+  const { operatorId, keyId, sessionKeyPair, sessionPubkey, nonce, deployment, evidence } = bootstrap;
+  const accountDigest = await sessionChallenge(sessionPubkey, nonce, deployment);
+  const accountSig = await signMessage(accountSession.sessionKeyPair.privateKey, accountDigest);
   const response = await fetch('/session', {
     method: 'POST',
-    body: buildOperatorSignInBody(sessionPubkey, nonce, evidence) as BodyInit,
+    body: buildOperatorSignInBody(
+      sessionPubkey,
+      nonce,
+      evidence,
+      verificationCode,
+      accountSession.sessionId,
+      accountSig,
+    ) as BodyInit,
   });
   if (!response.ok) {
     throw await refusalFrom(response);
@@ -410,6 +460,18 @@ export async function bootstrapOperatorSession(
       accountId,
     },
   };
+}
+
+/** [`beginOperatorBootstrap`] and [`completeOperatorBootstrap`] back to
+ * back, for a caller that does not need to handle `SecondFactorNeeded`
+ * itself — `App.tsx`'s `enterConsole` calls the two halves directly so it
+ * can retry step two alone. */
+export async function bootstrapOperatorSession(
+  accountSession: ActiveSession,
+  browserKey: CryptoKeyPair,
+): Promise<OperatorBootstrap> {
+  const bootstrap = await beginOperatorBootstrap(accountSession, browserKey);
+  return completeOperatorBootstrap(accountSession, bootstrap);
 }
 
 // ---------------------------------------------------------------------------

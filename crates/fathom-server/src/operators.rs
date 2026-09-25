@@ -4725,6 +4725,103 @@ async fn retire_operator_keys(
     Ok(())
 }
 
+/// The operator-account binding's own interlock: the row seals, or nothing
+/// rests on it. [`OperatorStore::verify_binding`]'s free half, for
+/// `sessions.rs`'s operator-plane sign-in (ADR-0057 decision 2) — which has
+/// no `OperatorStore`, the same reason [`live_operator_keys`] is a free
+/// function.
+///
+/// Called wherever a binding decides something -- which seat a recovery
+/// restores, which operator an account may register a key for. A row
+/// hand-inserted by whoever holds the database fails here, which is what
+/// stops the binding being a way to attach an operator custody to an account
+/// that was never given one.
+pub async fn verify_operator_binding(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator: &str,
+    account: &str,
+) -> Result<(), OperatorError> {
+    let row = tx
+        .query_opt(
+            "SELECT bound_seq, row_version, row_seal FROM operator_account_bindings \
+              WHERE operator_id = $1 AND account_id = $2",
+            &[&operator, &account],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Err(OperatorError::NotBoundToAnOperator);
+    };
+    let bound_seq: i64 = row.get(0);
+    let row_version: i32 = row.get(1);
+    let stored: Vec<u8> = row.get(2);
+    let recomputed = authority::row_seal(
+        &grants::site_row_key(tx, ring).await?,
+        &RowFacts {
+            table: "operator_account_bindings",
+            row_id: operator,
+            chain_seq: bound_seq,
+            row_version,
+            row_state: &binding_row_state(operator, account),
+        },
+    );
+    if stored != recomputed {
+        return Err(OperatorError::Unverifiable("operator account binding seal"));
+    }
+    Ok(())
+}
+
+/// The account bound to this operator's custody — the reverse of
+/// [`OperatorStore::operator_of_account`], and its free half for
+/// `sessions.rs`. The binding's own seal is verified before the answer is
+/// believed.
+///
+/// ADR-0057 decision 2: an operator-plane sign-in must also prove a live
+/// session of the account this returns.
+pub async fn account_of_operator(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    operator: &str,
+) -> Result<String, OperatorError> {
+    let row = tx
+        .query_opt(
+            "SELECT account_id FROM operator_account_bindings WHERE operator_id = $1",
+            &[&operator],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Err(OperatorError::NotBoundToAnOperator);
+    };
+    let account: String = row.get(0);
+    verify_operator_binding(tx, ring, operator, &account).await?;
+    Ok(account)
+}
+
+/// A free function so `credentials.rs` can look up the operator custody an
+/// account holds, if any, from inside its OWN transaction.
+pub async fn operator_of_account(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    account: &str,
+) -> Result<String, OperatorError> {
+    let row = tx
+        .query_opt(
+            "SELECT operator_id FROM operator_account_bindings WHERE account_id = $1",
+            &[&account],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Err(OperatorError::NotBoundToAnOperator);
+    };
+    let operator: String = row.get(0);
+    verify_operator_binding(tx, ring, &operator, account).await?;
+    let live = verify_operator_row(tx, ring, &operator).await?;
+    if live.disabled_at_unix != 0 {
+        return Err(OperatorError::NotBoundToAnOperator);
+    }
+    Ok(operator)
+}
+
 /// **The operator register's own interlock**: an operator row verifies only if
 /// its seal recomputes AND the site-chain entry that created it verifies and
 /// names it.
@@ -6736,38 +6833,14 @@ impl OperatorStore {
     }
 
     /// The binding's own interlock: the row seals, or nothing rests on it.
-    ///
-    /// Called wherever a binding decides something -- which seat a recovery
-    /// restores, which operator an account may register a key for. A row
-    /// hand-inserted by whoever holds the database fails here, which is what
-    /// stops the binding being a way to attach an operator custody to an
-    /// account that was never given one.
+    /// [`verify_operator_binding`]'s method half.
     async fn verify_binding(
         &self,
         tx: &Transaction<'_>,
         operator: &str,
         account: &str,
     ) -> Result<(), OperatorError> {
-        let row = tx
-            .query_opt(
-                "SELECT bound_seq, row_version, row_seal FROM operator_account_bindings \
-                  WHERE operator_id = $1 AND account_id = $2",
-                &[&operator, &account],
-            )
-            .await?;
-        let Some(row) = row else {
-            return Err(OperatorError::NotBoundToAnOperator);
-        };
-        let bound_seq: i64 = row.get(0);
-        let row_version: i32 = row.get(1);
-        let stored: Vec<u8> = row.get(2);
-        let recomputed = self
-            .binding_seal(tx, operator, account, bound_seq, row_version)
-            .await?;
-        if stored != recomputed {
-            return Err(OperatorError::Unverifiable("operator account binding seal"));
-        }
-        Ok(())
+        verify_operator_binding(tx, &self.ring, operator, account).await
     }
 
     /// Which operator custody does this account hold, if any?
@@ -6781,22 +6854,7 @@ impl OperatorStore {
         tx: &Transaction<'_>,
         account: &str,
     ) -> Result<String, OperatorError> {
-        let row = tx
-            .query_opt(
-                "SELECT operator_id FROM operator_account_bindings WHERE account_id = $1",
-                &[&account],
-            )
-            .await?;
-        let Some(row) = row else {
-            return Err(OperatorError::NotBoundToAnOperator);
-        };
-        let operator: String = row.get(0);
-        self.verify_binding(tx, &operator, account).await?;
-        let live = verify_operator_row(tx, &self.ring, &operator).await?;
-        if live.disabled_at_unix != 0 {
-            return Err(OperatorError::NotBoundToAnOperator);
-        }
-        Ok(operator)
+        operator_of_account(tx, &self.ring, account).await
     }
 
     // -----------------------------------------------------------------------

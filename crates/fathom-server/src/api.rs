@@ -298,9 +298,14 @@ async fn challenge_handler(
 
 /// `POST /session` — sign-in.
 ///
-/// Body, **six fields since ADR-0055 decision 10**:
+/// Body, **eight fields since ADR-0057 decision 2**:
 /// `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)
-///  ‖ LP(password) ‖ LP(totp_code)`.
+///  ‖ LP(password) ‖ LP(totp_code) ‖ LP(account_session_id)
+///  ‖ LP(account_session_sig)`. The last two are empty on the steward plane;
+/// on the operator plane they carry the id of a live session of the
+/// operator's own bound account and a signature by that session's key over
+/// this attempt's own challenge, binding the two together — without them the
+/// operator's key alone is refused.
 /// Answer, unchanged:
 /// `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
 ///
@@ -317,10 +322,10 @@ async fn challenge_handler(
 /// fails the build if a password-shaped field appears in any other handler in
 /// `api.rs`, `admin.rs` or `operators.rs`.
 ///
-/// **The count is still exact.** `read_fields(&body, 6)` refuses a body with
-/// five fields and a body with seven, so a client built against either shape
+/// **The count is still exact.** `read_fields(&body, 8)` refuses a body with
+/// seven fields and a body with nine, so a client built against either shape
 /// is told it is wrong rather than having a field silently dropped — which is
-/// the same rule that used to be the reason there were four.
+/// the same rule that used to be the reason there were four, then six.
 async fn sign_in_handler(
     State(state): State<ApiState>,
     request: Request,
@@ -329,7 +334,7 @@ async fn sign_in_handler(
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
-    let fields = read_fields(&body, 6)?;
+    let fields = read_fields(&body, 8)?;
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
     let password = text(&fields[4], "credential")?;
@@ -337,6 +342,7 @@ async fn sign_in_handler(
     // operator reads: "verification code", the name on the screen (ADR-0056
     // decision 4).
     let totp_code = text(&fields[5], "verification code")?;
+    let account_session_id = text(&fields[6], "account session")?;
 
     let signed_in = state
         .sessions
@@ -348,6 +354,8 @@ async fn sign_in_handler(
             password: &password,
             totp_code: &totp_code,
             source: &source,
+            account_session_id: &account_session_id,
+            account_session_sig: &fields[7],
         })
         .await?;
 
@@ -561,6 +569,10 @@ pub struct CredentialApiState {
 pub fn credential_router(state: CredentialApiState) -> Router {
     Router::new()
         .route("/credentials/password", post(set_password_handler))
+        .route(
+            "/credentials/status",
+            axum::routing::get(credential_status_handler),
+        )
         .route("/credentials/key", post(register_key_handler))
         .route("/credentials/totp/enrol", post(enrol_totp_handler))
         .route("/credentials/totp/confirm", post(confirm_totp_handler))
@@ -612,22 +624,71 @@ async fn verified(state: &CredentialApiState, signed: &Signed) -> Result<Verifie
     Ok(session)
 }
 
-/// `POST /credentials/password` — set or change this session's own password.
-///
-/// Body: `LP(new_credential)`. Answer: 200, empty.
+/// `POST /credentials/password`. Body: `LP(current) ‖ LP(new) ‖
+/// LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)`, the last three non-empty only for a first password.
 async fn set_password_handler(
+    State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 5)?;
+    let current = text(&fields[0], "current credential")?;
+    let chosen = text(&fields[1], "credential")?;
+    let account = session.principal_id();
+
+    // Charged once, unconditionally, before anything below is verified.
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+
+    let fresh_evidence_verified =
+        if fields[2].is_empty() && fields[3].is_empty() && fields[4].is_empty() {
+            false
+        } else {
+            let nonce = thirty_two(&fields[3], "nonce")?;
+            state
+                .sessions
+                .verify_fresh_evidence(&account, &fields[2], &nonce, &fields[4])
+                .await
+                .is_ok()
+        };
+
+    state
+        .credentials
+        .set_password(&session, &current, &chosen, fresh_evidence_verified)
+        .await
+        .map_err(CredentialRefusal)?;
+    // A successful change must not spend the budget the attempt reserved.
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
+    Ok(empty_response())
+}
+
+/// `GET /credentials/status` — does this session's account have a confirmed
+/// authenticator? ADR-0057 decision 3: the account screen's own question,
+/// the smallest read that answers it.
+///
+/// No body. Answer: `LP("yes"|"no")`.
+async fn credential_status_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
-    let fields = read_fields(&signed.body, 1)?;
-    let chosen = text(&fields[0], "credential")?;
-    state
+    let _ = read_fields(&signed.body, 0)?;
+    let confirmed = state
         .credentials
-        .set_password(&session, &chosen)
+        .totp_confirmed(&session)
         .await
         .map_err(CredentialRefusal)?;
-    Ok(empty_response())
+    let mut out = Vec::with_capacity(8);
+    crypto::lp(&mut out, if confirmed { b"yes" } else { b"no" });
+    Ok(bytes_response(out))
 }
 
 /// `POST /credentials/key` — register this browser's long-term key.
@@ -649,29 +710,45 @@ async fn register_key_handler(
     Ok(bytes_response(out))
 }
 
-/// `POST /credentials/totp/enrol` — draw an app-code secret.
-///
-/// Body: empty. Answer: `LP(otpauth_uri) ‖ LP(secret_base32)`.
+/// `POST /credentials/totp/enrol` — draws a secret into the PENDING slot.
+/// Body: `LP(current) ‖ LP(code)`, both empty unless replacing a confirmed one.
 async fn enrol_totp_handler(
     State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
     signed: Signed,
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
-    let _ = read_fields(&signed.body, 0)?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 2)?;
+    let current = text(&fields[0], "current credential")?;
+    let code = text(&fields[1], "verification code")?;
+    let account = session.principal_id();
+
+    // Charged once, unconditionally, before anything below is verified.
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+
     let enrolment = state
         .credentials
-        .enrol_totp(&session)
+        .enrol_totp(&session, &current, &code)
         .await
         .map_err(CredentialRefusal)?;
+    // A successful draw must not spend the budget the attempt reserved.
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
     let mut out = Vec::with_capacity(256);
     crypto::lp(&mut out, enrolment.otpauth_uri.as_bytes());
     crypto::lp(&mut out, enrolment.secret_base32.as_bytes());
     Ok(bytes_response(out))
 }
 
-/// `POST /credentials/totp/confirm` — prove the app code works.
-///
-/// Body: `LP(app_code)`. Answer: ten `LP(backup_code)` fields, once.
+/// `POST /credentials/totp/confirm`. Body: `LP(app_code)`. Answer: ten
+/// `LP(backup_code)` fields, once. Ends this account's other sessions on success.
 async fn confirm_totp_handler(
     State(state): State<CredentialApiState>,
     signed: Signed,
@@ -1015,7 +1092,9 @@ impl IntoResponse for CredentialRefusal {
                 tracing::info!(reason = %self.0, "credential act refused");
                 (StatusCode::CONFLICT, format!("{}\n", self.0)).into_response()
             }
-            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled => {
+            // A wrong current password renders exactly as a wrong code does:
+            // neither is an integrity alarm, so neither logs at error severity.
+            E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::CurrentPasswordRefused => {
                 tracing::info!(reason = %self.0, "credential act refused");
                 Refusal::from(SessionError::SignInRefused).into_response()
             }
