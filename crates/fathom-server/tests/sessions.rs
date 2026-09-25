@@ -2640,6 +2640,15 @@ async fn adr55_superuser() -> tokio_postgres::Client {
     support::superuser_on_isolated(ADR55_TAG).await
 }
 
+/// The default limits with a year-long window, so a fixed-window boundary
+/// cannot fall inside a budget test and empty its bucket halfway.
+fn long_window_limits() -> SignInLimits {
+    SignInLimits {
+        window: Duration::from_secs(365 * 24 * 3600),
+        ..SignInLimits::defaults()
+    }
+}
+
 async fn adr55_store(pool: &Pool, ring: Arc<KeyRing>, limits: SignInLimits) -> SessionStore {
     let client = pool.get().await.expect("connection");
     let deployment = chains::deployment_id(&**client)
@@ -3723,7 +3732,7 @@ async fn a_current_password_budget_is_charged_before_verification_and_refuses_a_
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
     let person = adr55_account(&pool, "budget").await;
@@ -3793,7 +3802,7 @@ async fn a_re_enrolment_code_budget_is_charged_before_verification_and_refuses_a
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
@@ -3873,7 +3882,7 @@ async fn a_successful_credential_change_does_not_spend_the_account_budget() {
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
