@@ -52,7 +52,8 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 
@@ -69,7 +70,7 @@ const CLIENT = ROOT + '/client';
 // As the other real-server drives: a given binary, else the (possibly shared) target dir.
 const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
 const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? resolve(TARGET_DIR, 'debug', 'fathom-server');
-const SHOTS = '/tmp/claude-0/';
+const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
 mkdirSync(SHOTS, { recursive: true });
 
 const TAG = `s7fd${process.pid}`;

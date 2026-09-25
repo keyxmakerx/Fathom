@@ -24,7 +24,7 @@ const PLAYWRIGHT = process.env.PW_PLAYWRIGHT ?? '/opt/node22/lib/node_modules/pl
 const ADDRESS = 'owner@fathom.invalid';
 // The length and shape ADR-0055 decision 10 requires, and the CI script's own.
 const CREDENTIAL = 'harbour-lantern-copper-nine';
-const SHOTS = '/tmp/claude-0/-home-user-Fathom/d8191dbf-f958-5925-a6d7-6859ef27f844/scratchpad/shots/';
+const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
 mkdirSync(SHOTS, { recursive: true });
 
 const work = mkdtempSync(join(tmpdir(), 'fathom-freshinstall-'));

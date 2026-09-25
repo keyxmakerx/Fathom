@@ -3,7 +3,8 @@
 // Run: bash scripts/build-wasm.sh (if stale), then node scripts/drive-freestanding.mjs.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const pw = await import(
@@ -19,7 +20,7 @@ const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5331;
 const BASE = `http://127.0.0.1:${PORT}`;
-const SHOTS = '/tmp/claude-0/-home-user-Fathom/d8191dbf-f958-5925-a6d7-6859ef27f844/scratchpad/shots/';
+const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
 mkdirSync(SHOTS, { recursive: true });
 
 const PREVIEW_HTML = CLIENT + '/drive.html';
