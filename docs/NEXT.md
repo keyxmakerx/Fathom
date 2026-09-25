@@ -79,6 +79,9 @@ comparable amount again.
 
 ## Handoff — read this first (updated 2026-09-23)
 
+**The backlog is in GitHub issues** (from 2026-09-25, #39 onward). A new ask becomes an issue; this
+file keeps only what is in flight and how to work.
+
 **2026-09-25, the owner's full picture.** Homelab up to an ISP: customer networks and office
 locations (different designs), and offices generally. Wanted, in the owner's words where it
 matters:
