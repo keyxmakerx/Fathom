@@ -90,14 +90,44 @@ export async function setAccountDisabled(accountId: string, disabled: boolean): 
   );
 }
 
-/** `POST /admin/organisations`: `LP(display_name)`; answers the shell id,
- * then the claim token exactly as an invitation. `redeem_organisation_claim`
- * (`operators.rs`) is the act that would turn the claim into an
- * organisation, and **no route reaches it in this build** -- `admin.rs`
- * says so, and so does the board. */
-export async function createOrganisationShell(displayName: string): Promise<Invitation> {
+/**
+ * `POST /admin/organisations`'s answer: an invitation plus the deployment's
+ * notice address the claim is pinned to.
+ */
+export interface OrganisationClaim extends Invitation {
+  noticeAddress: string;
+}
+
+/** `LP(shell) ‖ LP(token) ‖ LP(token_id) ‖ u64(expires_at) ‖ LP(notice_address)`, as `admin.rs`'s `create_organisation_shell` builds it. */
+export function parseOrganisationClaimAnswer(bytes: Uint8Array): OrganisationClaim {
+  const { value: subjectBytes, rest: afterSubject } = readLp(bytes);
+  const { value: token, rest: afterToken } = readLp(afterSubject);
+  const { value: tokenIdBytes, rest: afterTokenId } = readLp(afterToken);
+  if (afterTokenId.length < 8) {
+    throw new Error('malformed organisation claim answer: no expiry');
+  }
+  const expiresAtUnix = Number(readU64LE(afterTokenId));
+  const { value: noticeAddressBytes, rest } = readLp(afterTokenId.slice(8));
+  if (rest.length !== 0) {
+    throw new Error(`malformed organisation claim answer: ${rest.length} trailing byte(s)`);
+  }
+  if (token.length !== 32) {
+    throw new Error(`malformed organisation claim answer: a ${token.length}-byte token`);
+  }
+  return {
+    subject: new TextDecoder().decode(subjectBytes),
+    token,
+    tokenId: new TextDecoder().decode(tokenIdBytes),
+    expiresAtUnix,
+    noticeAddress: new TextDecoder().decode(noticeAddressBytes),
+  };
+}
+
+/** `POST /admin/organisations`: `LP(display_name)`; answers the shell id, claim
+ * token, and notice address. `redeemOrganisationClaim` turns the claim into an organisation. */
+export async function createOrganisationShell(displayName: string): Promise<OrganisationClaim> {
   const bytes = await signedFetch('POST', '/admin/organisations', lp(utf8(displayName)));
-  return parseInvitationAnswer(bytes);
+  return parseOrganisationClaimAnswer(bytes);
 }
 
 /** One row of `GET /admin/operators`, with §5.5's sentence beside it. */

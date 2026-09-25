@@ -34,11 +34,8 @@
 //!
 //! # What is NOT here
 //!
-//! * **No grant endpoints.** `GrantProposal`, `sign_grant`, `second_grant` and
-//!   the rest of the authority API stay in-process in this step. §3.8's
-//!   closing paragraph names *"everything that changes when a proposal crosses
-//!   a real HTTP boundary"* as its own open question, and answering it under a
-//!   surface built in the same hour would be answering it by accident.
+//! * **No grant endpoints, with one exception:** `POST /enrolment/organisation`
+//!   (ADR-0057 decision 5, at the end of this file). Grant proposals otherwise stay in-process (§3.8).
 //! * **No design or vault routes.** They are the next step, and they compose
 //!   [`Signed`] exactly as the demonstration route below does.
 //! * **No credential of any kind in any file this adds** (§1.4).
@@ -53,10 +50,11 @@ use axum::routing::post;
 use axum::Router;
 use deadpool_postgres::Transaction;
 
-use crate::authority::Capability;
+use crate::authority::{self, Capability};
 use crate::crypto;
 use crate::grants::{self, Authority, AuthorityError, EpochWatch};
 use crate::keys;
+use crate::operators::{OperatorError, OperatorStore};
 use crate::repo::{OrganisationId, ScopeId};
 use crate::sessions::{
     self, PrincipalKind, SessionError, SessionStore, SignedRequest, VerifiedSession,
@@ -1348,5 +1346,155 @@ impl IntoResponse for Refusal {
             }
         };
         (status, body).into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 5 — the organisation claim. Account-plane, not
+// admin.rs: the steward who holds the claim redeems it, never an operator.
+// ---------------------------------------------------------------------------
+
+/// Everything `POST /enrolment/organisation` needs.
+#[derive(Clone)]
+pub struct ClaimApiState {
+    pub sessions: Arc<SessionStore>,
+    pub operators: Arc<OperatorStore>,
+    pub client_address: crate::client_address::ClientAddress,
+}
+
+/// The claim route, ready to `merge` into the main router.
+pub fn claim_router(state: ClaimApiState) -> Router {
+    Router::new()
+        .route(
+            "/enrolment/organisation",
+            post(redeem_organisation_claim_handler),
+        )
+        .with_state(state)
+}
+
+/// `POST /enrolment/organisation` — ADR-0057 decision 5. `subject` travels
+/// on the wire but `redeem_organisation_claim` refuses any grant whose subject is not the session's own.
+async fn redeem_organisation_claim_handler(
+    State(state): State<ClaimApiState>,
+    request: Request,
+) -> Result<Response, Refusal> {
+    // Computed from the request before `Signed::from_request_for` consumes
+    // it, exactly as `challenge_handler` and `sign_in_handler` already do.
+    let source = state
+        .client_address
+        .of(request.headers(), request.extensions());
+    let signed = Signed::from_request_for(request, &state.sessions).await?;
+    let fields = read_fields(&signed.body, 9)?;
+    let token = &fields[0];
+    let notice_address = text(&fields[1], "notice address")?;
+    let root_pubkey = &fields[2];
+    if root_pubkey.len() != authority::PUBLIC_KEY_LEN {
+        return Err(SessionError::Malformed("organisation root key").into());
+    }
+    let id_salt: [u8; 16] = fixed_bytes(&fields[3], "organisation id salt")?;
+    // Kept as text: turning it into an id is `redeem_organisation_claim_over_http`'s
+    // job, not this handler's — see that function's own doc for why.
+    let subject_text = text(&fields[4], "grant subject")?;
+    let subject_pubkey = &fields[5];
+    if subject_pubkey.len() != authority::PUBLIC_KEY_LEN {
+        return Err(SessionError::Malformed("account public key").into());
+    }
+    let effective_from_unix = parse_unix(&fields[6], "grant effective-from")?;
+    let expires_at_unix = parse_unix(&fields[7], "grant expiry")?;
+    let signature: [u8; 64] = fixed_bytes(&fields[8], "grant signature")?;
+    // `0011`'s CHECK refuses an inverted window at the database; checked
+    // here too, plus `effective_from > 0`, for this route's own 400.
+    if !(effective_from_unix > 0 && effective_from_unix < expires_at_unix) {
+        return Err(SessionError::Malformed("grant time window").into());
+    }
+
+    // The same per-source budget the unauthenticated redemption routes spend
+    // (`admin.rs`): the claim token is a bearer secret too, session or not.
+    state
+        .sessions
+        .check_source_budget(PrincipalKind::Steward, &source)
+        .await?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+
+    let organisation = state
+        .operators
+        .redeem_organisation_claim_over_http(
+            &session,
+            token,
+            &notice_address,
+            root_pubkey,
+            &id_salt,
+            &subject_text,
+            authority::key_fingerprint(subject_pubkey),
+            effective_from_unix,
+            expires_at_unix,
+            signature,
+        )
+        .await
+        .map_err(OrganisationClaimRefusal)?;
+
+    let mut out = Vec::with_capacity(32);
+    crypto::lp(&mut out, organisation.to_string().as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `N` raw bytes, exactly — a length-prefixed field this route reads as a
+/// fixed-size array rather than as text (a key, a salt, a signature).
+fn fixed_bytes<const N: usize>(field: &[u8], what: &'static str) -> Result<[u8; N], Refusal> {
+    field
+        .try_into()
+        .map_err(|_| SessionError::Malformed(what).into())
+}
+
+/// A decimal Unix timestamp, LP-wrapped as text like every other numeric
+/// field this client sends alongside byte fields.
+fn parse_unix(field: &[u8], what: &'static str) -> Result<i64, Refusal> {
+    text(field, what)?
+        .parse::<i64>()
+        .map_err(|_| SessionError::Malformed(what).into())
+}
+
+/// One claim refusal, on its way to a status code and a sentence. Uniform
+/// like `admin.rs`'s `AdminRefusal`: every ordinary refusal is one sentence; only an integrity failure alarms.
+struct OrganisationClaimRefusal(OperatorError);
+
+impl From<OrganisationClaimRefusal> for Refusal {
+    fn from(e: OrganisationClaimRefusal) -> Self {
+        match e.0 {
+            OperatorError::EnrolmentRefused
+            | OperatorError::Authority(AuthorityError::Signature(_)) => {
+                tracing::info!(reason = %e.0, "organisation claim refused");
+                Refusal::from(SessionError::SignInRefused)
+            }
+            OperatorError::Malformed(what) => Refusal::from(SessionError::Malformed(what)),
+            OperatorError::Unverifiable(what) => {
+                tracing::error!(reason = %e.0, "integrity check failed");
+                Refusal::from(SessionError::Unverifiable(what))
+            }
+            other => {
+                tracing::error!(reason = %other, "organisation claim request failed");
+                Refusal::from(SessionError::Corrupt("organisation claim"))
+            }
+        }
+    }
+}
+
+impl IntoResponse for OrganisationClaimRefusal {
+    fn into_response(self) -> Response {
+        Refusal::from(self).into_response()
     }
 }

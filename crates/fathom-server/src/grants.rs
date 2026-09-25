@@ -1130,7 +1130,9 @@ async fn verify_key_row(
 /// rotation, and it accepts a grant backdated to before a key existed. The
 /// comparison is against the grant's own `effective_from`, which is inside the
 /// signed bytes and therefore not the attacker's to choose.
-async fn key_by_fingerprint(
+/// `pub(crate)`: `operators::redeem_organisation_claim` also calls this,
+/// to check a genesis grant's key at the door rather than downstream.
+pub(crate) async fn key_by_fingerprint(
     tx: &Transaction<'_>,
     ring: &KeyRing,
     fpr: &[u8; 32],

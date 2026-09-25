@@ -12,10 +12,12 @@ import {
   type OperatorBootstrapChallenge,
 } from './api/placement';
 import { useSetupState } from './api/setup';
+import type { OrganisationClaim } from './api/console';
 import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
+import { ClaimOrganisation } from './components/claim';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
@@ -139,12 +141,17 @@ export default function App() {
   // ADR-0055 client (a): the account's own credential screen is open.
   const [accountOpen, setAccountOpen] = useState(false);
 
+  // The organisation claim screen (ADR-0057 decision 5). `token`/`noticeAddress`
+  // set: handed over from "Claim it now"; absent: Home's own "Claim an organisation".
+  const [claiming, setClaiming] = useState<{ token?: Uint8Array; noticeAddress?: string } | null>(null);
+
   // Sign-out does not reload the page, so whatever was open belongs to the
   // session that ended: the next sign-in starts on Home.
   const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
   useEffect(() => {
     setView({ kind: 'home' });
     setAccountOpen(false);
+    setClaiming(null);
   }, [accountSessionId]);
 
   // The app-code gate, asked once per session: an account that holds the
@@ -517,6 +524,21 @@ export default function App() {
     return <Account address={session.address} onClose={() => setAccountOpen(false)} />;
   }
 
+  // The organisation claim screen (ADR-0057 decision 5). Needs a steward
+  // session to redeem against, so it never renders for the operator plane.
+  if (claiming !== null && session.kind === 'steward') {
+    return (
+      <ClaimOrganisation
+        accountAddress={session.address}
+        accountId={session.accountId}
+        initialToken={claiming.token}
+        initialNoticeAddress={claiming.noticeAddress}
+        onDone={() => setClaiming(null)}
+        onCancel={() => setClaiming(null)}
+      />
+    );
+  }
+
   // ADR-0055 client (a): the typed refusal routes here, and nowhere else is
   // reachable from this session until the authenticator app is enrolled.
   if (appCodeNeeded === true) {
@@ -543,6 +565,13 @@ export default function App() {
   const backToHome = () => {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
+  };
+  // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
+  // carries the freshly minted claim across so ClaimOrganisation needs no typing.
+  const claimNow = (claim: OrganisationClaim) => {
+    setView({ kind: 'home' });
+    setPlane(ACCOUNT_PLANE);
+    setClaiming({ token: claim.token, noticeAddress: claim.noticeAddress });
   };
   const menu =
     session.kind === 'operator' ? (
@@ -630,7 +659,7 @@ export default function App() {
         // began, so Home is a change of plane, not a sign-in.
         onHome={accountSessionOpen ? backToHome : undefined}
       >
-        <Console operatorId={session.address} />
+        <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
       </Shell>
     );
   }
@@ -653,6 +682,7 @@ export default function App() {
           onOpenInventory={openIn('inventory')}
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal}
+          onClaimOrganisation={() => setClaiming({})}
         />
       </Shell>
     );

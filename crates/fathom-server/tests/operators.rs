@@ -26,7 +26,8 @@ use std::time::Duration;
 use deadpool_postgres::Pool;
 use fathom_server::admin::{self, AdminState};
 use fathom_server::api::{
-    HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP,
+    self, ApiState, ClaimApiState, HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE,
+    HEADER_TIMESTAMP,
 };
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
@@ -36,7 +37,7 @@ use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant};
 use fathom_server::keys::{self, KeyRing};
 use fathom_server::operators::{
-    self, Adoption, AdoptionRefusal, OperatorError, OperatorStore, Purpose,
+    self, Adoption, AdoptionRefusal, OperatorError, OperatorStore, Purpose, TokenFacts,
 };
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
@@ -1080,6 +1081,41 @@ async fn site_entries_of(entry_type: &str) -> i64 {
         .get(0)
 }
 
+/// Every row on the site chain, of any type -- for a delta that must be
+/// exactly what one refusal writes, not only its own entry type.
+async fn all_site_entries() -> i64 {
+    superuser()
+        .await
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'site'",
+            &[],
+        )
+        .await
+        .expect("count entries")
+        .get(0)
+}
+
+/// `(organisations, memberships, organisation_roots, scope_grants)` for one
+/// candidate organisation id -- a refused claim must leave all four at 0.
+async fn organisation_row_counts(organisation_id: &str) -> (i64, i64, i64, i64) {
+    let su = superuser().await;
+    let one = |sql: &'static str| {
+        let su = &su;
+        async move {
+            su.query_one(sql, &[&organisation_id])
+                .await
+                .expect("count")
+                .get::<_, i64>(0)
+        }
+    };
+    (
+        one("SELECT count(*) FROM organisations WHERE id = $1").await,
+        one("SELECT count(*) FROM memberships WHERE organisation_id = $1").await,
+        one("SELECT count(*) FROM organisation_roots WHERE organisation_id = $1").await,
+        one("SELECT count(*) FROM scope_grants WHERE organisation_id = $1").await,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // ADR-0057 decision 2: the endorsement, attacked. No superuser UPDATE
 // stands in for freshness anywhere below.
@@ -1848,7 +1884,14 @@ async fn an_expired_enrolment_token_is_refused() {
     // is being changed here, so this test also proves the store re-reads it.
     // The row is re-sealed by the same code path the application uses, through
     // the superuser, because the alternative is a three-day test.
-    expire_token_now(&invitation.id).await;
+    expire_token_now(
+        &operators_store,
+        &pool,
+        &invitation.id,
+        Purpose::Account,
+        &invitation.subject,
+    )
+    .await;
 
     let key = SoftwareKey::random().expect("a keypair");
     let refused = operators_store
@@ -1863,28 +1906,61 @@ async fn an_expired_enrolment_token_is_refused() {
     );
 }
 
-/// Move a token's expiry into the past **and re-seal the row**, so that what
-/// the redemption refuses is the expiry and not the seal.
-///
-/// The re-seal is done by recomputing what the application would have written,
-/// which needs the chain master — so this is a statement about a deployment
-/// whose own server moved the clock, not about an attacker.
-async fn expire_token_now(id: &str) {
+/// Moves a token's expiry into the past and re-seals the row, so a
+/// redemption refuses the expiry itself, not a stale seal.
+async fn expire_token_now(
+    operators_store: &OperatorStore,
+    pool: &Pool,
+    id: &str,
+    purpose: Purpose,
+    subject: &str,
+) {
+    let su = superuser().await;
+    let row = su
+        .query_one(
+            "SELECT token_hash, issued_by, issued_seq, row_version FROM enrolment_tokens WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .expect("the token row");
+    let token_hash: Vec<u8> = row.get(0);
+    let token_hash: [u8; 32] = token_hash.try_into().expect("32-byte hash");
+    let issued_by: String = row.get(1);
+    let issued_seq: i64 = row.get(2);
+    let row_version: i32 = row.get(3);
+
+    let new_expiry = now_unix() - 1;
+    let facts = TokenFacts {
+        id,
+        purpose,
+        token_hash: &token_hash,
+        subject,
+        issued_by: &issued_by,
+        expires_at_unix: new_expiry,
+        redeemed_at_unix: 0,
+        expired_at_unix: 0,
+    };
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let seal = operators_store
+        .token_seal(&tx, &facts, issued_seq, row_version)
+        .await
+        .expect("reseal");
+
     // **Both timestamps move**, because the row's own `CHECK (expires_at >
     // issued_at)` is a rule about a token and not about the clock: a token that
     // expired before it was issued is not a state this table may hold, and a
     // test that produced one would be testing a row the product cannot write.
-    superuser()
-        .await
-        .execute(
-            "UPDATE enrolment_tokens \
-                SET issued_at = now() - interval '2 hours', \
-                    expires_at = now() - interval '1 second' \
-              WHERE id = $1",
-            &[&id],
-        )
-        .await
-        .expect("move the expiry");
+    su.execute(
+        "UPDATE enrolment_tokens \
+            SET issued_at = now() - interval '2 hours', \
+                expires_at = to_timestamp($2::bigint), \
+                row_seal = $3 \
+          WHERE id = $1",
+        &[&id, &new_expiry, &seal.to_vec()],
+    )
+    .await
+    .expect("move the expiry and reseal it");
 }
 
 /// **A token for one address cannot enrol a key for another.**
@@ -2159,7 +2235,7 @@ async fn a_refused_redemption_leaves_a_sealed_entry_and_the_refusal_is_unchanged
         .await
         .expect("a shell for the attacker");
 
-    let before = site_entries_of("account_signin_failed").await;
+    let before = all_site_entries().await;
     let guess = SoftwareKey::random().expect("a keypair");
     let refused = operators_store
         .redeem_account_enrolment(
@@ -2172,7 +2248,7 @@ async fn a_refused_redemption_leaves_a_sealed_entry_and_the_refusal_is_unchanged
         matches!(refused, Err(OperatorError::EnrolmentRefused)),
         "got {refused:?}"
     );
-    let after = site_entries_of("account_signin_failed").await;
+    let after = all_site_entries().await;
     assert_eq!(
         after - before,
         1,
@@ -4699,7 +4775,7 @@ async fn an_organisation_claim_is_pinned_to_an_address_the_operator_cannot_rewri
     let acting = operator
         .session_for(&sessions_store, "POST", "/admin/organisations", b"")
         .await;
-    let (_shell, claim) = operators_store
+    let (_shell, claim, _notice_address) = operators_store
         .create_organisation_shell(&acting, "A Customer")
         .await
         .expect("a shell and its claim");
@@ -4760,7 +4836,9 @@ async fn an_organisation_claim_is_pinned_to_an_address_the_operator_cannot_rewri
     // The wrong address is refused.
     let root = SoftwareKey::random().expect("a root keypair");
     let salt = [0x11u8; 16];
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
     let genesis = a_genesis_grant(&root, &salt, account, &founder_key);
+    let before = all_site_entries().await;
     let refused = operators_store
         .redeem_organisation_claim(
             &session,
@@ -4774,6 +4852,16 @@ async fn an_organisation_claim_is_pinned_to_an_address_the_operator_cannot_rewri
     assert!(
         matches!(refused, Err(OperatorError::EnrolmentRefused)),
         "a claim redeemed against the wrong address is refused: {refused:?}"
+    );
+    assert_eq!(
+        all_site_entries().await - before,
+        1,
+        "the refusal seals exactly one chain row and nothing else"
+    );
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (0, 0, 0, 0),
+        "no organisation, root, membership or grant row survives the refusal"
     );
 
     // The right one is not, and it produces a real organisation whose id is
@@ -6172,5 +6260,1387 @@ async fn a_disabled_bootstrapped_operator_is_refused_out_loud_rather_than_silent
             .expect("the re-seal runs"),
         0,
         "a row sealed correctly under the current shape is left alone, disabled or not"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 5 — the organisation claim, over the real router: proves
+// `POST /enrolment/organisation` (`api.rs`) over a real socket.
+// ---------------------------------------------------------------------------
+
+/// The claim route's own router, merged with `ApiState` because that is
+/// where `EpochWatch` is built and `ClaimApiState` alone has no reason to duplicate it.
+async fn claim_addr(
+    ring: Arc<KeyRing>,
+    sessions_store: Arc<SessionStore>,
+    operators_store: Arc<OperatorStore>,
+) -> std::net::SocketAddr {
+    let api_state = ApiState {
+        sessions: Arc::clone(&sessions_store),
+        watch: Arc::new(EpochWatch::new()),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let claim_state = ClaimApiState {
+        sessions: sessions_store,
+        operators: operators_store,
+        client_address: ClientAddress::peer(),
+    };
+    serve(api::router(api_state).merge(api::claim_router(claim_state))).await
+}
+
+/// A steward account with a real enrolled key, signed in — everything the
+/// claim route needs from the account side.
+async fn a_signed_in_steward(
+    operators_store: &OperatorStore,
+    sessions_store: &SessionStore,
+    acting: &VerifiedSession,
+    name: &str,
+) -> (AccountId, SoftwareKey, SignedIn, SoftwareKey) {
+    let address = unique(name);
+    let invitation = operators_store
+        .create_account_shell(acting, &address, name)
+        .await
+        .expect("a shell");
+    let account_key = SoftwareKey::random().expect("a keypair");
+    operators_store
+        .redeem_account_enrolment(&invitation.token, &address, &account_key.public_key())
+        .await
+        .expect("enrol");
+
+    let account: String = superuser()
+        .await
+        .query_one("SELECT id FROM accounts WHERE email = $1", &[&address])
+        .await
+        .expect("the account")
+        .get(0);
+    let account: AccountId = account.parse().expect("an account id");
+
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let source = a_source_of_its_own();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Steward, &address, &pubkey, &source)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let signed_in = sessions_store
+        .sign_in(
+            PrincipalKind::Steward,
+            &pubkey,
+            &challenge.nonce,
+            &account_key.sign(&digest),
+            &source,
+        )
+        .await
+        .expect("sign in");
+    (account, account_key, signed_in, session_key)
+}
+
+/// `POST /enrolment/organisation`'s body, field for field, as
+/// `client/src/api/claim.ts`'s `buildClaimBody` assembles it.
+#[allow(clippy::too_many_arguments)]
+fn claim_body(
+    token: &[u8],
+    notice_address: &str,
+    root_pubkey: &[u8],
+    id_salt: &[u8; 16],
+    subject: AccountId,
+    subject_pubkey: &[u8],
+    effective_from_unix: i64,
+    expires_at_unix: i64,
+    signature: &[u8],
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    lp(&mut body, token);
+    lp(&mut body, notice_address.as_bytes());
+    lp(&mut body, root_pubkey);
+    lp(&mut body, id_salt);
+    lp(&mut body, subject.to_string().as_bytes());
+    lp(&mut body, subject_pubkey);
+    lp(&mut body, effective_from_unix.to_string().as_bytes());
+    lp(&mut body, expires_at_unix.to_string().as_bytes());
+    lp(&mut body, signature);
+    body
+}
+
+/// A genuinely, correctly signed claim body: the root key signs
+/// `authority::grant_bytes` over `subject`, exactly as the browser would.
+fn signed_claim_body(
+    root: &SoftwareKey,
+    salt: &[u8; 16],
+    token: &[u8],
+    notice_address: &str,
+    subject: AccountId,
+    subject_key: &SoftwareKey,
+) -> Vec<u8> {
+    let now = now_unix();
+    signed_claim_body_with_window(
+        root,
+        salt,
+        token,
+        notice_address,
+        subject,
+        subject_key,
+        now,
+        now + 365 * 24 * 3600,
+    )
+}
+
+/// [`signed_claim_body`], with the grant's window named by the caller: a
+/// bad window is genuinely signed, so the check that reads it is what refuses it.
+#[allow(clippy::too_many_arguments)]
+fn signed_claim_body_with_window(
+    root: &SoftwareKey,
+    salt: &[u8; 16],
+    token: &[u8],
+    notice_address: &str,
+    subject: AccountId,
+    subject_key: &SoftwareKey,
+    effective_from_unix: i64,
+    expires_at_unix: i64,
+) -> Vec<u8> {
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), salt);
+    let root_fpr = authority::key_fingerprint(&root.public_key());
+    let subject_key_fpr = authority::key_fingerprint(&subject_key.public_key());
+    let facts = GrantFacts {
+        organisation: &organisation_id,
+        root_pubkey_fpr: &root_fpr,
+        scope: "",
+        subject: &subject.to_string(),
+        subject_key_fpr: &subject_key_fpr,
+        capability: Capability::Steward,
+        granter: None,
+        granter_key_fpr: &root_fpr,
+        effective_from_unix,
+        expires_at_unix,
+        sole_steward_appointment: false,
+        auth_epoch: 1,
+    };
+    let signature = root.sign(&authority::grant_bytes(&facts));
+    claim_body(
+        token,
+        notice_address,
+        &root.public_key(),
+        salt,
+        subject,
+        &subject_key.public_key(),
+        effective_from_unix,
+        expires_at_unix,
+        &signature,
+    )
+}
+
+/// Sign one request over `path` with a live `SignedIn`, extracted so a
+/// replay test can reuse the same headers on a second send.
+async fn sign_claim_request(
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Vec<(&'static str, String)> {
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await
+        .expect("a nonce");
+    let counter = next_counter(store, &signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        method,
+        path,
+        &sessions::body_digest(body),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let signature = session_key.sign(&message);
+    vec![
+        (HEADER_SESSION, signed_in.session_id.clone()),
+        (HEADER_NONCE, hex(&nonce)),
+        (HEADER_TIMESTAMP, unix_ms.to_string()),
+        (HEADER_COUNTER, counter.to_string()),
+        (HEADER_SIGNATURE, hex(&signature)),
+    ]
+}
+
+/// One LP field off the front of a response body — the claim route's own
+/// answer shape, `LP(organisation_id)`.
+fn read_one_lp(bytes: &[u8]) -> String {
+    let len = u32::from_le_bytes(bytes[..4].try_into().expect("four bytes")) as usize;
+    String::from_utf8(bytes[4..4 + len].to_vec()).expect("utf-8")
+}
+
+/// **A good claim, over the real router.** The id in the answer is the one
+/// §6.1 derives from the root key and salt, not one the server invented.
+#[tokio::test]
+async fn a_good_claim_succeeds_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Good Claim")
+        .await
+        .expect("a shell and its claim");
+
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x22u8; 16];
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(status, "200", "a good claim succeeds: {answer:?}");
+    let organisation_id = read_one_lp(&answer);
+    assert_eq!(
+        organisation_id,
+        authority::derive_organisation_id(&root.public_key(), &salt),
+        "§6.1: the organisation id is derived from the root key, not chosen by the caller"
+    );
+
+    // Before the key-liveness check, this reached `NoSigningKey` here, not an answer.
+    let organisation: OrganisationId = organisation_id.parse().expect("an organisation id");
+    assert_eq!(
+        capability_of(&pool, &ring, organisation, account).await,
+        Some(Capability::Steward),
+        "a good claim's founding grant actually authorises the redeemer as steward"
+    );
+}
+
+/// **A spent token is refused.** A second, otherwise valid redemption is
+/// refused rather than producing a second organisation.
+#[tokio::test]
+async fn a_spent_token_is_refused_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Spent Token")
+        .await
+        .expect("a shell and its claim");
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x23u8; 16];
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, _) = raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(status, "200", "the first redemption succeeds");
+
+    // The very same token, in a fresh, otherwise-valid signed request.
+    let before = site_entries_of("account_signin_failed").await;
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a spent token is refused, not redeemed twice: {answer:?}"
+    );
+    assert_eq!(
+        site_entries_of("account_signin_failed").await - before,
+        1,
+        "a refused claim redemption seals a chain row, the same way redeem_account_enrolment and \
+         redeem_operator_enrolment already do"
+    );
+}
+
+/// **A replay is refused.** The identical signed request sent a second time
+/// is refused by the session layer's own nonce-spending.
+#[tokio::test]
+async fn a_replayed_claim_request_is_refused() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Replay")
+        .await
+        .expect("a shell and its claim");
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x24u8; 16];
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (first_status, first_answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        first_status, "200",
+        "the first send succeeds: {first_answer:?}"
+    );
+
+    // The identical bytes and the identical headers, a second time.
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a byte-for-byte replay is refused, not treated as a second attempt: {answer:?}"
+    );
+}
+
+/// **A grant not signed by the presented root key is refused.** The
+/// signature is flipped after being computed on an otherwise real request.
+#[tokio::test]
+async fn a_bad_grant_signature_is_refused_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Bad Signature")
+        .await
+        .expect("a shell and its claim");
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x25u8; 16];
+    let mut body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    // Flip the last byte of the signature field, the last 64 bytes of the
+    // body (`claim_body`'s own field order).
+    let last = body.len() - 1;
+    body[last] ^= 0xff;
+
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a grant the presented root key did not sign is refused: {answer:?}"
+    );
+}
+
+/// **A grant for an account other than the caller's is refused.** The root
+/// key genuinely signs a grant naming a real, different account.
+#[tokio::test]
+async fn a_grant_for_another_account_is_refused_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Grant For Another")
+        .await
+        .expect("a shell and its claim");
+
+    // Two real, distinct accounts: the caller, and the account the grant
+    // will (wrongly) name.
+    let (caller, _caller_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "caller").await;
+    let (other, other_key, _, _) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "somebody-else").await;
+    assert_ne!(
+        caller, other,
+        "two distinct accounts, or this test proves nothing"
+    );
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x26u8; 16];
+    // The root key genuinely signs a grant for `other` — a real signature,
+    // a real subject, just not the caller's.
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        other,
+        &other_key,
+    );
+
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a grant for an account other than the caller's is refused: {answer:?}"
+    );
+}
+
+/// **A caller from the operator plane is refused,** before the token or the
+/// grant is even looked at.
+#[tokio::test]
+async fn a_caller_from_the_operator_plane_is_refused() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    // Syntactically valid, so it's the session check that refuses this,
+    // not the handler's own field parsing.
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x27u8; 16];
+    let bogus_subject: AccountId = operator
+        .id
+        .parse()
+        .expect("an operator id is a ULID too, so this parses even though it names no account");
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &[0u8; 32],
+        "nobody@example.invalid",
+        bogus_subject,
+        &operator.key,
+    );
+
+    let headers = sign_claim_request(
+        &sessions_store,
+        &operator.signed_in,
+        &operator.session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "an operator session may not redeem an organisation claim: {answer:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The claim route's own key, signature and duplicate-id checks
+// ---------------------------------------------------------------------------
+
+/// A founding grant naming a key nobody enrolled is refused, not accepted
+/// -- otherwise the claim succeeds and the steward can never sign in.
+#[tokio::test]
+async fn a_founding_grant_for_a_key_nobody_enrolled_is_refused_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Key Nobody Enrolled")
+        .await
+        .expect("a shell and its claim");
+    let (account, _account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    // A real P-256 key, genuinely never enrolled anywhere for this account
+    // or any other.
+    let never_enrolled = SoftwareKey::random().expect("a keypair");
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x28u8; 16];
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &never_enrolled,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let before = all_site_entries().await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a grant naming a key nobody enrolled is refused: {answer:?}"
+    );
+    assert_eq!(
+        all_site_entries().await - before,
+        1,
+        "the refusal seals exactly one chain row and nothing else"
+    );
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (0, 0, 0, 0),
+        "no organisation, root, membership or grant row survives the refusal"
+    );
+}
+
+/// A founding grant naming another real, enrolled account's key is
+/// refused: `key.account_id != grant.subject`, on its own.
+#[tokio::test]
+async fn a_founding_grant_for_another_accounts_real_key_is_refused_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "Someone Elses Key")
+        .await
+        .expect("a shell and its claim");
+    let (account, _account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+    // A second, real, enrolled account -- its key is genuinely live, just
+    // not this account's.
+    let (_other_account, other_key, _, _) = a_signed_in_steward(
+        &operators_store,
+        &sessions_store,
+        &acting,
+        "somebody-elses-account",
+    )
+    .await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x29u8; 16];
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
+    // `subject` is the caller's own account; the key fingerprint is somebody
+    // else's.
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &other_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let before = all_site_entries().await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a grant naming another real account's key is refused: {answer:?}"
+    );
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (0, 0, 0, 0),
+        "no organisation, root, membership or grant row survives the refusal"
+    );
+    assert_eq!(
+        all_site_entries().await - before,
+        1,
+        "the refusal seals exactly one chain row and nothing else"
+    );
+}
+
+/// The same root key and salt under a fresh shell derive the same
+/// organisation id (§6.1) and are refused generically, not a 500.
+#[tokio::test]
+async fn a_duplicate_organisation_id_is_refused_not_500() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x2au8; 16];
+
+    let (_shell_one, claim_one, notice_address) = operators_store
+        .create_organisation_shell(&acting, "First Claim On This Root")
+        .await
+        .expect("a shell and its claim");
+    let body_one = signed_claim_body(
+        &root,
+        &salt,
+        &claim_one.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers_one = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body_one,
+    )
+    .await;
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/organisation",
+        &headers_one,
+        &body_one,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the first claim on this root succeeds: {answer:?}"
+    );
+
+    let (_shell_two, claim_two, notice_address) = operators_store
+        .create_organisation_shell(&acting, "Second Claim On The Same Root")
+        .await
+        .expect("a second shell and its claim");
+    let body_two = signed_claim_body(
+        &root,
+        &salt,
+        &claim_two.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers_two = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body_two,
+    )
+    .await;
+    let before = all_site_entries().await;
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/organisation",
+        &headers_two,
+        &body_two,
+    )
+    .await;
+    assert_eq!(
+        status, "401",
+        "the same root key and salt a second time is refused generically, not a 500: {answer:?}"
+    );
+    assert_eq!(
+        all_site_entries().await - before,
+        1,
+        "the refusal seals exactly one chain row and nothing else"
+    );
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (1, 1, 1, 1),
+        "the second attempt adds no second organisation, root, membership or grant row"
+    );
+}
+
+/// A bad signature is refused before `bootstrap_organisation` writes
+/// anything, and the claim's own token stays live.
+#[tokio::test]
+async fn a_founding_grant_with_a_bad_signature_writes_nothing_over_http() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "A Bad Signature")
+        .await
+        .expect("a shell and its claim");
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let wrong_root = SoftwareKey::random().expect("a different keypair");
+    let salt = [0x2eu8; 16];
+    let organisation_id = authority::derive_organisation_id(&root.public_key(), &salt);
+    let now = now_unix();
+    let expires = now + 365 * 24 * 3600;
+    let root_fpr = authority::key_fingerprint(&root.public_key());
+    let subject_key_fpr = authority::key_fingerprint(&account_key.public_key());
+    let facts = GrantFacts {
+        organisation: &organisation_id,
+        root_pubkey_fpr: &root_fpr,
+        scope: "",
+        subject: &account.to_string(),
+        subject_key_fpr: &subject_key_fpr,
+        capability: Capability::Steward,
+        granter: None,
+        granter_key_fpr: &root_fpr,
+        effective_from_unix: now,
+        expires_at_unix: expires,
+        sole_steward_appointment: false,
+        auth_epoch: 1,
+    };
+    // A genuine ES256 signature -- just from the wrong key, not `root`'s,
+    // the one named on the wire as `root_pubkey`.
+    let bad_signature = wrong_root.sign(&authority::grant_bytes(&facts));
+    let body = claim_body(
+        &claim.token,
+        &notice_address,
+        &root.public_key(),
+        &salt,
+        account,
+        &account_key.public_key(),
+        now,
+        expires,
+        &bad_signature,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+
+    let before = all_site_entries().await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "401",
+        "a bad grant signature is refused: {answer:?}"
+    );
+    assert_eq!(
+        all_site_entries().await - before,
+        1,
+        "the refusal seals exactly one chain row and nothing else"
+    );
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (0, 0, 0, 0),
+        "no organisation, root, membership or grant row survives a bad-signature refusal"
+    );
+
+    // The claim's own token is still live: a corrected request may retry it.
+    let good_body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &good_body,
+    )
+    .await;
+    let (status, answer) = raw_request(
+        addr,
+        "POST",
+        "/enrolment/organisation",
+        &headers,
+        &good_body,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the same token, correctly signed, still redeems: {answer:?}"
+    );
+}
+
+/// An inverted or zero time window is refused, not a 500 -- both are
+/// genuinely signed, so the handler's own validation is what catches them.
+#[tokio::test]
+async fn a_bad_time_window_is_refused_not_500() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let now = now_unix();
+    for (label, effective_from, expires_at) in [
+        ("zero effective-from", 0i64, now + 3600),
+        ("inverted window", now + 3600, now),
+    ] {
+        let (_shell, claim, notice_address) = operators_store
+            .create_organisation_shell(&acting, &unique(&format!("Bad Window {label}")))
+            .await
+            .expect("a shell and its claim");
+        let root = SoftwareKey::random().expect("a root keypair");
+        let salt = [0x2bu8; 16];
+        let body = signed_claim_body_with_window(
+            &root,
+            &salt,
+            &claim.token,
+            &notice_address,
+            account,
+            &account_key,
+            effective_from,
+            expires_at,
+        );
+        let headers = sign_claim_request(
+            &sessions_store,
+            &signed_in,
+            &session_key,
+            "POST",
+            "/enrolment/organisation",
+            &body,
+        )
+        .await;
+        let (status, answer) =
+            raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+        assert_eq!(
+            status, "400",
+            "{label} is refused with a malformed-request answer, not a 500: {answer:?}"
+        );
+    }
+}
+
+/// The notice address is trimmed the way `config.rs` trims it at start-up,
+/// so incidental whitespace on the wire does not turn a right answer wrong.
+#[tokio::test]
+async fn a_notice_address_with_incidental_whitespace_still_claims() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "Whitespace In The Notice Address")
+        .await
+        .expect("a shell and its claim");
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "founder").await;
+
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x2cu8; 16];
+    let padded_notice_address = format!("  {notice_address}\t");
+    let body = signed_claim_body(
+        &root,
+        &salt,
+        &claim.token,
+        &padded_notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_eq!(
+        status, "200",
+        "incidental whitespace around the notice address does not refuse a claim: {answer:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// An expired token must not hold the site chain's lock past its own refusal
+// ---------------------------------------------------------------------------
+
+/// The account route. An expired token's own transaction held the site
+/// chain's lock while `record_redemption_refused` waited on a second one.
+#[tokio::test]
+async fn an_expired_account_token_answers_promptly_and_does_not_lock_the_chain() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let address = unique("expired-deadlock@example.org");
+    let invitation = operators_store
+        .create_account_shell(&operator.session, &address, "Expired Deadlock")
+        .await
+        .expect("a shell");
+    expire_token_now(
+        &operators_store,
+        &pool,
+        &invitation.id,
+        Purpose::Account,
+        &invitation.subject,
+    )
+    .await;
+
+    let expired_before = site_entries_of("enrolment_token_expired").await;
+    let refused_before = site_entries_of("account_signin_failed").await;
+    let entries_before = all_site_entries().await;
+
+    let key = SoftwareKey::random().expect("a keypair");
+    let public_key = key.public_key();
+    let unrelated_address = unique("meanwhile@example.org");
+    let claim = operators_store.redeem_account_enrolment(&invitation.token, &address, &public_key);
+    let unrelated =
+        operators_store.create_account_shell(&operator.session, &unrelated_address, "Meanwhile");
+    let (claim_outcome, unrelated_outcome) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(claim, unrelated)
+    })
+    .await
+    .expect("the expired claim answered and an unrelated write finished inside 5s");
+
+    assert!(
+        matches!(claim_outcome, Err(OperatorError::EnrolmentRefused)),
+        "got {claim_outcome:?}"
+    );
+    assert!(
+        unrelated_outcome.is_ok(),
+        "an unrelated, concurrent site-chain write is not blocked behind the expired claim"
+    );
+    assert_eq!(
+        site_entries_of("enrolment_token_expired").await - expired_before,
+        1,
+        "the token's own expiry is recorded once, in its own transaction"
+    );
+    assert_eq!(
+        site_entries_of("account_signin_failed").await - refused_before,
+        1,
+        "the refusal itself is recorded exactly once"
+    );
+    assert_eq!(
+        all_site_entries().await - entries_before,
+        4,
+        "the total chain delta is these two rows plus the unrelated shell's own two"
+    );
+}
+
+/// Three callers presenting one expired token at once note its expiry once.
+#[tokio::test]
+async fn concurrent_redemptions_of_an_expired_token_note_its_expiry_once() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let address = unique("expired-thrice@example.org");
+    let invitation = operators_store
+        .create_account_shell(&operator.session, &address, "Expired Thrice")
+        .await
+        .expect("a shell");
+    expire_token_now(
+        &operators_store,
+        &pool,
+        &invitation.id,
+        Purpose::Account,
+        &invitation.subject,
+    )
+    .await;
+
+    let expired_before = site_entries_of("enrolment_token_expired").await;
+    let keys: Vec<_> = (0..3)
+        .map(|_| SoftwareKey::random().expect("a keypair").public_key())
+        .collect();
+    let (a, b, c) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            operators_store.redeem_account_enrolment(&invitation.token, &address, &keys[0]),
+            operators_store.redeem_account_enrolment(&invitation.token, &address, &keys[1]),
+            operators_store.redeem_account_enrolment(&invitation.token, &address, &keys[2]),
+        )
+    })
+    .await
+    .expect("three expired redemptions answered inside 10s");
+
+    for outcome in [&a, &b, &c] {
+        assert!(
+            matches!(outcome, Err(OperatorError::EnrolmentRefused)),
+            "got {outcome:?}"
+        );
+    }
+    assert_eq!(
+        site_entries_of("enrolment_token_expired").await - expired_before,
+        1,
+        "the expiry is noted once, however many callers present the token at once"
+    );
+}
+
+/// The organisation-claim route.
+#[tokio::test]
+async fn an_expired_organisation_claim_answers_promptly_and_does_not_lock_the_chain() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (_shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "Expired Claim Deadlock")
+        .await
+        .expect("a shell and its claim");
+    expire_token_now(
+        &operators_store,
+        &pool,
+        &claim.id,
+        Purpose::Organisation,
+        &claim.subject,
+    )
+    .await;
+
+    let (account, founder_key, signed_in, session_key) = a_signed_in_steward(
+        &operators_store,
+        &sessions_store,
+        &acting,
+        "expired-claim-founder",
+    )
+    .await;
+    let session = verify(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        b"",
+    )
+    .await;
+    let root = SoftwareKey::random().expect("a root keypair");
+    let salt = [0x2du8; 16];
+    let genesis = a_genesis_grant(&root, &salt, account, &founder_key);
+    let root_pubkey = root.public_key();
+
+    let expired_before = site_entries_of("enrolment_token_expired").await;
+    let refused_before = site_entries_of("account_signin_failed").await;
+    let entries_before = all_site_entries().await;
+
+    let redeem = operators_store.redeem_organisation_claim(
+        &session,
+        &claim.token,
+        &notice_address,
+        &root_pubkey,
+        &salt,
+        &genesis,
+    );
+    let unrelated = operators_store.create_organisation_shell(&acting, "Meanwhile, Unrelated");
+    let (redeem_outcome, unrelated_outcome) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(redeem, unrelated)
+    })
+    .await
+    .expect("the expired claim answered and an unrelated write finished inside 5s");
+
+    assert!(
+        matches!(redeem_outcome, Err(OperatorError::EnrolmentRefused)),
+        "got {redeem_outcome:?}"
+    );
+    assert!(
+        unrelated_outcome.is_ok(),
+        "an unrelated, concurrent site-chain write is not blocked behind the expired claim"
+    );
+    assert_eq!(
+        site_entries_of("enrolment_token_expired").await - expired_before,
+        1,
+        "the token's own expiry is recorded once, in its own transaction"
+    );
+    assert_eq!(
+        site_entries_of("account_signin_failed").await - refused_before,
+        1,
+        "the refusal itself is recorded exactly once"
+    );
+    assert_eq!(
+        all_site_entries().await - entries_before,
+        4,
+        "the total chain delta is these two rows plus the unrelated shell's own two"
+    );
+    let organisation_id = authority::derive_organisation_id(&root_pubkey, &salt);
+    assert_eq!(
+        organisation_row_counts(&organisation_id).await,
+        (0, 0, 0, 0),
+        "an expired claim writes no organisation, root, membership or grant row"
+    );
+}
+
+/// The operator route -- on the one refusal it can be driven to from
+/// outside the crate (nothing issues a `Purpose::Operator` token to expire).
+#[tokio::test]
+async fn a_wrong_purpose_operator_token_answers_promptly_and_does_not_lock_the_chain() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    // A live `Purpose::Setup` token -- §5.5's only kind -- presented to
+    // `Purpose::Operator` instead of the screen it is really for.
+    let name = unique("Colleague");
+    let address = unique("wrong-purpose-colleague@example.org");
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/operators", b"")
+        .await;
+    let message = operators::operator_request_bytes(
+        operators_store.deployment(),
+        &operator.id,
+        &name,
+        &address,
+    );
+    operators_store
+        .request_operator(&acting, &name, &address, &operator.key.sign(&message))
+        .await
+        .expect("a colleague request");
+    tokio::time::sleep(operators_store.settings_delay() + Duration::from_millis(200)).await;
+    let invitations = operators_store
+        .apply_due_operator_requests()
+        .await
+        .expect("the delay elapsed");
+    let invitation = invitations
+        .into_iter()
+        .find(|i| i.purpose == Purpose::Setup)
+        .expect("a live setup token");
+
+    let refused_before = site_entries_of("operator_signin_failed").await;
+
+    let key = SoftwareKey::random().expect("a keypair");
+    let public_key = key.public_key();
+    let unrelated_address = unique("meanwhile-operator-route@example.org");
+    let claim = operators_store.redeem_operator_enrolment(&invitation.token, &public_key);
+    let unrelated =
+        operators_store.create_account_shell(&operator.session, &unrelated_address, "Meanwhile");
+    let (claim_outcome, unrelated_outcome) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(claim, unrelated)
+    })
+    .await
+    .expect("the wrong-purpose token answered and an unrelated write finished inside 5s");
+
+    assert!(
+        matches!(claim_outcome, Err(OperatorError::EnrolmentRefused)),
+        "a setup-purpose token presented as an operator-purpose one is refused: {claim_outcome:?}"
+    );
+    assert!(
+        unrelated_outcome.is_ok(),
+        "an unrelated, concurrent site-chain write is not blocked behind the refusal"
+    );
+    assert_eq!(
+        site_entries_of("operator_signin_failed").await - refused_before,
+        1,
+        "the refusal itself is recorded exactly once"
     );
 }

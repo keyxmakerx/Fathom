@@ -49,7 +49,7 @@ use deadpool_postgres::{Pool, PoolError, Transaction};
 use fathom_canon::Json;
 use sha2::{Digest, Sha256};
 
-use crate::authority::{self, RowFacts, SignatureRefused};
+use crate::authority::{self, GrantFacts, RowFacts, SignatureRefused};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
 use crate::crypto::{self, Key32};
@@ -2591,13 +2591,15 @@ impl OperatorStore {
         let row = match self.spend_token(&tx, token, Purpose::Account).await {
             Ok(row) => row,
             Err(OperatorError::EnrolmentRefused) => {
-                self.record_redemption_refused(
-                    EntryType::AccountSigninFailed,
-                    Purpose::Account,
-                    "token_invalid",
-                )
-                .await;
-                return Err(OperatorError::EnrolmentRefused);
+                return Err(self
+                    .refuse_expired_or_invalid_token(
+                        tx,
+                        token,
+                        Purpose::Account,
+                        EntryType::AccountSigninFailed,
+                        "token_invalid",
+                    )
+                    .await);
             }
             Err(e) => return Err(e),
         };
@@ -2619,13 +2621,14 @@ impl OperatorStore {
             )
             .await?;
         let Some(found) = found else {
-            self.record_redemption_refused(
-                EntryType::AccountSigninFailed,
-                Purpose::Account,
-                "account_not_found",
-            )
-            .await;
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Account,
+                    "account_not_found",
+                )
+                .await);
         };
         let on_record: String = found.get(0);
         let disabled: bool = found.get(1);
@@ -2639,13 +2642,9 @@ impl OperatorStore {
             } else {
                 "account_disabled"
             };
-            self.record_redemption_refused(
-                EntryType::AccountSigninFailed,
-                Purpose::Account,
-                reason,
-            )
-            .await;
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(tx, EntryType::AccountSigninFailed, Purpose::Account, reason)
+                .await);
         }
 
         let redeemed = chains::append_site(
@@ -2696,7 +2695,7 @@ impl OperatorStore {
         &self,
         operator: &VerifiedSession,
         display_name: &str,
-    ) -> Result<(String, Invitation), OperatorError> {
+    ) -> Result<(String, Invitation, String), OperatorError> {
         let acting = self.acting_operator(operator)?;
         if display_name.trim().is_empty() {
             return Err(OperatorError::Malformed("display name"));
@@ -2724,7 +2723,7 @@ impl OperatorStore {
                     // §6.2's *"this organisation was bootstrapped by operator X
                     // on date D"*, rendered from the chain, permanently.
                     ("operator", Json::Str(acting.clone())),
-                    ("notice_address", Json::Str(notice)),
+                    ("notice_address", Json::Str(notice.clone())),
                 ],
             ),
         )
@@ -2760,7 +2759,7 @@ impl OperatorStore {
 
         leave_custody(&tx).await?;
         tx.commit().await?;
-        Ok((shell, invitation))
+        Ok((shell, invitation, notice))
     }
 
     /// **Redeem an organisation claim: §6.1's genesis, run by the account that
@@ -2801,15 +2800,41 @@ impl OperatorStore {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_enrolment_custody(&tx).await?;
+        // Needed below, for `account_keys_readable`'s policy -- `creator`
+        // came from the verified session, not from the caller's own claim.
+        set_account_id(&tx, &creator.to_string()).await?;
 
         // The claim is pinned to the install-time address and the caller has
         // to present it. §6.2: this is the piece that stops an operator
         // reseating an organisation through a channel inside their own plane.
-        if self.notice_address(&tx).await? != notice_address {
-            return Err(OperatorError::EnrolmentRefused);
+        // Trimmed like `config.rs` trims `FATHOM_OPERATOR_NOTICE_ADDRESS`
+        // itself, so incidental whitespace does not turn a right answer wrong.
+        if self.notice_address(&tx).await? != notice_address.trim() {
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Organisation,
+                    "notice_address_mismatch",
+                )
+                .await);
         }
 
-        let row = self.spend_token(&tx, token, Purpose::Organisation).await?;
+        let row = match self.spend_token(&tx, token, Purpose::Organisation).await {
+            Ok(row) => row,
+            Err(OperatorError::EnrolmentRefused) => {
+                return Err(self
+                    .refuse_expired_or_invalid_token(
+                        tx,
+                        token,
+                        Purpose::Organisation,
+                        EntryType::AccountSigninFailed,
+                        "token_invalid",
+                    )
+                    .await);
+            }
+            Err(e) => return Err(e),
+        };
         let shell = row
             .shell_id
             .clone()
@@ -2824,7 +2849,14 @@ impl OperatorStore {
             )
             .await?;
         let Some(found) = found else {
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Organisation,
+                    "shell_not_found",
+                )
+                .await);
         };
         let display_name: String = found.get(0);
         let already: bool = found.get(1);
@@ -2833,7 +2865,14 @@ impl OperatorStore {
         let row_version: i32 = found.get(4);
         let stored_seal: Vec<u8> = found.get(5);
         if already {
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Organisation,
+                    "shell_already_claimed",
+                )
+                .await);
         }
         let recomputed = self
             .shell_seal(
@@ -2848,10 +2887,120 @@ impl OperatorStore {
             )
             .await?;
         if stored_seal != recomputed {
+            // An integrity alarm (§3.4 step 2), not a refused redemption:
+            // that ledger is for a caller's own claim, not a row lying.
             return Err(OperatorError::Unverifiable("organisation shell row seal"));
         }
 
-        let genesis_result = grants::bootstrap_organisation(
+        // Refused here, not inside `bootstrap_organisation`, which trusts
+        // every subject it is handed: the redeemer must be the founding steward.
+        if genesis.iter().any(|grant| grant.subject != creator) {
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Organisation,
+                    "grant_subject_mismatch",
+                )
+                .await);
+        }
+
+        // Each grant's key must be a real, live key of its subject -- the
+        // same check `verify_grant_row` runs later, moved to the door.
+        for grant in genesis {
+            let key = match grants::key_by_fingerprint(
+                &tx,
+                &self.ring,
+                &grant.subject_key_fpr,
+                grant.effective_from_unix,
+            )
+            .await
+            {
+                Ok(key) => key,
+                Err(AuthorityError::Unverifiable(what)) => {
+                    return Err(OperatorError::Unverifiable(what));
+                }
+                Err(_) => {
+                    return Err(self
+                        .refuse_redemption(
+                            tx,
+                            EntryType::AccountSigninFailed,
+                            Purpose::Organisation,
+                            "grant_subject_key_invalid",
+                        )
+                        .await);
+                }
+            };
+            if key.account_id != grant.subject.to_string() {
+                return Err(self
+                    .refuse_redemption(
+                        tx,
+                        EntryType::AccountSigninFailed,
+                        Purpose::Organisation,
+                        "grant_subject_key_invalid",
+                    )
+                    .await);
+            }
+        }
+
+        // §6.1's id is derived: the same key and salt twice would otherwise
+        // hit `bootstrap_organisation`'s own unique-violation, an alarm.
+        let candidate_organisation = authority::derive_organisation_id(root_pubkey, id_salt);
+        let root_fpr = authority::key_fingerprint(root_pubkey);
+        tx.execute(
+            "SELECT set_config('app.tenant_id', $1, true)",
+            &[&candidate_organisation],
+        )
+        .await?;
+        let organisation_exists = tx
+            .query_opt(
+                "SELECT 1 FROM organisations WHERE id = $1",
+                &[&candidate_organisation],
+            )
+            .await?
+            .is_some();
+        if organisation_exists {
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::AccountSigninFailed,
+                    Purpose::Organisation,
+                    "organisation_exists",
+                )
+                .await);
+        }
+
+        // Verified before `bootstrap_organisation` writes anything -- its
+        // own check runs mid-insert, too late for a refusal to mean nothing wrote.
+        for grant in genesis {
+            let facts = GrantFacts {
+                organisation: &candidate_organisation,
+                root_pubkey_fpr: &root_fpr,
+                scope: "",
+                subject: &grant.subject.to_string(),
+                subject_key_fpr: &grant.subject_key_fpr,
+                capability: grant.capability,
+                granter: None,
+                granter_key_fpr: &root_fpr,
+                effective_from_unix: grant.effective_from_unix,
+                expires_at_unix: grant.expires_at_unix,
+                sole_steward_appointment: false,
+                auth_epoch: 1,
+            };
+            let message = authority::grant_bytes(&facts);
+            if authority::verify_es256(root_pubkey, &message, &grant.signature).is_err() {
+                return Err(self
+                    .refuse_redemption(
+                        tx,
+                        EntryType::AccountSigninFailed,
+                        Purpose::Organisation,
+                        "grant_signature_invalid",
+                    )
+                    .await);
+            }
+        }
+
+        let genesis_result = match grants::bootstrap_organisation(
             &tx,
             &self.ring,
             creator,
@@ -2860,7 +3009,21 @@ impl OperatorStore {
             id_salt,
             genesis,
         )
-        .await?;
+        .await
+        {
+            Ok(g) => g,
+            Err(AuthorityError::Signature(_)) => {
+                return Err(self
+                    .refuse_redemption(
+                        tx,
+                        EntryType::AccountSigninFailed,
+                        Purpose::Organisation,
+                        "grant_signature_invalid",
+                    )
+                    .await);
+            }
+            Err(e) => return Err(e.into()),
+        };
         let organisation = genesis_result.organisation.to_string();
 
         // Back to enrolment custody: `bootstrap_organisation` leaves the
@@ -2921,6 +3084,44 @@ impl OperatorStore {
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(genesis_result.organisation)
+    }
+
+    /// The same act as [`Self::redeem_organisation_claim`], but parses the
+    /// subject text into an [`AccountId`] here: `tests/sessions.rs` forbids `api.rs` handlers from doing it themselves.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn redeem_organisation_claim_over_http(
+        &self,
+        session: &VerifiedSession,
+        token: &[u8],
+        notice_address: &str,
+        root_pubkey: &[u8],
+        id_salt: &[u8; 16],
+        subject_text: &str,
+        subject_key_fpr: [u8; 32],
+        effective_from_unix: i64,
+        expires_at_unix: i64,
+        signature: [u8; 64],
+    ) -> Result<OrganisationId, OperatorError> {
+        let subject: AccountId = subject_text
+            .parse()
+            .map_err(|_| OperatorError::Malformed("grant subject"))?;
+        let genesis = [GenesisGrant {
+            subject,
+            subject_key_fpr,
+            capability: authority::Capability::Steward,
+            effective_from_unix,
+            expires_at_unix,
+            signature,
+        }];
+        self.redeem_organisation_claim(
+            session,
+            token,
+            notice_address,
+            root_pubkey,
+            id_salt,
+            &genesis,
+        )
+        .await
     }
 
     // -----------------------------------------------------------------------
@@ -4373,13 +4574,15 @@ impl OperatorStore {
         let row = match self.spend_token(&tx, token, Purpose::Operator).await {
             Ok(row) => row,
             Err(OperatorError::EnrolmentRefused) => {
-                self.record_redemption_refused(
-                    EntryType::OperatorSigninFailed,
-                    Purpose::Operator,
-                    "token_invalid",
-                )
-                .await;
-                return Err(OperatorError::EnrolmentRefused);
+                return Err(self
+                    .refuse_expired_or_invalid_token(
+                        tx,
+                        token,
+                        Purpose::Operator,
+                        EntryType::OperatorSigninFailed,
+                        "token_invalid",
+                    )
+                    .await);
             }
             Err(e) => return Err(e),
         };
@@ -4391,22 +4594,24 @@ impl OperatorStore {
         // A disabled operator does not enrol a key. §4.5's re-enrolment is two
         // operators' work, not a token that was issued before the disabling.
         let Some(existing) = read_operator(&tx, &operator).await? else {
-            self.record_redemption_refused(
-                EntryType::OperatorSigninFailed,
-                Purpose::Operator,
-                "operator_not_found",
-            )
-            .await;
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::OperatorSigninFailed,
+                    Purpose::Operator,
+                    "operator_not_found",
+                )
+                .await);
         };
         if existing.disabled_at_unix != 0 {
-            self.record_redemption_refused(
-                EntryType::OperatorSigninFailed,
-                Purpose::Operator,
-                "operator_disabled",
-            )
-            .await;
-            return Err(OperatorError::EnrolmentRefused);
+            return Err(self
+                .refuse_redemption(
+                    tx,
+                    EntryType::OperatorSigninFailed,
+                    Purpose::Operator,
+                    "operator_disabled",
+                )
+                .await);
         }
 
         let redeemed = chains::append_site(
@@ -5395,6 +5600,82 @@ impl OperatorStore {
         }
     }
 
+    /// Rolls `tx` back before recording the refusal on a second
+    /// connection, so nothing a rejected claim wrote survives it.
+    async fn refuse_redemption(
+        &self,
+        tx: Transaction<'_>,
+        entry_type: EntryType,
+        purpose: Purpose,
+        reason: &'static str,
+    ) -> OperatorError {
+        if let Err(e) = tx.rollback().await {
+            tracing::error!(error = %e, "could not roll back a refusing transaction");
+        }
+        self.record_redemption_refused(entry_type, purpose, reason)
+            .await;
+        OperatorError::EnrolmentRefused
+    }
+
+    /// [`OperatorStore::refuse_redemption`], but first re-derives the
+    /// token and gives an expired one its own note.
+    async fn refuse_expired_or_invalid_token(
+        &self,
+        tx: Transaction<'_>,
+        token: &[u8],
+        purpose: Purpose,
+        entry_type: EntryType,
+        reason: &'static str,
+    ) -> OperatorError {
+        if let Err(e) = tx.rollback().await {
+            tracing::error!(error = %e, "could not roll back a refusing transaction");
+        }
+        self.note_expiry_durably(token, purpose).await;
+        self.record_redemption_refused(entry_type, purpose, reason)
+            .await;
+        OperatorError::EnrolmentRefused
+    }
+
+    /// Best-effort, on its own connection: gives an expired, unflagged
+    /// token `note_expired`'s entry.
+    async fn note_expiry_durably(&self, token: &[u8], purpose: Purpose) {
+        let hash = token_hash(token);
+        let attempt: Result<(), OperatorError> = async {
+            let mut client = self.pool.get().await?;
+            let tx = client.transaction().await?;
+            enter_enrolment_custody(&tx).await?;
+            // Chain lock before the read, as every append takes it: concurrent callers note the expiry once.
+            chains::lock_site(&tx, &self.deployment).await?;
+            let row = tx
+                .query_opt(
+                    &format!("SELECT {TOKEN_COLUMNS} FROM enrolment_tokens WHERE token_hash = $1"),
+                    &[&hash.to_vec()],
+                )
+                .await?;
+            if let Some(row) = row {
+                let (out, stored_seal) = token_row(&row)?;
+                let recomputed = self
+                    .token_seal(&tx, &out.facts(), out.issued_seq, out.row_version)
+                    .await?;
+                if out.purpose == purpose
+                    && stored_seal == recomputed
+                    && out.redeemed_at_unix == 0
+                    && out.expired_at_unix == 0
+                    && out.expires_at_unix <= now_unix()
+                {
+                    self.note_expired(&tx, &out).await?;
+                }
+            }
+            leave_custody(&tx).await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = attempt {
+            tracing::error!(error = %e, "could not record a token's own expiry");
+        }
+    }
+
     async fn notice_address(&self, tx: &Transaction<'_>) -> Result<String, OperatorError> {
         let row = tx
             .query_opt("SELECT notice_address FROM site_install", &[])
@@ -5778,7 +6059,9 @@ impl OperatorStore {
         ))
     }
 
-    async fn token_seal(
+    /// `pub`, not `#[cfg(test)]` (`credentials.rs`'s `issue_reset_token`
+    /// says why): lets `tests/operators.rs` re-seal a row it backdated.
+    pub async fn token_seal(
         &self,
         tx: &Transaction<'_>,
         facts: &TokenFacts<'_>,

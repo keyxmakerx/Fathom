@@ -36,6 +36,36 @@ export async function generateKeyPair(): Promise<CryptoKeyPair> {
   return pair as CryptoKeyPair;
 }
 
+/** A fresh, EXTRACTABLE P-256 keypair -- the organisation's root key,
+ * ADR-0057 decision 5's exception, never written to this module's own stores. */
+export async function generateExtractableKeyPair(): Promise<CryptoKeyPair> {
+  const pair = await crypto.subtle.generateKey(ECDSA_P256, true, ['sign', 'verify']);
+  return pair as CryptoKeyPair;
+}
+
+/** The private half as its raw 32-byte scalar (JWK's `d`), left-padded if
+ * short and refused if long. */
+export async function exportPrivateScalar(privateKey: CryptoKey): Promise<Uint8Array> {
+  const jwk = await crypto.subtle.exportKey('jwk', privateKey);
+  if (!jwk.d) {
+    throw new Error('this key has no private scalar to export');
+  }
+  const raw = base64UrlToBytes(jwk.d);
+  if (raw.length === 32) return raw;
+  if (raw.length > 32) throw new Error(`unexpected P-256 scalar length: ${raw.length} bytes`);
+  const padded = new Uint8Array(32);
+  padded.set(raw, 32 - raw.length);
+  return padded;
+}
+
+function base64UrlToBytes(text: string): Uint8Array {
+  const base64 = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
 /** SEC1 uncompressed point (`0x04 || X || Y`, 65 bytes) -- the same shape
  * `authority::PUBLIC_KEY_LEN` names and `account_keys.public_key` stores. */
 export async function exportPublicKeyRaw(publicKey: CryptoKey): Promise<Uint8Array> {

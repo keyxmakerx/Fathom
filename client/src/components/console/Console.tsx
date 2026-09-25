@@ -11,6 +11,7 @@ import {
   type Invitation,
   type Notice,
   type OperatorRow,
+  type OrganisationClaim,
   type OrganisationRow,
 } from '../../api/console';
 import { useConsoleHost } from '../../api/placement';
@@ -40,6 +41,9 @@ export interface ConsoleProps {
   /** The signed-in operator's id (`sessionState.address` for an operator
    * session) -- shown, because it is what they sign in with next time. */
   operatorId: string;
+  /** Pressing "Claim it now" hands the freshly minted claim up so the caller
+   * can open the claim screen on Home with nothing to copy or paste. */
+  onClaimNow?: (claim: OrganisationClaim) => void;
 }
 
 type Loaded<T> = { status: 'loading' } | { status: 'ready'; value: T } | { status: 'error'; message: string };
@@ -51,9 +55,12 @@ interface Minted {
   kind: 'account' | 'reissue' | 'organisation';
   label: string;
   invitation: Invitation;
+  /** Only present for `kind === 'organisation'`: what
+   * `redeemOrganisationClaim` needs. */
+  claim?: OrganisationClaim;
 }
 
-export function Console({ operatorId }: ConsoleProps) {
+export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   const [operators, setOperators] = useState<Loaded<OperatorRow[]>>({ status: 'loading' });
   const [organisations, setOrganisations] = useState<Loaded<OrganisationRow[]>>({ status: 'loading' });
   const [minted, setMinted] = useState<Minted[]>([]);
@@ -211,11 +218,6 @@ export function Console({ operatorId }: ConsoleProps) {
           )}
         />
         <OrganisationForm onMinted={(m) => setMinted((rows) => [m, ...rows])} />
-        <p className="console__warn">
-          A shell's claim cannot be redeemed in this build: the steward-side route that runs an organisation's
-          genesis is not built yet (<code>docs/NEXT.md</code>). The shell and its token are recorded on the site
-          trail; the organisation itself waits for that route.
-        </p>
       </section>
 
       <section className="console__section" aria-labelledby="console-operators">
@@ -262,6 +264,7 @@ export function Console({ operatorId }: ConsoleProps) {
                 m.invitation.token,
                 m.kind === 'organisation' ? 'organisation' : 'steward',
               );
+              const claim = m.kind === 'organisation' ? m.claim : undefined;
               return (
                 <li key={m.invitation.tokenId} className="console__minted-row">
                   <div className="console__minted-label">{m.label}</div>
@@ -269,24 +272,21 @@ export function Console({ operatorId }: ConsoleProps) {
                     {m.kind === 'organisation' ? 'shell' : 'account'} <code>{m.invitation.subject}</code> · expires{' '}
                     {formatUnix(m.invitation.expiresAtUnix)}
                   </div>
-                  {/* ADR-0056 decision 6: the address is what is handed over,
-                      and the bare token stays beside it for whoever would
-                      rather paste one into the enrolment screen. Both are
-                      the same invitation.
-
-                      **Only an account invitation has a door.** `/invite`
-                      redeems an account's enrolment; an organisation claim is
-                      redeemed by the steward-side genesis route, which is not
-                      built (`docs/NEXT.md`, first item). Offering an address
-                      for one was this board inventing a place to send a
-                      person. 2026-09-22. */}
-                  {m.kind === 'organisation' ? (
-                    <p className="console__note">
-                      There is no address to hand over for an organisation claim: the steward-side
-                      route that redeems it and runs the organisation&apos;s genesis is not built in
-                      this version (<code>docs/NEXT.md</code>). The token below is recorded on the
-                      site trail and waits for that route.
-                    </p>
+                  {/* An organisation claim has no address to hand over; only
+                      the token and notice address below, or "Claim it now". */}
+                  {claim ? (
+                    <>
+                      <p className="console__note">
+                        Notice address <code>{claim.noticeAddress}</code> -- the claim screen asks
+                        for this alongside the token when it is pasted in rather than claimed from
+                        here.
+                      </p>
+                      {onClaimNow && (
+                        <button type="button" className="console__btn" onClick={() => onClaimNow(claim)}>
+                          Claim it now
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <InvitationHandover token={token} origin={origin} />
                   )}
@@ -512,8 +512,13 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
     setBusy(true);
     setError(null);
     try {
-      const invitation = await createOrganisationShell(displayName.trim());
-      onMinted({ kind: 'organisation', label: `Claim for the organisation shell "${displayName.trim()}"`, invitation });
+      const claim = await createOrganisationShell(displayName.trim());
+      onMinted({
+        kind: 'organisation',
+        label: `Claim for the organisation shell "${displayName.trim()}"`,
+        invitation: claim,
+        claim,
+      });
       setDisplayName('');
     } catch (e) {
       setError(describe(e));
