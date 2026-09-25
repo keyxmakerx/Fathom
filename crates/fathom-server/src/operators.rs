@@ -2247,34 +2247,18 @@ impl OperatorStore {
         Ok(())
     }
 
-    /// **Expire every live, unredeemed token of `purpose` for this subject**,
-    /// so that a re-issue leaves one bearer secret alive and not two. Returns
-    /// their ids -- ids, never tokens.
+    /// Expire every live, unredeemed token of `purpose` for this subject, so
+    /// a re-issue leaves one bearer secret alive and not two. Returns their
+    /// ids, never the tokens.
     ///
-    /// **One function for both callers this store has**:
-    /// [`OperatorStore::reissue_bootstrap_token`] (`purpose = operator`,
-    /// `subject` the operator id) and [`OperatorStore::issue_account_enrolment`]
-    /// (`purpose = account`, `subject` the account id). The two mint a new
-    /// token in an otherwise identical shape — an operator's own reset and
-    /// §5.1's account reset are the same act on two planes — so the kill that
-    /// keeps a re-issue from leaving two live tokens belongs here once rather
-    /// than twice. `subject` is checked against the column `purpose` names,
-    /// never trusted to already match it.
+    /// Shared by [`OperatorStore::reissue_bootstrap_token`] (`purpose =
+    /// operator`) and [`OperatorStore::issue_account_enrolment`] (`purpose =
+    /// account`), and by `credentials::CredentialStore::redeem_setup_by_token`
+    /// (`purpose = setup`) — `pub(crate)` for that last caller. `subject` is
+    /// checked against the column `purpose` names, never trusted to match it.
     ///
-    /// The kill is `expired_at`, with its `enrolment_token_expired` entry, and
-    /// it is the only kill this schema offers: the runtime role is granted
-    /// `UPDATE (redeemed_at, redeemed_seq, expired_at, expired_seq,
-    /// row_version, row_seal)` on `enrolment_tokens` and nothing else
-    /// (`0015` §I), because a token is issued once and then either redeemed or
-    /// expired. Moving `expires_at` instead would need a privilege this design
-    /// withholds on purpose, and a `revoked_at` column would change
-    /// [`TokenFacts`] and so the seal over every token row a live database
-    /// already holds. [`OperatorStore::spend_token`] refuses on the flag.
-    /// `pub(crate)`, not private: `credentials::CredentialStore::redeem_setup_by_token`
-    /// calls this too, ADR-0057 decision 1's fix round — spending any
-    /// setup-class token now expires every other live one for the same
-    /// operator, the rule [`OperatorStore::recover_operator`] already
-    /// followed and the setup-password path did not.
+    /// The kill is `expired_at`, with its `enrolment_token_expired` entry;
+    /// `0015` §I grants the runtime role no other way to retire a token row.
     pub(crate) async fn expire_live_tokens(
         &self,
         tx: &Transaction<'_>,
@@ -2282,34 +2266,21 @@ impl OperatorStore {
         subject: &str,
         reason: &'static str,
     ) -> Result<Vec<String>, OperatorError> {
-        // The column a subject id is checked against, chosen from a closed set
-        // and never taken from a caller — `latch`'s own rule in `sessions.rs`,
-        // restated here because this is the other place in the codebase a
-        // column name is interpolated at all.
+        // The column a subject id is checked against, from a closed set and
+        // never taken from a caller (`sessions.rs`'s `latch` rule).
         let column = match purpose {
             Purpose::Account => "account_id",
             Purpose::Operator | Purpose::Setup => "operator_id",
             Purpose::Organisation => "shell_id",
         };
-        // **`FOR UPDATE` — security review, round 2, item B.** Every
-        // candidate row this call might expire is locked here, before this
-        // function appends a single chain entry for any of them. Without the
-        // lock, a concurrent redemption of one of these SAME rows (the exact
-        // shape `mark_redeemed`'s own fix closes — spending any setup-class
-        // token now sweeps every other live one, so two concurrent
-        // redemptions of two different tokens for the same operator are each
-        // the other's sweep) could commit between this read and this
-        // function's write, and by the time the write ran the row would no
-        // longer be this call's to expire — but the entry recording "this
-        // token was expired" would already be queued in this same
-        // transaction, true or not, and this transaction commits regardless
-        // of what any one row's guarded `UPDATE` below finds. The lock is
-        // what makes the guard beneath it — and the comment that used to
-        // call a race on it impossible — actually true: nothing else can
-        // touch any row in `rows` until this transaction ends, so the
-        // `redeemed_at IS NULL AND expired_at IS NULL` this call already saw
-        // is still current when the `UPDATE` runs, not stale by the width of
-        // an `await`.
+        // The site chain's advisory lock, before the row lock below — ADR-0057
+        // decision 1's fix round: every append already takes this lock ahead
+        // of its row's `UPDATE`, and taking the row lock first here inverted
+        // that order against a concurrent redemption, deadlocking (40P01).
+        chains::lock_site(tx, &self.deployment).await?;
+        // Every candidate row is locked here, before a chain entry is
+        // appended for any of them, so a concurrent spend of one of these
+        // same rows blocks behind this transaction instead of racing it.
         let rows = tx
             .query(
                 &format!(
@@ -2386,36 +2357,10 @@ impl OperatorStore {
                 )
                 .await?;
             if updated == 0 {
-                // **Should not happen — the security review's round 2, item
-                // B corrected the claim that it cannot.** Until that review
-                // this comment asserted it outright: "the read above and
-                // this write are one transaction under the bootstrap
-                // advisory lock, so this cannot happen" — true for this
-                // function's original caller (`reissue_bootstrap_token`,
-                // nothing else ever reached these rows), false the moment
-                // `credentials::CredentialStore::redeem_setup_by_token`
-                // started calling this too: two different transactions can
-                // each be spending a different live setup-class token for
-                // the same operator, each trying to expire "every other live
-                // one," which is the row the OTHER transaction is
-                // concurrently spending.
-                //
-                // The `FOR UPDATE` on the read above is what makes the claim
-                // true again, properly this time: every row this loop
-                // considers is locked, in this same transaction, before a
-                // single chain entry is appended for any of them, so a
-                // concurrent spend of one of these SAME rows now blocks
-                // behind this one rather than racing it, and Postgres itself
-                // drops a row from the `FOR UPDATE` result the moment it no
-                // longer matches this query's own `WHERE` — which is exactly
-                // "already redeemed or already expired." A row reaching this
-                // line has therefore already survived every check this
-                // function makes, under a lock nothing else can have moved
-                // it past. If that reasoning is ever wrong regardless, skip
-                // the row rather than alarm the caller's own, unrelated act
-                // over one it was never trying to touch — the mistake this
-                // fix round closes, not one to repeat here.
-                continue;
+                // Should not happen: this row was locked above, in this same
+                // transaction, before any chain entry was appended for it.
+                // Abort rather than commit a chain entry no write backs.
+                return Err(OperatorError::Corrupt("enrolment token row"));
             }
             expired.push(token.id);
         }

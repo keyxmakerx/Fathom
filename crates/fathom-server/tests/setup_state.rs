@@ -1456,6 +1456,158 @@ async fn twenty_refused_setup_secrets_close_the_password_but_not_a_recovery_code
     assert_eq!(named, address);
 }
 
+/// **A matched setup password refunds its budget unit.** ADR-0057 follow-up:
+/// the client checks a new password's length and that it matches its
+/// confirmation, but not the server's policy, so a policy refusal on a
+/// well-known password can repeat past the twenty-attempt limit before it
+/// would ever trip a wrong setup password. Each attempt here proves the
+/// setup password, so none of them may cost the budget the wrong-password
+/// limit protects.
+#[tokio::test]
+async fn a_password_the_policy_refuses_does_not_spend_the_setup_secret_budget() {
+    const TAG: &str = "setup_password_refund_on_match";
+    let it = a_fresh_deployment(TAG).await;
+    let address = unique("owner@example.org");
+    let bootstrap = it
+        .operators
+        .bootstrap_first_operator(&address, &address)
+        .await
+        .expect("a first start with no operator mints one");
+    let invitation = it
+        .operators
+        .issue_setup_token(&bootstrap.operator_id)
+        .await
+        .expect("main.rs mints a fresh setup token at every start");
+    let secret = SetupSecret::new(
+        A_REAL_SETUP_PASSWORD,
+        invitation.token,
+        Instant::now() + Duration::from_secs(3600),
+    );
+
+    for attempt in 0..25 {
+        let refused = it
+            .credentials
+            .redeem_setup(
+                &it.operators,
+                Some(&secret),
+                A_REAL_SETUP_PASSWORD.as_bytes(),
+                "passwordpassword",
+                "198.51.100.1",
+            )
+            .await;
+        assert!(
+            matches!(refused, Err(CredentialError::PasswordIsCommon)),
+            "attempt {attempt}: a right setup password with a common new one must refuse on \
+             the password, not on a spent budget: {refused:?}"
+        );
+    }
+
+    it.credentials
+        .redeem_setup(
+            &it.operators,
+            Some(&secret),
+            A_REAL_SETUP_PASSWORD.as_bytes(),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
+        .await
+        .expect("a good new password still succeeds after 25 policy-refused attempts");
+}
+
+/// **A redemption and `recover-operator` do not deadlock.** ADR-0057
+/// decision 1's fix round: both now take the site chain's advisory lock
+/// before locking the token rows they might expire, so racing on the same
+/// operator's tokens serialises instead of deadlocking (PostgreSQL 40P01).
+///
+/// Ten deployments, each racing its own redemption against its own recovery
+/// on real threads, with a swept head start so at least one pair's
+/// interleaving lands where both hold one lock and want the other — the
+/// shape that reproduced 40P01 on the pre-fix code.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_redemption_and_a_recovery_do_not_deadlock() {
+    const LETTERS: [&str; 10] = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    let mut pairs = Vec::with_capacity(LETTERS.len());
+    for (offset, letter) in LETTERS.into_iter().enumerate() {
+        let tag = format!("lockorder_{letter}");
+        let it = a_fresh_deployment(&tag).await;
+        let address = unique("owner@example.org");
+        let bootstrap = it
+            .operators
+            .bootstrap_first_operator(&address, &address)
+            .await
+            .expect("a first start with no operator mints one");
+        let invitation = it
+            .operators
+            .issue_setup_token(&bootstrap.operator_id)
+            .await
+            .expect("main.rs mints a fresh setup token at every start");
+        let secret = SetupSecret::new(
+            A_REAL_SETUP_PASSWORD,
+            invitation.token,
+            Instant::now() + Duration::from_secs(3600),
+        );
+
+        let recovering_operators = Arc::clone(&it.operators);
+        let recovery_address = address.clone();
+        let recovery = tokio::spawn(async move {
+            recovering_operators
+                .recover_operator(&recovery_address)
+                .await
+        });
+        // A different head start per pair: the two transactions' step counts
+        // differ, so no single delay reliably lands inside the window where
+        // both hold one lock and want the other. Sweeping it widens the odds
+        // of catching that window in this run.
+        tokio::time::sleep(std::time::Duration::from_micros(200 * offset as u64)).await;
+        let credentials = Arc::clone(&it.credentials);
+        let redeeming_operators = Arc::clone(&it.operators);
+        let redemption = tokio::spawn(async move {
+            credentials
+                .redeem_setup(
+                    &redeeming_operators,
+                    Some(&secret),
+                    A_REAL_SETUP_PASSWORD.as_bytes(),
+                    A_REAL_CREDENTIAL,
+                    "198.51.100.1",
+                )
+                .await
+        });
+        pairs.push((letter, redemption, recovery));
+    }
+
+    for (letter, redemption, recovery) in pairs {
+        let (redeemed, recovered) = tokio::join!(redemption, recovery);
+        let redeemed = redeemed.expect("the redemption task does not panic");
+        let recovered = recovered.expect("the recovery task does not panic");
+
+        assert!(
+            !is_deadlock_credential(&redeemed),
+            "{letter}: the redemption deadlocked against the recovery: {redeemed:?}"
+        );
+        let recovery_err = recovered.as_ref().err();
+        assert!(
+            !is_deadlock_operator(&recovered),
+            "{letter}: the recovery deadlocked against the redemption: {recovery_err:?}"
+        );
+    }
+}
+
+fn is_deadlock_credential(result: &Result<(), CredentialError>) -> bool {
+    matches!(
+        result,
+        Err(CredentialError::Db(e))
+            if e.code() == Some(&tokio_postgres::error::SqlState::T_R_DEADLOCK_DETECTED)
+    )
+}
+
+fn is_deadlock_operator<T>(result: &Result<T, OperatorError>) -> bool {
+    matches!(
+        result,
+        Err(OperatorError::Db(e))
+            if e.code() == Some(&tokio_postgres::error::SqlState::T_R_DEADLOCK_DETECTED)
+    )
+}
+
 // ---------------------------------------------------------------------------
 // The security review's round-2 probes, as regression tests
 // ---------------------------------------------------------------------------

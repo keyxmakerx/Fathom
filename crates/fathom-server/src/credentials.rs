@@ -2553,7 +2553,11 @@ impl CredentialStore {
 
         let operator = match operators.spend_setup_token(&tx, token).await {
             Ok(operator) => operator,
-            Err(_) => return Err(CredentialError::TokenRefused),
+            // The one real refusal. Everything else — a database error, a
+            // deadlock abort included — surfaces as an error rather than
+            // being told apart from a wrong token.
+            Err(OperatorError::EnrolmentRefused) => return Err(CredentialError::TokenRefused),
+            Err(e) => return Err(e.into()),
         };
         // Whichever token this was, no OTHER live `purpose = 'setup'` token
         // for this operator survives its spend — see the doc above.
@@ -2745,6 +2749,12 @@ impl CredentialStore {
         if let Some(secret) = setup_secret {
             if reserve_setup_secret_attempt(&self.deployment) {
                 if let Some(token) = secret.token_for(candidate, std::time::Instant::now()) {
+                    // The setup password matched: the caller has proven they
+                    // hold it, so give the reserved unit back regardless of
+                    // what the redemption itself goes on to decide — a new
+                    // password the policy refuses must not spend the same
+                    // budget a wrong setup password does.
+                    refund_setup_secret_attempt(&self.deployment);
                     return self
                         .redeem_setup_by_token(operators, &token, new_password, true)
                         .await;
@@ -3255,13 +3265,13 @@ impl SetupSecret {
 /// says no to is refused without a database query, exactly as if there were
 /// no fallback at all.
 ///
-/// **The same tolerance the client's `parseToken` has** — noise
-/// (whitespace, a soft hyphen a terminal's line wrap can insert, and a
-/// hyphen a person retyping one by hand reaches for) is discarded and case
-/// is folded before anything is compared, and the `_` after `op` is
-/// optional, matching `TOKEN_PREFIX_RE`'s `(op|inv|org)_?` — because this
-/// function replaces the client's decision, it has to tolerate exactly what
-/// the client's decision used to.
+/// **The same tolerance the client's `parseToken` has** — noise (whitespace,
+/// a soft hyphen a terminal's line wrap can insert, a byte-order mark a
+/// pasted file can carry, and a hyphen a person retyping one by hand reaches
+/// for) is discarded and case is folded before anything is compared, and the
+/// `_` after `op` is optional, matching `TOKEN_PREFIX_RE`'s `(op|inv|org)_?`
+/// — because this function replaces the client's decision, it has to
+/// tolerate exactly what the client's decision used to.
 ///
 /// **Not a length check.** `docs/RUNNING-IT.md` and `.env.example` suggest
 /// `openssl rand -base64 24` for the setup password, which is exactly 32
@@ -3273,7 +3283,7 @@ fn parse_recovery_code(candidate: &[u8]) -> Option<[u8; 32]> {
     let text = std::str::from_utf8(candidate).ok()?;
     let cleaned: String = text
         .chars()
-        .filter(|c| !c.is_whitespace() && *c != '\u{00AD}' && *c != '-')
+        .filter(|c| !c.is_whitespace() && *c != '\u{00AD}' && *c != '\u{FEFF}' && *c != '-')
         .flat_map(|c| c.to_lowercase())
         .collect();
     let hex = cleaned.strip_prefix("op")?;
@@ -3302,11 +3312,11 @@ fn parse_recovery_code(candidate: &[u8]) -> Option<[u8; 32]> {
 /// could, and a caller who found one would have found a way to keep
 /// guessing forever.
 ///
-/// **Every attempt spends one unit, not only a wrong one** — security
-/// review, round 2, item A: the budget is reserved before the comparison
-/// runs at all ([`reserve_setup_secret_attempt`]), so a password that turns
-/// out to be right still spent the unit it reserved. It is not refunded;
-/// "right" is not a reason a concurrent flood should get to keep guessing.
+/// Every attempt spends one unit before the comparison runs
+/// ([`reserve_setup_secret_attempt`]). A match refunds it
+/// ([`refund_setup_secret_attempt`]): the caller has proven they hold the
+/// password, and a new password the policy then refuses must not cost the
+/// same budget a wrong setup password does.
 const SETUP_SECRET_REFUSAL_LIMIT: u32 = 20;
 
 /// Setup-secret attempts this process has counted, per deployment — keyed
@@ -3361,6 +3371,18 @@ fn reserve_setup_secret_attempt(deployment: &str) -> bool {
         );
     }
     true
+}
+
+/// Give back one unit [`reserve_setup_secret_attempt`] spent, for a
+/// candidate that turned out to be the real setup password. Never takes a
+/// deployment below zero.
+fn refund_setup_secret_attempt(deployment: &str) {
+    let mut refusals = setup_secret_refusals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(count) = refusals.get_mut(deployment) {
+        *count = count.saturating_sub(1);
+    }
 }
 
 /// Log one refusal at warn level, with the client source address and the
@@ -4100,6 +4122,15 @@ mod tests {
             })
             .collect();
         let typed = format!("OP-{noisy_hex}");
+        assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_noise_too() {
+        let raw: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let hex: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        // A file saved with a BOM, then pasted whole.
+        let typed = format!("\u{FEFF}op_{hex}");
         assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
     }
 

@@ -312,6 +312,18 @@ async fn lock(tx: &Transaction<'_>, chain: ChainRef<'_>) -> Result<(), ChainStor
     Ok(())
 }
 
+/// Take the site chain's advisory lock without appending anything.
+///
+/// For a caller that must hold it before a row lock of its own — ADR-0057
+/// decision 1: `operators::expire_live_tokens` takes this first, so its order
+/// matches every append's, and a redemption racing it does not deadlock.
+pub(crate) async fn lock_site(
+    tx: &Transaction<'_>,
+    deployment: &str,
+) -> Result<(), ChainStoreError> {
+    lock(tx, ChainRef::Site { deployment }).await
+}
+
 async fn tip(
     tx: &Transaction<'_>,
     chain: ChainRef<'_>,
