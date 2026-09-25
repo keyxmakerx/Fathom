@@ -407,7 +407,7 @@ const MANAGEMENT_ADDRESS_NOTE =
  * (this file does not touch `drawing.css`). */
 const SEGMENT_ACTIVE_STYLE: CSSProperties = {
   background: 'var(--ink)',
-  color: 'var(--paper)',
+  color: 'var(--page)',
   border: 'var(--rule-hair) solid var(--ink)',
   padding: 'var(--s1) var(--s2)',
   fontSize: 'var(--t-micro)',

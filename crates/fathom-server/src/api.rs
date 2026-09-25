@@ -546,6 +546,14 @@ pub struct CredentialApiState {
     /// `purpose = 'setup'` enrolment token through the operator plane's own
     /// seal and expiry checks rather than a second copy of them.
     pub operators: Arc<crate::operators::OperatorStore>,
+    /// ADR-0057 decision 1: this start's setup secret, minted once and held
+    /// here — no token file. `None` whenever `FATHOM_SETUP_PASSWORD` is
+    /// unset, fails the account password policy, or this deployment's first
+    /// operator has already finished setup; `main.rs` decides which, once, at
+    /// startup. The two setup routes fall back to it only when the field they
+    /// were sent does not check out as a token on its own, so a recovery code
+    /// still works exactly as it always has.
+    pub setup_secret: Option<crate::credentials::SetupSecret>,
     pub client_address: crate::client_address::ClientAddress,
 }
 
@@ -765,11 +773,17 @@ async fn redeem_reset_handler(
 
 /// `POST /enrolment/operator/setup` — the first operator's setup screen.
 ///
-/// Body: `LP(token) ‖ LP(new_credential)`. Answer: **200, empty, and no
-/// session** — the lead's resolution 4: the client signs in with `POST
-/// /session` immediately afterwards, which is one more round trip and one
-/// fewer way for a token to become a session without the password being
-/// checked.
+/// Body: `LP(setup_secret) ‖ LP(new_credential)`. Answer: 200, empty, no
+/// session — the client signs in with `POST /session` immediately
+/// afterwards, one fewer way for a token to become a session without the
+/// password being checked.
+///
+/// ADR-0057 decision 1: the first field is tried as a live setup token first
+/// (a recovery code `fathom-server recover-operator` printed is that shape)
+/// and, only on a miss, as this start's setup password;
+/// `credentials::redeem_setup` carries the two-path account. A refusal here
+/// is [`crate::credentials::CredentialError::TokenRefused`], rendered
+/// exactly as a bad token always has been.
 async fn operator_setup_handler(
     State(state): State<CredentialApiState>,
     request: Request,
@@ -788,7 +802,13 @@ async fn operator_setup_handler(
         .await?;
     state
         .credentials
-        .redeem_setup(&state.operators, &fields[0], &chosen)
+        .redeem_setup(
+            &state.operators,
+            state.setup_secret.as_ref(),
+            &fields[0],
+            &chosen,
+            &source,
+        )
         .await
         .map_err(CredentialRefusal)?;
     Ok(empty_response())
@@ -846,19 +866,26 @@ async fn setup_state_handler(
     Ok(bytes_response(out))
 }
 
-/// `POST /enrolment/operator/setup/check` — whose setup does this token open?
+/// `POST /enrolment/operator/setup/check` — whose setup does this secret open?
 ///
-/// Body: `LP(token)`. Answer: 200, `LP(address)`.
+/// Body: `LP(setup_secret)`. Answer: 200, `LP(address)`.
 ///
 /// ADR-0056 decision 1: the address is never typed, so it can never mismatch.
-/// A read — the token is not spent and nothing is written — so the screen that
-/// follows still has to present it to `/enrolment/operator/setup`.
+/// A read — nothing is spent and nothing is written — so the screen that
+/// follows still has to present the same field to `/enrolment/operator/setup`.
 ///
-/// **One sentence for every refused token**, rendered inline below: wrong,
-/// spent, expired and token-shaped-but-nobody's are one fact from outside. A
-/// body that is not one length-prefixed field at all is still the surface's own
-/// `400 malformed request`, because that is a caller speaking a protocol this
-/// server does not, and saying so is not a fact about any token.
+/// **ADR-0057 decision 1** renamed the field: it is tried as a live token
+/// first — a recovery code `fathom-server recover-operator` printed is that
+/// shape, and is handled exactly as before — and, only then, as this start's
+/// setup password. `credentials.rs`'s `check_setup` carries the two-path
+/// account.
+///
+/// **One sentence for every refused secret**, rendered inline below: wrong,
+/// spent, expired, an expired window and setup closed altogether are one fact
+/// from outside. A body that is not one length-prefixed field at all is still
+/// the surface's own `400 malformed request`, because that is a caller
+/// speaking a protocol this server does not, and saying so is not a fact
+/// about any secret.
 ///
 /// Rate limited against the same source bucket as the redemption beside it.
 async fn operator_setup_check_handler(
@@ -878,20 +905,32 @@ async fn operator_setup_check_handler(
         .await?;
     let address = match state
         .credentials
-        .check_setup(&state.operators, &fields[0])
+        .check_setup(
+            &state.operators,
+            state.setup_secret.as_ref(),
+            &fields[0],
+            &source,
+        )
         .await
     {
         Ok(address) => address,
         // **The sentence is this route's own, and it is rendered here.**
         // `TokenRefused` reaches [`CredentialRefusal`] from three routes and
         // renders as the uniform `sign-in refused` for the two that are about
-        // a credential; this one is about a token in a file, and a person
-        // holding the wrong file needs to be told which thing was refused.
-        // Wrong, spent and expired are one sentence, as they are everywhere
-        // else a token is presented.
+        // a credential; this one is about the setup secret, and a person
+        // holding the wrong one needs to be told which thing was refused.
+        // Wrong, spent, expired, an expired window and setup closed are one
+        // sentence, as they are everywhere else a setup secret is presented.
         Err(crate::credentials::CredentialError::TokenRefused) => {
-            tracing::info!(reason = "token_refused", "a setup token was refused");
-            return Ok((StatusCode::UNAUTHORIZED, "setup token refused\n").into_response());
+            tracing::info!(
+                reason = "setup_secret_refused",
+                "a setup secret was refused"
+            );
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                format!("{}\n", crate::credentials::SETUP_SECRET_REFUSED),
+            )
+                .into_response());
         }
         Err(e) => return Err(CredentialRefusal(e)),
     };

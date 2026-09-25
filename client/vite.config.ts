@@ -22,11 +22,9 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      // `ports.html` is the static port-glyph gallery (`docs/UI-SPEC.md`
-      // "Ports"); a second page, so it has to be named here to be built.
+      // Only the app ships; `ports.html` (UI-SPEC "Ports") is served by `npm run dev` alone.
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),
-        ports: fileURLToPath(new URL('ports.html', import.meta.url)),
       },
     },
   },

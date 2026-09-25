@@ -376,3 +376,20 @@ export function rackAtPoint<R extends { id: string; heightU: number }>(
   }
   return null;
 }
+
+/** The viewport after zooming to `nextZoom` with the pane's centre held still. */
+export function zoomAboutPaneCentre(
+  viewport: { x: number; y: number; zoom: number },
+  nextZoom: number,
+  paneWidthPx: number,
+  paneHeightPx: number,
+): { x: number; y: number; zoom: number } {
+  const cx = paneWidthPx / 2;
+  const cy = paneHeightPx / 2;
+  const ratio = nextZoom / viewport.zoom;
+  return {
+    x: cx - (cx - viewport.x) * ratio,
+    y: cy - (cy - viewport.y) * ratio,
+    zoom: nextZoom,
+  };
+}

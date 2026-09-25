@@ -65,6 +65,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { webcrypto } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+
+// The setup password the server is started with (ADR-0057); typed on the Welcome screen.
+const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
 
 const ROOT = process.env.FATHOM_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 // `CARGO_TARGET_DIR` is set per worktree in this project, so the binary is
@@ -78,8 +82,8 @@ const NEW_HOST = `localhost:${PORT}`;
 const OLD_URL = `http://${OLD_HOST}`;
 const NEW_URL = `http://${NEW_HOST}`;
 const DB_NAME = 'fathom_c3';
-const RUNTIME_URL = `postgres://fathom_app@127.0.0.1:5432/${DB_NAME}`;
-const MIGRATE_URL = `postgres://fathom_test@127.0.0.1:5432/${DB_NAME}`;
+const RUNTIME_URL = runtimeUrl(DB_NAME);
+const MIGRATE_URL = migrateUrl(DB_NAME);
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
 const ADDRESS = 'owner@example.test';
@@ -109,7 +113,7 @@ function sh(cmd, args, options = {}) {
 }
 
 const psql = (sql, o = {}) =>
-  sh('psql', ['-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-qc', sql], o);
+  sh('psql', ['-d', superuserUrl('postgres'), '-qc', sql], o);
 
 async function waitForHttp(url, attempts = 200) {
   for (let i = 0; i < attempts; i += 1) {
@@ -447,8 +451,7 @@ async function main() {
 
   const masterKey = join(WORK, 'master.key');
   const chainKey = join(WORK, 'chain.key');
-  const tokenFile = join(WORK, 'first-operator-token');
-  for (const path of [masterKey, chainKey, tokenFile]) rmSync(path, { force: true });
+  for (const path of [masterKey, chainKey]) rmSync(path, { force: true });
   writeFileSync(masterKey, Buffer.alloc(32, 29), { mode: 0o400 });
   writeFileSync(chainKey, Buffer.alloc(32, 31), { mode: 0o400 });
 
@@ -467,7 +470,7 @@ async function main() {
       FATHOM_MASTER_KEY: `file://${masterKey}`,
       FATHOM_CHAIN_KEY: `file://${chainKey}`,
       FATHOM_OPERATOR_NOTICE_ADDRESS: ADDRESS,
-      FATHOM_BOOTSTRAP_TOKEN_FILE: tokenFile,
+      FATHOM_SETUP_PASSWORD: SETUP_PASSWORD,
       FATHOM_BIND: `127.0.0.1:${PORT}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -484,7 +487,7 @@ async function main() {
     throw e;
   }
 
-  const token = readFileSync(tokenFile, 'utf8').trim();
+  const token = SETUP_PASSWORD;
 
   const stateBefore = await setupState(OLD_URL);
   check(
@@ -556,6 +559,7 @@ async function main() {
     stateAfter,
   );
 
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
   check('Home, with the Site entry on a console host', true);
 
@@ -563,19 +567,20 @@ async function main() {
   await page.waitForSelector('.console__section', { timeout: 25000 });
   await page.waitForTimeout(1200);
   // Structure, not the sentence over it: the console draws a refusal in
-  // `.console-entry__refusal` when the session has not proved the second
+  // `.home [role="alert"]` when the session has not proved the second
   // factor, and the operator's id in `.console__id` when it has.
-  const refusedOnEntry = await page.locator('.console-entry__refusal').count();
+  const refusedOnEntry = await page.locator('.home [role="alert"]').count();
   check(
     'the console opened on the FIRST press: the flow ended on a session that had proved the second factor',
     refusedOnEntry === 0 && (await page.locator('.console__id').count()) === 1,
-    refusedOnEntry === 0 ? '' : (await page.locator('.console-entry__refusal').innerText()).slice(0, 90),
+    refusedOnEntry === 0 ? '' : (await page.locator('.home [role="alert"]').innerText()).slice(0, 90),
   );
   const operatorId = (await page.locator('.console__id').innerText()).trim();
   check('and it names the operator id', /^[0-9A-HJKMNP-TV-Z]{26}$/.test(operatorId), operatorId);
   await shot('the-console');
 
   // ---- 2. two sessions at once -------------------------------------------
+  await page.click('.shell-account');
   await page.click('[data-testid="console-home"]');
   await page.waitForSelector('.home', { timeout: 15000 });
   check(
@@ -593,6 +598,7 @@ async function main() {
   );
   await shot('home-again-from-the-console');
 
+  await page.click('.shell-account');
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });
   check(
@@ -644,7 +650,7 @@ async function main() {
 
   const pendingRows = sh(
     'psql',
-    ['-h', '127.0.0.1', '-U', 'postgres', '-d', DB_NAME, '-tAc',
+    ['-d', superuserUrl(DB_NAME), '-tAc',
       "SELECT display_name || ' ' || address FROM operator_requests"],
     { allowFailure: true },
   ).stdout.trim();
@@ -747,15 +753,16 @@ async function main() {
     backDoor.twoStep,
     `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
+  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 25000 });
   await page.click('[data-testid="console-entry"]');
   await Promise.race([
     page.waitForSelector('.console__section', { timeout: 25000 }),
-    page.waitForSelector('.console-entry__refusal', { timeout: 25000 }),
+    page.waitForSelector('.home [role="alert"]', { timeout: 25000 }),
   ]).catch(() => {});
   await page.waitForTimeout(800);
   const secondEntry = await page
-    .locator('.console-entry__refusal')
+    .locator('.home [role="alert"]')
     .innerText()
     .catch(() => '');
   check(
@@ -779,7 +786,7 @@ async function main() {
   // ---- signing out ends BOTH sessions -------------------------------------
   const countSessions = () =>
     Number(
-      sh('psql', ['-h', '127.0.0.1', '-U', 'postgres', '-d', DB_NAME, '-tAc', 'SELECT count(*) FROM sessions'], {
+      sh('psql', ['-d', superuserUrl(DB_NAME), '-tAc', 'SELECT count(*) FROM sessions'], {
         allowFailure: true,
       }).stdout.trim() || '-1',
     );

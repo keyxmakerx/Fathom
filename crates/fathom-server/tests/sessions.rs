@@ -2786,6 +2786,7 @@ async fn adr55_credential_surface(
         sessions,
         credentials: creds,
         operators,
+        setup_secret: None,
         client_address: ClientAddress::header("x-forwarded-for"),
     }))
     .await

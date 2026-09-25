@@ -218,14 +218,19 @@ jobs:
   # in has no Docker daemon, and three first-start faults were found only by
   # reading it. This runner has one. Build every image from the checkout, bring
   # the stack up, wait for the server's own healthcheck, fetch the health
-  # endpoint and the client on the published port, and prove the first-operator token was
-  # written -- the one file a fresh deployment exists to produce. `down -v`
-  # at the end, always, so a failed run leaves nothing behind for the next.
+  # endpoint and the client on the published port, and prove the setup
+  # password (ADR-0057 decision 1, 2026-09-24 -- no token file any more) gets
+  # the first operator all the way in over HTTP. `down -v` at the end, always,
+  # so a failed run leaves nothing behind for the next.
   compose:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       FATHOM_OPERATOR_NOTICE_ADDRESS: ci@example.invalid
+      # A real password (CLAUDE.md rule 2): past the fifteen-character floor
+      # and not on the bundled common list, the same shape a person actually
+      # sets in .env.
+      FATHOM_SETUP_PASSWORD: harbour-lantern-ci-setup-nine
       # A tag no registry holds, so every `up` in this job runs the images
       # `--build` produced from this checkout and never pulls a published
       # one in their place (a `latest` tag would be re-pulled on every `up`).
@@ -245,19 +250,22 @@ jobs:
           echo "health never answered"; exit 1
       - name: The client is served
         run: curl -fs http://localhost:8080/ | grep -q "<title>"
-      - name: The first-operator token was written, once, mode 0400
+      - name: No first-operator token file is written
         run: |
-          docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token
-          test -s ./first-operator-token
-      # A token nobody can use is not a way in. This speaks the browser
-      # client's own bytes with Node's WebCrypto and no dependency: redeem
-      # the token, sign in as the operator it names, and read the operator
-      # register with a signed request. Until 2026-09-21 the job stopped at
-      # "the file exists", and a client that could not redeem it passed.
-      - name: The token gets the first operator in over HTTP
-        run: |
-          node scripts/ci/first-operator-signin.mjs ./first-operator-token http://localhost:8080
-          rm -f ./first-operator-token
+          if docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token ./first-operator-token 2>err.txt; then
+            echo "ADR-0057 decision 1: no token file should exist, but one was copied out of the container"
+            exit 1
+          fi
+          cat err.txt
+          rm -f err.txt
+      # A password nobody can use is not a way in. This speaks the browser
+      # client's own bytes with Node's WebCrypto and no dependency: redeem the
+      # setup password, sign in as the operator it names, and read the
+      # operator register with a signed request. Until 2026-09-21 the job
+      # stopped at "the file exists", and a client that could not redeem it
+      # passed.
+      - name: The setup password gets the first operator in over HTTP
+        run: node scripts/ci/first-operator-signin.mjs http://localhost:8080
       - name: A restart keeps its keys
         run: |
           before=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")

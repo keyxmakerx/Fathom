@@ -3,9 +3,9 @@ import { useState, type FormEvent } from 'react';
 import { signIn, signOut } from '../api/auth';
 import { PRINCIPAL_KIND_STEWARD } from '../api/constants';
 import { redeemOperatorSetup } from '../api/credentials';
-import { parseToken } from '../api/enrolment';
 import { ApiRefusal } from '../api/errors';
 import { checkSetupToken, refreshSetupState, type SetupState } from '../api/setup';
+import { utf8 } from '../crypto/bytes';
 import {
   AuthenticatorEnrolment,
   describe,
@@ -14,56 +14,40 @@ import {
 import '../styles/signin.css';
 
 /**
- * The first run: one flow, five numbered steps, and then Home — which is the
- * product and not a sixth step, so nothing here counts it. While the server
- * says `pending` this flow is the only thing this client shows (ADR-0056
- * decisions 1 and 2). It replaces `Setup.tsx`, which was one long form behind
- * a link on the sign-in door — three fields and three doors for a person who
- * has just installed the thing.
+ * The first run: one flow, five numbered steps, and then Home — not a sixth
+ * step. While the server says `pending` this flow is the only thing this
+ * client shows (ADR-0056 decisions 1 and 2). Replaces `Setup.tsx`.
  *
  * The steps, and who draws each:
  *
- *   1. **Welcome.** The setup token, checked against
+ *   1. **Welcome.** The setup password from the server's `.env` (ADR-0057
+ *      decision 1), or a recovery code, checked against
  *      `POST /enrolment/operator/setup/check`, which spends nothing and
- *      answers with the address the token is bound to. Here.
+ *      answers with the address it opens. Here.
  *   2. **Choose a password** for that address — shown, never typed, so it
- *      cannot mismatch. `POST /enrolment/operator/setup` spends the token and
- *      sets the password; the sign-in straight after it is what turns the two
- *      into a session.  Here.
+ *      cannot mismatch. `POST /enrolment/operator/setup` spends the setup
+ *      secret and sets the password; the sign-in right after turns the two
+ *      into a session. Here.
  *   3. **Set up your authenticator app**, and 4. **Save your recovery
- *      codes** — the enrolment component on the account screen, which is the
- *      same two steps a person meets later from their own account and is not
- *      duplicated here. It says which of the two it is showing (`onStage`),
- *      so the progress line over it is the right number on both, and it is
- *      mounted `heading="none"` so that the step name this flow writes is
- *      the only heading on the screen. It drew its own as well until
- *      2026-09-22, and steps 3 and 4 each said the same thing twice.
- *   5. **Sign in with your new authenticator.** Here, and it is the step that
- *      makes the flow land where the ADR says it lands.
+ *      codes** — the enrolment component on the account screen, mounted
+ *      `heading="none"` so this flow's own step name is the only heading.
+ *   5. **Sign in with your new authenticator.** Here.
  *
- * **Why step 5 exists.** The session made at step 2 was minted from a
+ * **Why step 5 exists.** The session made at step 2 is minted from a
  * password alone, before the authenticator existed, so it is `A0`, and
- * `operators.rs`'s `register_own_operator_key` refuses `A0` outright — the
- * one press on Home that opens the operator console would be answered 403 and
- * the entry would take itself away for the rest of the session. Every other
- * route takes the `A0` session the moment the code is confirmed, because the
- * setup gate reads the account's live credentials on each request, so this
- * was invisible until somebody pressed Site. One more sign-in, with the code
- * the person has just proved they can produce, ends the setup session and
- * lands them on Home with an `A0T` one that the console takes.
+ * `operators.rs`'s `register_own_operator_key` refuses `A0` outright for
+ * Site. One more sign-in, with the code just proved workable, ends the
+ * setup session and lands on Home with an `A0T` session Site takes.
  *
- * **And the way out of step 5.** A person whose app is not giving them a code
- * they can use can take the ordinary door instead — and that button ends the
- * setup session first (`handleUseTheDoor`). It did not, and so handed the
- * person to the door still holding the `A0` session this step exists to
- * replace: they landed on Home on it and the Site entry was refused, which is
- * the state the paragraph above describes. 2026-09-22.
+ * **The way out of step 5**: the ordinary door, which ends the setup
+ * session first (`handleUseTheDoor`), so nobody lands on Home still
+ * holding the `A0` session this step exists to replace.
  *
- * The token is held in this component's own state only — never a URL, a query
- * string, a log line or `localStorage` — and cleared the moment the server
- * confirms it is spent, exactly as `Enrol.tsx` handles an invitation. The
- * password is held the same way, for the one reason step 5 needs it, and
- * cleared with it.
+ * The setup secret is held in this component's own state only — never a URL,
+ * a query string, a log line or `localStorage` — and cleared the moment the
+ * server confirms it is spent, exactly as `Enrol.tsx` handles an invitation.
+ * The chosen password is held the same way, for the one reason step 5 needs
+ * it, and cleared with it.
  */
 
 /** The fifteen-character floor, said inline on the screen that asks for a
@@ -73,15 +57,10 @@ import '../styles/signin.css';
  * screen had already told them. */
 const PASSWORD_MINIMUM = 15;
 
-/** How many steps a person is walked through, and what each is called.
- * Steps 3 and 4 are drawn by the enrolment component, not here — they are
- * named in this one list so that the progress line and the screens agree
- * about how long this is (ADR-0056 decision 2), and each name is the heading
- * that step shows, because the enrolment component's own heading is off in
- * this flow. **Five, not six.** Home is where the flow lands, not a step it
- * walks anybody through, and a person counting screens against a progress
- * line that promised six would be waiting for one that never comes: "Step 5
- * of 5" is the last thing this component says. */
+/** How many steps a person is walked through, and what each is called
+ * (ADR-0056 decision 2). Steps 3 and 4 are drawn by the enrolment component,
+ * not here, but named here so the progress line and screens agree. Five, not
+ * six: Home is where the flow lands, not a step it walks anybody through. */
 export const FIRST_RUN_STEPS = [
   'Welcome',
   'Choose a password',
@@ -96,11 +75,12 @@ export function progressLine(step: number): string {
 }
 
 /** Step 2's opening sentence. The address is the server's answer to the
- * token, shown and never typed, so it cannot mismatch. A function rather
- * than markup so the wording is checked by a test in a runner with no DOM. */
+ * setup secret, shown and never typed, so it cannot mismatch. A function
+ * rather than markup so the wording is checked by a test in a runner with no
+ * DOM. */
 export function passwordStepIntro(address: string): string {
   return (
-    `The setup token belongs to ${address}. That is the address this server was started with, ` +
+    `That setup secret belongs to ${address}. That is the address this server was started with, ` +
     'and it is the account this password is for — there is nothing to type and nothing to get wrong.'
   );
 }
@@ -124,12 +104,20 @@ export function finalSignInStepIntro(address: string): string {
   );
 }
 
-/** What a refused setup token says, ADR-0056 decision 2 step 1 verbatim. The
- * server answers one sentence for wrong, spent, expired and malformed alike,
- * written for the audit trail; this is the one written for the person, and it
- * does not guess which of the four it was. */
-export const SETUP_TOKEN_REFUSED =
-  'Setup token is missing or invalid. Find the current token in the server’s token file.';
+/** What a refused setup secret says, `crates/fathom-server/src/credentials.rs`'s
+ * `SETUP_SECRET_REFUSED` verbatim (ADR-0057 decision 1). The server answers
+ * one sentence for wrong, spent, expired, an expired window and setup closed
+ * altogether, written for the audit trail; this client shows the same
+ * sentence rather than a second copy of it, so the two can never drift. */
+export const SETUP_SECRET_REFUSED =
+  'Setup password is missing, invalid or expired. Setup stays open for 30 minutes after the server starts.';
+
+/** One plain, generic line under [`SETUP_SECRET_REFUSED`]: what to do next,
+ * naming the file and the command. Same line whatever caused the refusal,
+ * so it reveals no state either. */
+export const SETUP_SECRET_HINT =
+  'Check FATHOM_SETUP_PASSWORD in .env: 15+ characters, not a common password, in single ' +
+  'quotes. After changing it, run docker compose up -d.';
 
 /**
  * What the sign-in door is told when the password was set but the sign-in
@@ -178,7 +166,7 @@ export const SETUP_STILL_PENDING_HEADING = 'This server still reports that setup
 /** What that screen says under the heading. Names what did happen, what the
  * server is answering, and the one thing left to try. */
 export const SETUP_STILL_PENDING =
-  'The setup token was spent, but this server still answers that its first operator has no password, so there is no door to hand you to. Try again — and if it keeps saying this, the setup did not complete, and the server’s log is where it says why.';
+  'The setup secret was spent, but this server still answers that its first operator has no password, so there is no door to hand you to. Try again — and if it keeps saying this, the setup did not complete, and the server’s log is where it says why.';
 
 /** What a refused code says at step 5. The server answers its uniform
  * sentence, and this screen does not repeat it: the password in hand is the
@@ -200,8 +188,9 @@ export interface FirstRunProps {
    * confirmed the deployment is set up. Show the door with `address`
    * prefilled and `notice` above it — [`PASSWORD_SET_NOTICE`] when step 2's
    * sign-in failed, [`AUTHENTICATOR_SET_NOTICE`] when the person left step 5
-   * for the door themselves. Never the token step again: the token is spent
-   * by either path, and blaming it would be this screen inventing a cause.
+   * for the door themselves. Never the setup step again: the setup secret is
+   * spent by either path, and blaming it would be this screen inventing a
+   * cause.
    *
    * **Only called once the state route has answered `done`** (or failed to
    * answer at all). A server still saying `pending` keeps the person here,
@@ -266,6 +255,24 @@ export function stepNumber(step: Step): number {
   }
 }
 
+/**
+ * What the field on step 1 actually sends — ADR-0057 decision 1's "setup
+ * secret".
+ *
+ * Encodes. Does not decide anything: it sends exactly what was typed, as
+ * UTF-8, unmodified and never trimmed, `op_` codes included. Only the server
+ * (`credentials::parse_recovery_code`) decides whether a miss against the
+ * setup password is shaped like a recovery code — it is the one place that
+ * knows `FATHOM_SETUP_PASSWORD`'s bytes, so a client-side guess about the
+ * shape can never be as reliable.
+ *
+ * Exported for `FirstRun.setupSecretBytes.test.ts`. One function so step 1's
+ * check and step 2's redemption read the same typed line the same way.
+ */
+export function setupSecretBytes(typed: string): Uint8Array {
+  return utf8(typed);
+}
+
 export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
   const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
@@ -286,42 +293,27 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
     step.kind === 'leaving';
   const progress = progressLine(stepNumber(step));
 
-  /** Step 1. A read: the token is not spent here, so a mistyped line costs
-   * nothing but this answer. */
+  /** Step 1. A read: nothing is spent here, so a mistyped line costs nothing
+   * but this answer. There is no longer a client-side format check that
+   * refuses before the round trip: only the server knows whether a given
+   * line opens anything ([`setupSecretBytes`]). */
   async function handleToken(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRefusal(null);
 
-    let parsed: ReturnType<typeof parseToken>;
-    try {
-      parsed = parseToken(token);
-    } catch (error) {
-      // A line that is not a token's shape gets the same sentence a refused
-      // one gets: the server does not tell wrong from spent from expired
-      // (decision 2 step 1), and a client that told malformed from the rest
-      // would be the one place a guess could start.
-      console.error(error);
-      setRefusal(SETUP_TOKEN_REFUSED);
-      return;
-    }
-    if (parsed.kind === 'steward' || parsed.kind === 'organisation') {
-      setRefusal(SETUP_TOKEN_REFUSED);
-      return;
-    }
-
     setStep({ kind: 'checking' });
     try {
-      const address = await checkSetupToken(parsed.bytes);
+      const address = await checkSetupToken(setupSecretBytes(token));
       setStep({ kind: 'password', address });
     } catch (error) {
       console.error(error);
       setStep({ kind: 'token' });
       // A rate limit is the one refusal here that is about the person's next
-      // move rather than about the token, and it says how long to wait.
+      // move rather than about the secret, and it says how long to wait.
       setRefusal(
         error instanceof ApiRefusal && error.retryAfterSeconds != null
           ? describe(error)
-          : SETUP_TOKEN_REFUSED,
+          : SETUP_SECRET_REFUSED,
       );
     }
   }
@@ -359,7 +351,7 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
     }
     if (state === 'pending') {
       console.error(
-        'the setup token was spent, but GET /setup/state still says pending; staying in the first-run flow',
+        'the setup secret was spent, but GET /setup/state still says pending; staying in the first-run flow',
       );
       setStep({ kind: 'handed-over', address, notice, handedOver: false });
       setRefusal(SETUP_STILL_PENDING);
@@ -369,7 +361,7 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
     onUseTheDoor?.(address, notice);
   }
 
-  /** Step 2. Spends the token, then signs in with what was just set. */
+  /** Step 2. Spends the setup secret, then signs in with what was just set. */
   async function handlePassword(event: FormEvent<HTMLFormElement>, address: string) {
     event.preventDefault();
     setRefusal(null);
@@ -383,19 +375,9 @@ export function FirstRun({ onDone, onUseTheDoor }: FirstRunProps) {
       return;
     }
 
-    let parsed: ReturnType<typeof parseToken>;
-    try {
-      parsed = parseToken(token);
-    } catch (error) {
-      console.error(error);
-      setStep({ kind: 'token' });
-      setRefusal(SETUP_TOKEN_REFUSED);
-      return;
-    }
-
     setStep({ kind: 'setting', address });
     try {
-      await redeemOperatorSetup(parsed.bytes, password);
+      await redeemOperatorSetup(setupSecretBytes(token), password);
     } catch (error) {
       console.error(error);
       // Nothing about the token has changed unless the server said it spent
@@ -650,7 +632,7 @@ export interface TokenStageProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-/** Step 1: the setup token, and where to find it. */
+/** Step 1: the setup password, and where it comes from. */
 export function TokenStage({
   token,
   progress,
@@ -672,12 +654,12 @@ export function TokenStage({
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="firstrun-token">
-            Setup token
+            Setup password
           </label>
           <input
             id="firstrun-token"
             className="signin__input signin__input--mono"
-            type="text"
+            type="password"
             autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
@@ -687,24 +669,14 @@ export function TokenStage({
             disabled={busy}
             required
           />
-          {/* The file is written twice in the life of a deployment and not
-              once per restart: at the first start, when the first operator is
-              created, and again if an older install is adopted by an upgrade
-              (`main.rs`'s FIRST START and UPGRADE lines). An ordinary restart
-              writes nothing, so the line in the file is still the live one —
-              saying otherwise would send a person hunting for a file that
-              never changed. */}
+          {/* ADR-0057 decision 1: a temporary password in the server's .env,
+              not a code pulled out of a file or a log. A recovery code from
+              `fathom-server recover-operator` still works in the same field —
+              the server tells the two shapes apart (`parse_recovery_code`);
+              this client sends exactly what was typed (`setupSecretBytes`). */}
           <p className="signin__hint">
-            The whole line, beginning <code>op_</code>, from the file named in the server&apos;s
-            FIRST START or UPGRADE log line. Copy it out of the container with{' '}
-            <code>
-              docker compose cp server:/var/lib/fathom/bootstrap/first-operator-token
-              ./first-operator-token
-            </code>
-            ; <code>docs/RUNNING-IT.md</code> shows the command. That file is written once, at the
-            server&apos;s first start — and once more if this deployment was upgraded from an older
-            build — so an ordinary restart leaves it alone. If it has been deleted, run{' '}
-            <code>fathom-server recover-operator</code> on the host for a fresh one.
+            The FATHOM_SETUP_PASSWORD you set in the server&apos;s .env file. Given a recovery
+            code by <code>fathom-server recover-operator</code>? Enter that instead.
           </p>
         </div>
 
@@ -715,11 +687,15 @@ export function TokenStage({
         {refusal && (
           <div className="signin__refusal" role="alert">
             {refusal}
+            {/* Only under the setup-secret refusal, never a rate-limit one:
+                "check your password" would be wrong advice under "try
+                again in N seconds". */}
+            {refusal === SETUP_SECRET_REFUSED && <p className="signin__hint">{SETUP_SECRET_HINT}</p>}
           </div>
         )}
 
         <p className="signin__note">
-          Nothing is spent by this step: the token is only read, and the next screen says which
+          Nothing is spent by this step: it is only checked, and the next screen says which
           address it belongs to before you choose anything.
         </p>
       </form>
@@ -728,7 +704,7 @@ export function TokenStage({
 }
 
 export interface PasswordStageProps {
-  /** The address the server named for the token. Shown, never typed. */
+  /** The address the server named for the setup secret. Shown, never typed. */
   address: string;
   progress: string;
   password: string;
@@ -741,7 +717,7 @@ export interface PasswordStageProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-/** Step 2: choose a password for the address the token named. */
+/** Step 2: choose a password for the address the setup secret named. */
 export function PasswordStage({
   address,
   progress,
@@ -833,7 +809,7 @@ export function PasswordStage({
         )}
 
         <p className="signin__note">
-          The setup token is spent when this password is set. After that you sign in with the
+          The setup secret is spent when this password is set. After that you sign in with the
           address, the password and a verification code.
         </p>
       </form>
@@ -892,8 +868,8 @@ export function HandedOverCard({
             sentence in the alert below is what they have. */}
         {handedOver && (
           <p className="signin__subtitle">
-            The setup token was spent, so there is nothing left to redeem. Reload this page and sign
-            in at the door as {address}.
+            The setup secret was spent, so there is nothing left to redeem. Reload this page and
+            sign in at the door as {address}.
           </p>
         )}
         {refusal && (

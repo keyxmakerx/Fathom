@@ -253,6 +253,12 @@ ordering may not."* The override field is `risk_caption_override` (`61` §4.6). 
   **Never fabricate a reference, a benchmark number, or a vendor behaviour.** If a
   vendor detail is uncertain, mark it `<!-- VERIFY -->` inline.
 
+## Code comments — the owner, 2026-09-23
+
+- Plain and short: what the code does or why, in a line or two. No paragraphs in code.
+- No session history, brief items or "this task" in code. Name the ADR or doc when the reason lives there.
+- When you edit code under a long comment, cut the comment down.
+
 ## Length and depth
 
 These are reference documents for an implementer, not summaries. Depth is the point.

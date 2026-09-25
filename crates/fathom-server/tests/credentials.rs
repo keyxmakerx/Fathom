@@ -936,12 +936,18 @@ async fn a_setup_token_sets_a_password_once_and_hands_back_no_session() {
     let token = a_setup_token(&operators, &operator).await;
 
     creds
-        .redeem_setup(&operators, &token, A_REAL_PASSWORD)
+        .redeem_setup(&operators, None, &token, A_REAL_PASSWORD, "198.51.100.1")
         .await
         .expect("the setup token sets the first operator's password");
 
     let again = creds
-        .redeem_setup(&operators, &token, ANOTHER_REAL_PASSWORD)
+        .redeem_setup(
+            &operators,
+            None,
+            &token,
+            ANOTHER_REAL_PASSWORD,
+            "198.51.100.1",
+        )
         .await;
     assert!(
         matches!(again, Err(CredentialError::TokenRefused)),
@@ -1916,15 +1922,15 @@ async fn a_reset_token(
         .expect("the address belongs to an account")
 }
 
-/// Issue a `purpose = 'setup'` enrolment token for one operator — the token
-/// stream (b)'s `bootstrap_first_operator` will write to the key volume.
+/// Issue a `purpose = 'setup'` enrolment token for one operator, in the shape
+/// a real client sends: `support::recovery_code_text`'s `op_` plus hex.
 async fn a_setup_token(operators: &OperatorStore, operator: &str) -> Vec<u8> {
-    operators
+    let token = operators
         .issue_setup_token(operator)
         .await
         .expect("issue a setup token")
-        .token
-        .to_vec()
+        .token;
+    support::recovery_code_text(&token)
 }
 
 /// Create an operator row and bind it to this account.
@@ -2034,6 +2040,7 @@ async fn credential_surface(
         sessions,
         credentials: creds,
         operators,
+        setup_secret: None,
         client_address: ClientAddress::peer(),
     }))
     .await

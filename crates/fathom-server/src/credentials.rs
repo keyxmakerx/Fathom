@@ -223,6 +223,17 @@ pub const RESET_TOKEN_LEN: usize = 32;
 /// into it.
 pub const OPERATOR_KEY_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// How long a start's setup password stays live. ADR-0057 decision 1:
+/// *"Open for 30 minutes after the server starts. After that, setup is
+/// closed until a restart."*
+///
+/// The token's own row expiry too: [`operators::OperatorStore::issue_setup_token`]
+/// mints [`SetupSecret`]'s token at exactly this lifetime rather than
+/// `operators::ENROLMENT_TOKEN_LIFETIME`'s seventy-two hours, so the window
+/// this process enforces in memory matches the window the row still answers
+/// to after this process exits.
+pub const SETUP_SECRET_WINDOW: Duration = Duration::from_secs(30 * 60);
+
 /// **How many live keys one account's browser keyring may hold: ten.**
 ///
 /// `POST /credentials/key` had no cap and no rate limit of its own. Every call
@@ -2475,24 +2486,41 @@ impl CredentialStore {
 
     /// The first operator's setup screen, server half.
     ///
-    /// ADR-0055 decision 10's last bullet: *"the token file the first start
-    /// writes opens a setup screen (set the password, enrol the app code, save
-    /// the backup codes) instead of enrolling a browser key."*
+    /// ADR-0057 decision 1: no token file. The first LP field is the **setup
+    /// secret**, and [`CredentialStore::redeem_setup`] below tries it as a
+    /// live `purpose = 'setup'` token first — a recovery code `fathom-server
+    /// recover-operator` printed is exactly that shape — and, only on a miss,
+    /// as this start's setup password. Either way, this sets the password,
+    /// enrols the app code and saves the backup codes once the token is
+    /// proven.
     ///
-    /// **It returns no session**, on the lead's resolution 4: the client signs
-    /// in with `POST /session` immediately afterwards, which is one more round
-    /// trip and one fewer way for a token to become a session without the
-    /// password being checked.
+    /// **Returns no session**: the client signs in with `POST /session`
+    /// immediately afterwards, one fewer way for a token to become a session
+    /// without the password being checked.
     ///
     /// The token is a `purpose = 'setup'` row (`0019` §B), spent through
-    /// `operators::spend_setup_token` so that the seal check, the expiry check
-    /// and the `enrolment_token_redeemed` entry are the ones the operator plane
-    /// already uses rather than a second copy of them here.
-    pub async fn redeem_setup(
+    /// `operators::spend_setup_token`. `require_pending` is `true` only for
+    /// the setup-password-derived call, never for a raw token: it guards
+    /// against two live `purpose = 'setup'` tokens for one operator both
+    /// matching `FATHOM_SETUP_PASSWORD`, where finishing setup through one
+    /// could let the other overwrite the password just set. Two guards,
+    /// together:
+    ///
+    /// 1. **The `UPDATE` is guarded**, `AND password_hash IS NULL`: a caller
+    ///    who does not know the row already has a password gets zero updated
+    ///    rows and [`CredentialError::TokenRefused`]. Two transactions racing
+    ///    this statement serialise on Postgres's own row lock and MVCC.
+    /// 2. **Spending any setup-class token expires every other live one for
+    ///    the same operator** ([`operators::OperatorStore::expire_live_tokens`],
+    ///    the same sweep [`operators::OperatorStore::recover_operator`]
+    ///    runs). A second still-live token is no longer presentable at all,
+    ///    guard or no guard.
+    async fn redeem_setup_by_token(
         &self,
         operators: &operators::OperatorStore,
         token: &[u8],
         new_password: &str,
+        require_pending: bool,
     ) -> Result<(), CredentialError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -2508,8 +2536,17 @@ impl CredentialStore {
 
         let operator = match operators.spend_setup_token(&tx, token).await {
             Ok(operator) => operator,
-            Err(_) => return Err(CredentialError::TokenRefused),
+            // The one real refusal. Everything else — a database error, a
+            // deadlock abort included — surfaces as an error rather than
+            // being told apart from a wrong token.
+            Err(OperatorError::EnrolmentRefused) => return Err(CredentialError::TokenRefused),
+            Err(e) => return Err(e.into()),
         };
+        // Whichever token this was, no OTHER live `purpose = 'setup'` token
+        // for this operator survives its spend — see the doc above.
+        operators
+            .expire_live_tokens(&tx, operators::Purpose::Setup, &operator, "setup_redeemed")
+            .await?;
 
         let account: Option<String> = tx
             .query_opt(
@@ -2534,6 +2571,15 @@ impl CredentialStore {
         if address.is_empty() {
             return Err(CredentialError::TokenRefused);
         }
+        // The read half of the guard: a setup-password redemption against an
+        // account that already holds a credential is refused before it ever
+        // hashes the candidate password, let alone reaches the `UPDATE`.
+        // Left to the `UPDATE` alone this would still be safe (see above),
+        // but a caller who cannot possibly win must not pay argon2id's cost
+        // to be told so.
+        if require_pending && row.password_hash.is_some() {
+            return Err(CredentialError::TokenRefused);
+        }
 
         check_password(new_password, &address)?;
         let password_hash = hash_password(new_password)?;
@@ -2556,19 +2602,42 @@ impl CredentialStore {
         next.password_hash = Some(password_hash.clone());
         let row_key = grants::site_row_key(&tx, &self.ring).await?;
         let seal = next_seal(&row_key, &account, &mut next, Some(password_entry.seq));
-        tx.execute(
-            "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
-                    credential_row_version = $4, credential_seq = $5 \
-              WHERE id = $1",
-            &[
-                &account,
-                &password_hash,
-                &seal,
-                &next.credential_row_version,
-                &seq_column(next.credential_seq),
-            ],
-        )
-        .await?;
+        let updated = if require_pending {
+            tx.execute(
+                "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                        credential_row_version = $4, credential_seq = $5 \
+                  WHERE id = $1 AND password_hash IS NULL",
+                &[
+                    &account,
+                    &password_hash,
+                    &seal,
+                    &next.credential_row_version,
+                    &seq_column(next.credential_seq),
+                ],
+            )
+            .await?
+        } else {
+            tx.execute(
+                "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                        credential_row_version = $4, credential_seq = $5 \
+                  WHERE id = $1",
+                &[
+                    &account,
+                    &password_hash,
+                    &seal,
+                    &next.credential_row_version,
+                    &seq_column(next.credential_seq),
+                ],
+            )
+            .await?
+        };
+        // The write half of the guard. Rolled back with everything else in
+        // this transaction: the token this call already spent above, and the
+        // `PasswordSet` entry just appended, neither of which may stand for
+        // an act that did not, in the end, change the row it was about.
+        if require_pending && updated == 0 {
+            return Err(CredentialError::TokenRefused);
+        }
 
         leave_custody(&tx).await?;
         tx.commit().await?;
@@ -2577,6 +2646,91 @@ impl CredentialStore {
         // browser that did it.
         forget_setup_state(&self.deployment);
         Ok(())
+    }
+
+    /// `POST /enrolment/operator/setup` — ADR-0057 decision 1's "setup
+    /// secret" in front of [`CredentialStore::redeem_setup_by_token`].
+    ///
+    /// **Compared against the in-memory setup password first, and only on a
+    /// miss is `candidate` even asked whether it is shaped like a recovery
+    /// code.** `SetupSecret::token_for` is a fixed pair of SHA-256 digests
+    /// compared in this process, nothing sent anywhere, so a wrong guess
+    /// never reaches PostgreSQL. On a miss, [`parse_recovery_code`] decides
+    /// whether the text is shaped like a token (an `op_` line, tolerant of
+    /// case, spaces and hyphens, matching `client/src/api/enrolment.ts`'s
+    /// `parseToken`); only a candidate that parses reaches the database,
+    /// decoded, exactly as [`CredentialStore::redeem_setup_by_token`] tries
+    /// one.
+    ///
+    /// `setup_secret` is `None` whenever `FATHOM_SETUP_PASSWORD` is unset,
+    /// fails the account password policy, or this deployment's first operator
+    /// has already finished setup (`main.rs`, at every start) — decision 1's
+    /// "setup is closed", carried here as the absence of anything to match
+    /// against rather than a second code path.
+    ///
+    /// Every refusal is still [`CredentialError::TokenRefused`], whichever of
+    /// the two attempts it came from and whichever of "wrong", "spent",
+    /// "expired", "the window closed" or "setup is closed" caused it — one
+    /// fact from outside, as decision 1 asks, and the route above renders one
+    /// sentence for it.
+    ///
+    /// `source` is for the process-wide brute-force limit on the setup
+    /// password: never read from, only logged beside a refusal, and never
+    /// touches the account or the candidate.
+    pub async fn redeem_setup(
+        &self,
+        operators: &operators::OperatorStore,
+        setup_secret: Option<&SetupSecret>,
+        candidate: &[u8],
+        new_password: &str,
+        source: &str,
+    ) -> Result<(), CredentialError> {
+        let result = self
+            .redeem_setup_trying_password_first(operators, setup_secret, candidate, new_password)
+            .await;
+        if let Err(CredentialError::TokenRefused) = &result {
+            log_setup_secret_refusal(&self.deployment, source);
+        }
+        result
+    }
+
+    async fn redeem_setup_trying_password_first(
+        &self,
+        operators: &operators::OperatorStore,
+        setup_secret: Option<&SetupSecret>,
+        candidate: &[u8],
+        new_password: &str,
+    ) -> Result<(), CredentialError> {
+        // The brute-force limit closes only this comparison: the raw-token
+        // path below is 256 bits and stays open, since a flood of wrong
+        // passwords must not close the way a recovery code gets back in.
+        //
+        // The reservation happens before `token_for`, in the same critical
+        // section as the count check ([`reserve_setup_secret_attempt`]), so
+        // at most [`SETUP_SECRET_REFUSAL_LIMIT`] concurrent attempts — right
+        // or wrong — ever reach a comparison at all.
+        if let Some(secret) = setup_secret {
+            if reserve_setup_secret_attempt(&self.deployment) {
+                if let Some(token) = secret.token_for(candidate, std::time::Instant::now()) {
+                    // The password matched: refund the unit regardless of
+                    // what the redemption itself decides next.
+                    refund_setup_secret_attempt(&self.deployment);
+                    return self
+                        .redeem_setup_by_token(operators, &token, new_password, true)
+                        .await;
+                }
+            }
+        }
+        // The client sends exactly what was typed, `op_` codes included, so
+        // this is the only place that decides whether the text is shaped
+        // like a recovery code. Anything that is not reaches no database.
+        match parse_recovery_code(candidate) {
+            Some(token) => {
+                self.redeem_setup_by_token(operators, &token, new_password, false)
+                    .await
+            }
+            None => Err(CredentialError::TokenRefused),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2697,13 +2851,22 @@ impl CredentialStore {
     /// checks without the `UPDATE` and without the entry; this transaction
     /// rolls back whatever it did, and there is nothing to roll back.
     ///
+    /// `require_pending` is `true` only for the setup-password-derived call
+    /// [`CredentialStore::check_setup`] makes: an account that already holds
+    /// a credential refuses here too, and stops naming the address, for the
+    /// same reason [`CredentialStore::redeem_setup_by_token`]'s guarded
+    /// `UPDATE` refuses the write — the setup password opens a screen for an
+    /// operator who has not finished setup, never a second way to learn who
+    /// an account belongs to once it has.
+    ///
     /// Every refusal is [`CredentialError::TokenRefused`] — wrong, spent,
     /// expired and malformed alike — and the route answers one sentence for
     /// all of them.
-    pub async fn check_setup(
+    async fn check_setup_by_token(
         &self,
         operators: &operators::OperatorStore,
         token: &[u8],
+        require_pending: bool,
     ) -> Result<String, CredentialError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -2737,10 +2900,102 @@ impl CredentialStore {
         if row.address.is_empty() {
             return Err(CredentialError::TokenRefused);
         }
+        if require_pending && row.password_hash.is_some() {
+            return Err(CredentialError::TokenRefused);
+        }
 
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(row.address)
+    }
+
+    /// `POST /enrolment/operator/setup/check` — ADR-0057 decision 1's "setup
+    /// secret" in front of [`CredentialStore::check_setup_by_token`].
+    ///
+    /// Compared against the in-memory setup password first, exactly as
+    /// [`CredentialStore::redeem_setup`]: only a miss asks
+    /// [`parse_recovery_code`] whether `candidate` is shaped like a recovery
+    /// code, which is what a code `fathom-server recover-operator` prints
+    /// needs.
+    ///
+    /// `source` is [`CredentialStore::redeem_setup`]'s own, and the budget
+    /// [`reserve_setup_secret_attempt`] spends is the same process-wide one:
+    /// one budget across both routes, so a caller cannot check for free in a
+    /// loop that a redeem-only limit would not see.
+    pub async fn check_setup(
+        &self,
+        operators: &operators::OperatorStore,
+        setup_secret: Option<&SetupSecret>,
+        candidate: &[u8],
+        source: &str,
+    ) -> Result<String, CredentialError> {
+        let result = self
+            .check_setup_trying_password_first(operators, setup_secret, candidate)
+            .await;
+        if let Err(CredentialError::TokenRefused) = &result {
+            log_setup_secret_refusal(&self.deployment, source);
+        }
+        result
+    }
+
+    async fn check_setup_trying_password_first(
+        &self,
+        operators: &operators::OperatorStore,
+        setup_secret: Option<&SetupSecret>,
+        candidate: &[u8],
+    ) -> Result<String, CredentialError> {
+        // See `redeem_setup_trying_password_first`: the limit closes only
+        // this comparison, never the raw-token path a recovery code needs.
+        if let Some(secret) = setup_secret {
+            if reserve_setup_secret_attempt(&self.deployment) {
+                if let Some(token) = secret.token_for(candidate, std::time::Instant::now()) {
+                    return self.check_setup_by_token(operators, &token, true).await;
+                }
+            }
+        }
+        // See `redeem_setup_trying_password_first`.
+        match parse_recovery_code(candidate) {
+            Some(token) => self.check_setup_by_token(operators, &token, false).await,
+            None => Err(CredentialError::TokenRefused),
+        }
+    }
+
+    /// **Which operator, if any, should receive a fresh setup secret this
+    /// start?** ADR-0057 decision 1: *"Every start while setup is pending
+    /// means the first operator has no stored credential. That covers the
+    /// first start, the adoption path, and any later start still pending."*
+    ///
+    /// One query rather than three special cases in `main.rs`: the operator
+    /// bound to the install's notice address, if that account still holds no
+    /// stored password. `None` on every other shape — no install record, no
+    /// binding yet (the first start has not run), or a credential already
+    /// set, which is decision 1's "setup is finished".
+    ///
+    /// The same join [`CredentialStore::setup_state`] runs, with the operator
+    /// id selected instead of the bit — kept here for
+    /// `tests/operators.rs`'s reason: this module is the one place a `password`
+    /// column may be named outside the handlers ADR-0055 allowlists.
+    pub async fn operator_pending_setup(&self) -> Result<Option<String>, CredentialError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        operators::enter_enrolment_custody(&tx).await?;
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await?;
+
+        let row = tx
+            .query_opt(
+                "SELECT b.operator_id \
+                   FROM site_install s \
+                   JOIN accounts a ON a.email = s.notice_address \
+                   JOIN operator_account_bindings b ON b.account_id = a.id \
+                  WHERE s.id = 'install' AND a.password_hash IS NULL",
+                &[],
+            )
+            .await?;
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(row.map(|r| r.get(0)))
     }
 
     /// End every live session of one account, recording each.
@@ -2856,6 +3111,233 @@ impl CredentialStore {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 1 — the setup password, held in memory
+// ---------------------------------------------------------------------------
+
+/// **One sentence for every refused setup secret** — wrong, an expired
+/// window, or setup closed altogether. ADR-0057 decision 1 verbatim:
+/// *"refuse exactly as a bad token is refused: same status, same budget
+/// charge, same timing path."* `api.rs`'s check route renders this in place
+/// of the token-file sentence it used to carry; the redeem route already
+/// answers the same way a bad token always has
+/// ([`CredentialError::TokenRefused`] → `sign-in refused`), so this text
+/// belongs to the one route that ever explained itself.
+pub const SETUP_SECRET_REFUSED: &str = "Setup password is missing, invalid or expired. Setup \
+     stays open for 30 minutes after the server starts.";
+
+/// **This start's setup password, and the token it stands in for.**
+///
+/// ADR-0057 decision 1: no token file. `main.rs` builds one of these at every
+/// start where `FATHOM_SETUP_PASSWORD` passes the account password policy and
+/// this deployment's first operator still has no stored password — see
+/// [`CredentialStore::operator_pending_setup`] — and holds it in
+/// [`crate::api::CredentialApiState`] and nowhere else. A start with no valid
+/// setup password, or nothing left pending, builds none: `check_setup` and
+/// `redeem_setup` then have only the token path a recovery code still uses.
+///
+/// **The password itself is not kept.** Only its SHA-256 is, so what
+/// [`SetupSecret::token_for`] compares are two 32-byte digests — the shape
+/// [`constant_time_eq`] wants regardless of how long the typed password
+/// was — and a `Debug` derive here would still have nothing to print.
+#[derive(Clone)]
+pub struct SetupSecret {
+    hash: [u8; 32],
+    token: [u8; 32],
+    /// The instant after which the window is closed, however live the
+    /// underlying token row still is. `Instant`, not a wall-clock timestamp:
+    /// a step in the system clock must not open or close this window early
+    /// or late. Computed by the caller and not read here, so a test can set
+    /// it without controlling any clock at all.
+    closes_at: std::time::Instant,
+}
+
+impl SetupSecret {
+    /// `token` is [`crate::operators::OperatorStore::issue_setup_token`]'s
+    /// own bytes, minted once at this start; `closes_at` is ordinarily
+    /// `Instant::now() + `[`SETUP_SECRET_WINDOW`], computed by the caller
+    /// and not here, for the same reason.
+    pub fn new(setup_password: &str, token: [u8; 32], closes_at: std::time::Instant) -> Self {
+        Self {
+            hash: Sha256::digest(setup_password.as_bytes()).into(),
+            token,
+            closes_at,
+        }
+    }
+
+    /// The in-memory token, if `candidate` is this start's setup password and
+    /// the window is still open at `now`. `None` on a mismatch or an expired
+    /// window — one predicate, so the two causes are refused exactly alike
+    /// from outside.
+    fn token_for(&self, candidate: &[u8], now: std::time::Instant) -> Option<[u8; 32]> {
+        if now >= self.closes_at {
+            return None;
+        }
+        let candidate_hash: [u8; 32] = Sha256::digest(candidate).into();
+        if constant_time_eq(&candidate_hash, &self.hash) {
+            Some(self.token)
+        } else {
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Only a recovery-code shape reaches the database as a token
+// ---------------------------------------------------------------------------
+
+/// The one place that decides whether typed text is shaped like a recovery
+/// code. `FirstRun.tsx`'s `setupSecretBytes` sends exactly what was typed,
+/// as UTF-8, `op_` codes included — the client decides nothing about the
+/// shape.
+///
+/// The setup password is compared first, in memory, byte for byte
+/// ([`SetupSecret::token_for`]), so a real setup password that happens to
+/// look like a recovery code still matches there and never reaches this
+/// function. Only once that comparison misses does this decide whether the
+/// text is shaped like a recovery code; anything it says no to is refused
+/// without a database query.
+///
+/// **The same tolerance the client's `parseToken` has** — noise (whitespace,
+/// a soft hyphen a terminal's line wrap can insert, a byte-order mark a
+/// pasted file can carry, and a hyphen a person retyping one by hand reaches
+/// for) is discarded and case is folded before anything is compared, and the
+/// `_` after `op` is optional, matching `TOKEN_PREFIX_RE`'s `(op|inv|org)_?`
+/// — because this function replaces the client's decision, it has to
+/// tolerate exactly what the client's decision used to.
+///
+/// **Not a length check.** `docs/RUNNING-IT.md` and `.env.example` suggest
+/// `openssl rand -base64 24` for the setup password, which is exactly 32
+/// characters — the same length as nothing this function looks at, because
+/// it never compares a length against anything. It looks for one shape —
+/// `op`, optionally `_`, then exactly 64 hex digits — and refuses everything
+/// else, whatever its length.
+fn parse_recovery_code(candidate: &[u8]) -> Option<[u8; 32]> {
+    let text = std::str::from_utf8(candidate).ok()?;
+    let cleaned: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{00AD}' && *c != '\u{FEFF}' && *c != '-')
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    let hex = cleaned.strip_prefix("op")?;
+    let hex = hex.strip_prefix('_').unwrap_or(hex);
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------
+// The brute-force limit on the setup password
+// ---------------------------------------------------------------------------
+
+/// How many attempts against the setup password this process permits, per
+/// deployment, before it stops comparing a candidate against it at all.
+///
+/// Twenty: enough that a person who mistypes their own password a few times
+/// is never the one who trips it, and small enough that guessing a
+/// human-chosen password never gets near a useful number of tries. Nothing
+/// clears the count but a restart, on purpose — there is no route that
+/// could, and a caller who found one would have found a way to keep
+/// guessing forever.
+///
+/// Every attempt spends one unit before the comparison runs
+/// ([`reserve_setup_secret_attempt`]). A match refunds it
+/// ([`refund_setup_secret_attempt`]): the caller has proven they hold the
+/// password, and a new password the policy then refuses must not cost the
+/// same budget a wrong setup password does.
+const SETUP_SECRET_REFUSAL_LIMIT: u32 = 20;
+
+/// Setup-secret attempts this process has counted, per deployment — keyed
+/// the way [`SETUP_STATE_CACHE_CELL`] is, and for the identical reason: one
+/// process serves one deployment in the product and several, side by side,
+/// in `cargo test`.
+static SETUP_SECRET_REFUSALS: OnceLock<std::sync::Mutex<HashMap<String, u32>>> = OnceLock::new();
+
+fn setup_secret_refusals() -> &'static std::sync::Mutex<HashMap<String, u32>> {
+    SETUP_SECRET_REFUSALS.get_or_init(Default::default)
+}
+
+/// Reserve one attempt against `deployment`'s budget, atomically: the check
+/// and the spend are one critical section under `setup_secret_refusals`'s
+/// lock, so a `true` answer has already spent its unit before the caller
+/// compares anything, and a `false` answer means the budget was already
+/// gone — the caller must not touch the database on its strength.
+///
+/// Logged once, loudly, on the call that crosses the limit.
+fn reserve_setup_secret_attempt(deployment: &str) -> bool {
+    let mut refusals = setup_secret_refusals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let count = refusals.entry(deployment.to_string()).or_insert(0);
+    if *count >= SETUP_SECRET_REFUSAL_LIMIT {
+        return false;
+    }
+    *count += 1;
+    let reached_limit = *count == SETUP_SECRET_REFUSAL_LIMIT;
+    drop(refusals);
+    if reached_limit {
+        tracing::warn!(
+            deployment,
+            limit = SETUP_SECRET_REFUSAL_LIMIT,
+            "SETUP PASSWORD CLOSED: {SETUP_SECRET_REFUSAL_LIMIT} setup-secret attempts in this \
+             process. The setup password no longer opens anything; a recovery code from \
+             `fathom-server recover-operator` still does. Restart the server to open the setup \
+             password again."
+        );
+    }
+    true
+}
+
+/// Give back one unit [`reserve_setup_secret_attempt`] spent, for a
+/// candidate that turned out to be the real setup password. Never takes a
+/// deployment below zero.
+fn refund_setup_secret_attempt(deployment: &str) {
+    let mut refusals = setup_secret_refusals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(count) = refusals.get_mut(deployment) {
+        *count = count.saturating_sub(1);
+    }
+}
+
+/// Log one refusal at warn level, with the client source address and the
+/// count currently on record for `deployment`.
+///
+/// **Never the count's own writer** — [`reserve_setup_secret_attempt`] is,
+/// so that the budget closes on its own critical section and this can run
+/// afterward, once the actual outcome is known, without spending a second
+/// unit for the one attempt that already spent one.
+///
+/// **Never carries the candidate** — only `source`, the client address the
+/// route already computed, and the running count. A wrong guess is not
+/// evidence about anything except that a guess was made; what would make it
+/// evidence is exactly what must never reach a log.
+fn log_setup_secret_refusal(deployment: &str, source: &str) {
+    let count = setup_secret_refusals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(deployment)
+        .copied()
+        .unwrap_or(0);
+    tracing::warn!(source, count, "a setup secret was refused");
+}
+
+#[cfg(test)]
+/// Put this deployment's counted attempts exactly where the next one would
+/// leave it, so a test proves the limit closes the password at twenty
+/// without twenty real attempts first.
+fn set_setup_secret_refusals_for_test(deployment: &str, count: u32) {
+    setup_secret_refusals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(deployment.to_string(), count);
 }
 
 // ---------------------------------------------------------------------------
@@ -3367,5 +3849,227 @@ mod tests {
         assert_ne!(a, b, "a salt that does not change is not a salt");
         assert!(verify_password(&a, "correct-horse-battery-staple"));
         assert!(verify_password(&b, "correct-horse-battery-staple"));
+    }
+
+    // ---- ADR-0057 decision 1: the setup password, held in memory ---------
+    //
+    // `Instant` cannot be constructed at an arbitrary point, so every test
+    // below fixes one `base = Instant::now()` and reasons only in `Duration`s
+    // added to or before it — never a sleep, and never the system clock.
+
+    #[test]
+    fn a_matching_setup_password_inside_the_window_gives_back_the_token() {
+        let token = [7u8; 32];
+        let base = std::time::Instant::now();
+        let secret = SetupSecret::new(
+            "this-is-the-setup-password",
+            token,
+            base + Duration::from_secs(1_000),
+        );
+        assert_eq!(
+            secret.token_for(
+                b"this-is-the-setup-password",
+                base + Duration::from_secs(999)
+            ),
+            Some(token),
+            "the last second before the window closes still matches"
+        );
+    }
+
+    #[test]
+    fn the_window_is_injectable_and_closes_at_an_exact_instant() {
+        // Decision 1: "make the window injectable for tests" -- no sleeping
+        // and no system clock, just calls at a `Duration` from `base` chosen
+        // by hand.
+        let token = [9u8; 32];
+        let base = std::time::Instant::now();
+        let secret = SetupSecret::new(
+            "open-sesame-and-then-some",
+            token,
+            base + Duration::from_secs(1_000),
+        );
+        assert_eq!(
+            secret.token_for(b"open-sesame-and-then-some", base),
+            Some(token)
+        );
+        assert_eq!(
+            secret.token_for(
+                b"open-sesame-and-then-some",
+                base + Duration::from_secs(999)
+            ),
+            Some(token)
+        );
+        assert_eq!(
+            secret.token_for(
+                b"open-sesame-and-then-some",
+                base + Duration::from_secs(1_000)
+            ),
+            None,
+            "closes_at itself is already closed"
+        );
+        assert_eq!(
+            secret.token_for(
+                b"open-sesame-and-then-some",
+                base + Duration::from_secs(1_001)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_wrong_setup_password_is_refused_inside_the_window() {
+        let base = std::time::Instant::now();
+        let secret = SetupSecret::new(
+            "the-real-setup-password-here",
+            [1u8; 32],
+            base + Duration::from_secs(1_000),
+        );
+        assert_eq!(secret.token_for(b"a-wrong-guess-entirely-here", base), None);
+        // Close, a prefix, a suffix, different case -- none of them match.
+        assert_eq!(secret.token_for(b"the-real-setup-password-her", base), None);
+        assert_eq!(
+            secret.token_for(b"THE-REAL-SETUP-PASSWORD-HERE", base),
+            None
+        );
+        assert_eq!(secret.token_for(b"", base), None);
+    }
+
+    // ---- the setup password's brute-force limit ---------------------------
+
+    #[test]
+    fn the_limit_closes_the_password_at_twenty_and_not_before() {
+        let deployment = "unit-test-brute-force-not-yet";
+        set_setup_secret_refusals_for_test(deployment, SETUP_SECRET_REFUSAL_LIMIT - 1);
+        assert!(
+            reserve_setup_secret_attempt(deployment),
+            "the twentieth attempt is still inside the budget"
+        );
+        assert!(
+            !reserve_setup_secret_attempt(deployment),
+            "the twenty-first has nothing left to spend"
+        );
+    }
+
+    #[test]
+    fn counting_a_refusal_never_closes_a_different_deployment() {
+        let a = "unit-test-brute-force-deployment-a";
+        let b = "unit-test-brute-force-deployment-b";
+        set_setup_secret_refusals_for_test(a, SETUP_SECRET_REFUSAL_LIMIT);
+        assert!(!reserve_setup_secret_attempt(a));
+        assert!(
+            reserve_setup_secret_attempt(b),
+            "one process serves several deployments in cargo test, and the limit is per \
+             deployment or it is not a limit on anything real"
+        );
+    }
+
+    #[test]
+    fn counting_advances_the_stored_count_by_one_each_time() {
+        let deployment = "unit-test-brute-force-counts-up";
+        for expected in 1..=3u32 {
+            assert!(reserve_setup_secret_attempt(deployment));
+            let stored = setup_secret_refusals()
+                .lock()
+                .unwrap()
+                .get(deployment)
+                .copied();
+            assert_eq!(stored, Some(expected));
+        }
+    }
+
+    /// Two hundred real OS threads racing [`reserve_setup_secret_attempt`]
+    /// for the same deployment at once. Exactly [`SETUP_SECRET_REFUSAL_LIMIT`]
+    /// may come back `true` — not more (a lost update under the race), not
+    /// fewer (a caller refused for budget never actually spent).
+    #[test]
+    fn two_hundred_real_threads_cannot_reserve_more_than_the_limit_between_them() {
+        let deployment = "unit-test-brute-force-thread-burst";
+        let successes = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..200)
+                .map(|_| scope.spawn(|| reserve_setup_secret_attempt(deployment)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("the reservation thread did not panic"))
+                .filter(|&ok| ok)
+                .count()
+        });
+        assert_eq!(successes, SETUP_SECRET_REFUSAL_LIMIT as usize);
+        let stored = setup_secret_refusals()
+            .lock()
+            .unwrap()
+            .get(deployment)
+            .copied();
+        assert_eq!(stored, Some(SETUP_SECRET_REFUSAL_LIMIT));
+    }
+
+    // ---- only a recovery-code shape reaches the database -----------------
+
+    #[test]
+    fn an_op_prefixed_sixty_four_hex_parses_whatever_noise_surrounds_it() {
+        // Built, not hand-counted: sixty-four hex digits is exactly the
+        // shape this function looks for, and a hand-typed literal of that
+        // length is exactly the kind of off-by-a-few a reviewer would have
+        // to notice separately from whether the function itself is right.
+        let raw: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let hex: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex.len(), 64);
+
+        // `op_`, exactly as `formatToken` writes it.
+        let typed = format!("op_{hex}");
+        assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
+
+        // No underscore -- `TOKEN_PREFIX_RE`'s `_?` is optional client-side,
+        // so it has to be optional here too.
+        let typed = format!("op{hex}");
+        assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
+
+        // Upper case, with hyphens and spaces sprinkled through the hex --
+        // the same noise `parseToken` discards, wherever it falls.
+        let noisy_hex: String = hex
+            .to_uppercase()
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                if i > 0 && i % 4 == 0 {
+                    format!("{} {c}", if i % 8 == 0 { "-" } else { "" })
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
+        let typed = format!("OP-{noisy_hex}");
+        assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_noise_too() {
+        let raw: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let hex: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        // A file saved with a BOM, then pasted whole.
+        let typed = format!("\u{FEFF}op_{hex}");
+        assert_eq!(parse_recovery_code(typed.as_bytes()), Some(raw));
+    }
+
+    #[test]
+    fn text_without_the_op_shape_never_parses_as_a_recovery_code() {
+        // A real setup password, `openssl rand -base64 24` shaped: 32
+        // characters, and not hex.
+        assert_eq!(
+            parse_recovery_code(b"K9mQ2xVzL7pR4wN8jT6yB3hC1dF5sG0k"),
+            None
+        );
+        // Starts with "op" but is not the shape at all.
+        assert_eq!(parse_recovery_code(b"operations-manual-forty-two"), None);
+        // The right prefix, the wrong length.
+        assert_eq!(parse_recovery_code(b"op_3f9c2a7b"), None);
+        // The right prefix and length, not hex.
+        assert_eq!(
+            parse_recovery_code(
+                b"op_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+            ),
+            None
+        );
+        assert_eq!(parse_recovery_code(b""), None);
     }
 }

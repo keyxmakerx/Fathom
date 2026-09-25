@@ -3,13 +3,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
+import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
+import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
+import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
 
@@ -98,6 +101,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   const undoCandidates = doc != null && accountId != null ? undoable(doc, accountId) : [];
   const redoCandidate = doc != null && accountId != null ? redoable(doc, accountId) : undefined;
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
+  // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
+  const [trailOpen, setTrailOpen] = useState(false);
 
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
@@ -109,6 +114,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
+      setTrailOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `undoCandidates`
     // is recomputed fresh every render from `doc`/`accountId`, both already
@@ -123,6 +129,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That redo did not complete.');
+      setTrailOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, accountId, session]);
@@ -236,8 +243,32 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `onRemoveNote` already are: a reader's Ctrl+Z or Undo chip does nothing
   // silently rather than writing a batch nobody with read-only access is
   // allowed to write.
+  // Quick search (the owner's option A): the open design; a choice shows it on the rack.
+  const search = {
+    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query) : []),
+    choose: (selection: Selection) => showOnRack(selection),
+  };
+
+  // One trail for the design, the same in Racks and Inventory.
+  const trail =
+    doc != null ? (
+      <Trail
+        doc={doc}
+        accountId={accountId}
+        accountAddress={accountAddress}
+        sealedBatchIds={sealedBatchIds}
+        undoRefusal={undoRefusal}
+        pendingComment={pendingComment}
+        onPendingCommentChange={setPendingComment}
+      />
+    ) : null;
+
   const sharedShellProps = {
     ...shellProps,
+    search,
+    trail,
+    trailOpen,
+    onTrailOpenChange: setTrailOpen,
     canUndo: session.canDraw && undoCandidates.length > 0,
     canRedo: session.canDraw && redoCandidate != null,
     onUndo: handleUndo,
@@ -256,11 +287,6 @@ export function DesignPlace(props: DesignPlaceProps) {
         initialFocus={focus}
         onOpenInventory={openInInventory}
         accountId={accountId}
-        accountAddress={accountAddress}
-        sealedBatchIds={sealedBatchIds}
-        undoRefusal={undoRefusal}
-        pendingComment={pendingComment}
-        onPendingCommentChange={setPendingComment}
         notesActions={notesActions}
       />
     );
@@ -273,7 +299,6 @@ export function DesignPlace(props: DesignPlaceProps) {
       session={session}
       onShowOnRack={showOnRack}
       notesActions={notesActions}
-      undoRefusal={undoRefusal}
     />
   );
 }

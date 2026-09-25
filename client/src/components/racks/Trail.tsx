@@ -30,7 +30,7 @@ export interface TrailProps {
 function formatWhen(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
   const d = new Date(ms);
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
 /**

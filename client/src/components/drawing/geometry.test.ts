@@ -25,6 +25,7 @@ import {
   snapDropToU,
   sortFreeRuns,
   uToOffsetPx,
+  zoomAboutPaneCentre,
 } from './geometry';
 
 describe('the rack stop fits the reference 42U rack', () => {
@@ -392,5 +393,27 @@ describe('portalTraySide — "Above or below the rack ... decide by the port\'s 
 
   it('a chassis exactly on the midline reads below, its own occupied U never rounding up', () => {
     expect(portalTraySide(42, 21)).toBe('below');
+  });
+});
+
+describe('zoomAboutPaneCentre — a bar-driven zoom keeps the pane centre fixed', () => {
+  it('the flow-space point under the pane centre is unchanged by the zoom', () => {
+    const viewport = { x: -40, y: 120, zoom: 1 };
+    const pane = { w: 800, h: 600 };
+    const before = { x: (pane.w / 2 - viewport.x) / viewport.zoom, y: (pane.h / 2 - viewport.y) / viewport.zoom };
+    const next = zoomAboutPaneCentre(viewport, 2, pane.w, pane.h);
+    const after = { x: (pane.w / 2 - next.x) / next.zoom, y: (pane.h / 2 - next.y) / next.zoom };
+    expect(after.x).toBeCloseTo(before.x, 9);
+    expect(after.y).toBeCloseTo(before.y, 9);
+  });
+
+  it('zooming in from the origin at zoom 1 moves x/y toward negative (the centre stays put, the origin recedes)', () => {
+    const next = zoomAboutPaneCentre({ x: 0, y: 0, zoom: 1 }, 2, 800, 600);
+    expect(next).toEqual({ x: -400, y: -300, zoom: 2 });
+  });
+
+  it('an unchanged zoom is a no-op on x/y', () => {
+    const viewport = { x: 17, y: -5, zoom: 1.5 };
+    expect(zoomAboutPaneCentre(viewport, 1.5, 800, 600)).toEqual(viewport);
   });
 });

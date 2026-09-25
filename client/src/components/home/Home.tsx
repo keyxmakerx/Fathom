@@ -31,10 +31,19 @@ export interface HomeProps {
    * one call site in the component that acts on it, firing at most once per
    * mount. What "lands there directly" means in practice — which place a
    * landed account opens in — is the caller's to decide once notified; this
-   * component only ever computes and reports the fact.
+   * component only ever computes and reports the fact. Omitted once it has
+   * fired, so that returning to Home stays on Home.
    */
-  onDirectEntry: (entry: DirectEntry) => void;
+  onDirectEntry?: (entry: DirectEntry) => void;
+  /** One sentence from elsewhere in the app that this person should read
+   * here — today, the server's refusal to open the Site console. */
+  notice?: string | null;
 }
+
+/** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
+const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', rack: 'Closet' };
+/** What can be created under each kind (`child_kind_under` on the server). */
+const CHILD_LEVEL: Record<string, string | null> = { network: 'building', building: 'closet', rack: null };
 
 type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
 
@@ -52,7 +61,7 @@ type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } 
  * invented content would be exactly the "plausible-looking figure" this
  * project's rules forbid, so they are left off rather than faked empty.
  */
-export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: HomeProps) {
+export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry, notice }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
@@ -72,7 +81,7 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   // it from the section header rather than a scope heading), and that
   // form's own label input and refusal. One form at a time, closed on
   // success or cancel.
-  const [scopeFormParent, setScopeFormParent] = useState<{ id: string | null; label: string } | null>(null);
+  const [scopeFormParent, setScopeFormParent] = useState<{ id: string | null; label: string; child: string } | null>(null);
   const [scopeLabelInput, setScopeLabelInput] = useState('');
   const [scopeFormBusy, setScopeFormBusy] = useState(false);
   const [scopeFormError, setScopeFormError] = useState<string | null>(null);
@@ -143,7 +152,7 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
   // never as zero, so this cannot misfire mid-load. `landed` latches it so
   // a later reselection or refetch never fires it twice.
   useEffect(() => {
-    if (landed || organisations.status !== 'ready') {
+    if (landed || onDirectEntry === undefined || organisations.status !== 'ready') {
       return;
     }
     const soleOrgDesigns =
@@ -188,8 +197,8 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
       });
   }
 
-  function openScopeForm(parentId: string | null, parentLabel: string) {
-    setScopeFormParent({ id: parentId, label: parentLabel });
+  function openScopeForm(parentId: string | null, parentLabel: string, child: string) {
+    setScopeFormParent({ id: parentId, label: parentLabel, child });
     setScopeLabelInput('');
     setScopeFormError(null);
   }
@@ -262,6 +271,11 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
       </aside>
 
       <main className="home__centre">
+        {notice && (
+          <p className="home__error" role="alert">
+            {notice}
+          </p>
+        )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
 
         <section className="home__section">
@@ -278,9 +292,9 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
               <button
                 type="button"
                 className="home__btn home__btn--small"
-                onClick={() => openScopeForm(null, selectedOrganisation.displayName)}
+                onClick={() => openScopeForm(null, selectedOrganisation.displayName, 'site')}
               >
-                New scope
+                New site
               </button>
             )}
           </div>
@@ -297,6 +311,7 @@ export function Home({ address, onOpenRacks, onOpenInventory, onDirectEntry }: H
           {scopeFormParent && (
             <ScopeForm
               parentLabel={scopeFormParent.label}
+              child={scopeFormParent.child}
               value={scopeLabelInput}
               onChange={setScopeLabelInput}
               onSubmit={submitScopeForm}
@@ -341,7 +356,7 @@ interface HomeDesignsProps {
   /** ADR-0054 §2 — creates a design in `scope` and opens it. */
   onCreateDesign: (organisation: Organisation, scope: Scope) => void;
   /** ADR-0054 §3 — opens the new-scope form with `scope` as the parent. */
-  onCreateScope: (parentId: string, parentLabel: string) => void;
+  onCreateScope: (parentId: string, parentLabel: string, child: string) => void;
   /** The scope whose "New design" button is mid-request, or `null`. */
   busyScopeId: string | null;
 }
@@ -377,7 +392,7 @@ function HomeDesigns({
             designCount={scopeDesigns.length}
             busy={busyScopeId === scope.scopeId}
             onCreateDesign={() => onCreateDesign(organisation, scope)}
-            onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName)}
+            onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName, CHILD_LEVEL[scope.kind] ?? '')}
           />
           <ul className="home__design-list">
             {scopeDesigns.map((design) => (
@@ -429,7 +444,7 @@ function HomeDesigns({
                 designCount={0}
                 busy={busyScopeId === scope.scopeId}
                 onCreateDesign={() => onCreateDesign(organisation, scope)}
-                onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName)}
+                onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName, CHILD_LEVEL[scope.kind] ?? '')}
                 bare
               />
             </div>
@@ -463,7 +478,7 @@ function ScopeHeading({ scope, designCount, busy, onCreateDesign, onCreateScope,
   const body = (
     <>
       <span className="home__scope-name">{scope.displayName}</span>
-      <span className="home__scope-kind">{scope.kind}</span>
+      <span className="home__scope-kind">{LEVEL[scope.kind] ?? scope.kind}</span>
       <span className="home__scope-count">
         {designCount} design{designCount === 1 ? '' : 's'}
       </span>
@@ -473,9 +488,9 @@ function ScopeHeading({ scope, designCount, busy, onCreateDesign, onCreateScope,
             {busy ? 'Creating…' : 'New design'}
           </button>
         )}
-        {canStewardFor(scope.capability) && (
+        {canStewardFor(scope.capability) && CHILD_LEVEL[scope.kind] && (
           <button type="button" className="home__btn home__btn--small" onClick={onCreateScope}>
-            New scope
+            New {CHILD_LEVEL[scope.kind]}
           </button>
         )}
       </span>
@@ -489,6 +504,8 @@ interface ScopeFormProps {
    * own label — never invented, always the same string the button that
    * opened it was already showing. */
   parentLabel: string;
+  /** The level being created: site, building or closet. */
+  child: string;
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -497,8 +514,8 @@ interface ScopeFormProps {
   error: string | null;
 }
 
-/** ADR-0054 §3's label field, opened by either "New scope" button above. */
-function ScopeForm({ parentLabel, value, onChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
+/** ADR-0054 §3's label field, opened by any "New site/building/closet" button. */
+function ScopeForm({ parentLabel, child, value, onChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
   return (
     <form
       className="home__scope-form"
@@ -508,7 +525,7 @@ function ScopeForm({ parentLabel, value, onChange, onSubmit, onCancel, busy, err
       }}
     >
       <label className="home__scope-form-label" htmlFor="home-new-scope-label">
-        New scope under {parentLabel}
+        New {child} under {parentLabel}
       </label>
       <input
         id="home-new-scope-label"

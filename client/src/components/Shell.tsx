@@ -2,6 +2,7 @@ import '../styles/shell.css';
 import { Bar } from './shell/Bar';
 import { Editor } from './shell/Editor';
 import { Strip } from './shell/Strip';
+import { TrailPane } from './shell/TrailPane';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -33,6 +34,7 @@ export function Shell({
   zoom,
   onZoomIn,
   onZoomOut,
+  onZoomFit,
   canUndo,
   canRedo,
   onUndo,
@@ -41,8 +43,13 @@ export function Shell({
   editor,
   rail,
   trail,
+  trailOpen,
+  onTrailOpenChange,
   children,
   viewOnly,
+  menu,
+  onHome,
+  search,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -57,26 +64,30 @@ export function Shell({
         zoom={zoom}
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
+        onZoomFit={onZoomFit}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={onUndo}
         onRedo={onRedo}
         account={account}
         viewOnly={viewOnly}
+        menu={menu}
+        onHome={onHome}
+        search={search}
       />
       <div className="shell__body">
-        <Strip rail={rail} />
+        {/* The folded rail exists where it has something to open (the Racks
+            palette); Home, Site and Inventory carry their own rails. */}
+        {rail != null && <Strip rail={rail} />}
         <main className="shell__drawing" aria-label="Drawing">
           {children}
         </main>
         {editor != null && <Editor>{editor}</Editor>}
-        {/* ADR-0053 §4 — the Trail panel, beside the drawing: its own aside,
-            not `Editor`'s (a selection's editor and the document's whole
-            trail are different things and may both be open at once). */}
+        {/* The trail folds to a strip on the right; it can be open beside the editor. */}
         {trail != null && (
-          <aside className="shell-trail" aria-label="Trail">
+          <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>
             {trail}
-          </aside>
+          </TrailPane>
         )}
       </div>
     </div>

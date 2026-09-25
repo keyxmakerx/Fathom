@@ -367,3 +367,81 @@ fn the_request_body_carrying_an_smtp_password_is_never_formatted_into_a_log() {
         "the canary is not even in the body"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 1 — the fourth canary: the setup password
+// ---------------------------------------------------------------------------
+
+/// A password a real operator might actually type into `FATHOM_SETUP_PASSWORD`
+/// in `.env`: past the fifteen-character floor, not on the bundled common
+/// list, and not shaped like a test fixture — [`SMTP_CANARY`]'s own reasoning.
+const SETUP_PASSWORD_CANARY: &str = "Th3-Quiet-Harbour-Lantern-9";
+
+fn assert_no_setup_password(where_: &str, text: &str) {
+    assert!(
+        !text.contains(SETUP_PASSWORD_CANARY),
+        "the setup password appeared in {where_}:\n{text}"
+    );
+    // The first eight characters on their own: a truncating logger would
+    // otherwise pass this test while leaking most of the password.
+    assert!(
+        !text.contains(&SETUP_PASSWORD_CANARY[..8]),
+        "part of the setup password appeared in {where_}:\n{text}"
+    );
+}
+
+/// **`FATHOM_SETUP_PASSWORD` never reaches a log, at any level, through the
+/// `Config` it is read into.** It is read exactly as typed (not trimmed), so
+/// this is also the shape `main.rs` holds it in between reading it and
+/// running it through the account password policy.
+#[test]
+fn the_setup_password_never_reaches_a_log_through_config() {
+    let config = Config::from_lookup(|k| match k {
+        "DATABASE_URL" => Some("postgres://fathom@db.internal:5432/fathom".to_string()),
+        "FATHOM_SETUP_PASSWORD" => Some(SETUP_PASSWORD_CANARY.to_string()),
+        "FATHOM_LOG" => Some("trace".to_string()),
+        _ => None,
+    })
+    .unwrap();
+    let logged = captured(|| {
+        tracing::error!(?config, "error path");
+        tracing::warn!(?config, "warn path");
+        tracing::info!(?config, "info path");
+        tracing::error!("bad configuration: {config:?}");
+    });
+    assert_no_setup_password("a Config log line", &logged);
+    for rendered in [format!("{config:?}"), format!("{config:#?}")] {
+        assert_no_setup_password("a formatted Config", &rendered);
+    }
+    assert!(logged.contains("error path"), "nothing was captured");
+}
+
+/// **The account password policy's refusal never carries the value it
+/// refused** — the check `main.rs` runs `FATHOM_SETUP_PASSWORD` through at
+/// every start, and logs the rule (CLAUDE.md rule 2's *"name the rule"*)
+/// without ever formatting the password itself.
+#[test]
+fn a_refused_setup_password_names_the_rule_and_not_the_value() {
+    // Contains the notice address, which is one of
+    // `credentials::check_password`'s four self-explaining refusals and the
+    // one most likely to tempt a careless message into quoting the value
+    // back.
+    let address = "owner@example.test";
+    let containing_address = format!("{SETUP_PASSWORD_CANARY}-{address}");
+    let error = fathom_server::credentials::check_password(&containing_address, address)
+        .expect_err("a password containing the address it opens is refused");
+    let logged = captured(|| {
+        tracing::warn!(rule = %error, "setup password refused");
+        tracing::warn!(?error, "setup password refused, as a field");
+        tracing::error!("setup password refused: {error}");
+    });
+    assert!(
+        !logged.contains(SETUP_PASSWORD_CANARY),
+        "the canary appeared in a policy refusal:\n{logged}"
+    );
+    assert!(
+        !logged.contains(&containing_address),
+        "the whole refused value appeared in a policy refusal:\n{logged}"
+    );
+    assert!(logged.contains("refused"), "nothing was captured");
+}

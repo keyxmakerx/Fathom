@@ -77,7 +77,30 @@ comparable amount again.
 
 ---
 
-## Handoff — read this first (updated 2026-09-22)
+## Handoff — read this first (updated 2026-09-23)
+
+**2026-09-23, the owner's review of the running build.** PR #37 fixed the shell's defects (search
+box, empty editor, trail overflow, dead controls, zoom, hatching) and the from-source start. The
+owner decided:
+- **Search:** quick search drops from the bar's own box. Also wanted: a full-screen filter view
+  with rich and relational filters ("this IP and the devices that reach it"). Designer first.
+- **Trail:** folded to a strip on the right edge that opens to a full pane, with filters. Some
+  users may not see it; some who see it may not revert. Keep the maintenance mode and "see what
+  changed" (UI-SPEC "Tracked changes"). Change logs must be shippable to a logging server.
+- **Lens row:** hide Links, Power and Owner until designed. **Levels:** Site › Building › Closet
+  in the interface.
+- **Scale:** 100+ enterprise users in groups with privilege levels; API access later (read,
+  read-write, more).
+- **First run and sign-in:** approved 2026-09-24 as ADR-0057: a setup password in `.env`, Site
+  behind the account sign-in, re-authenticated factor changes, sessions that survive a reload with
+  timeouts, and the organisation claim with its recovery key shown once. Built in that order;
+  the setup password is in (three security review rounds, and their follow-ups).
+- **Drives:** config-drawer, undo-notes, first-design, csp, console-placement and two-custodies
+  pass again (not re-run: branch-coverage, reconciled-paste). The drawing ones share
+  `scripts/drive-lib/harness.tsx`; the real-server ones start with a setup password and log in
+  with `scripts/drive-lib/db.mjs`.
+- **Built in PR #37:** quick search, the trail strip (in Racks and Inventory), the lens row, the
+  level names. Still to design: the filter view, trail filters, modes and permissions.
 
 **2026-09-22, ADR-0056.** The owner used the ADR-0055 build on a real install and said what was
 wrong with it: three fields, three links, a typed address to mismatch, a second factor a password

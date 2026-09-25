@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The first operator gets in, over HTTP, with nothing but the token file.
+// The first operator gets in, over HTTP, with nothing but the setup password.
 //
 // What `.github/workflows/ci.yml`'s `compose` job proved before 2026-09-21:
 // health answers, the client is served, a token file exists. What it did
@@ -15,17 +15,27 @@
 //
 // **Extended 2026-09-22 for ADR-0056.** Three checks join it, and they are the
 // three things the first-run flow asks the server before anybody is signed in:
-// whether setup is still pending, whose setup a token file opens, and whether a
-// verification code is needed. Every assertion that was here is still here.
+// whether setup is still pending, whose setup the setup secret opens, and
+// whether a verification code is needed. Every assertion that was here is
+// still here.
+//
+// **Rewritten again 2026-09-24 for ADR-0057 decision 1.** There is no token
+// file: `FATHOM_SETUP_PASSWORD` in `.env` opens the setup screen, checked and
+// spent through the same two routes a recovery code always used. `compose`'s
+// own job now asserts the FILE IS ABSENT instead of copying it out; this
+// script carries the setup password across the wire the browser does — as
+// what was typed, unmodified — rather than reading a file off the volume.
 //
 //   0. GET  /setup/state               → LP("pending") before, LP("done") after
 //                                        (decision 1: one bit about the
 //                                        deployment, no session, no signature)
-//   0b. POST /enrolment/operator/setup/check  LP(token) → LP(address)
-//                                        (decision 1: the address is named by
-//                                        the server, never typed, and the
-//                                        token is not spent)
-//   1. POST /enrolment/operator/setup  LP(token) ‖ LP(credential)  → 200, empty
+//   0b. POST /enrolment/operator/setup/check  LP(setup_secret) → LP(address)
+//                                        (ADR-0056 decision 1: the address is
+//                                        named by the server, never typed;
+//                                        ADR-0057 decision 1: the secret is
+//                                        the setup password here, and is not
+//                                        spent by asking)
+//   1. POST /enrolment/operator/setup  LP(setup_secret) ‖ LP(credential)  → 200, empty
 //                                      (resolution 4: NO session; the client
 //                                      signs in immediately afterwards)
 //   2. POST /session/challenge         LP("steward") ‖ LP(address) ‖ LP(session_pubkey)
@@ -64,35 +74,39 @@
 // `FATHOM_REQUIRE_OPERATOR_KEY_ROUTE=1` to make its absence a failure once
 // stream (b) has landed.
 //
-// Usage: node scripts/ci/first-operator-signin.mjs <token-file> [address] [base-url]
-// The address may come from FATHOM_OPERATOR_NOTICE_ADDRESS instead, which is
-// what `.github/workflows/ci.yml` already sets — so the CI line is unchanged.
+// Usage: node scripts/ci/first-operator-signin.mjs [setup-password] [address] [base-url]
+// ADR-0057 decision 1: the setup password may come from FATHOM_SETUP_PASSWORD
+// instead, and the address may come from FATHOM_OPERATOR_NOTICE_ADDRESS
+// instead — both of which `.github/workflows/ci.yml` already sets, or now
+// sets, so the CI line only ever needs the base URL. Any argument shaped like
+// a URL is taken as the base URL wherever it falls; of what is left, the
+// first is the setup password and the second is the address.
 // Exit 0 when the first operator sets a password, enrols an authenticator app, signs in
 // and registers a browser key; any other outcome is non-zero with the step
 // that failed.
 
-import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 
 const subtle = webcrypto.subtle;
 
-// **The address is the identity now** (ADR-0055 decision 1), so this script
-// needs one where it used to need only the operator id the enrolment answered
-// with. It is taken from the argument list when one is given and otherwise
-// from `FATHOM_OPERATOR_NOTICE_ADDRESS` — which is the address the first start
-// creates the account for, is already in `compose.yaml` and in
-// `.github/workflows/ci.yml`'s job environment, and is the one value that
-// cannot be wrong. So the CI line does not have to change.
-const [, , tokenFile, ...rest_argv] = process.argv;
+// **The address is the identity** (ADR-0055 decision 1), and **the setup
+// password replaces the token file** (ADR-0057 decision 1). Each is taken
+// from the argument list when one is given and otherwise from its own
+// environment variable — the address from `FATHOM_OPERATOR_NOTICE_ADDRESS`,
+// the setup password from `FATHOM_SETUP_PASSWORD` — which
+// `.github/workflows/ci.yml` sets in the job environment, so the CI line does
+// not have to carry either as a literal argument.
+const argv = process.argv.slice(2);
 const looksLikeUrl = (s) => /^https?:\/\//i.test(s ?? '');
-const positionalUrl = rest_argv.find(looksLikeUrl);
-const positionalAddress = rest_argv.find((a) => !looksLikeUrl(a));
-const baseUrl = positionalUrl ?? 'http://localhost:8080';
-const address = positionalAddress ?? process.env.FATHOM_OPERATOR_NOTICE_ADDRESS ?? '';
-if (!tokenFile || !address) {
+const baseUrl = argv.find(looksLikeUrl) ?? 'http://localhost:8080';
+const nonUrlArgs = argv.filter((a) => !looksLikeUrl(a));
+const setupPassword = nonUrlArgs[0] ?? process.env.FATHOM_SETUP_PASSWORD ?? '';
+const address = nonUrlArgs[1] ?? process.env.FATHOM_OPERATOR_NOTICE_ADDRESS ?? '';
+if (!setupPassword || !address) {
   console.error(
-    'usage: first-operator-signin.mjs <token-file> [address] [base-url]\n' +
-      'the address may instead come from FATHOM_OPERATOR_NOTICE_ADDRESS',
+    'usage: first-operator-signin.mjs [setup-password] [address] [base-url]\n' +
+      'the setup password may instead come from FATHOM_SETUP_PASSWORD, and the address from ' +
+      'FATHOM_OPERATOR_NOTICE_ADDRESS',
   );
   process.exit(2);
 }
@@ -137,13 +151,6 @@ function readLp(bytes) {
   return { value: bytes.slice(4, 4 + len), rest: bytes.slice(4 + len) };
 }
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-function fromHex(s) {
-  // `main.rs`'s `write_bootstrap_token`: `op_` and 64 hex digits. The prefix
-  // names the door; the bytes are what the wire carries.
-  const clean = s.trim().replace(/^op[_-]/i, '');
-  if (!/^[0-9a-fA-F]{64}$/.test(clean)) throw new Error(`token file is not op_ and 64 hex digits: ${JSON.stringify(s.trim().slice(0, 8))}…`);
-  return Uint8Array.from(clean.match(/../g), (h) => parseInt(h, 16));
-}
 
 // --- P-256, low-S, as `client/src/crypto/keys.ts` and `p256.ts` -------------
 
@@ -364,33 +371,38 @@ async function signIn(kind, principal, options = {}) {
 // can walk into.
 const stateBefore = await setupState();
 if (stateBefore !== 'pending') {
-  fail('setup-state', `before the token is redeemed the state must be "pending", got ${JSON.stringify(stateBefore)}`);
+  fail('setup-state', `before the setup secret is redeemed the state must be "pending", got ${JSON.stringify(stateBefore)}`);
 }
 console.log('setup state: pending, so the client shows the setup flow');
 
-// 0b. The token names its own address, so nobody types one that could then not
-// match — the owner's ask, met by removing the field.
-const token = fromHex(readFileSync(tokenFile, 'utf8'));
-const checked = await post('/enrolment/operator/setup/check', lp(token));
+// ADR-0057 decision 1's one sentence for every refused setup secret.
+const SETUP_SECRET_REFUSED =
+  'Setup password is missing, invalid or expired. Setup stays open for 30 minutes after the server starts.\n';
+
+// 0b. The setup password names its own address, so nobody types one that
+// could then not match — the owner's ask, met by removing the field. Sent as
+// what was typed, unmodified: the server compares it byte for byte against
+// FATHOM_SETUP_PASSWORD in .env.
+const setupSecret = utf8(setupPassword);
+const checked = await post('/enrolment/operator/setup/check', lp(setupSecret));
 if (checked.status !== 200) fail('setup-check', `status ${checked.status}: ${checked.text.trim()}`);
 const namedAddress = dec.decode(readLp(checked.bytes).value);
 if (namedAddress !== address) {
-  fail('setup-check', `the server names ${JSON.stringify(namedAddress)} for this token, not ${JSON.stringify(address)}`);
+  fail('setup-check', `the server names ${JSON.stringify(namedAddress)} for this setup secret, not ${JSON.stringify(address)}`);
 }
-console.log(`setup check: the token opens ${namedAddress}, and is not spent by asking`);
+console.log(`setup check: the setup password opens ${namedAddress}, and is not spent by asking`);
 
-// A token file that is not the one on the volume gets one sentence, whatever
-// is wrong with it.
-const refusedCheck = await post('/enrolment/operator/setup/check', lp(new Uint8Array(32)));
-if (refusedCheck.status !== 401 || refusedCheck.text !== 'setup token refused\n') {
-  fail('setup-check', `a token that was never issued must get 401 "setup token refused", got ${refusedCheck.status}: ${JSON.stringify(refusedCheck.text)}`);
+// A wrong setup secret gets one sentence, whatever is wrong with it.
+const refusedCheck = await post('/enrolment/operator/setup/check', lp(utf8('not-the-right-setup-password-at-all')));
+if (refusedCheck.status !== 401 || refusedCheck.text !== SETUP_SECRET_REFUSED) {
+  fail('setup-check', `a wrong setup secret must get 401 ${JSON.stringify(SETUP_SECRET_REFUSED)}, got ${refusedCheck.status}: ${JSON.stringify(refusedCheck.text)}`);
 }
-console.log('setup check: a token that was never issued is refused in one sentence');
+console.log('setup check: a wrong setup secret is refused in one sentence');
 
-// 1. The setup token: set a password. No session comes back (resolution 4).
+// 1. The setup secret: set a password. No session comes back (resolution 4).
 const setup = await post(
   '/enrolment/operator/setup',
-  concat(lp(token), lp(utf8(CREDENTIAL))),
+  concat(lp(setupSecret), lp(utf8(CREDENTIAL))),
 );
 if (setup.status !== 200) fail('setup', `status ${setup.status}: ${setup.text.trim()}`);
 if (setup.bytes.length !== 0) {
@@ -398,22 +410,22 @@ if (setup.bytes.length !== 0) {
 }
 console.log('setup: the first operator set a password');
 
-// A spent setup token is spent. The smoke test asserts it here rather than
-// leaving it to the suite, because a token file that still works after setup
-// is a token file sitting on a volume being a standing credential.
-const again = await post('/enrolment/operator/setup', concat(lp(token), lp(utf8(CREDENTIAL))));
+// A spent setup secret is spent. The smoke test asserts it here rather than
+// leaving it to the suite, because a setup password that still works after
+// setup is a standing credential nobody meant to leave open.
+const again = await post('/enrolment/operator/setup', concat(lp(setupSecret), lp(utf8(CREDENTIAL))));
 if (again.status !== 401) {
-  fail('setup', `a spent setup token must be refused with 401, got ${again.status}: ${again.text.trim()}`);
+  fail('setup', `a spent setup secret must be refused with 401, got ${again.status}: ${again.text.trim()}`);
 }
-console.log('setup: the token is spent (401 on a second use)');
+console.log('setup: the setup secret is spent (401 on a second use)');
 
-// And the spent token is refused by the check route in exactly the same words
-// as one that was never issued.
-const checkedAgain = await post('/enrolment/operator/setup/check', lp(token));
-if (checkedAgain.status !== 401 || checkedAgain.text !== 'setup token refused\n') {
-  fail('setup-check', `a spent token must get 401 "setup token refused", got ${checkedAgain.status}: ${JSON.stringify(checkedAgain.text)}`);
+// And the spent secret is refused by the check route in exactly the same
+// words as a wrong one.
+const checkedAgain = await post('/enrolment/operator/setup/check', lp(setupSecret));
+if (checkedAgain.status !== 401 || checkedAgain.text !== SETUP_SECRET_REFUSED) {
+  fail('setup-check', `a spent setup secret must get 401 ${JSON.stringify(SETUP_SECRET_REFUSED)}, got ${checkedAgain.status}: ${JSON.stringify(checkedAgain.text)}`);
 }
-console.log('setup check: a spent token gets the same refusal, byte for byte');
+console.log('setup check: a spent setup secret gets the same refusal, byte for byte');
 
 // The deployment's own bit has moved, and for ever.
 const stateAfter = await setupState();
@@ -558,7 +570,7 @@ if (!row) fail('register', `the register does not name ${operatorId}:\n${listTex
 if (!row.includes(address)) fail('register', `the register's row does not carry ${address}: ${row}`);
 console.log(`the register names the operator and their address: ${row}`);
 console.log(
-  'OK: the deployment said setup was pending, the token named its own address, the first ' +
+  'OK: the deployment said setup was pending, the setup password named its own address, the first ' +
     'operator set a password, enrolled an authenticator app, was asked for a verification ' +
     'code before any second sign-in, signed in with both factors, registered a browser key, ' +
     'registered it as their operator key, signed in as the operator and read the register ' +

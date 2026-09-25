@@ -15,7 +15,6 @@ import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
-import { Trail } from './Trail';
 import './racks.css';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`
@@ -155,25 +154,9 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * where no caller supplies it, the same "no action, not a disabled one"
    * shape `EditorActions.onSelect` already follows. */
   onOpenInventory?: (chassisId: string) => void;
-  /** ADR-0053 §4, this session's brief item 1 — the Trail panel's own "who,"
-   * held above this component (`DesignPlace.tsx`) since it comes off the
-   * session, not the document. `accountId === null` in the same gap
-   * `useDesignSession.ts`'s own comment on `handleEdit` names (between an
-   * expired session and the shell noticing). */
+  /** The signed-in account, stamped on each change as its actor. `null` in the
+   * moment between an expired session and the shell noticing. */
   accountId: string | null;
-  accountAddress: string | null;
-  /** `DesignPlace.tsx`'s own approximation of "present in the last version
-   * opened or saved" (that file's own header on what is and is not
-   * observable here). */
-  sealedBatchIds: ReadonlySet<string>;
-  /** ADR-0053 §3 — the refusal wash: a colleague's change in between, or a
-   * LOCAL-stamped batch nobody signed in wrote. `null` when the last undo
-   * or redo was not refused. */
-  undoRefusal: string | null;
-  /** ADR-0053 §4 — the comment box beneath the Trail, held one level up so
-   * it survives whichever change ends up sealed with it. */
-  pendingComment: string;
-  onPendingCommentChange: (text: string) => void;
   /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
    * into `EditorFor`'s own `actions` below. */
   notesActions: NotesActions;
@@ -195,16 +178,13 @@ export function RacksPlace(props: RacksPlaceProps) {
     initialFocus,
     onOpenInventory,
     accountId,
-    accountAddress,
-    sealedBatchIds,
-    undoRefusal,
-    pendingComment,
-    onPendingCommentChange,
     notesActions,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  // Bumped by the bar's percentage button; the drawing fits every rack.
+  const [fitRequest, setFitRequest] = useState(0);
 
   // "Show on rack" (`InventoryPlace.tsx`) — this session's brief item 5: a
   // caller landing here with something already chosen selects it and asks
@@ -525,47 +505,37 @@ export function RacksPlace(props: RacksPlaceProps) {
   // `useDesignSession` — this session's brief item 1 — so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
   // here too: "an edit here is the same edit there."
-  const editor =
-    saveRefusal != null ? (
-      <div className="racks-place__refusal">
-        {saveRefusal}
-        {/* ADR-0054 §1's refusal wash "offers reload" — this is the control
-            the sentence above names; without it a 409 pointed at an
-            affordance the screen never rendered. */}
-        <button type="button" className="racks-place__refusal-reload" onClick={reloadDesign}>
-          Reload
-        </button>
-      </div>
-    ) : doc != null ? (
-      // `onSelect: setSelection` — ADR-0051 §1, this session's brief item
-      // 4 — a shelf's own editor lists its occupants by slot, each a link
-      // that selects the occupant; the same setter `Drawing`'s own
-      // `onSelect` prop below already uses. ADR-0052 §5, this session's
-      // brief item 1 — `onEdit` is omitted entirely for a reader
-      // (`canDraw`), never supplied as a function that would refuse: every
-      // value then renders as plain text with no input and no action
-      // (`Editor.tsx`'s own `EditableValue`/`SupplyAction`/`PlacedOnControl`
-      // doc on reading `onEdit == null`).
-      <>
-        {EditorFor(
+  // ADR-0047: the editor is absent, not empty, when nothing is selected —
+  // an empty fragment here would still mount the surface and take its width.
+  const selectedPanel =
+    doc != null
+      ? EditorFor(
           selection,
           displayView,
           {
             onEdit: canDraw ? handleEdit : undefined,
             onSelect: setSelection,
-            // ADR-0053 §5/§6, this session's brief item 4 — every reader may
-            // read a Notes section (`notesOf` is never gated on `canDraw`,
-            // the same "read is always open" reading `Field`/`Fixture`
-            // panels already give a reader), but only a writer may add or
-            // remove one.
+            // ADR-0053 §5/§6 — every reader may read a Notes section; only a
+            // writer may add or remove one.
             notesOf: notesActions.notesOf,
             onAddNote: canDraw ? notesActions.onAddNote : undefined,
             onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
           },
           paletteFromCatalogue(catalogue),
-        )}
-        {/* This session's brief item 5 — the reverse of Inventory's "Show
-            on rack": a selected chassis gets one button back to its page. */}
+        )
+      : null;
+  const editor =
+    saveRefusal != null ? (
+      <div className="racks-place__refusal">
+        {saveRefusal}
+        {/* ADR-0054 §1's refusal wash "offers reload". */}
+        <button type="button" className="racks-place__refusal-reload" onClick={reloadDesign}>
+          Reload
+        </button>
+      </div>
+    ) : selectedPanel != null ? (
+      <>
+        {selectedPanel}
         {selection?.kind === 'chassis' && onOpenInventory ? (
           <button type="button" className="racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
             Open in inventory
@@ -593,24 +563,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
-  // ADR-0053 §4, this session's brief item 1 — the Trail panel, beside the
-  // drawing. Absent with no document yet (nothing to show), the same
-  // "loading" gate `editor`/`Drawing` itself already reads off `doc`.
-  const trail =
-    doc != null ? (
-      <Trail
-        doc={doc}
-        accountId={accountId}
-        accountAddress={accountAddress}
-        sealedBatchIds={sealedBatchIds}
-        undoRefusal={undoRefusal}
-        pendingComment={pendingComment}
-        onPendingCommentChange={onPendingCommentChange}
-      />
-    ) : null;
-
   return (
-    <Shell {...shellProps} editor={editor} rail={rail} trail={trail} viewOnly={!canDraw}>
+    <Shell {...shellProps} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -619,6 +573,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           selected={selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
+          fitRequest={fitRequest}
           onPlace={handlePlace}
           onMove={handleMove}
           onSelect={setSelection}

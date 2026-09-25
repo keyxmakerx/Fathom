@@ -1212,6 +1212,15 @@ impl OperatorStore {
         // key."* The bytes, the file and the `op_` prefix are unchanged; what
         // changed is which screen the token opens, and `0019` §B is the CHECK
         // that lets the column say so.
+        //
+        // `SETUP_SECRET_WINDOW`, not `ENROLMENT_TOKEN_LIFETIME`. This
+        // invitation is never handed to anybody (`main.rs`: no token file is
+        // written, ADR-0057 decision 1); `issue_setup_token` mints the one
+        // that is, below, once `main.rs` knows whether `FATHOM_SETUP_PASSWORD`
+        // is even set. A shorter row lifetime here matches the window a
+        // person actually sees, rather than leaving a live, unheld secret in
+        // the database for three days after nobody could still be holding
+        // it.
         let invitation = self
             .issue_token(
                 &tx,
@@ -1219,7 +1228,7 @@ impl OperatorStore {
                 &id,
                 &id,
                 "bootstrap",
-                ENROLMENT_TOKEN_LIFETIME,
+                crate::credentials::SETUP_SECRET_WINDOW,
             )
             .await?;
 
@@ -2055,6 +2064,12 @@ impl OperatorStore {
         tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
             .await?;
 
+        // `SETUP_SECRET_WINDOW`, not `ENROLMENT_TOKEN_LIFETIME` — the same
+        // fix and the same reason as `bootstrap_first_operator`'s own
+        // invitation above it: this one is never handed to anybody either
+        // (`main.rs`'s adoption arm says so at the point it discards it),
+        // and `issue_setup_token` mints the token a person actually redeems,
+        // separately, once `main.rs` knows the shape this start is.
         let invitation = if has_app_code {
             None
         } else {
@@ -2065,7 +2080,7 @@ impl OperatorStore {
                     &operator,
                     &operator,
                     "adoption",
-                    ENROLMENT_TOKEN_LIFETIME,
+                    crate::credentials::SETUP_SECRET_WINDOW,
                 )
                 .await?,
             )
@@ -2227,52 +2242,47 @@ impl OperatorStore {
         Ok(())
     }
 
-    /// **Expire every live, unredeemed token of `purpose` for this subject**,
-    /// so that a re-issue leaves one bearer secret alive and not two. Returns
-    /// their ids -- ids, never tokens.
+    /// Expire every live, unredeemed token of `purpose` for this subject, so
+    /// a re-issue leaves one bearer secret alive and not two. Returns their
+    /// ids, never the tokens.
     ///
-    /// **One function for both callers this store has**:
-    /// [`OperatorStore::reissue_bootstrap_token`] (`purpose = operator`,
-    /// `subject` the operator id) and [`OperatorStore::issue_account_enrolment`]
-    /// (`purpose = account`, `subject` the account id). The two mint a new
-    /// token in an otherwise identical shape — an operator's own reset and
-    /// §5.1's account reset are the same act on two planes — so the kill that
-    /// keeps a re-issue from leaving two live tokens belongs here once rather
-    /// than twice. `subject` is checked against the column `purpose` names,
-    /// never trusted to already match it.
+    /// Shared by [`OperatorStore::reissue_bootstrap_token`] (`purpose =
+    /// operator`) and [`OperatorStore::issue_account_enrolment`] (`purpose =
+    /// account`), and by `credentials::CredentialStore::redeem_setup_by_token`
+    /// (`purpose = setup`) — `pub(crate)` for that last caller. `subject` is
+    /// checked against the column `purpose` names, never trusted to match it.
     ///
-    /// The kill is `expired_at`, with its `enrolment_token_expired` entry, and
-    /// it is the only kill this schema offers: the runtime role is granted
-    /// `UPDATE (redeemed_at, redeemed_seq, expired_at, expired_seq,
-    /// row_version, row_seal)` on `enrolment_tokens` and nothing else
-    /// (`0015` §I), because a token is issued once and then either redeemed or
-    /// expired. Moving `expires_at` instead would need a privilege this design
-    /// withholds on purpose, and a `revoked_at` column would change
-    /// [`TokenFacts`] and so the seal over every token row a live database
-    /// already holds. [`OperatorStore::spend_token`] refuses on the flag.
-    async fn expire_live_tokens(
+    /// The kill is `expired_at`, with its `enrolment_token_expired` entry;
+    /// `0015` §I grants the runtime role no other way to retire a token row.
+    pub(crate) async fn expire_live_tokens(
         &self,
         tx: &Transaction<'_>,
         purpose: Purpose,
         subject: &str,
         reason: &'static str,
     ) -> Result<Vec<String>, OperatorError> {
-        // The column a subject id is checked against, chosen from a closed set
-        // and never taken from a caller — `latch`'s own rule in `sessions.rs`,
-        // restated here because this is the other place in the codebase a
-        // column name is interpolated at all.
+        // The column a subject id is checked against, from a closed set and
+        // never taken from a caller (`sessions.rs`'s `latch` rule).
         let column = match purpose {
             Purpose::Account => "account_id",
             Purpose::Operator | Purpose::Setup => "operator_id",
             Purpose::Organisation => "shell_id",
         };
+        // The site chain's advisory lock, before the row lock below — ADR-0057
+        // decision 1's fix round: every append already takes this lock ahead
+        // of its row's `UPDATE`, and taking the row lock first here inverted
+        // that order against a concurrent redemption, deadlocking (40P01).
+        chains::lock_site(tx, &self.deployment).await?;
+        // Every candidate row is locked here, before a chain entry is
+        // appended for any of them, so a concurrent spend of one of these
+        // same rows blocks behind this transaction instead of racing it.
         let rows = tx
             .query(
                 &format!(
                     "SELECT {TOKEN_COLUMNS} FROM enrolment_tokens \
                       WHERE purpose = $1 AND {column} = $2 \
                         AND redeemed_at IS NULL AND expired_at IS NULL \
-                      ORDER BY id"
+                      ORDER BY id FOR UPDATE"
                 ),
                 &[&purpose.as_str(), &subject],
             )
@@ -2321,20 +2331,30 @@ impl OperatorStore {
 
             // Both columns in one statement, because the table's own
             // `CHECK ((expired_at IS NULL) = (expired_seq IS NULL))` refuses
-            // the state between them.
+            // the state between them. `row_version = $6` ties this write to
+            // the exact row this loop iteration read, the same guard
+            // `mark_redeemed` now carries for the identical reason.
             let updated = tx
                 .execute(
                     "UPDATE enrolment_tokens \
                         SET expired_at = to_timestamp($2::bigint), expired_seq = $3, \
                             row_version = $4, row_seal = $5 \
-                      WHERE id = $1 AND redeemed_at IS NULL AND expired_at IS NULL",
-                    &[&token.id, &now, &appended.seq, &version, &seal.to_vec()],
+                      WHERE id = $1 AND redeemed_at IS NULL AND expired_at IS NULL \
+                            AND row_version = $6",
+                    &[
+                        &token.id,
+                        &now,
+                        &appended.seq,
+                        &version,
+                        &seal.to_vec(),
+                        &token.row_version,
+                    ],
                 )
                 .await?;
-            if updated != 1 {
-                // The read above and this write are one transaction under the
-                // bootstrap advisory lock, so this cannot happen; a row that
-                // moved underneath us is a state this path will not write over.
+            if updated == 0 {
+                // Should not happen: this row was locked above, in this same
+                // transaction, before any chain entry was appended for it.
+                // Abort rather than commit a chain entry no write backs.
                 return Err(OperatorError::Corrupt("enrolment token row"));
             }
             expired.push(token.id);
@@ -5166,6 +5186,18 @@ impl OperatorStore {
     /// concurrent second redemption — the first writer holds the row lock and
     /// the second sees no row — and the seal is what makes it single-use
     /// against whoever holds the database.
+    ///
+    /// `AND expired_at IS NULL AND row_version = $6`: spending any
+    /// setup-class token expires the operator's every other live one
+    /// ([`OperatorStore::expire_live_tokens`]), so a redemption can race a
+    /// concurrent expiry of this same row. `redeemed_at IS NULL` alone would
+    /// let that expiry commit first, unnoticed, and this `UPDATE` then
+    /// clobber the row with a seal computed from stale facts — both
+    /// `redeemed_at` and `expired_at` set but sealed as if only one were
+    /// true, unverifiable ever after. Tying this write to the exact
+    /// `row_version` the read of `row` saw makes anything that touched the
+    /// row in between (expiry included) an ordinary refusal, `updated ==
+    /// 0`, instead of that.
     async fn mark_redeemed(
         &self,
         tx: &Transaction<'_>,
@@ -5182,8 +5214,16 @@ impl OperatorStore {
                 "UPDATE enrolment_tokens \
                     SET redeemed_at = to_timestamp($2::bigint), redeemed_seq = $3, \
                         row_version = $4, row_seal = $5 \
-                  WHERE id = $1 AND redeemed_at IS NULL",
-                &[&row.id, &now, &redeemed_seq, &version, &seal.to_vec()],
+                  WHERE id = $1 AND redeemed_at IS NULL AND expired_at IS NULL \
+                        AND row_version = $6",
+                &[
+                    &row.id,
+                    &now,
+                    &redeemed_seq,
+                    &version,
+                    &seal.to_vec(),
+                    &row.row_version,
+                ],
             )
             .await?;
         if updated == 0 {
@@ -6006,18 +6046,27 @@ impl OperatorStore {
     // Added at the END of this impl, in a labelled block, so the other two
     // ADR-0055 streams' additions land beside it and the merge is mechanical.
 
-    /// Issue a `purpose = 'setup'` token for an operator who already exists.
+    /// Issue a `purpose = 'setup'` token for an operator who already exists —
+    /// this is where ADR-0057 decision 1's T is minted, at every start.
     ///
-    /// ADR-0055 decision 10's last bullet: the first start writes this token to
-    /// the key volume and it opens the setup screen, instead of enrolling a
-    /// browser key. **Stream (b) is the caller that matters** —
-    /// `bootstrap_first_operator` issues one of these in place of today's
-    /// `Purpose::Operator` token — and it is here, beside its own spender, so
-    /// that both halves of the purpose live together and neither is written
-    /// twice.
+    /// Its lifetime is the setup password's own window
+    /// ([`credentials::SETUP_SECRET_WINDOW`]), not the seventy-two hours
+    /// every other enrolment token gets: `main.rs` enforces that window in
+    /// memory (`credentials::SetupSecret`'s `closes_at`), and the row
+    /// underneath must not outlive it, wherever the token came from — the
+    /// bootstrap invitation, the adoption invitation, or one minted here at
+    /// an earlier start and never redeemed. All three share this one
+    /// constant.
     ///
-    /// Returns the token exactly once. `0015` §E's lifetime applies, the same
-    /// as every other enrolment token.
+    /// **Deliberately not an active sweep of every other live setup-class
+    /// token for this operator.** Two containers of the same deployment
+    /// starting close together each mint their own token here, and both must
+    /// stay independently presentable until one is actually redeemed —
+    /// [`CredentialStore::redeem_setup_by_token`]'s guarded `UPDATE` and its
+    /// own sweep (spending any one expires every other live one) are what
+    /// that relies on; a sweep here would pre-empt it a start too early.
+    ///
+    /// Returns the token exactly once.
     pub async fn issue_setup_token(&self, operator: &str) -> Result<Invitation, OperatorError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -6031,7 +6080,7 @@ impl OperatorStore {
                 operator,
                 operator,
                 "setup",
-                ENROLMENT_TOKEN_LIFETIME,
+                crate::credentials::SETUP_SECRET_WINDOW,
             )
             .await?;
         leave_custody(&tx).await?;

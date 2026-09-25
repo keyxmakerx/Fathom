@@ -19,81 +19,7 @@ use fathom_server::{db, keys, log_startup, migrate, rls, AppState};
 /// act, which a sole operator satisfies without declaring anything.
 ///
 /// CLAUDE.md rule 2's spirit, applied to configuration.
-const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by      ADR-0055 decision 3. Remove it from the environment and start again. The second signature      is now min(2, live independent operators), counted from the operator register: a      deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no      switch to do it.";
-
-/// Where the first operator's enrolment token is written -- on a first start,
-/// and nowhere else.
-///
-/// **The deployment chooses it; it is no longer derived from where the master
-/// key lives.** It was derived, until 2026-09-14, on the argument that the key
-/// volume is the place the operator has already been told to guard -- and that
-/// argument was right about the guarding and wrong about the filesystem. ADR-
-/// 0043 §3 gives the master key its own volume; `compose.yaml` mounts
-/// that volume READ-ONLY on the server, because the server reads the key and
-/// does not write it. So a first start in a container tried to write a bearer
-/// token into a read-only mount, failed, and exited -- with the operator row
-/// already committed, which meant nothing would ever re-bootstrap either. See
-/// `config::Config::bootstrap_token_file`.
-fn bootstrap_token_path(config: &Config) -> std::path::PathBuf {
-    std::path::PathBuf::from(&config.bootstrap_token_file)
-}
-
-/// Write the bootstrap token, readable by its owner and nobody else.
-///
-/// The mode is set **before** the bytes are written, not after, because a file
-/// created world-readable and then chmodded is world-readable for the length
-/// of that window, and this is a bearer token. Hex rather than raw bytes so an
-/// operator can read it out of a terminal without a hex dump,
-/// [`fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX`] in front, and a
-/// trailing newline so `cat` behaves.
-fn write_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
-
-    let mut hex = String::with_capacity(69);
-    hex.push_str(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX);
-    for byte in token {
-        hex.push_str(&format!("{byte:02x}"));
-    }
-    hex.push('\n');
-
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o400)
-        .open(path)?;
-    file.write_all(hex.as_bytes())?;
-    file.sync_all()
-}
-
-/// [`write_bootstrap_token`], but **replacing a file that is already there** —
-/// the adoption path only, added 2026-09-21.
-///
-/// `write_bootstrap_token` is `create_new(true)`, which is `O_EXCL`, and on a
-/// FIRST start that is right: a file already at that path was written by
-/// something else, and clobbering it would destroy a live bearer secret
-/// nobody has read yet.
-///
-/// On the upgrade path it is wrong, and it was fatal. The deployment this
-/// runs on did its first start under the build before ADR-0055, so
-/// `FATHOM_BOOTSTRAP_TOKEN_FILE` still holds THAT start's token — and the
-/// adoption that has just committed is the act which expired it. The write
-/// failed with `AlreadyExists`, the process exited 10, and the next start
-/// found the binding and adopted nothing, so the token this one minted was
-/// never shown to anybody. The file can only hold a token this very act has
-/// already expired, so replacing it destroys nothing that still works.
-///
-/// The mode is still set before the bytes are written, because the create is
-/// still [`write_bootstrap_token`]'s. Returns `true` when a file was replaced.
-fn replace_bootstrap_token(path: &std::path::Path, token: &[u8; 32]) -> std::io::Result<bool> {
-    let replaced = match std::fs::remove_file(path) {
-        Ok(()) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-        Err(e) => return Err(e),
-    };
-    write_bootstrap_token(path, token)?;
-    Ok(replaced)
-}
+const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by ADR-0055 decision 3. Remove it from the environment and start again. The second signature is now min(2, live independent operators), counted from the operator register: a deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no switch to do it.";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -308,10 +234,8 @@ async fn main() -> ExitCode {
             let runtime_role_result = db::runtime_role(&config);
             let provision_result = match &runtime_role_result {
                 Ok(role) => {
-                    let runtime_password = config
-                        .database_password
-                        .as_ref()
-                        .map(|p| p.expose().as_str());
+                    let runtime_password = config.runtime_login_password();
+                    let runtime_password = runtime_password.as_ref().map(|p| p.expose().as_str());
                     Some(db::provision_runtime_login(&migrate_client, role, runtime_password).await)
                 }
                 Err(_) => None,
@@ -711,12 +635,11 @@ async fn main() -> ExitCode {
          is honoured here without a restart"
     );
 
-    // First start mints the first operator and their enrolment token. The
-    // token is the one secret in this program that a human has to read, so it
-    // goes to a file the DEPLOYMENT names (`FATHOM_BOOTSTRAP_TOKEN_FILE`),
-    // mode 0400, and its PATH is logged while the token itself never is --
-    // logs are shipped off the box by design (`audit.rs`), and a token in a
-    // log is a token in whatever holds the logs.
+    // First start mints the first operator. ADR-0057 decision 1: there is no
+    // token file any more. The one-time setup secret that opens the setup
+    // screen is minted below, once, after this whole block -- unified across
+    // the first start, the adoption path and any later start that is still
+    // pending, rather than written here per arm and again there.
     // The first operator is named after the notice address: the one thing
     // the installer already knows about themselves, and what the console
     // then shows beside their operator id (the owner's ask, 2026-09-21).
@@ -763,23 +686,17 @@ async fn main() -> ExitCode {
         .await
     {
         Ok(bootstrap) => {
-            let path = bootstrap_token_path(&config);
-            match write_bootstrap_token(&path, &bootstrap.invitation.token) {
-                Ok(()) => tracing::warn!(
-                    operator_id = %bootstrap.operator_id,
-                    token_file = %path.display(),
-                    expires_at_unix = bootstrap.invitation.expires_at_unix,
-                    "FIRST START: an operator was created and an enrolment token written. Read                      the file, redeem it in a browser, then delete it. The token is not in this                      log and will not be shown again."
-                ),
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        token_file = %path.display(),
-                        "the first operator was created but their enrolment token could not be                          written, so nobody can redeem it; refusing to start. Point                          FATHOM_BOOTSTRAP_TOKEN_FILE at a path this process can create a file in --                          it must NOT be inside the read-only key volume -- and then run                          `fathom-server reissue-bootstrap-token` to mint a fresh one, which is                          still permitted because no operator key has been enrolled yet"
-                    );
-                    return ExitCode::from(10);
-                }
-            }
+            // The invitation `bootstrap_first_operator` mints alongside the
+            // operator is not used: nobody is ever handed its bytes (no
+            // token file, ADR-0057 decision 1), so it is cryptographically
+            // inert and simply expires in its own time. The setup secret a
+            // person actually redeems is minted below, from
+            // `FATHOM_SETUP_PASSWORD`, after this match.
+            tracing::warn!(
+                operator_id = %bootstrap.operator_id,
+                "FIRST START: an operator was created for FATHOM_OPERATOR_NOTICE_ADDRESS. \
+                 Whether setup is open, and how, is decided below."
+            );
         }
         // Every start after the first. Not an error here: the deployment is
         // already bootstrapped, which is the ordinary case.
@@ -804,48 +721,21 @@ async fn main() -> ExitCode {
                 // happen" looked identical here until 2026-09-21.
                 Ok(Adoption::Nothing) => {}
                 Ok(Adoption::Adopted(adopted)) => match adopted.invitation {
-                    Some(invitation) => {
-                        let path = bootstrap_token_path(&config);
-                        // **Replacing, not `O_EXCL`** — see
-                        // `replace_bootstrap_token`. The file at this path on
-                        // an upgrading deployment holds the OLD build's first-
-                        // start token, which the adoption that has just
-                        // committed expired.
-                        match replace_bootstrap_token(&path, &invitation.token) {
-                            Ok(replaced) => tracing::warn!(
-                                operator_id = %adopted.operator_id,
-                                notice_address = %adopted.notice_address,
-                                retired_keys = adopted.retired_keys,
-                                ended_sessions = adopted.ended_sessions,
-                                token_file = %path.display(),
-                                replaced_an_existing_token_file = replaced,
-                                expires_at_unix = invitation.expires_at_unix,
-                                "UPGRADE: the operator created before this build was bound \
-                                 to the install address; a one-shot setup token was written \
-                                 to the token file, replacing the first-start token file if \
-                                 one was still there -- that token was expired by this same \
-                                 act. Read the file, redeem it in a browser, then delete it. \
-                                 The token is not in this log and will not be shown again."
-                            ),
-                            Err(e) => {
-                                tracing::error!(
-                                    error = %e,
-                                    token_file = %path.display(),
-                                    "the operator created before this build WAS bound to the \
-                                     install address -- that part is committed -- but their \
-                                     setup token could not be written, so nobody can redeem \
-                                     it; refusing to start. The cause is this path: a \
-                                     directory that does not exist, a filesystem with no \
-                                     room, or a mount this process cannot write (the master \
-                                     key volume is mounted read-only by design, and \
-                                     FATHOM_BOOTSTRAP_TOKEN_FILE must not point inside it). \
-                                     The way in does not depend on fixing it in this process: \
-                                     run `fathom-server recover-operator <address>`, which \
-                                     works now that the binding exists"
-                                );
-                                return ExitCode::from(10);
-                            }
-                        }
+                    // As the first-start arm above: this invitation is never
+                    // handed to anybody (ADR-0057 decision 1 -- no token
+                    // file), so it is inert. The setup secret is minted below
+                    // from `FATHOM_SETUP_PASSWORD`, once, for every shape
+                    // this start might be.
+                    Some(_) => {
+                        tracing::warn!(
+                            operator_id = %adopted.operator_id,
+                            notice_address = %adopted.notice_address,
+                            retired_keys = adopted.retired_keys,
+                            ended_sessions = adopted.ended_sessions,
+                            "UPGRADE: the operator created before this build was bound to \
+                             the install address. Whether setup is open, and how, is \
+                             decided below."
+                        );
                     }
                     // ADR-0055 decision 9: the account already holds a
                     // credential and a confirmed authenticator, so there is
@@ -954,11 +844,108 @@ async fn main() -> ExitCode {
             tracing::error!(
                 error = ?e,
                 notice_address_set = config.operator_notice_address.is_some(),
-                "could not bootstrap the first operator; refusing to start. On a first start, set                  FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator                  notices."
+                "could not bootstrap the first operator; refusing to start. On a first start, set FATHOM_OPERATOR_NOTICE_ADDRESS to the address that should receive operator notices."
             );
             return ExitCode::from(9);
         }
     }
+
+    // ---- ADR-0057 decision 1: the setup password, replacing the token file
+    //
+    // "Every start while setup is pending means the first operator has no
+    // stored credential. That covers the first start, the adoption path, and
+    // any later start still pending." One check below covers all three,
+    // rather than the three separate token writes the arms above used to
+    // make: `credentials::CredentialStore::operator_pending_setup` asks the
+    // single question that is true in every one of those shapes.
+    let credentials_for_setup = fathom_server::credentials::CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        deployment.clone(),
+    );
+    // A `docker compose restart` does NOT re-read `.env` -- it sends the
+    // running container a restart signal and keeps its existing environment
+    // (docker/compose `docs/reference/compose_restart.md`, read 2026-09-24).
+    // Every message below that asks for `.env` to be edited therefore says
+    // what actually re-reads it.
+    const REREAD_ENV: &str = "run `docker compose up -d` -- a plain `docker compose restart` \
+         does not re-read .env";
+    let setup_secret = match &config.setup_password {
+        None => {
+            tracing::warn!(
+                "FATHOM_SETUP_PASSWORD is not set; setup is closed. Set FATHOM_SETUP_PASSWORD \
+                 (15+ characters, in single quotes) in .env, then {REREAD_ENV}; setup then stays \
+                 open for 30 minutes."
+            );
+            None
+        }
+        Some(setup_password) => match fathom_server::credentials::check_password(
+            setup_password.expose(),
+            &notice_address,
+        ) {
+            Err(rule) => {
+                tracing::warn!(
+                    rule = %rule,
+                    "FATHOM_SETUP_PASSWORD does not meet the account password policy; setup is \
+                     closed. Set FATHOM_SETUP_PASSWORD (15+ characters, in single quotes) in \
+                     .env, then {REREAD_ENV}; setup then stays open for 30 minutes."
+                );
+                None
+            }
+            Ok(()) => match credentials_for_setup.operator_pending_setup().await {
+                Ok(None) => {
+                    // Decision 1's own warning: a secret left in `.env` after
+                    // it no longer does anything.
+                    tracing::warn!(
+                        "FATHOM_SETUP_PASSWORD is set, and this deployment's first operator has \
+                         already finished setup; remove FATHOM_SETUP_PASSWORD from .env, then \
+                         {REREAD_ENV}."
+                    );
+                    None
+                }
+                Ok(Some(operator_id)) => match operators.issue_setup_token(&operator_id).await {
+                    Ok(invitation) => {
+                        // `Instant`, not `SystemTime`: measured against this
+                        // process's own monotonic clock, so a wall-clock
+                        // step (NTP, a manual change, a leap second) cannot
+                        // open or close the window early.
+                        let closes_at = std::time::Instant::now()
+                            + fathom_server::credentials::SETUP_SECRET_WINDOW;
+                        tracing::warn!(
+                            operator_id = %operator_id,
+                            window_seconds = fathom_server::credentials::SETUP_SECRET_WINDOW
+                                .as_secs(),
+                            "SETUP IS OPEN for 30 minutes: open this server in a browser and \
+                             enter the setup password FATHOM_SETUP_PASSWORD holds in .env. No \
+                             token file is written; the password is the only thing to type."
+                        );
+                        Some(fathom_server::credentials::SetupSecret::new(
+                            setup_password.expose(),
+                            invitation.token,
+                            closes_at,
+                        ))
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            error = ?e,
+                            operator_id = %operator_id,
+                            "could not open setup for the first operator this start; setup is \
+                             closed until the next start"
+                        );
+                        None
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(
+                        error = ?e,
+                        "could not tell whether this deployment's first operator has finished \
+                         setup; setup is closed this start"
+                    );
+                    None
+                }
+            },
+        },
+    };
 
     // ---- the colleagues a pre-ADR-0055 build created (2026-09-21) --------
     //
@@ -1141,12 +1128,11 @@ async fn main() -> ExitCode {
     // reason `api::CredentialApiState`'s own doc gives.
     let credential_api = fathom_server::api::CredentialApiState {
         sessions: Arc::clone(&sessions),
-        credentials: Arc::new(fathom_server::credentials::CredentialStore::new(
-            pool.clone(),
-            Arc::clone(&ring),
-            deployment.clone(),
-        )),
+        // The same store the setup-secret check above already built: one
+        // pool, one ring, one deployment id, and no reason for a second copy.
+        credentials: Arc::new(credentials_for_setup),
         operators: Arc::clone(&operators),
+        setup_secret,
         client_address: client_address.clone(),
     };
 

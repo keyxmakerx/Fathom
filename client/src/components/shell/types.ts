@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
 import type { PathPart } from './path';
+import type { SearchHit } from './search';
 
 export type { Lens } from './lens';
 export { LENSES, LENS_LABEL, isLensLit } from './lens';
@@ -11,6 +12,12 @@ export { pathToItems } from './path';
 /** BRIEF.md "The vocabulary": two places, nothing else gets the name. `null`
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
+
+/** Quick search: what a query finds, and what choosing a hit does. */
+export interface ShellSearch {
+  run: (query: string) => SearchHit[];
+  choose: (selection: SearchHit['selection']) => void;
+}
 
 /** One name chip in "who else is here". */
 export interface PresenceUser {
@@ -56,17 +63,24 @@ export interface ShellProps {
   zoom: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  /** Fits the drawing into view; the percentage is the button. */
+  onZoomFit?: () => void;
 
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
 
-  /** The 24×24 account square and its menu (ADR-0047 §3): People and
-   * permissions, Site (both present and disabled — this build has neither
-   * screen), Sign out, and the theme switch moved here from its own control
-   * (owner's decision, BRIEF.md "The account chip opens a menu"). */
+  /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
+   * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;
+  /** The caller's account-menu rows — Site, credentials, Home — each present
+   * only when it acts. People and permissions joins when it is built. */
+  menu?: ReactNode;
+  /** Where the brand goes: Home. Omitted on Home itself. */
+  onHome?: () => void;
+  /** Quick search. Absent where there is nothing to search yet (Home, Site). */
+  search?: ShellSearch;
 
   /** ADR-0052 §5: the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the
@@ -83,12 +97,11 @@ export interface ShellProps {
    * own honest empty state rather than inventing rail content. */
   rail?: ReactNode;
 
-  /** ADR-0053 §4 — the Trail panel, beside the drawing (`racks/Trail.tsx`).
-   * Omitted or `null` on every place that has no batches of its own to
-   * show (Home; Inventory has no drawing to sit "beside," so it renders no
-   * trail either, today) — absent from the DOM entirely, the same "no
-   * action, not a disabled one" reading `editor`/`rail` already give. */
+  /** The design's trail (ADR-0053 §4), folded to a strip on the right edge.
+   * Absent where no design is open. */
   trail?: ReactNode;
+  trailOpen?: boolean;
+  onTrailOpenChange?: (open: boolean) => void;
 
   /** The drawing itself (or Inventory's lists, or Home): the shell draws
    * none of it. */

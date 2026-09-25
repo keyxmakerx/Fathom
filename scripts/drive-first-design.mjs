@@ -19,17 +19,23 @@
 // fixtures use instead: seed accounts, keys and organisation-wide capability
 // straight into the database (`crates/fathom-server/tests/
 // seed_first_design.rs`, written and deleted by this script, mirrors
-// `bootstrap`/`enrol`/`a_member_with` there verbatim), holding the raw P-256
-// scalar for both accounts. Getting that exact key INTO a real browser then
-// only needs `crypto.subtle.importKey` — WebCrypto's import does not care
-// where the bytes came from, and `extractable: false` on the imported
-// `CryptoKey` only stops a LATER export, never the import itself. This
-// script writes each scalar into the browser's own `IndexedDB` store under
-// the same schema `client/src/crypto/keys.ts` reads
-// (`injectEnrolledKey`, below) — after that, `SignIn.tsx`'s real form, the
-// real `signIn()` challenge/response exchange, and the real server-side ES256
-// verification run completely unmodified. See `seed_first_design.rs`'s own
-// module doc for the full reasoning.
+// `bootstrap`/`enrol`/`a_member_with` there verbatim).
+//
+// **Since ADR-0056, sign-in is a password (and, only for an account with a
+// confirmed authenticator, a verification code too) — the smaller of the two
+// changes this task's brief offers.** Rather than reach for the browser's
+// non-extractable key machinery at all, the seed now also sets a real
+// password on each account directly against the `accounts` table, the same
+// shape `crates/fathom-server/tests/credentials.rs`'s own
+// `set_password_directly` fixture uses ("the way `/enrolment/operator/setup`
+// and `/credentials/reset/redeem` do — used only to bootstrap a fixture into
+// the state a test is actually about"): `credentials::hash_password` plus
+// `credentials::seal_for_write`, the two calls `0025`'s own constraint
+// trigger requires together in one statement. Neither account ever confirms
+// an authenticator, so `sessions.rs`'s branch 2 ("`password_hash IS NOT
+// NULL`... otherwise A0, which is a full session for a steward with no app
+// code") is what a real sign-in reaches with the password alone — the real,
+// unmodified `SignIn.tsx` form, typed into, exactly as a person would.
 //
 // Usage:
 //   node scripts/drive-first-design.mjs
@@ -38,26 +44,17 @@
 // database, deletes every file it wrote (the seed test, the two key files,
 // the bootstrap token, the throwaway Vite config, the seed JSON).
 //
-// Two things this run found that are not this script's to fix, recorded
-// here as well as in its own PASS/FAIL log:
-//
-//   1. `client/src/api/scopes.ts`'s `createScope` sends a JSON body; the
-//      real server's `create_scope_handler` reads `LP(parent) ‖ LP(label)`.
-//      Every real click of Home's "New scope" → "Create" is refused 400
-//      "malformed request". This script drives that real refusal first
-//      (to record it), then creates the scope through the same signed
-//      protocol directly (`signedFetch`, for real) to continue the proof.
-//   2. ADR-0054 §1 describes the save-refusal wash as offering Reload;
-//      `useDesignSession.ts` exports `reloadDesign` for exactly that, but no
-//      component calls it — `RacksPlace.tsx` destructures the refusal text
-//      only. This script substitutes a full navigation and re-sign-in
-//      (which the in-memory-only session already requires) to show the
-//      same underlying effect.
+// **Current UI facts this drive learns, that an older one would not**: the
+// trail is folded to a strip on the right edge — `button[aria-label="Open
+// the trail"]` before reading a `.racks-trail__row`; the levels are named
+// Site › Building › Closet in the interface, so the organisation-level
+// scope-creation button reads "New site", not "New scope".
 
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -82,13 +79,21 @@ const CLIENT_URL = `http://127.0.0.1:${CLIENT_PORT}`;
 const MASTER_KEY_PATH = `${SHOTS}s7fd-master.key`;
 const CHAIN_KEY_PATH = `${SHOTS}s7fd-chain.key`;
 const SEED_OUTPUT_PATH = `${SHOTS}s7fd-seed.json`;
-const BOOTSTRAP_TOKEN_PATH = `${SHOTS}s7fd-bootstrap-token.txt`;
+// The setup password the server starts with (ADR-0057).
+const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
+const OPERATOR_ADDRESS = 'operator@fathom.invalid';
 const SEED_TEST_PATH = `${ROOT}/crates/fathom-server/tests/seed_first_design.rs`;
 const VITE_CONFIG_PATH = `${CLIENT}/vite.drive-first-design.config.ts`;
 
-const MIGRATE_URL = `postgres://fathom_test:x@127.0.0.1:5432/${DB_NAME}`;
-const SUPERUSER_URL = `postgres://postgres:x@127.0.0.1:5432/${DB_NAME}`;
-const RUNTIME_URL = `postgres://fathom_app:x@127.0.0.1:5432/${DB_NAME}`;
+const MIGRATE_URL = migrateUrl(DB_NAME);
+const SUPERUSER_URL = superuserUrl(DB_NAME);
+const RUNTIME_URL = runtimeUrl(DB_NAME);
+
+// ADR-0055 decision 10: 15 to 128 characters, no composition rules. Neither
+// account confirms an authenticator, so the real sign-in form never asks
+// either of these for a verification code (`sessions.rs` branch 2's "A0").
+const STEWARD_PASSWORD = 'session-seven-steward-passphrase-kept-for-this-proof-only';
+const DRAWER_PASSWORD = 'session-seven-drawer-passphrase-kept-for-this-proof-only';
 
 const fails = [];
 function check(name, ok, detail) {
@@ -139,14 +144,20 @@ const SEED_TEST_SOURCE = `//! Session 7 proof-builder scaffolding, throwaway: se
 //! session (\`admin.rs\`'s two-role plane), so this uses the OTHER path this
 //! task's brief names instead: seed accounts, keys and organisation-wide
 //! capability straight into the database, holding the raw P-256 scalar for
-//! both accounts. Getting that exact key INTO a real browser then only needs
-//! \`crypto.subtle.importKey\` in the page — WebCrypto's import does not care
-//! where the bytes came from, and \`extractable: false\` on the imported
-//! \`CryptoKey\` only stops a LATER export, never the import itself.
-//! \`scripts/drive-first-design.mjs\`'s own \`injectEnrolledKey\` does exactly
-//! that, after which \`SignIn.tsx\`'s real form, the real \`signIn()\`
-//! challenge/response exchange and the real server-side ES256 verification
-//! run completely unmodified.
+//! both accounts (still needed here: the authority/grants system signs with
+//! it, independent of how a browser session is opened).
+//!
+//! **Since ADR-0056, sign-in is a password.** Rather than pull the scalar
+//! above into a browser's non-extractable key store, this seed also gives
+//! each account a real password directly against \`accounts.password_hash\`
+//! — the same shape \`tests/credentials.rs\`'s own \`set_password_directly\`
+//! fixture uses: \`credentials::hash_password\` and \`credentials::seal_for_write\`
+//! in the one statement \`0025\`'s own constraint trigger requires. Neither
+//! account ever confirms an authenticator, so \`sessions.rs\`'s branch 2
+//! ("otherwise A0, which is a full session for a steward with no app code")
+//! is what a real sign-in reaches on the password alone — \`SignIn.tsx\`'s
+//! real form, typed into, the real \`signIn()\` challenge/response exchange
+//! and the real server-side password verification run completely unmodified.
 //!
 //! The master and chain keys are loaded through the SAME \`KeySource::parse\`
 //! + \`KeyRing::load(..., true)\` call \`main.rs\` makes at real startup, from
@@ -163,6 +174,7 @@ use std::io::Write as _;
 
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::chains;
+use fathom_server::credentials;
 use fathom_server::crypto::Key32;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
 use fathom_server::keyprovider::KeySource;
@@ -291,6 +303,7 @@ async fn seed_a_steward_and_a_drawer_for_the_driven_browser_proof() {
     };
 
     enrol(&pool, &ring, organisation, steward_account, &steward_key).await;
+    set_password(&pool, &ring, steward_account, "${STEWARD_PASSWORD}").await;
 
     // ------------------------------------------------------------------
     // The drawer — \`a_member_with(..., Some(Capability::Draw))\`, verbatim
@@ -312,6 +325,7 @@ async fn seed_a_steward_and_a_drawer_for_the_driven_browser_proof() {
     .expect("membership");
     let (drawer_scalar, drawer_key) = fresh_key();
     enrol(&pool, &ring, organisation, drawer_account, &drawer_key).await;
+    set_password(&pool, &ring, drawer_account, "${DRAWER_PASSWORD}").await;
 
     {
         let mut client = pool.get().await.expect("connection");
@@ -392,6 +406,45 @@ async fn enrol(
         .expect("enrol");
     tx.commit().await.expect("commit");
 }
+
+/// \`tests/credentials.rs\`'s own \`set_password_directly\`, verbatim: a
+/// password set without a session, the way \`/enrolment/operator/setup\` and
+/// \`/credentials/reset/redeem\` do — used only to bootstrap this fixture into
+/// the state this proof is actually about. The hash and its seal go in ONE
+/// statement, the shape \`0025\`'s own constraint trigger requires of anything
+/// that puts a first credential on a row.
+async fn set_password(pool: &deadpool_postgres::Pool, ring: &KeyRing, account: fathom_server::repo::AccountId, password: &str) {
+    let hash = credentials::hash_password(password).expect("hash the seed password");
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    tx.execute("SELECT set_config('app.reset_custody', 'yes', true)", &[])
+        .await
+        .expect("reset custody");
+    let account_text = account.to_string();
+    let mut next = credentials::read_credentials(&tx, ring, &account_text)
+        .await
+        .expect("read credentials")
+        .expect("the account exists");
+    next.password_hash = Some(hash.clone());
+    let seal = credentials::seal_for_write(&tx, ring, &account_text, &mut next, None)
+        .await
+        .expect("seal the credential columns");
+    tx.execute(
+        "UPDATE accounts SET password_hash = $2, credential_seal = $3, \
+                credential_row_version = $4, credential_seq = $5 \
+          WHERE id = $1",
+        &[
+            &account_text,
+            &hash,
+            &seal,
+            &next.credential_row_version,
+            &next.seq_column(),
+        ],
+    )
+    .await
+    .expect("set the password");
+    tx.commit().await.expect("commit");
+}
 `;
 
 let serverProc = null;
@@ -399,7 +452,7 @@ let clientProc = null;
 
 async function main() {
   console.log(`==> database ${DB_NAME}`);
-  sh('psql', ['-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-c', `CREATE DATABASE ${DB_NAME} OWNER fathom_test;`]);
+  sh('psql', ['-d', superuserUrl('postgres'), '-c', `CREATE DATABASE ${DB_NAME} OWNER fathom_test;`]);
 
   console.log('==> writing the throwaway seed fixture');
   writeFileSync(SEED_TEST_PATH, SEED_TEST_SOURCE);
@@ -436,8 +489,8 @@ async function main() {
       FATHOM_SCHEMA_ROOT: `${ROOT}/schema`,
       FATHOM_MASTER_KEY: `file://${MASTER_KEY_PATH}`,
       FATHOM_CHAIN_KEY: `file://${CHAIN_KEY_PATH}`,
-      FATHOM_OPERATOR_NOTICE_ADDRESS: 'operator@fathom.invalid',
-      FATHOM_BOOTSTRAP_TOKEN_FILE: BOOTSTRAP_TOKEN_PATH,
+      FATHOM_OPERATOR_NOTICE_ADDRESS: OPERATOR_ADDRESS,
+      FATHOM_SETUP_PASSWORD: SETUP_PASSWORD,
       FATHOM_BIND: `127.0.0.1:${SERVER_PORT}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -448,6 +501,14 @@ async function main() {
   try {
     const health = await waitForHttp(`${SERVER_URL}/health`);
     check('the real fathom-server answers GET /health', health.status === 200, String(health.status));
+    // Finish the operator's first run, so the stewards get the sign-in page.
+    // Async, so the server's piped output keeps draining meanwhile.
+    const firstRun = await new Promise((resolve) => {
+      spawn('node', [`${ROOT}/scripts/ci/first-operator-signin.mjs`, SETUP_PASSWORD, OPERATOR_ADDRESS, SERVER_URL], { stdio: 'inherit' })
+        .on('exit', resolve);
+    });
+    check('the operator finished first run (ci/first-operator-signin.mjs)', firstRun === 0, `exit ${firstRun}`);
+    if (firstRun !== 0) throw new Error('first run did not complete');
   } catch (error) {
     console.log(serverLog.slice(-4000));
     throw error;
@@ -504,66 +565,25 @@ async function main() {
 // The proof
 // ---------------------------------------------------------------------------
 
-/** Puts `scalarHex`'s P-256 key into this page's origin, under `address`, as
- * `client/src/crypto/keys.ts`'s `getEnrolledKeyPair` reads it — real
- * `CryptoKey` objects, `extractable: false` on the private half exactly as
- * `generateKeyPair()` produces, imported rather than generated. See this
- * script's own header. */
-async function injectEnrolledKey(page, address, scalarHex, pubHex) {
-  await page.evaluate(async ({ address, scalarHex, pubHex }) => {
-    function hexToBytes(hex) {
-      const out = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.substr(i * 2, 2), 16);
-      return out;
-    }
-    function b64url(bytes) {
-      let bin = '';
-      for (const b of bytes) bin += String.fromCharCode(b);
-      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-    const scalar = hexToBytes(scalarHex);
-    const pub = hexToBytes(pubHex);
-    const x = pub.slice(1, 33);
-    const y = pub.slice(33, 65);
-    const alg = { name: 'ECDSA', namedCurve: 'P-256' };
-    const privateKey = await crypto.subtle.importKey(
-      'jwk',
-      { kty: 'EC', crv: 'P-256', d: b64url(scalar), x: b64url(x), y: b64url(y), key_ops: ['sign'], ext: false },
-      alg,
-      false,
-      ['sign'],
-    );
-    const publicKey = await crypto.subtle.importKey(
-      'jwk',
-      { kty: 'EC', crv: 'P-256', x: b64url(x), y: b64url(y), ext: true },
-      alg,
-      true,
-      ['verify'],
-    );
-    await new Promise((resolveDb, rejectDb) => {
-      const req = indexedDB.open('fathom-enrolled-keys', 2);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains('keys')) db.createObjectStore('keys');
-        if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending');
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction('keys', 'readwrite');
-        tx.objectStore('keys').put({ privateKey, publicKey }, address);
-        tx.oncomplete = () => { db.close(); resolveDb(undefined); };
-        tx.onerror = () => { db.close(); rejectDb(tx.error); };
-      };
-      req.onerror = () => rejectDb(req.error);
-    });
-  }, { address, scalarHex, pubHex });
-}
-
-async function signIn(page, address) {
+/** ADR-0056: the real, unmodified `SignIn.tsx` form — an address, a
+ * password, and (skipped here: neither seeded account confirms an
+ * authenticator, `sessions.rs` branch 2's "A0") no verification code. */
+async function signIn(page, address, password) {
   await page.goto(CLIENT_URL, { waitUntil: 'domcontentloaded' });
   await page.locator('#signin-address').fill(address);
+  await page.locator('#signin-password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByText('Your organisations').waitFor({ timeout: 15000 });
+  // Home, or straight into the design when it is the only one (ADR-0046 §3).
+  await page.getByText('Your organisations').or(page.locator('.racks-place__loading, .drawing-chassis')).first().waitFor({ timeout: 15000 });
+}
+
+/** The trail is folded to a strip on the right edge — open it before
+ * reading a `.racks-trail__row`. */
+async function openTheTrail(page) {
+  const handle = page.locator('button[aria-label="Open the trail"]');
+  if ((await handle.count()) > 0) {
+    await handle.click();
+  }
 }
 
 /** Simulates the palette's real native HTML5 drag onto the real drop
@@ -619,9 +639,11 @@ async function runProof(browser, seed) {
   // Browser one — the steward: sign in, create a scope from Home, create
   // a design in it, open it, place a device, and see it save.
   // -------------------------------------------------------------------
+  // Headless Chromium can pause drawing in a tab that is not in front,
+  // which leaves the diagram unmeasured; bring each tab forward before using it.
+  await one.bringToFront();
   await one.goto(CLIENT_URL, { waitUntil: 'domcontentloaded' });
-  await injectEnrolledKey(one, seed.steward.address, seed.steward.private_scalar_hex, seed.steward.public_key_hex);
-  await signIn(one, seed.steward.address);
+  await signIn(one, seed.steward.address, STEWARD_PASSWORD);
   check('browser one (steward): signed in and Home rendered', await one.getByText('Your organisations').isVisible());
 
   // Previously (see this script's git history): `client/src/api/scopes.ts`'s
@@ -630,17 +652,19 @@ async function runProof(browser, seed) {
   // was refused 400 "malformed request" and this script worked around it
   // with a hand-built `signedFetch` call. `scopes.ts`'s `createScope` now
   // sends that same LP-framed body (unchanged by this task), so the real,
-  // unmodified "New scope" → "Create" form is driven directly here instead.
-  await one.getByRole('button', { name: 'New scope' }).click();
+  // unmodified "New site" → "Create" form is driven directly here instead.
+  // (The owner's naming, 2026-09-23: the top scope level reads "Site" in
+  // the interface, not "New scope".)
+  await one.getByRole('button', { name: 'New site' }).click();
   await one.locator('#home-new-scope-label').fill('Session 7 network');
   await one.getByRole('button', { name: 'Create', exact: true }).click();
   await one.getByText('Session 7 network').waitFor({ timeout: 10000 });
-  check('browser one (steward): the new scope appears on Home (created via the real "New scope" form)', await one.getByText('Session 7 network').isVisible());
+  check('browser one (steward): the new scope appears on Home (created via the real "New site" form)', await one.getByText('Session 7 network').isVisible());
 
   await one.screenshot({ path: `${SHOTS}s7-home.png` });
   check(
-    'screenshot s7-home.png: Home shows New scope and New design',
-    (await one.getByRole('button', { name: 'New scope' }).count()) > 0
+    'screenshot s7-home.png: Home shows New site and New design',
+    (await one.getByRole('button', { name: 'New site' }).count()) > 0
       && (await one.getByRole('button', { name: 'New design' }).count()) > 0,
   );
 
@@ -655,6 +679,7 @@ async function runProof(browser, seed) {
   await one.waitForTimeout(1200); // the SaveQueue's own debounce plus one round trip
   const oneRefusalCount = await one.locator('.racks-place__refusal').count();
   check('browser one (steward): placing a device saves with no refusal', oneRefusalCount === 0, `refusal divs: ${oneRefusalCount}`);
+  await openTheTrail(one); // folded to a strip on the right edge
   const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('> *').count();
   check('browser one (steward): the Trail carries at least one entry after the first save', trailRowsAfterFirstSave >= 1);
 
@@ -690,9 +715,9 @@ async function runProof(browser, seed) {
   // -------------------------------------------------------------------
   // Browser two — the drawer: sign in, open the same design.
   // -------------------------------------------------------------------
+  await two.bringToFront();
   await two.goto(CLIENT_URL, { waitUntil: 'domcontentloaded' });
-  await injectEnrolledKey(two, seed.drawer.address, seed.drawer.private_scalar_hex, seed.drawer.public_key_hex);
-  await signIn(two, seed.drawer.address);
+  await signIn(two, seed.drawer.address, DRAWER_PASSWORD);
   check('browser two (drawer): signed in', await two.evaluate(() => document.body.innerText.length > 0));
   // ADR-0046 §3's direct entry fires here: one organisation, one design.
   await two.locator('.drawing-chassis').first().waitFor({ timeout: 15000 });
@@ -704,6 +729,7 @@ async function runProof(browser, seed) {
   // -------------------------------------------------------------------
   // Browser one saves another change.
   // -------------------------------------------------------------------
+  await one.bringToFront();
   await openTheRail(one);
   await dragPaletteItemOntoRack(one, 0, 1);
   await one.waitForFunction(
@@ -719,6 +745,7 @@ async function runProof(browser, seed) {
   // -------------------------------------------------------------------
   // Browser two makes a change against its now-stale base and is refused.
   // -------------------------------------------------------------------
+  await two.bringToFront();
   const twoDevicesBeforeRefusal = await two.locator('.drawing-chassis').count();
   await openTheRail(two);
   await dragPaletteItemOntoRack(two, 1, 1);
@@ -752,7 +779,7 @@ async function runProof(browser, seed) {
   check('the refusal wash renders a real Reload control (ADR-0054 §1)', hasReloadButton);
 
   await two.goto(designUrl, { waitUntil: 'domcontentloaded' });
-  await signIn(two, seed.drawer.address);
+  await signIn(two, seed.drawer.address, DRAWER_PASSWORD);
   await two.locator('.drawing-chassis').first().waitFor({ timeout: 15000 });
   await two.waitForFunction(() => document.querySelectorAll('.drawing-chassis').length >= 2, { timeout: 15000 });
   check(
@@ -802,11 +829,11 @@ async function cleanup() {
   try { sh('fuser', ['-k', `${CLIENT_PORT}/tcp`]); } catch {}
   try { sh('fuser', ['-k', `${SERVER_PORT}/tcp`]); } catch {}
   try {
-    sh('psql', ['-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${DB_NAME};`]);
+    sh('psql', ['-d', superuserUrl('postgres'), '-c', `DROP DATABASE IF EXISTS ${DB_NAME};`]);
   } catch (error) {
     console.log('could not drop the database: ' + error);
   }
-  for (const p of [SEED_TEST_PATH, VITE_CONFIG_PATH, MASTER_KEY_PATH, CHAIN_KEY_PATH, SEED_OUTPUT_PATH, BOOTSTRAP_TOKEN_PATH]) {
+  for (const p of [SEED_TEST_PATH, VITE_CONFIG_PATH, MASTER_KEY_PATH, CHAIN_KEY_PATH, SEED_OUTPUT_PATH]) {
     try { rmSync(p, { force: true }); } catch {}
   }
 }

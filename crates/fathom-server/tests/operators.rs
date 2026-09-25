@@ -1609,7 +1609,17 @@ async fn a_token_of_another_purpose_does_not_open_the_setup_check() {
         .await
         .expect("the console mints an account shell and its invitation");
 
-    let refused = creds.check_setup(&operators_store, &invitation.token).await;
+    // The `op_` + hex shape a real client sends, so this reaches the
+    // database lookup and is refused for the reason this test names — the
+    // wrong purpose — not merely for not parsing.
+    let refused = creds
+        .check_setup(
+            &operators_store,
+            None,
+            &support::recovery_code_text(&invitation.token),
+            "198.51.100.1",
+        )
+        .await;
     assert!(
         matches!(refused, Err(CredentialError::TokenRefused)),
         "an account invitation named an address at the FIRST OPERATOR's setup door and was \
@@ -4661,7 +4671,13 @@ async fn an_operator_from_before_the_binding_is_adopted_on_the_next_start() {
         operators_store.deployment().to_string(),
     );
     creds
-        .redeem_setup(&operators_store, &invitation.token, A_REAL_CREDENTIAL)
+        .redeem_setup(
+            &operators_store,
+            None,
+            &support::recovery_code_text(&invitation.token),
+            A_REAL_CREDENTIAL,
+            "198.51.100.1",
+        )
         .await
         .expect("the token the adoption wrote opens the setup screen");
 

@@ -157,6 +157,18 @@ that recovery by mail is unavailable until SMTP is set in the console, so the on
 then is `fathom-server recover-operator`. Neither line is decoration; read them off a real start,
 not off this page.
 
+## The setup password
+
+`FATHOM_SETUP_PASSWORD` (ADR-0057 decision 1) is a secret in `.env`, the same as any credential this
+file names: it opens the first-run setup screen for thirty minutes after each start, while the first
+operator has no stored password, and is otherwise inert. Put the value in single quotes — an
+unquoted `$` or `#` changes it — and generate it with something like `openssl rand -base64 24`
+rather than typing one. **Remove it from `.env` once setup is done, then run `docker compose up
+-d`** — a plain `docker compose restart` does not re-read `.env`
+(docker/compose `docs/reference/compose_restart.md`), so the old value stays live in the running
+container until you do — the server warns at every start while it is still set and no longer
+needed.
+
 ## Where the operator console answers
 
 Since 2026-09-20 the console (`/admin/*` and `/enrolment/operator`) can be confined to host names
@@ -216,18 +228,18 @@ read both expect it.
   re-sealed under the new one, and a row that verifies under neither refuses the start as
   tampering). Then it binds the operator the old build created to the install address on record,
   retires that operator's browser keys and ends their sessions (the old flow had no second
-  factor), and writes a one-shot setup token to `FATHOM_BOOTSTRAP_TOKEN_FILE`, replacing the old
-  build's token file if one is still there (that token is expired by this act). The log says
-  `UPGRADE:` and names the path, never the token. Copy the file out as §"Sign in" of
-  `docs/RUNNING-IT.md` shows, set a password, set up an authenticator app. The act is a sealed
-  `operator_adopted` entry on the site chain, once; every later start finds the binding and does
-  nothing. Three shapes are refused and logged instead of bound, with the address named: the
-  account at that address is disabled; it is already bound to another operator; the bootstrapped
-  operator is disabled. If the address already holds an account with a confirmed authenticator, no
-  token is written, whoever holds that account now holds the operator custody, and the log says
-  so. Operators the old console created beside the first one have no binding either; they cannot
-  sign in, the start lists them, and they should be disabled from the console. `recover-operator`
-  refuses an unbound operator, so run the server once on the new build before reaching for it.
+  factor). The log says `UPGRADE:`. Since ADR-0057 decision 1 (2026-09-24) no token is written
+  anywhere: with `FATHOM_SETUP_PASSWORD` set and passing the account password policy, the same
+  thirty-minute setup window opens for the adopted operator as for a first start — see §"Sign in"
+  of `docs/RUNNING-IT.md`. The act is a sealed `operator_adopted` entry on the site chain, once;
+  every later start finds the binding and does nothing. Three shapes are refused and logged
+  instead of bound, with the address named: the account at that address is disabled; it is already
+  bound to another operator; the bootstrapped operator is disabled. If the address already holds an
+  account with a confirmed authenticator, no setup window is offered, whoever holds that account
+  now holds the operator custody, and the log says so. Operators the old console created beside the
+  first one have no binding either; they cannot sign in, the start lists them, and they should be
+  disabled from the console. `recover-operator` refuses an unbound operator, so run the server once
+  on the new build before reaching for it.
 - The startup log line naming `master_key_id` and `chain_key_id` — the same ids as before the
   upgrade. If the server exits instead with a wrong-key error, see Restore above; it did not start.
 - The migration count in the startup log — it should match what you expect for the version you

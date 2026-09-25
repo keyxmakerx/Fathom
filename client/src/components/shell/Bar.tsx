@@ -5,12 +5,13 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
-import { LENSES, LENS_LABEL } from './lens';
+import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathPart } from './path';
-import type { AccountInfo, Place, PresenceUser } from './types';
+import { SearchBox } from './SearchBox';
+import type { AccountInfo, Place, PresenceUser, ShellSearch } from './types';
 
 // BRIEF.md "The bar": "a hairline-bordered box ~180px". The magnifier alone
 // (the collapsed state) is a 24px square — see `.shell-search--collapsed`.
@@ -32,15 +33,6 @@ const THEME_NEXT: Record<'system' | Theme, 'system' | Theme> = {
   dark: 'system',
 };
 
-function MagnifierIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
-      <circle cx="4.5" cy="4.5" r="3.5"></circle>
-      <path d="M7.2 7.2 L10.5 10.5"></path>
-    </svg>
-  );
-}
-
 export interface BarProps {
   place: Place | null;
   onPlaceChange: (place: Place) => void;
@@ -52,6 +44,8 @@ export interface BarProps {
   zoom: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  /** Fits the drawing into view; the percentage is the button. */
+  onZoomFit?: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -62,6 +56,13 @@ export interface BarProps {
    * beside the undo/redo pair; absent everywhere there is nothing to be
    * read-only about (Home, or a writable design). */
   viewOnly?: boolean;
+  /** Where the brand goes: Home. Omitted on Home itself. */
+  onHome?: () => void;
+  /** Quick search; the box is absent without it. */
+  search?: ShellSearch;
+  /** The caller's own account-menu rows (Site, credentials, Home), above
+   * Theme and Sign out. A row is present only when it acts. */
+  menu?: ReactNode;
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -77,12 +78,16 @@ export function Bar({
   zoom,
   onZoomIn,
   onZoomOut,
+  onZoomFit,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
   account,
   viewOnly,
+  onHome,
+  menu,
+  search,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -133,23 +138,41 @@ export function Bar({
   return (
     <div className="shell-bar" ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
-        <span className="shell-bar__brand">Fathom</span>
+        {onHome ? (
+          <button type="button" className="shell-bar__brand" onClick={onHome}>
+            Fathom
+          </button>
+        ) : (
+          <span className="shell-bar__brand">Fathom</span>
+        )}
         <Sep />
+        {/* With no design open (Home, Site) the two places are named but are
+            not controls: a place needs a design, and Home is where you pick
+            one. */}
         <div className="shell-bar__tabs">
-          <button
-            type="button"
-            className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-            onClick={() => onPlaceChange('racks')}
-          >
-            Racks
-          </button>
-          <button
-            type="button"
-            className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-            onClick={() => onPlaceChange('inventory')}
-          >
-            Inventory
-          </button>
+          {place === null ? (
+            <>
+              <span className="shell-bar__tab">Racks</span>
+              <span className="shell-bar__tab">Inventory</span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+                onClick={() => onPlaceChange('racks')}
+              >
+                Racks
+              </button>
+              <button
+                type="button"
+                className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+                onClick={() => onPlaceChange('inventory')}
+              >
+                Inventory
+              </button>
+            </>
+          )}
         </div>
         <Sep />
         <Popover
@@ -198,7 +221,7 @@ export function Bar({
           <>
             <Sep />
             <div className="shell-bar__lenses">
-              {LENSES.map((candidate) => (
+              {LENSES_IN[place].map((candidate) => (
                 <button
                   key={candidate}
                   type="button"
@@ -216,21 +239,7 @@ export function Bar({
 
       <div className="shell-bar__spacer" />
 
-      <button
-        type="button"
-        className={searchCollapsed ? 'shell-search shell-search--collapsed' : 'shell-search'}
-        disabled
-        aria-label="Search"
-      >
-        <MagnifierIcon />
-        {!searchCollapsed && (
-          <>
-            <span className="shell-search__label">Search</span>
-            <span className="shell-search__spacer" />
-            <span className="shell-search__shortcut">Ctrl K</span>
-          </>
-        )}
-      </button>
+      {search && <SearchBox search={search} collapsed={searchCollapsed} />}
 
       <div className="shell-bar__trailing" ref={trailingRef}>
         {presence.length > 0 && (
@@ -260,31 +269,41 @@ export function Bar({
           </>
         )}
 
-        <div className="shell-bar__undoredo">
-          <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
-            Undo
-          </button>
-          <button type="button" className="shell-chip shell-chip--ink" disabled={!canRedo} onClick={onRedo}>
-            Redo
-          </button>
-        </div>
-        {/* Zoom moves the camera, so it is absent wherever there is no
-            camera to move — Home here, as on the People and Site boards. */}
+        {/* Undo and Redo act on an open design; zoom acts on the drawing,
+            so it is Racks only (Inventory is lists). */}
         {place !== null && (
           <>
+            <div className="shell-bar__undoredo">
+              <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
+                Undo
+              </button>
+              <button type="button" className="shell-chip shell-chip--ink" disabled={!canRedo} onClick={onRedo}>
+                Redo
+              </button>
+            </div>
             <Sep />
+          </>
+        )}
+        {place === 'racks' && (
+          <>
             <div className="shell-bar__zoom">
               <button type="button" className="shell-zoom-btn" aria-label="Zoom out" onClick={onZoomOut}>
                 &minus;
               </button>
-              <span className="shell-zoom-value">{zoom}%</span>
+              {onZoomFit ? (
+                <button type="button" className="shell-zoom-value" aria-label="Fit to view" onClick={onZoomFit}>
+                  {zoom}%
+                </button>
+              ) : (
+                <span className="shell-zoom-value">{zoom}%</span>
+              )}
               <button type="button" className="shell-zoom-btn" aria-label="Zoom in" onClick={onZoomIn}>
                 +
               </button>
             </div>
+            <Sep />
           </>
         )}
-        <Sep />
         <Popover
           align="right"
           renderTrigger={({ toggle, triggerRef, triggerProps }) => (
@@ -304,8 +323,7 @@ export function Bar({
             </button>
           )}
         >
-          <PopoverRow disabled>People and permissions</PopoverRow>
-          <PopoverRow disabled>Site</PopoverRow>
+          {menu}
           <PopoverRow onSelect={cycleTheme}>{THEME_LABEL[themeMode]}</PopoverRow>
           <PopoverRow onSelect={handleSignOut}>Sign out</PopoverRow>
         </Popover>

@@ -681,3 +681,16 @@ pub async fn superuser_client() -> tokio_postgres::Client {
     });
     client
 }
+
+/// What a real client sends for a recovery code: `op_` plus lower-case hex,
+/// exactly as typed. `credentials::parse_recovery_code` decodes it
+/// server-side; a test must not hand `redeem_setup`/`check_setup` raw bytes.
+#[allow(dead_code)]
+pub fn recovery_code_text(token: &[u8]) -> Vec<u8> {
+    let mut out = String::with_capacity(3 + token.len() * 2);
+    out.push_str("op_");
+    for byte in token {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out.into_bytes()
+}

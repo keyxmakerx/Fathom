@@ -90,38 +90,22 @@
 # generates it too, and the postgres image reads it from the volume. It is
 # still the credential the server must never use, for either role.
 #
-# THE BOOTSTRAP TOKEN VOLUME, ADDED 2026-09-14, BECAUSE THIS FILE COULD NOT
-# START AT ALL.
+# THE BOOTSTRAP TOKEN VOLUME, ADDED 2026-09-14, RETIRED BY ADR-0057 DECISION 1
+# (2026-09-24): no start writes a token file here or anywhere else any more.
+# The `bootstrap` volume and `FATHOM_BOOTSTRAP_TOKEN_FILE` stay, inert, so
+# this comment can say what they were for without a live mechanism to
+# describe: a first start used to mint a single-use setup token and write it
+# to a file for a human to read, and the `keys` volume being READ-ONLY here
+# meant that write had to land in a volume of its own. **What opens a first
+# start now is FATHOM_SETUP_PASSWORD, below** -- the owner's own words were
+# "I don't like the idea of the sys admin being required to pull a code out
+# of a file/log" -- checked and spent through the same setup screen (a
+# password, an app code, ten backup codes -- ADR-0055 decision 10).
 #
-# `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.3: a first start mints the first
-# operator's account and one single-use setup token, and writes that token to
-# a file for a human to read -- "whoever can read that volume is the
-# legitimate installer". Redeeming it opens the setup screen (a password, an
-# app code, ten backup codes -- ADR-0055 decision 10), not a browser key. It
-# is the only way into a new deployment.
+# `FATHOM_OPERATOR_NOTICE_ADDRESS` is still required: the bootstrap refuses
+# without it, whatever opens the setup screen behind it.
 #
-# The server used to derive that file's path from `FATHOM_MASTER_KEY`, so it
-# landed in the `keys` volume -- which is mounted READ-ONLY here, for the good
-# reason stated on the mount itself. So a first start in this stack wrote a
-# bearer token into a read-only filesystem, failed, and exited; and because
-# the operator row had already committed, the next start found a bootstrapped
-# deployment and never tried again. The stack could not be brought up, and the
-# failure was not recoverable by restarting it.
-#
-# Two changes, and both are needed:
-#
-#   1. `FATHOM_BOOTSTRAP_TOKEN_FILE` (new) names the path, so the DEPLOYMENT
-#      chooses it rather than the server deriving it. It points at `bootstrap`
-#      below -- a volume of its own, writable, holding one short-lived file.
-#      **The `keys` volume stays read-only and is untouched by this**: the two
-#      secrets have different lifetimes and different readers, and the token
-#      is deleted by hand within the hour while the master key is the thing
-#      the whole deployment rests on.
-#   2. `FATHOM_OPERATOR_NOTICE_ADDRESS` is set, because the bootstrap refuses
-#      without it and this file did not set it -- so even with (1) fixed, a
-#      first start still would not complete.
-#
-# AND THE WAY BACK IF THE TOKEN IS LOST, OR A PASSWORD OR PHONE IS.
+# AND THE WAY BACK IF THE SETUP PASSWORD IS LOST, OR A PASSWORD OR PHONE IS.
 # `fathom-server recover-operator <address>`, run in this container, works
 # for an operator who ALREADY EXISTS (it mints no new operator) and prints a
 # one-shot ten-minute setup code to STDOUT, not to this file -- it does not
@@ -325,14 +309,23 @@ services:
       # is only real if nothing that serves a request ever holds this one.
       FATHOM_MIGRATE_DATABASE_URL: "postgres://fathom@db:5432/fathom"
       FATHOM_MIGRATE_DB_PASSWORD_FILE: "/var/lib/fathom/keys/db_migrate.pw"
-      # Where the first operator's one-time setup token is written, on a
-      # first start only -- `recover-operator` (`reissue-bootstrap-token`'s
-      # replacement, ADR-0055 decision 8) prints its code to stdout, not to
-      # this file. See THE BOOTSTRAP TOKEN VOLUME in the header for why this
-      # is not inside the key volume. The path must match the mount below and
-      # the `ENV` in `deploy/Dockerfile`; all three say it so that no single
-      # one of them is load-bearing.
+      # **Retired by ADR-0057 decision 1 (2026-09-24): no start writes this
+      # file any more.** The variable and the volume it named stay, read but
+      # unused, because nothing reads this path either -- `recover-operator`
+      # (`reissue-bootstrap-token`'s replacement, ADR-0055 decision 8) prints
+      # its code to stdout and never wrote here. What opens a first start now
+      # is FATHOM_SETUP_PASSWORD, below.
       FATHOM_BOOTSTRAP_TOKEN_FILE: "/var/lib/fathom/bootstrap/first-operator-token"
+      # THE SETUP PASSWORD, ADR-0057 decision 1. A temporary password the
+      # deployment sets in `.env`; the first start's setup screen takes it
+      # instead of a code pulled out of a file or a log, open for thirty
+      # minutes after each start while the first operator has no stored
+      # password, and never held after this process exits. Optional: unset,
+      # or a value the account password policy refuses, simply leaves setup
+      # closed, and the server's log says which and how to fix it. Remove it
+      # from `.env` once setup is done -- the server warns at every start
+      # while it is still set and setup has finished.
+      FATHOM_SETUP_PASSWORD: ${FATHOM_SETUP_PASSWORD:-}
       # THE ADDRESS OPERATOR NOTICES GO TO -- admin design §5.5's "a settings
       # change was requested" among them -- and the address the first operator
       # is created against. **Set it before the first start and you cannot set

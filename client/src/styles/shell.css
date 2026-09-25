@@ -57,6 +57,15 @@
   white-space: nowrap;
 }
 
+/* The brand is the way back to Home from anywhere else. */
+button.shell-bar__brand {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .shell-bar__sep-wrap {
   display: flex;
   align-items: center;
@@ -89,8 +98,13 @@
   cursor: pointer;
 }
 
-.shell-bar__tab:hover {
+button.shell-bar__tab:hover {
   color: var(--ink);
+}
+
+/* With no design open the place names are orientation, not controls. */
+span.shell-bar__tab {
+  cursor: default;
 }
 
 .shell-bar__tab--on {
@@ -162,6 +176,9 @@
 }
 
 .shell-search {
+  /* The bar stretches its children so the place tabs can underline the
+     full 44px; the search box is the one fixed-height child and centres. */
+  align-self: center;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -177,6 +194,114 @@
   width: 24px;
   justify-content: center;
   padding: 0;
+}
+
+button.shell-search {
+  cursor: pointer;
+}
+
+/* Open: the box takes typing; results drop beneath it (the far-end picker's box). */
+.shell-search--open {
+  position: relative;
+  width: 180px;
+  padding: 0 var(--s2);
+  border-color: var(--ink);
+}
+
+.shell-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  color: var(--ink);
+}
+
+.shell-search__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -1px;
+  width: 440px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  z-index: var(--z-egress);
+}
+
+.shell-search__group {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s2) var(--s3) 2px;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.shell-search__group:first-child {
+  border-top: none;
+}
+
+.shell-search__row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px var(--s3) 5px var(--s4);
+  cursor: pointer;
+}
+
+.shell-search__row--on {
+  background: var(--surface);
+}
+
+.shell-search__row--on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rule-accent);
+  background: var(--ink);
+}
+
+.shell-search__name {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.shell-search__why {
+  font-size: var(--t-tab);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-search__none {
+  padding: var(--s3);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.shell-search__foot {
+  display: flex;
+  gap: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding: 6px var(--s3);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.shell-search__scope {
+  margin-left: auto;
 }
 
 .shell-search__label {
@@ -254,6 +379,10 @@
   text-align: center;
   color: var(--ink);
   font-variant-numeric: var(--num-tabular);
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 
 .shell-account {
@@ -406,10 +535,45 @@
   padding: var(--s4);
 }
 
-/* ADR-0053 §4 — the Trail panel, beside the drawing. Wider than the editor
-   (`.shell-editor` above): "What changed"/"Why" both need real room, and
-   the two panels are never meant to compete for the same strip — the
-   editor still opens on a selection, the trail on the design itself. */
+/* The editor's own controls in the page's language (UI-SPEC "Look"):
+   square, flat, one hairline. Inline styles (segments, links) still win. */
+.shell-editor button {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+  cursor: pointer;
+}
+
+.shell-editor button:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.shell-editor input,
+.shell-editor select,
+.shell-editor textarea {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
+  max-width: 100%;
+}
+
+/* The trail (ADR-0053 §4): folded to a strip on the right until opened.
+   Wider than the editor, since "What changed" and "Why" need the room. */
+.shell-trail-wrap {
+  display: flex;
+  flex-shrink: 0;
+}
+
 .shell-trail {
   width: 420px;
   flex-shrink: 0;
@@ -418,6 +582,36 @@
   overflow: hidden;
   display: flex;
   min-width: 0;
+}
+
+/* The right strip is one button: the handle, then the word "Trail". */
+.shell-strip--trail {
+  margin: 0;
+  padding: 6px 0 0;
+  border: none;
+  border-left: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-strip--trail:hover,
+.shell-strip--trail:hover .shell-strip__handle {
+  color: var(--ink);
+}
+
+.shell-strip--trail:focus-visible {
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: -2px;
+}
+
+.shell-strip__word {
+  writing-mode: vertical-rl;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
 
 /* Where the drawing will be. Session 4 of `docs/NEXT.md` builds the rack;

@@ -3,38 +3,26 @@
 // in a driven Chromium, against the real config drawer (ADR-0052) mounted
 // under a real placed device, and grounds ground rule 13 by screenshot.
 //
-// TWO PATHS, one script. The primary path this session's brief names —
-// a real `fathom-server` on its own database, a real enrolment/sign-in, a
-// real design opened over signed HTTP — needs two things that do not exist
-// yet in this tree:
-//
-//   1. A scripted, driven-BROWSER enrolment. `crates/fathom-server/tests/*`
-//      (`design_api.rs`'s own `bootstrap`/`enrol`, mirrored by every other
-//      integration test in that crate) writes accounts, keys and grants
-//      straight into the database and then hand-signs HTTP calls itself —
-//      it never drives `Enrol.tsx`'s real token redemption, which is the
-//      only enrolment path a browser actually has. There is nothing under
-//      `scripts/` that redeems a token through a browser either.
-//   2. An HTTP route that CREATES a design.
-//      `crates/fathom-server/src/design_api.rs`'s router has list / open /
-//      save-a-version / history / verify — never create. `designs::create_design`
-//      is a plain repository call `crates/fathom-server/tests/design_api.rs`'s
-//      own `a_scope_and_design` reaches directly; nothing exposes it over
-//      HTTP. A driven browser cannot reach an open design from nothing.
-//
-// So: NO SCRIPTED BROWSER ENROLMENT EXISTS FOR THIS SLICE, and the fallback
-// this session's brief names is what ran — recorded here, not assumed:
-//
-//   FALLBACK RAN. A throwaway `client/preview.html` + `client/src/preview.tsx`
-//   (written by this script below, deleted at the end — nothing but this
-//   file is committed) mounts the REAL `RacksPlace`, therefore the real
-//   `ConfigDrawer`, `InsideStop`, `Mirror`, `Engine`, and the real compiled
-//   `fathom-wasm` module `scripts/build-wasm.sh` produces — the redaction
-//   gate itself never reimplemented in JavaScript, CLAUDE.md rule 4. Inside
-//   that page, `window.fetch` is overridding for exactly the calls
-//   `RacksPlace` itself makes (session nonce, catalogue, open, save) —
-//   never a real server, never routed around any gate. No database is
-//   touched by this script; none is created and none needs dropping.
+// **The harness.** `App.tsx` no longer takes a design open for granted — a
+// real sign-in is a password and, for an account with a confirmed
+// authenticator, a verification code (ADR-0056), and there is still no HTTP
+// route that creates a design from nothing (`scripts/drive-lib/harness.tsx`'s
+// own header goes through why a scripted browser enrolment does not exist in
+// this tree either). So this drive uses the shared throwaway harness
+// (`scripts/drive-lib/harness.tsx` + `seed.ts` + `catalogue.json`,
+// copied into `client/` at run time and removed below): it mounts the REAL
+// `App`, with a session installed directly (`setSession`, the same shape the
+// lead's own throwaway `client/src/preview-audit.tsx` uses) and
+// `window.fetch` intercepted for exactly the calls a signed-in steward's
+// browser makes. One organisation, one design — `Home`'s own "exactly one
+// place to go" rule (ADR-0046 §3) lands the browser directly in Racks, so
+// this drives the real `RacksPlace`, therefore the real `ConfigDrawer`,
+// `InsideStop`, `Mirror`, `Engine`, and the real compiled `fathom-wasm`
+// module `scripts/build-wasm.sh` produces — the redaction gate itself never
+// reimplemented in JavaScript, CLAUDE.md rule 4. No server is contacted for
+// any intercepted call; the wasm artefact and Vite's own dev assets pass
+// straight through to the real `fetch`. No database is touched by this
+// script; none is created and none needs dropping.
 //
 // Usage:
 //   bash scripts/build-wasm.sh              # once, if the artefact is stale
@@ -44,7 +32,7 @@
 // Playwright is NOT a repo dependency (ADR-0032 gate zero) and is reached by
 // absolute path from the machine, the same as every other `scripts/drive-*`.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,13 +46,16 @@ const ROOT = process.env.FATHOM_ROOT
 const CHROME = process.env.PW_CHROMIUM
   || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const CLIENT = ROOT + '/client';
+const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5199;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SHOTS = '/tmp/claude-0/';
 mkdirSync(SHOTS, { recursive: true });
 
-const PREVIEW_HTML = CLIENT + '/preview.html';
-const PREVIEW_TSX = CLIENT + '/src/preview.tsx';
+const PREVIEW_HTML = CLIENT + '/drive.html';
+const PREVIEW_TSX = CLIENT + '/src/drive.tsx';
+const PREVIEW_SEED = CLIENT + '/src/drive-seed.ts';
+const PREVIEW_CATALOGUE = CLIENT + '/public/drive-catalogue.json';
 
 const fails = [];
 function check(name, ok, detail) {
@@ -170,9 +161,17 @@ if (!existsSync(WASM_ARTIFACT)) {
 check('the wasm artefact exists', existsSync(WASM_ARTIFACT), WASM_ARTIFACT);
 
 // ---------------------------------------------------------------------------
-// Step 1: write the throwaway preview harness. See this file's own header
-// for why it exists; deleted in the `finally` below.
+// Step 1: copy the shared throwaway harness into `client/`. See
+// `scripts/drive-lib/harness.tsx`'s own header for why it exists; every file
+// it writes is removed in the `finally` below.
 // ---------------------------------------------------------------------------
+// Never overwrite a file someone already has there.
+for (const f of [PREVIEW_HTML, PREVIEW_TSX, PREVIEW_SEED, PREVIEW_CATALOGUE]) {
+  if (existsSync(f)) {
+    console.error(`refusing to run: ${f} already exists (left from an earlier run?); remove it first`);
+    process.exit(2);
+  }
+}
 writeFileSync(
   PREVIEW_HTML,
   `<!doctype html>
@@ -184,168 +183,19 @@ writeFileSync(
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/preview.tsx"></script>
+    <script type="module" src="/src/drive.tsx"></script>
   </body>
 </html>
 `,
 );
-
-writeFileSync(
-  PREVIEW_TSX,
-  `// THROWAWAY. Written and deleted by `
-    + `\`scripts/drive-config-drawer.mjs\` — never committed, never shipped.
-// See that script's own header for why it exists: no HTTP route creates a
-// design yet, and no scripted browser-token enrolment exists in this tree,
-// so a driven run against a real server cannot reach an open design at all.
-// This mounts the REAL \`RacksPlace\` (therefore the real \`ConfigDrawer\`,
-// \`InsideStop\`, \`Mirror\`, \`Engine\`, and the real compiled \`fathom-wasm\`
-// module — CLAUDE.md rule 4 never reimplemented here) with \`window.fetch\`
-// overridden inside the page for the four calls \`RacksPlace\` itself makes.
-// No server is contacted for any of them; the wasm artefact and Vite's own
-// dev assets pass straight through to the real \`fetch\`.
-import { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-
-import './index.css';
-import { lp } from './crypto/bytes';
-import { generateKeyPair } from './crypto/keys';
-import { emptyDocument } from './document/model';
-import { SCHEMA_VERSION, writePlain } from './document/plain';
-import { RacksPlace } from './components/racks/RacksPlace';
-import { setSession } from './state/sessionState';
-
-const ORG_ID = 'org-preview';
-const DESIGN_ID = 'design-preview';
-
-function bytesToLatin1(bytes: Uint8Array): string {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 1) s += String.fromCharCode(bytes[i]);
-  return s;
-}
-
-async function bodyToBytes(body: BodyInit | null | undefined): Promise<Uint8Array> {
-  if (body == null) return new Uint8Array(0);
-  if (body instanceof Uint8Array) return body;
-  if (body instanceof ArrayBuffer) return new Uint8Array(body);
-  if (typeof body === 'string') return new TextEncoder().encode(body);
-  const buf = await new Response(body as BodyInit).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-function schemaMinor(): number {
-  const m = /^0\\.(\\d+)$/.exec(SCHEMA_VERSION);
-  if (!m) throw new Error(\`SCHEMA_VERSION "\${SCHEMA_VERSION}" is not "0.<minor>"\`);
-  return Number.parseInt(m[1], 10);
-}
-
-interface RecordedRequest {
-  method: string;
-  url: string;
-  bodyLatin1: string;
-}
-
-declare global {
-  interface Window {
-    __requests__: RecordedRequest[];
-    __setPreviewZoom__?: (zoom: number) => void;
-  }
-}
-
-async function main() {
-  window.__requests__ = [];
-  const realFetch = window.fetch.bind(window);
-  let saveVersion = 0;
-  const emptyBytes = writePlain(emptyDocument());
-  const minor = schemaMinor();
-
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-    const bodyBytes = await bodyToBytes(init?.body ?? null);
-    window.__requests__.push({ method, url, bodyLatin1: bytesToLatin1(bodyBytes) });
-
-    const path = url.startsWith('http') ? new URL(url).pathname : url.split('?')[0]!;
-
-    if (method === 'POST' && path === '/session/nonce') {
-      const nonce = crypto.getRandomValues(new Uint8Array(16));
-      return new Response(lp(nonce) as BodyInit, { status: 200 });
-    }
-
-    if (method === 'GET' && path === '/catalogue/models') {
-      return new Response(new TextEncoder().encode('[]'), { status: 200 });
-    }
-
-    if (method === 'GET' && path === \`/organisations/\${ORG_ID}/designs/\${DESIGN_ID}\`) {
-      return new Response(emptyBytes as BodyInit, {
-        status: 200,
-        headers: {
-          'fathom-design-version': String(saveVersion),
-          'fathom-payload-schema-version': String(minor),
-        },
-      });
-    }
-
-    if (method === 'POST' && path === \`/organisations/\${ORG_ID}/designs/\${DESIGN_ID}/versions\`) {
-      saveVersion += 1;
-      return new Response(new TextEncoder().encode(\`\${saveVersion}\\n\`), { status: 200 });
-    }
-
-    return realFetch(input as RequestInfo, init);
-  };
-
-  const sessionKeyPair = await generateKeyPair();
-  setSession({
-    sessionId: 'preview-session',
-    token: new Uint8Array(32),
-    sessionKeyPair,
-    expiresAtUnix: Math.floor(Date.now() / 1000) + 3600,
-    address: 'proof-builder@fathom.test',
-  });
-
-  const params = new URLSearchParams(window.location.search);
-  const readonly = params.get('readonly') === '1';
-
-  function Harness() {
-    const [zoom, setZoom] = useState(100);
-    useEffect(() => {
-      window.__setPreviewZoom__ = setZoom;
-      return () => {
-        delete window.__setPreviewZoom__;
-      };
-    }, []);
-    return (
-      <RacksPlace
-        organisationId={ORG_ID}
-        designId={DESIGN_ID}
-        capability={readonly ? 'read' : 'write'}
-        zoom={zoom}
-        onZoomChange={setZoom}
-        onZoomIn={() => setZoom((z) => Math.min(400, z + 10))}
-        onZoomOut={() => setZoom((z) => Math.max(10, z - 10))}
-        place="racks"
-        onPlaceChange={() => {}}
-        path={[]}
-        tree={null}
-        lens="cables"
-        onLensChange={() => {}}
-        presence={[]}
-        canUndo={false}
-        canRedo={false}
-        onUndo={() => {}}
-        onRedo={() => {}}
-        account={{ initials: 'PB', address: 'proof-builder@fathom.test' }}
-      />
-    );
-  }
-
-  createRoot(document.getElementById('root')!).render(<Harness />);
-}
-
-void main();
-`,
-);
-check('preview.html written', existsSync(PREVIEW_HTML));
-check('preview.tsx written', existsSync(PREVIEW_TSX));
+mkdirSync(CLIENT + '/public', { recursive: true });
+copyFileSync(DRIVE_LIB + '/harness.tsx', PREVIEW_TSX);
+copyFileSync(DRIVE_LIB + '/seed.ts', PREVIEW_SEED);
+copyFileSync(DRIVE_LIB + '/catalogue.json', PREVIEW_CATALOGUE);
+check('drive.html written', existsSync(PREVIEW_HTML));
+check('drive.tsx copied from drive-lib/harness.tsx', existsSync(PREVIEW_TSX));
+check('drive-seed.ts copied from drive-lib/seed.ts', existsSync(PREVIEW_SEED));
+check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PREVIEW_CATALOGUE));
 
 // ---------------------------------------------------------------------------
 // Step 2: the client dev server, port 5199, this run's own — never the
@@ -378,12 +228,15 @@ try {
   viteProc.stdout.on('data', (d) => { viteLog += d.toString(); });
   viteProc.stderr.on('data', (d) => { viteLog += d.toString(); });
 
-  const up = await waitForServer(`${BASE}/preview.html`, 30_000);
-  check('client dev server answers /preview.html', up, up ? '' : viteLog.slice(-2000));
+  const up = await waitForServer(`${BASE}/drive.html`, 30_000);
+  check('client dev server answers /drive.html', up, up ? '' : viteLog.slice(-2000));
   if (!up) throw new Error('dev server did not come up');
 
   // -------------------------------------------------------------------------
-  // Step 3: drive it.
+  // Step 3: drive it. `?scene=` unset — the harness's own default, an empty
+  // design (`seedEmptyDesign`) — so a sketch device is dropped onto the
+  // pending rack by this script itself, exactly as ADR-0051's "a box with no
+  // catalogue entry" scene asks for.
   // -------------------------------------------------------------------------
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
@@ -391,9 +244,11 @@ try {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
-  await page.goto(`${BASE}/preview.html`);
-  await page.waitForSelector('.shell-strip__handle', { timeout: 15_000 });
-  await page.click('.shell-strip__handle'); // BRIEF.md "Under the bar": the rail opens on click
+  await page.goto(`${BASE}/drive.html`);
+  // "Exactly one place to go" (ADR-0046 §3) lands the browser directly on
+  // Racks — no Home click, no sign-in door, since the harness installs the
+  // session and the one organisation/design pair directly.
+  await page.click('button[aria-label="Open the rail"]');
   await page.waitForSelector('.drawing-palette__item', { timeout: 15_000 });
   await page.waitForSelector('[data-id="rack:pending-rack"]', { timeout: 15_000 });
 
@@ -425,7 +280,7 @@ try {
   await page.waitForTimeout(300);
   check('one chassis placed', (await page.locator('.react-flow__node-chassis').count()) === 1);
 
-  // Select it at the faceplate stop.
+  // Select it.
   await page.click('.react-flow__node-chassis');
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
@@ -435,14 +290,21 @@ try {
   // (UI-SPEC "Config") has a real port to try to light.
   await page.locator('.drawing-editor__panel button', { hasText: '+ add a port' }).click();
   await page.locator('.drawing-editor__panel').getByPlaceholder('label').fill('ge-0/0/0');
-  await page.locator('.drawing-editor__panel button', { hasText: 'add' }).last().click();
+  // Exact text, not `.last()`: the Notes section below this form (ADR-0053
+  // §5/§6) has its own "add typed"/"add pasted" buttons, which a substring
+  // match on "add" also catches — `.last()` would land on the wrong one.
+  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'add', exact: true }).click();
   await page.waitForTimeout(300);
   check('the ge-0/0/0 port typed onto the faceplate', (await page.locator('.drawing-editor__panel').innerText()).includes('ge-0/0/0'));
 
-  // Zoom to the faceplate stop (`geometry.ts`'s `CAMERA_STOPS.faceplate === 200`)
-  // — this harness's own zoom control, exposed because the shipped bar
-  // steps by 10 and this is a proof script, not a person's scroll wheel.
-  await page.evaluate(() => window.__setPreviewZoom__?.(200));
+  // The config drawer opens only once the real camera reads the faceplate
+  // stop (`Drawing.tsx`'s own `cameraStop === 'faceplate'`, `geometry.ts`'s
+  // `cameraStopAt`) — ten clicks of the bar's own "Zoom in" (each +10%)
+  // carry it from the rack stop (100%, the drawing's own start) to the
+  // faceplate stop (200%), the same stepped control a person has.
+  for (let i = 0; i < 10; i += 1) {
+    await page.click('button[aria-label="Zoom in"]');
+  }
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
   check('the config drawer opened at the faceplate stop', (await page.locator('.config-drawer').count()) === 1);
 
@@ -469,11 +331,11 @@ try {
   const built = lineMarks.filter((c) => c.includes('--built')).length;
   check('every pasted line got one gutter mark', lineMarks.length === 21, `${lineMarks.length} lines`);
   console.log(`    gutter marks: ${built} built, ${kept} kept, ${destroyed} destroyed`);
-  // `document/capture.ts`'s `builtSpans` now compares `Origin::Parsed.capture`
+  // `document/capture.ts`'s `builtSpans` compares `Origin::Parsed.capture`
   // (the wire's bare ULID) against the capture node's own bare ULID
   // (`parseNodeId(node.id).ulid`), not its formatted `capture:<ulid>` node
-  // id — fixed; asserted here against the real engine and the real
-  // component, not only in `capture.test.ts`'s own hand-built fixtures.
+  // id — asserted here against the real engine and the real component, not
+  // only in `capture.test.ts`'s own hand-built fixtures.
   check('at least one line is marked built', built > 0, `${built} built`);
 
   // The psk line names `pre-shared-key` and also binds the ike policy's own
@@ -520,9 +382,14 @@ try {
   console.log('    wrote ' + SHOTS + 's6g-lit.png');
 
   // -------------------------------------------------------------------------
-  // The inside stop, same device, same camera (Motion #10).
+  // The inside stop, same device, same camera (Motion #10) — ten more clicks
+  // of the bar's own "Zoom in" (each +10%) carry the real camera from the
+  // faceplate stop (200%, reached above) to the inside stop (300%): the same
+  // stepped control a person has, not a harness-only shortcut.
   // -------------------------------------------------------------------------
-  await page.evaluate(() => window.__setPreviewZoom__?.(300));
+  for (let i = 0; i < 10; i += 1) {
+    await page.click('button[aria-label="Zoom in"]');
+  }
   await page.waitForSelector('.drawing-inside-stop', { timeout: 10_000 });
   check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop').count()) === 1);
   const insideText = await page.locator('.drawing-inside-stop').innerText();
@@ -532,7 +399,9 @@ try {
   console.log('    wrote ' + SHOTS + 's6g-inside.png');
 
   // Back to the faceplate stop for the second paste attempt.
-  await page.evaluate(() => window.__setPreviewZoom__?.(200));
+  for (let i = 0; i < 10; i += 1) {
+    await page.click('button[aria-label="Zoom out"]');
+  }
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
 
   // -------------------------------------------------------------------------
@@ -574,16 +443,15 @@ try {
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
   // -------------------------------------------------------------------------
-  // The read-only view. No real server means no real second account to sign
-  // in as — this harness's own `?readonly=1` sets `capability: 'read'`
-  // directly, the one input `RacksPlace`'s own `canDrawFor` (ADR-0052 §5)
-  // reads. A fresh page load (a fresh design, no device placed in it) —
-  // the point is "no write capability was ever exercised", which an empty
-  // read-only design shows exactly as well as a populated one would.
+  // The read-only view. `?capability=read` is the one input `App`/
+  // `DesignPlace` reads for this (the design summary's own `capability`
+  // field, `document/design/useDesignSession.ts`'s `canDrawFor`) — a fresh
+  // page load, a fresh (empty) design, so the point is "no write capability
+  // was ever exercised", which an empty read-only design shows exactly as
+  // well as a populated one would.
   // -------------------------------------------------------------------------
   const roPage = await context.newPage();
-  const roRequests = [];
-  await roPage.goto(`${BASE}/preview.html?readonly=1`);
+  await roPage.goto(`${BASE}/drive.html?capability=read`);
   await roPage.waitForTimeout(1500);
   const roReqs = await roPage.evaluate(() => window.__requests__);
   const roSaves = roReqs.filter((r) => r.method === 'POST' && r.url.includes('/versions'));
@@ -599,18 +467,21 @@ try {
   browser = null;
 } finally {
   // -------------------------------------------------------------------------
-  // Cleanup — every step, even on failure.
+  // Cleanup — every step, even on failure. Nothing the harness needs may
+  // stay in `client/` after this run.
   // -------------------------------------------------------------------------
   if (browser) await browser.close().catch(() => {});
   if (viteProc) {
     viteProc.kill();
     try { execFileSync('fuser', ['-k', `${PORT}/tcp`]); } catch { /* nothing was listening */ }
   }
-  for (const f of [PREVIEW_HTML, PREVIEW_TSX]) {
+  for (const f of [PREVIEW_HTML, PREVIEW_TSX, PREVIEW_SEED, PREVIEW_CATALOGUE]) {
     if (existsSync(f)) rmSync(f);
   }
-  check('preview.html removed', !existsSync(PREVIEW_HTML));
-  check('preview.tsx removed', !existsSync(PREVIEW_TSX));
+  check('drive.html removed', !existsSync(PREVIEW_HTML));
+  check('drive.tsx removed', !existsSync(PREVIEW_TSX));
+  check('drive-seed.ts removed', !existsSync(PREVIEW_SEED));
+  check('drive-catalogue.json removed', !existsSync(PREVIEW_CATALOGUE));
 }
 
 console.log(fails.length ? '\nFAILURES:\n  ' + fails.join('\n  ') : '\nALL CHECKS PASSED');
