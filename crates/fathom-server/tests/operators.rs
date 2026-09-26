@@ -3043,6 +3043,8 @@ async fn an_operator_cannot_be_seconded_by_the_operator_they_created() {
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let first = a_lone_operator(TAG, &operators_store, &sessions_store).await;
     let second = a_second_operator(TAG, &operators_store, &sessions_store, &first).await;
+    // Backdated past the independence window (outside the row seal, so legitimate here only), so the
+    // quorum is two and what refuses a seconding is the rule under test.
     counts_towards_quorum(&operators_store, &first.id).await;
     counts_towards_quorum(&operators_store, &second.id).await;
 
@@ -3106,6 +3108,8 @@ async fn a_change_no_one_may_second_applies_alone_after_the_delay() {
         a_fresh_deployment(TAG, Duration::from_secs(1)).await;
     let first = a_lone_operator(TAG, &operators_store, &sessions_store).await;
     let second = a_second_operator(TAG, &operators_store, &sessions_store, &first).await;
+    // Backdated past the independence window (outside the row seal, so legitimate here only), so
+    // only the creation rule keeps the quorum at one.
     counts_towards_quorum(&operators_store, &first.id).await;
     counts_towards_quorum(&operators_store, &second.id).await;
 
