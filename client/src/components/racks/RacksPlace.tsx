@@ -414,9 +414,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
 
-  // Resolves the current selection to a rack id — a rack directly, a
-  // chassis or shelf via whichever rack mounts it, an occupant via its own
-  // shelf's rack; anything else reports `null`.
+  // Resolves the current selection to a rack id, however it was reached;
+  // anything not rack-shaped reports `null`.
   useEffect(() => {
     if (!onActiveRackChange) return;
     if (selection == null) {

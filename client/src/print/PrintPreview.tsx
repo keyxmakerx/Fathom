@@ -1,11 +1,22 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import type { Facing } from '../components/drawing/elevation';
-import { contentHeightMm, contentWidthMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
-import { ELEVATION_CAPTION_MM, elevationHeightMm, elevationItemsOf, elevationRowMm, paginateRackTableByHeight, type ElevationItem, type RackDeviceRow } from './rackSheet';
+import { contentHeightMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
+import {
+  ELEVATION_CAPTION_MM,
+  NOTE_MARGIN_TOP_MM,
+  elevationHeightMm,
+  elevationItemsOf,
+  elevationRowMm,
+  paginateRackTableByHeight,
+  type ElevationItem,
+  type RackDeviceRow,
+} from './rackSheet';
 import { paginateCutSheetByHeight, type CutSheetTableRow } from './cutSheetTable';
 import type { PrintJob, RackSheetUnpaginated } from './printJob';
 import './print.css';
+
+const HIDE_SENSITIVE_NOTE = 'Serial numbers and management addresses left out of this printout.';
 
 interface TitleBlock {
   design: string;
@@ -60,8 +71,9 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
     if (sheet.kind === 'rack') {
       const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
       const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper));
+      const notePx = sheet.hideSensitive ? (heights.get(`${sheetIndex}:note`) ?? 0) + mmToPx(NOTE_MARGIN_TOP_MM) : 0;
       const rows = sheet.deviceRows.map((row, i) => ({ row, heightPx: heights.get(`${sheetIndex}:r${i}`) ?? 0 }));
-      const firstBudget = Math.max(0, capacityPx - elevationPx - theadPx);
+      const firstBudget = Math.max(0, capacityPx - elevationPx - notePx - theadPx);
       const laterBudget = Math.max(0, capacityPx - theadPx);
       const pages = paginateRackTableByHeight(rows, firstBudget, laterBudget);
       pages.forEach((pageRows, pageIndex) => {
@@ -120,19 +132,26 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
     };
   }, []);
 
+  // A window-level capture listener, ahead of everything else the page
+  // owns — while the preview is open, no key reaches the hidden drawing
+  // behind it (its own Delete/Ctrl+Z, the shell's Ctrl+K). Tab keeps its
+  // default browser behaviour; `inert` on the place below already keeps
+  // it out of the tab order.
   useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const inField = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (inField) return;
+      event.stopImmediatePropagation();
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault();
         window.print();
+        return;
       }
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
     }
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onClose]);
 
   return (
@@ -160,21 +179,30 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
   );
 }
 
-/** Renders every sheet's rows unsplit, off-screen, at the real page content
- * width — the one render the page-count check depends on being honest. */
+/** Renders every sheet's rows unsplit, off-screen, inside an element with
+ * the real page's own classes and width — `.print-page`'s `line-height`
+ * and padding must apply here too, or a measured row reads about twice its
+ * real printed height. */
 function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: React.RefObject<HTMLDivElement | null> }) {
   return (
-    <div ref={containerRef} className="print-measure" style={{ width: `${contentWidthMm(job.paper)}mm` }}>
+    <div ref={containerRef} className="print-page print-measure" style={{ width: `${pageWidthMm(job.paper)}mm` }}>
       {job.sheets.map((sheet, i) =>
         sheet.kind === 'rack' ? (
-          <table key={i} className="print-table">
-            <RackTableHead dataRowId={`${i}:thead`} />
-            <tbody>
-              {sheet.deviceRows.map((row, r) => (
-                <RackTableRow key={r} row={row} dataRowId={`${i}:r${r}`} />
-              ))}
-            </tbody>
-          </table>
+          <div key={i}>
+            <table className="print-table">
+              <RackTableHead dataRowId={`${i}:thead`} />
+              <tbody>
+                {sheet.deviceRows.map((row, r) => (
+                  <RackTableRow key={r} row={row} dataRowId={`${i}:r${r}`} />
+                ))}
+              </tbody>
+            </table>
+            {sheet.hideSensitive && (
+              <div className="print-note" data-row-id={`${i}:note`}>
+                {HIDE_SENSITIVE_NOTE}
+              </div>
+            )}
+          </div>
         ) : (
           <table key={i} className="print-table print-table--cutsheet">
             <ColGroup widths={CUT_SHEET_COLUMN_WIDTHS} />
@@ -312,7 +340,7 @@ function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPage
           ))}
         </tbody>
       </table>
-      {showElevation && sheet.hideSensitive && <div className="print-note">Serial numbers and management addresses left out of this printout.</div>}
+      {showElevation && sheet.hideSensitive && <div className="print-note">{HIDE_SENSITIVE_NOTE}</div>}
     </div>
   );
 }

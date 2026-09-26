@@ -90,10 +90,11 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
 
   // A design has no name of its own — the deepest scope is the nearest
-  // thing to one; the path itself excludes the organisation.
+  // thing to one; the path is what sits between the organisation and it,
+  // never repeating either end.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
   const pathLabel = shellProps.path
-    .slice(1)
+    .slice(1, -1)
     .map((p) => p.label)
     .join(' › ');
 
@@ -418,9 +419,13 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   // The place stays mounted while the preview shows, so closing it loses no
   // zoom, pan, selection or open editor; print CSS hides it while printing.
+  // `inert` (Firefox 112+, Chrome 102+, Safari 15.5+, html.global_attributes.inert,
+  // read 2026-09-26) keeps it out of the tab order and unclickable meanwhile.
   return (
     <>
-      <div className="print-hide-under-preview">{place}</div>
+      <div className="print-hide-under-preview" inert={printMode === 'preview'}>
+        {place}
+      </div>
       {printMode === 'panel' && printView && (
         <PrintPanel
           activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}

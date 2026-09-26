@@ -1,7 +1,5 @@
-// The cut sheet's .csv download. CSV injection guard per OWASP
-// (owasp.org/www-community/attacks/CSV_Injection, read 2026-09-26): a
-// leading single quote ahead of =, +, -, @, tab or CR, after leading
-// whitespace and for the full-width forms of those five signs.
+// The cut sheet's .csv download, with the CSV injection guard OWASP
+// describes (owasp.org/www-community/attacks/CSV_Injection, read 2026-09-26).
 import { cutAtCellLimit, stripForbiddenChars } from './textClean';
 
 const DANGEROUS_LEADERS = new Set(['=', '+', '-', '@', '\t', '\r', '＝', '＋', '－', '＠']);

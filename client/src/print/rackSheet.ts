@@ -121,8 +121,15 @@ export function elevationItemsOf(rack: Pick<RackView, 'chassis' | 'shelves'>): E
   return [...chassisItems, ...shelfItems].sort((a, b) => b.positionU - a.positionU);
 }
 
+/** The "left out" note's own `margin-top` (`print.css`'s `.print-note`) —
+ * not part of `getBoundingClientRect().height`, so a caller adds it by hand. */
+export const NOTE_MARGIN_TOP_MM = 2;
+
 /** Packs measured table rows into pages: `firstPageBudgetPx` is what the
- * elevation leaves on page one; `laterPageBudgetPx` is a full page. Pure. */
+ * elevation (and the note, when there is one) leaves on page one;
+ * `laterPageBudgetPx` is a full page. A page with no room left at all is
+ * left empty rather than forced to take a row it cannot fit; only a row
+ * wider than a whole later page still gets forced onto its own. Pure. */
 export function paginateRackTableByHeight(
   rows: readonly { row: RackDeviceRow; heightPx: number }[],
   firstPageBudgetPx: number,
@@ -133,13 +140,16 @@ export function paginateRackTableByHeight(
   let used = 0;
   let budget = firstPageBudgetPx;
 
+  function breakPage() {
+    pages.push(current);
+    current = [];
+    used = 0;
+    budget = laterPageBudgetPx;
+  }
+
   for (const r of rows) {
-    if (used + r.heightPx > budget && current.length > 0) {
-      pages.push(current);
-      current = [];
-      used = 0;
-      budget = laterPageBudgetPx;
-    }
+    if (current.length === 0 && budget <= 0) breakPage();
+    if (used + r.heightPx > budget && current.length > 0) breakPage();
     current.push(r.row);
     used += r.heightPx;
   }

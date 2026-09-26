@@ -1,8 +1,6 @@
-// Drives the Print panel through the real App: opens the panel, prints
-// each sheet kind to a real PDF on A4 and Letter, checks the real page
-// count against the title blocks' own "x of y", downloads the cut sheet.
-// Usage: bash scripts/build-wasm.sh (if stale), then
-//   flock <lock> node scripts/drive-print.mjs
+// Drives the Print panel through the real App: prints each sheet kind to a
+// real PDF, checks its page count against the title blocks' own "x of y".
+// Usage: bash scripts/build-wasm.sh (if stale), then flock <lock> node scripts/drive-print.mjs
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,8 +37,7 @@ function check(name, ok, detail) {
 }
 
 /** How many real pages a PDF has, two ways that must agree: `byTypePage`
- * counts leaf `/Type /Page` objects; `byCount` follows Catalog to its
- * Pages object's own `/Count`, not the first `/Count` in the file, which past 8 pages is a child's. */
+ * counts leaf `/Type /Page` objects; `byCount` follows Catalog to its Pages object's own `/Count`. */
 function countPdfPages(buffer) {
   const text = buffer.toString('latin1');
   const typePageMatches = text.match(/\/Type\s*\/Page(?!s)/g) ?? [];
@@ -203,9 +200,7 @@ try {
   if (opensViaCtrlP > 0) await page.locator('[data-testid="print-panel-cancel"]').click();
 
   // -------------------------------------------------------------------------
-  // The real cases: this rack (the 42U rack), every rack in the closet
-  // (six racks), and the cut sheet — on A4 and on Letter, each printed to
-  // a real PDF and checked against its own title blocks.
+  // The real cases: this rack, the whole closet, the cut sheet — A4 and Letter.
   // -------------------------------------------------------------------------
   const cases = [
     { what: 'this-rack', cables: 'all', label: 'the 42U rack, cables all' },
@@ -252,6 +247,13 @@ try {
       const { domPageCount, pairs } = await toPreviewAndReadTitleBlocks(page);
       const label = `${kase.label} · ${paper}`;
       check(`${label}: the preview shows at least one page`, domPageCount > 0, `${domPageCount} pages`);
+      if (paper === 'A4') {
+        // This scene's design sits directly in one scope ("Drive network")
+        // — the title block must name it once, not as its own path too.
+        const design = await page.locator('.print-title-block__design').first().innerText();
+        const path = await page.locator('.print-title-block__path').first().innerText();
+        check(`${label}: the title block names the design once, not twice as its own path`, path.trim() !== design.trim(), `design="${design}" path="${path}"`);
+      }
       check(`${label}: every title block agrees on "of"`, pairs.every((p) => p && p.of === pairs[0]?.of), JSON.stringify(pairs));
       const declaredOf = pairs[0]?.of ?? -1;
       check(`${label}: "of" equals the number of pages actually shown`, declaredOf === domPageCount, `declared ${declaredOf}, shown ${domPageCount}`);
@@ -272,11 +274,8 @@ try {
         `pdf pages=${byTypePage}, title block "of"=${declaredOf}`,
       );
 
-      // `.print-preview` scrolls internally (`position: fixed; inset: 0`),
-      // so the DOCUMENT never grows past the viewport and `fullPage`
-      // screenshots nothing extra — one shot at the top (the panel's own
-      // choice and the first sheet), one scrolled to the very end (its
-      // title block and "page N of N").
+      // The preview scrolls internally, so one shot at the top and one
+      // scrolled to the end cover the whole job.
       await page.screenshot({ path: SHOTS + `P-02-${kase.what}-${paper}-top.png` });
       await page.evaluate(() => document.querySelector('[data-testid="print-preview"]')?.scrollTo(0, 1e9));
       await page.waitForTimeout(100);
@@ -286,6 +285,82 @@ try {
       await page.locator('[data-testid="print-preview-close"]').click();
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Nothing behind the preview may take a key or focus: Delete/Backspace/
+  // Ctrl+Z/Ctrl+Y/Ctrl+K must all stay swallowed, and Escape must still work.
+  // -------------------------------------------------------------------------
+  await page.goto(`${BASE}/drive.html?scene=print`);
+  await page.waitForSelector('.react-flow__node-rack', { timeout: 20_000 });
+  await page.locator('.react-flow__node-chassis').first().click();
+  await page.waitForTimeout(200);
+  const chassisCountBefore = await page.locator('.react-flow__node-chassis').count();
+
+  await page.locator('[data-testid="shell-print"]').click();
+  await page.locator('[data-testid="print-panel-print"]').click();
+  await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
+  const saveCountBefore = await page.evaluate(() => window.__saveCount__);
+
+  for (const combo of ['Delete', 'Backspace', 'Control+z', 'Control+y', 'Control+k']) {
+    await page.keyboard.press(combo);
+    await page.waitForTimeout(150);
+  }
+
+  const stillOpen = (await page.locator('[data-testid="print-preview"]').count()) > 0;
+  check('the preview stays open through Delete/Backspace/Ctrl+Z/Ctrl+Y/Ctrl+K', stillOpen);
+  const activeClass = await page.evaluate(() => document.activeElement?.className ?? '');
+  check('Ctrl+K under the preview did not focus the search box behind it', !activeClass.includes('shell-search'), activeClass);
+
+  let escapeClosed = true;
+  try {
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 });
+  } catch {
+    escapeClosed = false;
+  }
+  check('Escape still closes the preview after those keys', escapeClosed);
+
+  const chassisCountAfter = await page.locator('.react-flow__node-chassis').count();
+  check('the design is unchanged — no key under the preview deleted or undid anything', chassisCountAfter === chassisCountBefore, `${chassisCountBefore} -> ${chassisCountAfter}`);
+  const saveCountAfter = await page.evaluate(() => window.__saveCount__);
+  check('nothing was saved while the preview was open', saveCountAfter === saveCountBefore, `${saveCountBefore} -> ${saveCountAfter}`);
+
+  // -------------------------------------------------------------------------
+  // Opening and closing the preview leaves the drawing behind it exactly as
+  // it was: zoom, pan, the selection and its open editor panel.
+  // -------------------------------------------------------------------------
+  await page.goto(`${BASE}/drive.html?scene=print`);
+  await page.waitForSelector('.react-flow__node-rack', { timeout: 20_000 });
+  await page.locator('.react-flow__node-chassis').first().click();
+  await page.waitForTimeout(200);
+  await page.locator('[aria-label="Zoom in"]').click();
+  await page.locator('[aria-label="Zoom in"]').click();
+  const pane = await page.locator('.react-flow__pane').boundingBox();
+  if (pane) {
+    const cx = pane.x + pane.width / 2;
+    const cy = pane.y + pane.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 40, cy + 25, { steps: 6 });
+    await page.mouse.up();
+  }
+  await page.waitForTimeout(200);
+  const zoomBefore = await page.locator('.shell-zoom-value').innerText();
+  const transformBefore = await page.locator('.react-flow__viewport').getAttribute('style');
+  const editorBefore = await page.locator('.drawing-editor__panel').innerText();
+
+  await page.locator('[data-testid="shell-print"]').click();
+  await page.locator('[data-testid="print-panel-print"]').click();
+  await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
+  await page.locator('[data-testid="print-preview-close"]').click();
+  await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 });
+
+  const zoomAfter = await page.locator('.shell-zoom-value').innerText();
+  const transformAfter = await page.locator('.react-flow__viewport').getAttribute('style');
+  const editorAfter = await page.locator('.drawing-editor__panel').innerText();
+  check('the preview does not disturb zoom', zoomAfter === zoomBefore, `${zoomBefore} -> ${zoomAfter}`);
+  check('the preview does not disturb pan', transformAfter === transformBefore, `${transformBefore} -> ${transformAfter}`);
+  check('the preview does not disturb the open editor / selection', editorAfter === editorBefore, editorAfter.slice(0, 80));
 
   // -------------------------------------------------------------------------
   // The attack scene: 50-character FQDN hostnames, a long cable label and
@@ -325,8 +400,8 @@ try {
     console.log('    wrote ' + SHOTS + `P-03-attack-${kase.what}-{top,end}.png`);
 
     if (kase.what === 'cut-sheet') {
-      // The cut sheet's own job of more than 8 pages — the `/Count` bug the
-      // review found only shows up past Chromium's own 8-page grouping.
+      // Past 8 pages Chromium nests /Pages containers with their own smaller
+      // /Count — this proves the job is big enough to exercise that path.
       check('attack scene: the cut sheet takes more than 8 pages, so the /Count fix is tested for real', declaredOf > 8, `${declaredOf} pages`);
     }
 

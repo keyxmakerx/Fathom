@@ -129,4 +129,16 @@ describe('paginateRackTableByHeight', () => {
   it('with no rows, returns one empty page', () => {
     expect(paginateRackTableByHeight([], 50, 50)).toEqual([[]]);
   });
+
+  it('leaves the first page empty rather than force a row where none fits', () => {
+    const rows = ['a', 'b'].map((n) => ({ row: row(n), heightPx: 10 }));
+    const pages = paginateRackTableByHeight(rows, 0, 25);
+    expect(pages.map((p) => p.map((r) => r.name))).toEqual([[], ['a', 'b']]);
+  });
+
+  it('same, for a negative first-page budget', () => {
+    const rows = ['a'].map((n) => ({ row: row(n), heightPx: 10 }));
+    const pages = paginateRackTableByHeight(rows, -5, 25);
+    expect(pages.map((p) => p.map((r) => r.name))).toEqual([[], ['a']]);
+  });
 });
