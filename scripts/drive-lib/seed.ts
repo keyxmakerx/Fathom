@@ -484,7 +484,7 @@ export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Doc
   const sw = place(22, 'ubiquiti', 'USW-24-PoE', 'sw-core');
   const fw = place(21, 'juniper', 'SRX300', 'fw-01');
   const dock1 = place(17, 'dell', 'R740xd', 'dock-01');
-  const dock2 = place(15, 'hpe', 'DL380 Gen10', 'dock-02');
+  const dock2 = place(15, 'hpe', 'DL380-Gen10', 'dock-02');
   const nas = place(14, 'synology', 'RS822+', 'nas-01');
   const ups = place(2, 'cyberpower', 'PR1500LCDRT2U', 'ups-01');
   const pdu = place(1, 'apc', 'AP7920B', 'pdu-01');

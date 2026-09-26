@@ -44,3 +44,7 @@ export const CSS_PX_PER_MM = 96 / 25.4;
 export function mmToPx(mm: number): number {
   return mm * CSS_PX_PER_MM;
 }
+
+export function pxToMm(px: number): number {
+  return px / CSS_PX_PER_MM;
+}

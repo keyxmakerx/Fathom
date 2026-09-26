@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import { faceplateItem, type Facing } from '../components/drawing/elevation';
-import { contentHeightMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
+import { contentHeightMm, mmToPx, pageHeightMm, pageWidthMm, pxToMm, type PaperSize } from './paper';
 import {
   ELEVATION_CAPTION_MM,
   NOTE_MARGIN_TOP_MM,
@@ -52,6 +52,9 @@ interface RackPageContent {
   sheet: RackSheetUnpaginated;
   showElevation: boolean;
   rows: RackDeviceRow[];
+  /** Real, measured space the notes below the elevation take on page one —
+   * the elevation itself must leave this much room, not just the table. */
+  reservedMm: number;
 }
 
 interface CutSheetPageContent {
@@ -90,17 +93,18 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
   job.sheets.forEach((sheet, sheetIndex) => {
     if (sheet.kind === 'rack') {
       const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
-      const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper));
       const notePx = sheet.hideSensitive ? (heights.get(`${sheetIndex}:note`) ?? 0) + mmToPx(NOTE_MARGIN_TOP_MM) : 0;
       const cablesShown = sheet.frontCables.length > 0 || sheet.rearCables.length > 0;
       const cablesNotePx = cablesShown ? (heights.get(`${sheetIndex}:cablesNote`) ?? 0) : 0;
+      const reservedMm = pxToMm(notePx) + pxToMm(cablesNotePx);
+      const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper, reservedMm));
       const rows = sheet.deviceRows.map((row, i) => ({ row, heightPx: heights.get(`${sheetIndex}:r${i}`) ?? 0 }));
       const firstBudget = Math.max(0, capacityPx - elevationPx - notePx - cablesNotePx - theadPx);
       const laterBudget = Math.max(0, capacityPx - theadPx);
       const pages = paginateRackTableByHeight(rows, firstBudget, laterBudget);
       pages.forEach((pageRows, pageIndex) => {
         built.push({
-          content: { kind: 'rack', sheet, showElevation: pageIndex === 0, rows: pageRows },
+          content: { kind: 'rack', sheet, showElevation: pageIndex === 0, rows: pageRows, reservedMm },
           heading: sheet.heading,
         });
       });
@@ -347,9 +351,9 @@ function CutSheetRow({ row, dataRowId }: { row: CutSheetTableRow; dataRowId?: st
 const CUT_SHEET_COLUMN_WIDTHS = [14, 12, 14, 8, 8, 16, 10, 8, 10];
 
 function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPageContent; paper: PaperSize; blackAndWhite: boolean }) {
-  const { sheet, showElevation, rows } = content;
+  const { sheet, showElevation, rows, reservedMm } = content;
   const items = elevationItemsOf(sheet);
-  const rowMm = elevationRowMm(sheet.heightU, paper);
+  const rowMm = elevationRowMm(sheet.heightU, paper, reservedMm);
   return (
     <div className="print-rack-sheet">
       {showElevation && (

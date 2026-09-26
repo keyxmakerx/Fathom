@@ -14,17 +14,20 @@ export const ELEVATION_ROW_MM = 6;
 export const ELEVATION_CAPTION_MM = 4;
 
 /** How tall one rack unit draws, scaled down only if the natural size would
- * overflow one page's content area — an elevation never splits across pages. */
-export function elevationRowMm(heightU: number, paper: PaperSize): number {
-  const budget = contentHeightMm(paper) - ELEVATION_CAPTION_MM;
+ * overflow one page's content area — an elevation never splits across
+ * pages. `reservedMm` is whatever else must still fit below it on page one
+ * (the "leave out serials" note, the "Cables:" summary) — real, measured
+ * space, not guessed, so the elevation shrinks enough to leave room. */
+export function elevationRowMm(heightU: number, paper: PaperSize, reservedMm = 0): number {
+  const budget = contentHeightMm(paper) - ELEVATION_CAPTION_MM - reservedMm;
   const natural = heightU * ELEVATION_ROW_MM;
-  return natural <= budget ? ELEVATION_ROW_MM : budget / heightU;
+  return natural <= budget ? ELEVATION_ROW_MM : Math.max(0, budget) / heightU;
 }
 
 /** The elevation's own real rendered height — rows plus the caption strip
  * — what both the SVG's own height and a page budget must agree on. */
-export function elevationHeightMm(heightU: number, paper: PaperSize): number {
-  return heightU * elevationRowMm(heightU, paper) + ELEVATION_CAPTION_MM;
+export function elevationHeightMm(heightU: number, paper: PaperSize, reservedMm = 0): number {
+  return heightU * elevationRowMm(heightU, paper, reservedMm) + ELEVATION_CAPTION_MM;
 }
 
 export interface RackDeviceRow {
