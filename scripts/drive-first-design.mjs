@@ -56,6 +56,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -636,6 +637,8 @@ async function runProof(browser, seed) {
   const drawerCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const one = await stewardCtx.newPage();
   const two = await drawerCtx.newPage();
+  await applyDriveCpuThrottle(one);
+  await applyDriveCpuThrottle(two);
   one.on('console', (m) => console.log('[one console] ' + m.text()));
   two.on('console', (m) => console.log('[two console] ' + m.text()));
   one.on('pageerror', (e) => console.log('[one pageerror] ' + e));

@@ -1,5 +1,4 @@
-// GitHub issue #66: "the drawing re-creates every node on each render, so
-// nodes blink hidden." Proves the fix end to end in a real browser, against
+// Proves nodes never blink hidden, end to end in a real browser, against
 // the real compiled client (the shared throwaway harness —
 // `scripts/drive-lib/harness.tsx` + `seed.ts` + `catalogue.json`, copied
 // into `client/` and removed below, see `drive-config-drawer.mjs` for why a
@@ -7,14 +6,14 @@
 // cable between the first two.
 //
 // React Flow marks a node `visibility: hidden` in its own inline style
-// until a `ResizeObserver` has measured it (`@xyflow/react`'s own
-// `NodeWrapper`) — dropped, and re-applied, whenever the `Node` object a
-// caller hands it changes reference. This installs a `MutationObserver` on
-// every `.react-flow__node`'s own `style` attribute AFTER the first draw
-// (so the node's own real, one-time initial measurement is never counted),
-// then hovers a cable, selects several devices, drags one, and wheel-zooms
-// — the four gestures GitHub issue #66's own brief names — and asserts that
-// observer counted zero `visibility: hidden` transitions the whole time.
+// until it has been measured (`@xyflow/react`'s own `NodeWrapper`) —
+// dropped, and re-applied, whenever the `Node` object a caller hands it
+// changes reference. This installs a `MutationObserver` on every
+// `.react-flow__node`'s own `style` attribute AFTER the first draw (so the
+// node's own real, one-time initial measurement is never counted), then
+// hovers a cable, selects several devices, drags one (including a real
+// relocation, not a jiggle), and wheel-zooms, and asserts that observer
+// counted zero `visibility: hidden` transitions the whole time.
 //
 // Usage:
 //   bash scripts/build-wasm.sh                 # once, if the artefact is stale
@@ -177,8 +176,7 @@ try {
   });
 
   // -------------------------------------------------------------------
-  // 1. Hover — the cable between dev-01 and dev-02 (s6f #2, approach #1's
-  //    own rejection note: "cable hover still changed every node").
+  // 1. Hover — the cable between dev-01 and dev-02.
   // -------------------------------------------------------------------
   const cableEdge = page.locator('.react-flow__edge').first();
   await cableEdge.waitFor({ state: 'visible', timeout: 10_000 });

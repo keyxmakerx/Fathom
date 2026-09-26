@@ -73,10 +73,8 @@ function placement(s: SurfaceView, overrides: Partial<SurfacePlacement> = {}): S
   return { surface: s, x: 0, y: 0, widthPx: 340, heightPx: PANEL_HEIGHT_PX, ...overrides };
 }
 
-// GitHub issue #66: `liveDrag`/`litCableId` moved off `data` and onto
-// `liveStore.ts`'s own store (`SurfaceNode.tsx`'s own file header); a
-// fresh, empty store gives every test below the same `liveDrag: null`,
-// `litCableId: null` reading the old `baseData` defaults did.
+// `liveDrag`/`litCableId` live in `liveStore.ts`, not on `data` — a fresh,
+// empty store gives every test below `liveDrag: null`, `litCableId: null`.
 function renderSurface(data: SurfaceNodeData): string {
   const store = createLiveStore();
   return renderToStaticMarkup(

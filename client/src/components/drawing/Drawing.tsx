@@ -576,21 +576,13 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackIdsKey, allRacksPositioned, rf]);
 
-  // GitHub issue #66's own drive (drive-hand-entry, drag-to-connect after a
-  // wheel zoom) found a pre-existing race here, now more visible than it
-  // used to be simply because a render is cheaper: `handleViewportChange`
-  // (below) applies a wheel tick's own zoom LOCALLY the same instant it
-  // reports the rounded percentage upward (`onZoomChange`); that report's
-  // own echo arrives back here as this effect's `zoom` dependency one or
-  // more renders later. Under a fast burst of wheel ticks, `viewport` can
-  // already have moved on to a LATER tick's zoom by the time an EARLIER
-  // tick's echo lands — this effect existed only for the bar's own +/-
-  // (a real external change), but had no way to tell the two apart, so an
-  // echo could yank the pane back to the stale percentage it itself just
-  // reported, fighting the wheel a person is still turning. `pendingEchoRef`
-  // is the most recent percentage THIS component reported and has not yet
-  // seen come back: when the incoming `zoom` matches it exactly, it is that
-  // echo, not the bar's own +/-, and is skipped rather than reapplied.
+  // `handleViewportChange` (below) applies a wheel tick's own zoom locally
+  // the same instant it reports the rounded percentage upward; that
+  // report's own echo can arrive back here after a LATER tick has already
+  // moved `viewport` on. `pendingEchoRef` is the most recent percentage
+  // this component itself reported and has not yet seen come back — when
+  // the incoming `zoom` matches it exactly, it is skipped rather than
+  // reapplied, so it never fights a wheel still turning.
   const pendingEchoRef = useRef<number | null>(null);
   useEffect(() => {
     if (pendingEchoRef.current === zoom) {
@@ -692,10 +684,8 @@ function DrawingInner({
     selectedChassis != null && cameraStop === 'faceplate' ? (renderConfigDrawer?.(selectedChassis) ?? null) : null;
   const insideStopContent: ReactNode =
     selectedChassis != null && cameraStop === 'inside' ? (renderInsideStop?.(selectedChassis) ?? null) : null;
-  // GitHub issue #66: s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" —
-  // pushed to `liveStore.ts` below (`dimmedChassisId`) so `ChassisNode.tsx`
-  // applies its own dim class, rather than a `Node`-level `className` that
-  // rebuilt this chassis's own node object every time it changed.
+  // UI-SPEC "Config": "Plate stays above, dimmed" — pushed to
+  // `liveStore.ts` below so `ChassisNode.tsx` applies its own dim class.
   const dimmedChassisId = configDrawerContent != null ? (selectedChassis?.id ?? null) : null;
 
   // ADR-0052 §1, item 2 — resolves `litPortLabel` to a port id on the
@@ -756,12 +746,9 @@ function DrawingInner({
     return () => matches.forEach((el) => el.classList.remove('drawing-port--shake'));
   }, [shakingPortId]);
 
-  // GitHub issue #66: identical for every chassis/shelf/surface node in
-  // this drawing — a plain forward to `onSelect`, closing over nothing
-  // node-specific — so hoisted once here rather than built fresh per node
-  // per render, the same "the outer node object's own reference should not
-  // move when nothing about that node changed" reasoning the node cache
-  // itself is built for.
+  // A plain forward to `onSelect`, closing over nothing node-specific — one
+  // stable function every node shares, rather than a fresh closure built
+  // per node per render.
   const handleSelectPort = useCallback((portId: string) => onSelect({ kind: 'port', id: portId }), [onSelect]);
   const handleSelectFixture = useCallback((fixtureId: string) => onSelect({ kind: 'fixture', id: fixtureId }), [onSelect]);
 
@@ -779,11 +766,8 @@ function DrawingInner({
     if (cameraStop === 'closet' && layout.racks.length > 0) {
       const key = rowKey(rowViews[rowIndex]!, rowIndex);
       const bandHeight = Math.max(0, ...layout.racks.map((r) => rackNodeHeight(r)));
-      // GitHub issue #66, build item 2: this node's own reference is kept
-      // across a render `layout.label`/`.elevation`/`bandHeight`/`y` did
-      // not touch — `IdCache.get`'s own `build` thunk (`idCache.ts`) only
-      // ever runs on a miss, so a cache hit below never even builds the
-      // fresh `onFlip` closure, let alone a new node object for it.
+      // Kept across a render none of these deps touched — `IdCache.get`'s
+      // own `build` thunk only runs on a miss.
       nodes.push(
         nodeCacheRef.current.get(rowLabelNodeId(key), [layout.label, layout.elevation, bandHeight, y], () => ({
           id: rowLabelNodeId(key),
@@ -956,30 +940,15 @@ function DrawingInner({
     }
   });
 
-  // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
+  // UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
   // `.drawing-config-drawer` reserves the pane's own bottom
   // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
   // chassis inside the remaining top strip, centred in it, whenever the
   // drawer opens — an edge-triggered `setCenter`, fired once on the
   // transition into "a chassis is selected and the camera reads the
   // faceplate stop," never on every zoom tick while it stays there, so a
-  // person's own subsequent pan or scroll is never fought mid-read.
-  //
-  // GitHub issue #66's own drive (drive-hand-entry) found that transition
-  // itself CAN coincide with a person's own wheel zoom still landing the
-  // camera on that same faceplate stop (a rapid burst of wheel ticks right
-  // after a selection): an ANIMATED `setCenter` (this used `duration: 300`,
-  // the same glide `Motion #10`'s own shelf-occupant open uses, above)
-  // leaves a few hundred milliseconds during which d3-zoom's own wheel
-  // handler can interrupt the still-running transition and compound its own
-  // multiplicative delta on top of wherever that transition had reached —
-  // not merely a redundant recentre, a WRONG one, overshooting well past
-  // the faceplate stop. `duration: 0` — instant — removes the window
-  // entirely: there is nothing left for a wheel tick landing a moment later
-  // to interrupt. The trade is a snap here instead of a glide; UI-SPEC's own
-  // "Motion" #9 (the drawer sliding in) is `drawing.css`'s own CSS
-  // transition on the drawer itself, untouched by this — only the camera's
-  // own approach to it stops animating.
+  // person's own subsequent pan or scroll is never fought mid-read. One
+  // camera, glide and all — UI-SPEC "Motion" #10.
   const configDrawerOpen = configDrawerContent != null;
   useEffect(() => {
     if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
@@ -989,7 +958,7 @@ function DrawingInner({
     const DRAWER_HEIGHT_FRACTION = 0.46; // matches `drawing.css`'s own literal
     const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
     const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
-    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 0 });
+    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
     // on purpose (see comment above): `selectedChassisFlowCentre` itself is
     // rebuilt fresh every render and would fire this on every pixel of a
@@ -1124,11 +1093,8 @@ function DrawingInner({
       group.side === 'above'
         ? pos.y - (slot + 1) * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX)
         : pos.y + rackNodeHeight(rack) + TRAY_GAP_PX + slot * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX);
-    // `lit` used to live on `data` directly, rebuilt (and so this tray's
-    // node object rebuilt) every time `litCableId` changed anywhere in the
-    // drawing — `PortalTrayNode.tsx` now reads its own answer off
-    // `liveStore.ts`'s `litTrayKeySet` itself, keyed by `group.key`
-    // (`trayKey` below).
+    // `PortalTrayNode.tsx` reads whether it is lit off `liveStore.ts`'s
+    // `litTrayKeySet` itself, keyed by `group.key` (`trayKey` below).
     const groupSnapshot = portalGroupRef.current.get(group.key, group, portalGroupEqual);
     nodes.push(
       nodeCacheRef.current.get(trayNodeId(group.key), [groupSnapshot, pos.x, y], () => ({

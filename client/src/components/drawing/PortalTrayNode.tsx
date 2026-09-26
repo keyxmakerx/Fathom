@@ -17,13 +17,10 @@ export interface PortalTrayNodeData extends Record<string, unknown> {
   label: string;
   countLabel: string;
   side: 'above' | 'below';
-  /** `portals.ts`'s own `PortalGroup.key` — GitHub issue #66: `lit` used to
-   * be a plain boolean here, recomputed (and so a new node object) on every
-   * render that touched `Drawing.tsx`'s own `litCableId`. This node reads
-   * its own answer from `liveStore.ts`'s `litTrayKeySet` instead, keyed by
-   * this same group key — UI-SPEC "Portals": "When the lit path continues
-   * through it the tray's outline goes solid with the continuation named
-   * above it." */
+  /** `portals.ts`'s own `PortalGroup.key`. This node reads whether it is
+   * lit off `liveStore.ts`'s `litTrayKeySet`, keyed by this same group key
+   * — UI-SPEC "Portals": "When the lit path continues through it the
+   * tray's outline goes solid with the continuation named above it." */
   trayKey: string;
 }
 

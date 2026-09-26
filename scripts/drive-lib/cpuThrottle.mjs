@@ -1,11 +1,7 @@
-// GitHub issue #66: reproducing "nodes blink under load" without actually
-// loading the machine — slow only the drive's own browser tab, with
-// Chromium's DevTools protocol, behind an env switch so an ordinary drive
-// run (this file's other callers, unthrottled) is untouched.
+// Slows only the drive's own browser tab, via Chromium's DevTools protocol,
+// behind an env switch — an ordinary drive run is untouched.
 //
 // Usage: FATHOM_DRIVE_CPU_THROTTLE=6 node scripts/drive-hand-entry.mjs
-// A rate of 1 is "no throttling" (Chromium's own default); 4 to 10 is the
-// range this issue was reproduced at.
 
 /** Applies `FATHOM_DRIVE_CPU_THROTTLE` (a number, e.g. "6") to `page`'s own
  * CDP session, if set. A no-op — no CDP session opened at all — when unset,

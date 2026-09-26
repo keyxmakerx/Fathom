@@ -215,12 +215,19 @@ try {
     const midX = (box0.x + box0.width / 2 + box1.x + box1.width / 2) / 2;
     const midY = (box0.y + box0.height / 2 + box1.y + box1.height / 2) / 2;
     await page.mouse.move(midX, midY);
-    for (let i = 0; i < 10; i += 1) {
+    // Zooms to the faceplate stop itself, not a fixed tick count: a wheel
+    // tick's own size varies under throttling, and a fixed count can
+    // overshoot past the stop it is aiming for.
+    for (let i = 0; i < 15; i += 1) {
+      const stop = await page.locator('.drawing').getAttribute('data-camera-stop');
+      if (stop === 'faceplate') break;
       await page.mouse.wheel(0, -240);
       await page.waitForTimeout(50);
     }
   }
   await page.waitForTimeout(300);
+  const reachedFaceplate = (await page.locator('.drawing').getAttribute('data-camera-stop')) === 'faceplate';
+  check('zoomed to the faceplate stop', reachedFaceplate);
 
   const chassisNodes = page.locator('.react-flow__node-chassis');
   const fromPort = chassisNodes.nth(0).locator('[data-port-id]').first();
