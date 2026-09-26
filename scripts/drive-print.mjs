@@ -347,7 +347,7 @@ try {
       return bad;
     });
     check(`${label}: every drawn cable starts and ends on a port glyph`, anchorMiss.length === 0, anchorMiss.slice(0, 5).join(' '));
-    const cablesNoteText = await page.locator('.print-cables-note').first().innerText();
+    const cablesNoteText = await page.locator('[data-testid="print-page"] .print-cables-note').first().innerText();
     check(`${label}: the "Cables:" list still names all five, drawn or not`, cablesNoteText.includes('all · 5'), cablesNoteText.slice(0, 40));
 
     const tableText = await page.locator('[data-testid="print-rack-device-table"]').first().innerText();

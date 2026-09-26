@@ -292,6 +292,9 @@ const MODEL_FONT_UNITS = 2.4;
 const NAME_ZONE_UNITS = 20;
 const MODEL_ZONE_UNITS = 16;
 const ZONE_MARGIN_UNITS = 2;
+/** A real gap between the glyph zone and its neighbours, so a rounding
+ * error in the SVG's own scaling never touches two boxes that only just fit. */
+const ZONE_GAP_UNITS = 1.5;
 const NAME_LINE_Y = 3.4;
 const LOWER_LINE_Y = 6.4;
 
@@ -321,7 +324,10 @@ export function deviceFaceplateLayout(
 
   if (heightU === 1) {
     const y = NAME_LINE_Y;
-    const zone: GlyphZone = { startX: NAME_ZONE_UNITS, width: Math.max(0, bodyW - NAME_ZONE_UNITS - MODEL_ZONE_UNITS) };
+    const zone: GlyphZone = {
+      startX: NAME_ZONE_UNITS + ZONE_GAP_UNITS,
+      width: Math.max(0, bodyW - NAME_ZONE_UNITS - MODEL_ZONE_UNITS - ZONE_GAP_UNITS * 2),
+    };
     return {
       nameBox: estimateTextBox(name, ZONE_MARGIN_UNITS, y, NAME_FONT_UNITS, false, NAME_ZONE_UNITS - ZONE_MARGIN_UNITS),
       nameY: y,
@@ -333,7 +339,7 @@ export function deviceFaceplateLayout(
     };
   }
 
-  const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS, width: Math.max(0, bodyW - ZONE_MARGIN_UNITS - MODEL_ZONE_UNITS) };
+  const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS, width: Math.max(0, bodyW - ZONE_MARGIN_UNITS - MODEL_ZONE_UNITS - ZONE_GAP_UNITS) };
   const portGlyphs = facePortGlyphs(ports, zone, LOWER_LINE_Y - GLYPH_H_UNITS);
   const portRowCount = faceplateGlyphRows(ports).length;
   const inletGlyphs = facePortGlyphs(inlets, zone, LOWER_LINE_Y - GLYPH_H_UNITS + portRowCount * GLYPH_ROW_STEP_UNITS, true);
