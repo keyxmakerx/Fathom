@@ -449,7 +449,7 @@ function Elevation({
     const y = yOf(item.positionU, item.heightU);
     const c = item.chassis;
     const face = faceplateItem(c, elevation);
-    const layout = deviceFaceplateLayout(c.hostname || '—', c.model, face.ports, face.inlets, item.heightU, bodyW);
+    const layout = deviceFaceplateLayout(c.hostname || '—', c.model, face.ports, face.inlets, item.heightU, bodyW, item.heightU * rowMm);
     layoutByChassisId.set(c.id, layout);
     for (const g of [...layout.portGlyphs, ...layout.inletGlyphs]) {
       portXY.set(g.port.id, { x: railW + g.x + g.w / 2, y: y + g.y + g.h / 2 });
@@ -506,28 +506,15 @@ function Elevation({
             const layout = layoutByChassisId.get(c.id)!;
             return (
               <g key={c.id} transform={`translate(${railW}, ${y})`}>
-                <clipPath id={clipId}>
-                  <rect width={bodyW} height={h} />
-                </clipPath>
-                {/* A name or model longer than its own estimate still stops at
-                    the same edge the layout reserved — never over a glyph. */}
-                <clipPath id={`${clipId}-name`}>
-                  <rect x={layout.nameBox.x0} width={layout.nameBox.x1 - layout.nameBox.x0} height={h} />
-                </clipPath>
-                <clipPath id={`${clipId}-model`}>
-                  <rect x={layout.modelBox.x0} width={layout.modelBox.x1 - layout.modelBox.x0} height={h} />
-                </clipPath>
                 <rect width={bodyW} height={h} className="print-elevation__box" />
-                <g clipPath={`url(#${clipId})`}>
-                  <PortGlyphs glyphs={layout.portGlyphs} />
-                  <PortGlyphs glyphs={layout.inletGlyphs} />
-                  <text x={2} y={layout.nameY} className="print-elevation__name" clipPath={`url(#${clipId}-name)`}>
-                    {c.hostname || '—'}
-                  </text>
-                  <text x={layout.modelX} y={layout.modelY} textAnchor="end" className="print-elevation__model" clipPath={`url(#${clipId}-model)`}>
-                    {c.model}
-                  </text>
-                </g>
+                <PortGlyphs glyphs={layout.portGlyphs} />
+                <PortGlyphs glyphs={layout.inletGlyphs} />
+                <text x={2} y={layout.nameY} className="print-elevation__name">
+                  {c.hostname || '—'}
+                </text>
+                <text x={layout.modelX} y={layout.modelY} textAnchor="end" className="print-elevation__model" style={{ fontSize: `${layout.modelFont}px` }}>
+                  {c.model}
+                </text>
               </g>
             );
           }

@@ -244,6 +244,15 @@ const GLYPH_WIDTH_BY_KIND: Record<PortKind, number> = {
   generic: 1,
 };
 
+function glyphWidthOf(p: PortView): number {
+  return GLYPH_WIDTH_BY_KIND[portKindFor(p.connector) ?? 'generic'];
+}
+
+function naturalRowWidth(ports: readonly PortView[]): number {
+  if (ports.length === 0) return 0;
+  return ports.reduce((sum, p) => sum + glyphWidthOf(p), 0) + GLYPH_GAP_UNITS * (ports.length - 1);
+}
+
 /** A horizontal band a glyph row may use — never the name's or the
  * model's own reserved space (`deviceFaceplateLayout` below draws them). */
 export interface GlyphZone {
@@ -251,33 +260,32 @@ export interface GlyphZone {
   width: number;
 }
 
-/** Where each port's glyph draws inside `zone` at `y`, shrunk to fit if it
- * would overflow; `rightAlign` anchors a row at the zone's right edge. Pure. */
-export function facePortGlyphs(ports: readonly PortView[], zone: GlyphZone, y: number, rightAlign = false): FaceplateGlyph[] {
-  const rows = faceplateGlyphRows(ports);
-  const out: FaceplateGlyph[] = [];
-  rows.forEach((row, rowIndex) => {
-    const rowY = y + rowIndex * GLYPH_ROW_STEP_UNITS;
-    const kinds = row.map((p) => portKindFor(p.connector) ?? 'generic');
-    const naturalWidths = kinds.map((k) => GLYPH_WIDTH_BY_KIND[k]);
-    const naturalTotal = naturalWidths.reduce((sum, w) => sum + w, 0) + GLYPH_GAP_UNITS * Math.max(0, row.length - 1);
-    const scale = naturalTotal > zone.width && naturalTotal > 0 ? Math.max(0, zone.width) / naturalTotal : 1;
-    let x = rightAlign ? zone.startX + zone.width - naturalTotal * scale : zone.startX;
-    row.forEach((p, i) => {
-      const w = naturalWidths[i] * scale;
-      out.push({ port: p, x, y: rowY, w, h: GLYPH_H_UNITS * scale, shape: kinds[i] === 'c14' ? 'hex' : 'rect' });
-      x += w + GLYPH_GAP_UNITS * scale;
-    });
+/** One row of glyphs, shrunk — never clipped — to fit `zone`; `h` is the
+ * height to draw each glyph at, already scaled for the box if it is short. Pure. */
+function layoutGlyphRow(row: readonly PortView[], zone: GlyphZone, y: number, h: number, rightAlign: boolean): FaceplateGlyph[] {
+  const naturalTotal = naturalRowWidth(row);
+  const scale = naturalTotal > zone.width && naturalTotal > 0 ? Math.max(0, zone.width) / naturalTotal : 1;
+  let x = rightAlign ? zone.startX + zone.width - naturalTotal * scale : zone.startX;
+  return row.map((p) => {
+    const w = glyphWidthOf(p) * scale;
+    const glyph: FaceplateGlyph = { port: p, x, y, w, h, shape: (portKindFor(p.connector) ?? 'generic') === 'c14' ? 'hex' : 'rect' };
+    x += w + GLYPH_GAP_UNITS * scale;
+    return glyph;
   });
-  return out;
 }
 
-/** A rough on-page text box, sans-serif, capped at `maxW` — the SVG itself
- * clips a name/model to the same band, so this never overstates the real overlap risk. */
-function estimateTextBox(text: string, x: number, y: number, fontUnits: number, anchorEnd: boolean, maxW: number): TextBox {
-  const w = Math.min(text.length * fontUnits * 0.6, maxW);
-  const x0 = anchorEnd ? x - w : x;
-  return { x0, x1: x0 + w, y0: y - fontUnits, y1: y };
+/** Where each port's glyph draws inside `zone`, one row per faceplate row
+ * from `y`; `rightAlign` anchors a row at the zone's right edge. Pure. */
+export function facePortGlyphs(ports: readonly PortView[], zone: GlyphZone, y: number, rightAlign = false): FaceplateGlyph[] {
+  const rows = faceplateGlyphRows(ports);
+  return rows.flatMap((row, rowIndex) => layoutGlyphRow(row, zone, y + rowIndex * GLYPH_ROW_STEP_UNITS, GLYPH_H_UNITS, rightAlign));
+}
+
+/** Every port and inlet on one row, catalogue row then column — a 1U box
+ * has room for one line, so its own top/bottom rows still read together instead of stacking past the box's bottom edge. Pure. */
+function singleRowGlyphs(ports: readonly PortView[], zone: GlyphZone, y: number, h: number): FaceplateGlyph[] {
+  const flat = [...ports].sort((a, b) => a.row - b.row || a.column - b.column);
+  return layoutGlyphRow(flat, zone, y, h, false);
 }
 
 export interface TextBox {
@@ -287,13 +295,21 @@ export interface TextBox {
   y1: number;
 }
 
+/** A rough on-page text width, sans-serif — generous on purpose: the real
+ * glyph must never run past what this claims, since nothing clips it. */
+function textWidthAt(text: string, fontUnits: number): number {
+  return text.length * fontUnits * CHAR_WIDTH_RATIO;
+}
+
+const CHAR_WIDTH_RATIO = 0.72;
 const NAME_FONT_UNITS = 3;
-const MODEL_FONT_UNITS = 2.4;
-const NAME_ZONE_UNITS = 20;
-const MODEL_ZONE_UNITS = 16;
+const MODEL_FONT_DEFAULT_UNITS = 2.4;
+/** About 5pt — the smallest the model's own type shrinks to before a name
+ * or a great many ports gets to keep crowding it. */
+const MODEL_FONT_FLOOR_UNITS = 1.8;
 const ZONE_MARGIN_UNITS = 2;
-/** A real gap between the glyph zone and its neighbours, so a rounding
- * error in the SVG's own scaling never touches two boxes that only just fit. */
+/** A real gap between two neighbouring boxes, so a rounding error in the
+ * SVG's own scaling never touches two that only just fit. */
 const ZONE_GAP_UNITS = 1.5;
 const NAME_LINE_Y = 3.4;
 const LOWER_LINE_Y = 6.4;
@@ -304,12 +320,28 @@ export interface DeviceFaceplateLayout {
   modelBox: TextBox;
   modelY: number;
   modelX: number;
+  modelFont: number;
   portGlyphs: FaceplateGlyph[];
   inletGlyphs: FaceplateGlyph[];
 }
 
-/** How name, model and glyphs share one faceplate without overlapping: a
- * 1U box puts all three on one line; a taller one puts the name on its own top line, glyphs and model below. Pure. */
+/** Negotiates one line shared by glyphs and the model's own type: the
+ * model keeps its default size as long as that leaves the glyphs some room; past that its type shrinks to the floor instead. Never clips. */
+function shareLineWithModel(model: string, glyphsNaturalW: number, availableW: number): { modelFont: number; modelW: number; glyphZoneWidth: number } {
+  const room = Math.max(0, availableW - ZONE_GAP_UNITS);
+  let modelFont = MODEL_FONT_DEFAULT_UNITS;
+  let modelW = textWidthAt(model, modelFont);
+  let glyphZoneWidth = room - modelW;
+  if (glyphsNaturalW > 0 && glyphZoneWidth <= 0) {
+    modelFont = MODEL_FONT_FLOOR_UNITS;
+    modelW = textWidthAt(model, modelFont);
+    glyphZoneWidth = room - modelW;
+  }
+  return { modelFont, modelW, glyphZoneWidth: Math.max(0, glyphZoneWidth) };
+}
+
+/** How name, model and glyphs share one faceplate without ever clipping:
+ * a 1U box puts all three on one line; a taller one puts the name on its own top line, glyphs and model below, scaled to fit `h`. Pure. */
 export function deviceFaceplateLayout(
   name: string,
   model: string,
@@ -317,38 +349,53 @@ export function deviceFaceplateLayout(
   inlets: readonly PortView[],
   heightU: number,
   bodyW: number,
+  h: number,
 ): DeviceFaceplateLayout {
   const modelX = bodyW - ZONE_MARGIN_UNITS;
 
-  const modelMaxW = MODEL_ZONE_UNITS - ZONE_MARGIN_UNITS;
-
   if (heightU === 1) {
     const y = NAME_LINE_Y;
-    const zone: GlyphZone = {
-      startX: NAME_ZONE_UNITS + ZONE_GAP_UNITS,
-      width: Math.max(0, bodyW - NAME_ZONE_UNITS - MODEL_ZONE_UNITS - ZONE_GAP_UNITS * 2),
-    };
+    const nameW = textWidthAt(name, NAME_FONT_UNITS);
+    const combined = [...ports, ...inlets];
+    const glyphsNaturalW = naturalRowWidth(combined);
+    const afterName = Math.max(0, bodyW - ZONE_MARGIN_UNITS * 2 - nameW - ZONE_GAP_UNITS);
+    const { modelFont, modelW, glyphZoneWidth } = shareLineWithModel(model, glyphsNaturalW, afterName);
+    const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS + nameW + ZONE_GAP_UNITS, width: glyphZoneWidth };
+    const glyphH = Math.min(GLYPH_H_UNITS, Math.max(0, h - ZONE_MARGIN_UNITS * 2));
     return {
-      nameBox: estimateTextBox(name, ZONE_MARGIN_UNITS, y, NAME_FONT_UNITS, false, NAME_ZONE_UNITS - ZONE_MARGIN_UNITS),
+      nameBox: { x0: ZONE_MARGIN_UNITS, x1: ZONE_MARGIN_UNITS + nameW, y0: y - NAME_FONT_UNITS, y1: y },
       nameY: y,
-      modelBox: estimateTextBox(model, modelX, y, MODEL_FONT_UNITS, true, modelMaxW),
+      modelBox: { x0: modelX - modelW, x1: modelX, y0: y - modelFont, y1: y },
       modelY: y,
       modelX,
-      portGlyphs: facePortGlyphs([...ports, ...inlets], zone, y - GLYPH_H_UNITS),
+      modelFont,
+      portGlyphs: singleRowGlyphs(combined, zone, y - glyphH, glyphH),
       inletGlyphs: [],
     };
   }
 
-  const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS, width: Math.max(0, bodyW - ZONE_MARGIN_UNITS - MODEL_ZONE_UNITS - ZONE_GAP_UNITS) };
-  const portGlyphs = facePortGlyphs(ports, zone, LOWER_LINE_Y - GLYPH_H_UNITS);
+  const glyphsNaturalW = Math.max(naturalRowWidth(faceplateGlyphRows(ports)[0] ?? []), naturalRowWidth(faceplateGlyphRows(inlets)[0] ?? []));
+  const { modelFont, modelW, glyphZoneWidth } = shareLineWithModel(model, glyphsNaturalW, bodyW - ZONE_MARGIN_UNITS * 2);
+  const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS, width: glyphZoneWidth };
   const portRowCount = faceplateGlyphRows(ports).length;
-  const inletGlyphs = facePortGlyphs(inlets, zone, LOWER_LINE_Y - GLYPH_H_UNITS + portRowCount * GLYPH_ROW_STEP_UNITS, true);
+  const inletRowCount = faceplateGlyphRows(inlets).length;
+  const rowsNeeded = portRowCount + inletRowCount;
+  const verticalBudget = Math.max(0, h - LOWER_LINE_Y - ZONE_MARGIN_UNITS);
+  const naturalVertical = Math.max(0, (rowsNeeded - 1) * GLYPH_ROW_STEP_UNITS + GLYPH_H_UNITS);
+  const vScale = naturalVertical > verticalBudget && naturalVertical > 0 ? verticalBudget / naturalVertical : 1;
+  const rowStep = GLYPH_ROW_STEP_UNITS * vScale;
+  const glyphH = GLYPH_H_UNITS * vScale;
+  const portGlyphs = faceplateGlyphRows(ports).flatMap((row, i) => layoutGlyphRow(row, zone, LOWER_LINE_Y - glyphH + i * rowStep, glyphH, false));
+  const inletGlyphs = faceplateGlyphRows(inlets).flatMap((row, i) =>
+    layoutGlyphRow(row, zone, LOWER_LINE_Y - glyphH + (portRowCount + i) * rowStep, glyphH, true),
+  );
   return {
-    nameBox: estimateTextBox(name, ZONE_MARGIN_UNITS, NAME_LINE_Y, NAME_FONT_UNITS, false, bodyW - ZONE_MARGIN_UNITS * 2),
+    nameBox: { x0: ZONE_MARGIN_UNITS, x1: ZONE_MARGIN_UNITS + textWidthAt(name, NAME_FONT_UNITS), y0: NAME_LINE_Y - NAME_FONT_UNITS, y1: NAME_LINE_Y },
     nameY: NAME_LINE_Y,
-    modelBox: estimateTextBox(model, modelX, LOWER_LINE_Y, MODEL_FONT_UNITS, true, modelMaxW),
+    modelBox: { x0: modelX - modelW, x1: modelX, y0: LOWER_LINE_Y - modelFont, y1: LOWER_LINE_Y },
     modelY: LOWER_LINE_Y,
     modelX,
+    modelFont,
     portGlyphs,
     inletGlyphs,
   };

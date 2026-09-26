@@ -238,27 +238,49 @@ describe('deviceFaceplateLayout', () => {
       expect(intersects(layout.modelBox, g)).toBe(false);
     }
   }
+  function assertInsideBox(layout: ReturnType<typeof deviceFaceplateLayout>, h: number) {
+    for (const g of [...layout.portGlyphs, ...layout.inletGlyphs]) {
+      expect(g.y).toBeGreaterThanOrEqual(0);
+      expect(g.y + g.h).toBeLessThanOrEqual(h + 0.01);
+    }
+  }
 
   it('a 1U device with a realistic port count: nothing overlaps', () => {
     const ports = Array.from({ length: 24 }, (_, i) => port(`p${i}`, { column: i }));
-    assertNoOverlap(deviceFaceplateLayout('patch-01', 'NK6PPG24Y', ports, [], 1, 70));
+    assertNoOverlap(deviceFaceplateLayout('patch-01', 'NK6PPG24Y', ports, [], 1, 70, 6));
   });
 
   it('a 1U device with ports and an inlet both: nothing overlaps', () => {
     const ports = Array.from({ length: 4 }, (_, i) => port(`p${i}`, { column: i }));
     const inlets = [port('psu', { connector: 'c14', column: 0 })];
-    assertNoOverlap(deviceFaceplateLayout('nas-01', 'RS822+', ports, inlets, 1, 70));
+    assertNoOverlap(deviceFaceplateLayout('nas-01', 'RS822+', ports, inlets, 1, 70, 6));
   });
 
   it('a taller device with ports and an inlet on their own rows: nothing overlaps', () => {
     const ports = Array.from({ length: 5 }, (_, i) => port(`p${i}`, { column: i }));
     const inlets = [port('psu1', { connector: 'c14', column: 0 }), port('psu2', { connector: 'c14', column: 1 })];
-    assertNoOverlap(deviceFaceplateLayout('dock-01', 'R740xd', ports, inlets, 2, 70));
+    assertNoOverlap(deviceFaceplateLayout('dock-01', 'R740xd', ports, inlets, 2, 70, 12));
   });
 
   it('a long name and model, many ports: still nothing overlaps', () => {
     const ports = Array.from({ length: 48 }, (_, i) => port(`p${i}`, { column: i }));
-    assertNoOverlap(deviceFaceplateLayout('access-switch-01.floor-3.example.net', 'DCS-7050SX3-48YC8', ports, [], 1, 70));
+    assertNoOverlap(deviceFaceplateLayout('access-switch-01.floor-3.example.net', 'DCS-7050SX3-48YC8', ports, [], 1, 70, 6));
+  });
+
+  it('a 1U device whose catalogue splits ports into top and bottom rows still draws one line, inside the box', () => {
+    const ports = Array.from({ length: 8 }, (_, i) => port(`p${i}`, { row: i % 2, column: Math.floor(i / 2) }));
+    const layout = deviceFaceplateLayout('sw-core', 'USW-24-PoE', ports, [], 1, 70, 6);
+    assertInsideBox(layout, 6);
+    const rowsUsed = new Set(layout.portGlyphs.map((g) => g.y));
+    expect(rowsUsed.size).toBe(1);
+  });
+
+  it('never clips: a long model shrinks its own type instead of losing its first letters', () => {
+    const ports = Array.from({ length: 4 }, (_, i) => port(`p${i}`, { column: i }));
+    const layout = deviceFaceplateLayout('ups-01', 'SMART-UPS-1500-RACKMOUNT-2U-EXTENDED', ports, [], 1, 70, 6);
+    assertNoOverlap(layout);
+    expect(layout.modelFont).toBeLessThan(2.4);
+    expect(layout.modelFont).toBeGreaterThanOrEqual(1.8);
   });
 });
 

@@ -134,6 +134,35 @@ async function checkNoOverflow(page, label) {
   check(`${label}: nothing clips on any page (scrollHeight<=clientHeight, scrollWidth<=clientWidth)`, bad.length === 0, bad.slice(0, 5).join(' | '));
 }
 
+/** Every device box's own real SVG geometry: a name/model's getBBox stays
+ * inside it, a glyph's getBBox stays inside it, and text never meets a glyph. */
+async function checkFaceplateGeometry(page, label) {
+  const bad = await page.evaluate(() => {
+    const out = [];
+    document.querySelectorAll('.print-elevation__box').forEach((boxEl, bi) => {
+      const w = boxEl.width.baseVal.value;
+      const h = boxEl.height.baseVal.value;
+      const kids = [...boxEl.parentElement.querySelectorAll('.print-elevation__name, .print-elevation__model, .print-elevation__port')];
+      const boxed = kids.map((el) => ({ el, b: el.getBBox() }));
+      for (const { el, b } of boxed) {
+        if (b.x < -0.05 || b.y < -0.05 || b.x + b.width > w + 0.05 || b.y + b.height > h + 0.05) {
+          out.push(`box ${bi} ${el.getAttribute('class')} outside (${b.x.toFixed(2)},${b.y.toFixed(2)},${b.width.toFixed(2)},${b.height.toFixed(2)}) vs ${w.toFixed(2)}x${h.toFixed(2)}`);
+        }
+      }
+      const texts = boxed.filter(({ el }) => el.classList.contains('print-elevation__name') || el.classList.contains('print-elevation__model'));
+      const glyphs = boxed.filter(({ el }) => el.classList.contains('print-elevation__port'));
+      for (const t of texts) {
+        for (const g of glyphs) {
+          const overlap = t.b.x < g.b.x + g.b.width && t.b.x + t.b.width > g.b.x && t.b.y < g.b.y + g.b.height && t.b.y + t.b.height > g.b.y;
+          if (overlap) out.push(`box ${bi}: ${t.el.textContent} meets a glyph`);
+        }
+      }
+    });
+    return out;
+  });
+  check(`${label}: every name/model/glyph stays inside its own device box, text never meets a glyph`, bad.length === 0, bad.slice(0, 6).join(' | '));
+}
+
 async function choosePaper(page, paper) {
   await page.locator(`[data-testid="print-paper-${paper.toLowerCase()}"]`).click();
 }
@@ -263,6 +292,7 @@ try {
       );
 
       await checkNoOverflow(page, label);
+      if (kase.what === 'this-rack') await checkFaceplateGeometry(page, label);
 
       const pdfBuffer = await page.pdf({ format: paper, printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
       const { byTypePage, byCount } = countPdfPages(pdfBuffer);
@@ -310,19 +340,7 @@ try {
     const title = await page.locator('.print-page__header-title').first().innerText();
     check(`${label}: the heading names the closet, "Rack R1 · Loft"`, title === 'Rack R1 · Loft', title);
 
-    const geometryOverlap = await page.evaluate(() => {
-      const bad = [];
-      document.querySelectorAll('.print-elevation__name, .print-elevation__model').forEach((textEl) => {
-        const t = textEl.getBoundingClientRect();
-        document.querySelectorAll('.print-elevation__port').forEach((g) => {
-          const gb = g.getBoundingClientRect();
-          const overlaps = t.left < gb.right && t.right > gb.left && t.top < gb.bottom && t.bottom > gb.top;
-          if (overlaps) bad.push(`${textEl.textContent} over a port glyph`);
-        });
-      });
-      return bad;
-    });
-    check(`${label}: no name or model box meets a port glyph's box`, geometryOverlap.length === 0, geometryOverlap.slice(0, 5).join(' | '));
+    await checkFaceplateGeometry(page, label);
 
     // Three of this scene's own five cables cross from a front port to a
     // rear one (the servers/NAS to sw-core) — drawn on neither face.
