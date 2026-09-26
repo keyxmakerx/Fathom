@@ -6,6 +6,7 @@
 
 import { connectorTokenOf, PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from './compat';
 import type { CatalogueModel } from '../api/catalogue';
+import { cascadeRemoval } from './cascade';
 import { FieldValueError } from './edit';
 import type { Placement } from './view';
 import {
@@ -575,20 +576,18 @@ export function moveChassis(
 
 // ---------------------------------------------------------------------------
 
+/** Removes a device entirely: every node it containment-reaches (chassis,
+ * ports, units, VLANs, Docker networks/containers, and so on — the schema's
+ * own containment edges say what, not a list kept here), plus every other
+ * live edge touching any of it, in one batch (`cascade.ts`). */
 export function removeChassis(doc: Document, chassisId: string, opts?: Actor): Document {
   if (!findNode(doc, chassisId)) throw new UnknownReferenceError(chassisId, 'Chassis');
   const hasChassis = edgesIn(doc, chassisId, 'HasChassis')[0];
   if (!hasChassis) throw new UnknownReferenceError(chassisId, 'a chassis owned by a Device');
   const deviceId = hasChassis.from;
-  const ports = edgesOut(doc, chassisId, 'HasPort');
-  // ADR-0051 widened placement from MountedIn alone to MountedIn/SitsOn/
-  // FixedTo — whichever is live must be tombstoned with the chassis, or the
-  // shelf slot (or surface spot) it names stays occupied forever.
-  const placement = livePlacementEdge(doc, chassisId);
 
   const { now } = resolve(opts);
-  const nodeIds = new Set([deviceId, chassisId, ...ports.map((p) => p.to)]);
-  const edgeIds = new Set([hasChassis.id, ...ports.map((p) => p.id), ...(placement ? [placement.id] : [])]);
+  const { nodeIds, edgeIds } = cascadeRemoval(doc, deviceId);
 
   const working: Document = {
     ...doc,

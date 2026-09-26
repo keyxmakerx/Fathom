@@ -263,3 +263,11 @@ export function seedNetworksScene(catalogue: CatalogueModel[], me: string): Docu
 
   return doc;
 }
+
+/** One sketch device, no rack, no port — a Docker bridge network needs
+ * neither. The drive adds the network, containers and ports itself. */
+export function seedDockerScene(catalogue: CatalogueModel[], me: string): Document {
+  void catalogue;
+  const doc = createSketchDevice(emptyDocument(), { hostname: 'dock-01', actor: me });
+  return doc;
+}

@@ -22,7 +22,7 @@ import {
 import './inventory.css';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [] };
-const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [] };
+const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
 
 type Kind = 'devices' | 'racks' | 'cables' | 'ports' | 'networks';
 const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
@@ -143,14 +143,17 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     const timer = window.setTimeout(() => {
       try {
         const d = deriveNetworks(doc);
-        setBackgroundNetworksCount(d.vlanRows.length + d.subnetRows.length);
+        setBackgroundNetworksCount(d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length);
       } catch {
         setBackgroundNetworksCount(0);
       }
     }, 250);
     return () => window.clearTimeout(timer);
   }, [doc]);
-  const networksCount = kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length : backgroundNetworksCount;
+  const networksCount =
+    kind === 'networks'
+      ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length
+      : backgroundNetworksCount;
 
   // ADR-0046 §2: "Nothing in a list is typed" — every count below is read
   // off the live document, never a literal — a live `Chassis`/`Cable`/`PhysicalPort`

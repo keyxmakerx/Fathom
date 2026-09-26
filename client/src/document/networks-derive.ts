@@ -79,6 +79,7 @@ function formatMaskedIpv4(value: number, len: number): string {
 
 interface DocIndex {
   nodeById: Map<string, GraphNode>; // live nodes only
+  nodesByKind: Map<string, GraphNode[]>; // live nodes only, bucketed once by parseNodeId(n.id).kind
   outByKind: Map<string, GraphEdge[]>; // key `${from}\u0000${kind}`, live edges only
   inByKind: Map<string, GraphEdge[]>; // key `${to}\u0000${kind}`, live edges only
   passThroughByPort: Map<string, GraphEdge>; // live PassThrough, keyed by both its ends
@@ -93,7 +94,15 @@ function pushIndexed(map: Map<string, GraphEdge[]>, key: string, e: GraphEdge): 
 
 function buildIndex(doc: Document): DocIndex {
   const nodeById = new Map<string, GraphNode>();
-  for (const n of doc.nodes) if (n.absentSince === undefined) nodeById.set(n.id, n);
+  const nodesByKind = new Map<string, GraphNode[]>();
+  for (const n of doc.nodes) {
+    if (n.absentSince !== undefined) continue;
+    nodeById.set(n.id, n);
+    const kind = parseNodeId(n.id).kind;
+    const arr = nodesByKind.get(kind);
+    if (arr) arr.push(n);
+    else nodesByKind.set(kind, [n]);
+  }
 
   const outByKind = new Map<string, GraphEdge[]>();
   const inByKind = new Map<string, GraphEdge[]>();
@@ -128,7 +137,7 @@ function buildIndex(doc: Document): DocIndex {
     noteChanges(e.id, e.fields);
   }
 
-  return { nodeById, outByKind, inByKind, passThroughByPort, lastChangeByElement };
+  return { nodeById, nodesByKind, outByKind, inByKind, passThroughByPort, lastChangeByElement };
 }
 
 function liveNode(idx: DocIndex, id: string | undefined): GraphNode | undefined {
@@ -144,6 +153,7 @@ function edgesInIdx(idx: DocIndex, to: string, kind: string): readonly GraphEdge
 }
 
 const EMPTY_EDGES: readonly GraphEdge[] = [];
+const EMPTY_NODES: readonly GraphNode[] = [];
 
 function deviceOfInterfaceLike(idx: DocIndex, interfaceLikeId: string): string | undefined {
   const hi = edgesInIdx(idx, interfaceLikeId, 'HasInterface')[0];
@@ -633,6 +643,9 @@ export interface VlanMemberRow {
   farIsSameDevice: boolean;
   viaPassiveHops: number;
   cableId?: string;
+  /** Set only for a synthetic member folded in from a macvlan/ipvlan Docker
+   * container on this segment — it carries no `VlanMember` edge of its own. */
+  container?: { containerId: string; name: string };
 }
 
 export interface VlanRow {
@@ -662,6 +675,9 @@ export interface SubnetMemberRow {
   addressNodeId: string;
   address: string;
   description?: string;
+  /** `VlanMemberRow.container`'s own twin for a subnet row — `addressNodeId`
+   * is a placeholder here; no real `Address` node backs a folded container. */
+  container?: { containerId: string; name: string };
 }
 
 export interface SubnetRow {
@@ -677,9 +693,83 @@ export interface SubnetRow {
   roleHintDeviceId?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Docker rows (ADR-0058), one `DockerNetworkRow` per live `ContainerNetwork`
+// (decision 3's kinds). A macvlan/ipvlan network's containers also fold into
+// the VLAN/subnet row their `ParentUnit` belongs to (`foldMacvlanContainersIntoRows`);
+// a bridge (or host/none/overlay/other) network stays its own row only.
+// `parentSameHost`/`sameHost` mark a broken same-host rule rather than
+// hiding or throwing.
+
+export interface DockerPublishedPortRow {
+  id: string;
+  protocolNumber: number;
+  containerPort: number;
+  hostPort?: number;
+  hostAddress?: string;
+  /** Another live `PublishedPort`, same host/protocol/host port, on a
+   * different container. Absent `host_address` binds every address, same
+   * as `0.0.0.0` (docker/docs port-publishing.md) — matching that is
+   * `'certain'`; wildcard against a specific address is only `'likely'`,
+   * since the kernel-level conflict (torvalds/linux inet_connection_sock.c)
+   * is gated by `SO_REUSEADDR`/`SO_REUSEPORT`, not fully chased down here.
+   * Neither level is refused: no source found for dockerd refusing the
+   * recording of either shape, only a runtime bind failure. */
+  conflict?: 'certain' | 'likely';
+}
+
+export interface DockerContainerRow {
+  containerId: string;
+  name: string;
+  /** The device that actually hosts this container — its own live
+   * `HasContainer` owner, which may differ from `DockerNetworkRow.hostDeviceId`
+   * when the attach breaks the same-host rule. */
+  deviceId: string;
+  attachedToEdgeId: string;
+  address?: string;
+  publishedPorts: DockerPublishedPortRow[];
+  /** False when this container's own host differs from the network's host
+   * and the network's driver is not `overlay` — `attachedto.same-host`
+   * broken, marked rather than hidden or thrown on. */
+  sameHost: boolean;
+}
+
+export interface DockerNetworkRow {
+  key: string;
+  containerNetworkId: string;
+  name: string;
+  driver: string;
+  hostDeviceId: string;
+  subnets: string[];
+  gateways: string[];
+  parentUnitId?: string;
+  /** False when a macvlan/ipvlan network's `ParentUnit` resolves to a unit
+   * on a device other than its own host — `parentunit.same-host` broken. */
+  parentSameHost: boolean;
+  /** The board's "id · cidr" column: subnets joined for a plain network,
+   * "VLAN 30 via eth0" / "10.0.10.0/24 via eth0" for a macvlan/ipvlan one. */
+  idCidr: string;
+  containers: DockerContainerRow[];
+  lastChangeMs: number | null;
+}
+
+/** A container with no live `AttachedTo` edge at all — reachable through
+ * neither the VLAN/subnet fold nor any `DockerNetworkRow`, so it needs a row
+ * of its own or a detach could leave it nowhere a caller can find it. */
+export interface DockerUnattachedContainerRow {
+  key: string;
+  containerId: string;
+  name: string;
+  hostDeviceId: string;
+  publishedPorts: DockerPublishedPortRow[];
+  lastChangeMs: number | null;
+}
+
 export interface NetworksDerived {
   vlanRows: VlanRow[];
   subnetRows: SubnetRow[];
+  dockerNetworkRows: DockerNetworkRow[];
+  dockerUnattachedContainers: DockerUnattachedContainerRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,6 +1103,262 @@ function roleHintsForSubnets(idx: DocIndex, base: PortGraph, rows: readonly Subn
 }
 
 // ---------------------------------------------------------------------------
+// Docker rows themselves (ADR-0058).
+
+function asStringArrayField(fields: Readonly<Record<string, FieldEntry>>, name: string): string[] {
+  const v = fieldValue(fields, name);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+function firstAttachedAddress(edge: GraphEdge): string | undefined {
+  const v = fieldValue(edge.fields, 'AttachedTo.address');
+  return Array.isArray(v) ? v.find((x): x is string => typeof x === 'string') : undefined;
+}
+
+function numberField(fields: Readonly<Record<string, FieldEntry>>, name: string): number | undefined {
+  const s = asString(fieldValue(fields, name));
+  return s !== undefined ? Number(s) : undefined;
+}
+
+/** Whichever VLAN or subnet row a Docker network's parent unit already
+ * belongs to, by its own membership (ADR-0058 decision 2) — never guessed. */
+function findParentPlacement(unitId: string, vlanRows: readonly VlanRow[], subnetRows: readonly SubnetRow[]): string | undefined {
+  for (const r of vlanRows) {
+    if (r.members.some((m) => m.unitId === unitId)) return `VLAN ${r.vlanId}`;
+  }
+  for (const r of subnetRows) {
+    if (r.members.some((m) => m.unitId === unitId)) return r.prefix;
+  }
+  return undefined;
+}
+
+/** An absent `host_address` binds every host address, same as an explicit
+ * `0.0.0.0` (docker/docs port-publishing.md) — both are "wildcard" here. */
+function isWildcardHostAddress(hostAddress: string | undefined): boolean {
+  return hostAddress === undefined || hostAddress === '0.0.0.0';
+}
+
+/** Every live `PublishedPort` sharing host, protocol and host port with
+ * another on the same host: `'certain'` when the address matches exactly,
+ * `'likely'` when a wildcard binds against a specific address (see
+ * `conflict`'s own doc). An ephemeral port (no `host_port`) never
+ * conflicts — Docker assigns a fresh one each time. One pass, shared by
+ * `dockerNetworkRowsOf` and `dockerUnattachedContainersOf`. */
+function buildPublishedPortConflicts(idx: DocIndex): ReadonlyMap<string, 'certain' | 'likely'> {
+  interface PortGroup {
+    wildcard: string[];
+    byAddress: Map<string, string[]>;
+  }
+  const groups = new Map<string, PortGroup>();
+  for (const n of idx.nodesByKind.get('PublishedPort') ?? EMPTY_NODES) {
+    const hostPort = numberField(n.fields, 'PublishedPort.host_port');
+    if (hostPort === undefined) continue;
+    const protocol = numberField(n.fields, 'PublishedPort.protocol');
+    const hostAddress = asString(fieldValue(n.fields, 'PublishedPort.host_address'));
+    const hpp = edgesInIdx(idx, n.id, 'HasPublishedPort')[0];
+    const container = hpp ? liveNode(idx, hpp.from) : undefined;
+    if (!container) continue;
+    const hc = edgesInIdx(idx, container.id, 'HasContainer')[0];
+    const hostDeviceId = hc && liveNode(idx, hc.from) ? hc.from : undefined;
+    if (!hostDeviceId) continue;
+    const key = `${hostDeviceId}\u0000${protocol}\u0000${hostPort}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { wildcard: [], byAddress: new Map() };
+      groups.set(key, g);
+    }
+    if (isWildcardHostAddress(hostAddress)) {
+      g.wildcard.push(n.id);
+    } else {
+      const arr = g.byAddress.get(hostAddress!);
+      if (arr) arr.push(n.id);
+      else g.byAddress.set(hostAddress!, [n.id]);
+    }
+  }
+  const conflicts = new Map<string, 'certain' | 'likely'>();
+  const mark = (id: string, level: 'certain' | 'likely') => {
+    if (conflicts.get(id) !== 'certain') conflicts.set(id, level);
+  };
+  for (const g of groups.values()) {
+    if (g.wildcard.length > 1) for (const id of g.wildcard) mark(id, 'certain');
+    for (const ids of g.byAddress.values()) {
+      if (ids.length > 1) for (const id of ids) mark(id, 'certain');
+    }
+    if (g.wildcard.length > 0 && g.byAddress.size > 0) {
+      for (const id of g.wildcard) mark(id, 'likely');
+      for (const ids of g.byAddress.values()) for (const id of ids) mark(id, 'likely');
+    }
+  }
+  return conflicts;
+}
+
+/** One row per live `ContainerNetwork`, board A's "Docker networks" group.
+ * A network whose host `Device` is no longer live is skipped entirely, the
+ * same rule `vlanRowsOf`/`subnetRowsOf` follow. */
+function dockerNetworkRowsOf(
+  idx: DocIndex,
+  vlanRows: readonly VlanRow[],
+  subnetRows: readonly SubnetRow[],
+  portConflicts: ReadonlyMap<string, 'certain' | 'likely'>,
+): DockerNetworkRow[] {
+  const rows: DockerNetworkRow[] = [];
+  for (const n of idx.nodesByKind.get('ContainerNetwork') ?? EMPTY_NODES) {
+    const hcn = edgesInIdx(idx, n.id, 'HasContainerNetwork')[0];
+    if (!hcn || !liveNode(idx, hcn.from)) continue;
+    const hostDeviceId = hcn.from;
+    const name = asString(fieldValue(n.fields, 'ContainerNetwork.name')) ?? n.id;
+    const driver = asString(fieldValue(n.fields, 'ContainerNetwork.driver')) ?? 'other';
+    const subnets = asStringArrayField(n.fields, 'ContainerNetwork.subnet');
+    const gateways = asStringArrayField(n.fields, 'ContainerNetwork.gateway');
+
+    const elementIds: string[] = [n.id, hcn.id];
+    let parentUnitId: string | undefined;
+    let parentSameHost = true;
+    let idCidr = subnets.length > 0 ? subnets.join(', ') : '—';
+    const pu = edgesOutIdx(idx, n.id, 'ParentUnit')[0];
+    if (pu && liveNode(idx, pu.to)) {
+      parentUnitId = pu.to;
+      elementIds.push(pu.id);
+      const ctx = unitContext(idx, parentUnitId);
+      parentSameHost = ctx?.deviceId === hostDeviceId;
+      const ifaceLabel = ctx ? memberDisplay(idx, ctx.interfaceId, resolvePortForInterface(idx, ctx.interfaceId)).label : parentUnitId;
+      const placement = findParentPlacement(parentUnitId, vlanRows, subnetRows);
+      idCidr = placement ? `${placement} via ${ifaceLabel}` : `via ${ifaceLabel}`;
+    }
+
+    const containers: DockerContainerRow[] = [];
+    for (const at of edgesInIdx(idx, n.id, 'AttachedTo')) {
+      const containerNode = liveNode(idx, at.from);
+      if (!containerNode) continue;
+      const hc = edgesInIdx(idx, containerNode.id, 'HasContainer')[0];
+      const containerHost = hc && liveNode(idx, hc.from) ? hc.from : undefined;
+      // A container whose own host is gone is never listed here at all —
+      // never credited to this network's host instead, overlay or not.
+      if (!containerHost) continue;
+      const sameHost = driver === 'overlay' || containerHost === hostDeviceId;
+      const cName = asString(fieldValue(containerNode.fields, 'Container.name')) ?? containerNode.id;
+      const publishedPorts: DockerPublishedPortRow[] = [];
+      for (const hpp of edgesOutIdx(idx, containerNode.id, 'HasPublishedPort')) {
+        const ppNode = liveNode(idx, hpp.to);
+        if (!ppNode) continue;
+        publishedPorts.push({
+          id: ppNode.id,
+          protocolNumber: numberField(ppNode.fields, 'PublishedPort.protocol') ?? 0,
+          containerPort: numberField(ppNode.fields, 'PublishedPort.container_port') ?? 0,
+          hostPort: numberField(ppNode.fields, 'PublishedPort.host_port'),
+          hostAddress: asString(fieldValue(ppNode.fields, 'PublishedPort.host_address')),
+          conflict: portConflicts.get(ppNode.id),
+        });
+        elementIds.push(ppNode.id, hpp.id);
+      }
+      containers.push({
+        containerId: containerNode.id,
+        name: cName,
+        deviceId: containerHost,
+        attachedToEdgeId: at.id,
+        address: firstAttachedAddress(at),
+        publishedPorts,
+        sameHost,
+      });
+      elementIds.push(containerNode.id, at.id);
+      if (hc) elementIds.push(hc.id);
+    }
+
+    rows.push({
+      key: `docker:${n.id}`,
+      containerNetworkId: n.id,
+      name,
+      driver,
+      hostDeviceId,
+      subnets,
+      gateways,
+      parentUnitId,
+      parentSameHost,
+      idCidr,
+      containers,
+      lastChangeMs: lastChangeMsOf(idx, elementIds),
+    });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+}
+
+/** Every live `Container` with no live `AttachedTo` edge at all — a row of
+ * its own, per host, so a detach never leaves something nobody can see. */
+function dockerUnattachedContainersOf(idx: DocIndex, portConflicts: ReadonlyMap<string, 'certain' | 'likely'>): DockerUnattachedContainerRow[] {
+  const rows: DockerUnattachedContainerRow[] = [];
+  for (const n of idx.nodesByKind.get('Container') ?? EMPTY_NODES) {
+    const hasAnyAttachment = edgesOutIdx(idx, n.id, 'AttachedTo').some((e) => liveNode(idx, e.to));
+    if (hasAnyAttachment) continue;
+    const hc = edgesInIdx(idx, n.id, 'HasContainer')[0];
+    if (!hc || !liveNode(idx, hc.from)) continue;
+    const name = asString(fieldValue(n.fields, 'Container.name')) ?? n.id;
+    const elementIds: string[] = [n.id, hc.id];
+    const publishedPorts: DockerPublishedPortRow[] = [];
+    for (const hpp of edgesOutIdx(idx, n.id, 'HasPublishedPort')) {
+      const ppNode = liveNode(idx, hpp.to);
+      if (!ppNode) continue;
+      publishedPorts.push({
+        id: ppNode.id,
+        protocolNumber: numberField(ppNode.fields, 'PublishedPort.protocol') ?? 0,
+        containerPort: numberField(ppNode.fields, 'PublishedPort.container_port') ?? 0,
+        hostPort: numberField(ppNode.fields, 'PublishedPort.host_port'),
+        hostAddress: asString(fieldValue(ppNode.fields, 'PublishedPort.host_address')),
+        conflict: portConflicts.get(ppNode.id),
+      });
+      elementIds.push(ppNode.id, hpp.id);
+    }
+    rows.push({ key: `docker-unattached:${n.id}`, containerId: n.id, name, hostDeviceId: hc.from, publishedPorts, lastChangeMs: lastChangeMsOf(idx, elementIds) });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+}
+
+/** A macvlan/ipvlan container's address also counts as a member of its
+ * parent unit's VLAN or subnet row — mutates the freshly-built rows in
+ * place before `deriveNetworks` caches its result. A broken same-host rule
+ * is skipped here, not folded; `dockerNetworkRows` still lists it, marked. */
+function foldMacvlanContainersIntoRows(dockerRows: readonly DockerNetworkRow[], vlanRows: readonly VlanRow[], subnetRows: readonly SubnetRow[]): void {
+  for (const dr of dockerRows) {
+    if (dr.driver !== 'macvlan' && dr.driver !== 'ipvlan') continue;
+    if (!dr.parentUnitId || !dr.parentSameHost) continue;
+    for (const c of dr.containers) {
+      if (!c.sameHost) continue;
+      const vlanRow = vlanRows.find((r) => r.members.some((m) => m.unitId === dr.parentUnitId));
+      if (vlanRow) {
+        vlanRow.members.push({
+          unitId: c.containerId,
+          deviceId: c.deviceId,
+          interfaceId: dr.parentUnitId,
+          interfaceLabel: c.name,
+          interfaceLabelIsFallback: false,
+          portRemoved: false,
+          mode: undefined,
+          address: c.address,
+          isGateway: false,
+          farIsSameDevice: false,
+          viaPassiveHops: 0,
+          container: { containerId: c.containerId, name: c.name },
+        });
+        continue;
+      }
+      const subnetRow = subnetRows.find((r) => r.members.some((m) => m.unitId === dr.parentUnitId));
+      if (subnetRow) {
+        subnetRow.members.push({
+          unitId: c.containerId,
+          deviceId: c.deviceId,
+          interfaceId: dr.parentUnitId,
+          interfaceLabel: c.name,
+          interfaceLabelIsFallback: false,
+          portRemoved: false,
+          addressNodeId: c.containerId,
+          address: c.address ?? '',
+          container: { containerId: c.containerId, name: c.name },
+        });
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 const derivedCache = new WeakMap<Document, NetworksDerived>();
 
@@ -1034,7 +1380,11 @@ export function deriveNetworks(doc: Document): NetworksDerived {
   const subnetRowsPlain = subnetRowsOf(idx, base, excludeUnits);
   const hints = roleHintsForSubnets(idx, base, subnetRowsPlain);
   const subnetRows = hints.size === 0 ? subnetRowsPlain : subnetRowsPlain.map((r) => (hints.has(r.key) ? { ...r, roleHintDeviceId: hints.get(r.key) } : r));
-  const result: NetworksDerived = { vlanRows, subnetRows };
+  const portConflicts = buildPublishedPortConflicts(idx);
+  const dockerNetworkRows = dockerNetworkRowsOf(idx, vlanRows, subnetRows, portConflicts);
+  foldMacvlanContainersIntoRows(dockerNetworkRows, vlanRows, subnetRows);
+  const dockerUnattachedContainers = dockerUnattachedContainersOf(idx, portConflicts);
+  const result: NetworksDerived = { vlanRows, subnetRows, dockerNetworkRows, dockerUnattachedContainers };
   derivedCache.set(doc, result);
   return result;
 }

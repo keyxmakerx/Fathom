@@ -559,6 +559,69 @@ export function familySet(tokens: readonly string[]): CanonValue {
   return sorted;
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0058 — the scalar encoders the Docker commands need, same rule as
+// the block above: byte-identical to `Scalar::canonical()` (scalar.rs line
+// refs are that file's).
+
+/** `L4Port` (scalar.rs ~790-800): `0..=65535`, canonical form is the plain
+ * decimal string (no leading zero unless the whole token is "0"). */
+export function l4Port(n: number): CanonValue {
+  if (!Number.isInteger(n) || n < 0 || n > 65_535) {
+    throw new RangeError(`L4Port: ${n} is outside 0..=65535`);
+  }
+  return String(n);
+}
+
+/** `IpProtocol` (scalar.rs ~777-788): a bare `0..=255` protocol number,
+ * canonical form the plain decimal string. docker/go-connections
+ * `nat.validateProto` names tcp (6), udp (17) and sctp (132) as
+ * `docker run -p`'s three `/proto` suffixes; unsuffixed defaults to tcp. */
+export function ipProtocol(n: number): CanonValue {
+  if (!Number.isInteger(n) || n < 0 || n > 255) {
+    throw new RangeError(`IpProtocol: ${n} is outside 0..=255`);
+  }
+  return String(n);
+}
+
+/** Whether `s` is well-formed UTF-16 — no unpaired surrogate. Docker's own
+ * names are always valid UTF-8, so a lone surrogate cannot occur in one;
+ * letting one through would silently become U+FFFD at the canonical-JSON
+ * boundary (`canon.ts`'s `TextEncoder`), breaking the wire's round trip. */
+export function isWellFormedUnicode(s: string): boolean {
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (Number.isNaN(next) || next < 0xdc00 || next > 0xdfff) return false;
+      i += 1;
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The exact code points Go's `unicode.IsSpace` accepts (`src/unicode/
+ * graphic.go`): the Latin-1 special case plus the Unicode `White_Space`
+ * property's remaining code points. Not the same set as JavaScript's `\s`/
+ * `trim()`, which also treats U+FEFF (BOM) as whitespace — a BOM-only name
+ * Go's `TrimSpace` leaves non-blank must not be refused as blank here. */
+const GO_WHITESPACE_CODEPOINTS: ReadonlySet<number> = new Set([
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+  0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
+]);
+
+/** Whether `s` is blank the way Go's `strings.TrimSpace(s) == ""` would
+ * find it — every code point in `s` is one `unicode.IsSpace` accepts. An
+ * empty string is trivially blank, matching `TrimSpace`. */
+export function isGoTrimSpaceBlank(s: string): boolean {
+  for (const ch of s) {
+    if (!GO_WHITESPACE_CODEPOINTS.has(ch.codePointAt(0)!)) return false;
+  }
+  return true;
+}
+
 function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
   const e = fields[name];
   return e && e.presence === 'set' ? e.value : undefined;

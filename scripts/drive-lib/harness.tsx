@@ -16,6 +16,7 @@ import {
   catalogueFrom,
   seedConflictingChange,
   seedConnectedDevices,
+  seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
   seedNetworksScene,
@@ -105,6 +106,7 @@ async function main() {
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
+  else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

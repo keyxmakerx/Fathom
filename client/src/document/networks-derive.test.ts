@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { addSketchPort, createSketchDevice } from './commands';
+import { addSketchPort, createSketchDevice, removeChassis } from './commands';
 import { connectPorts } from './cables';
 import { setDeviceField } from './edit';
+import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork, detachContainerFromNetwork } from './docker';
 import { addSubnet, addVlan } from './networks';
 import { cablesCarryingVlan, deriveNetworks } from './networks-derive';
 import {
+  edgesIn,
+  edgesOut,
   emptyDocument,
   formatEdgeId,
   formatNodeId,
@@ -684,5 +687,226 @@ describe('deriveNetworks — performance', () => {
     expect(result120.vlanRows).toHaveLength(120);
     expect(t60).toBeLessThan(2000);
     expect(t120).toBeLessThan(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0058 — Docker rows.
+
+/** The unit `addSubnet`'s single attach row minted — found by walking the
+ * one `Address` node's `HasAddress` edge back to it. */
+function soleUnitWithAddress(doc: Document): string {
+  const addr = doc.nodes.find((n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'Address')!;
+  return edgesIn(doc, addr.id, 'HasAddress')[0]!.from;
+}
+
+describe('deriveNetworks — Docker rows', () => {
+  it('one row per live ContainerNetwork, board A\'s "Docker networks" group', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const withNet = addContainerNetwork(doc, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge', subnets: ['172.18.0.0/16'] }, { now: NOW });
+    const { dockerNetworkRows } = deriveNetworks(withNet);
+    expect(dockerNetworkRows).toHaveLength(1);
+    expect(dockerNetworkRows[0]).toMatchObject({ name: 'app_net', driver: 'bridge', hostDeviceId: deviceId, idCidr: '172.18.0.0/16' });
+  });
+
+  it('a macvlan container\'s address counts in its parent unit\'s subnet row too', () => {
+    const { doc, deviceId, portIds } = deviceWithPorts(['eth0']);
+    const withSubnet = addSubnet(
+      doc,
+      { prefix: '10.0.10.0/24', attach: [{ target: { kind: 'port', portId: portIds[0], interfaceName: 'eth0' }, address: '10.0.10.20/24' }] },
+      { now: NOW },
+    );
+    const parentUnitId = soleUnitWithAddress(withSubnet);
+    const withNet = addContainerNetwork(
+      withSubnet,
+      { hostDeviceId: deviceId, name: 'iot_mac', driver: 'macvlan', parent: { kind: 'unit', unitId: parentUnitId } },
+      { now: NOW },
+    );
+    const netId = edgesOut(withNet, deviceId, 'HasContainerNetwork')[0]!.to;
+    const withContainer = addContainer(withNet, { hostDeviceId: deviceId, name: 'cam-01' }, { now: NOW });
+    const containerId = edgesOut(withContainer, deviceId, 'HasContainer')[0]!.to;
+    const attached = attachContainerToNetwork(withContainer, { container: { kind: 'existing', containerId }, networkId: netId, address: '10.0.10.40/24' }, { now: NOW });
+
+    const { subnetRows, dockerNetworkRows } = deriveNetworks(attached);
+    expect(dockerNetworkRows).toHaveLength(1);
+    expect(dockerNetworkRows[0].idCidr).toBe('10.0.10.0/24 via eth0');
+    const row = subnetRows.find((r) => r.prefix === '10.0.10.0/24')!;
+    expect(row).toBeDefined();
+    const folded = row.members.find((m) => m.container?.containerId === containerId);
+    expect(folded).toBeDefined();
+    expect(folded!.address).toBe('10.0.10.40/24');
+    expect(folded!.container).toEqual({ containerId, name: 'cam-01' });
+  });
+
+  it('a bridge network\'s containers stay apart from any VLAN row on the same host', () => {
+    const { doc, deviceId, portIds } = deviceWithPorts(['Et1']);
+    const withVlan = addVlan(doc, { vlanId: 10, attach: [{ target: { kind: 'port', portId: portIds[0], interfaceName: 'Et1' } }] }, { now: NOW });
+    const withNet = addContainerNetwork(withVlan, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge', subnets: ['172.18.0.0/16'] }, { now: NOW });
+    const netId = edgesOut(withNet, deviceId, 'HasContainerNetwork')[0]!.to;
+    const withContainer = addContainer(withNet, { hostDeviceId: deviceId, name: 'gitea' }, { now: NOW });
+    const containerId = edgesOut(withContainer, deviceId, 'HasContainer')[0]!.to;
+    const attached = attachContainerToNetwork(withContainer, { container: { kind: 'existing', containerId }, networkId: netId, address: '172.18.0.3/16' }, { now: NOW });
+
+    const { vlanRows, dockerNetworkRows } = deriveNetworks(attached);
+    expect(dockerNetworkRows).toHaveLength(1);
+    expect(dockerNetworkRows[0].containers[0].address).toBe('172.18.0.3/16');
+    const vlanRow = vlanRows.find((r) => r.vlanId === 10)!;
+    expect(vlanRow.members.some((m) => m.container !== undefined)).toBe(false);
+  });
+
+  it('a removed host takes its Docker rows with it', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const chassisId = edgesOut(doc, deviceId, 'HasChassis')[0]!.to;
+    const withNet = addContainerNetwork(doc, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge' }, { now: NOW });
+    expect(deriveNetworks(withNet).dockerNetworkRows).toHaveLength(1);
+    const withoutHost = removeChassis(withNet, chassisId, { now: NOW });
+    expect(deriveNetworks(withoutHost).dockerNetworkRows).toHaveLength(0);
+  });
+
+  it('a payload that breaks the same-host rule still lists, marked, never throws', () => {
+    const a = deviceWithPorts([]);
+    const b = deviceWithPorts(['eth0']);
+    let doc: Document = {
+      ...emptyDocument(),
+      nodes: [...a.doc.nodes, ...b.doc.nodes],
+      edges: [...a.doc.edges, ...b.doc.edges],
+      provenance: [...a.doc.provenance, ...b.doc.provenance],
+      batches: [...a.doc.batches, ...b.doc.batches],
+    };
+    // b's parent interface/unit, hand-built: ParentUnit points at a unit on
+    // a different device than the ContainerNetwork's own host `a`.
+    const set = (v: FieldEntry['value']): FieldEntry => ({ presence: 'set', prov: newUlid(NOW), value: v });
+    const ifaceId = formatNodeId('Interface', newUlid(NOW));
+    const unitId = formatNodeId('LogicalUnit', newUlid(NOW));
+    const cnId = formatNodeId('ContainerNetwork', newUlid(NOW));
+    const containerId = formatNodeId('Container', newUlid(NOW));
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        { id: ifaceId, existence: newUlid(NOW), fields: { 'Interface.name': set('eth0'), 'Interface.form': set('ethernet') } },
+        { id: unitId, existence: newUlid(NOW), fields: { 'LogicalUnit.index': set(0) } },
+        { id: cnId, existence: newUlid(NOW), fields: { 'ContainerNetwork.name': set('iot_mac'), 'ContainerNetwork.driver': set('macvlan') } },
+        { id: containerId, existence: newUlid(NOW), fields: { 'Container.name': set('cam-01') } },
+      ],
+      edges: [
+        ...doc.edges,
+        { id: formatEdgeId('HasInterface', newUlid(NOW)), from: b.deviceId, to: ifaceId, prov: newUlid(NOW), fields: {} },
+        { id: formatEdgeId('HasUnit', newUlid(NOW)), from: ifaceId, to: unitId, prov: newUlid(NOW), fields: {} },
+        // cn lives on `a`, but its ParentUnit points at a unit on `b`.
+        { id: formatEdgeId('HasContainerNetwork', newUlid(NOW)), from: a.deviceId, to: cnId, prov: newUlid(NOW), fields: {} },
+        { id: formatEdgeId('ParentUnit', newUlid(NOW)), from: cnId, to: unitId, prov: newUlid(NOW), fields: {} },
+        // the container lives on `b`, attached to a bridge-driver network
+        // it would never legally reach (attachedto.same-host, broken).
+        { id: formatEdgeId('HasContainer', newUlid(NOW)), from: b.deviceId, to: containerId, prov: newUlid(NOW), fields: {} },
+        { id: formatEdgeId('AttachedTo', newUlid(NOW)), from: containerId, to: cnId, prov: newUlid(NOW), fields: {} },
+      ],
+    };
+
+    const { dockerNetworkRows, vlanRows, subnetRows } = deriveNetworks(doc);
+    expect(dockerNetworkRows).toHaveLength(1);
+    expect(dockerNetworkRows[0].parentSameHost).toBe(false);
+    expect(dockerNetworkRows[0].containers).toHaveLength(1);
+    expect(dockerNetworkRows[0].containers[0].sameHost).toBe(false);
+    // never folded into any row, since the payload itself is broken
+    expect(vlanRows.every((r) => r.members.every((m) => m.container === undefined))).toBe(true);
+    expect(subnetRows.every((r) => r.members.every((m) => m.container === undefined))).toBe(true);
+  });
+
+  it('a detached container gets its own unattached row — visible, not lost', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const withNet = addContainerNetwork(doc, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge' }, { now: NOW });
+    const withContainer = addContainer(withNet, { hostDeviceId: deviceId, name: 'gitea' }, { now: NOW });
+    const cnId = edgesOut(withContainer, deviceId, 'HasContainerNetwork')[0]!.to;
+    const containerId = edgesOut(withContainer, deviceId, 'HasContainer')[0]!.to;
+    const attached = attachContainerToNetwork(withContainer, { container: { kind: 'existing', containerId }, networkId: cnId }, { now: NOW });
+    expect(deriveNetworks(attached).dockerUnattachedContainers).toHaveLength(0);
+
+    const edgeId = edgesOut(attached, containerId, 'AttachedTo')[0]!.id;
+    const detached = detachContainerFromNetwork(attached, edgeId, { now: NOW });
+    const { dockerUnattachedContainers, dockerNetworkRows } = deriveNetworks(detached);
+    expect(dockerUnattachedContainers).toHaveLength(1);
+    expect(dockerUnattachedContainers[0]).toMatchObject({ containerId, name: 'gitea', hostDeviceId: deviceId });
+    expect(dockerNetworkRows[0]!.containers).toHaveLength(0);
+  });
+
+  it('an existing container attached to a second network appears in both rows', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const withA = addContainerNetwork(doc, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge' }, { now: NOW });
+    const withB = addContainerNetwork(withA, { hostDeviceId: deviceId, name: 'db_net', driver: 'bridge' }, { now: NOW });
+    const withContainer = addContainer(withB, { hostDeviceId: deviceId, name: 'gitea' }, { now: NOW });
+    const containerId = edgesOut(withContainer, deviceId, 'HasContainer')[0]!.to;
+    const [netA, netB] = edgesOut(withContainer, deviceId, 'HasContainerNetwork').map((e) => e.to);
+    const attached1 = attachContainerToNetwork(withContainer, { container: { kind: 'existing', containerId }, networkId: netA }, { now: NOW });
+    const attached2 = attachContainerToNetwork(attached1, { container: { kind: 'existing', containerId }, networkId: netB }, { now: NOW });
+
+    const { dockerNetworkRows } = deriveNetworks(attached2);
+    expect(dockerNetworkRows).toHaveLength(2);
+    for (const row of dockerNetworkRows) {
+      expect(row.containers.map((c) => c.containerId)).toEqual([containerId]);
+    }
+  });
+
+  it('two containers on one host publishing the same host port, protocol and host address are marked "certain"; an all-addresses binding against a specific address is marked "likely"', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const withA = addContainer(doc, { hostDeviceId: deviceId, name: 'a' }, { now: NOW });
+    const aId = edgesOut(withA, deviceId, 'HasContainer')[0]!.to;
+    const withB = addContainer(withA, { hostDeviceId: deviceId, name: 'b' }, { now: NOW });
+    const bId = edgesOut(withB, deviceId, 'HasContainer').map((e) => e.to).find((id) => id !== aId)!;
+    const withC = addContainer(withB, { hostDeviceId: deviceId, name: 'c' }, { now: NOW });
+    const cId = edgesOut(withC, deviceId, 'HasContainer').map((e) => e.to).find((id) => id !== aId && id !== bId)!;
+
+    // a and b both leave host_address absent — "no address" binds every
+    // host address (docker/docs port-publishing.md), a "certain" clash. c
+    // states a specific address on the same host/port/proto: a genuine
+    // kernel-level conflict, unsourced enough to refuse, so c and the a/b
+    // pair are each marked "likely" instead.
+    const withPorts = addPublishedPort(
+      addPublishedPort(
+        addPublishedPort(withC, { containerId: aId, protocol: 'tcp', containerPort: 80, hostPort: 8080 }, { now: NOW }),
+        { containerId: bId, protocol: 'tcp', containerPort: 81, hostPort: 8080 },
+        { now: NOW },
+      ),
+      { containerId: cId, protocol: 'tcp', containerPort: 82, hostPort: 8080, hostAddress: '127.0.0.1' },
+      { now: NOW },
+    );
+
+    const { dockerUnattachedContainers } = deriveNetworks(withPorts);
+    const byId = new Map(dockerUnattachedContainers.map((r) => [r.containerId, r]));
+    expect(byId.get(aId)!.publishedPorts[0]!.conflict).toBe('certain');
+    expect(byId.get(bId)!.publishedPorts[0]!.conflict).toBe('certain');
+    expect(byId.get(cId)!.publishedPorts[0]!.conflict).toBe('likely');
+  });
+
+  it('two specific, different host addresses on the same host port are not marked; an explicit 0.0.0.0 is treated the same as an absent address', () => {
+    const { doc, deviceId } = deviceWithPorts([]);
+    const withD = addContainer(doc, { hostDeviceId: deviceId, name: 'd' }, { now: NOW });
+    const dId = edgesOut(withD, deviceId, 'HasContainer')[0]!.to;
+    const withE = addContainer(withD, { hostDeviceId: deviceId, name: 'e' }, { now: NOW });
+    const eId = edgesOut(withE, deviceId, 'HasContainer').map((e) => e.to).find((id) => id !== dId)!;
+    const withF = addContainer(withE, { hostDeviceId: deviceId, name: 'f' }, { now: NOW });
+    const fId = edgesOut(withF, deviceId, 'HasContainer').map((e) => e.to).find((id) => id !== dId && id !== eId)!;
+
+    const withPorts = addPublishedPort(
+      addPublishedPort(
+        addPublishedPort(withF, { containerId: dId, protocol: 'tcp', containerPort: 90, hostPort: 9090, hostAddress: '10.0.0.1' }, { now: NOW }),
+        { containerId: eId, protocol: 'tcp', containerPort: 91, hostPort: 9090, hostAddress: '10.0.0.2' },
+        { now: NOW },
+      ),
+      // f states 0.0.0.0 explicitly — treated like an absent address, not
+      // just another specific address string.
+      { containerId: fId, protocol: 'tcp', containerPort: 92, hostPort: 9191, hostAddress: '0.0.0.0' },
+      { now: NOW },
+    );
+    const withG = addContainer(withPorts, { hostDeviceId: deviceId, name: 'g' }, { now: NOW });
+    const gId = edgesOut(withG, deviceId, 'HasContainer').map((e) => e.to).find((id) => id !== dId && id !== eId && id !== fId)!;
+    const withAllPorts = addPublishedPort(withG, { containerId: gId, protocol: 'tcp', containerPort: 93, hostPort: 9191 }, { now: NOW });
+
+    const { dockerUnattachedContainers } = deriveNetworks(withAllPorts);
+    const byId = new Map(dockerUnattachedContainers.map((r) => [r.containerId, r]));
+    expect(byId.get(dId)!.publishedPorts[0]!.conflict).toBeUndefined();
+    expect(byId.get(eId)!.publishedPorts[0]!.conflict).toBeUndefined();
+    expect(byId.get(fId)!.publishedPorts[0]!.conflict).toBe('certain'); // 0.0.0.0 vs g's absent address, same port
+    expect(byId.get(gId)!.publishedPorts[0]!.conflict).toBe('certain');
   });
 });

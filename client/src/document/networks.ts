@@ -47,12 +47,13 @@ import {
 } from './model';
 import { newUlid } from './ulid';
 
-interface Actor {
+export interface Actor {
   actor?: string;
   now?: number;
 }
 
-function resolve(opts: Actor | undefined): { actor: string; now: number } {
+/** Exported so `docker.ts` shares the same actor/clock resolution. */
+export function resolve(opts: Actor | undefined): { actor: string; now: number } {
   return { actor: opts?.actor ?? LOCAL_ACTOR, now: opts?.now ?? Date.now() };
 }
 
@@ -164,7 +165,7 @@ export type NetworkAttachTarget =
   | { kind: 'interface'; interfaceId: string }
   | { kind: 'port'; portId: string; interfaceName: string };
 
-interface ResolvedUnit {
+export interface ResolvedUnit {
   working: Document;
   unitId: string;
   interfaceId: string;
@@ -182,8 +183,9 @@ interface ResolvedUnit {
  * tagged, `0` when not); ignored for an existing unit. Only a member
  * `Interface` occupies a port (schema.yaml's `Occupies` doc, `~2396-2405`) —
  * a bond (`AggregateInterface`) is refused rather than built; supported only
- * if it stays cheap. */
-function resolveOrCreateUnit(
+ * if it stays cheap. Exported so `docker.ts` can resolve a macvlan/ipvlan
+ * `ParentUnit` target the same way, rather than re-deriving the walk. */
+export function resolveOrCreateUnit(
   working: Document,
   now: number,
   actor: string,
