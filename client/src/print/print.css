@@ -140,6 +140,16 @@
   cursor: pointer;
 }
 
+/* The place stays mounted under the preview (`DesignPlace.tsx`) — `display:
+   contents` keeps this wrapper out of layout so `.shell`'s own height:100%
+   still resolves against its real parent, not this div's auto height.
+   Firefox 37+, Chrome 65+, Safari 11.1+ (css.properties.display.contents,
+   read 2026-09-26). Print CSS overrides this to `none` while a preview is
+   open, injected by `PrintPreview.tsx` itself. */
+.print-hide-under-preview {
+  display: contents;
+}
+
 /* --- the preview: page-sized blocks in normal flow ---------------------- */
 
 .print-preview {
