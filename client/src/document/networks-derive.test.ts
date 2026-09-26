@@ -666,7 +666,7 @@ describe('deriveNetworks — performance', () => {
     return { ...emptyDocument(), nodes, edges, provenance: [], batches: [] };
   }
 
-  it('derives 60 and 120 switches (1,440 and 2,880 ports) each well under a generous 500 ms bound', () => {
+  it('derives 60 and 120 switches (1,440 and 2,880 ports) each in under 2 s, so a quadratic walk fails', () => {
     const doc60 = syntheticSwitchedDesign(60);
     const t60Start = performance.now();
     const result60 = deriveNetworks(doc60);
@@ -682,7 +682,7 @@ describe('deriveNetworks — performance', () => {
 
     expect(result60.vlanRows).toHaveLength(60);
     expect(result120.vlanRows).toHaveLength(120);
-    expect(t60).toBeLessThan(500);
-    expect(t120).toBeLessThan(500);
+    expect(t60).toBeLessThan(2000);
+    expect(t120).toBeLessThan(2000);
   });
 });

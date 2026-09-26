@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 
 import './index.css';
 import App from './App';
-import { lp } from './crypto/bytes';
+import { concatBytes, lp, u64LE } from './crypto/bytes';
 import { generateKeyPair } from './crypto/keys';
 import { SCHEMA_VERSION, writePlain } from './document/plain';
 import { newUlid } from './document/ulid';
@@ -147,7 +147,9 @@ async function main() {
     const org = `/organisations/${ORG_ID}`;
 
     if (method === 'POST' && p === '/session/nonce') {
-      return new Response(lp(crypto.getRandomValues(new Uint8Array(16))) as BodyInit, { status: 200 });
+      // LP(nonce) || u64(issued_counter), the answer the client reads (ADR-0057 decision 4).
+      const nonce = lp(crypto.getRandomValues(new Uint8Array(16)));
+      return new Response(concatBytes(nonce, u64LE(0)) as BodyInit, { status: 200 });
     }
     if (method === 'GET' && p === '/setup/state') {
       return new Response(lp(new TextEncoder().encode('done')) as BodyInit, { status: 200 });
