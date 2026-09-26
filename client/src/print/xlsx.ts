@@ -1,6 +1,5 @@
-// The cut sheet's .xlsx download — a minimal OOXML spreadsheet, one
-// worksheet, inline strings only (never a formula, never a shared-string
-// table). Built with `zip.ts`'s own stored writer; no new dependency.
+// The cut sheet's .xlsx download — a minimal OOXML spreadsheet, inline
+// strings only, never a formula. Built on `zip.ts`'s own stored writer.
 import { cleanExportText } from './textClean';
 import { writeStoredZip, type ZipEntry } from './zip';
 
@@ -103,7 +102,7 @@ function workbookXml(sheetName: string): string {
   );
 }
 
-/** One worksheet, a header row, bold device header rows — brief item 5. */
+/** One worksheet, a header row, bold device header rows. */
 export function buildXlsx(sheetName: string, rows: readonly XlsxRow[]): Uint8Array {
   const enc = (s: string) => new TextEncoder().encode(s);
   const entries: ZipEntry[] = [

@@ -1,7 +1,5 @@
-// The cut sheet — brief item 4: one block per device (a header row of name,
-// model, placement, then one row per port, free ports included), grouped
-// per equipment as the team's own Excel sheet already is. Every device in
-// the closet gets a block: racked, on a shelf or a surface, or not placed.
+// The cut sheet: one block per device (name, model, placement, then one
+// row per port, free ports included) — racked, shelved, surfaced or not placed.
 import { deriveNetworks, type VlanRow } from '../document/networks-derive';
 import type { Document } from '../document/model';
 import type { CableView, ChassisView, ClosetView, FixtureView, PortView, RackView } from '../document/view';
@@ -31,8 +29,7 @@ interface PortOwner {
 }
 
 /** Every port this closet carries, by id, paired with the name of whatever
- * owns it — built once so `farEnd` below is a lookup, never a second walk
- * of the whole closet per port. */
+ * owns it — built once, so `farEnd` below is a lookup, not a second walk. */
 function buildLookup(view: ClosetView): { owners: Map<string, PortOwner>; ports: Map<string, PortView> } {
   const owners = new Map<string, PortOwner>();
   const ports = new Map<string, PortView>();
@@ -109,13 +106,8 @@ function rackPlacementLabel(rack: Pick<RackView, 'label' | 'heightU' | 'unitNumb
   return `Rack ${rack.label} · U${unitRangeLabel(rack.heightU, rack.unitNumbering, c.positionU, c.heightU)}`;
 }
 
-/**
- * Every device in `view`, one `CutSheetDevice` block each — racked devices
- * first (rack order, top to bottom within a rack), then shelf occupants,
- * then surface/board fixtures, then unplaced devices. `doc` is read once,
- * through `deriveNetworks` (cached per document), for each port's VLAN
- * membership.
- */
+/** Every device in `view`, one block each — racked, then shelved, then
+ * surface-fixed, then unplaced. `doc` is read once, through `deriveNetworks`. */
 export function buildCutSheet(doc: Document, view: ClosetView): CutSheetDevice[] {
   const { owners, ports } = buildLookup(view);
   const { vlanRows } = deriveNetworks(doc);

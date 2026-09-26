@@ -50,8 +50,7 @@ export interface BarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
-  /** GitHub issue #39 — the Print button beside Undo/Redo; absent where
-   * there is no design open to print. */
+  /** The Print button beside Undo/Redo; absent with no design open. */
   onPrint?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`

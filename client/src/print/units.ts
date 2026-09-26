@@ -1,17 +1,11 @@
 // Rack-unit labelling shared by the rack sheet and the cut sheet.
-// `positionU` (`document/view.ts`) always counts from the bottom, 1..heightU
-// — `RackNode.tsx`'s own reading. `unitNumbering` only flips which label
-// text a physical row carries: 'ascending' labels the bottom row "1" and
-// counts up (the label equals `positionU` itself); 'descending' labels the
-// TOP row "1" and counts down.
+// `positionU` counts from the bottom; `unitNumbering` only flips the label.
 
 export function unitLabel(rackHeightU: number, unitNumbering: string, positionU: number): number {
   return unitNumbering === 'descending' ? rackHeightU - positionU + 1 : positionU;
 }
 
-/** A chassis's own occupied units as the printed table shows them, e.g.
- * `"22"` for a 1U device or `"17–18"` for a 2U one — low label first
- * regardless of numbering direction. */
+/** A chassis's own occupied units, e.g. `"22"` or `"17–18"` — low label first regardless of numbering direction. */
 export function unitRangeLabel(rackHeightU: number, unitNumbering: string, positionU: number, heightU: number): string {
   const a = unitLabel(rackHeightU, unitNumbering, positionU);
   const b = unitLabel(rackHeightU, unitNumbering, positionU + heightU - 1);
@@ -20,9 +14,7 @@ export function unitRangeLabel(rackHeightU: number, unitNumbering: string, posit
   return lo === hi ? String(lo) : `${lo}–${hi}`;
 }
 
-/** A row's physical distance from the top of the rack, 0-based — the
- * drawing order `RackNode.tsx`'s own `rowTop` already uses, restated here
- * pure so the sheet builders never need a DOM measurement to page a rack. */
+/** A row's physical distance from the top of the rack, 0-based. */
 export function physicalTopRow(rackHeightU: number, item: { positionU: number; heightU: number }): number {
   return rackHeightU - (item.positionU + item.heightU - 1);
 }

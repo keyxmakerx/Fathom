@@ -1,7 +1,5 @@
-// Assembles whatever the panel asked for into one ordered list of
-// unpaginated sheets — no row-splitting here, since a real page split needs
-// real measured heights (`PrintPreview.tsx`'s own hidden measuring pass,
-// `rackSheet.ts`/`cutSheetTable.ts`'s pure `paginate*ByHeight` functions).
+// Assembles whatever the panel asked for into unpaginated sheets — a real
+// page split needs measured heights, so that stays in `PrintPreview.tsx`.
 import type { CableView, ChassisView, RackView, ShelfView } from '../document/view';
 import type { CutSheetDevice } from './cutSheet';
 import { cutSheetBodyRows, cutSheetColumnHeaderRow, type CutSheetBodyRow, type CutSheetTableRow } from './cutSheetTable';

@@ -1,8 +1,6 @@
-// Drives the Print panel (GitHub issue #39) through the real App: the
-// panel opens, prints each sheet kind to a real PDF (Playwright's
-// page.pdf, Chromium) on both A4 and Letter, and every real PDF page count
-// is checked against the "x of y" its own title blocks print — the check
-// fails when they differ. Also downloads the cut sheet as .xlsx and .csv.
+// Drives the Print panel through the real App: opens the panel, prints
+// each sheet kind to a real PDF on A4 and Letter, checks the real page
+// count against the title blocks' own "x of y", downloads the cut sheet.
 // Usage: bash scripts/build-wasm.sh (if stale), then
 //   flock <lock> node scripts/drive-print.mjs
 import { execFileSync, spawn } from 'node:child_process';
@@ -40,15 +38,9 @@ function check(name, ok, detail) {
   if (!ok) fails.push(name);
 }
 
-/** How many real pages a Chromium-produced PDF actually has, two ways that
- * must agree. `byTypePage` counts every leaf `/Type /Page` object (never
- * `/Type /Pages`, a parent) — correct regardless of how many intermediate
- * `/Pages` nodes Chromium's own balanced page tree uses (verified: past 8
- * pages it groups pages into child `/Pages` nodes, each with its own
- * smaller `/Count`). `byCount` follows the trailer's real path instead —
- * `/Type /Catalog` to its `/Pages` object to THAT object's own `/Count` —
- * rather than the first `/Count` found in the file, which is a child's
- * past 8 pages, not the total. */
+/** How many real pages a PDF has, two ways that must agree: `byTypePage`
+ * counts leaf `/Type /Page` objects; `byCount` follows Catalog to its
+ * Pages object's own `/Count`, not the first `/Count` in the file, which past 8 pages is a child's. */
 function countPdfPages(buffer) {
   const text = buffer.toString('latin1');
   const typePageMatches = text.match(/\/Type\s*\/Page(?!s)/g) ?? [];
@@ -117,9 +109,8 @@ async function waitForServer(url, timeoutMs) {
   }
 }
 
-/** Opens the print panel afresh, from the Racks place, on a clean load —
- * every case below starts here rather than closing and reopening the
- * panel, so one case's leftover choice can never bleed into the next. */
+/** Opens the print panel afresh on a clean load — no leftover choice from
+ * one case can bleed into the next. */
 async function openPanel(page, scene = 'print') {
   await page.goto(`${BASE}/drive.html?scene=${scene}`);
   // The first navigation of a run pays Vite's own cold dependency
@@ -130,9 +121,7 @@ async function openPanel(page, scene = 'print') {
 }
 
 /** The real layout, on every page: no `.print-page__content` and no table
- * cell inside a `.print-page` scrolls — 1px slack for sub-pixel rounding.
- * A long value that overflows its cell fails this, whether or not the
- * page-count check above happens to still agree. */
+ * cell inside a `.print-page` scrolls (1px slack for rounding). */
 async function checkNoOverflow(page, label) {
   const bad = await page.evaluate(() => {
     const out = [];
@@ -158,8 +147,7 @@ async function chooseWhat(page, what) {
 }
 
 /** Clicks the panel's own Print button, waits for the preview, and reads
- * every page's own "page X of Y" — this drive's one check that must fail
- * when it disagrees with the real PDF. */
+ * every page's own "page X of Y". */
 async function toPreviewAndReadTitleBlocks(page) {
   await page.locator('[data-testid="print-panel-print"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
@@ -233,8 +221,7 @@ try {
       if (kase.cables) await page.locator(`[data-testid="print-cables-${kase.cables}"]`).click();
 
       if (kase.what === 'cut-sheet' && paper === 'A4') {
-        // Downloads: exercised once (paper does not change the file) —
-        // brief item 5.
+        // Downloads: exercised once — paper does not change the file.
         const [xlsxDownload] = await Promise.all([
           page.waitForEvent('download'),
           page.locator('[data-testid="print-download-xlsx"]').click(),
@@ -302,9 +289,7 @@ try {
 
   // -------------------------------------------------------------------------
   // The attack scene: 50-character FQDN hostnames, a long cable label and
-  // many VLANs on one trunk port — real long values, not a row-count
-  // estimate. Also the job of more than 8 pages the PDF page-count fix
-  // itself needs a real test against.
+  // many VLANs — real long values, and a job of more than 8 pages.
   // -------------------------------------------------------------------------
   const attackCases = [
     { what: 'this-rack', cables: 'all', label: 'attack scene: the rack, cables all' },

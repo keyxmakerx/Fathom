@@ -91,15 +91,8 @@ export interface PrintPreviewProps {
   onClose: () => void;
 }
 
-/**
- * The panel's own "Print" click lands here. Paginates from real measured
- * row heights (a hidden pass renders every sheet's rows unsplit; their
- * heights feed the pure `paginate*ByHeight` functions), so a long value
- * that wraps to two lines still gets a whole row on some page rather than
- * being counted wrong and clipped. Page-sized blocks, each with its own
- * title block — Firefox ignores `@page size` in a saved PDF (this file's
- * own `print.css` says where that was checked). Ctrl+P here prints.
- */
+/** The panel's own "Print" click lands here: a hidden pass measures every
+ * row's real height, then pure functions paginate from that. Ctrl+P prints. */
 export function PrintPreview({ job, onClose }: PrintPreviewProps) {
   const [finalPages, setFinalPages] = useState<FinalPage[] | null>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -116,9 +109,8 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
     setFinalPages(buildFinalPages(job, heights));
   }, [job, finalPages]);
 
-  // Page margin and hiding the live drawing from print both apply only
-  // while this preview is mounted, so a screen that prints something else
-  // (the recovery key sheet) is never affected.
+  // Page margin and hiding the live drawing from print apply only while
+  // this preview is mounted — another screen's own print is never affected.
   useLayoutEffect(() => {
     const style = document.createElement('style');
     style.textContent = '@page { margin: 0; } @media print { .print-hide-under-preview { display: none !important; } }';

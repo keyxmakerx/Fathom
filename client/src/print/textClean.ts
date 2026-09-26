@@ -1,10 +1,5 @@
-// Shared by the CSV and xlsx writers (brief: "one helper for both files") —
-// strips what XML 1.0's Char production forbids and cuts a cell at Excel's
-// own 32,767-character limit. https://www.w3.org/TR/xml/#charsets: Char ::=
-// #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF] —
-// so a C0 control other than tab/LF/CR, a lone UTF-16 surrogate, or U+FFFE/
-// U+FFFF is dropped; a valid surrogate pair (a supplementary character) is
-// always kept.
+// Shared by the CSV and xlsx writers: strips what XML 1.0's Char production
+// forbids (w3.org/TR/xml/#charsets) and cuts a cell to Excel's 32,767 limit.
 
 const CELL_CHAR_LIMIT = 32_767;
 
@@ -15,9 +10,8 @@ function isAllowedBmpCode(code: number): boolean {
   return false;
 }
 
-/** Drops the forbidden characters only — no length cut. Exported so a
- * caller that adds a prefix afterwards (the CSV writer's injection guard)
- * can cut once, after the prefix, rather than risk landing at 32,768. */
+/** Drops the forbidden characters only, no length cut — a caller that adds
+ * a prefix afterwards cuts once, after it, never before. */
 export function stripForbiddenChars(input: string): string {
   let out = '';
   for (let i = 0; i < input.length; i += 1) {

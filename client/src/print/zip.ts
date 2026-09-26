@@ -1,7 +1,5 @@
-// A stored (uncompressed) ZIP — enough for an .xlsx, which is a zip of XML
-// parts (brief item 5). No compression, so no inflate/deflate to carry as a
-// dependency; CRC-32 is the one algorithm this needs, the standard
-// polynomial 0xEDB88320, table-driven.
+// A stored (uncompressed) ZIP — enough for an .xlsx. No compression, so no
+// inflate/deflate; CRC-32 is the one algorithm needed, table-driven.
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -31,9 +29,7 @@ export interface ZipEntry {
 const LOCAL_SIG = 0x04034b50;
 const CENTRAL_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
-// 1980-01-01, the DOS epoch — every part in a generated document shares one
-// timestamp rather than a real clock a byte-for-byte test would have to
-// tolerate drifting.
+// 1980-01-01, the DOS epoch — a fixed timestamp, not a real clock.
 const DOS_TIME = 0;
 const DOS_DATE = 0x21;
 
@@ -41,16 +37,8 @@ function bytesOf(name: string): Uint8Array {
   return new TextEncoder().encode(name);
 }
 
-/**
- * Appends `Uint8Array`s and copies them into one buffer with `.set()` at
- * the end — never `array.push(...bigTypedArray)` or `[...a, ...b]` on a
- * real worksheet's worth of bytes. Spreading a typed array into a function
- * call turns into one argument per byte, and V8 refuses a call with too
- * many of those (`RangeError: Maximum call stack size exceeded`) — a cut
- * sheet with enough devices reached that ceiling in an early version of
- * this file, found by the drive's own download check, not a test with
- * only a handful of rows.
- */
+/** Appends `Uint8Array`s and copies them into one buffer with `.set()` at
+ * the end — never a spread of a large typed array into `push()`, which V8 refuses past a few tens of thousands of bytes. */
 class ByteWriter {
   private parts: Uint8Array[] = [];
   private length = 0;
@@ -149,9 +137,8 @@ export function writeStoredZip(entries: readonly ZipEntry[]): Uint8Array {
   return out.toBytes();
 }
 
-/** The round trip this session's own tests need: every stored entry read
- * back by name, off the end-of-central-directory record — never a general
- * zip reader (no deflate, no multi-disk, no data descriptors). */
+/** Every stored entry, read back by name off the end-of-central-directory
+ * record — never a general zip reader (no deflate, no multi-disk). */
 export function readStoredZip(bytes: Uint8Array): ZipEntry[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // The EOCD is the last 22+ bytes; with no zip comment (this writer never

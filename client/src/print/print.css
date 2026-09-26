@@ -1,19 +1,10 @@
-/* The Print panel and the print preview — brief items 1/2.
-   @page and print-color-adjust support (read 2026-09-26,
-   raw.githubusercontent.com/mdn/browser-compat-data):
-   - css.at-rules.page: firefox 19+. css.at-rules.page.size: firefox 95+ —
-     but the owner's own reading that day found Firefox ignores @page size
-     in a SAVED PDF regardless, so @page below sets margin only; every
-     sheet's real size comes from `.print-page`'s own mm width/height
-     (`PrintPreview.tsx`).
-   - Page-margin boxes (@top-center and its seven siblings): firefox
-     support is `false` — never used here.
-   - css.properties.break-inside / its "avoid" value: firefox 65+ — used as
-     a backstop; the sheet builders already cut pages at a row boundary, so
-     this never actually has to fire.
-   - css.properties.print-color-adjust: firefox 97+ (also "color-adjust"
-     from firefox 48) — set so a rack's light fills survive a browser's
-     own ink-saving default. */
+/* The Print panel and the print preview.
+   Browser support, each read 2026-09-26 from raw.githubusercontent.com/mdn/browser-compat-data:
+   @page rule — Firefox 19+ (css.at-rules.page); the owner found @page size ignored in a saved PDF regardless, so it is not relied on.
+   @page size — Firefox 95+ (css.at-rules.page.size), but see above.
+   Page-margin boxes (@top-center etc.) — no Firefox support (css.at-rules.page.margin-at-rules).
+   break-inside: avoid — Firefox 65+ (css.properties.break-inside), used as a backstop only.
+   print-color-adjust — Firefox 97+, "color-adjust" alias from 48+ (css.properties.print-color-adjust). */
 
 
 .print-panel {
@@ -61,9 +52,7 @@
 }
 
 /* `design/tokens.css`'s global `input { appearance: none }` collapses a
-   radio/checkbox to a zero-size box unless something restores an
-   appearance and a size — this panel asks for the plain native one back,
-   rather than drawing its own glyph. */
+   radio/checkbox to zero size — restored here to the plain native control. */
 .print-panel__option input,
 .print-panel__check input {
   appearance: auto;
@@ -189,15 +178,8 @@
   flex-direction: column;
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
-  /* `design/tokens.css`'s own `body { line-height: 1.25rem }` is an
-     absolute 20px, inherited by every descendant regardless of its own
-     font-size — an 8px table cell here would otherwise render a 20px-tall
-     line box, roughly 6mm instead of the ~3mm the row-height budgets below
-     assume, and the sheet builders' own row counts would no longer match
-     what the page actually holds. A proportional line-height here is what
-     makes the two agree (found the same way the CSS break-after bug was:
-     the drive's own PDF-page-count check against the title block's own
-     "of y"). */
+  /* `design/tokens.css`'s own `body` line-height is a fixed 20px, inherited
+     regardless of font-size — a proportional one here keeps a row's real height matching what the pagination measures. */
   line-height: 1.2;
 }
 
@@ -397,12 +379,8 @@
   .print-page {
     border: none;
   }
-  /* A break BEFORE every page but the first — `break-after` on every page,
-     the first cut, forces one more break after the LAST page than there is
-     content for, and Chromium and Firefox both then print a trailing blank
-     page (found by the drive's own page-count check against the title
-     block's "of y": every A4 and Letter case printed one page more than
-     declared, off by exactly one, until this changed). */
+  /* A break BEFORE every page but the first — `break-after` on the last
+     page too forces a trailing blank page. */
   .print-page + .print-page {
     break-before: page;
   }

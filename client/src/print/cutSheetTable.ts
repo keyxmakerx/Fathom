@@ -1,7 +1,5 @@
-// The cut sheet as a flat table — the shape the .csv/.xlsx downloads and the
-// printed pages both read off, so there is exactly one grouping rule to get
-// right. One column-title row at the very top, and one bold, filled row per
-// device (name, model, placement) ahead of its own port rows.
+// The cut sheet as a flat table — one shape the .csv/.xlsx downloads and
+// the printed pages both read off. A column-title row, then a bold filled row per device ahead of its own port rows.
 import type { CutSheetDevice } from './cutSheet';
 
 export const CUT_SHEET_COLUMNS = ['Device', 'Model', 'Placement', 'Port', 'Connector', 'Far end', 'Cable', 'Colour', 'VLANs'] as const;
@@ -44,13 +42,8 @@ export function cutSheetTableRows(devices: readonly CutSheetDevice[]): CutSheetT
   return [cutSheetColumnHeaderRow(), ...cutSheetBodyRows(devices).map((r) => r.row)];
 }
 
-/**
- * Packs measured rows into pages: every page opens with the column header,
- * repeated at `columnHeader.heightPx`; a device whose ports run past a page
- * boundary repeats its own header row on the next page. Pure — fed
- * fabricated heights in its own tests, real ones from a hidden render in
- * `PrintPreview.tsx`.
- */
+/** Packs measured rows into pages: every page opens with the column
+ * header; a device whose ports split repeats its own header row. Pure. */
 export function paginateCutSheetByHeight(
   columnHeader: { row: CutSheetTableRow; heightPx: number },
   bodyRows: readonly { row: CutSheetTableRow; isDeviceHeader: boolean; heightPx: number }[],

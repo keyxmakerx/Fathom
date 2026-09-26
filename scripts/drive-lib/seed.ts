@@ -284,19 +284,8 @@ export function seedDockerScene(catalogue: CatalogueModel[], me: string): Docume
   return doc;
 }
 
-/** GitHub issue #39's own drive — a 42U rack fully populated with 42
- * devices (the brief's worked pagination example), plus five smaller,
- * mixed racks so "every rack in this closet" has real breadth. Every
- * device placement resolves its fresh node ids by diffing `doc.nodes`
- * (`newestNode`, this file's own helper) rather than a `viewOf` call —
- * `viewOf` runs once, at the very end, to resolve the port ids the cabling
- * needs: "seed with one viewOf call, not one per cable, or seeding gets
- * slow" is the brief's own instruction. The 42 devices are sketch devices
- * with one port each, not a 48-port catalogue faceplate repeated 42 times
- * — "pick models with the ports the scene needs" reads both ways: a
- * front-RJ45-less model would refuse the cabling this scene wants, and a
- * heavily-ported one draws thousands of port glyphs nothing here needs,
- * slow enough in a real browser to look like a hang. */
+/** A 42U rack fully populated with 42 devices, plus five smaller mixed
+ * racks — sketch devices with one port each, not a heavy catalogue faceplate repeated 42 times. */
 export function seedPrintScene(catalogue: CatalogueModel[], me: string): Document {
   let doc = emptyDocument();
   const premises = createPremises(doc, { actor: me });
@@ -332,10 +321,8 @@ export function seedPrintScene(catalogue: CatalogueModel[], me: string): Documen
     doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU, face: 'front' }, { actor: me });
   }
 
-  // Rack 1 — the brief's own worked example: 42U, 42 devices, fully
-  // populated, so its own rack sheet needs exactly two pages on A4 and on
-  // Letter (`rackSheet.ts`'s own tests prove the pagination; this proves
-  // the real component pages the same way).
+  // Rack 1 — 42U, fully populated, so its own rack sheet needs exactly two
+  // pages on A4 and on Letter.
   const rack1 = mkRack('R1', 42);
   const rack1Hostnames: string[] = [];
   for (let u = 1; u <= 42; u += 1) {
@@ -405,10 +392,8 @@ export function seedPrintScene(catalogue: CatalogueModel[], me: string): Documen
   return doc;
 }
 
-/** The print drive's own layout-stress scene: 50-character FQDN hostnames,
- * a long cable label and many VLANs on one trunk port — real values long
- * enough that a fixed row-height budget clips them, which is exactly what
- * the drive's own scrollHeight/scrollWidth check on every page is for. */
+/** A layout-stress scene: 50-character FQDN hostnames, a long cable label
+ * and many VLANs — real values long enough to overflow a fixed-height row. */
 export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): Document {
   let doc = emptyDocument();
   const premises = createPremises(doc, { actor: me });
@@ -444,11 +429,8 @@ export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): D
     doc = connectPorts(doc, portId(hostnames[i], 'eth0'), portId(hostnames[i + 1], 'eth0'), { sheath: 'blue', label }, { actor: me });
   }
 
-  // Many VLANs: eight extra ports on the first device, cabled in pairs,
-  // each pair's cable carrying its own access VLAN — `addVlan`'s own
-  // trunk refusal ("a trunk is never made here") rules out many tagged
-  // VLANs on one port without a pre-existing trunk unit, so this spreads
-  // them across several cabled ports instead.
+  // Many VLANs, spread across several cabled ports on the first device —
+  // a fresh unit refuses a tagged (trunk) attach, so access mode per port instead.
   const firstDevice = byHostname.get(hostnames[0])!;
   for (let i = 0; i < 8; i += 1) {
     doc = addSketchPort(doc, firstDevice.id, { label: `vlan-${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });

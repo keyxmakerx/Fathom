@@ -12,9 +12,8 @@ export interface PrintPanelRackSummary {
 }
 
 export interface PrintPanelProps {
-  /** The rack selected on screen, falling back to the first rack — brief
-   * item 1. `null` when the closet has no rack at all (nothing to print as
-   * "this rack"). */
+  /** The rack selected on screen, falling back to the first rack; `null`
+   * when the closet has none. */
   activeRack: PrintPanelRackSummary | null;
   rackCount: number;
   onPrint: (what: PrintWhat, options: PrintOptions) => void;
@@ -23,12 +22,8 @@ export interface PrintPanelProps {
   onDownloadCsv: () => void;
 }
 
-/**
- * The Print button/Ctrl+P panel — brief item 1: what to print, paper,
- * cables, and the leave-out/black-and-white options. Not a `Popover`: every
- * row here is a live form control a click must not close the box over, the
- * way `PopoverRow`'s own close-on-select does.
- */
+/** What to print, paper, cables, and the leave-out/black-and-white options.
+ * Not a `Popover`: every row here is a live form control, not a menu row that closes on click. */
 export function PrintPanel({ activeRack, rackCount, onPrint, onCancel, onDownloadXlsx, onDownloadCsv }: PrintPanelProps) {
   const [what, setWhat] = useState<PrintWhat>(activeRack != null ? 'this-rack' : 'closet');
   const [paper, setPaper] = useState<PaperSize>('A4');
@@ -57,9 +52,6 @@ export function PrintPanel({ activeRack, rackCount, onPrint, onCancel, onDownloa
     }
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `commit` reads
-    // the latest state via closure each render; re-binding every render is
-    // fine here (one listener, no accumulation) and simpler than a ref.
   }, [onCancel, what, paper, cables, hideSensitive, blackAndWhite]);
 
   return (

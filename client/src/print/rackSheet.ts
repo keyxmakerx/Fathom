@@ -1,8 +1,5 @@
-// The rack sheet: front and rear elevations to scale with unit numbers, a
-// device table (unit, name, model, serial, management address, ports
-// cabled), cables none or all. The elevation always stays whole on the
-// first page, scaled down if a rack is too tall to draw at full size; the
-// device table continues onto further pages, repeating its own header.
+// The rack sheet: front and rear elevations to scale, a device table.
+// The elevation stays whole on the first page, scaled down if needed; the table continues on further pages, header repeated.
 import type { Facing } from '../components/drawing/elevation';
 import { faceplateItem } from '../components/drawing/elevation';
 import type { ChassisView, OccupantView, RackView, ShelfView } from '../document/view';
@@ -14,10 +11,8 @@ export const ELEVATION_ROW_MM = 6;
 /** The FRONT/REAR caption strip above the frame. */
 export const ELEVATION_CAPTION_MM = 4;
 
-/** How tall one rack unit draws, scaled down only if `heightU` at the
- * natural size (plus the caption strip) would be taller than one page's own
- * content area — an elevation never splits across pages, so it must always
- * fit whole. */
+/** How tall one rack unit draws, scaled down only if the natural size would
+ * overflow one page's content area — an elevation never splits across pages. */
 export function elevationRowMm(heightU: number, paper: PaperSize): number {
   const budget = contentHeightMm(paper) - ELEVATION_CAPTION_MM;
   const natural = heightU * ELEVATION_ROW_MM;
@@ -46,9 +41,8 @@ function cabledCount(ports: readonly { cable: unknown }[]): string {
   return `${cabled} of ${ports.length}`;
 }
 
-/** Every chassis and every shelf occupant in `rack`, top to bottom —
- * shelves are drawn and listed at their own units, occupants named,
- * alongside ordinary rack-mounted chassis. */
+/** Every chassis and every shelf occupant in `rack`, top to bottom — a
+ * shelf's own occupants are listed at the shelf's unit, named. */
 export function rackDeviceRows(rack: Pick<RackView, 'heightU' | 'unitNumbering' | 'chassis' | 'shelves'>, hideSensitive: boolean): RackDeviceRow[] {
   const chassisRows = rack.chassis.map((c) => ({
     positionU: c.positionU,
@@ -81,17 +75,13 @@ export interface ElevationCableLine {
   fromChassisId: string;
   toChassisId: string;
   cableId: string;
-  /** The sheath word (`CableView.sheath`), `null` when the cable carries
-   * none — black-and-white mode writes this beside the line instead of
-   * relying on its ink. */
+  /** The sheath word, `null` when none — black-and-white mode writes this
+   * beside the line instead of relying on its ink. */
   sheath: string | null;
 }
 
 /** A cable this rack's elevation actually draws — both ends are chassis in
- * this same rack and both faceplates show on `elevation` (`faceplateItem`'s
- * own visible face, `components/drawing/elevation.ts`, reused rather than
- * re-derived). A cable elsewhere is left to the device table's own "ports
- * cabled" count. */
+ * this rack, on this elevation's own visible face. Elsewhere is left to the table's "ports cabled" count. */
 export function elevationCableLines(
   chassis: readonly ChassisView[],
   elevation: Facing,
@@ -120,8 +110,7 @@ export function elevationCableLines(
 }
 
 /** One item the elevation draws at its own unit range — a chassis or a
- * shelf (with its occupants named on the band, `PrintPreview.tsx`'s own
- * render). Merges and orders both kinds top to bottom. */
+ * shelf with its occupants. Merges and orders both kinds top to bottom. */
 export type ElevationItem =
   | { kind: 'chassis'; positionU: number; heightU: number; chassis: ChassisView }
   | { kind: 'shelf'; positionU: number; heightU: number; shelf: ShelfView; occupants: readonly OccupantView[] };
@@ -132,14 +121,8 @@ export function elevationItemsOf(rack: Pick<RackView, 'chassis' | 'shelves'>): E
   return [...chassisItems, ...shelfItems].sort((a, b) => b.positionU - a.positionU);
 }
 
-/**
- * Packs measured table rows into pages: `firstPageBudgetPx` is what is left
- * once the elevation (and the page's own header) have taken their share on
- * page one; `laterPageBudgetPx` is a full page's content height minus the
- * table's own repeated header. A row that alone exceeds a page's budget
- * still gets a page rather than being dropped or split — pure, so it is
- * tested with fabricated heights, never a real render.
- */
+/** Packs measured table rows into pages: `firstPageBudgetPx` is what the
+ * elevation leaves on page one; `laterPageBudgetPx` is a full page. Pure. */
 export function paginateRackTableByHeight(
   rows: readonly { row: RackDeviceRow; heightPx: number }[],
   firstPageBudgetPx: number,

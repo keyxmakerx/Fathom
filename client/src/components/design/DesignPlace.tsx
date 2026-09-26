@@ -23,10 +23,8 @@ import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
 
-/** A download with no server round trip and no new dependency — same
- * pattern as `Account.tsx`'s `downloadRecoveryCodes`: revoke the object URL
- * a few seconds later, not on the next line, since a browser that has not
- * yet read the blob when it is revoked saves an empty file. */
+/** A download with no server round trip. The object URL is revoked a few
+ * seconds later, not straight away — read too soon, a browser saves an empty file. */
 function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
   const blob = new Blob([new Uint8Array(bytes)], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -85,19 +83,14 @@ export function DesignPlace(props: DesignPlaceProps) {
   const accountAddress = getSession()?.address ?? null;
 
   // ------------------------------------------------------------------
-  // GitHub issue #39 — Print. `activeRackId` is `RacksPlace`'s own report of
-  // what the current selection resolves to (`RacksPlace.tsx`'s own effect);
-  // Inventory never sets it, so a design opened straight into Inventory
-  // still falls back to the closet's first rack (`PrintPanel`'s own prop is
-  // already `| null`, and the panel disables "This rack" when there truly
-  // is none).
+  // Print. `activeRackId` is RacksPlace's own report of what the current
+  // selection resolves to; `null` when there is none, which the panel reads as "no active rack".
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
 
-  // The design has no name of its own (`api/designs.ts`'s own doc: designs
-  // has no name column at all) — the deepest scope in the path is the
-  // nearest thing to one; the path itself excludes the organisation.
+  // A design has no name of its own — the deepest scope is the nearest
+  // thing to one; the path itself excludes the organisation.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
   const pathLabel = shellProps.path
     .slice(1)
@@ -114,9 +107,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     setPrintJob(null);
   }, []);
 
-  // Ctrl+P: left alone in a text field; opens the panel when nothing of
-  // this feature is open yet. `PrintPreview.tsx` carries its own Ctrl+P
-  // (prints) once the preview itself is open — brief item 1.
+  // Ctrl+P: left alone in a text field, opens the panel otherwise. The
+  // panel and the preview each carry their own Ctrl+P once open.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'p') return;
@@ -424,10 +416,8 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     );
 
-  // The place stays mounted while the preview shows — closing the preview
-  // must not lose zoom, pan, the open editor or the selection. Print CSS
-  // (injected only while `PrintPreview` is itself mounted) hides this
-  // wrapper so the live drawing never actually prints alongside the sheets.
+  // The place stays mounted while the preview shows, so closing it loses no
+  // zoom, pan, selection or open editor; print CSS hides it while printing.
   return (
     <>
       <div className="print-hide-under-preview">{place}</div>
