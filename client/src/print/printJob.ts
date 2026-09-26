@@ -4,7 +4,7 @@ import type { CableView, ChassisView, RackView, ShelfView } from '../document/vi
 import type { CutSheetDevice } from './cutSheet';
 import { cutSheetBodyRows, cutSheetColumnHeaderRow, type CutSheetBodyRow, type CutSheetTableRow } from './cutSheetTable';
 import type { PaperSize } from './paper';
-import { elevationCableLines, rackDeviceRows, type ElevationCableLine, type RackDeviceRow } from './rackSheet';
+import { allCableLines, elevationCableLines, rackDeviceRows, type ElevationCableLine, type RackDeviceRow } from './rackSheet';
 
 export type PrintWhat = 'this-rack' | 'closet' | 'cut-sheet';
 export type CablesOption = 'none' | 'all';
@@ -42,6 +42,8 @@ export interface RackSheetUnpaginated {
   hideSensitive: boolean;
   frontCables: ElevationCableLine[];
   rearCables: ElevationCableLine[];
+  /** Every cable, drawn or not — what the "Cables:" hop list reads. */
+  allCables: ElevationCableLine[];
   deviceRows: RackDeviceRow[];
   heading: SheetHeading;
 }
@@ -82,6 +84,7 @@ function buildRackSheet(
     hideSensitive: options.hideSensitive,
     frontCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'front', sheathByCableId) : [],
     rearCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'rear', sheathByCableId) : [],
+    allCables: options.cables === 'all' ? allCableLines(rack.chassis, sheathByCableId) : [],
     deviceRows: rackDeviceRows(rack, options.hideSensitive),
     heading: {
       title: `Rack ${rack.label} · ${designName}`,

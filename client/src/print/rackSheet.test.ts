@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ChassisView, OccupantView, PortView, ShelfView } from '../document/view';
 import { contentHeightMm } from './paper';
 import {
+  allCableLines,
   dedupeCableLines,
+  deviceFaceplateLayout,
   elevationCableLines,
   elevationHeightMm,
   elevationItemsOf,
@@ -186,35 +188,77 @@ describe('faceplateGlyphRows', () => {
 });
 
 describe('facePortGlyphs', () => {
-  it('one glyph per port, left to right within the body width', () => {
+  const zone = { startX: 2, width: 66 };
+
+  it('one glyph per port, left to right within the zone', () => {
     const ports = [port('a', { column: 0 }), port('b', { column: 1 })];
-    const glyphs = facePortGlyphs(ports, 70);
+    const glyphs = facePortGlyphs(ports, zone, 1);
     expect(glyphs).toHaveLength(2);
     expect(glyphs[0].x).toBeLessThan(glyphs[1].x);
   });
 
   it('a C14 connector draws as the hex inlet shape, an RJ45 as a rectangle', () => {
-    const glyphs = facePortGlyphs([port('p', { connector: 'c14' })], 70);
+    const glyphs = facePortGlyphs([port('p', { connector: 'c14' })], zone, 1);
     expect(glyphs[0].shape).toBe('hex');
-    expect(facePortGlyphs([port('p', { connector: 'rj45' })], 70)[0].shape).toBe('rect');
+    expect(facePortGlyphs([port('p', { connector: 'rj45' })], zone, 1)[0].shape).toBe('rect');
   });
 
-  it('shrinks to fit rather than overflow the body, for a great many ports', () => {
+  it('shrinks to fit rather than overflow the zone, for a great many ports', () => {
     const ports = Array.from({ length: 48 }, (_, i) => port(`p${i}`, { column: i }));
-    const glyphs = facePortGlyphs(ports, 70);
+    const glyphs = facePortGlyphs(ports, zone, 1);
     const last = glyphs[glyphs.length - 1];
-    expect(last.x + last.w).toBeLessThanOrEqual(70 - 2 + 0.01);
+    expect(last.x + last.w).toBeLessThanOrEqual(zone.startX + zone.width + 0.01);
   });
 
-  it('right-aligns a row when asked, for inlets at the body\'s far edge', () => {
-    const glyphs = facePortGlyphs([port('p')], 70, { rightAlign: true });
-    expect(glyphs[0].x).toBeGreaterThan(35);
+  it('right-aligns a row when asked, for inlets at the zone\'s far edge', () => {
+    const glyphs = facePortGlyphs([port('p')], zone, 1, true);
+    expect(glyphs[0].x).toBeGreaterThan(zone.startX + zone.width / 2);
   });
 
-  it('stacks a later row below an earlier one via rowOffset', () => {
-    const glyphs = facePortGlyphs([port('p')], 70, { rowOffset: 2 });
-    const bare = facePortGlyphs([port('p')], 70)[0];
+  it('a later row sits below an earlier one, via its own y', () => {
+    const glyphs = facePortGlyphs([port('p')], zone, 5);
+    const bare = facePortGlyphs([port('p')], zone, 1)[0];
     expect(glyphs[0].y).toBeGreaterThan(bare.y);
+  });
+});
+
+describe('deviceFaceplateLayout', () => {
+  function box(b: { x0: number; x1: number; y0: number; y1: number }): { x0: number; x1: number; y0: number; y1: number } {
+    return b;
+  }
+  function intersects(a: ReturnType<typeof box>, b: ReturnType<typeof box>): boolean {
+    return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  }
+  function glyphBoxes(layout: ReturnType<typeof deviceFaceplateLayout>) {
+    return [...layout.portGlyphs, ...layout.inletGlyphs].map((g) => box({ x0: g.x, x1: g.x + g.w, y0: g.y, y1: g.y + g.h }));
+  }
+  function assertNoOverlap(layout: ReturnType<typeof deviceFaceplateLayout>) {
+    for (const g of glyphBoxes(layout)) {
+      expect(intersects(layout.nameBox, g)).toBe(false);
+      expect(intersects(layout.modelBox, g)).toBe(false);
+    }
+  }
+
+  it('a 1U device with a realistic port count: nothing overlaps', () => {
+    const ports = Array.from({ length: 24 }, (_, i) => port(`p${i}`, { column: i }));
+    assertNoOverlap(deviceFaceplateLayout('patch-01', 'NK6PPG24Y', ports, [], 1, 70));
+  });
+
+  it('a 1U device with ports and an inlet both: nothing overlaps', () => {
+    const ports = Array.from({ length: 4 }, (_, i) => port(`p${i}`, { column: i }));
+    const inlets = [port('psu', { connector: 'c14', column: 0 })];
+    assertNoOverlap(deviceFaceplateLayout('nas-01', 'RS822+', ports, inlets, 1, 70));
+  });
+
+  it('a taller device with ports and an inlet on their own rows: nothing overlaps', () => {
+    const ports = Array.from({ length: 5 }, (_, i) => port(`p${i}`, { column: i }));
+    const inlets = [port('psu1', { connector: 'c14', column: 0 }), port('psu2', { connector: 'c14', column: 1 })];
+    assertNoOverlap(deviceFaceplateLayout('dock-01', 'R740xd', ports, inlets, 2, 70));
+  });
+
+  it('a long name and model, many ports: still nothing overlaps', () => {
+    const ports = Array.from({ length: 48 }, (_, i) => port(`p${i}`, { column: i }));
+    assertNoOverlap(deviceFaceplateLayout('access-switch-01.floor-3.example.net', 'DCS-7050SX3-48YC8', ports, [], 1, 70));
   });
 });
 
@@ -238,6 +282,16 @@ describe('elevationCableLines', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].fromText).toBe('a a-p0');
     expect(lines[0].toText).toBe('b-host eth0');
+  });
+
+  it('draws a cable only when both ends are on the same face', () => {
+    const a = chassis('a', 2, 1, {
+      ports: [port('a-p0', { face: 'front', cable: { cableId: 'cbl-1', farPortId: 'b-p0', farChassisId: 'b', outsideCloset: false } })],
+    });
+    const b = chassis('b', 1, 1, { ports: [port('b-p0', { face: 'rear' })] });
+    expect(elevationCableLines([a, b], 'front')).toHaveLength(0);
+    expect(elevationCableLines([a, b], 'rear')).toHaveLength(0);
+    expect(allCableLines([a, b])).toHaveLength(1);
   });
 });
 

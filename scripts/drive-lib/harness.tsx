@@ -176,7 +176,7 @@ async function main() {
           scope_id: SCOPE_ID,
           parent_scope_id: null,
           kind: 'network',
-          display_name: 'Drive network',
+          display_name: scene === 'print-loft' ? 'Loft' : 'Drive network',
           depth: 0,
           path: 'drive',
           capability: 'steward',

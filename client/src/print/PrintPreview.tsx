@@ -5,13 +5,11 @@ import { contentHeightMm, mmToPx, pageHeightMm, pageWidthMm, pxToMm, type PaperS
 import {
   ELEVATION_CAPTION_MM,
   NOTE_MARGIN_TOP_MM,
-  dedupeCableLines,
+  deviceFaceplateLayout,
   elevationHeightMm,
   elevationItemsOf,
   elevationRowMm,
   emptyUnitRows,
-  faceplateGlyphRows,
-  facePortGlyphs,
   paginateRackTableByHeight,
   type ElevationCableLine,
   type ElevationItem,
@@ -27,11 +25,11 @@ const HIDE_SENSITIVE_NOTE = 'Serial numbers and management addresses left out of
 /** The board's own "Cables: …" line under the elevations, plus the hop
  * list when any are drawn — front and rear cables named once each. */
 function CablesNote({ sheet, dataRowId }: { sheet: RackSheetUnpaginated; dataRowId?: string }) {
-  const lines = dedupeCableLines([...sheet.frontCables, ...sheet.rearCables]);
+  const lines = sheet.allCables;
   return (
     <div className="print-cables-note" data-row-id={dataRowId}>
       <div>
-        <span className="print-cables-note__mark">Cables:</span> {lines.length > 0 ? `all · ${lines.length} shown` : 'none'}
+        <span className="print-cables-note__mark">Cables:</span> {lines.length > 0 ? `all · ${lines.length}` : 'none'}
       </div>
       {lines.length > 0 && <div className="print-cables-note__list">{lines.map((l) => `${l.fromText} → ${l.toText}`).join(' · ')}</div>}
     </div>
@@ -94,7 +92,7 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
     if (sheet.kind === 'rack') {
       const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
       const notePx = sheet.hideSensitive ? (heights.get(`${sheetIndex}:note`) ?? 0) + mmToPx(NOTE_MARGIN_TOP_MM) : 0;
-      const cablesShown = sheet.frontCables.length > 0 || sheet.rearCables.length > 0;
+      const cablesShown = sheet.allCables.length > 0;
       const cablesNotePx = cablesShown ? (heights.get(`${sheetIndex}:cablesNote`) ?? 0) : 0;
       const reservedMm = pxToMm(notePx) + pxToMm(cablesNotePx);
       const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper, reservedMm));
@@ -224,7 +222,7 @@ function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: Rea
                 {HIDE_SENSITIVE_NOTE}
               </div>
             )}
-            {(sheet.frontCables.length > 0 || sheet.rearCables.length > 0) && <CablesNote sheet={sheet} dataRowId={`${i}:cablesNote`} />}
+            {sheet.allCables.length > 0 && <CablesNote sheet={sheet} dataRowId={`${i}:cablesNote`} />}
           </div>
         ) : (
           <table key={i} className="print-table print-table--cutsheet">
@@ -357,7 +355,7 @@ function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPage
           <Elevation items={items} heightU={sheet.heightU} unitNumbering={sheet.unitNumbering} rowMm={rowMm} elevation="rear" blackAndWhite={blackAndWhite} cableLines={sheet.rearCables} />
         </div>
       )}
-      {showElevation && (sheet.frontCables.length > 0 || sheet.rearCables.length > 0) && <CablesNote sheet={sheet} />}
+      {showElevation && sheet.allCables.length > 0 && <CablesNote sheet={sheet} />}
       <table className="print-table" data-testid="print-rack-device-table">
         <ColGroup widths={RACK_COLUMN_WIDTHS} />
         <RackTableHead />
@@ -441,16 +439,18 @@ function Elevation({
     return (heightU - (positionU + itemHeightU - 1)) * rowMm;
   }
 
-  // Every visible port's own glyph position — what a cable curve below
-  // anchors to, in place of a device's bare centre.
+  // One layout per chassis, reused below for both the boxes and the cable
+  // curves' own anchors (a port's glyph, never a device's bare centre).
+  const layoutByChassisId = new Map<string, ReturnType<typeof deviceFaceplateLayout>>();
   const portXY = new Map<string, { x: number; y: number }>();
   for (const item of items) {
     if (item.kind !== 'chassis') continue;
     const y = yOf(item.positionU, item.heightU);
-    const face = faceplateItem(item.chassis, elevation);
-    const portGlyphs = facePortGlyphs(face.ports, bodyW);
-    const inletGlyphs = facePortGlyphs(face.inlets, bodyW, { rowOffset: faceplateGlyphRows(face.ports).length, rightAlign: true });
-    for (const g of [...portGlyphs, ...inletGlyphs]) {
+    const c = item.chassis;
+    const face = faceplateItem(c, elevation);
+    const layout = deviceFaceplateLayout(c.hostname || '—', c.model, face.ports, face.inlets, item.heightU, bodyW);
+    layoutByChassisId.set(c.id, layout);
+    for (const g of [...layout.portGlyphs, ...layout.inletGlyphs]) {
       portXY.set(g.port.id, { x: railW + g.x + g.w / 2, y: y + g.y + g.h / 2 });
     }
   }
@@ -502,22 +502,28 @@ function Elevation({
           const clipId = `print-clip-${elevation}-${item.kind === 'chassis' ? item.chassis.id : item.shelf.id}`;
           if (item.kind === 'chassis') {
             const c = item.chassis;
-            const face = faceplateItem(c, elevation);
-            const portGlyphs = facePortGlyphs(face.ports, bodyW);
-            const inletGlyphs = facePortGlyphs(face.inlets, bodyW, { rowOffset: faceplateGlyphRows(face.ports).length, rightAlign: true });
+            const layout = layoutByChassisId.get(c.id)!;
             return (
               <g key={c.id} transform={`translate(${railW}, ${y})`}>
                 <clipPath id={clipId}>
                   <rect width={bodyW} height={h} />
                 </clipPath>
+                {/* A name or model longer than its own estimate still stops at
+                    the same edge the layout reserved — never over a glyph. */}
+                <clipPath id={`${clipId}-name`}>
+                  <rect x={layout.nameBox.x0} width={layout.nameBox.x1 - layout.nameBox.x0} height={h} />
+                </clipPath>
+                <clipPath id={`${clipId}-model`}>
+                  <rect x={layout.modelBox.x0} width={layout.modelBox.x1 - layout.modelBox.x0} height={h} />
+                </clipPath>
                 <rect width={bodyW} height={h} className="print-elevation__box" />
                 <g clipPath={`url(#${clipId})`}>
-                  <PortGlyphs glyphs={portGlyphs} />
-                  <PortGlyphs glyphs={inletGlyphs} />
-                  <text x={2} y={h - 1.6} className="print-elevation__name">
+                  <PortGlyphs glyphs={layout.portGlyphs} />
+                  <PortGlyphs glyphs={layout.inletGlyphs} />
+                  <text x={2} y={layout.nameY} className="print-elevation__name" clipPath={`url(#${clipId}-name)`}>
                     {c.hostname || '—'}
                   </text>
-                  <text x={bodyW - 2} y={h - 1.6} textAnchor="end" className="print-elevation__model">
+                  <text x={layout.modelX} y={layout.modelY} textAnchor="end" className="print-elevation__model" clipPath={`url(#${clipId}-model)`}>
                     {c.model}
                   </text>
                 </g>

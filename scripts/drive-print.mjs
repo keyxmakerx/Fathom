@@ -307,6 +307,49 @@ try {
     check(`${label}: unit numbers run down both sides of the frame`, unitFront === 24 * 2, `${unitFront} labels`);
     const heading = await page.locator('.print-page__header-detail').first().innerText();
     check(`${label}: the heading names the U count and device count`, heading.includes('24U') && heading.includes('8 device'), heading);
+    const title = await page.locator('.print-page__header-title').first().innerText();
+    check(`${label}: the heading names the closet, "Rack R1 · Loft"`, title === 'Rack R1 · Loft', title);
+
+    const geometryOverlap = await page.evaluate(() => {
+      const bad = [];
+      document.querySelectorAll('.print-elevation__name, .print-elevation__model').forEach((textEl) => {
+        const t = textEl.getBoundingClientRect();
+        document.querySelectorAll('.print-elevation__port').forEach((g) => {
+          const gb = g.getBoundingClientRect();
+          const overlaps = t.left < gb.right && t.right > gb.left && t.top < gb.bottom && t.bottom > gb.top;
+          if (overlaps) bad.push(`${textEl.textContent} over a port glyph`);
+        });
+      });
+      return bad;
+    });
+    check(`${label}: no name or model box meets a port glyph's box`, geometryOverlap.length === 0, geometryOverlap.slice(0, 5).join(' | '));
+
+    // Three of this scene's own five cables cross from a front port to a
+    // rear one (the servers/NAS to sw-core) — drawn on neither face.
+    const frontCableCount = await page.locator('[data-testid="print-elevation-front"] .print-elevation__cable').count();
+    const rearCableCount = await page.locator('[data-testid="print-elevation-rear"] .print-elevation__cable').count();
+    check(`${label}: only same-face cables draw as arcs`, frontCableCount === 2 && rearCableCount === 0, `front ${frontCableCount}, rear ${rearCableCount}`);
+
+    const anchorMiss = await page.evaluate(() => {
+      const bad = [];
+      document.querySelectorAll('.print-elevation__cable').forEach((path) => {
+        const len = path.getTotalLength();
+        const ctm = path.getScreenCTM();
+        for (const p of [path.getPointAtLength(0), path.getPointAtLength(len)]) {
+          const screen = p.matrixTransform(ctm);
+          const hit = [...document.querySelectorAll('.print-elevation__port')].some((g) => {
+            const b = g.getBoundingClientRect();
+            return screen.x >= b.left - 1 && screen.x <= b.right + 1 && screen.y >= b.top - 1 && screen.y <= b.bottom + 1;
+          });
+          if (!hit) bad.push(`(${screen.x.toFixed(1)},${screen.y.toFixed(1)})`);
+        }
+      });
+      return bad;
+    });
+    check(`${label}: every drawn cable starts and ends on a port glyph`, anchorMiss.length === 0, anchorMiss.slice(0, 5).join(' '));
+    const cablesNoteText = await page.locator('.print-cables-note').first().innerText();
+    check(`${label}: the "Cables:" list still names all five, drawn or not`, cablesNoteText.includes('all · 5'), cablesNoteText.slice(0, 40));
+
     const tableText = await page.locator('[data-testid="print-rack-device-table"]').first().innerText();
     check(
       `${label}: a real serial shows exactly when serials are not left out`,

@@ -93,14 +93,59 @@ function portLabelOn(chassis: ChassisView, portId: string): string | null {
   return found ? found.label : null;
 }
 
-/** A cable this rack's elevation actually draws — both ends are chassis in
- * this rack, on this elevation's own visible face. Elsewhere is left to the table's "ports cabled" count. */
+function buildCableLine(
+  from: ChassisView,
+  fromPortId: string,
+  fromLabel: string,
+  far: ChassisView,
+  farPortId: string,
+  cableId: string,
+  sheathByCableId: ReadonlyMap<string, string | null>,
+): ElevationCableLine {
+  const toLabel = portLabelOn(far, farPortId) ?? farPortId;
+  return {
+    fromChassisId: from.id,
+    toChassisId: far.id,
+    fromPortId,
+    toPortId: farPortId,
+    fromText: `${from.hostname || '—'} ${fromLabel}`,
+    toText: `${far.hostname || '—'} ${toLabel}`,
+    cableId,
+    sheath: sheathByCableId.get(cableId) ?? null,
+  };
+}
+
+/** Every cable between two chassis in this rack, once each — for the
+ * "Cables:" hop list, which names a cable whether or not it is drawn. */
+export function allCableLines(chassis: readonly ChassisView[], sheathByCableId: ReadonlyMap<string, string | null> = new Map()): ElevationCableLine[] {
+  const byId = new Map(chassis.map((c) => [c.id, c] as const));
+  const seen = new Set<string>();
+  const lines: ElevationCableLine[] = [];
+  for (const c of chassis) {
+    for (const port of [...c.ports, ...c.psuInlets]) {
+      const cable = port.cable;
+      if (cable == null || cable.farChassisId == null || cable.farPortId == null) continue;
+      const far = byId.get(cable.farChassisId);
+      if (!far || seen.has(cable.cableId)) continue;
+      seen.add(cable.cableId);
+      lines.push(buildCableLine(c, port.id, port.label, far, cable.farPortId, cable.cableId, sheathByCableId));
+    }
+  }
+  return lines;
+}
+
+/** A cable this elevation actually draws — both ends on THIS face, so an
+ * arc never starts or ends where no port is. A cable crossing faces is left to `allCableLines`'s own list. */
 export function elevationCableLines(
   chassis: readonly ChassisView[],
   elevation: Facing,
   sheathByCableId: ReadonlyMap<string, string | null> = new Map(),
 ): ElevationCableLine[] {
   const byId = new Map(chassis.map((c) => [c.id, c] as const));
+  function visibleHere(c: ChassisView, portId: string): boolean {
+    const item = faceplateItem(c, elevation);
+    return item.ports.some((p) => p.id === portId) || item.inlets.some((p) => p.id === portId);
+  }
   const seen = new Set<string>();
   const lines: ElevationCableLine[] = [];
   for (const c of chassis) {
@@ -110,19 +155,10 @@ export function elevationCableLines(
       if (cable == null || cable.farChassisId == null || cable.farPortId == null) continue;
       const far = byId.get(cable.farChassisId);
       if (!far) continue;
+      if (!visibleHere(far, cable.farPortId)) continue;
       if (seen.has(cable.cableId)) continue;
       seen.add(cable.cableId);
-      const toLabel = portLabelOn(far, cable.farPortId) ?? cable.farPortId;
-      lines.push({
-        fromChassisId: c.id,
-        toChassisId: cable.farChassisId,
-        fromPortId: port.id,
-        toPortId: cable.farPortId,
-        fromText: `${c.hostname || '—'} ${port.label}`,
-        toText: `${far.hostname || '—'} ${toLabel}`,
-        cableId: cable.cableId,
-        sheath: sheathByCableId.get(cable.cableId) ?? null,
-      });
+      lines.push(buildCableLine(c, port.id, port.label, far, cable.farPortId, cable.cableId, sheathByCableId));
     }
   }
   return lines;
@@ -199,8 +235,6 @@ export interface FaceplateGlyph {
 const GLYPH_H_UNITS = 1.5;
 const GLYPH_GAP_UNITS = 0.35;
 const GLYPH_ROW_STEP_UNITS = 2;
-const GLYPH_ROW_Y_START_UNITS = 1.1;
-const GLYPH_SIDE_MARGIN_UNITS = 2;
 const GLYPH_WIDTH_BY_KIND: Record<PortKind, number> = {
   rj45: 0.9,
   'sfp-plus': 1.3,
@@ -210,31 +244,108 @@ const GLYPH_WIDTH_BY_KIND: Record<PortKind, number> = {
   generic: 1,
 };
 
-/** Where each port's glyph draws, one row per faceplate row, shrunk to fit
- * the body width. `rowOffset` stacks a second glyph group below the first; `rightAlign` anchors a row at the right edge instead of the left. Pure. */
-export function facePortGlyphs(
-  ports: readonly PortView[],
-  bodyW: number,
-  opts: { rowOffset?: number; rightAlign?: boolean } = {},
-): FaceplateGlyph[] {
-  const rowOffset = opts.rowOffset ?? 0;
+/** A horizontal band a glyph row may use — never the name's or the
+ * model's own reserved space (`deviceFaceplateLayout` below draws them). */
+export interface GlyphZone {
+  startX: number;
+  width: number;
+}
+
+/** Where each port's glyph draws inside `zone` at `y`, shrunk to fit if it
+ * would overflow; `rightAlign` anchors a row at the zone's right edge. Pure. */
+export function facePortGlyphs(ports: readonly PortView[], zone: GlyphZone, y: number, rightAlign = false): FaceplateGlyph[] {
   const rows = faceplateGlyphRows(ports);
-  const available = bodyW - GLYPH_SIDE_MARGIN_UNITS * 2;
   const out: FaceplateGlyph[] = [];
   rows.forEach((row, rowIndex) => {
-    const y = GLYPH_ROW_Y_START_UNITS + (rowOffset + rowIndex) * GLYPH_ROW_STEP_UNITS;
+    const rowY = y + rowIndex * GLYPH_ROW_STEP_UNITS;
     const kinds = row.map((p) => portKindFor(p.connector) ?? 'generic');
     const naturalWidths = kinds.map((k) => GLYPH_WIDTH_BY_KIND[k]);
     const naturalTotal = naturalWidths.reduce((sum, w) => sum + w, 0) + GLYPH_GAP_UNITS * Math.max(0, row.length - 1);
-    const scale = naturalTotal > available && naturalTotal > 0 ? available / naturalTotal : 1;
-    let x = opts.rightAlign ? bodyW - GLYPH_SIDE_MARGIN_UNITS - naturalTotal * scale : GLYPH_SIDE_MARGIN_UNITS;
+    const scale = naturalTotal > zone.width && naturalTotal > 0 ? Math.max(0, zone.width) / naturalTotal : 1;
+    let x = rightAlign ? zone.startX + zone.width - naturalTotal * scale : zone.startX;
     row.forEach((p, i) => {
       const w = naturalWidths[i] * scale;
-      out.push({ port: p, x, y, w, h: GLYPH_H_UNITS * scale, shape: kinds[i] === 'c14' ? 'hex' : 'rect' });
+      out.push({ port: p, x, y: rowY, w, h: GLYPH_H_UNITS * scale, shape: kinds[i] === 'c14' ? 'hex' : 'rect' });
       x += w + GLYPH_GAP_UNITS * scale;
     });
   });
   return out;
+}
+
+/** A rough on-page text box, sans-serif, capped at `maxW` — the SVG itself
+ * clips a name/model to the same band, so this never overstates the real overlap risk. */
+function estimateTextBox(text: string, x: number, y: number, fontUnits: number, anchorEnd: boolean, maxW: number): TextBox {
+  const w = Math.min(text.length * fontUnits * 0.6, maxW);
+  const x0 = anchorEnd ? x - w : x;
+  return { x0, x1: x0 + w, y0: y - fontUnits, y1: y };
+}
+
+export interface TextBox {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+const NAME_FONT_UNITS = 3;
+const MODEL_FONT_UNITS = 2.4;
+const NAME_ZONE_UNITS = 20;
+const MODEL_ZONE_UNITS = 16;
+const ZONE_MARGIN_UNITS = 2;
+const NAME_LINE_Y = 3.4;
+const LOWER_LINE_Y = 6.4;
+
+export interface DeviceFaceplateLayout {
+  nameBox: TextBox;
+  nameY: number;
+  modelBox: TextBox;
+  modelY: number;
+  modelX: number;
+  portGlyphs: FaceplateGlyph[];
+  inletGlyphs: FaceplateGlyph[];
+}
+
+/** How name, model and glyphs share one faceplate without overlapping: a
+ * 1U box puts all three on one line; a taller one puts the name on its own top line, glyphs and model below. Pure. */
+export function deviceFaceplateLayout(
+  name: string,
+  model: string,
+  ports: readonly PortView[],
+  inlets: readonly PortView[],
+  heightU: number,
+  bodyW: number,
+): DeviceFaceplateLayout {
+  const modelX = bodyW - ZONE_MARGIN_UNITS;
+
+  const modelMaxW = MODEL_ZONE_UNITS - ZONE_MARGIN_UNITS;
+
+  if (heightU === 1) {
+    const y = NAME_LINE_Y;
+    const zone: GlyphZone = { startX: NAME_ZONE_UNITS, width: Math.max(0, bodyW - NAME_ZONE_UNITS - MODEL_ZONE_UNITS) };
+    return {
+      nameBox: estimateTextBox(name, ZONE_MARGIN_UNITS, y, NAME_FONT_UNITS, false, NAME_ZONE_UNITS - ZONE_MARGIN_UNITS),
+      nameY: y,
+      modelBox: estimateTextBox(model, modelX, y, MODEL_FONT_UNITS, true, modelMaxW),
+      modelY: y,
+      modelX,
+      portGlyphs: facePortGlyphs([...ports, ...inlets], zone, y - GLYPH_H_UNITS),
+      inletGlyphs: [],
+    };
+  }
+
+  const zone: GlyphZone = { startX: ZONE_MARGIN_UNITS, width: Math.max(0, bodyW - ZONE_MARGIN_UNITS - MODEL_ZONE_UNITS) };
+  const portGlyphs = facePortGlyphs(ports, zone, LOWER_LINE_Y - GLYPH_H_UNITS);
+  const portRowCount = faceplateGlyphRows(ports).length;
+  const inletGlyphs = facePortGlyphs(inlets, zone, LOWER_LINE_Y - GLYPH_H_UNITS + portRowCount * GLYPH_ROW_STEP_UNITS, true);
+  return {
+    nameBox: estimateTextBox(name, ZONE_MARGIN_UNITS, NAME_LINE_Y, NAME_FONT_UNITS, false, bodyW - ZONE_MARGIN_UNITS * 2),
+    nameY: NAME_LINE_Y,
+    modelBox: estimateTextBox(model, modelX, LOWER_LINE_Y, MODEL_FONT_UNITS, true, modelMaxW),
+    modelY: LOWER_LINE_Y,
+    modelX,
+    portGlyphs,
+    inletGlyphs,
+  };
 }
 
 /** Every physical unit row an elevation draws nothing on — hatched, so an
