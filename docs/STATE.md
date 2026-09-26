@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-09-19: 1311 server-side tests and 834 client tests, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-09-26: 1535 Rust tests (commit 3a2795f) and 1318 client tests (commit 131447d), read off the runs. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -153,11 +153,11 @@ a master key, custody switched by re-wrapping keys rather than re-encrypting dat
 rotation have separate columns and separate words, and no setting accepts one as a synonym for the
 other.
 
-**The operator plane, as of 2026-09-21 (ADR-0055).** The address is the identity: the first start
+**The operator plane, as of 2026-09-21 (ADR-0055), amended 2026-09-25 (ADR-0057).** The address is the identity: the first start
 creates an account for `FATHOM_OPERATOR_NOTICE_ADDRESS` and binds the operator custody to it
 (`operator_account_bindings`); a person signs in with that address, a password (argon2id, 15 to 128
 characters) and a verification code from an authenticator app (RFC 6238 TOTP, SHA-1, six digits, ten hashed recovery codes for the lost
-phone) — `credentials.rs`, migration 0018. `FATHOM_SINGLE_OPERATOR` is retired; the quorum is
+phone) — `credentials.rs`, migration 0018. The setup password in `.env` opens setup once for 30 minutes after start and is spent when the first operator's password is set (ADR-0057, migration 0027). `FATHOM_SINGLE_OPERATOR` is retired; the quorum is
 `min(2, live independent operators)`, counted off the register at every act, so a sole operator adds
 a colleague alone after the 24-hour delay with no switch to ask for (migration 0019,
 `operators.rs`). With one live operator the server warns at every start, and the console banners it,
@@ -172,7 +172,7 @@ own host from inside the console (confirm-or-revert, a five-minute default windo
 `fathom-server console-placement --reset` clears a placement that locked everyone out. SMTP is a
 console setting with a form (host, port, TLS mode, user, password, from-address) and no client
 behind it yet — every start says so when it is unset. Two response headers, CSP and HSTS, are on
-every response. **Not built**: sending mail, so no reset by mail and no notices by mail yet; a
+every response. **Sessions and Site access** (ADR-0057): an account session persists in a browser tab across a reload and expires after 1 hour idle or 12 hours at most; accessing Site needs the account's live session and a fresh verification code when the code is over 15 minutes old; an address change ends the Site session but not the account session, and the check (`FATHOM_SESSION_ADDRESS_CHECK`, default `site`) applies per IPv4 address or IPv6 /64 (migration 0027-0028). **Not built**: sending mail, so no reset by mail and no notices by mail yet; a
 passkey as the phishing-resistant second factor NIST asks for (the authenticator app is what ships); the
 console UI for a second operator's own signature on a request that needs one; and a way for the
 console to hand a newly requested colleague their own setup token (today it is minted and
@@ -211,10 +211,12 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   setup token is minted and discarded — there is no route that hands it over yet.
 - **The operator console** (`client/src/components/console/`): create an account and its
   invitation, reissue one, disable or re-enable an account, create an organisation shell and its
-  claim, list operators and organisations; every minted token shown once. Not on it: the two-person
-  verbs (operators, settings), which need an assertion by the enrolled key this client does not
-  build yet; the site trail; and an account list, for which no route exists. **The organisation
-  claim cannot be redeemed**: the steward-side genesis route is not built (`docs/NEXT.md`).
+  claim, list operators and organisations; every minted token shown once. The organisation claim
+  redeems with `POST /enrolment/organisation`: the browser makes the root keypair, signs the genesis
+  grant, and shows the recovery key once as base32 to download or print, which the browser then
+  forgets; the server verifies the signature before writing (ADR-0057 decision 5, migration 0027).
+  Not on it: the two-person verbs (operators, settings), which need an assertion by the enrolled key
+  this client does not build yet; the site trail; and an account list, for which no route exists.
 - **The shell of ADR-0047**: the one-row bar, the path that opens the scope tree, the five lenses,
   search that collapses to its magnifier, presence, undo and redo (disabled: nothing changes the
   graph through them yet), zoom, the account menu; the rail folded to a strip that opens to the
@@ -228,7 +230,8 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   page (UI-SPEC "The shape"); the client stops at four of them so far, derived from the approved
   boards — closet 87.5%, rack 100% (one 42U rack fits), faceplate 200%, inside 300%. Dragging a palette
   item onto a rack snaps to a unit, refuses an overlap with a shake, and places the device, its
-  chassis and its ports; a chassis drags within or between racks. Every change saves: one save in
+  chassis and its ports; a chassis drags within or between racks. A device can be removed from the
+  drawing, removing everything it contains; an unplaced device opens its editor panel. Every change saves: one save in
   flight, the latest queued, a refusal shown and never rolled back. The TypeScript writer reproduces
   all three Rust-made vectors byte for byte, and the server reads every payload back before storing it.
 
@@ -254,12 +257,12 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
 
 - **Shelves, surfaces and sketches** (Session 6(b), ADR-0051 §1–2, schema 0.8). A shelf takes
   units and its occupants take slots; a device or passive is fixed to a wall, floor, desk or ceiling,
-  or to a board on a wall, at millimetres; a device with no catalogue entry carries ports typed by
-  hand and says so; a port records its face; an outlet box or panel gets its pass-through pairs at
-  placement and a lit path follows them. The drawing mounts the shelf plate in both elevations,
-  surfaces as flat panels beside the rows with a not-measured strip, the floor as a band; cables
-  resolve on occupants and fixtures; the editor shows either with the placed-on control. The
-  catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
+  or to a board on a wall, at millimetres; equipment outside a rack draws whole. A device with no
+  catalogue entry carries ports typed by hand and says so; a port records its face; an outlet box or
+  panel gets its pass-through pairs at placement and a lit path follows them. The drawing mounts the
+  shelf plate in both elevations, surfaces as flat panels beside the rows with a not-measured strip,
+  the floor as a band; cables resolve on occupants and fixtures; the editor shows either with the
+  placed-on control. The catalogue has a Tripp Lite shelf, an ICC outlet box and a CyberPower UPS, cited.
 
 - **The config drawer, view-only, the inside stop** (Session 6(c), ADR-0052, schema 0.9). The
   redaction module ships as a file and runs in the browser with no packages; a paste goes through
@@ -271,10 +274,12 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   a read account's save. The inside stop draws a firewall's zones, interfaces, policy rail,
   routes and tunnels from the module's own inside door, never a verdict.
 
-- **The inventory, notes, undo that records** (Session 6(d), ADR-0053, schema 0.10). Two places
+- **The inventory, notes, undo that records** (Session 6(d), ADR-0053, schema 0.11). Two places
   over one opened design sharing the document and the save queue; the inventory's rail of kinds,
   the device grid grouped per rack with the lens choosing the columns, the Gaps section, the page
-  as the one editor, Show on rack both ways. A note is a node on a device, port or rack, pasted
+  as the one editor, Show on rack both ways, and the Networks kind (ADR-0058): VLANs, subnets and
+  Docker networks with their containers and published ports, and an editor to add them. A note is a
+  node on a device, port or rack, pasted
   through the gate by its own door or stored as typed and saying so. An undo is a new batch of
   reversing operations with a revive operation for what a tombstone removed; only your own
   batches, a colleague's later change refuses by name; the trail beside the drawing with sealed
