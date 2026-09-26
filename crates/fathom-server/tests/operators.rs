@@ -710,6 +710,7 @@ async fn try_sign_in_as_operator(
                     .grace_token
                     .as_ref()
                     .map_or(b"".as_slice(), |g| g.as_slice()),
+                user_agent: "",
             })
             .await;
         if attempt == 0
@@ -937,6 +938,7 @@ async fn mint_and_cache(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
     // Put back at once: every other caller of this account assumes
@@ -1198,6 +1200,7 @@ impl OperatorAttempt<'_> {
                 account_session_id: endorsing_session_id,
                 account_session_sig: endorsing_sig,
                 grace_token,
+                user_agent: "",
             })
             .await
     }
@@ -1259,6 +1262,7 @@ async fn an_endorsement_by_a_signed_out_session_is_refused() {
             PrincipalKind::Steward,
             &account,
             "not-a-real-session-id",
+            None,
         )
         .await
         .expect("end every session of this account, including the one just minted");
@@ -6759,7 +6763,7 @@ async fn a_spent_token_is_refused_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a spent token is refused, not redeemed twice: {answer:?}"
     );
     assert_eq!(
@@ -6888,7 +6892,7 @@ async fn a_bad_grant_signature_is_refused_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a grant the presented root key did not sign is refused: {answer:?}"
     );
 }
@@ -6955,7 +6959,7 @@ async fn a_grant_for_another_account_is_refused_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a grant for an account other than the caller's is refused: {answer:?}"
     );
 }
@@ -7007,7 +7011,7 @@ async fn a_caller_from_the_operator_plane_is_refused() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "an operator session may not redeem an organisation claim: {answer:?}"
     );
 }
@@ -7071,7 +7075,7 @@ async fn a_founding_grant_for_a_key_nobody_enrolled_is_refused_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a grant naming a key nobody enrolled is refused: {answer:?}"
     );
     assert_eq!(
@@ -7149,7 +7153,7 @@ async fn a_founding_grant_for_another_accounts_real_key_is_refused_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a grant naming another real account's key is refused: {answer:?}"
     );
     assert_eq!(
@@ -7256,7 +7260,7 @@ async fn a_duplicate_organisation_id_is_refused_not_500() {
     )
     .await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "the same root key and salt a second time is refused generically, not a 500: {answer:?}"
     );
     assert_eq!(
@@ -7350,7 +7354,7 @@ async fn a_founding_grant_with_a_bad_signature_writes_nothing_over_http() {
     let (status, answer) =
         raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
     assert_eq!(
-        status, "401",
+        status, "403",
         "a bad grant signature is refused: {answer:?}"
     );
     assert_eq!(
@@ -8013,6 +8017,7 @@ async fn address_check_site_mode_ends_an_operator_session_on_a_different_address
                 .grace_token
                 .as_ref()
                 .map_or(b"".as_slice(), |g| g.as_slice()),
+            user_agent: "",
         })
         .await
         .expect("a fresh endorsement signs the operator in");

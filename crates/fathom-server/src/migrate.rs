@@ -186,6 +186,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0028_session_reload_hardening.sql",
         sql: include_str!("../migrations/0028_session_reload_hardening.sql"),
     },
+    // ADR-0057 decision 8: the browser label on a signed-in session.
+    Migration {
+        version: 29,
+        name: "0029_signed_in_browsers.sql",
+        sql: include_str!("../migrations/0029_signed_in_browsers.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -3568,6 +3568,7 @@ async fn end_other_sessions_after_credential_change(
         PrincipalKind::Steward,
         account,
         except_session_id,
+        None,
     )
     .await?;
 
@@ -3585,6 +3586,7 @@ async fn end_other_sessions_after_credential_change(
                 PrincipalKind::Operator,
                 &operator_id,
                 "",
+                None,
             )
             .await?;
         }

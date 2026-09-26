@@ -8,6 +8,7 @@ import {
   AuthenticatorSetupStage,
   RecoveryCodesStage,
   recoveryCodeFile,
+  SignedInBrowsers,
 } from './Account';
 
 // Render-to-string smoke tests (see `SignIn.render.test.ts`'s note). Written
@@ -35,6 +36,16 @@ describe('the account screen', () => {
     );
     expect(html).toMatch(/holds the operator custody/i);
     expect(html).not.toContain('id="account-password"');
+  });
+
+  it('offers the "Signed-in browsers" section on the settings screen and not on the forced app-code one (ADR-0057 decision 8)', () => {
+    const settings = renderToStaticMarkup(createElement(Account, { address: 'owner@example.test' }));
+    expect(settings).toContain('Signed-in browsers');
+
+    const appCode = renderToStaticMarkup(
+      createElement(Account, { address: 'owner@example.test', purpose: 'app-code' }),
+    );
+    expect(appCode).not.toContain('Signed-in browsers');
   });
 
   it('says nothing to a person about an "app code" or a "backup code"', () => {
@@ -203,6 +214,25 @@ describe('the recovery-codes stage, rendered', () => {
     expect(html).toContain('recovery codes');
     expect(html).not.toContain('backup code');
     expect(html).not.toContain('app code');
+  });
+});
+
+describe('the signed-in browsers section (ADR-0057 decision 8)', () => {
+  // `useEffect` does not run under `renderToStaticMarkup`, so `GET /sessions`
+  // is never reached here — this is the section's closed state alone, before
+  // the list answers; the interactive path is `scripts/drive-signed-in-browsers.mjs`'s.
+  it('renders its heading with no code prompt yet', () => {
+    const html = renderToStaticMarkup(createElement(SignedInBrowsers));
+    expect(html).toContain('Signed-in browsers');
+    expect(html).not.toContain('id="signed-in-browsers-code"');
+    expect(html).not.toContain('This browser');
+    expect(html).not.toContain('Sign out');
+  });
+
+  it('says plainly that site (console) sessions are not part of this list', () => {
+    const html = renderToStaticMarkup(createElement(SignedInBrowsers));
+    expect(html).toContain('Site sessions are not listed');
+    expect(html).toContain('15 minutes idle');
   });
 });
 

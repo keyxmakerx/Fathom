@@ -205,6 +205,7 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
                 .grace_token
                 .as_ref()
                 .map_or(b"".as_slice(), |g| g.as_slice()),
+            user_agent: "",
         })
         .await
         .expect("an operator with an enrolled key and a live account session signs in");
@@ -371,6 +372,7 @@ async fn fresh_endorsing_session(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
     // Put back at once, whichever way that went — every OTHER caller of this

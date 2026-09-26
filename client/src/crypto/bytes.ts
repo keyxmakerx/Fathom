@@ -41,6 +41,12 @@ export function readU64LE(bytes: Uint8Array): bigint {
   return new DataView(bytes.buffer, bytes.byteOffset, 8).getBigUint64(0, true);
 }
 
+/** `u32_le(n)`, read back — a fixed-width count ahead of a repeated record,
+ * as `api.rs`'s session-listing answers use rather than a length prefix. */
+export function readU32LE(bytes: Uint8Array): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+}
+
 /** `LP(x) = u32_le(len(x)) || x`. */
 export function lp(bytes: Uint8Array): Uint8Array {
   return concatBytes(u32LE(bytes.length), bytes);

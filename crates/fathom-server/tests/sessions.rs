@@ -40,7 +40,7 @@ use fathom_server::operators::OperatorStore;
 use fathom_server::repo::{self, AccountId, OrganisationId};
 use fathom_server::sessions::{
     self, PrincipalKind, SessionError, SessionStore, SignInAttempt, SignInLimits, SignedIn,
-    SignedRequest, VerifiedSession,
+    SignedRequest, VerifiedSession, ACCOUNT_IDLE_LIMIT,
 };
 
 /// The one master key this test database is encrypted under — the same value
@@ -2781,6 +2781,7 @@ async fn adr55_sign_in(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -3119,6 +3120,7 @@ async fn one_app_code_presented_by_four_sign_ins_at_once_opens_exactly_one_sessi
                     account_session_id: "",
                     account_session_sig: b"",
                     grace_token: b"",
+                    user_agent: "",
                 })
                 .await
         }));
@@ -3527,9 +3529,10 @@ async fn authenticator_re_enrolment_without_a_code_is_refused() {
     .await;
 
     assert_eq!(
-        status, "401",
+        status, "403",
         "the right password and no code is refused generically, not with a 409 that discloses \
-         which check it failed: {answer:?}"
+         which check it failed, and not with the uniform sign-in 401 either — this session is \
+         alive: {answer:?}"
     );
 }
 
@@ -3784,8 +3787,8 @@ async fn a_current_password_budget_is_charged_before_verification_and_refuses_a_
         )
         .await;
         assert_eq!(
-            status, "401",
-            "attempt {i}: a wrong current password is the ordinary sign-in refusal: {answer:?}"
+            status, "403",
+            "attempt {i}: a wrong current password refuses this act, not this session: {answer:?}"
         );
     }
     assert_eq!(
@@ -3868,8 +3871,9 @@ async fn a_re_enrolment_code_budget_is_charged_before_verification_and_refuses_a
         )
         .await;
         assert_eq!(
-            status, "401",
-            "wrong-code attempt {charged}: refused generically: {answer:?}"
+            status, "403",
+            "wrong-code attempt {charged}: refused generically, not with the uniform sign-in \
+             401: {answer:?}"
         );
     }
     assert_eq!(
@@ -4148,6 +4152,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
 
@@ -4191,6 +4196,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
         .expect(
@@ -4231,6 +4237,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
     assert!(
@@ -4296,6 +4303,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
                 account_session_id: "",
                 account_session_sig: b"",
                 grace_token: b"",
+                user_agent: "",
             })
             .await;
         assert!(
@@ -4338,6 +4346,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
         .expect("the probes left the challenge unconsumed");
@@ -4372,6 +4381,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
     assert!(
@@ -4400,6 +4410,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await;
     assert!(
@@ -5049,5 +5060,1153 @@ async fn two_concurrent_requests_from_a_different_address_are_both_refused() {
     assert!(
         !session_row_exists(&signed_in.session_id).await,
         "the session must be gone once both concurrent requests have answered"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 8 — signed-in browsers
+// ---------------------------------------------------------------------------
+
+/// `api::credential_router`, which decision 8's new routes are mounted on,
+/// over the SAME pool and deployment an already-built `sessions` uses — so
+/// its rows and this router's answers are the same database's.
+async fn d8_credential_surface(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    sessions: Arc<SessionStore>,
+) -> std::net::SocketAddr {
+    let deployment = sessions.deployment().to_string();
+    let creds = Arc::new(CredentialStore::new(
+        pool.clone(),
+        Arc::clone(ring),
+        deployment.clone(),
+    ));
+    let operators = Arc::new(OperatorStore::with_delay(
+        pool.clone(),
+        Arc::clone(ring),
+        deployment,
+        Duration::from_secs(1),
+    ));
+    serve(api::credential_router(CredentialApiState {
+        sessions,
+        credentials: creds,
+        operators,
+        setup_secret: None,
+        client_address: ClientAddress::header("x-forwarded-for"),
+    }))
+    .await
+}
+
+/// One signed request of any method against the credential surface —
+/// `adr55_signed_post`'s shape, generalised past `POST`. The nonce is drawn
+/// in process: the credential router mounts no `/session/nonce`.
+async fn d8_signed_call(
+    addr: std::net::SocketAddr,
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> (String, Vec<u8>) {
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await
+        .expect("a live session may ask for a nonce");
+    let counter = next_counter(&signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        method,
+        path,
+        &sessions::body_digest(body),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    raw_request(
+        addr,
+        method,
+        path,
+        &[
+            (HEADER_SESSION, signed_in.session_id.clone()),
+            (HEADER_NONCE, hex(&nonce)),
+            (HEADER_TIMESTAMP, unix_ms.to_string()),
+            (HEADER_COUNTER, counter.to_string()),
+            (HEADER_SIGNATURE, hex(&session_key.sign(&message))),
+            ("x-forwarded-for", a_source_of_its_own()),
+        ],
+        body,
+    )
+    .await
+}
+
+fn d8_end_session_body(session_id: &str, code: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    lp(&mut out, session_id.as_bytes());
+    lp(&mut out, code.as_bytes());
+    out
+}
+
+fn d8_code_body(code: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    lp(&mut out, code.as_bytes());
+    out
+}
+
+/// `api.rs`'s `write_session_summaries`, read back by hand, so a test that
+/// got a field wrong would not agree with the writer by construction.
+/// Answers `(session_id, is_current)` per record.
+fn d8_session_ids(bytes: &[u8]) -> Vec<(String, bool)> {
+    let count = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+    let mut rest = &bytes[4..];
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let (id, r) = read_lp(rest);
+        let (_label, r) = read_lp(r);
+        let (_class, r) = read_lp(r);
+        let r = &r[1..]; // address_changed
+        let r = &r[8..]; // last_active_unix
+        let r = &r[8..]; // issued_at_unix
+        let is_current = r[0] != 0;
+        out.push((
+            String::from_utf8(id.to_vec()).expect("utf8 session id"),
+            is_current,
+        ));
+        rest = &r[1..];
+    }
+    out
+}
+
+/// How many times `bucket_kind`/`bucket_key` has been charged, against the
+/// MAIN test database, not the ADR55 suite's isolated one.
+async fn d8_attempts(bucket_kind: &str, bucket_key: &str) -> i64 {
+    support::superuser_client_on_test_database()
+        .await
+        .query_one(
+            "SELECT COALESCE(SUM(attempts), 0)::bigint FROM sign_in_attempts \
+              WHERE bucket_kind = $1 AND bucket_key = $2",
+            &[&bucket_kind, &bucket_key],
+        )
+        .await
+        .expect("read the bucket")
+        .get(0)
+}
+
+/// `adr55_try_verify`'s shape, against the MAIN test database rather than
+/// `adr55_deployment`'s isolated one — the two must not be crossed, or a
+/// session minted in one reads as a vanished row in the other.
+async fn d8_try_verify(
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    method: &str,
+    path: &str,
+) -> Result<VerifiedSession, SessionError> {
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await?;
+    let counter = next_counter(&signed_in.session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        &signed_in.session_id,
+        method,
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    store
+        .verify_request(&SignedRequest {
+            session_id: &signed_in.session_id,
+            method,
+            path,
+            body: b"",
+            nonce,
+            unix_ms,
+            counter,
+            signature: session_key.sign(&message),
+        })
+        .await
+}
+
+/// What [`d8_enrol_totp`] leaves behind: the live TOTP secret and the
+/// address, and the session the enrolment itself was made through — already
+/// authenticated, so a test can use it straight away to end others.
+struct D8Enrolled {
+    secret: Vec<u8>,
+    address: String,
+    signed_in: SignedIn,
+    session_key: SoftwareKey,
+}
+
+/// Sets a password and a confirmed authenticator on `person` —
+/// `adr55_enrolled`'s shape, generalised past the ADR55 pool. The first
+/// sign-in is by password alone, before any authenticator is confirmed.
+async fn d8_enrol_totp(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    store: &SessionStore,
+    creds: &CredentialStore,
+    person: &Person,
+) -> D8Enrolled {
+    adr55_set_password(pool, person, ADR55_PASSWORD).await;
+    let (signed_in, session_key) = adr55_sign_in(store, &person.address, ADR55_PASSWORD, "", None)
+        .await
+        .expect("a fresh password signs in before any authenticator is confirmed");
+    let session = d8_try_verify(
+        store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/enrol",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .enrol_totp(&session, "", "")
+        .await
+        .expect("enrol an app code");
+    let secret = adr55_totp_secret(pool, ring, &person.account.to_string()).await;
+    let session = d8_try_verify(
+        store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/credentials/totp/confirm",
+    )
+    .await
+    .expect("a live session verifies its own signed request");
+    creds
+        .confirm_totp(
+            &session,
+            &credentials::totp_code(&secret, credentials::totp_step(now_unix())),
+        )
+        .await
+        .expect("a real six-digit code confirms the enrolment");
+    D8Enrolled {
+        secret,
+        address: person.address.clone(),
+        signed_in,
+        session_key,
+    }
+}
+
+/// One more sign-in of an already-[`d8_enrol_totp`]'d account — the
+/// password and a fresh code, as a real second browser would present them.
+async fn d8_sign_in_again(store: &SessionStore, enrolled: &D8Enrolled) -> (SignedIn, SoftwareKey) {
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    adr55_sign_in(store, &enrolled.address, ADR55_PASSWORD, &code, None)
+        .await
+        .expect("the password and a current code sign in again")
+}
+
+#[tokio::test]
+async fn signed_in_browsers_lists_only_this_accounts_own_sessions() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "d8-list-other", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let (steward_in, steward_key) = sign_in(&store, &estate.steward).await;
+    let (member_in, member_key) = sign_in(&store, &member).await;
+
+    let (status, body) = d8_signed_call(
+        addr,
+        &store,
+        &steward_in,
+        &steward_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let ids = d8_session_ids(&body);
+    assert!(
+        ids.iter()
+            .any(|(id, current)| id == &steward_in.session_id && *current),
+        "the caller's own session is listed and marked current: {ids:?}"
+    );
+    assert!(
+        !ids.iter().any(|(id, _)| id == &member_in.session_id),
+        "one account's list must never name another's session: {ids:?}"
+    );
+
+    let (status, body) = d8_signed_call(
+        addr,
+        &store,
+        &member_in,
+        &member_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let ids = d8_session_ids(&body);
+    assert!(ids
+        .iter()
+        .any(|(id, current)| id == &member_in.session_id && *current));
+    assert!(!ids.iter().any(|(id, _)| id == &steward_in.session_id));
+}
+
+#[tokio::test]
+async fn ending_one_session_refuses_its_next_signed_request_and_leaves_the_acting_one_live() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+    let enrolled = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let (other_in, _other_key) = d8_sign_in_again(&store, &enrolled).await;
+
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let body = d8_end_session_body(&other_in.session_id, &code);
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+    // A deleted row has no nonce to issue, so its absence is proved
+    // directly rather than by driving a signed call through a session that
+    // cannot even reach `/session/nonce`.
+    assert!(
+        !session_row_exists(&other_in.session_id).await,
+        "the ended session must be gone"
+    );
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the session that did the ending is untouched"
+    );
+}
+
+#[tokio::test]
+async fn ending_all_other_sessions_keeps_the_acting_one_live() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+    let enrolled = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let (b_in, _b_key) = d8_sign_in_again(&store, &enrolled).await;
+    let (c_in, _c_key) = d8_sign_in_again(&store, &enrolled).await;
+
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let body = d8_code_body(&code);
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end-others",
+        &body,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+    // Deleted rows have no nonce to issue, so their absence is proved
+    // directly rather than by driving a signed call through a session that
+    // cannot even reach `/session/nonce`.
+    assert!(
+        !session_row_exists(&b_in.session_id).await,
+        "every other session must be gone"
+    );
+    assert!(
+        !session_row_exists(&c_in.session_id).await,
+        "every other session must be gone"
+    );
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "the acting session is left alone");
+}
+
+#[tokio::test]
+async fn ending_ones_own_current_session_through_this_route_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+    let enrolled = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let body = d8_end_session_body(&enrolled.signed_in.session_id, &code);
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "400",
+        "signing this browser out stays `DELETE /session`, with no code — this route refuses \
+         its own session rather than spending the code on it"
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the refused attempt must not have ended the session anyway"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_wrong_or_replayed_code_is_refused_and_spends_the_account_budget() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+    let enrolled = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let account = estate.steward.account.to_string();
+
+    // Both targets are signed in before the budget is measured: a
+    // successful sign-in clears this window's account failures by design,
+    // so a sign-in between budget checks would silently zero out the count.
+    let (target_1, target_1_key) = d8_sign_in_again(&store, &enrolled).await;
+    let (target_2, _) = d8_sign_in_again(&store, &enrolled).await;
+    let before = d8_attempts("account", &account).await;
+
+    // Missing.
+    let body = d8_end_session_body(&target_1.session_id, "");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(status, "403", "an empty code is refused, not 401");
+
+    // Wrong.
+    let body = d8_end_session_body(&target_1.session_id, "000000");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(status, "403", "a wrong code is refused, not 401");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &target_1,
+        &target_1_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "a session an empty or a wrong code failed to name must still be live"
+    );
+
+    // A genuine code, spent once, against the second target...
+    let code = adr55_a_fresh_code(&enrolled.secret).await;
+    let body = d8_end_session_body(&target_2.session_id, &code);
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(status, "200", "a genuine current code ends a session");
+
+    // ...and then replayed against the still-live first target.
+    let body = d8_end_session_body(&target_1.session_id, &code);
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &enrolled.signed_in,
+        &enrolled.session_key,
+        "POST",
+        "/sessions/end",
+        &body,
+    )
+    .await;
+    assert_eq!(
+        status, "403",
+        "a code already spent must not end a second session, and not with a 401"
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &target_1,
+        &target_1_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "a session a replayed code failed to name must still be live"
+    );
+
+    let after = d8_attempts("account", &account).await;
+    assert_eq!(
+        after - before,
+        3,
+        "the empty, wrong and replayed attempts each spent the account budget once; the one \
+         genuine success is refunded and costs nothing net"
+    );
+}
+
+#[tokio::test]
+async fn an_admin_can_list_and_end_a_members_sessions_and_a_non_admin_cannot() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "d8-admin-target", None).await;
+    let bystander = a_member_with(&pool, &ring, &estate, "d8-admin-bystander", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let admin = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let (admin_in, admin_key) = (&admin.signed_in, &admin.session_key);
+    let (member_in_1, _member_key_1) = sign_in(&store, &member).await;
+    let (member_in_2, member_key_2) = sign_in(&store, &member).await;
+    let (bystander_in, bystander_key) = sign_in(&store, &bystander).await;
+
+    let path = format!(
+        "/organisations/{}/members/{}/sessions",
+        estate.organisation, member.account
+    );
+
+    let (status, body) = d8_signed_call(addr, &store, admin_in, admin_key, "GET", &path, b"").await;
+    assert_eq!(status, "200");
+    let ids = d8_session_ids(&body);
+    assert!(ids.iter().any(|(id, _)| id == &member_in_1.session_id));
+    assert!(ids.iter().any(|(id, _)| id == &member_in_2.session_id));
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &bystander_in,
+        &bystander_key,
+        "GET",
+        &path,
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "403",
+        "a plain member is not authorised to read another member's sessions"
+    );
+
+    let end_path = format!("{path}/end");
+    let code = adr55_a_fresh_code(&admin.secret).await;
+    let end_body_1 = d8_end_session_body(&member_in_1.session_id, &code);
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        admin_in,
+        admin_key,
+        "POST",
+        &end_path,
+        &end_body_1,
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "an admin ends one of the member's sessions, with the admin's own code: {}",
+        String::from_utf8_lossy(&answer)
+    );
+
+    let end_body_2 = d8_end_session_body(&member_in_2.session_id, "000000");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &bystander_in,
+        &bystander_key,
+        "POST",
+        &end_path,
+        &end_body_2,
+    )
+    .await;
+    assert_eq!(
+        status, "403",
+        "a plain member cannot end another member's session either"
+    );
+
+    // A deleted row has no nonce to issue, so its absence is proved
+    // directly rather than by driving a signed call through a session that
+    // cannot even reach `/session/nonce`.
+    assert!(
+        !session_row_exists(&member_in_1.session_id).await,
+        "the session the admin ended must be gone"
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &member_in_2,
+        &member_key_2,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "the session nobody ended is still live");
+}
+
+/// An admin naming their own account in an admin ending route is refused
+/// before any code is read — that belongs to `/sessions/end`, not the
+/// organisation's authority over a member.
+#[tokio::test]
+async fn an_admin_cannot_end_their_own_sessions_through_the_member_route() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let (admin_in, admin_key) = sign_in(&store, &estate.steward).await;
+    let (other_admin_in, other_admin_key) = sign_in(&store, &estate.steward).await;
+
+    let end_path = format!(
+        "/organisations/{}/members/{}/sessions/end",
+        estate.organisation, estate.steward.account
+    );
+    let body = d8_end_session_body(&other_admin_in.session_id, "000000");
+    let (status, _) = d8_signed_call(
+        addr, &store, &admin_in, &admin_key, "POST", &end_path, &body,
+    )
+    .await;
+    assert_eq!(
+        status, "400",
+        "an admin cannot end their own sessions through the member route"
+    );
+    assert!(
+        session_row_exists(&other_admin_in.session_id).await,
+        "the named session must survive the refusal"
+    );
+
+    let end_all_path = format!(
+        "/organisations/{}/members/{}/sessions/end-all",
+        estate.organisation, estate.steward.account
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin_in,
+        &admin_key,
+        "POST",
+        &end_all_path,
+        &d8_code_body("000000"),
+    )
+    .await;
+    assert_eq!(
+        status, "400",
+        "nor every one of their own sessions, the same way"
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &other_admin_in,
+        &other_admin_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "still live after both refusals");
+}
+
+/// A missing or wrong code on an admin ending route is refused, ends
+/// nothing, and still spends the ADMIN's own account budget —
+/// `verify_current_code`, reused exactly as the self-service routes do.
+#[tokio::test]
+async fn an_admin_ending_route_requires_the_admins_own_current_code() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "d8-admin-needs-code", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let admin = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let admin_account = estate.steward.account.to_string();
+    let before = d8_attempts("account", &admin_account).await;
+    let (target, target_key) = sign_in(&store, &member).await;
+
+    let end_path = format!(
+        "/organisations/{}/members/{}/sessions/end",
+        estate.organisation, member.account
+    );
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "POST",
+        &end_path,
+        &d8_end_session_body(&target.session_id, ""),
+    )
+    .await;
+    assert_eq!(status, "403", "a missing code is refused, not 401");
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "POST",
+        &end_path,
+        &d8_end_session_body(&target.session_id, "000000"),
+    )
+    .await;
+    assert_eq!(status, "403", "a wrong code is refused, not 401");
+
+    let (status, _) =
+        d8_signed_call(addr, &store, &target, &target_key, "GET", "/sessions", b"").await;
+    assert_eq!(status, "200", "the target session survives both refusals");
+
+    let after = d8_attempts("account", &admin_account).await;
+    assert_eq!(
+        after - before,
+        2,
+        "the missing and the wrong code each spent the ADMIN's own budget"
+    );
+}
+
+#[tokio::test]
+async fn an_admin_can_end_every_session_of_one_member() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "d8-admin-end-all", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let admin = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let (m1, _m1_key) = sign_in(&store, &member).await;
+    let (m2, _m2_key) = sign_in(&store, &member).await;
+    let (m3, _m3_key) = sign_in(&store, &member).await;
+
+    let path = format!(
+        "/organisations/{}/members/{}/sessions/end-all",
+        estate.organisation, member.account
+    );
+    let code = adr55_a_fresh_code(&admin.secret).await;
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "POST",
+        &path,
+        &d8_code_body(&code),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+    // Deleted rows have no nonce to issue, so their absence is proved
+    // directly rather than by driving a signed call through a session that
+    // cannot even reach `/session/nonce`.
+    for session in [&m1, &m2, &m3] {
+        assert!(
+            !session_row_exists(&session.session_id).await,
+            "every one of the member's sessions must be gone"
+        );
+    }
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the admin's own session is on a different account, untouched"
+    );
+}
+
+/// `Ulid::decode` accepts a lowercase id, so `require_admin_over_member`
+/// passes with one, but the row is stored under the CANONICAL id — every
+/// act downstream uses the id `require_admin_over_member` returns, never the path text.
+#[tokio::test]
+async fn an_admin_ending_route_accepts_a_lowercase_member_id_and_still_ends_the_session() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "d8-lowercase-id", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let admin = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    let (m1, _m1_key) = sign_in(&store, &member).await;
+
+    let lowercase_member = member.account.to_string().to_lowercase();
+    let path = format!(
+        "/organisations/{}/members/{}/sessions/end-all",
+        estate.organisation, lowercase_member
+    );
+    let code = adr55_a_fresh_code(&admin.secret).await;
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "POST",
+        &path,
+        &d8_code_body(&code),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    assert!(
+        !session_row_exists(&m1.session_id).await,
+        "a lowercase member id in the path must still end the member's real session, not \
+         silently succeed over nothing"
+    );
+}
+
+#[tokio::test]
+async fn an_admin_can_end_every_session_in_the_organisation_except_their_own() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member_a = a_member_with(&pool, &ring, &estate, "d8-org-end-all-a", None).await;
+    let member_b = a_member_with(&pool, &ring, &estate, "d8-org-end-all-b", None).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let creds = CredentialStore::new(
+        pool.clone(),
+        Arc::clone(&ring),
+        store.deployment().to_string(),
+    );
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let admin = d8_enrol_totp(&pool, &ring, &store, &creds, &estate.steward).await;
+    // A SECOND admin session, from before the end-all — excluded because
+    // it belongs to the caller's ACCOUNT, not because it is the one the
+    // request happens to be signed with.
+    let (admin_other_in, admin_other_key) = d8_sign_in_again(&store, &admin).await;
+    let (a_in, _a_key) = sign_in(&store, &member_a).await;
+    let (b_in, _b_key) = sign_in(&store, &member_b).await;
+
+    let path = format!("/organisations/{}/sessions/end-all", estate.organisation);
+    let code = adr55_a_fresh_code(&admin.secret).await;
+    let (status, answer) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "POST",
+        &path,
+        &d8_code_body(&code),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+    // Deleted rows have no nonce to issue, so their absence is proved
+    // directly rather than by driving a signed call through a session that
+    // cannot even reach `/session/nonce`.
+    assert!(
+        !session_row_exists(&a_in.session_id).await,
+        "every member's session in the organisation is gone"
+    );
+    assert!(
+        !session_row_exists(&b_in.session_id).await,
+        "every member's session in the organisation is gone"
+    );
+
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin.signed_in,
+        &admin.session_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the acting session is the admin's own, and it survives"
+    );
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &admin_other_in,
+        &admin_other_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the admin's OTHER session survives too, not only the acting one"
+    );
+}
+
+/// A session idle past its plane's limit is dead the moment a signed
+/// request would find it dead, and the list must agree at once, not wait
+/// for a sweep. `last_seen_at` is moved in SQL, not by a real hour's wait.
+#[tokio::test]
+async fn signed_in_browsers_never_lists_a_session_idle_past_its_limit() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let (live_in, live_key) = sign_in(&store, &estate.steward).await;
+    let (idle_in, _idle_key) = sign_in(&store, &estate.steward).await;
+    set_last_seen_seconds_ago(&idle_in.session_id, ACCOUNT_IDLE_LIMIT.as_secs() as i64 + 1).await;
+
+    let (status, body) =
+        d8_signed_call(addr, &store, &live_in, &live_key, "GET", "/sessions", b"").await;
+    assert_eq!(status, "200");
+    let ids = d8_session_ids(&body);
+    assert!(
+        ids.iter().any(|(id, _)| id == &live_in.session_id),
+        "the live session is listed"
+    );
+    assert!(
+        !ids.iter().any(|(id, _)| id == &idle_in.session_id),
+        "a session idle past its limit must not be listed, even before anything sweeps it"
+    );
+    assert!(
+        session_row_exists(&idle_in.session_id).await,
+        "the row itself is untouched by listing — only a sweep deletes it"
+    );
+}
+
+/// CLAUDE.md rule 2: every other test here signs in with `user_agent: ""`,
+/// which proves the plumbing but not what a real browser sends. This one
+/// uses two real `User-Agent` strings and checks `browser_label::label`'s answer.
+#[tokio::test]
+async fn a_real_user_agent_is_stored_as_its_derived_browser_label() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+
+    async fn sign_in_as(store: &SessionStore, person: &Person, user_agent: &str) -> SignedIn {
+        let session_key = SoftwareKey::random().expect("a session keypair");
+        let pubkey = session_key.public_key();
+        let source = a_source_of_its_own();
+        let challenge = store
+            .issue_challenge(PrincipalKind::Steward, &person.address, &pubkey, &source)
+            .await
+            .expect("a challenge");
+        let evidence = person.key.sign(&sessions::session_challenge(
+            &pubkey,
+            &challenge.nonce,
+            &challenge.deployment_id,
+        ));
+        store
+            .sign_in_with_credentials(&SignInAttempt {
+                kind: PrincipalKind::Steward,
+                session_pubkey: &pubkey,
+                nonce: &challenge.nonce,
+                evidence_sig: &evidence,
+                password: "",
+                totp_code: "",
+                source: &source,
+                account_session_id: "",
+                account_session_sig: b"",
+                grace_token: b"",
+                user_agent,
+            })
+            .await
+            .expect("sign in")
+    }
+
+    let firefox = sign_in_as(
+        &store,
+        &estate.steward,
+        "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    )
+    .await;
+    let chrome = sign_in_as(
+        &store,
+        &estate.steward,
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+         Chrome/128.0.0.0 Safari/537.36",
+    )
+    .await;
+
+    let list = store
+        .list_sessions_of(&estate.steward.account.to_string())
+        .await
+        .expect("list");
+    let label_of = |id: &str| {
+        list.iter()
+            .find(|s| s.session_id == id)
+            .and_then(|s| s.browser_label.clone())
+    };
+
+    assert_eq!(
+        label_of(&firefox.session_id),
+        Some("Firefox on Linux".to_string())
+    );
+    assert_eq!(
+        label_of(&chrome.session_id),
+        Some("Chrome on Windows".to_string())
+    );
+}
+
+/// ASVS 5.0.0 7.4.2, extending
+/// `a_session_for_a_disabled_account_stops_at_the_next_request` to EVERY
+/// session an account holds: the check is per-request and per-principal.
+#[tokio::test]
+async fn disabling_an_account_ends_every_one_of_its_sessions() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+
+    let (s1, k1) = sign_in(&store, &estate.steward).await;
+    let (s2, k2) = sign_in(&store, &estate.steward).await;
+
+    let call = a_call(&store, &s1, &k1, "GET", "/x", b"").await;
+    store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await
+        .expect("session 1 works before the account is disabled");
+    let call = a_call(&store, &s2, &k2, "GET", "/x", b"").await;
+    store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await
+        .expect("session 2 works before the account is disabled");
+
+    store
+        .set_account_disabled(&estate.steward.account.to_string(), true)
+        .await
+        .expect("disable the account");
+
+    let call = a_call(&store, &s1, &k1, "GET", "/x", b"").await;
+    let r1 = store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await;
+    assert!(
+        matches!(r1, Err(SessionError::AccountDisabled)),
+        "session 1 must stop once the account is disabled, got {r1:?}"
+    );
+
+    let call = a_call(&store, &s2, &k2, "GET", "/x", b"").await;
+    let r2 = store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await;
+    assert!(
+        matches!(r2, Err(SessionError::AccountDisabled)),
+        "session 2 must ALSO stop once the account is disabled, got {r2:?}"
     );
 }

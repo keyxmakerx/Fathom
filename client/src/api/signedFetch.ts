@@ -8,6 +8,7 @@ import { readLp, readU64LE, toHex } from '../crypto/bytes';
 import { signMessage } from '../crypto/keys';
 import { bodyDigest, requestBytes } from '../crypto/session';
 import { clearGraceToken } from '../state/graceToken';
+import { markSignedOutElsewhere } from '../state/signedOutNotice';
 import {
   ACCOUNT_PLANE,
   clearPlane,
@@ -23,18 +24,32 @@ import { HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_
 import { refusalFrom } from './errors';
 
 /**
+ * Whether a status means this session is not live, rather than that this
+ * particular request was refused. `sessions.rs` folds every dead-session
+ * cause into `401` (ADR-0057 decision 8); everything else is a live session.
+ */
+export function isSessionDeathStatus(status: number): boolean {
+  return status === 401;
+}
+
+/**
  * A `401` on an established session means it is not live —
  * `sessions.rs` folds every cause into one refusal on purpose. ADR-0057
  * decision 4: clear that plane, and its record on the account plane, so
  * sign-in shows instead of a screen retrying a dead session.
+ *
+ * ADR-0057 decision 8: also the moment a tab whose session ended elsewhere
+ * finds out — a deliberate `signOut` clears the plane itself on `200` and
+ * never reaches here.
  */
 async function clearOnUnauthorized(plane: Plane, response: Response): Promise<never> {
   const refusal = await refusalFrom(response);
-  if (refusal.status === 401) {
+  if (isSessionDeathStatus(refusal.status)) {
     clearPlane(plane);
     if (plane === ACCOUNT_PLANE) {
       void clearAccountSession(thisTabId());
       clearGraceToken();
+      markSignedOutElsewhere();
     }
   }
   throw refusal;

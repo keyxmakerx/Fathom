@@ -739,6 +739,64 @@ pub async fn add_member(
     })
 }
 
+/// ADR-0057 decision 8: confirms `actor` administers `tenant`.
+/// `Err(NotAnAdmin)` for a plain member, `Err(NotAMember)` for nobody at
+/// all. `actor` stays text — `tests/sessions.rs` refuses any route that
+/// constructs an `AccountId` except through a verified session.
+pub async fn require_admin(
+    pool: &Pool,
+    tenant: OrganisationId,
+    actor: &str,
+) -> Result<(), RepoError> {
+    let actor: AccountId = actor
+        .parse()
+        .map_err(|_| RepoError::Corrupt("account id"))?;
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    let role = authorise(&tx, tenant, actor).await?;
+    tx.commit().await?;
+    if role != Role::Admin {
+        return Err(RepoError::NotAnAdmin);
+    }
+    Ok(())
+}
+
+/// As [`require_admin`], and confirms `target` belongs to `tenant` — read
+/// through `authorise`'s own opened `memberships` rows, not a typed id.
+/// Returns the CANONICAL target id: `Ulid::decode` accepts lowercase, but
+/// every session act after this filters on the canonical form a row is
+/// stored under, so raw caller text in another case would match no row.
+pub async fn require_admin_over_member(
+    pool: &Pool,
+    tenant: OrganisationId,
+    actor: &str,
+    target: &str,
+) -> Result<String, RepoError> {
+    let actor: AccountId = actor
+        .parse()
+        .map_err(|_| RepoError::Corrupt("account id"))?;
+    let target: AccountId = target
+        .parse()
+        .map_err(|_| RepoError::Corrupt("account id"))?;
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    if authorise(&tx, tenant, actor).await? != Role::Admin {
+        return Err(RepoError::NotAnAdmin);
+    }
+    let exists = tx
+        .query_opt(
+            "SELECT 1 FROM memberships WHERE organisation_id = $1 AND account_id = $2",
+            &[&tenant.to_string(), &target.to_string()],
+        )
+        .await?
+        .is_some();
+    tx.commit().await?;
+    if !exists {
+        return Err(RepoError::NotAMember);
+    }
+    Ok(target.to_string())
+}
+
 /// Every member of `tenant`, for an `actor` who already belongs to it.
 pub async fn list_members(
     pool: &Pool,

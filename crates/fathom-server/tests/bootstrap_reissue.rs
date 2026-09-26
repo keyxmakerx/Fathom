@@ -844,6 +844,7 @@ async fn sign_in_as_operator(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
         .expect("the account holding the operator custody signs in with its password and code");
@@ -873,6 +874,7 @@ async fn sign_in_as_operator(
                 .grace_token
                 .as_ref()
                 .map_or(b"".as_slice(), |g| g.as_slice()),
+            user_agent: "",
         })
         .await
         .expect("an operator with an enrolled key and a live account session signs in");
@@ -907,6 +909,7 @@ async fn sign_in_with_password(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
         .expect("an account with a password signs in");
