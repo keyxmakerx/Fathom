@@ -686,7 +686,11 @@ async function runProof(browser, seed) {
   const oneRefusalCount = await one.locator('.racks-place__refusal').count();
   check('browser one (steward): placing a device saves with no refusal', oneRefusalCount === 0, `refusal divs: ${oneRefusalCount}`);
   await openTheTrail(one); // folded to a strip on the right edge
-  const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('> *').count();
+  // GitHub issue #66's own brief item 4: `.racks-trail__row`, never `> *` of
+  // `.racks-trail__rows` — an empty-state line (no changes yet) is a direct
+  // child of that wrapper too, and is not itself a row; counting `> *`
+  // would pass on an empty Trail exactly as easily as a real one.
+  const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('.racks-trail__row').count();
   check('browser one (steward): the Trail carries at least one entry after the first save', trailRowsAfterFirstSave >= 1);
 
   // FOUND BUG, now fixed (`components/racks/RacksPlace.tsx`'s `handlePlace`):
