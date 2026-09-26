@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 
 import { beginSignIn, completeSignIn, isSecondFactorNeeded, type SignInChallenge } from './api/auth';
@@ -34,6 +34,7 @@ import { SignIn } from './components/SignIn';
 import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
 import { installExpiryTimers } from './state/expiryTimers';
+import { takeSignedOutNotice } from './state/signedOutNotice';
 import {
   ACCOUNT_PLANE,
   getSession,
@@ -244,6 +245,20 @@ export default function App() {
     setView({ kind: 'home' });
     setAccountOpen(false);
     setClaiming(null);
+  }, [accountSessionId]);
+
+  // ADR-0057 decision 8: a tab whose session died elsewhere finds out here,
+  // the next time it notices. A deliberate `signOut` never sets the flag
+  // `takeSignedOutNotice` reads, so that path stays silent.
+  const previousAccountSessionId = useRef<string | null>(accountSessionId);
+  useEffect(() => {
+    const had = previousAccountSessionId.current;
+    previousAccountSessionId.current = accountSessionId;
+    if (had !== null && accountSessionId === null && takeSignedOutNotice()) {
+      setSignInAddress(undefined);
+      setSignInNotice('You were signed out.');
+      setDoor('sign-in');
+    }
   }, [accountSessionId]);
 
   // The app-code gate, asked once per session: an account that holds the

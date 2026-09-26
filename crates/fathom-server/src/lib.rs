@@ -51,6 +51,7 @@ pub mod admin_exposure;
 pub mod api;
 pub mod audit;
 pub mod authority;
+pub mod browser_label;
 pub mod chain;
 pub mod chains;
 pub mod client;

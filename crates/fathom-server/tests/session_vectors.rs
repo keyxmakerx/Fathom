@@ -50,12 +50,18 @@ const ROW_MAC_NO_TOTP_VERIFIED_AT: &str =
 /// 6's grace token hash and decision 7's bound address class, both set.
 const ROW_MAC_WITH_0028_FIELDS: &str =
     "4c7d1ac64111b776db5643cc392600a128977c0563093b1b499b668eaaf58982";
+/// The same row again, also carrying `0029`'s addition: decision 8's browser
+/// label.
+const ROW_MAC_WITH_0029_FIELD: &str =
+    "7271e41f682e8e7cd59789031df0685a79f32337c6e7645c7a89448358ae2796";
 /// A plausible instant between `ISSUED_AT` and `EXPIRES_AT`, not round.
 const TOTP_VERIFIED_AT: i64 = 1_760_000_050;
 /// `0028`'s two additions' fixed inputs, restated for the same reason the
 /// others above are: neither is all-zero, and the address is a real one.
 const GRACE_TOKEN_HASH: [u8; 32] = [0x35; 32];
 const BOUND_ADDRESS_CLASS: &str = "203.0.113.9";
+/// `0029`'s addition's fixed input, restated for the same reason.
+const BROWSER_LABEL: &str = "Firefox on Linux";
 const SIGNATURE: &str = "f7287814e9e2082c43eed17e320b25e0f016c610aacfc187c5240cf1c7e8774b2f910812429571d9122bc2c1930fc96c\
      843ebc1ab854444ba884b3f7702215df";
 
@@ -312,6 +318,7 @@ fn the_session_row_mac_matches_the_document() {
             totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
             grace_token_hash: None,
             bound_address_class: None,
+            browser_label: None,
         },
     );
     assert_eq!(
@@ -357,6 +364,7 @@ fn the_row_mac_with_no_totp_verified_at_matches_the_document() {
             totp_verified_at_unix: None,
             grace_token_hash: None,
             bound_address_class: None,
+            browser_label: None,
         },
     );
     assert_eq!(hex(&mac), ROW_MAC_NO_TOTP_VERIFIED_AT);
@@ -396,9 +404,50 @@ fn the_row_mac_with_grace_token_and_address_class_matches_the_document() {
             totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
             grace_token_hash: Some(&GRACE_TOKEN_HASH),
             bound_address_class: Some(BOUND_ADDRESS_CLASS),
+            browser_label: None,
         },
     );
     assert_eq!(hex(&mac), ROW_MAC_WITH_0028_FIELDS);
+}
+
+/// The same row again, also carrying decision 8's browser label. Pinned in
+/// Python too.
+#[test]
+fn the_row_mac_with_the_browser_label_matches_the_document() {
+    let key = Key32::from_bytes(
+        unhex(K_ROW_SITE)
+            .try_into()
+            .expect("the row key is 32 bytes"),
+    );
+    let challenge =
+        sessions::session_challenge(&session_key().public_key(), &SERVER_NONCE, DEPLOYMENT);
+    let digest = sessions::evidence_digest(&challenge, &EVIDENCE_SIG);
+    let pubkey = session_key().public_key();
+    let token_hash = sessions::token_hash(&TOKEN);
+    let mac = sessions::session_row_mac(
+        &key,
+        &SessionFacts {
+            id: SESSION_ID,
+            principal_id: PRINCIPAL_ID,
+            principal_kind: PrincipalKind::Steward,
+            token_hash: &token_hash,
+            session_pubkey: &pubkey,
+            bound_nonce: &SERVER_NONCE,
+            evidence_key_id: Some(EVIDENCE_KEY_ID),
+            evidence_sig: Some(&EVIDENCE_SIG),
+            assertion_digest: Some(&digest),
+            assurance: Assurance::A1,
+            chain_seq: CHAIN_SEQ,
+            row_version: ROW_VERSION,
+            issued_at_unix: ISSUED_AT,
+            expires_at_unix: EXPIRES_AT,
+            totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
+            grace_token_hash: Some(&GRACE_TOKEN_HASH),
+            bound_address_class: Some(BOUND_ADDRESS_CLASS),
+            browser_label: Some(BROWSER_LABEL),
+        },
+    );
+    assert_eq!(hex(&mac), ROW_MAC_WITH_0029_FIELD);
 }
 
 #[test]
@@ -428,6 +477,7 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
         totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
         grace_token_hash: None,
         bound_address_class: None,
+        browser_label: None,
     };
     let base = sessions::session_row_mac(&key, &facts());
 
@@ -500,6 +550,11 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
             bound_address_class: Some("203.0.113.9"),
             ..facts()
         },
+        // `0029`: decision 8's addition.
+        SessionFacts {
+            browser_label: Some("Chrome on Windows"),
+            ..facts()
+        },
     ];
     for (n, variant) in variants.iter().enumerate() {
         assert_ne!(
@@ -537,6 +592,7 @@ fn a_session_row_mac_is_not_an_authority_row_seal() {
             totp_verified_at_unix: None,
             grace_token_hash: None,
             bound_address_class: None,
+            browser_label: None,
         },
     );
     let elsewhere = authority::row_seal(

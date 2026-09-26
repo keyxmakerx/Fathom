@@ -55,7 +55,7 @@ use crate::crypto;
 use crate::grants::{self, Authority, AuthorityError, EpochWatch};
 use crate::keys;
 use crate::operators::{OperatorError, OperatorStore};
-use crate::repo::{OrganisationId, ScopeId};
+use crate::repo::{self, OrganisationId, ScopeId};
 use crate::sessions::{
     self, PrincipalKind, SessionError, SessionStore, SignedRequest, VerifiedSession,
 };
@@ -380,6 +380,14 @@ async fn sign_in_handler(
     request: Request,
 ) -> Result<Response, Refusal> {
     let source = source_of(&state, request.headers(), request.extensions());
+    // ADR-0057 decision 8: reduced once, here, to the fixed vocabulary a
+    // session row keeps — the raw header itself is never stored.
+    let user_agent = request
+        .headers()
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
@@ -406,6 +414,7 @@ async fn sign_in_handler(
             account_session_id: &account_session_id,
             account_session_sig: &fields[7],
             grace_token: &fields[8],
+            user_agent: &user_agent,
         })
         .await?;
 
@@ -651,6 +660,28 @@ pub fn credential_router(state: CredentialApiState) -> Router {
             post(operator_setup_check_handler),
         )
         .route("/setup/state", axum::routing::get(setup_state_handler))
+        // ADR-0057 decision 8: signed-in browsers. Self-service; the admin
+        // routes are a separate block below, gated by `repo::require_admin*`
+        // rather than anything `Signed` alone establishes.
+        .route("/sessions", axum::routing::get(list_own_sessions_handler))
+        .route("/sessions/end", post(end_own_session_handler))
+        .route("/sessions/end-others", post(end_own_other_sessions_handler))
+        .route(
+            "/organisations/{organisation}/members/{account}/sessions",
+            axum::routing::get(admin_list_member_sessions_handler),
+        )
+        .route(
+            "/organisations/{organisation}/members/{account}/sessions/end",
+            post(admin_end_member_session_handler),
+        )
+        .route(
+            "/organisations/{organisation}/members/{account}/sessions/end-all",
+            post(admin_end_member_sessions_handler),
+        )
+        .route(
+            "/organisations/{organisation}/sessions/end-all",
+            post(admin_end_organisation_sessions_handler),
+        )
         .with_state(state)
 }
 
@@ -733,11 +764,13 @@ async fn set_password_handler(
                 .is_ok()
         };
 
-    state
+    if let Err(e) = state
         .credentials
         .set_password(&session, &current, &chosen, fresh_evidence_verified)
         .await
-        .map_err(CredentialRefusal)?;
+    {
+        return credential_check_refused(e);
+    }
     // A successful change must not spend the budget the attempt reserved.
     state
         .sessions
@@ -807,11 +840,14 @@ async fn enrol_totp_handler(
         .charge_credential_refusal(&account, &source)
         .await?;
 
-    let enrolment = state
+    let enrolment = match state
         .credentials
         .enrol_totp(&session, &current, &code)
         .await
-        .map_err(CredentialRefusal)?;
+    {
+        Ok(enrolment) => enrolment,
+        Err(e) => return credential_check_refused(e),
+    };
     // A successful draw must not spend the budget the attempt reserved.
     state
         .sessions
@@ -832,11 +868,10 @@ async fn confirm_totp_handler(
     let session = verified(&state, &signed).await?;
     let fields = read_fields(&signed.body, 1)?;
     let code = text(&fields[0], "verification code")?;
-    let codes = state
-        .credentials
-        .confirm_totp(&session, &code)
-        .await
-        .map_err(CredentialRefusal)?;
+    let codes = match state.credentials.confirm_totp(&session, &code).await {
+        Ok(codes) => codes,
+        Err(e) => return credential_check_refused(e),
+    };
     let mut out = Vec::with_capacity(256);
     for code in &codes {
         crypto::lp(&mut out, code.as_bytes());
@@ -1092,6 +1127,384 @@ async fn operator_setup_check_handler(
     Ok(bytes_response(out))
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 8 — signed-in browsers (OWASP ASVS 5.0.0 7.4.5, 7.5.2)
+// ---------------------------------------------------------------------------
+
+/// Every route below is steward-plane: an operator principal has no
+/// "signed-in browsers" of its own to list (§2, `0004`) and belongs to no
+/// organisation to administer one for.
+fn require_steward(session: &VerifiedSession) -> Result<(), Refusal> {
+    if session.kind() != PrincipalKind::Steward {
+        return Err(SessionError::NotATenantPrincipal.into());
+    }
+    Ok(())
+}
+
+/// One [`sessions::SessionSummary`] on the wire. Empty `LP`s, not absent
+/// ones, for a session old enough to predate the column (ADR-0053 §3).
+fn write_session_summary(out: &mut Vec<u8>, s: &sessions::SessionSummary, is_current: bool) {
+    crypto::lp(out, s.session_id.as_bytes());
+    crypto::lp(out, s.browser_label.as_deref().unwrap_or("").as_bytes());
+    crypto::lp(
+        out,
+        s.bound_address_class.as_deref().unwrap_or("").as_bytes(),
+    );
+    out.push(u8::from(s.address_changed));
+    crypto::u64_le(out, s.last_active_unix.max(0) as u64);
+    crypto::u64_le(out, s.issued_at_unix.max(0) as u64);
+    out.push(u8::from(is_current));
+}
+
+/// `u32(count)` then that many [`write_session_summary`] records.
+fn write_session_summaries(list: &[sessions::SessionSummary], current_session_id: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + 96 * list.len());
+    crypto::u32_le(&mut out, list.len() as u32);
+    for s in list {
+        write_session_summary(&mut out, s, s.session_id == current_session_id);
+    }
+    out
+}
+
+/// `GET /sessions` — ASVS 5.0.0 7.5.2's own list: this account's signed-in
+/// browsers, most recently active first. No body.
+async fn list_own_sessions_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    require_steward(&session)?;
+    let _ = read_fields(&signed.body, 0)?;
+    let account = session.principal_id();
+    let list = state.sessions.list_sessions_of(&account).await?;
+    Ok(bytes_response(write_session_summaries(&list, session.id())))
+}
+
+/// `POST /sessions/end` — ends one of this account's OTHER sessions (ASVS
+/// 5.0.0 7.5.2). Body: `LP(session_id) ‖ LP(code)`. The current session is
+/// refused here, code-free: `DELETE /session` is how a browser signs itself out.
+async fn end_own_session_handler(
+    State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    require_steward(&session)?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 2)?;
+    let target = text(&fields[0], "session id")?;
+    let code = text(&fields[1], "verification code")?;
+    if target == session.id() {
+        return Err(SessionError::Malformed("session id").into());
+    }
+    let account = session.principal_id();
+
+    // Charged once, unconditionally, before anything below is verified — the
+    // same discipline `set_password_handler` follows: a wrong code must cost
+    // the budget whether or not the session id names one that exists.
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+    if !state.sessions.verify_current_code(&account, &code).await? {
+        return Ok(refusal_text(
+            StatusCode::FORBIDDEN,
+            "verification code refused",
+        ));
+    }
+    match state.sessions.end_one_of(&account, &target, None).await {
+        Ok(()) => {}
+        Err(SessionError::NoSuchSession) => {
+            return Ok(refusal_text(StatusCode::NOT_FOUND, "no such session"));
+        }
+        Err(e) => return Err(e.into()),
+    }
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
+    Ok(empty_response())
+}
+
+/// `POST /sessions/end-others` — "sign out all other browsers" (ASVS 5.0.0
+/// 7.5.2). Body: `LP(code)`. This session is left alone, code-free, exactly
+/// as `end_own_session_handler`'s does.
+async fn end_own_other_sessions_handler(
+    State(state): State<CredentialApiState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    require_steward(&session)?;
+    let source = state.client_address.of(&headers, &extensions);
+    let fields = read_fields(&signed.body, 1)?;
+    let code = text(&fields[0], "verification code")?;
+    let account = session.principal_id();
+
+    state
+        .sessions
+        .charge_credential_refusal(&account, &source)
+        .await?;
+    if !state.sessions.verify_current_code(&account, &code).await? {
+        return Ok(refusal_text(
+            StatusCode::FORBIDDEN,
+            "verification code refused",
+        ));
+    }
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    state
+        .sessions
+        .end_other_sessions(&tx, PrincipalKind::Steward, &account, session.id(), None)
+        .await?;
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    state
+        .sessions
+        .refund_credential_charge(&account, &source)
+        .await;
+    Ok(empty_response())
+}
+
+/// Confirms `actor` administers `organisation` and `member` belongs to it,
+/// and returns the CANONICAL member id — every caller below must use it,
+/// never the raw path text, which a differently cased id would not match.
+async fn admin_over_member(
+    state: &CredentialApiState,
+    session: &VerifiedSession,
+    organisation: &str,
+    member: &str,
+) -> Result<String, CredentialRefusal> {
+    require_steward(session)?;
+    let tenant: OrganisationId = organisation
+        .parse()
+        .map_err(|_| Refusal::from(SessionError::Malformed("organisation id")))?;
+    let canonical = repo::require_admin_over_member(
+        state.sessions.pool(),
+        tenant,
+        &session.principal_id(),
+        member,
+    )
+    .await
+    .map_err(SessionError::from)?;
+    Ok(canonical)
+}
+
+/// `GET /organisations/{organisation}/members/{account}/sessions` — an
+/// administrator's list of a member's signed-in browsers (ASVS 5.0.0 7.4.5).
+/// No body.
+async fn admin_list_member_sessions_handler(
+    State(state): State<CredentialApiState>,
+    Path((organisation, account)): Path<(String, String)>,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let member = admin_over_member(&state, &session, &organisation, &account).await?;
+    let _ = read_fields(&signed.body, 0)?;
+    let list = state.sessions.list_sessions_of(&member).await?;
+    // Never this admin's own session, on someone else's account: `""` never
+    // equals a real session id.
+    Ok(bytes_response(write_session_summaries(&list, "")))
+}
+
+/// Refuses an admin ending route whose `member` names the caller's own
+/// account: ending one's own sessions is `/sessions/end`'s job, which asks
+/// for the caller's own fresh factor, not the organisation's authority.
+fn refuse_administering_self(session: &VerifiedSession, member: &str) -> Option<Response> {
+    if member == session.principal_id() {
+        Some(refusal_text(
+            StatusCode::BAD_REQUEST,
+            "end your own sessions from your account's Signed-in browsers list",
+        ))
+    } else {
+        None
+    }
+}
+
+/// The admin's own current authenticator code (ASVS 5.0.0 7.4.5), charged,
+/// checked and refunded exactly as `end_own_session_handler`'s does — but
+/// keyed to the ADMIN's account, never the member's.
+async fn admin_current_code(
+    state: &CredentialApiState,
+    headers: &HeaderMap,
+    extensions: &axum::http::Extensions,
+    admin: &str,
+    code: &str,
+) -> Result<bool, CredentialRefusal> {
+    let source = state.client_address.of(headers, extensions);
+    state
+        .sessions
+        .charge_credential_refusal(admin, &source)
+        .await?;
+    let ok = state.sessions.verify_current_code(admin, code).await?;
+    if ok {
+        state
+            .sessions
+            .refund_credential_charge(admin, &source)
+            .await;
+    }
+    Ok(ok)
+}
+
+/// `POST /organisations/{organisation}/members/{account}/sessions/end` — an
+/// administrator ends one of a member's sessions (ASVS 5.0.0 7.4.5). Body:
+/// `LP(session_id) ‖ LP(code)` — the admin's own current authenticator code.
+async fn admin_end_member_session_handler(
+    State(state): State<CredentialApiState>,
+    Path((organisation, account)): Path<(String, String)>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let member = admin_over_member(&state, &session, &organisation, &account).await?;
+    if let Some(refusal) = refuse_administering_self(&session, &member) {
+        return Ok(refusal);
+    }
+    let fields = read_fields(&signed.body, 2)?;
+    let target_session = text(&fields[0], "session id")?;
+    let code = text(&fields[1], "verification code")?;
+    if !admin_current_code(
+        &state,
+        &headers,
+        &extensions,
+        &session.principal_id(),
+        &code,
+    )
+    .await?
+    {
+        return Ok(refusal_text(
+            StatusCode::FORBIDDEN,
+            "verification code refused",
+        ));
+    }
+    match state
+        .sessions
+        .end_one_of(&member, &target_session, Some(&session.principal_id()))
+        .await
+    {
+        Ok(()) => {}
+        Err(SessionError::NoSuchSession) => {
+            return Ok(refusal_text(StatusCode::NOT_FOUND, "no such session"));
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok(empty_response())
+}
+
+/// `POST /organisations/{organisation}/members/{account}/sessions/end-all` —
+/// an administrator ends every session of one member (ASVS 5.0.0 7.4.5).
+/// Body: `LP(code)` — the admin's own current authenticator code.
+async fn admin_end_member_sessions_handler(
+    State(state): State<CredentialApiState>,
+    Path((organisation, account)): Path<(String, String)>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let member = admin_over_member(&state, &session, &organisation, &account).await?;
+    if let Some(refusal) = refuse_administering_self(&session, &member) {
+        return Ok(refusal);
+    }
+    let fields = read_fields(&signed.body, 1)?;
+    let code = text(&fields[0], "verification code")?;
+    if !admin_current_code(
+        &state,
+        &headers,
+        &extensions,
+        &session.principal_id(),
+        &code,
+    )
+    .await?
+    {
+        return Ok(refusal_text(
+            StatusCode::FORBIDDEN,
+            "verification code refused",
+        ));
+    }
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    state
+        .sessions
+        .end_other_sessions(
+            &tx,
+            PrincipalKind::Steward,
+            &member,
+            // No exception: this ends every one of the member's sessions,
+            // including any on the account signed with this request — never
+            // the admin's own, since `refuse_administering_self` above
+            // already refused that id.
+            "",
+            Some(&session.principal_id()),
+        )
+        .await?;
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    Ok(empty_response())
+}
+
+/// `POST /organisations/{organisation}/sessions/end-all` — ends every
+/// session in the organisation except every one of the caller's own (ASVS
+/// 5.0.0 7.4.5). Body: `LP(code)` — the admin's own current code.
+async fn admin_end_organisation_sessions_handler(
+    State(state): State<CredentialApiState>,
+    Path(organisation): Path<String>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    require_steward(&session)?;
+    let tenant: OrganisationId = organisation
+        .parse()
+        .map_err(|_| Refusal::from(SessionError::Malformed("organisation id")))?;
+    repo::require_admin(state.sessions.pool(), tenant, &session.principal_id())
+        .await
+        .map_err(SessionError::from)?;
+    let fields = read_fields(&signed.body, 1)?;
+    let code = text(&fields[0], "verification code")?;
+    if !admin_current_code(
+        &state,
+        &headers,
+        &extensions,
+        &session.principal_id(),
+        &code,
+    )
+    .await?
+    {
+        return Ok(refusal_text(
+            StatusCode::FORBIDDEN,
+            "verification code refused",
+        ));
+    }
+    state
+        .sessions
+        .end_all_in_organisation_except(&organisation, &session.principal_id())
+        .await?;
+    Ok(empty_response())
+}
+
 /// One credential-plane refusal, on its way to a status code and a sentence.
 ///
 /// **The password policy explains itself and nothing else does.** A policy
@@ -1190,6 +1603,33 @@ impl IntoResponse for CredentialRefusal {
                 Refusal::from(SessionError::Corrupt("credential plane")).into_response()
             }
         }
+    }
+}
+
+/// A plain-text refusal at a status other than `sessions.rs`'s uniform
+/// 401 — a wrong or missing code (403), or an already-gone session (404).
+/// 401 here would make `signedFetch.ts`'s `clearOnUnauthorized` sign the
+/// caller out of a live tab.
+fn refusal_text(status: StatusCode, message: &str) -> Response {
+    (status, format!("{message}\n")).into_response()
+}
+
+/// A wrong current password or code, a wrong token, or an unconfirmed
+/// authenticator on the credential routes — refused 403, never the uniform
+/// `sign-in refused` 401, since the session making the attempt is alive.
+fn credential_check_refused(
+    e: crate::credentials::CredentialError,
+) -> Result<Response, CredentialRefusal> {
+    use crate::credentials::CredentialError as E;
+    match e {
+        E::CodeRefused | E::TokenRefused | E::NoTotpEnrolled | E::CurrentPasswordRefused => {
+            tracing::info!(reason = %e, "credential act refused");
+            Ok(refusal_text(
+                StatusCode::FORBIDDEN,
+                "current credential refused",
+            ))
+        }
+        other => Err(CredentialRefusal(other)),
     }
 }
 
@@ -1521,7 +1961,7 @@ async fn redeem_organisation_claim_handler(
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     let session = result?;
 
-    let organisation = state
+    let organisation = match state
         .operators
         .redeem_organisation_claim_over_http(
             &session,
@@ -1536,7 +1976,23 @@ async fn redeem_organisation_claim_handler(
             signature,
         )
         .await
-        .map_err(OrganisationClaimRefusal)?;
+    {
+        Ok(organisation) => organisation,
+        // A refused claim or a bad signature is this live session's own act
+        // refused, not this session dying — 403, not `SignInRefused`'s 401,
+        // which the client's own 401 handler reads as "sign this tab out".
+        Err(
+            e @ (OperatorError::EnrolmentRefused
+            | OperatorError::Authority(AuthorityError::Signature(_))),
+        ) => {
+            tracing::info!(reason = %e, "organisation claim refused");
+            return Ok(refusal_text(
+                StatusCode::FORBIDDEN,
+                "organisation claim refused",
+            ));
+        }
+        Err(e) => return Err(OrganisationClaimRefusal(e).into()),
+    };
 
     let mut out = Vec::with_capacity(32);
     crypto::lp(&mut out, organisation.to_string().as_bytes());

@@ -137,6 +137,9 @@ TOTP_VERIFIED_AT = 1_760_000_050
 GRACE_TOKEN_HASH = bytes([0x35]) * 32
 BOUND_ADDRESS_CLASS = b"203.0.113.9"
 
+# 0029: decision 8's browser label, omitted-when-unset the same way.
+BROWSER_LABEL = b"Firefox on Linux"
+
 # ---------------------------------------------------------------------------
 # P-256, in plain Python, for the ES256 half
 # ---------------------------------------------------------------------------
@@ -400,13 +403,12 @@ row_mac_no_totp_verified_at = mac(
 )
 
 # 0028: a row carrying both new fields.
-row_state_with_0028_fields = canon(
-    {
-        **row_state_dict,
-        "grace_token_hash": hexs(GRACE_TOKEN_HASH),
-        "bound_address_class": BOUND_ADDRESS_CLASS.decode(),
-    }
-)
+row_state_with_0028_fields_dict = {
+    **row_state_dict,
+    "grace_token_hash": hexs(GRACE_TOKEN_HASH),
+    "bound_address_class": BOUND_ADDRESS_CLASS.decode(),
+}
+row_state_with_0028_fields = canon(row_state_with_0028_fields_dict)
 row_mac_with_0028_fields = mac(
     k_row_site,
     lp(TAG_ROW)
@@ -415,6 +417,23 @@ row_mac_with_0028_fields = mac(
     + u64_le(CHAIN_SEQ)
     + u32_le(ROW_VERSION)
     + lp(row_state_with_0028_fields),
+)
+
+# 0029: the same row again, also carrying decision 8's browser label.
+row_state_with_0029_field = canon(
+    {
+        **row_state_with_0028_fields_dict,
+        "browser_label": BROWSER_LABEL.decode(),
+    }
+)
+row_mac_with_0029_field = mac(
+    k_row_site,
+    lp(TAG_ROW)
+    + lp(b"sessions")
+    + lp(SESSION_ID)
+    + u64_le(CHAIN_SEQ)
+    + u32_le(ROW_VERSION)
+    + lp(row_state_with_0029_field),
 )
 
 # ---------------------------------------------------------------------------
@@ -468,6 +487,8 @@ if __name__ == "__main__":
         ("ROW_MAC_NO_TOTP_VERIFIED_AT", row_mac_no_totp_verified_at),
         ("ROW_STATE_WITH_0028_FIELDS", row_state_with_0028_fields),
         ("ROW_MAC_WITH_0028_FIELDS", row_mac_with_0028_fields),
+        ("ROW_STATE_WITH_0029_FIELD", row_state_with_0029_field),
+        ("ROW_MAC_WITH_0029_FIELD", row_mac_with_0029_field),
         ("SIGNATURE", SIGNATURE_OVER_REQUEST_BYTES),
     ]:
         print(rust(name, value))

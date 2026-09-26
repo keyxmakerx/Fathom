@@ -208,6 +208,7 @@ async fn sign_in_with(
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -1352,6 +1353,7 @@ async fn a_second_browsers_key_signs_in_and_so_does_the_first() {
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
         .expect("the FIRST browser's key must still sign in after the second registered one");

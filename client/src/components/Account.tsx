@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import {
   confirmAppCode,
@@ -9,6 +9,8 @@ import {
   type TotpEnrolment,
 } from '../api/credentials';
 import { ApiRefusal } from '../api/errors';
+import { endOtherSessions, endSession, listSessions, type SessionSummary } from '../api/sessions';
+import { formatLastChange } from './inventory/rows';
 import { QrCode } from '../qr';
 import { describeAppCodeRefusal } from './appCodeRefusal';
 import '../styles/signin.css';
@@ -82,6 +84,8 @@ export function Account({ address, purpose = 'settings', onDone, onClose }: Acco
         </p>
 
         {purpose === 'settings' && <PasswordForm address={address} />}
+
+        {purpose === 'settings' && <SignedInBrowsers />}
 
         <AuthenticatorEnrolment
           address={address}
@@ -196,6 +200,154 @@ export function PasswordForm({ address }: { address: string }) {
         </div>
       )}
     </form>
+  );
+}
+
+/** Which session ending is being confirmed: one specific row, or every
+ * other browser at once. `null` when nothing is being confirmed. */
+type EndingTarget = { kind: 'one'; sessionId: string } | { kind: 'others' };
+
+/** "Last active", in `formatLastChange`'s "DD Mon HH:MM" — the format the
+ * Networks list already uses, not the browser's locale format (inconsistent
+ * across browsers) or a relative age (needs a running clock on a screen
+ * left open). */
+function formatLastActive(unixSeconds: number): string {
+  return formatLastChange(unixSeconds * 1000);
+}
+
+/**
+ * ADR-0057 decision 8: "Signed-in browsers" (ASVS 5.0.0 7.5.2). One row per
+ * live session, "This browser" on the current one and "Sign out" on the
+ * rest; ending any other session needs a current authenticator code inline.
+ */
+export function SignedInBrowsers() {
+  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [ending, setEnding] = useState<EndingTarget | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await listSessions();
+      setSessions(list);
+      setLoadError(null);
+    } catch (error) {
+      console.error(error);
+      setLoadError('Could not load your signed-in browsers.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function start(target: EndingTarget) {
+    setEnding(target);
+    setCode('');
+    setRefusal(null);
+  }
+
+  async function confirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!ending) return;
+    setBusy(true);
+    setRefusal(null);
+    try {
+      if (ending.kind === 'others') {
+        await endOtherSessions(code);
+      } else {
+        await endSession(ending.sessionId, code);
+      }
+      setEnding(null);
+      setCode('');
+      await load();
+    } catch (error) {
+      console.error(error);
+      setRefusal(describe(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const others = sessions?.filter((s) => !s.isCurrent) ?? [];
+
+  return (
+    <div className="signin__section">
+      <h2 className="signin__heading">Signed-in browsers</h2>
+      {loadError && (
+        <div className="signin__refusal" role="alert">
+          {loadError}
+        </div>
+      )}
+      {sessions && (
+        <ul className="account__sessions">
+          {sessions.map((session) => (
+            <li key={session.sessionId} className="account__session">
+              <span className="account__session-info">
+                <span className="account__session-browser">{session.browserLabel ?? 'Unknown browser'}</span>
+                <span className="account__session-address">
+                  {session.addressClass ?? 'Unknown address'}
+                  {session.addressChanged ? ' — address changed since sign-in' : ''}
+                </span>
+                <span className="account__session-active">Last active {formatLastActive(session.lastActiveUnix)}</span>
+              </span>
+              {session.isCurrent ? (
+                <span className="account__session-tag">This browser</span>
+              ) : (
+                <button
+                  type="button"
+                  className="signin__switch"
+                  onClick={() => start({ kind: 'one', sessionId: session.sessionId })}
+                >
+                  Sign out
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {others.length > 0 && (
+        <button type="button" className="signin__switch" onClick={() => start({ kind: 'others' })}>
+          Sign out all other browsers
+        </button>
+      )}
+      <p className="signin__hint">
+        Site sessions are not listed, end after 15 minutes idle, and never survive a reload.
+      </p>
+      {ending && (
+        <form className="signin__field" onSubmit={confirm}>
+          <label className="signin__label" htmlFor="signed-in-browsers-code">
+            Verification code
+          </label>
+          <input
+            id="signed-in-browsers-code"
+            className="signin__input signin__input--mono"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            disabled={busy}
+            required
+          />
+          <p className="signin__hint">The current code from your authenticator app, to confirm ending a session.</p>
+          <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>
+            {busy ? 'Ending…' : ending.kind === 'others' ? 'Sign out all other browsers' : 'Sign out'}
+          </button>
+          <button type="button" className="signin__switch" onClick={() => setEnding(null)} disabled={busy}>
+            Cancel
+          </button>
+          {refusal && (
+            <div className="signin__refusal" role="alert">
+              {refusal}
+            </div>
+          )}
+        </form>
+      )}
+    </div>
   );
 }
 

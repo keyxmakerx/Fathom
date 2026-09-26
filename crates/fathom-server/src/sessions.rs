@@ -788,6 +788,10 @@ pub struct SignInAttempt<'a> {
     /// [`SessionStore::verify_account_endorsement`]; a mismatch only falls
     /// back to asking for a live code, not a refusal on its own.
     pub grace_token: &'a [u8],
+    /// ADR-0057 decision 8. The `User-Agent` header of the sign-in request,
+    /// as it arrived, never stored itself — `attempt_sign_in` reduces it
+    /// through `browser_label::label` before this field goes out of scope.
+    pub user_agent: &'a str,
 }
 
 /// What a caller must present on every request that reaches a design payload
@@ -926,6 +930,27 @@ impl core::fmt::Debug for SignedIn {
 pub struct Challenge {
     pub nonce: [u8; 32],
     pub deployment_id: String,
+}
+
+/// ADR-0057 decision 8: one row of the "Signed-in browsers" list — every
+/// field this deployment already keeps, so the list adds no new place a
+/// request address or a raw `User-Agent` is stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub session_id: String,
+    /// `browser_label::label`'s answer at sign-in, or `None` for a session
+    /// old enough to predate this column.
+    pub browser_label: Option<String>,
+    /// Decision 7's address class — an IPv4 address exactly, an IPv6 by its
+    /// `/64` — or `None` when sign-in could not class the address. Never the
+    /// raw address, and never a per-request log.
+    pub bound_address_class: Option<String>,
+    /// Whether a later request's address stopped matching
+    /// `bound_address_class` (decision 7's `site` mode records rather than
+    /// ends a steward session on this).
+    pub address_changed: bool,
+    pub last_active_unix: i64,
+    pub issued_at_unix: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,6 +1502,7 @@ impl SessionStore {
             account_session_id: "",
             account_session_sig: b"",
             grace_token: b"",
+            user_agent: "",
         })
         .await
     }
@@ -2591,6 +2617,10 @@ impl SessionStore {
         // ended.
         let bound_address_class = crate::client_address::address_class(attempt.source);
 
+        // ADR-0057 decision 8: derived once, here — there is no stored
+        // header to re-derive it from later.
+        let browser_label = Some(crate::browser_label::label(attempt.user_agent));
+
         let row = SessionRow {
             id: id.clone(),
             principal_id: account.clone(),
@@ -2610,6 +2640,7 @@ impl SessionStore {
             totp_verified_at_unix: totp_verified_now.then_some(now),
             grace_token_hash,
             bound_address_class: bound_address_class.clone(),
+            browser_label: browser_label.clone(),
             // A row just minted is zero seconds idle by definition; the real
             // value only ever matters on a row `read_session` reads back.
             idle_seconds: 0,
@@ -2654,10 +2685,10 @@ impl SessionStore {
                   bound_nonce, evidence_key_id, evidence_sig, assertion_digest, assurance, \
                   chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac, \
                   evidence_operator_key_id, totp_verified_at, grace_token_hash, \
-                  bound_address_class) \
+                  bound_address_class, browser_label) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
                      to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16, \
-                     to_timestamp($17), $18, $19)",
+                     to_timestamp($17), $18, $19, $20)",
             &[
                 &row.id,
                 &row.principal_id,
@@ -2678,6 +2709,7 @@ impl SessionStore {
                 &row.totp_verified_at_unix.map(|v| v as f64),
                 &row.grace_token_hash.map(|h| h.to_vec()),
                 &row.bound_address_class,
+                &row.browser_label,
             ],
         )
         .await
@@ -2845,6 +2877,33 @@ impl SessionStore {
             .await
             .map_err(|_| SessionError::Corrupt("credential seal"))?;
         Ok(true)
+    }
+
+    /// ADR-0057 decision 8's "authenticated again": a current authenticator
+    /// code or a live backup code, reusing [`SessionStore::check_second_factor`]
+    /// rather than restating it. Charges no budget of its own — the caller
+    /// charges and refunds `account`'s existing credential budget around it.
+    pub async fn verify_current_code(
+        &self,
+        account: &str,
+        code: &str,
+    ) -> Result<bool, SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let result: Result<bool, SessionError> = async {
+            let Some(row) = credentials::read_credentials(&tx, &self.ring, account)
+                .await
+                .map_err(|_| SessionError::Corrupt("account credentials"))?
+            else {
+                return Ok(false);
+            };
+            self.check_second_factor(&tx, account, &row, code).await
+        }
+        .await;
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        result
     }
 
     /// Count a failure against its account bucket, write the sealed entry if
@@ -3737,6 +3796,7 @@ impl SessionStore {
             session.kind,
             &principal,
             &session.id,
+            None,
         )
         .await?;
         leave_session_custody(tx).await?;
@@ -3744,19 +3804,23 @@ impl SessionStore {
     }
 
     /// End every OTHER session of one principal, on one plane — ASVS 7.4.3,
-    /// after a password or authenticator change (ADR-0057 decision 3). The
-    /// caller's own session, `except_session_id`, is left alone.
+    /// after a password or authenticator change (ADR-0057 decision 3), or
+    /// ASVS 7.5.2's "sign out all other browsers" (ADR-0057 decision 8, `by:
+    /// None`). The caller's own session, `except_session_id`, is left alone.
     ///
     /// Used on the account plane for the account whose credential changed,
     /// and on the operator plane for the operator it holds the custody of,
     /// if any — `except_session_id` is empty there, since the session doing
     /// the changing is never an operator one.
+    ///
+    /// `by`: see [`end_other_sessions`] (the free function this calls).
     pub async fn end_other_sessions(
         &self,
         tx: &Transaction<'_>,
         kind: PrincipalKind,
         principal_id: &str,
         except_session_id: &str,
+        by: Option<&str>,
     ) -> Result<(), SessionError> {
         end_other_sessions(
             tx,
@@ -3765,8 +3829,84 @@ impl SessionStore {
             kind,
             principal_id,
             except_session_id,
+            by,
         )
         .await
+    }
+
+    /// Ends exactly one of `principal_id`'s own sessions (ASVS 7.5.2); `by:
+    /// Some(admin_id)` is decision 8's admin surface, `None` is the account
+    /// itself. [`SessionError::NoSuchSession`] covers "no such session" and
+    /// "belongs to someone else" alike, so an id cannot probe another account.
+    pub async fn end_one_of(
+        &self,
+        principal_id: &str,
+        session_id: &str,
+        by: Option<&str>,
+    ) -> Result<(), SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let owner: Option<String> = tx
+            .query_opt(
+                "SELECT principal_id FROM sessions \
+                  WHERE id = $1 AND principal_kind = $2",
+                &[&session_id, &PrincipalKind::Steward.as_str()],
+            )
+            .await?
+            .map(|r| r.get(0));
+        if owner.as_deref() != Some(principal_id) {
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(SessionError::NoSuchSession);
+        }
+        revoke_one(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            PrincipalKind::Steward,
+            principal_id,
+            session_id,
+            by,
+        )
+        .await?;
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// ASVS 5.0.0 7.4.5: ends every session in `organisation` except every
+    /// one belonging to `caller_account` — an admin's OTHER open browsers
+    /// survive too, not only the one this request is signed with.
+    pub async fn end_all_in_organisation_except(
+        &self,
+        organisation: &str,
+        caller_account: &str,
+    ) -> Result<(), SessionError> {
+        end_all_in_organisation_except(
+            self.pool(),
+            &self.ring,
+            &self.deployment,
+            organisation,
+            caller_account,
+        )
+        .await
+    }
+
+    /// ADR-0057 decision 8: `principal_id`'s live steward-plane sessions,
+    /// most recently active first. Knows nothing about organisations or
+    /// roles — it is the caller's job to have already decided who may ask.
+    pub async fn list_sessions_of(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<SessionSummary>, SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_session_custody(&tx).await?;
+        let summaries = query_sessions_of(&tx, principal_id).await?;
+        leave_session_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(summaries)
     }
 
     /// Disable or re-enable an account, and record it on the site chain
@@ -3945,6 +4085,11 @@ struct SessionRow {
     /// `grace_token_hash` is — a database-only attacker must not be able to
     /// rewrite it to match wherever they are calling from.
     bound_address_class: Option<String>,
+    /// ADR-0057 decision 8: this session's browser, as
+    /// `browser_label::label` reduced its `User-Agent` at sign-in, or
+    /// `None` for an older row. Inside the row MAC like
+    /// `bound_address_class`, so a database-only attacker cannot rewrite it.
+    browser_label: Option<String>,
     /// Postgres's idle age of this row, `EXTRACT(EPOCH FROM (now() -
     /// last_seen_at))`. Computed in the same `SELECT` that reads everything
     /// else, so an idle check never compares this server's clock against
@@ -3973,6 +4118,7 @@ impl SessionRow {
             totp_verified_at_unix: self.totp_verified_at_unix,
             grace_token_hash: self.grace_token_hash.as_ref(),
             bound_address_class: self.bound_address_class.as_deref(),
+            browser_label: self.browser_label.as_deref(),
         }
     }
 }
@@ -4005,6 +4151,8 @@ pub struct SessionFacts<'a> {
     pub grace_token_hash: Option<&'a [u8; 32]>,
     /// Decision 7's bound address class, inside the MAC (`0028`'s header).
     pub bound_address_class: Option<&'a str>,
+    /// Decision 8's browser label, inside the MAC (`0029`'s header).
+    pub browser_label: Option<&'a str>,
 }
 
 /// §4.3's `row_mac`, in `authority::row_seal`'s construction under the
@@ -4105,6 +4253,11 @@ fn session_row_state(row: &SessionFacts<'_>) -> Vec<u8> {
             Json::Str(class.to_string()),
         );
     }
+    // `0029`: a row made before decision 8 existed has none, and must still
+    // verify unchanged.
+    if let Some(label) = row.browser_label {
+        map.insert("browser_label".to_string(), Json::Str(label.to_string()));
+    }
     Json::Obj(map).to_canonical_bytes()
 }
 
@@ -4167,6 +4320,10 @@ fn revocation_row_state(facts: &RevocationFacts<'_>) -> Vec<u8> {
 
 /// A free function so `credentials.rs` can end an account's other sessions
 /// inside its OWN transaction, atomically with the change that triggers it.
+///
+/// `by`: `None` when the principal ends its own other sessions (a
+/// credential change, or ASVS 7.5.2's "sign out all other browsers");
+/// `Some(admin_id)` for decision 8's admin surface ending a member's.
 pub async fn end_other_sessions(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -4174,6 +4331,7 @@ pub async fn end_other_sessions(
     kind: PrincipalKind,
     principal_id: &str,
     except_session_id: &str,
+    by: Option<&str>,
 ) -> Result<(), SessionError> {
     enter_session_custody(tx).await?;
     let rows = tx
@@ -4185,14 +4343,70 @@ pub async fn end_other_sessions(
         .await?;
     for row in &rows {
         let session_id: String = row.get(0);
-        revoke_one(tx, ring, deployment, kind, principal_id, &session_id).await?;
+        revoke_one(tx, ring, deployment, kind, principal_id, &session_id, by).await?;
     }
     leave_session_custody(tx).await?;
     Ok(())
 }
 
+/// ADR-0057 decision 8: ends every steward-plane session of `organisation`
+/// except `except_session_id` (ASVS 5.0.0 7.4.5). Sets `app.tenant_id`
+/// itself, inside its own transaction — `sessions` carries no organisation
+/// column, and `repo::require_admin`'s check ran in a transaction that has
+/// since committed.
+pub async fn end_all_in_organisation_except(
+    pool: &Pool,
+    ring: &KeyRing,
+    deployment: &str,
+    organisation: &str,
+    caller_account: &str,
+) -> Result<(), SessionError> {
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    enter_session_custody(&tx).await?;
+    tx.execute(
+        "SELECT set_config('app.tenant_id', $1, true)",
+        &[&organisation],
+    )
+    .await?;
+    // Excluded by ACCOUNT, not by the one session this request happens to
+    // be signed with — an admin's other open browsers are their own too.
+    let rows = tx
+        .query(
+            "SELECT s.id, s.principal_id FROM sessions s \
+             JOIN memberships m ON m.account_id = s.principal_id \
+             WHERE m.organisation_id = $1 AND s.principal_kind = $2 AND s.principal_id <> $3",
+            &[
+                &organisation,
+                &PrincipalKind::Steward.as_str(),
+                &caller_account,
+            ],
+        )
+        .await?;
+    for row in &rows {
+        let session_id: String = row.get(0);
+        let principal_id: String = row.get(1);
+        revoke_one(
+            &tx,
+            ring,
+            deployment,
+            PrincipalKind::Steward,
+            &principal_id,
+            &session_id,
+            Some(caller_account),
+        )
+        .await?;
+    }
+    leave_session_custody(&tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// One session, signed out: the entry, the revocation row, the delete —
 /// what [`SessionStore::sign_out_in`] and [`end_other_sessions`] reduce to.
+///
+/// `by` is `Some(admin_id)` when an administrator, not the session's own
+/// holder, ends it (decision 8) — added to the sealed entry's metadata.
 async fn revoke_one(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -4200,24 +4414,26 @@ async fn revoke_one(
     kind: PrincipalKind,
     principal_id: &str,
     session_id: &str,
+    by: Option<&str>,
 ) -> Result<(), SessionError> {
     let entry_type = match kind {
         PrincipalKind::Steward => EntryType::AccountSignedOut,
         PrincipalKind::Operator => EntryType::OperatorSignedOut,
     };
+    let mut fields = vec![
+        ("session", Json::Str(session_id.to_string())),
+        ("account", Json::Str(principal_id.to_string())),
+        ("principal_kind", Json::Str(kind.as_str().to_string())),
+    ];
+    if let Some(admin) = by {
+        fields.push(("by", Json::Str(admin.to_string())));
+    }
     let appended = chains::append_site(
         tx,
         ring,
         deployment,
         entry_type,
-        &entry_metadata(
-            entry_type,
-            &[
-                ("session", Json::Str(session_id.to_string())),
-                ("account", Json::Str(principal_id.to_string())),
-                ("principal_kind", Json::Str(kind.as_str().to_string())),
-            ],
-        ),
+        &entry_metadata(entry_type, &fields),
     )
     .await?;
 
@@ -4357,7 +4573,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
                     row_version, EXTRACT(EPOCH FROM issued_at)::bigint, \
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter, \
                     EXTRACT(EPOCH FROM totp_verified_at)::bigint, grace_token_hash, \
-                    bound_address_class, \
+                    bound_address_class, browser_label, \
                     EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint \
                FROM sessions WHERE id = $1",
             &[&id],
@@ -4397,8 +4613,50 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
             None => None,
         },
         bound_address_class: row.get(17),
-        idle_seconds: row.get(18),
+        browser_label: row.get(18),
+        idle_seconds: row.get(19),
     }))
+}
+
+/// ADR-0057 decision 8: every live steward-plane session of `principal_id`,
+/// most recently active first. Excludes a session past `expires_at` or idle
+/// past its plane's limit ([`idle_limit_seconds`]), checked against
+/// Postgres's own clock so a listing agrees with `verify_inside`.
+async fn query_sessions_of(
+    tx: &Transaction<'_>,
+    principal_id: &str,
+) -> Result<Vec<SessionSummary>, SessionError> {
+    let rows = tx
+        .query(
+            "SELECT id, browser_label, bound_address_class, \
+                    address_changed_at IS NOT NULL, \
+                    EXTRACT(EPOCH FROM last_seen_at)::bigint, \
+                    EXTRACT(EPOCH FROM issued_at)::bigint, \
+                    expires_at > now(), \
+                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint \
+               FROM sessions \
+              WHERE principal_id = $1 AND principal_kind = $2 \
+              ORDER BY last_seen_at DESC",
+            &[&principal_id, &PrincipalKind::Steward.as_str()],
+        )
+        .await?;
+    let idle_limit = idle_limit_seconds(PrincipalKind::Steward);
+    Ok(rows
+        .iter()
+        .filter(|row| {
+            let not_expired: bool = row.get(6);
+            let idle_seconds: i64 = row.get(7);
+            not_expired && idle_seconds < idle_limit
+        })
+        .map(|row| SessionSummary {
+            session_id: row.get(0),
+            browser_label: row.get(1),
+            bound_address_class: row.get(2),
+            address_changed: row.get(3),
+            last_active_unix: row.get(4),
+            issued_at_unix: row.get(5),
+        })
+        .collect())
 }
 
 async fn delete_session(tx: &Transaction<'_>, id: &str) -> Result<(), SessionError> {
@@ -4991,6 +5249,7 @@ mod tests {
             totp_verified_at_unix: None,
             grace_token_hash: None,
             bound_address_class: None,
+            browser_label: None,
         };
         assert_eq!(
             session_row_state(&facts),
