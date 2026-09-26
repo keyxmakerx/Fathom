@@ -410,7 +410,7 @@ export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): D
     const before = doc;
     doc = createSketchDevice(doc, { hostname, actor: me });
     const chassisId = newestNode(before, doc, 'Chassis');
-    for (let p = 0; p < 6; p += 1) {
+    for (let p = 0; p < 12; p += 1) {
       doc = addSketchPort(doc, chassisId, { label: `eth${p}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
     }
     doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU: u, face: 'front' }, { actor: me });
