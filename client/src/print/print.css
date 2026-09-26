@@ -1,7 +1,7 @@
 /* The Print panel and the print preview.
    Browser support, each read 2026-09-26 from raw.githubusercontent.com/mdn/browser-compat-data:
-   @page rule — Firefox 19+ (css.at-rules.page); the owner found @page size ignored in a saved PDF regardless, so it is not relied on.
-   @page size — Firefox 95+ (css.at-rules.page.size), but see above.
+   @page rule — Firefox 19+ (css.at-rules.page).
+   @page size — Firefox 95+ (css.at-rules.page.size); each sheet is a fixed-size block, so the layout does not depend on it.
    Page-margin boxes (@top-center etc.) — no Firefox support (css.at-rules.page.margin-at-rules).
    break-inside: avoid — Firefox 65+ (css.properties.break-inside), used as a backstop only.
    print-color-adjust — Firefox 97+, "color-adjust" alias from 48+ (css.properties.print-color-adjust). */

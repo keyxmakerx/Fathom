@@ -1,5 +1,5 @@
-// Paper geometry, in millimetres. Firefox ignores @page size in a saved
-// PDF (citation in print.css), so every sheet is a fixed-size HTML block.
+// Paper geometry, in millimetres. Firefox has no page-margin boxes (citation in
+// print.css), so every sheet is a fixed-size HTML block with its own title block.
 export const PAPER_SIZES = {
   A4: { widthMm: 210, heightMm: 297 },
   Letter: { widthMm: 215.9, heightMm: 279.4 },
