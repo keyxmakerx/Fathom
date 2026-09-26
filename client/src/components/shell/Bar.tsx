@@ -50,6 +50,8 @@ export interface BarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** The Print button beside Undo/Redo; absent with no design open. */
+  onPrint?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -83,6 +85,7 @@ export function Bar({
   canRedo,
   onUndo,
   onRedo,
+  onPrint,
   account,
   viewOnly,
   onHome,
@@ -281,6 +284,14 @@ export function Bar({
                 Redo
               </button>
             </div>
+            <Sep />
+          </>
+        )}
+        {onPrint && (
+          <>
+            <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
+              Print
+            </button>
             <Sep />
           </>
         )}

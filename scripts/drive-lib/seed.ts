@@ -7,16 +7,19 @@ import { connectPorts, type Sheath } from './document/cables';
 import {
   addSketchPort,
   createRack,
+  createShelf,
   createSketchDevice,
   createSurface,
   fixTo,
+  movePlacement,
   placeChassis,
   type CreateSurfaceOptions,
 } from './document/commands';
-import { setDeviceField } from './document/edit';
+import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
-import { viewOf } from './document/view';
+import { addVlan } from './document/networks';
+import { naturalLabelCompare, viewOf } from './document/view';
 
 export function catalogueFrom(cat: { models: Record<string, unknown> }): CatalogueModel[] {
   return Object.values(cat.models).map((m) =>
@@ -278,5 +281,241 @@ export function seedNetworksScene(catalogue: CatalogueModel[], me: string): Docu
 export function seedDockerScene(catalogue: CatalogueModel[], me: string): Document {
   void catalogue;
   const doc = createSketchDevice(emptyDocument(), { hostname: 'dock-01', actor: me });
+  return doc;
+}
+
+/** A 42U rack fully populated with 42 devices, plus five smaller mixed
+ * racks — sketch devices with one port each, not a heavy catalogue faceplate repeated 42 times. */
+export function seedPrintScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const premisesId = premises.premisesId;
+
+  const varietyNames = ['SRX340', 'USW-24-PoE', 'UDM-SE'];
+  const variety = varietyNames.map((name) => catalogue.find((m) => m.model === name));
+  if (variety.some((m) => !m)) {
+    throw new Error('the drive catalogue fixture is missing a model seedPrintScene needs');
+  }
+
+  function mkRack(label: string, heightU: number): string {
+    const before = doc;
+    doc = createRack(doc, premisesId, { label, heightU, unitNumbering: 'ascending', actor: me });
+    return newestNode(before, doc, 'Rack');
+  }
+
+  function place(rackId: string, model: CatalogueModel, positionU: number, hostname: string): void {
+    const before = doc;
+    doc = placeChassis(doc, rackId, model, positionU, 'front', { actor: me });
+    const deviceId = newestNode(before, doc, 'Device');
+    doc = setDeviceField(doc, deviceId, 'hostname', hostname, { actor: me });
+  }
+
+  /** One RJ45 port, nothing else — light enough that 42 of these render in
+   * a real browser without the page looking hung. */
+  function placeSketch(rackId: string, positionU: number, hostname: string): void {
+    const before = doc;
+    doc = createSketchDevice(doc, { hostname, actor: me });
+    const chassisId = newestNode(before, doc, 'Chassis');
+    doc = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU, face: 'front' }, { actor: me });
+  }
+
+  // Rack 1 — 42U, fully populated, so its own rack sheet needs exactly two
+  // pages on A4 and on Letter.
+  const rack1 = mkRack('R1', 42);
+  const rack1Hostnames: string[] = [];
+  for (let u = 1; u <= 42; u += 1) {
+    const hostname = `sw-${String(u).padStart(2, '0')}`;
+    placeSketch(rack1, u, hostname);
+    rack1Hostnames.push(hostname);
+  }
+
+  // Racks 2-6 — a smaller, mixed closet, two catalogue devices each (real
+  // faceplates, real free ports, for the cut sheet's own variety).
+  const otherPairs: [string, string][] = [];
+  let rack2Id = '';
+  for (let r = 2; r <= 6; r += 1) {
+    const rackId = mkRack(`R${r}`, 12);
+    if (r === 2) rack2Id = rackId;
+    const model = variety[(r - 2) % variety.length]!;
+    const a = `r${r}-a`;
+    const b = `r${r}-b`;
+    place(rackId, model, 10, a);
+    place(rackId, model, 8, b);
+    otherPairs.push([a, b]);
+  }
+
+  // A shelf on R2, with two occupants — the rack sheet's own coverage of
+  // ADR-0051's shelves, drawn at their unit and listed in the table.
+  const beforeShelf = doc;
+  doc = createShelf(doc, rack2Id, { positionU: 3, label: 'patch shelf', actor: me });
+  const shelfId = newestNode(beforeShelf, doc, 'PassiveNode');
+  for (const occupantHostname of ['nuc-01', 'ont-01']) {
+    const beforeOcc = doc;
+    doc = createSketchDevice(doc, { hostname: occupantHostname, actor: me });
+    const occChassisId = newestNode(beforeOcc, doc, 'Chassis');
+    const slot = occupantHostname === 'nuc-01' ? 0 : 1;
+    doc = movePlacement(doc, occChassisId, { kind: 'shelf', shelfId, slot }, { actor: me });
+  }
+
+  // One `viewOf` call for the whole scene — every port id below is a
+  // lookup against it, never a fresh traversal.
+  const view = viewOf(doc, catalogue);
+  const byHostname = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.hostname, c] as const));
+
+  function firstFrontRj45(hostname: string): string {
+    const chassis = byHostname.get(hostname);
+    if (!chassis) throw new Error(`no chassis named ${hostname}`);
+    const ports = chassis.ports
+      .filter((p) => p.face === 'front' && p.connector === 'rj45')
+      .sort((a, b) => naturalLabelCompare(a.label, b.label));
+    if (ports.length === 0) throw new Error(`${hostname} has no front rj45 port`);
+    return ports[0].id;
+  }
+
+  const sheaths: Sheath[] = ['blue', 'grey', 'yellow', 'green', 'red'];
+  let sheathIndex = 0;
+  function connect(hostA: string, hostB: string): void {
+    const a = firstFrontRj45(hostA);
+    const b = firstFrontRj45(hostB);
+    const sheath = sheaths[sheathIndex % sheaths.length];
+    sheathIndex += 1;
+    doc = connectPorts(doc, a, b, { sheath }, { actor: me });
+  }
+
+  for (let i = 0; i + 1 < rack1Hostnames.length; i += 2) {
+    connect(rack1Hostnames[i], rack1Hostnames[i + 1]);
+  }
+  for (const [a, b] of otherPairs) connect(a, b);
+
+  return doc;
+}
+
+/** A layout-stress scene: 50-character FQDN hostnames, a long cable label
+ * and many VLANs — real values long enough to overflow a fixed-height row. */
+export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const premisesId = premises.premisesId;
+
+  const before1 = doc;
+  doc = createRack(doc, premisesId, { label: 'R1', heightU: 38, unitNumbering: 'ascending', actor: me });
+  const rackId = newestNode(before1, doc, 'Rack');
+
+  const hostnames: string[] = [];
+  for (let u = 1; u <= 38; u += 1) {
+    const hostname = `access-switch-${String(u).padStart(2, '0')}.floor-3.building-a.example-corp.net`;
+    const before = doc;
+    doc = createSketchDevice(doc, { hostname, actor: me });
+    const chassisId = newestNode(before, doc, 'Chassis');
+    for (let p = 0; p < 12; p += 1) {
+      doc = addSketchPort(doc, chassisId, { label: `eth${p}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    }
+    doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU: u, face: 'front' }, { actor: me });
+    hostnames.push(hostname);
+  }
+
+  const view = viewOf(doc, catalogue);
+  const byHostname = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.hostname, c] as const));
+  function portId(hostname: string, label: string): string {
+    const c = byHostname.get(hostname)!;
+    return c.ports.find((p) => p.label === label)!.id;
+  }
+
+  const longCableLabel = 'PATCH-DC1-RACK04-U22-TO-RACK04-U18-PRIMARY-UPLINK-REDUNDANT-001';
+  for (let i = 0; i + 1 < hostnames.length; i += 2) {
+    const label = i === 0 ? longCableLabel : `C-${String(i).padStart(3, '0')}`;
+    doc = connectPorts(doc, portId(hostnames[i], 'eth0'), portId(hostnames[i + 1], 'eth0'), { sheath: 'blue', label }, { actor: me });
+  }
+
+  // Many VLANs, spread across several cabled ports on the first device —
+  // a fresh unit refuses a tagged (trunk) attach, so access mode per port instead.
+  const firstDevice = byHostname.get(hostnames[0])!;
+  for (let i = 0; i < 8; i += 1) {
+    doc = addSketchPort(doc, firstDevice.id, { label: `vlan-${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  }
+  const withVlanPorts = viewOf(doc, catalogue);
+  const firstDeviceView = withVlanPorts.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostnames[0])!;
+  function vlanPort(i: number): string {
+    return firstDeviceView.ports.find((p) => p.label === `vlan-${i}`)!.id;
+  }
+  const vlanIds = [110, 120, 130, 140, 150, 160, 170, 180];
+  for (let i = 0; i + 1 < 8; i += 2) {
+    doc = connectPorts(doc, vlanPort(i), vlanPort(i + 1), { sheath: 'yellow' }, { actor: me });
+    doc = addVlan(doc, { vlanId: vlanIds[i], name: `many-vlans-${vlanIds[i]}`, attach: [{ target: { kind: 'port', portId: vlanPort(i), interfaceName: `vlan-${i}` } }] }, { actor: me });
+  }
+
+  return doc;
+}
+
+/** A real, mixed-vendor rack for the owner's own look against the board's
+ * print panel: a patch panel, a switch, a firewall, two servers, a NAS, a UPS and a PDU, every model real, with a serial and a management address. */
+export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const premisesId = premises.premisesId;
+
+  const before1 = doc;
+  doc = createRack(doc, premisesId, { label: 'R1', heightU: 24, unitNumbering: 'ascending', actor: me });
+  const rackId = newestNode(before1, doc, 'Rack');
+
+  function modelOf(vendor: string, model: string): CatalogueModel {
+    const found = catalogue.find((m) => m.vendor === vendor && m.model === model);
+    if (!found) throw new Error(`the drive catalogue fixture is missing ${vendor}/${model}`);
+    return found;
+  }
+
+  function place(positionU: number, vendor: string, model: string, hostname: string): { deviceId: string; chassisId: string } {
+    const before = doc;
+    doc = placeChassis(doc, rackId, modelOf(vendor, model), positionU, 'front', { actor: me });
+    const deviceId = newestNode(before, doc, 'Device');
+    const chassisId = newestNode(before, doc, 'Chassis');
+    doc = setDeviceField(doc, deviceId, 'hostname', hostname, { actor: me });
+    return { deviceId, chassisId };
+  }
+
+  place(24, 'panduit', 'NK6PPG24Y', 'patch-01');
+  const sw = place(22, 'ubiquiti', 'USW-24-PoE', 'sw-core');
+  const fw = place(21, 'juniper', 'SRX300', 'fw-01');
+  const dock1 = place(17, 'dell', 'R740xd', 'dock-01');
+  const dock2 = place(15, 'hpe', 'DL380-Gen10', 'dock-02');
+  const nas = place(14, 'synology', 'RS822+', 'nas-01');
+  const ups = place(2, 'cyberpower', 'PR1500LCDRT2U', 'ups-01');
+  const pdu = place(1, 'apc', 'AP7920B', 'pdu-01');
+
+  // Every device but the patch panel gets a serial and a management
+  // address, so "leave out serials" has something real to hide.
+  const fitted: [{ deviceId: string; chassisId: string }, string, string][] = [
+    [sw, 'CTAZ2609J001', '10.20.0.2'],
+    [fw, 'AK0625AB0042', '10.20.0.1'],
+    [dock1, 'FCH2609AB01', '10.20.0.11'],
+    [dock2, 'MXQ2609XY02', '10.20.0.12'],
+    [nas, '2050LOFT0001', '10.20.0.20'],
+    [ups, '3B2609PR0099', '10.20.0.30'],
+    [pdu, '5A2609AP0007', '10.20.0.31'],
+  ];
+  for (const [target, serial, mgmt] of fitted) {
+    doc = setChassisField(doc, target.chassisId, 'serial', serial, { actor: me });
+    doc = setDeviceField(doc, target.deviceId, 'management_address', mgmt, { actor: me });
+  }
+
+  const view = viewOf(doc, catalogue);
+  const byHostname = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.hostname, c] as const));
+  function onePort(hostname: string, face: 'front' | 'rear', connector: string, occurrence: number): string {
+    const c = byHostname.get(hostname)!;
+    const ports = c.ports.filter((p) => p.face === face && p.connector === connector).sort((a, b) => a.column - b.column);
+    if (!ports[occurrence]) throw new Error(`${hostname} has no ${face} ${connector} port #${occurrence}`);
+    return ports[occurrence].id;
+  }
+
+  doc = connectPorts(doc, onePort('patch-01', 'front', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 0), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('sw-core', 'front', 'sfp_plus', 0), onePort('fw-01', 'front', 'sfp_plus', 0), { sheath: 'yellow', label: 'uplink, trunk' }, { actor: me });
+  doc = connectPorts(doc, onePort('dock-01', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 1), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('dock-02', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 2), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('nas-01', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 3), { sheath: 'blue' }, { actor: me });
+
   return doc;
 }

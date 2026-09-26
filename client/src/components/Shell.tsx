@@ -39,6 +39,7 @@ export function Shell({
   canRedo,
   onUndo,
   onRedo,
+  onPrint,
   account,
   editor,
   rail,
@@ -69,6 +70,7 @@ export function Shell({
         canRedo={canRedo}
         onUndo={onUndo}
         onRedo={onRedo}
+        onPrint={onPrint}
         account={account}
         viewOnly={viewOnly}
         menu={menu}

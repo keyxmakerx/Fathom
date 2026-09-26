@@ -1,0 +1,446 @@
+/* The Print panel and the print preview.
+   Browser support, each read 2026-09-26 from raw.githubusercontent.com/mdn/browser-compat-data:
+   @page rule — Firefox 19+ (css.at-rules.page).
+   @page size — Firefox 95+ (css.at-rules.page.size); each sheet is a fixed-size block, so the layout does not depend on it.
+   Page-margin boxes (@top-center etc.) — no Firefox support (css.at-rules.page.margin-at-rules).
+   break-inside: avoid — Firefox 65+ (css.properties.break-inside), used as a backstop only.
+   print-color-adjust — Firefox 97+, "color-adjust" alias from 48+ (css.properties.print-color-adjust). */
+
+
+.print-panel {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  width: 320px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  background: var(--page);
+  border: 1px solid var(--ink);
+  z-index: 60;
+  font-size: 12px;
+}
+
+.print-panel__head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.print-panel__section-label {
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.print-panel__section-label--inline {
+  display: inline-block;
+  padding: 0;
+  width: 56px;
+}
+
+.print-panel__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+/* `design/tokens.css`'s global `input { appearance: none }` collapses a
+   radio/checkbox to zero size — restored here to the plain native control. */
+.print-panel__option input,
+.print-panel__check input {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.print-panel__option input:disabled + span {
+  color: var(--muted);
+}
+
+.print-panel__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.print-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__row--download {
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__chip {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.print-panel__chip--on {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.print-panel__chip--future {
+  border-color: var(--hairline);
+  color: var(--muted);
+  cursor: default;
+}
+
+.print-panel__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.print-panel__hint-block {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.print-panel__actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__print {
+  flex-grow: 1;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--page);
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.print-panel__cancel {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+/* Keeps the place out of layout instead of hiding it, so it stays mounted.
+   Firefox 37+, Chrome 65+, Safari 11.1+ (css.properties.display.contents, read 2026-09-26). */
+.print-hide-under-preview {
+  display: contents;
+}
+
+/* --- the preview: page-sized blocks in normal flow ---------------------- */
+
+.print-preview {
+  position: fixed;
+  inset: 0;
+  background: var(--surface);
+  z-index: 70;
+  overflow-y: auto;
+}
+
+.print-preview__bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--page);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.print-preview__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+.print-page {
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  box-sizing: border-box;
+  padding: 10mm;
+  display: flex;
+  flex-direction: column;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+  /* `design/tokens.css`'s own `body` line-height is a fixed 20px, inherited
+     regardless of font-size — a proportional one here keeps a row's real height matching what the pagination measures. */
+  line-height: 1.2;
+}
+
+.print-page__header {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.print-page__header-title {
+  font-weight: 700;
+}
+
+.print-page__header-detail {
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.print-page__content {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.print-rack-sheet__elevations {
+  display: flex;
+  gap: 6mm;
+}
+
+.print-elevation {
+  flex: 1 1 0;
+  overflow: visible;
+}
+
+.print-elevation__frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.3;
+}
+
+.print-elevation__caption {
+  font-size: 3px;
+  fill: var(--muted);
+}
+
+.print-elevation__unit {
+  font-size: 2.4px;
+  fill: var(--muted);
+}
+
+.print-elevation__box {
+  fill: var(--page);
+  stroke: var(--ink);
+  stroke-width: 0.25;
+}
+
+.print-elevation__shelf {
+  fill: var(--surface);
+  stroke: var(--ink);
+  stroke-width: 0.25;
+}
+
+.print-elevation__name {
+  font-size: 3px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.print-elevation__model {
+  font-size: 2.4px;
+  fill: var(--muted);
+}
+
+.print-elevation__cable {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.4;
+}
+
+.print-elevation__cable--bw {
+  stroke: var(--ink);
+}
+
+.print-elevation__cable-label {
+  font-size: 2.2px;
+  fill: var(--ink);
+}
+
+.print-elevation__hatch-line {
+  stroke: var(--hairline);
+  stroke-width: 0.3;
+}
+
+/* A port glyph — cabled/fed fills ink, free stays hollow. Never a sheath
+   colour, so black-and-white loses nothing (UI-SPEC "Ports"). */
+.print-elevation__port {
+  stroke: var(--ink);
+  stroke-width: 0.15;
+}
+
+.print-elevation__port--cabled {
+  fill: var(--ink);
+}
+
+.print-elevation__port--free {
+  fill: var(--page);
+}
+
+.print-cables-note {
+  margin-top: 1.5mm;
+  font-size: 7.5px;
+  line-height: 1.4;
+}
+
+.print-cables-note__mark {
+  font-weight: 700;
+}
+
+.print-cables-note__list {
+  font-size: 7px;
+  color: var(--muted);
+  font-family: 'DejaVu Sans Mono', Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.print-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 8px;
+  break-inside: avoid;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid var(--hairline);
+  padding: 1px 3px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.print-table th {
+  border-bottom: 1px solid var(--ink);
+  font-size: 7px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.print-table__bold {
+  font-weight: 700;
+}
+
+/* The cut sheet's own column-title row and each device's own header row —
+   filled light grey, as the team's Excel sheet already draws them. */
+.print-table__filled {
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.print-table--cutsheet td {
+  font-family: 'DejaVu Sans Mono', Menlo, monospace;
+}
+
+/* Off-screen: renders every sheet's rows unsplit, for the measuring pass
+   `PrintPreview.tsx`'s own pagination reads real heights from. */
+.print-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  visibility: hidden;
+}
+
+.print-note {
+  margin-top: 2mm;
+  font-size: 8px;
+  color: var(--muted);
+}
+
+.print-title-block {
+  margin-top: auto;
+  border-top: 1px solid var(--ink);
+  display: grid;
+  grid-template-columns: 16mm 1fr 26mm 18mm;
+  font-size: 7px;
+}
+
+.print-title-block__mark,
+.print-title-block__mid,
+.print-title-block__cell {
+  border-right: 1px solid var(--hairline);
+  padding: 1mm 2mm;
+}
+
+.print-title-block__cell:last-child {
+  border-right: none;
+}
+
+.print-title-block__mark {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.print-title-block__design {
+  font-weight: 700;
+}
+
+.print-title-block__path {
+  color: var(--muted);
+}
+
+.print-title-block__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 6px;
+}
+
+.print-title-block__value--page {
+  font-weight: 700;
+  font-size: 9px;
+}
+
+.print-title-block__value--muted {
+  color: var(--muted);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-measure {
+    display: none !important;
+  }
+  .print-preview {
+    position: static;
+    background: none;
+    overflow: visible;
+  }
+  .print-preview__pages {
+    padding: 0;
+    gap: 0;
+  }
+  .print-page {
+    border: none;
+  }
+  /* A break BEFORE every page but the first — `break-after` on the last
+     page too forces a trailing blank page. */
+  .print-page + .print-page {
+    break-before: page;
+  }
+}
