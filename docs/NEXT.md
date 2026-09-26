@@ -43,9 +43,10 @@ comparable amount again.
 4. **Commits.** Builders never commit. The lead commits with an explicit pathspec
    (`git commit -- <paths>`) after running the gates itself, then merges the worktree branch, then
    pushes. A commit that has not passed `cargo test --workspace --locked` on a fresh database is
-   not pushed. Nothing is pushed to any branch but the designated one, except backups: unfinished
-   work goes to one `claude/wip-<name>` branch per piece of work, deleted once the work joins the
-   designated branch (the owner, 2026-09-26, after a machine reset lost unpushed work).
+   not pushed. Nothing is pushed to any branch but the designated one, except backups: all
+   unfinished work goes to one branch, `claude/wip`, overwritten every few minutes, one worktree
+   per parent of its commit (the owner, 2026-09-26, after a machine reset lost unpushed work). A
+   session cannot delete a branch, so no other backup branch is made.
 5. **Documents win, and they are the lead's.** Builders report where a design was wrong or silent;
    the lead writes the correction into the design with a date and reason. Every label in code is a
    row in `docs/PHASE-2-STORAGE-DESIGN.md` §12.2. An applied migration is never edited (its bytes
