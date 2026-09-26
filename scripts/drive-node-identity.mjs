@@ -176,6 +176,36 @@ try {
   });
 
   // -------------------------------------------------------------------
+  // 0. Render-count budgets — this harness runs under `StrictMode` (dev
+  //    only), which double-invokes render, so a raw count here is up to
+  //    2x what the same gesture costs in production; the checker's own
+  //    production bench is the source for the literal numbers.
+  // -------------------------------------------------------------------
+  const chassisRenderDelta = async (gesture) => {
+    const before = await page.evaluate(() => window.__cn ?? 0);
+    await gesture();
+    const after = await page.evaluate(() => window.__cn ?? 0);
+    return after - before;
+  };
+  const nodes0 = page.locator('.react-flow__node-chassis');
+  const paneForWheel = page.locator('.react-flow__pane');
+
+  const wheelDelta = await chassisRenderDelta(async () => {
+    await paneForWheel.hover();
+    await page.mouse.wheel(0, -60);
+    await page.waitForTimeout(120);
+  });
+  check('0a. a wheel tick renders no chassis', wheelDelta === 0, `delta ${wheelDelta}`);
+
+  const selectDelta = await chassisRenderDelta(async () => {
+    await nodes0.nth(1).click();
+    await page.waitForTimeout(150);
+  });
+  check('0b. selecting one device renders at most 4 chassis (budget 2, x2 for StrictMode)', selectDelta <= 4, `delta ${selectDelta}`);
+  await page.mouse.click(50, 50); // clear selection before the identity gestures below
+  await page.waitForTimeout(150);
+
+  // -------------------------------------------------------------------
   // 1. Hover — the cable between dev-01 and dev-02.
   // -------------------------------------------------------------------
   const cableEdge = page.locator('.react-flow__edge').first();

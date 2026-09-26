@@ -16,6 +16,14 @@ import { SHEATH_VAR } from './sheath';
  * header) matches what the CSS actually gives it. */
 const HEADER_MIN_PX = 9;
 
+/** A render counter a test harness can opt into by defining
+ * `window.__cn` first (a plain `number`); left undefined, this never runs.
+ * Nothing else in this module reads or writes it. */
+function countRender(): void {
+  const w = globalThis as { __cn?: number };
+  if (typeof w.__cn === 'number') w.__cn += 1;
+}
+
 /** A rear-elevation power lead's stable handle at the closet and rack
  * stops — `docs/decisions/adr-0050-the-rear-elevation.md` §1. `InletStrip`
  * (below) only mounts its own per-inlet handles when it actually draws —
@@ -295,6 +303,7 @@ function InletStrip({
  * and an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
  * blank and never invented — same rule, same word, as `Editor.tsx`. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
+  countRender();
   const { chassis, ports, inlets, elevation, onSelectPort, portSheath } = data;
   const myCableIds = useMyCableIds(chassis);
   const { selected, litCableId, liveDrag, dimmed } = useChassisLiveData(chassis.id, myCableIds);

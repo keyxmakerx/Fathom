@@ -242,6 +242,12 @@ async function main() {
     accountId: ME,
   });
 
+  // A render counter `ChassisNode.tsx` opts into when this is a number —
+  // `drive-node-identity.mjs` reads deltas off it. `StrictMode` below
+  // double-invokes render in dev, so a raw count from this harness is
+  // always up to 2x a production one.
+  (window as unknown as { __cn: number }).__cn = 0;
+
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
