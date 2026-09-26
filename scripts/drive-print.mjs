@@ -40,19 +40,27 @@ function check(name, ok, detail) {
   if (!ok) fails.push(name);
 }
 
-/** How many real pages a Chromium-produced PDF actually has — counted off
- * the document's own `/Type /Page` objects (never `/Type /Pages`, the
- * parent). Chromium's `page.pdf()` writes these as plain, uncompressed
- * objects (verified empirically against this same build: no `/ObjStm`, no
- * compressed cross-reference stream), so a byte-level regex count and the
- * Pages object's own `/Count` agree — this checks both and refuses to
- * trust either alone. */
+/** How many real pages a Chromium-produced PDF actually has, two ways that
+ * must agree. `byTypePage` counts every leaf `/Type /Page` object (never
+ * `/Type /Pages`, a parent) — correct regardless of how many intermediate
+ * `/Pages` nodes Chromium's own balanced page tree uses (verified: past 8
+ * pages it groups pages into child `/Pages` nodes, each with its own
+ * smaller `/Count`). `byCount` follows the trailer's real path instead —
+ * `/Type /Catalog` to its `/Pages` object to THAT object's own `/Count` —
+ * rather than the first `/Count` found in the file, which is a child's
+ * past 8 pages, not the total. */
 function countPdfPages(buffer) {
   const text = buffer.toString('latin1');
   const typePageMatches = text.match(/\/Type\s*\/Page(?!s)/g) ?? [];
-  const countMatch = /\/Count\s+(\d+)/.exec(text);
-  const declaredCount = countMatch ? Number(countMatch[1]) : null;
-  return { byTypePage: typePageMatches.length, byCount: declaredCount };
+  const catalogMatch = /\/Type\s*\/Catalog[\s\S]{0,200}?\/Pages\s+(\d+)\s+0\s+R/.exec(text);
+  let byCount = null;
+  if (catalogMatch) {
+    const objRe = new RegExp(`(?:^|[^0-9])${catalogMatch[1]}\\s+0\\s+obj([\\s\\S]*?)endobj`);
+    const objMatch = objRe.exec(text);
+    const countMatch = objMatch ? /\/Count\s+(\d+)/.exec(objMatch[1]) : null;
+    if (countMatch) byCount = Number(countMatch[1]);
+  }
+  return { byTypePage: typePageMatches.length, byCount };
 }
 
 const WASM_ARTIFACT = CLIENT + '/public/engine/fathom_wasm.wasm';
@@ -112,13 +120,33 @@ async function waitForServer(url, timeoutMs) {
 /** Opens the print panel afresh, from the Racks place, on a clean load —
  * every case below starts here rather than closing and reopening the
  * panel, so one case's leftover choice can never bleed into the next. */
-async function openPanel(page) {
-  await page.goto(`${BASE}/drive.html?scene=print`);
+async function openPanel(page, scene = 'print') {
+  await page.goto(`${BASE}/drive.html?scene=${scene}`);
   // The first navigation of a run pays Vite's own cold dependency
   // pre-bundle; every later one in this same run is warm and fast.
   await page.waitForSelector('.react-flow__node-rack', { timeout: 45_000 });
   await page.locator('[data-testid="shell-print"]').click();
   await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
+}
+
+/** The real layout, on every page: no `.print-page__content` and no table
+ * cell inside a `.print-page` scrolls — 1px slack for sub-pixel rounding.
+ * A long value that overflows its cell fails this, whether or not the
+ * page-count check above happens to still agree. */
+async function checkNoOverflow(page, label) {
+  const bad = await page.evaluate(() => {
+    const out = [];
+    document.querySelectorAll('.print-page__content').forEach((el, i) => {
+      if (el.scrollHeight > el.clientHeight + 1) out.push(`content ${i} scrollHeight ${el.scrollHeight}>${el.clientHeight}`);
+      if (el.scrollWidth > el.clientWidth + 1) out.push(`content ${i} scrollWidth ${el.scrollWidth}>${el.clientWidth}`);
+    });
+    document.querySelectorAll('.print-page .print-table td, .print-page .print-table th').forEach((el, i) => {
+      if (el.scrollHeight > el.clientHeight + 1) out.push(`cell ${i} scrollHeight ${el.scrollHeight}>${el.clientHeight} "${(el.textContent || '').slice(0, 24)}"`);
+      if (el.scrollWidth > el.clientWidth + 1) out.push(`cell ${i} scrollWidth ${el.scrollWidth}>${el.clientWidth} "${(el.textContent || '').slice(0, 24)}"`);
+    });
+    return out;
+  });
+  check(`${label}: nothing clips on any page (scrollHeight<=clientHeight, scrollWidth<=clientWidth)`, bad.length === 0, bad.slice(0, 5).join(' | '));
 }
 
 async function choosePaper(page, paper) {
@@ -246,6 +274,8 @@ try {
         JSON.stringify(pairs),
       );
 
+      await checkNoOverflow(page, label);
+
       const pdfBuffer = await page.pdf({ format: paper, printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
       const { byTypePage, byCount } = countPdfPages(pdfBuffer);
       check(`${label}: the real PDF's own page objects agree with its own /Count`, byTypePage === byCount, `/Type/Page=${byTypePage} /Count=${byCount}`);
@@ -268,6 +298,54 @@ try {
 
       await page.locator('[data-testid="print-preview-close"]').click();
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // The attack scene: 50-character FQDN hostnames, a long cable label and
+  // many VLANs on one trunk port — real long values, not a row-count
+  // estimate. Also the job of more than 8 pages the PDF page-count fix
+  // itself needs a real test against.
+  // -------------------------------------------------------------------------
+  const attackCases = [
+    { what: 'this-rack', cables: 'all', label: 'attack scene: the rack, cables all' },
+    { what: 'cut-sheet', cables: null, label: 'attack scene: the cut sheet' },
+  ];
+
+  for (const kase of attackCases) {
+    await openPanel(page, 'print-attack');
+    await choosePaper(page, 'A4');
+    await chooseWhat(page, kase.what);
+    if (kase.cables) await page.locator(`[data-testid="print-cables-${kase.cables}"]`).click();
+
+    const { domPageCount, pairs } = await toPreviewAndReadTitleBlocks(page);
+    check(`${kase.label}: the preview shows at least one page`, domPageCount > 0, `${domPageCount} pages`);
+    const declaredOf = pairs[0]?.of ?? -1;
+    check(`${kase.label}: "of" equals the number of pages actually shown`, declaredOf === domPageCount, `declared ${declaredOf}, shown ${domPageCount}`);
+
+    await checkNoOverflow(page, kase.label);
+
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
+    const { byTypePage, byCount } = countPdfPages(pdfBuffer);
+    check(`${kase.label}: the real PDF's own page objects agree with its own /Count`, byTypePage === byCount, `/Type/Page=${byTypePage} /Count=${byCount}`);
+    check(
+      `${kase.label}: the real PDF's page count matches the title block's "of y"`,
+      byTypePage === declaredOf,
+      `pdf pages=${byTypePage}, title block "of"=${declaredOf}`,
+    );
+
+    await page.screenshot({ path: SHOTS + `P-03-attack-${kase.what}-top.png` });
+    await page.evaluate(() => document.querySelector('[data-testid="print-preview"]')?.scrollTo(0, 1e9));
+    await page.waitForTimeout(100);
+    await page.screenshot({ path: SHOTS + `P-03-attack-${kase.what}-end.png` });
+    console.log('    wrote ' + SHOTS + `P-03-attack-${kase.what}-{top,end}.png`);
+
+    if (kase.what === 'cut-sheet') {
+      // The cut sheet's own job of more than 8 pages — the `/Count` bug the
+      // review found only shows up past Chromium's own 8-page grouping.
+      check('attack scene: the cut sheet takes more than 8 pages, so the /Count fix is tested for real', declaredOf > 8, `${declaredOf} pages`);
+    }
+
+    await page.locator('[data-testid="print-preview-close"]').click();
   }
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));

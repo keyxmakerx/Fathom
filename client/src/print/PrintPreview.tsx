@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 
 import type { Facing } from '../components/drawing/elevation';
 import { contentHeightMm, contentWidthMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
-import { elevationItemsOf, elevationRowMm, paginateRackTableByHeight, type ElevationItem, type RackDeviceRow } from './rackSheet';
+import { ELEVATION_CAPTION_MM, elevationHeightMm, elevationItemsOf, elevationRowMm, paginateRackTableByHeight, type ElevationItem, type RackDeviceRow } from './rackSheet';
 import { paginateCutSheetByHeight, type CutSheetTableRow } from './cutSheetTable';
 import type { PrintJob, RackSheetUnpaginated } from './printJob';
 import './print.css';
@@ -59,7 +59,7 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
   job.sheets.forEach((sheet, sheetIndex) => {
     if (sheet.kind === 'rack') {
       const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
-      const elevationPx = mmToPx(elevationRowMm(sheet.heightU, job.paper) * sheet.heightU);
+      const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper));
       const rows = sheet.deviceRows.map((row, i) => ({ row, heightPx: heights.get(`${sheetIndex}:r${i}`) ?? 0 }));
       const firstBudget = Math.max(0, capacityPx - elevationPx - theadPx);
       const laterBudget = Math.max(0, capacityPx - theadPx);
@@ -144,7 +144,7 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
   }, [onClose]);
 
   return (
-    <div className="print-preview print-hide-under-preview" data-testid="print-preview">
+    <div className="print-preview" data-testid="print-preview">
       <div className="print-preview__bar no-print">
         <span>
           {finalPages ? finalPages.length : '…'} page{finalPages?.length === 1 ? '' : 's'} {'·'} {job.paper} {'·'} Save as PDF is in the print dialog
@@ -349,7 +349,7 @@ function Elevation({
   const railW = 8;
   const bodyW = 70;
   const width = railW * 2 + bodyW;
-  const captionH = 4;
+  const captionH = ELEVATION_CAPTION_MM;
   const bodyHeight = heightU * rowMm;
   const height = bodyHeight + captionH;
   const byId = new Map(items.filter((i) => i.kind === 'chassis').map((i) => [i.chassis.id, i] as const));

@@ -11,14 +11,23 @@ import { unitRangeLabel } from './units';
 
 /** Millimetres one rack unit draws at when a page has room for it. */
 export const ELEVATION_ROW_MM = 6;
+/** The FRONT/REAR caption strip above the frame. */
+export const ELEVATION_CAPTION_MM = 4;
 
 /** How tall one rack unit draws, scaled down only if `heightU` at the
- * natural size would be taller than one page's own content area — an
- * elevation never splits across pages, so it must always fit whole. */
+ * natural size (plus the caption strip) would be taller than one page's own
+ * content area — an elevation never splits across pages, so it must always
+ * fit whole. */
 export function elevationRowMm(heightU: number, paper: PaperSize): number {
+  const budget = contentHeightMm(paper) - ELEVATION_CAPTION_MM;
   const natural = heightU * ELEVATION_ROW_MM;
-  const budget = contentHeightMm(paper);
   return natural <= budget ? ELEVATION_ROW_MM : budget / heightU;
+}
+
+/** The elevation's own real rendered height — rows plus the caption strip
+ * — what both the SVG's own height and a page budget must agree on. */
+export function elevationHeightMm(heightU: number, paper: PaperSize): number {
+  return heightU * elevationRowMm(heightU, paper) + ELEVATION_CAPTION_MM;
 }
 
 export interface RackDeviceRow {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, OccupantView, ShelfView } from '../document/view';
-import { elevationItemsOf, elevationRowMm, paginateRackTableByHeight, rackDeviceRows, type RackDeviceRow } from './rackSheet';
+import { contentHeightMm } from './paper';
+import { elevationHeightMm, elevationItemsOf, elevationRowMm, paginateRackTableByHeight, rackDeviceRows, type RackDeviceRow } from './rackSheet';
 
 function chassis(id: string, positionU: number, heightU = 1, overrides: Partial<ChassisView> = {}): ChassisView {
   return {
@@ -50,6 +51,16 @@ describe('elevationRowMm', () => {
   it('shrinks proportionally, never below what the page can hold', () => {
     const rowMm = elevationRowMm(100, 'A4');
     expect(rowMm * 100).toBeLessThanOrEqual(297 - 20 - 16 - 9 + 0.01);
+  });
+});
+
+describe('elevationHeightMm', () => {
+  it('the real drawn height (rows plus the caption) never exceeds the page content budget', () => {
+    for (const paper of ['A4', 'Letter'] as const) {
+      for (const heightU of [1, 10, 42, 48, 100]) {
+        expect(elevationHeightMm(heightU, paper)).toBeLessThanOrEqual(contentHeightMm(paper) + 0.001);
+      }
+    }
   });
 });
 
