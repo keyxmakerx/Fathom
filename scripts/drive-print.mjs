@@ -421,9 +421,18 @@ try {
     await page.mouse.up();
   }
   await page.waitForTimeout(200);
-  const zoomBefore = await page.locator('.shell-zoom-value').innerText();
+  // A short timeout and a caught failure, not Playwright's own 30s default
+  // — a missing panel fails this named check instead of hanging the run.
+  async function readOrMissing(locator) {
+    try {
+      return await locator.innerText({ timeout: 2_000 });
+    } catch {
+      return null;
+    }
+  }
+  const zoomBefore = await readOrMissing(page.locator('.shell-zoom-value'));
   const transformBefore = await page.locator('.react-flow__viewport').getAttribute('style');
-  const editorBefore = await page.locator('.drawing-editor__panel').innerText();
+  const editorBefore = await readOrMissing(page.locator('.drawing-editor__panel'));
 
   await page.locator('[data-testid="shell-print"]').click();
   await page.locator('[data-testid="print-panel-print"]').click();
@@ -431,12 +440,16 @@ try {
   await page.locator('[data-testid="print-preview-close"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 });
 
-  const zoomAfter = await page.locator('.shell-zoom-value').innerText();
+  const zoomAfter = await readOrMissing(page.locator('.shell-zoom-value'));
   const transformAfter = await page.locator('.react-flow__viewport').getAttribute('style');
-  const editorAfter = await page.locator('.drawing-editor__panel').innerText();
-  check('the preview does not disturb zoom', zoomAfter === zoomBefore, `${zoomBefore} -> ${zoomAfter}`);
+  const editorAfter = await readOrMissing(page.locator('.drawing-editor__panel'));
+  check('the preview does not disturb zoom', zoomBefore != null && zoomAfter === zoomBefore, `${zoomBefore} -> ${zoomAfter}`);
   check('the preview does not disturb pan', transformAfter === transformBefore, `${transformBefore} -> ${transformAfter}`);
-  check('the preview does not disturb the open editor / selection', editorAfter === editorBefore, editorAfter.slice(0, 80));
+  check(
+    'the preview does not disturb the open editor / selection',
+    editorBefore != null && editorAfter === editorBefore,
+    `before=${editorBefore?.slice(0, 40) ?? 'MISSING'} after=${editorAfter?.slice(0, 40) ?? 'MISSING'}`,
+  );
 
   // -------------------------------------------------------------------------
   // The attack scene: 50-character FQDN hostnames, a long cable label and
@@ -459,6 +472,20 @@ try {
     check(`${kase.label}: "of" equals the number of pages actually shown`, declaredOf === domPageCount, `declared ${declaredOf}, shown ${domPageCount}`);
 
     await checkNoOverflow(page, kase.label);
+
+    if (kase.what === 'this-rack') {
+      // The measuring pass must use the same column widths the printed
+      // table does, or a long hostname reflows the row a different height.
+      const rowHeights = await page.evaluate(() => ({
+        measured: document.querySelector('.print-measure [data-row-id="0:r0"]')?.getBoundingClientRect().height ?? null,
+        printed: document.querySelector('[data-testid="print-rack-device-table"] tbody tr')?.getBoundingClientRect().height ?? null,
+      }));
+      check(
+        `${kase.label}: a measured rack-table row equals the printed one within 1px`,
+        rowHeights.measured != null && rowHeights.printed != null && Math.abs(rowHeights.measured - rowHeights.printed) <= 1,
+        JSON.stringify(rowHeights),
+      );
+    }
 
     const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
     const { byTypePage, byCount } = countPdfPages(pdfBuffer);

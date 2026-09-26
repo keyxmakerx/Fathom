@@ -210,6 +210,7 @@ function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: Rea
         sheet.kind === 'rack' ? (
           <div key={i}>
             <table className="print-table">
+              <ColGroup widths={RACK_COLUMN_WIDTHS} />
               <RackTableHead dataRowId={`${i}:thead`} />
               <tbody>
                 {sheet.deviceRows.map((row, r) => (

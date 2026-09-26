@@ -89,9 +89,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
 
-  // A design has no name of its own — the deepest scope is the nearest
-  // thing to one; the path is what sits between the organisation and it,
-  // never repeating either end.
+  // A design has no name of its own — the deepest scope stands in; the path is what sits between the organisation and it, never repeating either end.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
   const pathLabel = shellProps.path
     .slice(1, -1)
@@ -417,10 +415,8 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     );
 
-  // The place stays mounted while the preview shows, so closing it loses no
-  // zoom, pan, selection or open editor; print CSS hides it while printing.
-  // `inert` (Firefox 112+, Chrome 102+, Safari 15.5+, html.global_attributes.inert,
-  // read 2026-09-26) keeps it out of the tab order and unclickable meanwhile.
+  // The place stays mounted while the preview shows, so closing it loses nothing; print CSS hides it, `inert` disables it.
+  // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <>
       <div className="print-hide-under-preview" inert={printMode === 'preview'}>
