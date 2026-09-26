@@ -11,6 +11,7 @@ import {
   findShelf,
   findShelfOccupantPort,
   findSurfaceFixturePort,
+  findUnplacedChassis,
   locatePort,
   resolvePlaceNode,
 } from './lookup';
@@ -177,6 +178,7 @@ const FLOOR: SurfaceView = {
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [WEST_WALL, FLOOR],
@@ -271,6 +273,24 @@ describe('findChassis', () => {
 
   it('returns undefined for an id this view does not carry', () => {
     expect(findChassis(VIEW, 'nope')).toBeUndefined();
+  });
+});
+
+describe('findUnplacedChassis', () => {
+  const UNPLACED_VIEW: ClosetView = {
+    ...VIEW,
+    unplaced: [{ ...VIEW.racks[0].chassis[0], id: 'chassis-unplaced', placement: { kind: 'none' } }],
+  };
+
+  it('finds a chassis with no placement at all, by its own id', () => {
+    const found = findUnplacedChassis(UNPLACED_VIEW, 'chassis-unplaced');
+    expect(found?.hostname).toBe('core-01');
+    expect(found?.placement).toEqual({ kind: 'none' });
+  });
+
+  it('returns undefined for an id this view does not carry unplaced', () => {
+    expect(findUnplacedChassis(UNPLACED_VIEW, 'chassis-1')).toBeUndefined();
+    expect(findUnplacedChassis(VIEW, 'chassis-unplaced')).toBeUndefined();
   });
 });
 

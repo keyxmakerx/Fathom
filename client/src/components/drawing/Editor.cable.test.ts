@@ -13,6 +13,7 @@ import { COPPER_SHEATHS, FIBRE_SHEATHS, POWER_SHEATHS } from './sheath';
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   rows: [],
   surfaces: [
     {

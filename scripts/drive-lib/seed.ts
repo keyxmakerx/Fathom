@@ -116,6 +116,15 @@ function surfacePort(
   throw new Error(`no surface fixture named ${hostname}`);
 }
 
+/** A device Inventory's own "Unplaced" group lists: one hand-made sketch
+ * device (`createSketchDevice`), never moved anywhere. */
+export function seedUnplacedDevice(me: string): Document {
+  const doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  const { doc: withDevice } = newSketchDevice(premises.doc, 'sketch-01', me);
+  return withDevice;
+}
+
 /** One rack, one device — the "note"/"typed" scenes' own starting point: a
  * chassis to select and an editor panel to add a note in. */
 export function seedSingleDevice(catalogue: CatalogueModel[], me: string): Document {

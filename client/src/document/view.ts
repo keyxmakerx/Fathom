@@ -342,6 +342,11 @@ export interface ClosetView {
   rows: RowView[];
   /** ADR-0051 §1 — every surface `HasSurface` this closet's premises. */
   surfaces: SurfaceView[];
+  /** A `Chassis` with no live `MountedIn`/`SitsOn`/`FixedTo` at all — the
+   * same nodes Inventory's "Unplaced" group lists (`rows.ts`'s own
+   * `unplacedDeviceRows`), given here too so the editor can open one
+   * (`placement.kind === 'none'`). */
+  unplaced: ChassisView[];
 }
 
 function rowNumber(row: 'top' | 'bottom' | 'single'): number {
@@ -700,15 +705,14 @@ function placementOf(doc: Document, itemId: string): Placement {
   return { kind: 'none' };
 }
 
+/** One `ChassisView` for a rack-mounted or an unplaced chassis, so the editor opens either the same way.
+ * `positionU`, `heightU` and `face` mean something only for a `'rack'` placement. */
 function chassisView(
   doc: Document,
-  mountedEdgeId: string,
+  chassisId: string,
   catalogue: readonly CatalogueModel[],
   closetRackIds: ReadonlySet<string>,
 ): ChassisView | undefined {
-  const mounted = doc.edges.find((e) => e.id === mountedEdgeId);
-  if (!mounted) return undefined;
-  const chassisId = mounted.from;
   const chassisNode = findNode(doc, chassisId);
   if (!chassisNode || !isLiveNode(chassisNode)) return undefined;
 
@@ -724,9 +728,11 @@ function chassisView(
   const model = chassisFields.model ?? '';
   const catalogueModel = catalogueMatch(catalogue, model);
 
-  const mountedFields = readMountedInFields(mounted);
-  const face = mountedFields.face === 'rear' ? 'rear' : 'front';
-  const heightU = catalogueModel?.rackUnits ?? mountedFields.heightU ?? 1;
+  const placement = placementOf(doc, chassisId);
+  const mounted = placement.kind === 'rack' ? edgesOut(doc, chassisId, 'MountedIn')[0] : undefined;
+  const mountedFields = mounted ? readMountedInFields(mounted) : undefined;
+  const face = mountedFields?.face === 'rear' ? 'rear' : 'front';
+  const heightU = catalogueModel?.rackUnits ?? mountedFields?.heightU ?? 1;
 
   const hasPorts = edgesOut(doc, chassisId, 'HasPort');
   // Filters the chassis's `c14` PSU inlet out of `ports` only when a
@@ -756,7 +762,7 @@ function chassisView(
     hostname,
     model,
     vendor: catalogueModel?.vendor ?? '',
-    positionU: mountedFields.positionU ?? 1,
+    positionU: mountedFields?.positionU ?? 1,
     heightU,
     face,
     ports,
@@ -766,7 +772,7 @@ function chassisView(
     psuInlets,
     singleFed,
     oneFitted,
-    placement: placementOf(doc, chassisId),
+    placement,
     sketch: chassisFields.model === undefined && hasPorts.length > 0,
   };
 }
@@ -1006,7 +1012,7 @@ function rackView(
   const shelfEdges = mountedEdges.filter((e) => parseNodeId(e.from).kind === 'PassiveNode');
 
   const chassis = chassisEdges
-    .map((e) => chassisView(doc, e.id, catalogue, closetRackIds))
+    .map((e) => chassisView(doc, e.from, catalogue, closetRackIds))
     .filter((c): c is ChassisView => c !== undefined);
   const shelves = shelfEdges
     .map((e) => shelfView(doc, e, catalogue, closetRackIds))
@@ -1159,7 +1165,7 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
     .filter((n) => isLiveNode(n) && parseNodeId(n.id).kind === 'Cable')
     .map((n) => cableView(doc, n));
   if (!premises) {
-    return { premisesId: '', racks: [], cables, rows: [], surfaces: [] };
+    return { premisesId: '', racks: [], cables, rows: [], surfaces: [], unplaced: unplacedChassisViews(doc, catalogue, new Set()) };
   }
   const rackEdges = edgesOut(doc, premises.id, 'HasRack');
   const closetRackIds = new Set(rackEdges.map((e) => e.to));
@@ -1170,5 +1176,30 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
   const surfaces = surfaceEdges
     .map((e) => surfaceView(doc, e.to, catalogue, closetRackIds))
     .filter((s): s is SurfaceView => s !== undefined);
-  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces };
+  const unplaced = unplacedChassisViews(doc, catalogue, closetRackIds);
+  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces, unplaced };
+}
+
+/** A `Chassis` node with no live `MountedIn`/`SitsOn`/`FixedTo` at all — the
+ * same walk `rows.ts`'s own `unplacedDeviceRows` runs over `doc.nodes`
+ * directly, since `chassisView`/`rackView`/`surfaceView` above only ever
+ * reach a chassis by following one of those three edges outward from a
+ * placed root. */
+function unplacedChassisViews(
+  doc: Document,
+  catalogue: readonly CatalogueModel[],
+  closetRackIds: ReadonlySet<string>,
+): ChassisView[] {
+  const out: ChassisView[] = [];
+  for (const node of doc.nodes) {
+    if (!isLiveNode(node) || parseNodeId(node.id).kind !== 'Chassis') continue;
+    const placed =
+      edgesOut(doc, node.id, 'MountedIn').length > 0 ||
+      edgesOut(doc, node.id, 'SitsOn').length > 0 ||
+      edgesOut(doc, node.id, 'FixedTo').length > 0;
+    if (placed) continue;
+    const view = chassisView(doc, node.id, catalogue, closetRackIds);
+    if (view !== undefined) out.push(view);
+  }
+  return out;
 }

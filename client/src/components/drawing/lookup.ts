@@ -38,6 +38,14 @@ export function findChassis(
   return undefined;
 }
 
+/** A chassis with no live `MountedIn`/`SitsOn`/`FixedTo` at all
+ * (`ClosetView.unplaced`, `document/view.ts`) — found by its own id, the
+ * same "search, never guess" rule every other lookup in this module keeps.
+ * `undefined` when this view carries no such chassis. */
+export function findUnplacedChassis(view: ClosetView, chassisId: string): ChassisView | undefined {
+  return view.unplaced.find((c) => c.id === chassisId);
+}
+
 export function findPort(
   view: ClosetView,
   portId: string,

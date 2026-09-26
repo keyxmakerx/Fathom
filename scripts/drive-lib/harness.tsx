@@ -21,6 +21,7 @@ import {
   seedFreestanding,
   seedNetworksScene,
   seedSingleDevice,
+  seedUnplacedDevice,
 } from './drive-seed';
 
 const ORG_ID = 'org-drive';
@@ -107,6 +108,7 @@ async function main() {
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
+  else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

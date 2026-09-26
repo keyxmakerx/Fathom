@@ -74,7 +74,7 @@ function premisesDoc(): { doc: Document; premisesId: string } {
 
 describe('viewOf', () => {
   it('is empty for a document with no Premises', () => {
-    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [], surfaces: [] });
+    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [] });
   });
 
   it('draws a rack with no chassis and one free run', () => {
@@ -579,5 +579,20 @@ describe('ClosetView.surfaces (ADR-0051 §1)', () => {
     const fixture = viewOf(withPort, []).surfaces[0].fixtures[0];
     expect(fixture.psuInlets).toHaveLength(0);
     expect(fixture.ports.map((p) => p.connector)).toContain('c14');
+  });
+
+  it('a sketch device nobody has placed yet shows up in `unplaced`, not `racks`', () => {
+    const { doc } = premisesDoc();
+    const withDevice = createSketchDevice(doc, { hostname: 'sketch-01', now: NOW });
+    const chassisId = withDevice.nodes.find(
+      (n) => !doc.nodes.some((o) => o.id === n.id) && parseNodeId(n.id).kind === 'Chassis',
+    )!.id;
+
+    const view = viewOf(withDevice, []);
+    expect(view.racks).toHaveLength(0);
+    expect(view.unplaced).toHaveLength(1);
+    expect(view.unplaced[0].id).toBe(chassisId);
+    expect(view.unplaced[0].hostname).toBe('sketch-01');
+    expect(view.unplaced[0].placement).toEqual({ kind: 'none' });
   });
 });

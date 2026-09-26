@@ -38,7 +38,7 @@ import {
   type PortView,
   type Selection,
 } from './contract';
-import { findChassis, findFixture, findOccupant, findRack, findShelf, locatePort } from './lookup';
+import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1436,9 +1436,14 @@ export function EditorFor(
   }
 
   if (selection.kind === 'chassis') {
+    // A `Chassis` with no live `MountedIn`/`SitsOn`/`FixedTo` at all
+    // (`ClosetView.unplaced`, `document/view.ts`) — Inventory's "Unplaced"
+    // group opens the SAME chassis panel, `rack` simply `undefined` and
+    // every rack-only field below gated on it, rather than nothing at all.
     const found = findChassis(view, selection.id);
-    if (found == null) return null;
-    const { rack, chassis } = found;
+    const chassis = found?.chassis ?? findUnplacedChassis(view, selection.id);
+    if (chassis == null) return null;
+    const rack = found?.rack;
     const topU = chassis.positionU + chassis.heightU - 1;
     const uRange = chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`;
     // `chassis.sketch` (`document/view.ts`) only reads `true` once at least
@@ -1476,8 +1481,10 @@ export function EditorFor(
           </div>
         ) : null}
         <Field label="Vendor" value={chassis.vendor || ABSENT} />
-        <Field label="Rack" value={`${rack.label} · ${uRange}`} />
-        <Field label="Face" value={chassis.face} />
+        {/* Rack/face are placement-only — nothing to show for a chassis
+            `PlacedOnControl` below already draws "Placed on: none" for. */}
+        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
+        {rack ? <Field label="Face" value={chassis.face} /> : null}
         {/* PortView carries no cabled state yet — the count shown is honest
             about that rather than inventing a "0 of n". */}
         <Field label="Ports" value={`${ABSENT} of ${chassis.ports.length} cabled`} />
@@ -1576,7 +1583,10 @@ export function EditorFor(
             current one marked. */}
         <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-        <DuplicateDeviceControl chassisId={chassis.id} actions={actions} />
+        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
+            rack-mounted — the control stays off an unplaced chassis's panel
+            rather than offering an action that can only ever refuse. */}
+        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
 
         {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
             hostname and the capture, so its notes are `HasNote`'d off

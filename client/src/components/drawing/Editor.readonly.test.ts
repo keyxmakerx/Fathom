@@ -17,6 +17,7 @@ const READER_ACTIONS: EditorActions = {}; // no `onEdit` at all — ADR-0052 §5
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [],

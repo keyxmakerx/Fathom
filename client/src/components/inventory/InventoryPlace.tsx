@@ -21,7 +21,7 @@ import {
 } from './rows';
 import './inventory.css';
 
-const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [] };
+const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
 
 type Kind = 'devices' | 'racks' | 'cables' | 'ports' | 'networks';

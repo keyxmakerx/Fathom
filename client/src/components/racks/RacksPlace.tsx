@@ -386,7 +386,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   const realView = useMemo<ClosetView>(
-    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [], surfaces: [] }),
+    () => (doc ? viewOf(doc, catalogue) : { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [] }),
     [doc, catalogue],
   );
 
@@ -405,6 +405,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             cables: realView.cables,
             rows: [{ label: null, racks: [PENDING_RACK_VIEW] }],
             surfaces: realView.surfaces,
+            unplaced: realView.unplaced,
           },
     [realView],
   );

@@ -14,6 +14,7 @@ import { EditorFor, farEndOf } from './Editor';
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   rows: [],
   surfaces: [
     {
