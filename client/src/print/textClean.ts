@@ -15,9 +15,10 @@ function isAllowedBmpCode(code: number): boolean {
   return false;
 }
 
-/** Drops forbidden characters, then cuts to the cell limit without
- * splitting a surrogate pair at the cut point. */
-export function cleanExportText(input: string): string {
+/** Drops the forbidden characters only — no length cut. Exported so a
+ * caller that adds a prefix afterwards (the CSV writer's injection guard)
+ * can cut once, after the prefix, rather than risk landing at 32,768. */
+export function stripForbiddenChars(input: string): string {
   let out = '';
   for (let i = 0; i < input.length; i += 1) {
     const code = input.charCodeAt(i);
@@ -37,13 +38,21 @@ export function cleanExportText(input: string): string {
     }
     if (isAllowedBmpCode(code)) out += input[i];
   }
-  return cutAtCellLimit(out);
+  return out;
 }
 
-function cutAtCellLimit(s: string): string {
+/** Cuts to the cell limit without splitting a surrogate pair at the cut
+ * point. */
+export function cutAtCellLimit(s: string): string {
   if (s.length <= CELL_CHAR_LIMIT) return s;
   let cut = CELL_CHAR_LIMIT;
   const before = s.charCodeAt(cut - 1);
   if (before >= 0xd800 && before <= 0xdbff) cut -= 1;
   return s.slice(0, cut);
+}
+
+/** Strip, then cut — the xlsx writer's own order, where nothing is added
+ * afterwards. The CSV writer strips, guards, then cuts instead. */
+export function cleanExportText(input: string): string {
+  return cutAtCellLimit(stripForbiddenChars(input));
 }
