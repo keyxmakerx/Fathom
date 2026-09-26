@@ -6,6 +6,13 @@ import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/u
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
+import { buildCsv } from '../../print/csv';
+import { buildCutSheet } from '../../print/cutSheet';
+import { cutSheetTableRows } from '../../print/cutSheetTable';
+import { PrintPanel } from '../../print/PrintPanel';
+import { PrintPreview } from '../../print/PrintPreview';
+import { buildPrintJob, type PrintOptions, type PrintPage, type PrintWhat } from '../../print/printJob';
+import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { InventoryPlace } from '../inventory/InventoryPlace';
@@ -15,6 +22,18 @@ import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
+
+/** A download with no server round trip and no new dependency — an object
+ * URL an anchor click reaches for, revoked once the click has fired. */
+function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
+  const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children' | 'place'> {
   place: Place;
@@ -60,6 +79,96 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
+
+  // ------------------------------------------------------------------
+  // GitHub issue #39 — Print. `activeRackId` is `RacksPlace`'s own report of
+  // what the current selection resolves to (`RacksPlace.tsx`'s own effect);
+  // Inventory never sets it, so a design opened straight into Inventory
+  // still falls back to the closet's first rack (`PrintPanel`'s own prop is
+  // already `| null`, and the panel disables "This rack" when there truly
+  // is none).
+  const [activeRackId, setActiveRackId] = useState<string | null>(null);
+  const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
+  const [printJob, setPrintJob] = useState<PrintPage[]>([]);
+  const [printOptions, setPrintOptions] = useState<PrintOptions | null>(null);
+
+  const pathLabel = shellProps.path.map((p) => p.label).join(' › ');
+  const designLabel = shellProps.path[0]?.label ?? '';
+
+  const openPrintPanel = useCallback(() => {
+    if (session.doc == null) return;
+    setPrintMode('panel');
+  }, [session.doc]);
+
+  const closePrint = useCallback(() => {
+    setPrintMode('closed');
+    setPrintJob([]);
+    setPrintOptions(null);
+  }, []);
+
+  // Ctrl+P: left alone in a text field; opens the panel when nothing of
+  // this feature is open yet. `PrintPreview.tsx` carries its own Ctrl+P
+  // (prints) once the preview itself is open — brief item 1.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'p') return;
+      const target = event.target as HTMLElement | null;
+      const inField = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (inField) return;
+      if (printMode !== 'closed') return; // the panel or the preview already owns this key
+      event.preventDefault();
+      openPrintPanel();
+    }
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [printMode, openPrintPanel]);
+
+  const handlePrintSubmit = useCallback(
+    (what: PrintWhat, options: PrintOptions) => {
+      const doc = session.doc;
+      if (doc == null) return;
+      const view = viewOf(doc, session.catalogue);
+      const racks =
+        what === 'closet'
+          ? view.rows.flatMap((row) => row.racks)
+          : what === 'this-rack'
+            ? view.racks.filter((r) => r.id === (activeRackId ?? view.racks[0]?.id))
+            : [];
+      const cutSheetDevices = what === 'cut-sheet' ? buildCutSheet(doc, view) : [];
+      const job = buildPrintJob({
+        what,
+        racks,
+        cables: view.cables,
+        cutSheetDevices,
+        options,
+        meta: { designName: designLabel, path: pathLabel, printedBy: accountAddress ?? '', printedAt: new Date() },
+      });
+      setPrintJob(job);
+      setPrintOptions(options);
+      setPrintMode('preview');
+    },
+    [session.doc, session.catalogue, activeRackId, designLabel, pathLabel, accountAddress],
+  );
+
+  const downloadCutSheet = useCallback(
+    (format: 'xlsx' | 'csv') => {
+      const doc = session.doc;
+      if (doc == null) return;
+      const view = viewOf(doc, session.catalogue);
+      const devices = buildCutSheet(doc, view);
+      const rows = cutSheetTableRows(devices);
+      if (format === 'csv') {
+        downloadBytes('cut-sheet.csv', buildCsv(rows.map((r) => r.cells)), 'text/csv;charset=utf-8');
+      } else {
+        downloadBytes(
+          'cut-sheet.xlsx',
+          buildXlsx('Cut sheet', rows.map((r) => r.cells.map((text) => ({ text, bold: r.bold })))),
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
+    },
+    [session.doc, session.catalogue],
+  );
 
   // ------------------------------------------------------------------
   // ADR-0053 §4 — the Trail's own "sealed or pending," approximated per the
@@ -273,12 +382,20 @@ export function DesignPlace(props: DesignPlaceProps) {
     canRedo: session.canDraw && redoCandidate != null,
     onUndo: handleUndo,
     onRedo: handleRedo,
+    onPrint: openPrintPanel,
   };
 
   const notesActions = { notesOf: notesOfCallback, onAddNote: handleAddNote, onRemoveNote: handleRemoveNote };
 
-  if (props.place === 'racks') {
-    return (
+  // The closet view for the print panel/preview only — computed while
+  // either is actually open, never on every render of the place itself.
+  const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
+  const activeRackSummary = printView
+    ? (printView.racks.find((r) => r.id === activeRackId) ?? printView.racks[0] ?? null)
+    : null;
+
+  const place =
+    props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
         onPlaceChange={onPlaceChange}
@@ -288,17 +405,34 @@ export function DesignPlace(props: DesignPlaceProps) {
         onOpenInventory={openInInventory}
         accountId={accountId}
         notesActions={notesActions}
+        onActiveRackChange={setActiveRackId}
+      />
+    ) : (
+      <InventoryPlace
+        {...sharedShellProps}
+        onPlaceChange={onPlaceChange}
+        session={session}
+        onShowOnRack={showOnRack}
+        notesActions={notesActions}
       />
     );
-  }
 
   return (
-    <InventoryPlace
-      {...sharedShellProps}
-      onPlaceChange={onPlaceChange}
-      session={session}
-      onShowOnRack={showOnRack}
-      notesActions={notesActions}
-    />
+    <>
+      {place}
+      {printMode === 'panel' && printView && (
+        <PrintPanel
+          activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}
+          rackCount={printView.racks.length}
+          onPrint={handlePrintSubmit}
+          onCancel={closePrint}
+          onDownloadXlsx={() => downloadCutSheet('xlsx')}
+          onDownloadCsv={() => downloadCutSheet('csv')}
+        />
+      )}
+      {printMode === 'preview' && printOptions && (
+        <PrintPreview pages={printJob} paper={printOptions.paper} blackAndWhite={printOptions.blackAndWhite} onClose={closePrint} />
+      )}
+    </>
   );
 }

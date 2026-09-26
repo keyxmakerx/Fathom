@@ -40,6 +40,7 @@ describe('buildPrintJob', () => {
     const job = buildPrintJob({
       what: 'closet',
       racks,
+      cables: [],
       cutSheetDevices: [],
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
@@ -53,6 +54,7 @@ describe('buildPrintJob', () => {
     const job = buildPrintJob({
       what: 'this-rack',
       racks: [rack('r1', 'R1', 4, 1)],
+      cables: [],
       cutSheetDevices: [],
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
@@ -69,6 +71,7 @@ describe('buildPrintJob', () => {
     const job = buildPrintJob({
       what: 'cut-sheet',
       racks: [rack('r1', 'R1', 4, 1)],
+      cables: [],
       cutSheetDevices: devices,
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
@@ -81,6 +84,7 @@ describe('buildPrintJob', () => {
     const job = buildPrintJob({
       what: 'this-rack',
       racks: [rack('r1', 'R7', 4, 1)],
+      cables: [],
       cutSheetDevices: [],
       options: { paper: 'A4', cables: 'all', hideSensitive: false, blackAndWhite: false },
       meta,

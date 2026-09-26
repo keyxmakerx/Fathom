@@ -71,6 +71,12 @@ export interface ShellProps {
   onUndo: () => void;
   onRedo: () => void;
 
+  /** GitHub issue #39 — the Print button, next to Undo/Redo. Ctrl+P opens
+   * the same panel (wired above the shell, where the design's racks and
+   * catalogue already live); absent where there is no design open to
+   * print (Home). */
+  onPrint?: () => void;
+
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;

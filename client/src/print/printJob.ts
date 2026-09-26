@@ -6,7 +6,7 @@
 // css/types/counter.json carries no "pages" keyword at all — no browser
 // implements the CSS Generated-Content-for-Paged-Media total-page counter,
 // so the total is computed here, in script, once every page is known.
-import type { ChassisView, RackView } from '../document/view';
+import type { CableView, ChassisView, RackView } from '../document/view';
 import type { CutSheetDevice } from './cutSheet';
 import { paginateCutSheet, type CutSheetTableRow } from './cutSheetTable';
 import type { PaperSize } from './paper';
@@ -80,9 +80,11 @@ export function buildRackSheetPages(
   rack: Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis'>,
   paper: PaperSize,
   options: Pick<PrintOptions, 'cables' | 'hideSensitive'>,
+  cables: readonly CableView[] = [],
 ): RackSheetPageContent[] {
   const capacity = rowsPerPage(paper);
   const slices = paginateRackRows(rack, capacity);
+  const sheathByCableId = new Map(cables.map((c) => [c.id, c.sheath] as const));
   return slices.map((slice, i) => ({
     kind: 'rack',
     rackId: rack.id,
@@ -95,8 +97,8 @@ export function buildRackSheetPages(
     cablesOption: options.cables,
     hideSensitive: options.hideSensitive,
     deviceRows: rackDeviceRows(rack, slice.chassis, options.hideSensitive),
-    frontCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'front') : [],
-    rearCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'rear') : [],
+    frontCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'front', sheathByCableId) : [],
+    rearCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'rear', sheathByCableId) : [],
     pageWithinRack: i + 1,
     pagesForRack: slices.length,
   }));
@@ -109,6 +111,10 @@ export function buildCutSheetPages(devices: readonly CutSheetDevice[], paper: Pa
 export interface BuildPrintJobInput {
   what: PrintWhat;
   racks: readonly Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis'>[];
+  /** Every live cable in the closet — only the sheath word is read
+   * (`buildRackSheetPages`'s own `sheathByCableId`), for "cable colours
+   * also written as words" in black-and-white mode. */
+  cables: readonly CableView[];
   cutSheetDevices: readonly CutSheetDevice[];
   options: PrintOptions;
   meta: PrintMeta;
@@ -122,7 +128,7 @@ export function buildPrintJob(input: BuildPrintJobInput): PrintPage[] {
 
   if (input.what === 'this-rack' || input.what === 'closet') {
     for (const rack of input.racks) {
-      const pages = buildRackSheetPages(rack, input.options.paper, input.options);
+      const pages = buildRackSheetPages(rack, input.options.paper, input.options, input.cables);
       for (const page of pages) {
         const cablesNote = input.options.cables === 'all' ? 'cables: all' : 'cables: none';
         contents.push({ content: page, sheetLabel: `Rack ${rack.label} · front and rear · ${cablesNote}` });

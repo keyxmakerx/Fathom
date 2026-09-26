@@ -1,0 +1,359 @@
+/* The Print panel and the print preview — brief items 1/2.
+   @page and print-color-adjust support (read 2026-09-26,
+   raw.githubusercontent.com/mdn/browser-compat-data):
+   - css.at-rules.page: firefox 19+. css.at-rules.page.size: firefox 95+ —
+     but the owner's own reading that day found Firefox ignores @page size
+     in a SAVED PDF regardless, so @page below sets margin only; every
+     sheet's real size comes from `.print-page`'s own mm width/height
+     (`PrintPreview.tsx`).
+   - Page-margin boxes (@top-center and its seven siblings): firefox
+     support is `false` — never used here.
+   - css.properties.break-inside / its "avoid" value: firefox 65+ — used as
+     a backstop; the sheet builders already cut pages at a row boundary, so
+     this never actually has to fire.
+   - css.properties.print-color-adjust: firefox 97+ (also "color-adjust"
+     from firefox 48) — set so a rack's light fills survive a browser's
+     own ink-saving default. */
+
+@page {
+  margin: 0;
+}
+
+.print-panel {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  width: 320px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  background: var(--page);
+  border: 1px solid var(--ink);
+  z-index: 60;
+  font-size: 12px;
+}
+
+.print-panel__head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.print-panel__section-label {
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.print-panel__section-label--inline {
+  display: inline-block;
+  padding: 0;
+  width: 56px;
+}
+
+.print-panel__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.print-panel__option input:disabled + span {
+  color: var(--muted);
+}
+
+.print-panel__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.print-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__row--download {
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__chip {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.print-panel__chip--on {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.print-panel__chip--future {
+  border-color: var(--hairline);
+  color: var(--muted);
+  cursor: default;
+}
+
+.print-panel__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.print-panel__hint-block {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.print-panel__actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.print-panel__print {
+  flex-grow: 1;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--page);
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.print-panel__cancel {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+/* --- the preview: page-sized blocks in normal flow ---------------------- */
+
+.print-preview {
+  position: fixed;
+  inset: 0;
+  background: var(--surface);
+  z-index: 70;
+  overflow-y: auto;
+}
+
+.print-preview__bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--page);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.print-preview__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+.print-page {
+  background: var(--page);
+  border: 1px solid var(--hairline);
+  box-sizing: border-box;
+  padding: 10mm;
+  display: flex;
+  flex-direction: column;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.print-page__header {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.print-page__content {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.print-rack-sheet__elevations {
+  display: flex;
+  gap: 6mm;
+}
+
+.print-elevation {
+  flex: 1 1 0;
+  overflow: visible;
+}
+
+.print-elevation__frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.3;
+}
+
+.print-elevation__caption {
+  font-size: 3px;
+  fill: var(--muted);
+}
+
+.print-elevation__unit {
+  font-size: 2.4px;
+  fill: var(--muted);
+}
+
+.print-elevation__box {
+  fill: var(--page);
+  stroke: var(--ink);
+  stroke-width: 0.25;
+}
+
+.print-elevation__name {
+  font-size: 3px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.print-elevation__model {
+  font-size: 2.4px;
+  fill: var(--muted);
+}
+
+.print-elevation__cable {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.4;
+}
+
+.print-elevation__cable--bw {
+  stroke: var(--ink);
+}
+
+.print-elevation__cable-label {
+  font-size: 2.2px;
+  fill: var(--ink);
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8px;
+  break-inside: avoid;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid var(--hairline);
+  padding: 1px 3px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.print-table th {
+  border-bottom: 1px solid var(--ink);
+  font-size: 7px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.print-table__bold {
+  font-weight: 700;
+}
+
+.print-table--cutsheet td {
+  font-family: 'DejaVu Sans Mono', Menlo, monospace;
+}
+
+.print-note {
+  margin-top: 2mm;
+  font-size: 8px;
+  color: var(--muted);
+}
+
+.print-title-block {
+  margin-top: auto;
+  border-top: 1px solid var(--ink);
+  display: grid;
+  grid-template-columns: 16mm 1fr 26mm 18mm;
+  font-size: 7px;
+}
+
+.print-title-block__mark,
+.print-title-block__mid,
+.print-title-block__cell {
+  border-right: 1px solid var(--hairline);
+  padding: 1mm 2mm;
+}
+
+.print-title-block__cell:last-child {
+  border-right: none;
+}
+
+.print-title-block__mark {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.print-title-block__design {
+  font-weight: 700;
+}
+
+.print-title-block__path {
+  color: var(--muted);
+}
+
+.print-title-block__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 6px;
+}
+
+.print-title-block__value--page {
+  font-weight: 700;
+  font-size: 9px;
+}
+
+.print-title-block__value--muted {
+  color: var(--muted);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-preview {
+    position: static;
+    background: none;
+    overflow: visible;
+  }
+  .print-preview__pages {
+    padding: 0;
+    gap: 0;
+  }
+  .print-page {
+    border: none;
+    break-after: page;
+  }
+}

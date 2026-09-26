@@ -115,6 +115,11 @@ export function rackDeviceRows(rack: Pick<RackView, 'heightU' | 'unitNumbering'>
 export interface ElevationCableLine {
   fromChassisId: string;
   toChassisId: string;
+  cableId: string;
+  /** The sheath word (`CableView.sheath`), `null` when the cable carries
+   * none — brief item 1's "black and white; cable colours also written as
+   * words" reads this rather than the line's own ink. */
+  sheath: string | null;
 }
 
 /** A cable this page's elevation actually draws — both ends are chassis
@@ -123,7 +128,11 @@ export interface ElevationCableLine {
  * reused rather than re-derived). A cable to a different page, a different
  * rack or outside the closet is left to the device table's "ports cabled"
  * count instead of a line this page cannot honestly draw end to end. */
-export function elevationCableLines(chassis: readonly ChassisView[], elevation: Facing): ElevationCableLine[] {
+export function elevationCableLines(
+  chassis: readonly ChassisView[],
+  elevation: Facing,
+  sheathByCableId: ReadonlyMap<string, string | null> = new Map(),
+): ElevationCableLine[] {
   const onPage = new Set(chassis.map((c) => c.id));
   const seen = new Set<string>();
   const lines: ElevationCableLine[] = [];
@@ -135,7 +144,12 @@ export function elevationCableLines(chassis: readonly ChassisView[], elevation: 
       if (!onPage.has(cable.farChassisId)) continue;
       if (seen.has(cable.cableId)) continue;
       seen.add(cable.cableId);
-      lines.push({ fromChassisId: c.id, toChassisId: cable.farChassisId });
+      lines.push({
+        fromChassisId: c.id,
+        toChassisId: cable.farChassisId,
+        cableId: cable.cableId,
+        sheath: sheathByCableId.get(cable.cableId) ?? null,
+      });
     }
   }
   return lines;

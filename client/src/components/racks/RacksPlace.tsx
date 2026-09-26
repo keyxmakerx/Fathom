@@ -161,6 +161,12 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
    * into `EditorFor`'s own `actions` below. */
   notesActions: NotesActions;
+  /** GitHub issue #39, the Print panel's "this rack" — the rack the current
+   * selection resolves to (a rack itself, a chassis mounted in one, or a
+   * shelf/occupant mounted in one), `null` when the selection names
+   * nothing rack-shaped. `DesignPlace.tsx` falls back to the closet's
+   * first rack when this is `null`. */
+  onActiveRackChange?: (rackId: string | null) => void;
 }
 
 /**
@@ -180,6 +186,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     onOpenInventory,
     accountId,
     notesActions,
+    onActiveRackChange,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -409,6 +416,45 @@ export function RacksPlace(props: RacksPlaceProps) {
           },
     [realView],
   );
+
+  // GitHub issue #39 — the Print panel's "this rack" resolves the current
+  // selection to a rack id: a rack itself directly, a chassis or shelf via
+  // whichever rack mounts it, an occupant via its own shelf's rack. Anything
+  // else (a port, a cable, a surface fixture) reports `null`, and the panel
+  // falls back to the closet's first rack.
+  useEffect(() => {
+    if (!onActiveRackChange) return;
+    if (selection == null) {
+      onActiveRackChange(null);
+      return;
+    }
+    if (selection.kind === 'rack') {
+      onActiveRackChange(selection.id);
+      return;
+    }
+    if (selection.kind === 'chassis') {
+      for (const rack of realView.racks) {
+        if (rack.chassis.some((c) => c.id === selection.id)) {
+          onActiveRackChange(rack.id);
+          return;
+        }
+      }
+      onActiveRackChange(null);
+      return;
+    }
+    if (selection.kind === 'shelf' || selection.kind === 'occupant') {
+      for (const rack of realView.racks) {
+        const hit = rack.shelves.some(
+          (shelf) => shelf.id === selection.id || shelf.occupants.some((o) => o.id === selection.id),
+        );
+        if (hit) {
+          onActiveRackChange(rack.id);
+          return;
+        }
+      }
+    }
+    onActiveRackChange(null);
+  }, [selection, realView, onActiveRackChange]);
 
   const handlePlace = useCallback(
     (rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number) => {
