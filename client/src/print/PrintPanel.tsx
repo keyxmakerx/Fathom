@@ -37,20 +37,30 @@ export function PrintPanel({ activeRack, rackCount, onPrint, onCancel, onDownloa
   const [blackAndWhite, setBlackAndWhite] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  function commit() {
+    onPrint(what, { paper, cables, hideSensitive, blackAndWhite });
+  }
+
+  // Escape cancels; Ctrl+P here runs this panel's own Print rather than
+  // falling through to the browser's, which would print the live drawing.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation();
         onCancel();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        commit();
       }
     }
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onCancel]);
-
-  function commit() {
-    onPrint(what, { paper, cables, hideSensitive, blackAndWhite });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `commit` reads
+    // the latest state via closure each render; re-binding every render is
+    // fine here (one listener, no accumulation) and simpler than a ref.
+  }, [onCancel, what, paper, cables, hideSensitive, blackAndWhite]);
 
   return (
     <div className="print-panel" role="dialog" aria-label="Print" data-testid="print-panel" ref={panelRef}>

@@ -15,9 +15,6 @@
      from firefox 48) — set so a rack's light fills survive a browser's
      own ink-saving default. */
 
-@page {
-  margin: 0;
-}
 
 .print-panel {
   position: fixed;
@@ -250,6 +247,12 @@
   stroke-width: 0.25;
 }
 
+.print-elevation__shelf {
+  fill: var(--surface);
+  stroke: var(--ink);
+  stroke-width: 0.25;
+}
+
 .print-elevation__name {
   font-size: 3px;
   font-weight: 700;
@@ -278,6 +281,7 @@
 
 .print-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 8px;
   break-inside: avoid;
@@ -288,7 +292,7 @@
   border: 1px solid var(--hairline);
   padding: 1px 3px;
   text-align: left;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .print-table th {
@@ -302,8 +306,24 @@
   font-weight: 700;
 }
 
+/* The cut sheet's own column-title row and each device's own header row —
+   filled light grey, as the team's Excel sheet already draws them. */
+.print-table__filled {
+  background: var(--surface);
+  font-weight: 700;
+}
+
 .print-table--cutsheet td {
   font-family: 'DejaVu Sans Mono', Menlo, monospace;
+}
+
+/* Off-screen: renders every sheet's rows unsplit, for the measuring pass
+   `PrintPreview.tsx`'s own pagination reads real heights from. */
+.print-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  visibility: hidden;
 }
 
 .print-note {

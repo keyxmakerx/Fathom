@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CutSheetDevice } from './cutSheet';
-import { CUT_SHEET_COLUMNS, cutSheetRowsPerPage, cutSheetTableRows, paginateCutSheet } from './cutSheetTable';
+import { CUT_SHEET_COLUMNS, cutSheetBodyRows, cutSheetColumnHeaderRow, cutSheetTableRows, paginateCutSheetByHeight } from './cutSheetTable';
 
 function deviceWith(name: string, portCount: number): CutSheetDevice {
   return {
@@ -30,7 +30,7 @@ describe('cutSheetTableRows', () => {
 
   it('gives a device with no ports its own bold header row and nothing else', () => {
     const rows = cutSheetTableRows([deviceWith('bare', 0)]);
-    expect(rows).toHaveLength(2); // column header + device header
+    expect(rows).toHaveLength(2);
     expect(rows[1].bold).toBe(true);
     expect(rows[1].cells[0]).toBe('bare');
   });
@@ -42,11 +42,17 @@ describe('cutSheetTableRows', () => {
   });
 });
 
-describe('paginateCutSheet', () => {
+function heightsOf(devices: CutSheetDevice[], rowHeightPx: number, headerHeightPx: number) {
+  const columnHeader = { row: cutSheetColumnHeaderRow(), heightPx: headerHeightPx };
+  const bodyRows = cutSheetBodyRows(devices).map((u) => ({ ...u, heightPx: u.isDeviceHeader ? headerHeightPx : rowHeightPx }));
+  return { columnHeader, bodyRows };
+}
+
+describe('paginateCutSheetByHeight', () => {
   it('repeats the column header at the top of every page', () => {
-    const capacity = cutSheetRowsPerPage('A4');
-    const many = [deviceWith('big', capacity * 3)];
-    const pages = paginateCutSheet(many, 'A4');
+    const devices = [deviceWith('big', 30)];
+    const { columnHeader, bodyRows } = heightsOf(devices, 10, 10);
+    const pages = paginateCutSheetByHeight(columnHeader, bodyRows, 60);
     expect(pages.length).toBeGreaterThan(1);
     for (const page of pages) {
       expect(page[0].bold).toBe(true);
@@ -54,28 +60,29 @@ describe('paginateCutSheet', () => {
     }
   });
 
-  it('repeats a split device\'s own header, marked continued, on the next page', () => {
-    const capacity = cutSheetRowsPerPage('A4');
-    const pages = paginateCutSheet([deviceWith('sw', capacity + 5)], 'A4');
+  it('repeats a split device\'s own header row on the next page', () => {
+    const devices = [deviceWith('sw', 20)];
+    const { columnHeader, bodyRows } = heightsOf(devices, 10, 10);
+    const pages = paginateCutSheetByHeight(columnHeader, bodyRows, 60);
     expect(pages.length).toBeGreaterThanOrEqual(2);
-    expect(pages[1][1].cells[0]).toBe('sw (continued)');
+    expect(pages[1][1].cells[0]).toBe('sw');
     expect(pages[1][1].bold).toBe(true);
   });
 
   it('loses no port row and duplicates none, across a page split', () => {
-    const capacity = cutSheetRowsPerPage('A4');
-    const devices = [deviceWith('a', capacity - 2), deviceWith('b', capacity + 4), deviceWith('c', 3)];
-    const pages = paginateCutSheet(devices, 'A4');
-    const portRows = pages.flat().filter((r) => r.cells[3] !== '' && !CUT_SHEET_COLUMNS.includes(r.cells[3] as (typeof CUT_SHEET_COLUMNS)[number]));
+    const devices = [deviceWith('a', 5), deviceWith('b', 25), deviceWith('c', 3)];
+    const { columnHeader, bodyRows } = heightsOf(devices, 10, 10);
+    const pages = paginateCutSheetByHeight(columnHeader, bodyRows, 60);
+    const portRows = pages.flat().filter((r) => !r.bold);
     const expectedTotal = devices.reduce((sum, d) => sum + d.rows.length, 0);
     expect(portRows).toHaveLength(expectedTotal);
   });
 
-  it('never overflows a page beyond its own capacity', () => {
-    const capacity = cutSheetRowsPerPage('Letter');
-    const pages = paginateCutSheet([deviceWith('sw', capacity * 4)], 'Letter');
-    for (const page of pages) {
-      expect(page.length - 1).toBeLessThanOrEqual(capacity); // minus the repeated column header
-    }
+  it('gives an oversized row its own page rather than dropping it', () => {
+    const columnHeader = { row: cutSheetColumnHeaderRow(), heightPx: 10 };
+    const bodyRows = [{ row: { cells: ['', '', '', 'x', '', 'huge value', '', '', ''], bold: false }, isDeviceHeader: false, heightPx: 500 }];
+    const pages = paginateCutSheetByHeight(columnHeader, bodyRows, 60);
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toHaveLength(2); // column header + the one oversized row
   });
 });

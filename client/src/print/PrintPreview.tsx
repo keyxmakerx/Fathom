@@ -1,32 +1,138 @@
-import { useEffect } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
-import type { ChassisView } from '../document/view';
-import { unitLabel } from './units';
-import { pageHeightMm, pageWidthMm, type PaperSize } from './paper';
-import { ELEVATION_ROW_MM, type ElevationCableLine } from './rackSheet';
-import type { CutSheetTableRow } from './cutSheetTable';
-import type { PrintPage } from './printJob';
 import type { Facing } from '../components/drawing/elevation';
+import { contentHeightMm, contentWidthMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
+import { elevationItemsOf, elevationRowMm, paginateRackTableByHeight, type ElevationItem, type RackDeviceRow } from './rackSheet';
+import { paginateCutSheetByHeight, type CutSheetTableRow } from './cutSheetTable';
+import type { PrintJob, RackSheetUnpaginated } from './printJob';
 import './print.css';
 
+interface TitleBlock {
+  design: string;
+  path: string;
+  date: string;
+  printedBy: string;
+  sheetLabel: string;
+  page: number;
+  of: number;
+}
+
+interface RackPageContent {
+  kind: 'rack';
+  sheet: RackSheetUnpaginated;
+  showElevation: boolean;
+  rows: RackDeviceRow[];
+}
+
+interface CutSheetPageContent {
+  kind: 'cutsheet';
+  rows: CutSheetTableRow[];
+}
+
+type PageContent = RackPageContent | CutSheetPageContent;
+
+interface FinalPage {
+  content: PageContent;
+  titleBlock: TitleBlock;
+}
+
+function formatDate(d: Date): string {
+  const day = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${day} ${time}`;
+}
+
+/** Reads every `[data-row-id]` under `container`, its own rendered height
+ * — the one DOM query the whole measuring pass needs. */
+function measureRowHeights(container: HTMLElement): Map<string, number> {
+  const heights = new Map<string, number>();
+  container.querySelectorAll<HTMLElement>('[data-row-id]').forEach((el) => {
+    heights.set(el.dataset.rowId!, el.getBoundingClientRect().height);
+  });
+  return heights;
+}
+
+function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage[] {
+  const capacityPx = mmToPx(contentHeightMm(job.paper));
+  const built: { content: PageContent; sheetLabel: string }[] = [];
+
+  job.sheets.forEach((sheet, sheetIndex) => {
+    if (sheet.kind === 'rack') {
+      const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
+      const elevationPx = mmToPx(elevationRowMm(sheet.heightU, job.paper) * sheet.heightU);
+      const rows = sheet.deviceRows.map((row, i) => ({ row, heightPx: heights.get(`${sheetIndex}:r${i}`) ?? 0 }));
+      const firstBudget = Math.max(0, capacityPx - elevationPx - theadPx);
+      const laterBudget = Math.max(0, capacityPx - theadPx);
+      const pages = paginateRackTableByHeight(rows, firstBudget, laterBudget);
+      pages.forEach((pageRows, pageIndex) => {
+        built.push({
+          content: { kind: 'rack', sheet, showElevation: pageIndex === 0, rows: pageRows },
+          sheetLabel: sheet.sheetLabel,
+        });
+      });
+    } else {
+      const headerPx = heights.get(`${sheetIndex}:header`) ?? 0;
+      const bodyRows = sheet.bodyRows.map((u, i) => ({ ...u, heightPx: heights.get(`${sheetIndex}:b${i}`) ?? 0 }));
+      const pages = paginateCutSheetByHeight({ row: sheet.columnHeader, heightPx: headerPx }, bodyRows, capacityPx);
+      pages.forEach((rows) => built.push({ content: { kind: 'cutsheet', rows }, sheetLabel: sheet.sheetLabel }));
+    }
+  });
+
+  const of = built.length;
+  const date = formatDate(job.meta.printedAt);
+  return built.map((b, i) => ({
+    content: b.content,
+    titleBlock: { design: job.meta.designName, path: job.meta.path, date, printedBy: job.meta.printedBy, sheetLabel: b.sheetLabel, page: i + 1, of },
+  }));
+}
+
 export interface PrintPreviewProps {
-  pages: readonly PrintPage[];
-  paper: PaperSize;
-  blackAndWhite: boolean;
+  job: PrintJob;
   onClose: () => void;
 }
 
-/** The panel's own "Print" click lands here: page-sized blocks, laid out in
- * normal document flow, each with its own title block and page number —
- * brief item 2's answer to Firefox ignoring `@page size` in a saved PDF.
- * Ctrl+P here prints; elsewhere in the app it opens the panel instead
- * (`PrintPanel.tsx`'s own caller). */
-export function PrintPreview({ pages, paper, blackAndWhite, onClose }: PrintPreviewProps) {
-  useEffect(() => {
+/**
+ * The panel's own "Print" click lands here. Paginates from real measured
+ * row heights (a hidden pass renders every sheet's rows unsplit; their
+ * heights feed the pure `paginate*ByHeight` functions), so a long value
+ * that wraps to two lines still gets a whole row on some page rather than
+ * being counted wrong and clipped. Page-sized blocks, each with its own
+ * title block — Firefox ignores `@page size` in a saved PDF (this file's
+ * own `print.css` says where that was checked). Ctrl+P here prints.
+ */
+export function PrintPreview({ job, onClose }: PrintPreviewProps) {
+  const [finalPages, setFinalPages] = useState<FinalPage[] | null>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    setFinalPages(null);
+  }, [job]);
+
+  useLayoutEffect(() => {
+    if (finalPages != null) return;
+    const container = measureRef.current;
+    if (!container) return;
+    const heights = measureRowHeights(container);
+    setFinalPages(buildFinalPages(job, heights));
+  }, [job, finalPages]);
+
+  // Page margin and hiding the live drawing from print both apply only
+  // while this preview is mounted, so a screen that prints something else
+  // (the recovery key sheet) is never affected.
+  useLayoutEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = '@page { margin: 0; } @media print { .print-hide-under-preview { display: none !important; } }';
+    document.head.appendChild(style);
+    return () => {
+      style.remove();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const inField = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (inField) return; // brief item 1: "Ctrl+P is left alone while focus is in a text field"
+      if (inField) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault();
         window.print();
@@ -38,10 +144,10 @@ export function PrintPreview({ pages, paper, blackAndWhite, onClose }: PrintPrev
   }, [onClose]);
 
   return (
-    <div className="print-preview" data-testid="print-preview">
+    <div className="print-preview print-hide-under-preview" data-testid="print-preview">
       <div className="print-preview__bar no-print">
         <span>
-          {pages.length} page{pages.length === 1 ? '' : 's'} {'·'} {paper} {'·'} Save as PDF is in the print dialog
+          {finalPages ? finalPages.length : '…'} page{finalPages?.length === 1 ? '' : 's'} {'·'} {job.paper} {'·'} Save as PDF is in the print dialog
         </span>
         <button type="button" onClick={() => window.print()} data-testid="print-preview-print">
           Print
@@ -50,16 +156,50 @@ export function PrintPreview({ pages, paper, blackAndWhite, onClose }: PrintPrev
           Close
         </button>
       </div>
+
+      <MeasuringPass job={job} containerRef={measureRef} />
+
       <div className="print-preview__pages">
-        {pages.map((page, i) => (
-          <Page key={i} page={page} paper={paper} blackAndWhite={blackAndWhite} />
-        ))}
+        {finalPages == null
+          ? null
+          : finalPages.map((page, i) => <Page key={i} page={page} paper={job.paper} blackAndWhite={job.blackAndWhite} />)}
       </div>
     </div>
   );
 }
 
-function Page({ page, paper, blackAndWhite }: { page: PrintPage; paper: PaperSize; blackAndWhite: boolean }) {
+/** Renders every sheet's rows unsplit, off-screen, at the real page content
+ * width — the one render the page-count check depends on being honest. */
+function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: React.RefObject<HTMLDivElement | null> }) {
+  return (
+    <div ref={containerRef} className="print-measure" style={{ width: `${contentWidthMm(job.paper)}mm` }}>
+      {job.sheets.map((sheet, i) =>
+        sheet.kind === 'rack' ? (
+          <table key={i} className="print-table">
+            <RackTableHead dataRowId={`${i}:thead`} />
+            <tbody>
+              {sheet.deviceRows.map((row, r) => (
+                <RackTableRow key={r} row={row} dataRowId={`${i}:r${r}`} />
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table key={i} className="print-table print-table--cutsheet">
+            <ColGroup widths={CUT_SHEET_COLUMN_WIDTHS} />
+            <tbody>
+              <CutSheetRow row={sheet.columnHeader} dataRowId={`${i}:header`} />
+              {sheet.bodyRows.map((u, r) => (
+                <CutSheetRow key={r} row={u.row} dataRowId={`${i}:b${r}`} />
+              ))}
+            </tbody>
+          </table>
+        ),
+      )}
+    </div>
+  );
+}
+
+function Page({ page, paper, blackAndWhite }: { page: FinalPage; paper: PaperSize; blackAndWhite: boolean }) {
   const w = pageWidthMm(paper);
   const h = pageHeightMm(paper);
   return (
@@ -67,17 +207,24 @@ function Page({ page, paper, blackAndWhite }: { page: PrintPage; paper: PaperSiz
       <div className="print-page__header">{page.titleBlock.sheetLabel}</div>
       <div className="print-page__content">
         {page.content.kind === 'rack' ? (
-          <RackSheetContent content={page.content} blackAndWhite={blackAndWhite} />
+          <RackSheetContent content={page.content} paper={paper} blackAndWhite={blackAndWhite} />
         ) : (
-          <CutSheetContent rows={page.content.rows} />
+          <table className="print-table print-table--cutsheet" data-testid="print-cutsheet-table">
+            <ColGroup widths={CUT_SHEET_COLUMN_WIDTHS} />
+            <tbody>
+              {page.content.rows.map((row, i) => (
+                <CutSheetRow key={i} row={row} />
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-      <TitleBlock titleBlock={page.titleBlock} />
+      <TitleBlockRow titleBlock={page.titleBlock} />
     </div>
   );
 }
 
-function TitleBlock({ titleBlock }: { titleBlock: PrintPage['titleBlock'] }) {
+function TitleBlockRow({ titleBlock }: { titleBlock: TitleBlock }) {
   return (
     <div className="print-title-block" data-testid="print-title-block">
       <div className="print-title-block__mark">Fathom</div>
@@ -100,35 +247,115 @@ function TitleBlock({ titleBlock }: { titleBlock: PrintPage['titleBlock'] }) {
   );
 }
 
+const RACK_COLUMN_WIDTHS = [8, 22, 20, 16, 18, 16];
+
+function RackTableHead({ dataRowId }: { dataRowId?: string }) {
+  return (
+    <thead>
+      <tr data-row-id={dataRowId}>
+        <th>Unit</th>
+        <th>Name</th>
+        <th>Model</th>
+        <th>Serial</th>
+        <th>Management address</th>
+        <th>Ports cabled</th>
+      </tr>
+    </thead>
+  );
+}
+
+function RackTableRow({ row, dataRowId }: { row: RackDeviceRow; dataRowId?: string }) {
+  return (
+    <tr data-row-id={dataRowId}>
+      <td>{row.unit}</td>
+      <td className="print-table__bold">{row.name}</td>
+      <td>{row.model}</td>
+      <td>{row.serial}</td>
+      <td>{row.managementAddress}</td>
+      <td>{row.portsCabled}</td>
+    </tr>
+  );
+}
+
+function ColGroup({ widths }: { widths: readonly number[] }) {
+  return (
+    <colgroup>
+      {widths.map((w, i) => (
+        <col key={i} style={{ width: `${w}%` }} />
+      ))}
+    </colgroup>
+  );
+}
+
+function CutSheetRow({ row, dataRowId }: { row: CutSheetTableRow; dataRowId?: string }) {
+  return (
+    <tr data-row-id={dataRowId} className={row.bold ? 'print-table__filled' : undefined}>
+      {row.cells.map((cell, j) => (
+        <td key={j}>{cell}</td>
+      ))}
+    </tr>
+  );
+}
+
+const CUT_SHEET_COLUMN_WIDTHS = [14, 12, 14, 8, 8, 16, 10, 8, 10];
+
+function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPageContent; paper: PaperSize; blackAndWhite: boolean }) {
+  const { sheet, showElevation, rows } = content;
+  const items = elevationItemsOf(sheet);
+  const rowMm = elevationRowMm(sheet.heightU, paper);
+  return (
+    <div className="print-rack-sheet">
+      {showElevation && (
+        <div className="print-rack-sheet__elevations">
+          <Elevation items={items} heightU={sheet.heightU} unitNumbering={sheet.unitNumbering} rowMm={rowMm} elevation="front" blackAndWhite={blackAndWhite} cableLines={sheet.frontCables} />
+          <Elevation items={items} heightU={sheet.heightU} unitNumbering={sheet.unitNumbering} rowMm={rowMm} elevation="rear" blackAndWhite={blackAndWhite} cableLines={sheet.rearCables} />
+        </div>
+      )}
+      <table className="print-table" data-testid="print-rack-device-table">
+        <ColGroup widths={RACK_COLUMN_WIDTHS} />
+        <RackTableHead />
+        <tbody>
+          {rows.map((row, i) => (
+            <RackTableRow key={i} row={row} />
+          ))}
+        </tbody>
+      </table>
+      {showElevation && sheet.hideSensitive && <div className="print-note">Serial numbers and management addresses left out of this printout.</div>}
+    </div>
+  );
+}
+
+function unitLabelOf(heightU: number, unitNumbering: string, positionU: number): number {
+  return unitNumbering === 'descending' ? heightU - positionU + 1 : positionU;
+}
+
 function Elevation({
-  chassis,
-  fromRow,
-  toRow,
+  items,
   heightU,
   unitNumbering,
+  rowMm,
   elevation,
   blackAndWhite,
   cableLines,
 }: {
-  chassis: readonly ChassisView[];
-  fromRow: number;
-  toRow: number;
+  items: readonly ElevationItem[];
   heightU: number;
   unitNumbering: string;
+  rowMm: number;
   elevation: Facing;
   blackAndWhite: boolean;
-  cableLines: readonly ElevationCableLine[];
+  cableLines: readonly { fromChassisId: string; toChassisId: string; cableId: string; sheath: string | null }[];
 }) {
-  const rows = toRow - fromRow + 1;
   const railW = 8;
   const bodyW = 70;
   const width = railW * 2 + bodyW;
-  const height = rows * ELEVATION_ROW_MM;
-  const byId = new Map(chassis.map((c) => [c.id, c] as const));
+  const captionH = 4;
+  const bodyHeight = heightU * rowMm;
+  const height = bodyHeight + captionH;
+  const byId = new Map(items.filter((i) => i.kind === 'chassis').map((i) => [i.chassis.id, i] as const));
 
-  function yOf(c: ChassisView): number {
-    const top = heightU - (c.positionU + c.heightU - 1) - fromRow;
-    return top * ELEVATION_ROW_MM;
+  function yOf(positionU: number, itemHeightU: number): number {
+    return (heightU - (positionU + itemHeightU - 1)) * rowMm;
   }
 
   return (
@@ -139,133 +366,87 @@ function Elevation({
       style={{ width: '100%', height: `${height}mm` }}
       data-testid={`print-elevation-${elevation}`}
     >
-      <text x={width / 2} y={-1} textAnchor="middle" className="print-elevation__caption">
+      <text x={width / 2} y={captionH - 1} textAnchor="middle" className="print-elevation__caption">
         {elevation === 'front' ? 'FRONT' : 'REAR'}
       </text>
-      <rect x={0.25} y={0.25} width={width - 0.5} height={height - 0.5} className="print-elevation__frame" />
-      {Array.from({ length: rows }, (_, r) => {
-        const positionU = heightU - (fromRow + r);
-        const label = unitLabel(heightU, unitNumbering, positionU);
-        const y = r * ELEVATION_ROW_MM;
-        return (
-          <text key={r} x={railW - 1} y={y + ELEVATION_ROW_MM / 2 + 1} textAnchor="end" className="print-elevation__unit">
-            {label}
-          </text>
-        );
-      })}
-      {chassis.map((c) => (
-        <g key={c.id} transform={`translate(${railW}, ${yOf(c)})`}>
-          <rect width={bodyW} height={c.heightU * ELEVATION_ROW_MM} className="print-elevation__box" />
-          <text x={2} y={ELEVATION_ROW_MM - 1.6} className="print-elevation__name">
-            {c.hostname || '—'}
-          </text>
-          <text x={bodyW - 2} y={ELEVATION_ROW_MM - 1.6} textAnchor="end" className="print-elevation__model">
-            {c.model}
-          </text>
-        </g>
-      ))}
-      {cableLines.map((line) => {
-        const a = byId.get(line.fromChassisId);
-        const b = byId.get(line.toChassisId);
-        if (!a || !b) return null;
-        const ax = railW + bodyW / 2;
-        const ay = yOf(a) + (a.heightU * ELEVATION_ROW_MM) / 2;
-        const bx = railW + bodyW / 2;
-        const by = yOf(b) + (b.heightU * ELEVATION_ROW_MM) / 2;
-        const stroke = blackAndWhite ? undefined : line.sheath ? `var(--sheath-${line.sheath})` : undefined;
-        return (
-          <g key={line.cableId}>
-            <path
-              d={`M ${ax} ${ay} L ${bx} ${by}`}
-              className={blackAndWhite ? 'print-elevation__cable print-elevation__cable--bw' : 'print-elevation__cable'}
-              style={stroke ? { stroke } : undefined}
-            />
-            {/* Black and white: the line alone no longer says the colour, so
-                the word does — brief item 1. */}
-            {blackAndWhite && line.sheath && (
-              <text x={(ax + bx) / 2 + 1.5} y={(ay + by) / 2} className="print-elevation__cable-label">
-                {line.sheath}
-              </text>
-            )}
-          </g>
-        );
-      })}
+      <g transform={`translate(0, ${captionH})`}>
+        <rect x={0.25} y={0.25} width={width - 0.5} height={bodyHeight - 0.5} className="print-elevation__frame" />
+        {Array.from({ length: heightU }, (_, r) => {
+          const positionU = heightU - r;
+          const label = unitLabelOf(heightU, unitNumbering, positionU);
+          const y = r * rowMm;
+          return (
+            <text key={r} x={railW - 1} y={y + rowMm / 2 + 1} textAnchor="end" className="print-elevation__unit">
+              {label}
+            </text>
+          );
+        })}
+        {items.map((item) => {
+          const y = yOf(item.positionU, item.heightU);
+          const h = item.heightU * rowMm;
+          const clipId = `print-clip-${elevation}-${item.kind === 'chassis' ? item.chassis.id : item.shelf.id}`;
+          if (item.kind === 'chassis') {
+            const c = item.chassis;
+            return (
+              <g key={c.id} transform={`translate(${railW}, ${y})`}>
+                <clipPath id={clipId}>
+                  <rect width={bodyW} height={h} />
+                </clipPath>
+                <rect width={bodyW} height={h} className="print-elevation__box" />
+                <g clipPath={`url(#${clipId})`}>
+                  <text x={2} y={rowMm - 1.6} className="print-elevation__name">
+                    {c.hostname || '—'}
+                  </text>
+                  <text x={bodyW - 2} y={rowMm - 1.6} textAnchor="end" className="print-elevation__model">
+                    {c.model}
+                  </text>
+                </g>
+              </g>
+            );
+          }
+          const names = item.occupants.map((o) => o.label || '—').join(', ');
+          return (
+            <g key={item.shelf.id} transform={`translate(${railW}, ${y})`}>
+              <clipPath id={clipId}>
+                <rect width={bodyW} height={h} />
+              </clipPath>
+              <rect width={bodyW} height={h} className="print-elevation__shelf" />
+              <g clipPath={`url(#${clipId})`}>
+                <text x={2} y={rowMm - 1.6} className="print-elevation__name">
+                  {item.shelf.label}
+                </text>
+                <text x={2} y={Math.min(h - 0.6, rowMm * 2 - 1.6)} className="print-elevation__model">
+                  {names}
+                </text>
+              </g>
+            </g>
+          );
+        })}
+        {cableLines.map((line) => {
+          const a = byId.get(line.fromChassisId);
+          const b = byId.get(line.toChassisId);
+          if (!a || a.kind !== 'chassis' || !b || b.kind !== 'chassis') return null;
+          const ax = railW + bodyW / 2;
+          const ay = yOf(a.positionU, a.heightU) + (a.heightU * rowMm) / 2;
+          const bx = railW + bodyW / 2;
+          const by = yOf(b.positionU, b.heightU) + (b.heightU * rowMm) / 2;
+          const stroke = blackAndWhite ? undefined : line.sheath ? `var(--sheath-${line.sheath})` : undefined;
+          return (
+            <g key={line.cableId}>
+              <path
+                d={`M ${ax} ${ay} L ${bx} ${by}`}
+                className={blackAndWhite ? 'print-elevation__cable print-elevation__cable--bw' : 'print-elevation__cable'}
+                style={stroke ? { stroke } : undefined}
+              />
+              {blackAndWhite && line.sheath && (
+                <text x={(ax + bx) / 2 + 1.5} y={(ay + by) / 2} className="print-elevation__cable-label">
+                  {line.sheath}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </g>
     </svg>
-  );
-}
-
-function RackSheetContent({
-  content,
-  blackAndWhite,
-}: {
-  content: Extract<PrintPage['content'], { kind: 'rack' }>;
-  blackAndWhite: boolean;
-}) {
-  return (
-    <div className="print-rack-sheet">
-      <div className="print-rack-sheet__elevations">
-        <Elevation
-          chassis={content.chassis}
-          fromRow={content.fromRow}
-          toRow={content.toRow}
-          heightU={content.heightU}
-          unitNumbering={content.unitNumbering}
-          elevation="front"
-          blackAndWhite={blackAndWhite}
-          cableLines={content.frontCables}
-        />
-        <Elevation
-          chassis={content.chassis}
-          fromRow={content.fromRow}
-          toRow={content.toRow}
-          heightU={content.heightU}
-          unitNumbering={content.unitNumbering}
-          elevation="rear"
-          blackAndWhite={blackAndWhite}
-          cableLines={content.rearCables}
-        />
-      </div>
-      <table className="print-table" data-testid="print-rack-device-table">
-        <thead>
-          <tr>
-            <th>Unit</th>
-            <th>Name</th>
-            <th>Model</th>
-            <th>Serial</th>
-            <th>Management address</th>
-            <th>Ports cabled</th>
-          </tr>
-        </thead>
-        <tbody>
-          {content.deviceRows.map((row, i) => (
-            <tr key={i}>
-              <td>{row.unit}</td>
-              <td className="print-table__bold">{row.name}</td>
-              <td>{row.model}</td>
-              <td>{row.serial}</td>
-              <td>{row.managementAddress}</td>
-              <td>{row.portsCabled}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {content.hideSensitive && <div className="print-note">Serial numbers and management addresses left out of this printout.</div>}
-    </div>
-  );
-}
-
-function CutSheetContent({ rows }: { rows: readonly CutSheetTableRow[] }) {
-  return (
-    <table className="print-table print-table--cutsheet" data-testid="print-cutsheet-table">
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={i} className={row.bold ? 'print-table__bold' : undefined}>
-            {row.cells.map((cell, j) => (
-              <td key={j}>{cell}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

@@ -11,7 +11,7 @@ import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
 import { PrintPanel } from '../../print/PrintPanel';
 import { PrintPreview } from '../../print/PrintPreview';
-import { buildPrintJob, type PrintOptions, type PrintPage, type PrintWhat } from '../../print/printJob';
+import { buildPrintJob, type PrintJob, type PrintOptions, type PrintWhat } from '../../print/printJob';
 import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
@@ -23,10 +23,10 @@ import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
 
-/** A download with no server round trip and no new dependency — an object
- * URL an anchor click reaches for, revoked once the click has fired. The
- * anchor is attached to the document for the click — detached, some
- * browsers accept the click but never start the download. */
+/** A download with no server round trip and no new dependency — same
+ * pattern as `Account.tsx`'s `downloadRecoveryCodes`: revoke the object URL
+ * a few seconds later, not on the next line, since a browser that has not
+ * yet read the blob when it is revoked saves an empty file. */
 function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
   const blob = new Blob([new Uint8Array(bytes)], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -36,7 +36,7 @@ function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children' | 'place'> {
@@ -93,11 +93,16 @@ export function DesignPlace(props: DesignPlaceProps) {
   // is none).
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
-  const [printJob, setPrintJob] = useState<PrintPage[]>([]);
-  const [printOptions, setPrintOptions] = useState<PrintOptions | null>(null);
+  const [printJob, setPrintJob] = useState<PrintJob | null>(null);
 
-  const pathLabel = shellProps.path.map((p) => p.label).join(' › ');
-  const designLabel = shellProps.path[0]?.label ?? '';
+  // The design has no name of its own (`api/designs.ts`'s own doc: designs
+  // has no name column at all) — the deepest scope in the path is the
+  // nearest thing to one; the path itself excludes the organisation.
+  const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
+  const pathLabel = shellProps.path
+    .slice(1)
+    .map((p) => p.label)
+    .join(' › ');
 
   const openPrintPanel = useCallback(() => {
     if (session.doc == null) return;
@@ -106,8 +111,7 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   const closePrint = useCallback(() => {
     setPrintMode('closed');
-    setPrintJob([]);
-    setPrintOptions(null);
+    setPrintJob(null);
   }, []);
 
   // Ctrl+P: left alone in a text field; opens the panel when nothing of
@@ -148,7 +152,6 @@ export function DesignPlace(props: DesignPlaceProps) {
         meta: { designName: designLabel, path: pathLabel, printedBy: accountAddress ?? '', printedAt: new Date() },
       });
       setPrintJob(job);
-      setPrintOptions(options);
       setPrintMode('preview');
     },
     [session.doc, session.catalogue, activeRackId, designLabel, pathLabel, accountAddress],
@@ -421,21 +424,13 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     );
 
-  // design/proposals/print/print-sheets.dc.html's own settled note: "Print
-  // opens a print sheet, not the live drawing." The preview REPLACES the
-  // place rather than overlaying it — not only for that reading, but
-  // because the drawing left mounted underneath a fixed-position preview is
-  // still there in normal document flow once print pagination takes over,
-  // and a real browser paginates it right along with the sheets, adding
-  // pages nothing asked for (found by the drive's own PDF-page-count check
-  // against the title block's own "of y").
-  if (printMode === 'preview' && printOptions) {
-    return <PrintPreview pages={printJob} paper={printOptions.paper} blackAndWhite={printOptions.blackAndWhite} onClose={closePrint} />;
-  }
-
+  // The place stays mounted while the preview shows — closing the preview
+  // must not lose zoom, pan, the open editor or the selection. Print CSS
+  // (injected only while `PrintPreview` is itself mounted) hides this
+  // wrapper so the live drawing never actually prints alongside the sheets.
   return (
     <>
-      {place}
+      <div className="print-hide-under-preview">{place}</div>
       {printMode === 'panel' && printView && (
         <PrintPanel
           activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}
@@ -446,6 +441,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           onDownloadCsv={() => downloadCutSheet('csv')}
         />
       )}
+      {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
     </>
   );
 }

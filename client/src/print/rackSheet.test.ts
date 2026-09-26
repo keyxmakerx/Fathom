@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChassisView, RackView } from '../document/view';
-import { paginateRackRows, rackDeviceRows, rowsPerPage } from './rackSheet';
+import type { ChassisView, OccupantView, ShelfView } from '../document/view';
+import { elevationItemsOf, elevationRowMm, paginateRackTableByHeight, rackDeviceRows, type RackDeviceRow } from './rackSheet';
 
 function chassis(id: string, positionU: number, heightU = 1, overrides: Partial<ChassisView> = {}): ChassisView {
   return {
@@ -26,103 +26,96 @@ function chassis(id: string, positionU: number, heightU = 1, overrides: Partial<
   };
 }
 
-function rack42WithDevices(): Pick<RackView, 'heightU' | 'chassis'> {
-  const list: ChassisView[] = [];
-  for (let u = 1; u <= 42; u += 1) list.push(chassis(`c${u}`, u, 1));
-  return { heightU: 42, chassis: list };
+function occupant(id: string, label: string, overrides: Partial<OccupantView> = {}): OccupantView {
+  return { id, kind: 'chassis', label, model: 'Occ Model', slot: 0, ports: [], sketch: false, ...overrides };
 }
 
-describe('rowsPerPage', () => {
-  it('differs between A4 and Letter — paging knows the paper', () => {
-    expect(rowsPerPage('A4')).toBeGreaterThan(0);
-    expect(rowsPerPage('Letter')).toBeGreaterThan(0);
-    expect(rowsPerPage('A4')).not.toBe(rowsPerPage('Letter'));
-  });
-});
+function shelf(id: string, positionU: number, heightU: number, occupants: OccupantView[]): ShelfView {
+  return { id, label: `shelf-${id}`, positionU, heightU, occupants };
+}
 
-describe('paginateRackRows', () => {
-  it('a 42U rack with 42 devices and cables all takes two pages, on A4 and on Letter — the brief\'s own worked example', () => {
-    const rack = rack42WithDevices();
-    for (const paper of ['A4', 'Letter'] as const) {
-      const capacity = rowsPerPage(paper);
-      const pages = paginateRackRows(rack, capacity);
-      expect(pages).toHaveLength(2);
-    }
+describe('elevationRowMm', () => {
+  it('draws at the natural size when a rack fits one page whole', () => {
+    expect(elevationRowMm(10, 'A4')).toBe(6);
   });
 
-  it('loses no device and doubles none, across any capacity', () => {
-    const rack = rack42WithDevices();
-    for (const capacity of [5, 10, 21, 23, 42, 100]) {
-      const pages = paginateRackRows(rack, capacity);
-      const seen = pages.flatMap((p) => p.chassis.map((c) => c.id));
-      expect(seen).toHaveLength(42);
-      expect(new Set(seen).size).toBe(42);
-      expect(seen.sort()).toEqual(rack.chassis.map((c) => c.id).sort());
-    }
+  it('a 42U rack fits A4 and Letter at their own scale, never split', () => {
+    const a4 = elevationRowMm(42, 'A4');
+    const letter = elevationRowMm(42, 'Letter');
+    expect(a4 * 42).toBeLessThanOrEqual(297 - 20 - 16 - 9 + 0.01);
+    expect(letter * 42).toBeLessThanOrEqual(279.4 - 20 - 16 - 9 + 0.01);
+    expect(letter).toBeLessThanOrEqual(a4);
   });
 
-  it('never splits a multi-U chassis across a page boundary', () => {
-    // A 4U chassis straddling where a capacity-of-3 cut would otherwise fall.
-    const rack: Pick<RackView, 'heightU' | 'chassis'> = {
-      heightU: 10,
-      chassis: [chassis('tall', 4, 4), chassis('top', 9, 1), chassis('bottom', 1, 1)],
-    };
-    const pages = paginateRackRows(rack, 3);
-    for (const page of pages) {
-      for (const c of page.chassis) {
-        // Every chassis appears whole on exactly one page.
-        const onThisPage = page.chassis.filter((x) => x.id === c.id).length;
-        expect(onThisPage).toBe(1);
-      }
-    }
-    const allIds = pages.flatMap((p) => p.chassis.map((c) => c.id));
-    expect(new Set(allIds).size).toBe(3);
-  });
-
-  it('gives an oversized chassis its own page rather than dropping it', () => {
-    const rack: Pick<RackView, 'heightU' | 'chassis'> = { heightU: 20, chassis: [chassis('huge', 1, 20)] };
-    const pages = paginateRackRows(rack, 5);
-    expect(pages).toHaveLength(1);
-    expect(pages[0].chassis.map((c) => c.id)).toEqual(['huge']);
-  });
-
-  it('covers an empty rack in equal-capacity slices with no chassis lost (none to lose)', () => {
-    const pages = paginateRackRows({ heightU: 10, chassis: [] }, 4);
-    expect(pages.map((p) => [p.fromRow, p.toRow])).toEqual([
-      [0, 3],
-      [4, 7],
-      [8, 9],
-    ]);
+  it('shrinks proportionally, never below what the page can hold', () => {
+    const rowMm = elevationRowMm(100, 'A4');
+    expect(rowMm * 100).toBeLessThanOrEqual(297 - 20 - 16 - 9 + 0.01);
   });
 });
 
 describe('rackDeviceRows', () => {
-  it('prints a dash for serial and management address when hideSensitive is set, with the field otherwise shown', () => {
-    const rack = { heightU: 10, unitNumbering: 'ascending' };
-    const c = chassis('sw', 5, 1, { serial: 'ABC123', managementAddress: '10.0.0.1' });
-    const shown = rackDeviceRows(rack, [c], false);
-    expect(shown[0].serial).toBe('ABC123');
-    expect(shown[0].managementAddress).toBe('10.0.0.1');
-    const hidden = rackDeviceRows(rack, [c], true);
-    expect(hidden[0].serial).toBe('—');
-    expect(hidden[0].managementAddress).toBe('—');
+  const rack = { heightU: 10, unitNumbering: 'ascending', chassis: [] as ChassisView[], shelves: [] as ShelfView[] };
+
+  it('lists a shelf\'s occupants, named, at the shelf\'s own unit', () => {
+    const withShelf = { ...rack, shelves: [shelf('s1', 5, 1, [occupant('o1', 'nuc-01'), occupant('o2', 'ont-01')])] };
+    const rows = rackDeviceRows(withShelf, false);
+    expect(rows.map((r) => r.name)).toEqual(['nuc-01', 'ont-01']);
+    expect(rows[0].unit).toBe('5');
   });
 
-  it('counts ports cabled out of the total, free ports included in the total', () => {
-    const rack = { heightU: 10, unitNumbering: 'ascending' };
-    const c = chassis('sw', 5, 1, {
-      ports: [
-        { id: 'p1', label: 'e1', connector: 'rj45', row: 0, column: 0, uplink: false, role: null, face: 'front', passThroughId: null, cable: { cableId: 'cab:1', farPortId: 'p2', farChassisId: 'c2', outsideCloset: false } },
-        { id: 'p2', label: 'e2', connector: 'rj45', row: 0, column: 1, uplink: false, role: null, face: 'front', passThroughId: null, cable: null },
-      ] as ChassisView['ports'],
-    });
-    const rows = rackDeviceRows(rack, [c], false);
-    expect(rows[0].portsCabled).toBe('1 of 2');
+  it('interleaves chassis and shelf occupants by physical position', () => {
+    const withBoth = {
+      ...rack,
+      chassis: [chassis('top', 9), chassis('bottom', 1)],
+      shelves: [shelf('s1', 5, 1, [occupant('mid', 'nuc-01')])],
+    };
+    const rows = rackDeviceRows(withBoth, false);
+    expect(rows.map((r) => r.name)).toEqual(['top', 'nuc-01', 'bottom']);
   });
 
-  it('orders rows top-down by position', () => {
-    const rack = { heightU: 10, unitNumbering: 'ascending' };
-    const rows = rackDeviceRows(rack, [chassis('bottom', 1), chassis('top', 9)], false);
-    expect(rows.map((r) => r.name)).toEqual(['top', 'bottom']);
+  it('an occupant carries no serial or management address (never tracked at that level)', () => {
+    const withShelf = { ...rack, shelves: [shelf('s1', 5, 1, [occupant('o1', 'nuc-01')])] };
+    const rows = rackDeviceRows(withShelf, false);
+    expect(rows[0].serial).toBe('—');
+    expect(rows[0].managementAddress).toBe('—');
+  });
+});
+
+describe('elevationItemsOf', () => {
+  it('merges chassis and shelves, top to bottom', () => {
+    const rack = { chassis: [chassis('top', 9), chassis('bottom', 1)], shelves: [shelf('s1', 5, 1, [])] };
+    const items = elevationItemsOf(rack);
+    expect(items.map((i) => (i.kind === 'chassis' ? i.chassis.id : i.shelf.id))).toEqual(['top', 's1', 'bottom']);
+  });
+});
+
+describe('paginateRackTableByHeight', () => {
+  function row(name: string): RackDeviceRow {
+    return { unit: '1', name, model: 'M', serial: '—', managementAddress: '—', portsCabled: '0 of 0' };
+  }
+
+  it('fills the first page to its own (smaller) budget, then later pages to theirs', () => {
+    const rows = ['a', 'b', 'c', 'd'].map((n) => ({ row: row(n), heightPx: 10 }));
+    const pages = paginateRackTableByHeight(rows, 15, 25);
+    expect(pages.map((p) => p.map((r) => r.name))).toEqual([['a'], ['b', 'c'], ['d']]);
+  });
+
+  it('loses no row and doubles none', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ row: row(`r${i}`), heightPx: 7 }));
+    const pages = paginateRackTableByHeight(rows, 40, 60);
+    const seen = pages.flat().map((r) => r.name);
+    expect(seen).toHaveLength(50);
+    expect(new Set(seen).size).toBe(50);
+  });
+
+  it('gives an oversized row its own page rather than dropping it', () => {
+    const rows = [{ row: row('huge'), heightPx: 500 }];
+    const pages = paginateRackTableByHeight(rows, 50, 50);
+    expect(pages).toHaveLength(1);
+    expect(pages[0].map((r) => r.name)).toEqual(['huge']);
+  });
+
+  it('with no rows, returns one empty page', () => {
+    expect(paginateRackTableByHeight([], 50, 50)).toEqual([[]]);
   });
 });

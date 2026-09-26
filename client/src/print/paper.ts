@@ -47,3 +47,11 @@ export function contentWidthMm(paper: PaperSize): number {
 export function contentHeightMm(paper: PaperSize): number {
   return pageHeightMm(paper) - 2 * PAGE_MARGIN_MM - TITLE_BLOCK_HEIGHT_MM - SHEET_HEADER_HEIGHT_MM;
 }
+
+/** A CSS px is fixed at 96 per inch regardless of the real screen's DPI, so
+ * this conversion is exact, not a measurement. */
+export const CSS_PX_PER_MM = 96 / 25.4;
+
+export function mmToPx(mm: number): number {
+  return mm * CSS_PX_PER_MM;
+}

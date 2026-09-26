@@ -26,16 +26,16 @@ function chassis(id: string, positionU: number): ChassisView {
   };
 }
 
-function rack(id: string, label: string, heightU: number, deviceCount: number): Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis'> {
+function rack(id: string, label: string, heightU: number, deviceCount: number): Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis' | 'shelves'> {
   const list: ChassisView[] = [];
   for (let u = 1; u <= deviceCount; u += 1) list.push(chassis(`${id}-c${u}`, u));
-  return { id, label, heightU, unitNumbering: 'ascending', chassis: list };
+  return { id, label, heightU, unitNumbering: 'ascending', chassis: list, shelves: [] };
 }
 
-const meta = { designName: 'Hillside', path: 'Hillside › Home › Loft', printedBy: 'Sam K.', printedAt: new Date('2026-09-25T14:02:00') };
+const meta = { designName: 'Drive network', path: 'Site › Building › Closet', printedBy: 'Sam K.', printedAt: new Date('2026-09-25T14:02:00') };
 
 describe('buildPrintJob', () => {
-  it('numbers pages globally across every rack in the closet, never resetting per rack', () => {
+  it('builds one unpaginated sheet per rack, in order, for "closet"', () => {
     const racks = [rack('r1', 'R1', 42, 42), rack('r2', 'R2', 4, 2)];
     const job = buildPrintJob({
       what: 'closet',
@@ -45,29 +45,26 @@ describe('buildPrintJob', () => {
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
     });
-    expect(job.length).toBeGreaterThan(2); // the 42U rack alone already takes two
-    expect(job.map((p) => p.titleBlock.page)).toEqual(job.map((_, i) => i + 1));
-    for (const page of job) expect(page.titleBlock.of).toBe(job.length);
+    expect(job.sheets).toHaveLength(2);
+    expect(job.sheets.map((s) => (s.kind === 'rack' ? s.rackLabel : null))).toEqual(['R1', 'R2']);
+    expect(job.sheets[0].kind === 'rack' && job.sheets[0].deviceRows).toHaveLength(42);
   });
 
-  it('carries the design, path, printed-by and date on every page', () => {
+  it('carries paper and black-and-white through to the job', () => {
     const job = buildPrintJob({
       what: 'this-rack',
       racks: [rack('r1', 'R1', 4, 1)],
       cables: [],
       cutSheetDevices: [],
-      options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
+      options: { paper: 'Letter', cables: 'none', hideSensitive: false, blackAndWhite: true },
       meta,
     });
-    expect(job).toHaveLength(1);
-    expect(job[0].titleBlock.design).toBe('Hillside');
-    expect(job[0].titleBlock.path).toBe('Hillside › Home › Loft');
-    expect(job[0].titleBlock.printedBy).toBe('Sam K.');
-    expect(job[0].titleBlock.date.length).toBeGreaterThan(0);
+    expect(job.paper).toBe('Letter');
+    expect(job.blackAndWhite).toBe(true);
   });
 
-  it('builds cut-sheet pages, not rack pages, when "what" is the cut sheet', () => {
-    const devices: CutSheetDevice[] = [{ key: 'a', name: 'a', model: 'M', placement: 'not placed', rows: [] }];
+  it('builds one cut-sheet sheet, not rack sheets, when "what" is the cut sheet', () => {
+    const devices: CutSheetDevice[] = [{ key: 'a', name: 'a', model: 'M', placement: 'not placed', rows: [{ port: 'Et1', connector: 'rj45', farEnd: '— free', cable: '', colour: '', vlans: '' }] }];
     const job = buildPrintJob({
       what: 'cut-sheet',
       racks: [rack('r1', 'R1', 4, 1)],
@@ -76,11 +73,11 @@ describe('buildPrintJob', () => {
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
     });
-    expect(job).toHaveLength(1);
-    expect(job[0].content.kind).toBe('cutsheet');
+    expect(job.sheets).toHaveLength(1);
+    expect(job.sheets[0].kind).toBe('cutsheet');
   });
 
-  it('names which rack a rack-sheet page is, in the sheet label', () => {
+  it('names which rack a rack-sheet is, and the cables option, in the sheet label', () => {
     const job = buildPrintJob({
       what: 'this-rack',
       racks: [rack('r1', 'R7', 4, 1)],
@@ -89,7 +86,24 @@ describe('buildPrintJob', () => {
       options: { paper: 'A4', cables: 'all', hideSensitive: false, blackAndWhite: false },
       meta,
     });
-    expect(job[0].titleBlock.sheetLabel).toContain('R7');
-    expect(job[0].titleBlock.sheetLabel).toContain('cables: all');
+    const sheet = job.sheets[0];
+    expect(sheet.sheetLabel).toContain('R7');
+    expect(sheet.sheetLabel).toContain('cables: all');
+  });
+
+  it('the cut sheet\'s label carries device and port counts', () => {
+    const devices: CutSheetDevice[] = [
+      { key: 'a', name: 'a', model: 'M', placement: 'not placed', rows: [{ port: 'Et1', connector: 'rj45', farEnd: '', cable: '', colour: '', vlans: '' }] },
+      { key: 'b', name: 'b', model: 'M', placement: 'not placed', rows: [] },
+    ];
+    const job = buildPrintJob({
+      what: 'cut-sheet',
+      racks: [],
+      cables: [],
+      cutSheetDevices: devices,
+      options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
+      meta,
+    });
+    expect(job.sheets[0].sheetLabel).toBe('Cut sheet · 2 devices · 1 ports · by rack position, top down');
   });
 });

@@ -1,16 +1,12 @@
-// Assembles whatever the panel asked for into one ordered list of pages,
-// each carrying the title block brief item 2 asks for — design, path,
-// date, printed by, "page x of y" counting every page of everything
-// printed in one go, never reset per sheet. `counter(pages)` is not this:
-// read 2026-09-26, raw.githubusercontent.com/mdn/browser-compat-data,
-// css/types/counter.json carries no "pages" keyword at all — no browser
-// implements the CSS Generated-Content-for-Paged-Media total-page counter,
-// so the total is computed here, in script, once every page is known.
-import type { CableView, ChassisView, RackView } from '../document/view';
+// Assembles whatever the panel asked for into one ordered list of
+// unpaginated sheets — no row-splitting here, since a real page split needs
+// real measured heights (`PrintPreview.tsx`'s own hidden measuring pass,
+// `rackSheet.ts`/`cutSheetTable.ts`'s pure `paginate*ByHeight` functions).
+import type { CableView, ChassisView, RackView, ShelfView } from '../document/view';
 import type { CutSheetDevice } from './cutSheet';
-import { paginateCutSheet, type CutSheetTableRow } from './cutSheetTable';
+import { cutSheetBodyRows, cutSheetColumnHeaderRow, type CutSheetBodyRow, type CutSheetTableRow } from './cutSheetTable';
 import type { PaperSize } from './paper';
-import { elevationCableLines, paginateRackRows, rackDeviceRows, rowsPerPage, type ElevationCableLine, type RackDeviceRow } from './rackSheet';
+import { elevationCableLines, rackDeviceRows, type ElevationCableLine, type RackDeviceRow } from './rackSheet';
 
 export type PrintWhat = 'this-rack' | 'closet' | 'cut-sheet';
 export type CablesOption = 'none' | 'all';
@@ -24,135 +20,91 @@ export interface PrintOptions {
 
 export interface PrintMeta {
   designName: string;
-  /** "Site › Building › Closet". */
+  /** "Site › Building › Closet" — never the organisation's name. */
   path: string;
   printedBy: string;
   printedAt: Date;
 }
 
-export interface TitleBlock {
-  design: string;
-  path: string;
-  date: string;
-  printedBy: string;
-  sheetLabel: string;
-  page: number;
-  of: number;
-}
-
-export interface RackSheetPageContent {
+export interface RackSheetUnpaginated {
   kind: 'rack';
   rackId: string;
   rackLabel: string;
   heightU: number;
   unitNumbering: string;
-  fromRow: number;
-  toRow: number;
   chassis: ChassisView[];
-  cablesOption: CablesOption;
+  shelves: ShelfView[];
   hideSensitive: boolean;
-  deviceRows: RackDeviceRow[];
   frontCables: ElevationCableLine[];
   rearCables: ElevationCableLine[];
-  pageWithinRack: number;
-  pagesForRack: number;
+  deviceRows: RackDeviceRow[];
+  sheetLabel: string;
 }
 
-export interface CutSheetPageContent {
+export interface CutSheetUnpaginated {
   kind: 'cutsheet';
-  rows: CutSheetTableRow[];
+  columnHeader: CutSheetTableRow;
+  bodyRows: CutSheetBodyRow[];
+  sheetLabel: string;
 }
 
-export type PrintPageContent = RackSheetPageContent | CutSheetPageContent;
+export type SheetUnpaginated = RackSheetUnpaginated | CutSheetUnpaginated;
 
-export interface PrintPage {
-  content: PrintPageContent;
-  titleBlock: TitleBlock;
+export interface PrintJob {
+  sheets: SheetUnpaginated[];
+  paper: PaperSize;
+  blackAndWhite: boolean;
+  meta: PrintMeta;
 }
 
-function formatDate(d: Date): string {
-  const day = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return `${day} ${time}`;
-}
-
-export function buildRackSheetPages(
-  rack: Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis'>,
-  paper: PaperSize,
+function buildRackSheet(
+  rack: Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis' | 'shelves'>,
   options: Pick<PrintOptions, 'cables' | 'hideSensitive'>,
-  cables: readonly CableView[] = [],
-): RackSheetPageContent[] {
-  const capacity = rowsPerPage(paper);
-  const slices = paginateRackRows(rack, capacity);
+  cables: readonly CableView[],
+): RackSheetUnpaginated {
   const sheathByCableId = new Map(cables.map((c) => [c.id, c.sheath] as const));
-  return slices.map((slice, i) => ({
+  const cablesNote = options.cables === 'all' ? 'cables: all' : 'cables: none';
+  return {
     kind: 'rack',
     rackId: rack.id,
     rackLabel: rack.label,
     heightU: rack.heightU,
     unitNumbering: rack.unitNumbering,
-    fromRow: slice.fromRow,
-    toRow: slice.toRow,
-    chassis: slice.chassis,
-    cablesOption: options.cables,
+    chassis: rack.chassis,
+    shelves: rack.shelves,
     hideSensitive: options.hideSensitive,
-    deviceRows: rackDeviceRows(rack, slice.chassis, options.hideSensitive),
-    frontCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'front', sheathByCableId) : [],
-    rearCables: options.cables === 'all' ? elevationCableLines(slice.chassis, 'rear', sheathByCableId) : [],
-    pageWithinRack: i + 1,
-    pagesForRack: slices.length,
-  }));
+    frontCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'front', sheathByCableId) : [],
+    rearCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'rear', sheathByCableId) : [],
+    deviceRows: rackDeviceRows(rack, options.hideSensitive),
+    sheetLabel: `Rack ${rack.label} · front and rear · ${cablesNote}`,
+  };
 }
 
-export function buildCutSheetPages(devices: readonly CutSheetDevice[], paper: PaperSize): CutSheetPageContent[] {
-  return paginateCutSheet(devices, paper).map((rows) => ({ kind: 'cutsheet', rows }));
+function buildCutSheet(devices: readonly CutSheetDevice[]): CutSheetUnpaginated {
+  const portCount = devices.reduce((sum, d) => sum + d.rows.length, 0);
+  return {
+    kind: 'cutsheet',
+    columnHeader: cutSheetColumnHeaderRow(),
+    bodyRows: cutSheetBodyRows(devices),
+    sheetLabel: `Cut sheet · ${devices.length} devices · ${portCount} ports · by rack position, top down`,
+  };
 }
 
 export interface BuildPrintJobInput {
   what: PrintWhat;
-  racks: readonly Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis'>[];
-  /** Every live cable in the closet — only the sheath word is read
-   * (`buildRackSheetPages`'s own `sheathByCableId`), for "cable colours
-   * also written as words" in black-and-white mode. */
+  racks: readonly Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis' | 'shelves'>[];
+  /** Every live cable in the closet — only the sheath word is read, for
+   * "cable colours also written as words" in black-and-white mode. */
   cables: readonly CableView[];
   cutSheetDevices: readonly CutSheetDevice[];
   options: PrintOptions;
   meta: PrintMeta;
 }
 
-/** Every page this print job carries, title-blocked and numbered as one
- * sequence — "page x of y counts every page of everything printed in one
- * go" (brief item 2), never restarted per rack or per sheet kind. */
-export function buildPrintJob(input: BuildPrintJobInput): PrintPage[] {
-  const contents: { content: PrintPageContent; sheetLabel: string }[] = [];
-
-  if (input.what === 'this-rack' || input.what === 'closet') {
-    for (const rack of input.racks) {
-      const pages = buildRackSheetPages(rack, input.options.paper, input.options, input.cables);
-      for (const page of pages) {
-        const cablesNote = input.options.cables === 'all' ? 'cables: all' : 'cables: none';
-        contents.push({ content: page, sheetLabel: `Rack ${rack.label} · front and rear · ${cablesNote}` });
-      }
-    }
-  } else {
-    const pages = buildCutSheetPages(input.cutSheetDevices, input.options.paper);
-    for (const page of pages) {
-      contents.push({ content: page, sheetLabel: 'Cut sheet · per device, all ports' });
-    }
-  }
-
-  const of = contents.length;
-  const date = formatDate(input.meta.printedAt);
-  return contents.map((c, i) => ({
-    content: c.content,
-    titleBlock: {
-      design: input.meta.designName,
-      path: input.meta.path,
-      date,
-      printedBy: input.meta.printedBy,
-      sheetLabel: c.sheetLabel,
-      page: i + 1,
-      of,
-    },
-  }));
+export function buildPrintJob(input: BuildPrintJobInput): PrintJob {
+  const sheets: SheetUnpaginated[] =
+    input.what === 'cut-sheet'
+      ? [buildCutSheet(input.cutSheetDevices)]
+      : input.racks.map((rack) => buildRackSheet(rack, input.options, input.cables));
+  return { sheets, paper: input.options.paper, blackAndWhite: input.options.blackAndWhite, meta: input.meta };
 }
