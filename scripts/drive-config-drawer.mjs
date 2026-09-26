@@ -36,6 +36,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -242,6 +243,7 @@ try {
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
+  await applyDriveCpuThrottle(page);
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
@@ -440,6 +442,42 @@ try {
   for (const canary of ALL_CANARIES) {
     check(`absent from page.content(): ${canary}`, !html.includes(canary));
   }
+
+  // Where the drawer leaves the camera: sixteen devices in one rack, the
+  // drawer opened on one and then switched to another.
+  const camPage = await context.newPage();
+  await applyDriveCpuThrottle(camPage);
+  camPage.on('pageerror', (e) => pageErrors.push(e.message));
+  await camPage.goto(`${BASE}/drive.html?scene=node-identity`);
+  await camPage.waitForFunction(() => document.querySelectorAll('.react-flow__node-chassis').length === 16, null, { timeout: 15_000 });
+  await camPage.waitForTimeout(800);
+  // The plate's centre as a fraction of the pane's height, the drawer's top the same way, and the camera's zoom.
+  const plateAboveDrawer = (host) => camPage.evaluate((host) => {
+    const pane = document.querySelector('.react-flow').getBoundingClientRect();
+    const drawer = document.querySelector('.drawing-config-drawer')?.getBoundingClientRect();
+    const plate = [...document.querySelectorAll('.react-flow__node-chassis')].find((e) => e.textContent.includes(host)).getBoundingClientRect();
+    const scale = /scale\(([^)]+)\)/.exec(document.querySelector('.react-flow__viewport').style.transform)?.[1];
+    return {
+      plate: +((plate.y + plate.height / 2 - pane.y) / pane.height).toFixed(3),
+      drawerTop: drawer ? +((drawer.y - pane.y) / pane.height).toFixed(3) : null,
+      zoom: Number(scale),
+    };
+  }, host);
+  const inStrip = (at) => at.drawerTop != null && at.plate > 0 && at.plate < at.drawerTop && at.zoom === 2;
+  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-05' }).click();
+  for (let i = 0; i < 10; i += 1) await camPage.click('button[aria-label="Zoom in"]');
+  await camPage.waitForSelector('.config-drawer', { timeout: 10_000 });
+  await camPage.waitForTimeout(1000);
+  const opened = await plateAboveDrawer('dev-05');
+  check('on opening, the plate sits above the drawer at exactly the faceplate stop', inStrip(opened), JSON.stringify(opened));
+  // dev-12 may be under the drawer, so the click goes to the node itself rather than to a point on screen.
+  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-12' }).dispatchEvent('click');
+  await camPage.waitForTimeout(1000);
+  const switched = await plateAboveDrawer('dev-12');
+  check('after switching devices, the new plate sits above the drawer at exactly the faceplate stop', inStrip(switched), JSON.stringify(switched));
+  await camPage.screenshot({ path: SHOTS + 's6g-drawer-switch.png' });
+  console.log('    wrote ' + SHOTS + 's6g-drawer-switch.png');
+  await camPage.close();
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 

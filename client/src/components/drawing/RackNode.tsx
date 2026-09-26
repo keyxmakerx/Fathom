@@ -1,15 +1,10 @@
-import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { C14 } from '../ports';
 import type { Facing, FaceplateItem } from './elevation';
 import type { RackView } from './contract';
-import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, counterScaledFontPx, sortFreeRuns } from './geometry';
-
-/** The rack label's and U numbers' flow-space size at the rack stop —
- * `drawing.css`'s own `--t-micro` (10px) and 8px, kept here so
- * `counterScaledFontPx` has a `basePx` to counter-scale from. */
-const RACK_LABEL_BASE_PX = 10;
-const U_NUMBER_BASE_PX = 8;
+import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
+import { useLive } from './liveStore';
 
 /** The C14 glyph's true (`scale` 1) box is 22×16 (`components/ports/C14.tsx`'s
  * `frame(22, 16)`) — UI-SPEC "Power": "the C14 glyph... at rail scale," read
@@ -27,13 +22,6 @@ const PSU_HEX_GAP_PX = 10;
 
 export interface RackNodeData extends Record<string, unknown> {
   rack: RackView;
-  selected: boolean;
-  /** Set while a palette item or a chassis is being dragged over this rack,
-   * with whether the run it would land on is free. `null` when nothing is
-   * being dragged over it. */
-  dropPreview: { fromU: number; toU: number; valid: boolean } | null;
-  /** True for the ~180ms after a drop this rack refused, for the shake. */
-  shaking: boolean;
   /** Every mounted chassis, resolved for this rack's current elevation
    * (`elevation.ts`'s own `faceplateItems`) — ADR-0050 §1: unlike the
    * retired `faces.ts` flip, every chassis draws at every elevation, so this
@@ -47,9 +35,6 @@ export interface RackNodeData extends Record<string, unknown> {
    * control below. */
   elevation: Facing;
   onFlip: () => void;
-  /** The rack stop's own `front | rear` control — hidden at the closet stop,
-   * where the row's own header control governs instead (`Drawing.tsx`). */
-  showFlip: boolean;
   /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
    * for" — hovering one calls this with its own inlet's cable id (`null` on
    * leave, or when the inlet carries no cable to light), the exact
@@ -60,6 +45,15 @@ export interface RackNodeData extends Record<string, unknown> {
 }
 
 export type RackNodeType = Node<RackNodeData, 'rack'>;
+
+/** Reads this rack's own selection, drop preview and shake from the live
+ * store, so a change to another rack never re-renders this one. */
+function useRackLiveData(rackId: string) {
+  const selected = useLive((s) => s.selected?.kind === 'rack' && s.selected.id === rackId);
+  const dropPreview = useLive((s) => s.dropPreview[rackId] ?? null);
+  const shaking = useLive((s) => s.shakingRackId === rackId);
+  return { selected, dropPreview, shaking };
+}
 
 /** One inlet's rail position: `chassis`'s own row, `index` of `count`
  * siblings on that row, centred in the rail that currently carries the
@@ -92,18 +86,12 @@ function psuSlot(rack: RackView, chassis: FaceplateItem['chassis'], index: numbe
  * carries the numbering leaves the device column, and everything positioned
  * over it, untouched. */
 export function RackNode({ data }: NodeProps<RackNodeType>) {
-  const { rack, selected, dropPreview, shaking, chassisItems, elevation, onFlip, showFlip, onHoverInlet } = data;
-  const { zoom } = useViewport();
+  const { rack, chassisItems, elevation, onFlip, onHoverInlet } = data;
+  const { selected, dropPreview, shaking } = useRackLiveData(rack.id);
   const frameHeight = rack.heightU * U_PX;
   const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
   const runs = sortFreeRuns(rack.freeRuns);
   const width = RAIL_PX * 2 + RACK_INNER_PX;
-  // UI-SPEC "Motion": one continuous camera, but the rack label and U
-  // numbers must stay legible at the closet stop — `geometry.ts`'s
-  // `counterScaledFontPx` pins their on-screen size to a 9px floor rather
-  // than letting them shrink below it as the camera zooms out.
-  const labelFontPx = counterScaledFontPx(RACK_LABEL_BASE_PX, zoom);
-  const uNumberFontPx = counterScaledFontPx(U_NUMBER_BASE_PX, zoom);
 
   // ADR-0050 §1: rail hexagons are the front elevation's own way for a power
   // lead to end ("as today"); the rear elevation's leads end directly on the
@@ -123,35 +111,36 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
         .join(' ')}
       style={{ width }}
     >
-      <div className="drawing-rack__label" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-rack__label">
         <span className="drawing-rack__label-text">
           {rack.label} &middot; {rack.heightU}U &middot; {usedU} used
         </span>
-        {showFlip && (
-          <span className="drawing-rack__flip nodrag">
-            <button
-              type="button"
-              className={elevation === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (elevation !== 'front') onFlip();
-              }}
-            >
-              front
-            </button>
-            <span aria-hidden="true"> | </span>
-            <button
-              type="button"
-              className={elevation === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (elevation !== 'rear') onFlip();
-              }}
-            >
-              rear
-            </button>
-          </span>
-        )}
+        {/* Always mounted; `drawing.css` hides it outside the rack stop by
+            `data-camera-stop` on the drawing's own wrapper, so this idle
+            button never has to read the viewport itself. */}
+        <span className="drawing-rack__flip nodrag">
+          <button
+            type="button"
+            className={elevation === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (elevation !== 'front') onFlip();
+            }}
+          >
+            front
+          </button>
+          <span aria-hidden="true"> | </span>
+          <button
+            type="button"
+            className={elevation === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (elevation !== 'rear') onFlip();
+            }}
+          >
+            rear
+          </button>
+        </span>
       </div>
       <div className="drawing-rack__frame" style={{ height: frameHeight }}>
         <div className="drawing-rack__rail drawing-rack__rail--left" style={{ width: RAIL_PX }}>
@@ -177,7 +166,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
               })}
               <div className="drawing-rack__u-numbers drawing-rack__u-numbers--left" style={{ width: RAIL_PX }}>
                 {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                  <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                  <div key={u} className="drawing-rack__u-number" style={{ height: U_PX }}>
                     {u}
                   </div>
                 ))}
@@ -189,7 +178,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
           {railSide === 'right' && (
             <div className="drawing-rack__u-numbers drawing-rack__u-numbers--right" style={{ width: RAIL_PX }}>
               {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                <div key={u} className="drawing-rack__u-number" style={{ height: U_PX }}>
                   {u}
                 </div>
               ))}

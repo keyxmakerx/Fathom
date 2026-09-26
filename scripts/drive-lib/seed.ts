@@ -13,6 +13,7 @@ import {
   fixTo,
   movePlacement,
   placeChassis,
+  placeOnShelf,
   type CreateSurfaceOptions,
 } from './document/commands';
 import { setChassisField, setDeviceField } from './document/edit';
@@ -518,4 +519,30 @@ export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Doc
   doc = connectPorts(doc, onePort('nas-01', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 3), { sheath: 'blue' }, { actor: me });
 
   return doc;
+}
+
+/** Enough rack-mounted devices, side by side, that a hover, a selection, a
+ * drag or a wheel-zoom touches many nodes nobody meant to disturb. One cable between the first two, so a hover has something lit to prove stays lit. */
+export function seedManyDevicesScene(catalogue: CatalogueModel[], me: string, count = 16): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const model = catalogue.find((m) => m.model === 'EX4300-48P');
+  if (!model) throw new Error('the drive catalogue fixture has no juniper/EX4300-48P');
+  let working = doc;
+  for (let i = 0; i < count; i += 1) {
+    working = place(working, catalogue, rackId, model, i + 1, `dev-${String(i + 1).padStart(2, '0')}`, me);
+  }
+  const a = frontRj45(working, catalogue, 'dev-01');
+  const b = frontRj45(working, catalogue, 'dev-02');
+  return connectPorts(working, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
+}
+
+/** One rack holding a shelf at U20, with the sketch device `box-01` on its first slot. */
+export function seedShelfScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const withShelf = createShelf(doc, rackId, { positionU: 20, label: 'Shelf 1', actor: me });
+  const shelfId = newestNode(doc, withShelf, 'PassiveNode');
+  const box = newSketchDevice(withShelf, 'box-01', me);
+  let working = placeOnShelf(box.doc, box.chassisId, shelfId, 1, { actor: me });
+  working = addSketchPort(working, box.chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  return working;
 }

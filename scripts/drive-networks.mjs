@@ -9,6 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -200,6 +201,7 @@ try {
   // -------------------------------------------------------------------------
   {
     const page = await context.newPage();
+    await applyDriveCpuThrottle(page);
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=networks`);
@@ -320,6 +322,7 @@ try {
   // -------------------------------------------------------------------------
   {
     const page = await context.newPage();
+    await applyDriveCpuThrottle(page);
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=networks-010`);

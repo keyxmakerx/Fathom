@@ -6,6 +6,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -115,6 +116,7 @@ try {
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
   const page = await context.newPage();
+  await applyDriveCpuThrottle(page);
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
@@ -123,6 +125,23 @@ try {
   // no sign-in door; the drawing renders regardless of the rail's open/closed state.
   await page.waitForSelector('.react-flow__node-rack', { timeout: 15_000 });
   await page.waitForSelector('.react-flow__node-surface', { timeout: 15_000 });
+
+  // The camera's transform, and where `el`'s centre sits as a fraction of the pane.
+  const cameraOf = (p) => p.evaluate(() => document.querySelector('.react-flow__viewport').style.transform);
+  const zoomOf = async (p) => Number(/scale\(([^)]+)\)/.exec(await cameraOf(p))?.[1]);
+  const paneFraction = (el, closest) => el.evaluate((node, closest) => {
+    const pane = document.querySelector('.react-flow').getBoundingClientRect();
+    const b = (closest ? node.closest(closest) : node).getBoundingClientRect();
+    return { x: +((b.x + b.width / 2 - pane.x) / pane.width).toFixed(3), y: +((b.y + b.height / 2 - pane.y) / pane.height).toFixed(3) };
+  }, closest);
+  // Whether `el`'s box (or its closest `closest` ancestor's) covers the pane's centre.
+  const coversCentre = (el, closest) => el.evaluate((node, closest) => {
+    const pane = document.querySelector('.react-flow').getBoundingClientRect();
+    const b = (closest ? node.closest(closest) : node).getBoundingClientRect();
+    const cx = pane.x + pane.width / 2;
+    const cy = pane.y + pane.height / 2;
+    return b.left <= cx && cx <= b.right && b.top <= cy && cy <= b.bottom;
+  }, closest);
 
   const surfaceCount = await page.locator('.react-flow__node-surface').count();
   check('all three surfaces render (desk, floor, wall)', surfaceCount === 3, `${surfaceCount} surface nodes`);
@@ -183,6 +202,7 @@ try {
   const fitButton = page.locator('button[aria-label="Fit to view"]');
   check('"Fit to view" exists on the bar', (await fitButton.count()) > 0);
   await page.waitForTimeout(500); // let every surface's own layout settle before the first fit
+  const cameraBeforeFit = await cameraOf(page);
   await fitButton.click();
   await page.waitForTimeout(400);
   await fitButton.click(); // a second press re-fits against final, settled measurements
@@ -196,6 +216,8 @@ try {
       allSurfacesFramed = false;
     }
   }
+  const cameraAfterFit = await cameraOf(page);
+  check('"Fit to view" moved the camera', cameraAfterFit !== cameraBeforeFit, `${cameraBeforeFit} -> ${cameraAfterFit}`);
   check('after "Fit to view" every surface sits inside the viewport', allSurfacesFramed);
   const rackBoxAfterFit = await page.locator('.react-flow__node-rack').boundingBox();
   const rackFramed =
@@ -255,8 +277,15 @@ try {
   const cabledPort = page.locator('.react-flow__node-surface .drawing-surface__port--cabled').first();
   const cabledPortCount = await page.locator('.react-flow__node-surface .drawing-surface__port--cabled').count();
   check('at least one cabled port shows on a surface fixture', cabledPortCount > 0, `${cabledPortCount} cabled port glyphs`);
+  const zoomBeforePortFocus = await zoomOf(page);
   await cabledPort.click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+  // Selecting a port glides the camera to its owning box at the faceplate stop.
+  await page.waitForTimeout(800);
+  const portOwner = await paneFraction(cabledPort, '.react-flow__node');
+  const ownerCovers = await coversCentre(cabledPort, '.react-flow__node');
+  const zoomAfterPortFocus = await zoomOf(page);
+  check('selecting a port brings its owning box to the pane centre at the faceplate stop', zoomBeforePortFocus !== 2 && ownerCovers && zoomAfterPortFocus === 2, `from zoom ${zoomBeforePortFocus}: box centre ${JSON.stringify(portOwner)}, zoom ${zoomAfterPortFocus}`);
   const selectCableButton = page.locator('.drawing-editor__panel button', { hasText: 'Select cable' });
   const hasSelectCable = (await selectCableButton.count()) > 0;
   check('the port panel offers "Select cable"', hasSelectCable);
@@ -268,6 +297,25 @@ try {
   check('the cable panel opened (title, not a port panel)', cablePanelText.length > 0, cablePanelText.slice(0, 200));
   await page.screenshot({ path: SHOTS + 'F-03-cabled.png' });
   console.log('    wrote ' + SHOTS + 'F-03-cabled.png');
+
+  // F-04 — a box on a shelf opens at the faceplate stop by the same camera.
+  const shelfPage = await context.newPage();
+  await applyDriveCpuThrottle(shelfPage);
+  shelfPage.on('pageerror', (e) => pageErrors.push(e.message));
+  await shelfPage.goto(`${BASE}/drive.html?scene=shelf`);
+  const occupant = shelfPage.locator('.drawing-shelf__compact-occupant', { hasText: 'box-01' });
+  await occupant.waitFor({ timeout: 15_000 });
+  await shelfPage.waitForTimeout(800);
+  const zoomBeforeOpen = await zoomOf(shelfPage);
+  await occupant.click();
+  await shelfPage.waitForTimeout(800);
+  const shelfNode = await paneFraction(shelfPage.locator('.react-flow__node-shelf'));
+  const shelfCovers = await coversCentre(shelfPage.locator('.react-flow__node-shelf'));
+  const zoomAfterOpen = await zoomOf(shelfPage);
+  check('opening a box on a shelf glides to the faceplate stop, the shelf at the pane centre', zoomBeforeOpen !== 2 && shelfCovers && zoomAfterOpen === 2, `from zoom ${zoomBeforeOpen}: box centre ${JSON.stringify(shelfNode)}, zoom ${zoomAfterOpen}`);
+  await shelfPage.screenshot({ path: SHOTS + 'F-04-shelf.png' });
+  console.log('    wrote ' + SHOTS + 'F-04-shelf.png');
+  await shelfPage.close();
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 

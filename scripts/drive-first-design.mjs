@@ -56,6 +56,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -636,6 +637,8 @@ async function runProof(browser, seed) {
   const drawerCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const one = await stewardCtx.newPage();
   const two = await drawerCtx.newPage();
+  await applyDriveCpuThrottle(one);
+  await applyDriveCpuThrottle(two);
   one.on('console', (m) => console.log('[one console] ' + m.text()));
   two.on('console', (m) => console.log('[two console] ' + m.text()));
   one.on('pageerror', (e) => console.log('[one pageerror] ' + e));
@@ -686,19 +689,12 @@ async function runProof(browser, seed) {
   const oneRefusalCount = await one.locator('.racks-place__refusal').count();
   check('browser one (steward): placing a device saves with no refusal', oneRefusalCount === 0, `refusal divs: ${oneRefusalCount}`);
   await openTheTrail(one); // folded to a strip on the right edge
-  const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('> *').count();
+  // `.racks-trail__row`, never `> *` — an empty-state line is also a direct child of the wrapper, but is not itself a row.
+  const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('.racks-trail__row').count();
   check('browser one (steward): the Trail carries at least one entry after the first save', trailRowsAfterFirstSave >= 1);
 
-  // FOUND BUG, now fixed (`components/racks/RacksPlace.tsx`'s `handlePlace`):
-  // this drop mints a Premises and a Rack (`ensureRackToPlaceInto`) and then
-  // places the Chassis (`placeChassis`) — every one of those three calls
-  // used to dispatch with no `Actor` opts at all, so
-  // `document/commands.ts`'s own `resolve` fell back to
-  // `document/model.ts`'s `LOCAL_ACTOR` even while the steward is really
-  // signed in, and the Trail's newest row (`components/racks/trail.ts`'s
-  // `whoLabel`) read `'local'` for every one of the three rows this drop
-  // produced. Asserted here against the newest row, the one this drop just
-  // made.
+  // This drop mints a Premises and a Rack and places the Chassis — three
+  // commands, each dispatched with the steward's real `Actor`, so the Trail's newest row reads the steward, not `'local'`.
   const newestWho = (await one.locator('.racks-trail__row').first().locator('.racks-trail__col--who').innerText()).trim();
   check(
     "browser one (steward): the Trail's newest row names the signed-in account, not 'local' (LOCAL_ACTOR)",

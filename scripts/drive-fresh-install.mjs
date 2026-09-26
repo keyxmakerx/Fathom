@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const ROOT = process.env.FATHOM_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 // `CARGO_TARGET_DIR` is shared across worktrees in this project (NEXT.md
@@ -208,6 +209,7 @@ async function main() {
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const tab = await context.newPage();
+  await applyDriveCpuThrottle(tab);
   tab.on('console', (m) => { if (m.type() === 'error') console.log('[console error] ' + m.text()); });
   tab.on('pageerror', (e) => console.log('[pageerror] ' + e));
 

@@ -1,25 +1,27 @@
-import type { MouseEvent } from 'react';
-import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { C14, PORT_GLYPHS } from '../ports';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { PORT_ROW_GAP_PX, U_PX, counterScaledFontPx, glyphScaleFittingBudget, portRowBudgetPx } from './geometry';
+import { PORT_ROW_GAP_PX, U_PX, glyphScaleBudgetCap, portRowBudgetPx } from './geometry';
+import { useLive } from './liveStore';
 import { isPanel } from './paths';
 import { portKindFor } from './portGlyph';
 import { pduUsage, pduUsageLabel } from './power';
 import { SHEATH_VAR } from './sheath';
 
-/** The hostname's flow-space size at the rack stop — `drawing.css`'s own
- * 9px, kept here so `counterScaledFontPx` has a `basePx` to counter-scale
- * from. */
-const HOSTNAME_BASE_PX = 9;
-
 /** `drawing.css`'s `.drawing-chassis__header`'s own `min-height`, kept here
- * so the ports row's `glyphScaleFittingBudget` budget (whatever flow-space
- * height is left after the header) matches the CSS it is actually
- * competing with for a 1U row's 16 flow px. */
+ * so the ports row's budget (whatever flow-space height is left after the
+ * header) matches what the CSS actually gives it. */
 const HEADER_MIN_PX = 9;
+
+/** Counts renders into `window.__cn` when a test harness has set it to a
+ * number; otherwise does nothing. */
+function countRender(): void {
+  const w = globalThis as { __cn?: number };
+  if (typeof w.__cn === 'number') w.__cn += 1;
+}
 
 /** A rear-elevation power lead's stable handle at the closet and rack
  * stops — `docs/decisions/adr-0050-the-rear-elevation.md` §1. `InletStrip`
@@ -51,15 +53,7 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * so a caller can tell "rear" apart from "this chassis's own rear-mounted
    * fact," a different reason for the same word. */
   elevation: Facing;
-  selected: boolean;
-  /** UI-SPEC "Ports": 0 hides them entirely, 1 is fully hit-able. */
-  portOpacity: number;
   onSelectPort: (portId: string) => void;
-  /** Non-null while a drag-to-connect is in progress anywhere in the
-   * drawing — UI-SPEC "Cables": "Only compatible ports stay live during a
-   * drag; the rest dim." `fromPortId` itself is never dimmed (it is the
-   * lead's fixed end); every other port dims unless `livePortIds` names it. */
-  liveDrag: { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
   /** UI-SPEC "Cables": "the port a cable fills takes the sheath colour."
    * `PortView.cable` (this session's contract) names *which* cable fills a
    * port, not its sheath — the sheath lives on the `CableView` the cable's
@@ -67,16 +61,34 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * `view.cables` and hands it down rather than this component reaching
    * past its own props for the cable list. */
   portSheath: ReadonlyMap<string, Sheath>;
-  /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
-   * for" — the cable id currently hovered (or selected), same state
-   * `RackNode.tsx`'s own `onHoverInlet` writes and a `CableEdge`'s own hover
-   * already reads via `Drawing.tsx`'s `litCableId`. `null` when nothing is
-   * lit. An inlet in the strip below compares its own `cable.cableId`
-   * against this, the same "hover key" the hexagon that lights it shares. */
-  litCableId: string | null;
+}
+
+/** Every cable id ending on one of this chassis's own ports or inlets. */
+function useMyCableIds(chassis: ChassisView): ReadonlySet<string> {
+  return useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of chassis.ports) if (p.cable) ids.add(p.cable.cableId);
+    for (const p of chassis.psuInlets) if (p.cable) ids.add(p.cable.cableId);
+    return ids;
+  }, [chassis]);
+}
+
+/** Reads this chassis's own slice of the live store, so a change to another
+ * chassis never re-renders this one. */
+function useChassisLiveData(chassisId: string, myCableIds: ReadonlySet<string>) {
+  const selected = useLive((s) => s.selected?.kind === 'chassis' && s.selected.id === chassisId);
+  const litCableId = useLive((s) => (s.litCableId != null && myCableIds.has(s.litCableId) ? s.litCableId : null));
+  const dragFromPortId = useLive((s) => s.dragFromPortId);
+  const livePortIds = useLive((s) => s.livePortIds);
+  const dimmed = useLive((s) => s.dimmedChassisId === chassisId);
+  const liveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
+  return { selected, litCableId, liveDrag, dimmed };
 }
 
 export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
+
+/** The live drag's fixed end and every port still a valid target. */
+export type LiveDrag = { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
 
 function portRows(ports: PortView[]): PortView[][] {
   const byRow = new Map<number, PortView[]>();
@@ -97,19 +109,12 @@ function portRows(ports: PortView[]): PortView[][] {
 function PortRow({
   ports,
   onSelectPort,
-  glyphScale,
   liveDrag,
   portSheath,
 }: {
   ports: PortView[];
   onSelectPort: (portId: string) => void;
-  /** `glyphScaleFittingBudget`'s flow-space multiplier, so a port glyph
-   * reads at its true size on screen (`components/ports`'s own contract)
-   * rather than growing with the camera the way the rest of a flow-space
-   * node does — shrunk below true size only if the row does not have room
-   * for it. */
-  glyphScale: number;
-  liveDrag: ChassisNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: ChassisNodeData['portSheath'];
 }) {
   function glyph(port: PortView) {
@@ -150,7 +155,7 @@ function PortRow({
           onSelectPort(port.id);
         }}
       >
-        <Glyph cabled={cabled} title={port.label} scale={glyphScale} />
+        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--budgeted" />
         {/* UI-SPEC "One cable per port": an already-cabled port is never a
             target — `isConnectable={false}` keeps it from both starting a
             second lead and accepting one. `type="source"`, not meaningful
@@ -191,16 +196,11 @@ function PortRow({
 function InletGlyph({
   inlet,
   onSelectPort,
-  glyphScale,
   litCableId,
 }: {
   inlet: InletView;
   onSelectPort: (portId: string) => void;
-  glyphScale: number;
-  /** s6f #2: "the same hover key" the rail hexagon that stands for this
-   * inlet shares (`RackNodeData.onHoverInlet`) — dims this glyph exactly
-   * like `PortRow`'s own `liveDrag`-driven dimming does, when something is
-   * lit and it is not this inlet's own cable. */
+  /** The lit cable; this glyph dims when a cable other than its own is lit. */
   litCableId: string | null;
 }) {
   const cabled = inlet.cable != null;
@@ -222,7 +222,13 @@ function InletGlyph({
         onSelectPort(inlet.id);
       }}
     >
-      <C14 cabled={cabled} title={title} scale={glyphScale} className={inlet.fitted ? undefined : 'drawing-chassis__inlet--unfitted'} />
+      <C14
+        cabled={cabled}
+        title={title}
+        className={
+          inlet.fitted ? 'drawing-port-glyph--budgeted' : 'drawing-port-glyph--budgeted drawing-chassis__inlet--unfitted'
+        }
+      />
       <Handle
         type="source"
         position={Position.Right}
@@ -242,12 +248,10 @@ function InletGlyph({
 function InletStrip({
   inlets,
   onSelectPort,
-  glyphScale,
   litCableId,
 }: {
   inlets: InletView[];
   onSelectPort: (portId: string) => void;
-  glyphScale: number;
   litCableId: string | null;
 }) {
   const byRow = new Map<string, InletView[]>();
@@ -266,7 +270,7 @@ function InletStrip({
             {[...rowInlets]
               .sort((a, b) => (a.position?.column ?? 0) - (b.position?.column ?? 0))
               .map((inlet) => (
-                <InletGlyph key={inlet.id} inlet={inlet} onSelectPort={onSelectPort} glyphScale={glyphScale} litCableId={litCableId} />
+                <InletGlyph key={inlet.id} inlet={inlet} onSelectPort={onSelectPort} litCableId={litCableId} />
               ))}
           </div>
         </div>
@@ -293,23 +297,20 @@ function InletStrip({
  * and an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
  * blank and never invented — same rule, same word, as `Editor.tsx`. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
-  const { chassis, ports, inlets, elevation, selected, portOpacity, onSelectPort, liveDrag, portSheath, litCableId } = data;
-  const { zoom } = useViewport();
+  countRender();
+  const { chassis, ports, inlets, elevation, onSelectPort, portSheath } = data;
+  const myCableIds = useMyCableIds(chassis);
+  const { selected, litCableId, liveDrag, dimmed } = useChassisLiveData(chassis.id, myCableIds);
   const rows = portRows(ports);
   const height = chassis.heightU * U_PX;
-  const hostnameFontPx = counterScaledFontPx(HOSTNAME_BASE_PX, zoom);
   const portsBudgetPx = Math.max(0, height - HEADER_MIN_PX);
-  // Session 5 fix for the "1U box's port glyphs overflow its bottom edge at
-  // the faceplate stop" defect (`docs/STATE.md`, carried from session 4):
-  // a paired top/bottom faceplate draws two `PortRow`s sharing one box, and
-  // handing each row the *whole* budget (the old code) let their combined
-  // content ask for roughly double the box's real height.
-  // `portRowBudgetPx` divides it first — see `geometry.ts` for the fix.
-  // ADR-0050 §1: the rear elevation's inlet strip is one more row sharing
-  // that same budget, on top of whatever ordinary port rows this face has.
+  // A paired top/bottom faceplate draws two port rows sharing one box; the
+  // rear elevation's inlet strip is one more row sharing the same budget.
   const showInletStrip = elevation === 'rear' && inlets.length > 0;
   const inletRowCount = showInletStrip ? new Set(inlets.map((i) => i.position?.row ?? 'single')).size : 0;
-  const glyphScale = glyphScaleFittingBudget(zoom, portRowBudgetPx(portsBudgetPx, rows.length + inletRowCount));
+  // No live zoom here (no node reads the viewport) — this is the budget
+  // half only; `drawing.css` takes the smaller of it and `1 / var(--zoom)`.
+  const glyphBudgetCap = glyphScaleBudgetCap(portRowBudgetPx(portsBudgetPx, rows.length + inletRowCount));
   const hasHostname = chassis.hostname.length > 0;
   // UI-SPEC "Keeping it readable" / "Power": an unpowered chassis (no PSU
   // inlet the catalogue knows of — `paths.ts`'s own `isPanel`, its file
@@ -327,11 +328,18 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   const usage = pduUsage({ ports });
   const plainPlate = ports.length === 0 && inlets.length === 0;
 
+  const className = [
+    'drawing-chassis',
+    selected ? 'drawing-chassis--selected' : '',
+    // Plate stays above, dimmed, while its config drawer is open.
+    dimmed ? 'drawing-chassis-node--dimmed' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const style = { height, '--budget-cap': glyphBudgetCap } as CSSProperties;
+
   return (
-    <div
-      className={selected ? 'drawing-chassis drawing-chassis--selected' : 'drawing-chassis'}
-      style={{ height }}
-    >
+    <div className={className} style={style}>
       <div className="drawing-chassis__header">
         {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
         <span
@@ -340,7 +348,6 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
               ? 'drawing-chassis__hostname'
               : 'drawing-chassis__hostname drawing-chassis__hostname--placeholder'
           }
-          style={{ fontSize: hostnameFontPx }}
         >
           {hasHostname ? chassis.hostname : UNNAMED_HOSTNAME}
         </span>
@@ -359,24 +366,17 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
         {!plainPlate && <span className="drawing-chassis__model">{usage ? pduUsageLabel(usage) : chassis.model || ABSENT}</span>}
       </div>
       {!plainPlate && (
-        <div
-          className="drawing-chassis__ports"
-          style={{ opacity: portOpacity, gap: PORT_ROW_GAP_PX }}
-          aria-hidden={portOpacity === 0}
-        >
+        <div className="drawing-chassis__ports" style={{ gap: PORT_ROW_GAP_PX }}>
           {rows.map((row, i) => (
             <PortRow
               key={i}
               ports={row}
               onSelectPort={onSelectPort}
-              glyphScale={glyphScale}
               liveDrag={liveDrag}
               portSheath={portSheath}
             />
           ))}
-          {showInletStrip && (
-            <InletStrip inlets={inlets} onSelectPort={onSelectPort} glyphScale={glyphScale} litCableId={litCableId} />
-          )}
+          {showInletStrip && <InletStrip inlets={inlets} onSelectPort={onSelectPort} litCableId={litCableId} />}
         </div>
       )}
       {/* A bundle band (`bundles.ts`, `Drawing.tsx`) connects two chassis,

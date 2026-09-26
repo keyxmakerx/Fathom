@@ -18,6 +18,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -127,6 +128,7 @@ try {
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
+  await applyDriveCpuThrottle(page);
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
@@ -213,12 +215,18 @@ try {
     const midX = (box0.x + box0.width / 2 + box1.x + box1.width / 2) / 2;
     const midY = (box0.y + box0.height / 2 + box1.y + box1.height / 2) / 2;
     await page.mouse.move(midX, midY);
-    for (let i = 0; i < 10; i += 1) {
+    // Wheels until the camera reads the faceplate stop: a tick's size varies
+    // under throttling, so a fixed count can overshoot.
+    for (let i = 0; i < 15; i += 1) {
+      const stop = await page.locator('.drawing').getAttribute('data-camera-stop');
+      if (stop === 'faceplate') break;
       await page.mouse.wheel(0, -240);
       await page.waitForTimeout(50);
     }
   }
   await page.waitForTimeout(300);
+  const reachedFaceplate = (await page.locator('.drawing').getAttribute('data-camera-stop')) === 'faceplate';
+  check('zoomed to the faceplate stop', reachedFaceplate);
 
   const chassisNodes = page.locator('.react-flow__node-chassis');
   const fromPort = chassisNodes.nth(0).locator('[data-port-id]').first();

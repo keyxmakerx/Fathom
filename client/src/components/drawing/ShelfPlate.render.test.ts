@@ -4,7 +4,8 @@ import { ReactFlowProvider, type NodeProps } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 
 import type { OccupantView, ShelfView } from '../../document/view';
-import type { PortView } from './contract';
+import type { PortView, Selection } from './contract';
+import { createLiveStore, LiveStoreProvider, type LiveState } from './liveStore';
 import { ShelfPlate, shelfPlateMode, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
 
 // Render-to-string smoke tests only, per `ColourPicker.render.test.ts`'s own
@@ -44,12 +45,18 @@ function shelf(overrides: Partial<ShelfView> & Pick<ShelfView, 'id'>): ShelfView
   return { label: overrides.id, positionU: 20, heightU: 2, occupants: [], ...overrides };
 }
 
-function renderShelf(data: ShelfPlateNodeData): string {
+function renderShelf(data: ShelfPlateNodeData, live: Partial<LiveState> = {}): string {
+  const store = createLiveStore();
+  if (Object.keys(live).length > 0) store.setState(live);
   return renderToStaticMarkup(
     createElement(
       ReactFlowProvider,
       null,
-      createElement(ShelfPlate, { data } as unknown as NodeProps<ShelfPlateNodeType>),
+      createElement(
+        LiveStoreProvider,
+        { value: store },
+        createElement(ShelfPlate, { data } as unknown as NodeProps<ShelfPlateNodeType>),
+      ),
     ),
   );
 }
@@ -59,15 +66,11 @@ const noop = () => {};
 function baseData(overrides: Partial<ShelfPlateNodeData> & Pick<ShelfPlateNodeData, 'shelf'>): ShelfPlateNodeData {
   return {
     elevation: 'front',
-    selected: false,
     slotCount: null,
-    selectedOccupantId: null,
     onSelectShelf: noop,
     onSelectOccupant: noop,
     onSelectPort: noop,
-    liveDrag: null,
     portSheath: new Map(),
-    litCableId: null,
     ...overrides,
   };
 }
@@ -174,13 +177,15 @@ describe('ShelfPlate (render-to-string)', () => {
 
   it('the faceplate-stop inset does not open at the rack stop even when an occupant is selected', () => {
     const s = shelf({ id: 'shelf-a01', occupants: [occupant({ id: 'nuc-01', slot: 1 })] });
-    const markup = renderShelf(baseData({ shelf: s, selectedOccupantId: 'nuc-01' }));
+    const selected: Selection = { kind: 'occupant', id: 'nuc-01' };
+    const markup = renderShelf(baseData({ shelf: s }), { selected });
     expect(markup).not.toContain('drawing-shelf__inset');
   });
 
   it('selecting the shelf itself carries the selected modifier class', () => {
     const s = shelf({ id: 'shelf-a01' });
-    const markup = renderShelf(baseData({ shelf: s, selected: true }));
+    const selected: Selection = { kind: 'shelf', id: 'shelf-a01' };
+    const markup = renderShelf(baseData({ shelf: s }), { selected });
     expect(markup).toContain('drawing-shelf--selected');
   });
 });
