@@ -3,7 +3,8 @@ import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflo
 import { C14 } from '../ports';
 import type { Facing, FaceplateItem } from './elevation';
 import type { RackView } from './contract';
-import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, counterScaledFontPx, sortFreeRuns } from './geometry';
+import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, cameraStopAt, counterScaledFontPx, sortFreeRuns } from './geometry';
+import { useLive } from './liveStore';
 
 /** The rack label's and U numbers' flow-space size at the rack stop —
  * `drawing.css`'s own `--t-micro` (10px) and 8px, kept here so
@@ -27,13 +28,6 @@ const PSU_HEX_GAP_PX = 10;
 
 export interface RackNodeData extends Record<string, unknown> {
   rack: RackView;
-  selected: boolean;
-  /** Set while a palette item or a chassis is being dragged over this rack,
-   * with whether the run it would land on is free. `null` when nothing is
-   * being dragged over it. */
-  dropPreview: { fromU: number; toU: number; valid: boolean } | null;
-  /** True for the ~180ms after a drop this rack refused, for the shake. */
-  shaking: boolean;
   /** Every mounted chassis, resolved for this rack's current elevation
    * (`elevation.ts`'s own `faceplateItems`) — ADR-0050 §1: unlike the
    * retired `faces.ts` flip, every chassis draws at every elevation, so this
@@ -47,9 +41,6 @@ export interface RackNodeData extends Record<string, unknown> {
    * control below. */
   elevation: Facing;
   onFlip: () => void;
-  /** The rack stop's own `front | rear` control — hidden at the closet stop,
-   * where the row's own header control governs instead (`Drawing.tsx`). */
-  showFlip: boolean;
   /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
    * for" — hovering one calls this with its own inlet's cable id (`null` on
    * leave, or when the inlet carries no cable to light), the exact
@@ -60,6 +51,21 @@ export interface RackNodeData extends Record<string, unknown> {
 }
 
 export type RackNodeType = Node<RackNodeData, 'rack'>;
+
+/** GitHub issue #66: `selected`, `dropPreview`, `shaking` and `showFlip`
+ * used to live on `RackNodeData` above — see `ChassisNode.tsx`'s own
+ * `useChassisLiveData` for why that meant an unrelated hover or drag
+ * rebuilt this rack's own node object too. `selected`/`dropPreview`/
+ * `shaking` come from `liveStore.ts` now; `showFlip` is zoom-derived
+ * (`cameraStop === 'rack'`), so it is read straight off React Flow's own
+ * `useViewport`, the same reading `ChassisNode.tsx`'s own `portOpacity`
+ * gives. */
+function useRackLiveData(rackId: string, zoomPercent: number) {
+  const selected = useLive((s) => s.selected?.kind === 'rack' && s.selected.id === rackId);
+  const dropPreview = useLive((s) => s.dropPreview[rackId] ?? null);
+  const shaking = useLive((s) => s.shakingRackId === rackId);
+  return { selected, dropPreview, shaking, showFlip: cameraStopAt(zoomPercent) === 'rack' };
+}
 
 /** One inlet's rail position: `chassis`'s own row, `index` of `count`
  * siblings on that row, centred in the rail that currently carries the
@@ -92,8 +98,9 @@ function psuSlot(rack: RackView, chassis: FaceplateItem['chassis'], index: numbe
  * carries the numbering leaves the device column, and everything positioned
  * over it, untouched. */
 export function RackNode({ data }: NodeProps<RackNodeType>) {
-  const { rack, selected, dropPreview, shaking, chassisItems, elevation, onFlip, showFlip, onHoverInlet } = data;
+  const { rack, chassisItems, elevation, onFlip, onHoverInlet } = data;
   const { zoom } = useViewport();
+  const { selected, dropPreview, shaking, showFlip } = useRackLiveData(rack.id, zoom * 100);
   const frameHeight = rack.heightU * U_PX;
   const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
   const runs = sortFreeRuns(rack.freeRuns);

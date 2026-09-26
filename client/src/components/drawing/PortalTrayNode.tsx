@@ -1,5 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
+import { useLive } from './liveStore';
+
 /**
  * `docs/UI-SPEC.md` "Portals": "Not either/or — both. The cable visibly
  * sags to the edge of the view and ends in a dashed tray there, naming
@@ -15,10 +17,14 @@ export interface PortalTrayNodeData extends Record<string, unknown> {
   label: string;
   countLabel: string;
   side: 'above' | 'below';
-  /** UI-SPEC "Portals": "When the lit path continues through it the tray's
-   * outline goes solid with the continuation named above it." Set by
-   * `Drawing.tsx` from `paths.ts`'s own `LitPath.trayKeys`. */
-  lit: boolean;
+  /** `portals.ts`'s own `PortalGroup.key` — GitHub issue #66: `lit` used to
+   * be a plain boolean here, recomputed (and so a new node object) on every
+   * render that touched `Drawing.tsx`'s own `litCableId`. This node reads
+   * its own answer from `liveStore.ts`'s `litTrayKeySet` instead, keyed by
+   * this same group key — UI-SPEC "Portals": "When the lit path continues
+   * through it the tray's outline goes solid with the continuation named
+   * above it." */
+  trayKey: string;
 }
 
 export type PortalTrayNodeType = Node<PortalTrayNodeData, 'tray'>;
@@ -26,7 +32,8 @@ export type PortalTrayNodeType = Node<PortalTrayNodeData, 'tray'>;
 export const PORTAL_TRAY_HEIGHT = 30;
 
 export function PortalTrayNode({ data }: NodeProps<PortalTrayNodeType>) {
-  const { label, countLabel, side, lit } = data;
+  const { label, countLabel, side, trayKey } = data;
+  const lit = useLive((s) => s.litTrayKeySet.has(trayKey));
   return (
     <div className={lit ? 'drawing-tray drawing-tray--lit' : 'drawing-tray'}>
       {lit && (

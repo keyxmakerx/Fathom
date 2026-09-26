@@ -4,7 +4,8 @@ import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflo
 import { C14, PORT_GLYPHS } from '../ports';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { PORT_ROW_GAP_PX, U_PX, counterScaledFontPx, glyphScaleFittingBudget, portRowBudgetPx } from './geometry';
+import { PORT_ROW_GAP_PX, U_PX, counterScaledFontPx, glyphScaleFittingBudget, portOpacity as portOpacityAt, portRowBudgetPx } from './geometry';
+import { useLive } from './liveStore';
 import { isPanel } from './paths';
 import { portKindFor } from './portGlyph';
 import { pduUsage, pduUsageLabel } from './power';
@@ -51,15 +52,7 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * so a caller can tell "rear" apart from "this chassis's own rear-mounted
    * fact," a different reason for the same word. */
   elevation: Facing;
-  selected: boolean;
-  /** UI-SPEC "Ports": 0 hides them entirely, 1 is fully hit-able. */
-  portOpacity: number;
   onSelectPort: (portId: string) => void;
-  /** Non-null while a drag-to-connect is in progress anywhere in the
-   * drawing — UI-SPEC "Cables": "Only compatible ports stay live during a
-   * drag; the rest dim." `fromPortId` itself is never dimmed (it is the
-   * lead's fixed end); every other port dims unless `livePortIds` names it. */
-  liveDrag: { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
   /** UI-SPEC "Cables": "the port a cable fills takes the sheath colour."
    * `PortView.cable` (this session's contract) names *which* cable fills a
    * port, not its sheath — the sheath lives on the `CableView` the cable's
@@ -67,16 +60,38 @@ export interface ChassisNodeData extends Record<string, unknown> {
    * `view.cables` and hands it down rather than this component reaching
    * past its own props for the cable list. */
   portSheath: ReadonlyMap<string, Sheath>;
-  /** ADR-0050 §3 / s6f #2: "the rail hexagons... light the inlet they stand
-   * for" — the cable id currently hovered (or selected), same state
-   * `RackNode.tsx`'s own `onHoverInlet` writes and a `CableEdge`'s own hover
-   * already reads via `Drawing.tsx`'s `litCableId`. `null` when nothing is
-   * lit. An inlet in the strip below compares its own `cable.cableId`
-   * against this, the same "hover key" the hexagon that lights it shares. */
-  litCableId: string | null;
+}
+
+/** GitHub issue #66: `selected`, `portOpacity`, `liveDrag` and `litCableId`
+ * used to live on `ChassisNodeData` above, which meant a hover, a zoom tick
+ * or a drag-to-connect anywhere in the drawing rebuilt THIS chassis's own
+ * node object too, on every one of those renders, whether or not this
+ * particular chassis was involved — and React Flow drops a node's measured
+ * size whenever its node object changes. They now live in `liveStore.ts`'s
+ * small external store, read here with `useLive`'s own selector so this
+ * component re-renders on its own, without needing a new `data` object from
+ * `Drawing.tsx` at all. `portOpacity` is zoom-derived, so it is read
+ * straight off React Flow's own `useViewport` instead — the same "the
+ * store nodes already subscribe to" reading, just React Flow's own rather
+ * than a new one. */
+function useChassisLiveData(chassisId: string, zoomPercent: number) {
+  const selected = useLive((s) => s.selected?.kind === 'chassis' && s.selected.id === chassisId);
+  const litCableId = useLive((s) => s.litCableId);
+  const dragFromPortId = useLive((s) => s.dragFromPortId);
+  const livePortIds = useLive((s) => s.livePortIds);
+  const dimmed = useLive((s) => s.dimmedChassisId === chassisId);
+  const liveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
+  return { selected, litCableId, liveDrag, dimmed, portOpacity: portOpacityAt(zoomPercent) };
 }
 
 export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
+
+/** UI-SPEC "Cables": "Only compatible ports stay live during a drag; the
+ * rest dim." `fromPortId` itself is never dimmed (it is the lead's fixed
+ * end); every other port dims unless `livePortIds` names it. Read from
+ * `liveStore.ts` now (`useChassisLiveData`, below), not `data` — see that
+ * function's own doc. */
+export type LiveDrag = { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
 
 function portRows(ports: PortView[]): PortView[][] {
   const byRow = new Map<number, PortView[]>();
@@ -109,7 +124,7 @@ function PortRow({
    * node does — shrunk below true size only if the row does not have room
    * for it. */
   glyphScale: number;
-  liveDrag: ChassisNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: ChassisNodeData['portSheath'];
 }) {
   function glyph(port: PortView) {
@@ -293,8 +308,9 @@ function InletStrip({
  * and an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
  * blank and never invented — same rule, same word, as `Editor.tsx`. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
-  const { chassis, ports, inlets, elevation, selected, portOpacity, onSelectPort, liveDrag, portSheath, litCableId } = data;
+  const { chassis, ports, inlets, elevation, onSelectPort, portSheath } = data;
   const { zoom } = useViewport();
+  const { selected, litCableId, liveDrag, dimmed, portOpacity } = useChassisLiveData(chassis.id, zoom * 100);
   const rows = portRows(ports);
   const height = chassis.heightU * U_PX;
   const hostnameFontPx = counterScaledFontPx(HOSTNAME_BASE_PX, zoom);
@@ -327,11 +343,23 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   const usage = pduUsage({ ports });
   const plainPlate = ports.length === 0 && inlets.length === 0;
 
+  const className = [
+    'drawing-chassis',
+    selected ? 'drawing-chassis--selected' : '',
+    // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — `dimmed`
+    // (`useChassisLiveData`, above) is the selected chassis while its
+    // config drawer is open; this used to be a `Node`-level `className`
+    // `Drawing.tsx` set on the wrapping `.react-flow__node` element
+    // itself (`drawing.css`'s own `.drawing-chassis-node--dimmed` targets
+    // whatever element carries it directly, not a descendant), so applying
+    // it to this component's own root reads the same class the same way.
+    dimmed ? 'drawing-chassis-node--dimmed' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div
-      className={selected ? 'drawing-chassis drawing-chassis--selected' : 'drawing-chassis'}
-      style={{ height }}
-    >
+    <div className={className} style={{ height }}>
       <div className="drawing-chassis__header">
         {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
         <span

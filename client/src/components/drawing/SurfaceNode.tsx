@@ -10,8 +10,10 @@ import { PORT_GLYPHS } from '../ports';
 // file headers give: `./contract.ts` (off limits this session) has not
 // widened its re-export list to carry them yet.
 import type { FixtureView } from '../../document/view';
+import type { LiveDrag } from './ChassisNode';
 import type { InletView, PortView, Sheath } from './contract';
-import { counterScaledFontPx } from './geometry';
+import { counterScaledFontPx, portOpacity as portOpacityAt } from './geometry';
+import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
 import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
 import type { SurfacePlacement } from './rows';
@@ -55,19 +57,26 @@ export interface SurfaceNodeData extends Record<string, unknown> {
    * stops the event there and calls `onSelectPort` instead, so the two never
    * fire for the same click. */
   onSelectFixture: (fixtureId: string) => void;
-  liveDrag: { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
   portSheath: ReadonlyMap<string, Sheath>;
-  litCableId: string | null;
-  /** UI-SPEC "Ports": "Ports fade in as they become big enough to hit" —
-   * the same `portOpacityAt(zoomPercent)` value every other plate in this
-   * drawing is handed (`Drawing.tsx`), not recomputed here. A fixture's own
-   * PSU inlet strip is drawn at full opacity regardless (`FixturePlate`
-   * below), the same "always shown, not gated on the camera" treatment
-   * `ChassisNode.tsx`'s own inlet strip already gets. */
-  portOpacity: number;
 }
 
 export type SurfaceNodeType = Node<SurfaceNodeData, 'surface'>;
+
+/** GitHub issue #66: `liveDrag`, `litCableId` and `portOpacity` used to
+ * live on `SurfaceNodeData` above — see `ChassisNode.tsx`'s own
+ * `useChassisLiveData` for why that meant an unrelated hover, zoom tick or
+ * drag rebuilt this surface's own node object too, even though a surface
+ * carries no `selected` concept of its own to key a store lookup by (a
+ * whole wall's worth of fixtures shares one node). `portOpacity` is
+ * zoom-derived, read straight off React Flow's own `useViewport`, the same
+ * reading `ChassisNode.tsx` gives it. */
+function useSurfaceLiveData(zoomPercent: number) {
+  const litCableId = useLive((s) => s.litCableId);
+  const dragFromPortId = useLive((s) => s.dragFromPortId);
+  const livePortIds = useLive((s) => s.livePortIds);
+  const liveDrag: LiveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
+  return { litCableId, liveDrag, portOpacity: portOpacityAt(zoomPercent) };
+}
 
 const HEADER_PX = 16;
 const LABEL_BASE_PX = 10;
@@ -116,7 +125,7 @@ interface PlateProps {
   ports: readonly PortView[];
   scale: number;
   onSelectPort: (portId: string) => void;
-  liveDrag: SurfaceNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
   opacity: number;
@@ -235,7 +244,7 @@ interface FixtureBoxProps {
   uPx: number;
   onSelectPort: (portId: string) => void;
   onSelectFixture: (fixtureId: string) => void;
-  liveDrag: SurfaceNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
   portOpacity: number;
@@ -481,7 +490,7 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
   uPx: number;
   onSelectPort: (portId: string) => void;
   onSelectFixture: (fixtureId: string) => void;
-  liveDrag: SurfaceNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
   portOpacity: number;
@@ -579,7 +588,7 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
   uPx: number;
   onSelectPort: (portId: string) => void;
   onSelectFixture: (fixtureId: string) => void;
-  liveDrag: SurfaceNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
   portOpacity: number;
@@ -650,8 +659,9 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
  * `'floor'` draws as `FloorBand` — the two shapes `design/places/renders/Surfaces.png`
  * (ADR-0051 §1/§2) shows. */
 export function SurfaceNode({ data }: NodeProps<SurfaceNodeType>) {
-  const { placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity } = data;
+  const { placement, uPx, onSelectPort, onSelectFixture, portSheath } = data;
   const { zoom } = useViewport();
+  const { liveDrag, litCableId, portOpacity } = useSurfaceLiveData(zoom * 100);
   const labelFontPx = counterScaledFontPx(LABEL_BASE_PX, zoom);
   // Port glyphs draw at true size, the same `1/zoom` reading every other
   // faceplate in this drawing uses (`geometry.ts`'s own `counterScaledGlyphScale`

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import {
   Background,
@@ -37,7 +37,6 @@ import {
   cableSagPath,
   cameraStopAt,
   overlapsRack,
-  portOpacity as portOpacityAt,
   rackAtPoint,
   snapDropToU,
   uToOffsetPx,
@@ -47,6 +46,9 @@ import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type Chassis
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
+import { IdCache, RefSignatureCache } from './idCache';
+import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider } from './liveStore';
+import { buildChassisNode } from './nodeBuild';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
 import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNodeType } from './RowLabelNode';
@@ -59,7 +61,7 @@ import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
 import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
-import { faceplateItems, powerLeadHandle, type Facing } from './elevation';
+import { faceplateItems, type FaceplateItem, powerLeadHandle, type Facing } from './elevation';
 import { layoutRow, layoutSurfaces, mirroredRackX, rowKey, type RowLayout } from './rows';
 
 const NODE_TYPES = {
@@ -296,6 +298,26 @@ function DrawingInner({
   litPortLabel,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
+
+  // GitHub issue #66: hover, selection, the lit path, drag state and
+  // zoom-derived styling live here now, not on any node's own `data` — see
+  // `liveStore.ts`'s own file header. One store per mounted drawing (never
+  // recreated across renders, `useState`'s initialiser form), provided to
+  // every node this drawing draws via `LiveStoreProvider` below.
+  const [liveStore] = useState(() => createLiveStore());
+  // GitHub issue #66, build item 2: each node object (and its `data`) keeps
+  // its reference unless the device, rack or port it draws actually
+  // changed — these four caches are what "actually changed" is decided
+  // against, keyed by id, never by comparing the whole design
+  // (`idCache.ts`'s own file header). One instance per mounted drawing,
+  // like `liveStore` above.
+  const nodeCacheRef = useRef(new IdCache<Node>());
+  const faceplateItemsCacheRef = useRef(new IdCache<readonly FaceplateItem[]>());
+  const chassisSigRef = useRef(new RefSignatureCache());
+  const rackSigRef = useRef(new RefSignatureCache());
+  const shelfSigRef = useRef(new RefSignatureCache());
+  const surfaceSigRef = useRef(new RefSignatureCache());
+  const traySigRef = useRef(new RefSignatureCache());
 
   const [rackPositions, setRackPositions] = useState<RackPositions>({});
   // s6f #3: racks a person has dragged by hand — the row-flip layout effect
@@ -617,6 +639,11 @@ function DrawingInner({
     selectedChassis != null && cameraStop === 'faceplate' ? (renderConfigDrawer?.(selectedChassis) ?? null) : null;
   const insideStopContent: ReactNode =
     selectedChassis != null && cameraStop === 'inside' ? (renderInsideStop?.(selectedChassis) ?? null) : null;
+  // GitHub issue #66: s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" —
+  // pushed to `liveStore.ts` below (`dimmedChassisId`) so `ChassisNode.tsx`
+  // applies its own dim class, rather than a `Node`-level `className` that
+  // rebuilt this chassis's own node object every time it changed.
+  const dimmedChassisId = configDrawerContent != null ? (selectedChassis?.id ?? null) : null;
 
   // ADR-0052 §1, item 2 — resolves `litPortLabel` to a port id on the
   // selected chassis only: a line in one device's drawer has no business
@@ -676,6 +703,15 @@ function DrawingInner({
     return () => matches.forEach((el) => el.classList.remove('drawing-port--shake'));
   }, [shakingPortId]);
 
+  // GitHub issue #66: identical for every chassis/shelf/surface node in
+  // this drawing — a plain forward to `onSelect`, closing over nothing
+  // node-specific — so hoisted once here rather than built fresh per node
+  // per render, the same "the outer node object's own reference should not
+  // move when nothing about that node changed" reasoning the node cache
+  // itself is built for.
+  const handleSelectPort = useCallback((portId: string) => onSelect({ kind: 'port', id: portId }), [onSelect]);
+  const handleSelectFixture = useCallback((fixtureId: string) => onSelect({ kind: 'fixture', id: fixtureId }), [onSelect]);
+
   const nodes: Node[] = [];
 
   // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — the selected
@@ -690,20 +726,26 @@ function DrawingInner({
     if (cameraStop === 'closet' && layout.racks.length > 0) {
       const key = rowKey(rowViews[rowIndex]!, rowIndex);
       const bandHeight = Math.max(0, ...layout.racks.map((r) => rackNodeHeight(r)));
-      const rowLabelData: RowLabelNodeData = {
-        label: layout.label,
-        elevation: layout.elevation,
-        onFlip: () => setRowFacing((prev) => ({ ...prev, [key]: prev[key] === 'rear' ? 'front' : 'rear' })),
-      };
-      nodes.push({
-        id: rowLabelNodeId(key),
-        type: 'rowLabel',
-        position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
-        draggable: false,
-        selectable: false,
-        style: { width: ROW_LABEL_WIDTH, height: bandHeight },
-        data: rowLabelData,
-      } satisfies RowLabelNodeType);
+      // GitHub issue #66, build item 2: this node's own reference is kept
+      // across a render `layout.label`/`.elevation`/`bandHeight`/`y` did
+      // not touch — `IdCache.get`'s own `build` thunk (`idCache.ts`) only
+      // ever runs on a miss, so a cache hit below never even builds the
+      // fresh `onFlip` closure, let alone a new node object for it.
+      nodes.push(
+        nodeCacheRef.current.get(rowLabelNodeId(key), [layout.label, layout.elevation, bandHeight, y], () => ({
+          id: rowLabelNodeId(key),
+          type: 'rowLabel',
+          position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
+          draggable: false,
+          selectable: false,
+          style: { width: ROW_LABEL_WIDTH, height: bandHeight },
+          data: {
+            label: layout.label,
+            elevation: layout.elevation,
+            onFlip: () => setRowFacing((prev) => ({ ...prev, [key]: prev[key] === 'rear' ? 'front' : 'rear' })),
+          } satisfies RowLabelNodeData,
+        })),
+      );
     }
 
     for (const rack of layout.racks) {
@@ -712,31 +754,48 @@ function DrawingInner({
       // ADR-0050 §1: every mounted chassis draws at every elevation now —
       // as its own faceplate for this face, or a plain plate when it has
       // none — so this is no longer a filtered subset the way the retired
-      // `faces.ts`'s `chassisToDraw` was.
-      const items = faceplateItems(rack.chassis, elevation);
-      const rackData: RackNodeData = {
-        rack,
-        selected: selected?.kind === 'rack' && selected.id === rack.id,
-        dropPreview: dropPreview[rack.id] ?? null,
-        shaking: shakingId === rackNodeId(rack.id),
-        chassisItems: items,
-        elevation,
-        onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
-        showFlip: cameraStop === 'rack',
-        // s6f #2: reuses `setHoveredCableId` itself — the exact function a
-        // `CableEdge`'s own `onHoverChange` already calls — so a rail
-        // hexagon's hover and a cable's own hover write the same state.
-        onHoverInlet: setHoveredCableId,
-      };
-      nodes.push({
-        id: rackNodeId(rack.id),
-        type: 'rack',
-        position: pos,
-        draggable: canDraw,
-        selectable: true,
-        style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
-        data: rackData,
-      } satisfies AnyRackNode);
+      // `faces.ts`'s `chassisToDraw` was. Cached per rack id, keyed on
+      // `rack.chassis`'s own reference and `elevation`: `view` itself is
+      // unchanged across a hover/selection/zoom/drag render (`RacksPlace.tsx`
+      // memoises it on `[doc, catalogue]`), so `rack.chassis` — and so
+      // `items`, and so every `item.ports`/`.inlets` array nested in it — is
+      // the SAME reference on every one of those renders, never rebuilt.
+      const items = faceplateItemsCacheRef.current.get(rack.id, [rack.chassis, elevation], () =>
+        faceplateItems(rack.chassis, elevation),
+      );
+
+      // `rack` itself is a fresh object on every real edit (`viewOf` rebuilds
+      // the whole `ClosetView`, structural sharing included) — this
+      // fingerprints THIS rack's own bounded slice of fields (never the
+      // design around it, `idCache.ts`'s own file header), so an edit to
+      // some OTHER device still reads as "this rack did not change" here.
+      const rackSig = rackSigRef.current.of(rack.id, {
+        label: rack.label,
+        heightU: rack.heightU,
+        freeRuns: rack.freeRuns,
+      });
+      nodes.push(
+        nodeCacheRef.current.get(rackNodeId(rack.id), [rackSig, items, elevation, pos.x, pos.y, canDraw], () => ({
+          id: rackNodeId(rack.id),
+          type: 'rack',
+          position: pos,
+          draggable: canDraw,
+          selectable: true,
+          style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
+          data: {
+            rack,
+            chassisItems: items,
+            elevation,
+            onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
+            // s6f #2: reuses `setHoveredCableId` itself — the exact function
+            // a `CableEdge`'s own `onHoverChange` already calls, and itself
+            // a `useState` setter, permanently stable — so a rail hexagon's
+            // hover and a cable's own hover write the same state, and this
+            // dependency never invalidates the cache above on its own.
+            onHoverInlet: setHoveredCableId,
+          } satisfies RackNodeData,
+        })),
+      );
 
       for (const item of items) {
         const { chassis } = item;
@@ -745,42 +804,30 @@ function DrawingInner({
           x: pos.x + RAIL_PX,
           y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
         };
-        const chassisData: ChassisNodeData = {
-          chassis,
-          ports: item.ports,
-          inlets: item.inlets,
-          elevation,
-          selected: selected?.kind === 'chassis' && selected.id === chassis.id,
-          portOpacity: portOpacityAt(zoomPercent),
-          onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
-          liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
-          portSheath,
-          // s6f #2: "the same hover key" as the rail hexagon's own
-          // `onHoverInlet` (`RackNodeData`, above) — an inlet glyph in the
-          // strip compares its own cable against this to light or dim.
-          litCableId,
-        };
-        nodes.push({
-          id,
-          type: 'chassis',
-          position: dragOverride[id] ?? basePosition,
-          draggable: canDraw,
-          selectable: true,
-          zIndex: 10,
-          style: { width: RACK_INNER_PX, height: chassis.heightU * U_PX },
-          // UI-SPEC "Config": "Plate stays above, dimmed." A plain CSS
-          // class (`drawing.css`) rather than a new `ChassisNodeData` field
-          // — `ChassisNode.tsx` is not this session's file, so the dim is
-          // applied here, on the React Flow node itself, the same seam
-          // `RowLabelNode`'s own styling already sits outside its data prop.
-          className: configDrawerContent != null && chassis.id === selectedChassis?.id ? 'drawing-chassis-node--dimmed' : undefined,
-          data: chassisData,
-        } satisfies AnyChassisNode);
+        const nodePosition = dragOverride[id] ?? basePosition;
+        // `nodeBuild.ts`'s own `buildChassisNode` — pulled out of this loop
+        // so a vitest can call the SAME code this loop calls, with the SAME
+        // caches, across more than one call (`renderToStaticMarkup` runs a
+        // component once; this needs no renderer at all to exercise twice).
+        nodes.push(
+          buildChassisNode(
+            chassis,
+            item.ports,
+            item.inlets,
+            elevation,
+            nodePosition,
+            canDraw,
+            portSheath,
+            handleSelectPort,
+            RACK_INNER_PX,
+            chassis.heightU * U_PX,
+            { nodeCache: nodeCacheRef.current, chassisSig: chassisSigRef.current },
+          ),
+        );
         if (chassis.id === selectedChassis?.id) {
-          const effective = dragOverride[id] ?? basePosition;
           selectedChassisFlowCentre = {
-            x: effective.x + RACK_INNER_PX / 2,
-            y: effective.y + (chassis.heightU * U_PX) / 2,
+            x: nodePosition.x + RACK_INNER_PX / 2,
+            y: nodePosition.y + (chassis.heightU * U_PX) / 2,
           };
         }
       }
@@ -795,48 +842,49 @@ function DrawingInner({
           x: pos.x + RAIL_PX,
           y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, shelf.positionU, shelf.heightU),
         };
-        const shelfData: ShelfPlateNodeData = {
-          shelf,
-          elevation,
-          // ADR-0051 §1, this session's brief items 1/4 — `contract.ts`'s
-          // `Selection` now names a shelf itself (`'shelf'`), alongside its
-          // occupants (`'occupant'`).
-          selected: selected?.kind === 'shelf' && selected.id === shelf.id,
-          // `api/catalogue.ts` carries no shelf slot-capacity field yet —
-          // `ShelfPlateNodeData.slotCount`'s own doc on why `null` (occupants
-          // only, no gap invented) is the honest reading until it does.
-          slotCount: null,
-          selectedOccupantId: selected?.kind === 'occupant' ? selected.id : null,
-          onSelectShelf: () => onSelect({ kind: 'shelf', id: shelf.id }),
-          onSelectOccupant: (occupantId: string) => {
-            onSelect({ kind: 'occupant', id: occupantId });
-            // Motion #10: "A box on a shelf opens at the faceplate stop by
-            // the same camera as everything else" — one continuous
-            // `setCenter`, the same camera every other zoom change in this
-            // drawing already moves, never a second, independent jump.
-            const centreX = shelfPosition.x + RACK_INNER_PX / 2;
-            const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
-            void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
-          },
-          onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
-          liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
-          portSheath,
-          litCableId,
-        };
-        nodes.push({
-          id: shelfNodeId(shelf.id),
-          type: 'shelf',
-          position: shelfPosition,
-          // Selection/opening is handled inside `ShelfPlate.tsx` itself
-          // (its own `onClick`, stopped before it reaches React Flow) —
-          // the same `draggable: false, selectable: false` choice this
-          // component already makes for a `SurfaceNode`, above.
-          draggable: false,
-          selectable: false,
-          zIndex: 10,
-          style: { width: RACK_INNER_PX, height: shelf.heightU * U_PX },
-          data: shelfData,
-        } satisfies ShelfPlateNodeType);
+        const shelfSig = shelfSigRef.current.of(shelf.id, shelf);
+        nodes.push(
+          nodeCacheRef.current.get(
+            shelfNodeId(shelf.id),
+            [shelfSig, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort],
+            () => ({
+              id: shelfNodeId(shelf.id),
+              type: 'shelf',
+              position: shelfPosition,
+              // Selection/opening is handled inside `ShelfPlate.tsx` itself
+              // (its own `onClick`, stopped before it reaches React Flow) —
+              // the same `draggable: false, selectable: false` choice this
+              // component already makes for a `SurfaceNode`, above.
+              draggable: false,
+              selectable: false,
+              zIndex: 10,
+              style: { width: RACK_INNER_PX, height: shelf.heightU * U_PX },
+              data: {
+                shelf,
+                elevation,
+                // `api/catalogue.ts` carries no shelf slot-capacity field
+                // yet — `ShelfPlateNodeData.slotCount`'s own doc on why
+                // `null` (occupants only, no gap invented) is the honest
+                // reading until it does.
+                slotCount: null,
+                onSelectShelf: () => onSelect({ kind: 'shelf', id: shelf.id }),
+                onSelectOccupant: (occupantId: string) => {
+                  onSelect({ kind: 'occupant', id: occupantId });
+                  // Motion #10: "A box on a shelf opens at the faceplate
+                  // stop by the same camera as everything else" — one
+                  // continuous `setCenter`, the same camera every other
+                  // zoom change in this drawing already moves, never a
+                  // second, independent jump.
+                  const centreX = shelfPosition.x + RACK_INNER_PX / 2;
+                  const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
+                  void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
+                },
+                onSelectPort: handleSelectPort,
+                portSheath,
+              } satisfies ShelfPlateNodeData,
+            }),
+          ),
+        );
       }
     }
   });
@@ -897,27 +945,37 @@ function DrawingInner({
   );
 
   for (const placement of [...surfacesLayout.panels, ...(surfacesLayout.floor ? [surfacesLayout.floor] : [])]) {
-    const surfaceData: SurfaceNodeData = {
-      placement,
-      uPx: U_PX,
-      onSelectPort: (portId: string) => onSelect({ kind: 'port', id: portId }),
-      // ADR-0051 §1/§2, this session's brief item 3 — "clicking a fixture on
-      // a surface selects it."
-      onSelectFixture: (fixtureId: string) => onSelect({ kind: 'fixture', id: fixtureId }),
-      liveDrag: dragFromPortId ? { fromPortId: dragFromPortId, livePortIds: livePortIds ?? new Set() } : null,
-      portSheath,
-      litCableId,
-      portOpacity: portOpacityAt(zoomPercent),
-    };
-    nodes.push({
-      id: surfaceNodeId(placement.surface.id),
-      type: 'surface',
-      position: { x: placement.x, y: placement.y },
-      draggable: false,
-      selectable: false,
-      style: { width: placement.widthPx, height: placement.heightPx },
-      data: surfaceData,
-    } satisfies SurfaceNodeType);
+    // `placement` itself carries the whole surface, fixtures and all — see
+    // `rows.ts`'s own `SurfacePlacement`. Fingerprinted the same way a
+    // rack/chassis/shelf is (`idCache.ts`'s own file header): a hover- or
+    // zoom-only render reuses this instantly (`view` itself unchanged,
+    // `surfacesLayout`'s own `useMemo` above keeps `placement`'s reference
+    // too), a real edit re-stringifies only this one surface's own bounded
+    // slice.
+    const surfaceSig = surfaceSigRef.current.of(placement.surface.id, placement);
+    nodes.push(
+      nodeCacheRef.current.get(
+        surfaceNodeId(placement.surface.id),
+        [surfaceSig, portSheath, handleSelectPort, handleSelectFixture],
+        () => ({
+          id: surfaceNodeId(placement.surface.id),
+          type: 'surface',
+          position: { x: placement.x, y: placement.y },
+          draggable: false,
+          selectable: false,
+          style: { width: placement.widthPx, height: placement.heightPx },
+          data: {
+            placement,
+            uPx: U_PX,
+            onSelectPort: handleSelectPort,
+            // ADR-0051 §1/§2, this session's brief item 3 — "clicking a
+            // fixture on a surface selects it."
+            onSelectFixture: handleSelectFixture,
+            portSheath,
+          } satisfies SurfaceNodeData,
+        }),
+      ),
+    );
   }
 
   // This session's brief items 2/3 — "Go to far end"/"Go to end A/B ...
@@ -983,22 +1041,38 @@ function DrawingInner({
       group.side === 'above'
         ? pos.y - (slot + 1) * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX)
         : pos.y + rackNodeHeight(rack) + TRAY_GAP_PX + slot * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX);
-    const trayData: PortalTrayNodeData = {
-      label: group.label,
-      countLabel: portalCountLabel(group),
-      side: group.side,
-      lit: litTrayKeySet.has(group.key),
-    };
-    nodes.push({
-      id: trayNodeId(group.key),
-      type: 'tray',
-      position: { x: pos.x, y },
-      draggable: false,
-      selectable: false,
-      style: { width: RACK_NODE_WIDTH, height: PORTAL_TRAY_HEIGHT },
-      data: trayData,
-    } satisfies AnyTrayNode);
+    // `lit` used to live on `data` directly, rebuilt (and so this tray's
+    // node object rebuilt) every time `litCableId` changed anywhere in the
+    // drawing — `PortalTrayNode.tsx` now reads its own answer off
+    // `liveStore.ts`'s `litTrayKeySet` itself, keyed by `group.key`
+    // (`trayKey` below).
+    const traySig = traySigRef.current.of(group.key, group);
+    nodes.push(
+      nodeCacheRef.current.get(trayNodeId(group.key), [traySig, pos.x, y], () => ({
+          id: trayNodeId(group.key),
+          type: 'tray',
+          position: { x: pos.x, y },
+          draggable: false,
+          selectable: false,
+          style: { width: RACK_NODE_WIDTH, height: PORTAL_TRAY_HEIGHT },
+          data: {
+            label: group.label,
+            countLabel: portalCountLabel(group),
+            side: group.side,
+            trayKey: group.key,
+          } satisfies PortalTrayNodeData,
+        }),
+      ),
+    );
   }
+
+  // GitHub issue #66: drop any node this render never asked the cache for —
+  // a rack, chassis, shelf, surface or tray a document edit removed. The
+  // `RefSignatureCache`s above are left to grow slowly instead (small
+  // strings, keyed by an id that is itself gone from `view` the moment the
+  // thing it named is removed) rather than threading a second "every id
+  // still live" set through four loops for what stays a bounded cost.
+  nodeCacheRef.current.sweep();
 
   // ADR-0050 §1: "in the rear elevation a power lead ends on the inlet on
   // the face; in the front elevation it ends on the rail hexagon as today."
@@ -1389,7 +1463,29 @@ function DrawingInner({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selected, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
 
+  // GitHub issue #66: the one place this drawing writes to `liveStore.ts`.
+  // `useLayoutEffect`, not `useEffect` — this commits before the browser
+  // paints, so a node subscribed to one of these (`ChassisNode.tsx`'s
+  // `useChassisLiveData` and its siblings) never draws one frame stale
+  // after a click or a drop. Every value here is already computed above for
+  // this render's own `edges`/camera-recentre logic; this is the only place
+  // that turns them into something a node can subscribe to piecemeal
+  // instead of receiving whole through `data`.
+  useLayoutEffect(() => {
+    liveStore.setState({
+      selected,
+      litCableId,
+      litTrayKeySet,
+      dragFromPortId,
+      livePortIds: livePortIds ?? EMPTY_STRING_SET,
+      dropPreview,
+      shakingRackId: shakingId,
+      dimmedChassisId,
+    });
+  }, [liveStore, selected, litCableId, litTrayKeySet, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId]);
+
   return (
+    <LiveStoreProvider value={liveStore}>
     <div className="drawing" ref={containerRef} onDrop={handleDrop} onDragOver={handleDragOver}>
       <ReactFlow
         nodes={nodes}
@@ -1470,6 +1566,7 @@ function DrawingInner({
         </div>
       )}
     </div>
+    </LiveStoreProvider>
   );
 }
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FixtureView, SurfaceView } from '../../document/view';
 import type { InletView, PortView } from './contract';
+import { LiveStoreProvider, createLiveStore } from './liveStore';
 import type { SurfacePlacement } from './rows';
 import { mmToPx } from './rows';
 import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
@@ -72,9 +73,22 @@ function placement(s: SurfaceView, overrides: Partial<SurfacePlacement> = {}): S
   return { surface: s, x: 0, y: 0, widthPx: 340, heightPx: PANEL_HEIGHT_PX, ...overrides };
 }
 
+// GitHub issue #66: `liveDrag`/`litCableId` moved off `data` and onto
+// `liveStore.ts`'s own store (`SurfaceNode.tsx`'s own file header); a
+// fresh, empty store gives every test below the same `liveDrag: null`,
+// `litCableId: null` reading the old `baseData` defaults did.
 function renderSurface(data: SurfaceNodeData): string {
+  const store = createLiveStore();
   return renderToStaticMarkup(
-    createElement(ReactFlowProvider, null, createElement(SurfaceNode, { data } as unknown as NodeProps<SurfaceNodeType>)),
+    createElement(
+      ReactFlowProvider,
+      null,
+      createElement(
+        LiveStoreProvider,
+        { value: store },
+        createElement(SurfaceNode, { data } as unknown as NodeProps<SurfaceNodeType>),
+      ),
+    ),
   );
 }
 
@@ -85,10 +99,7 @@ function baseData(overrides: Partial<SurfaceNodeData> & Pick<SurfaceNodeData, 'p
     uPx: U_PX,
     onSelectPort: noop,
     onSelectFixture: noop,
-    liveDrag: null,
     portSheath: new Map(),
-    litCableId: null,
-    portOpacity: 1,
     ...overrides,
   };
 }
@@ -152,7 +163,7 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).not.toContain('drawing-surface__typed');
   });
 
-  it("a fixture's ports draw with real handles, at portOpacity", () => {
+  it("a fixture's ports draw with real handles, at whatever portOpacity the current zoom gives", () => {
     const f = fixture({
       id: 'outlet-w1',
       label: 'outlet-w1',
@@ -161,7 +172,7 @@ describe('SurfaceNode (render-to-string)', () => {
       ports: [port({ id: 'outlet-port-1', label: '1' })],
     });
     const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
-    const markup = renderSurface(baseData({ placement: placement(s), portOpacity: 0.5 }));
+    const markup = renderSurface(baseData({ placement: placement(s) }));
     expect(markup).toContain('data-port-id="outlet-port-1"');
   });
 
@@ -174,7 +185,7 @@ describe('SurfaceNode (render-to-string)', () => {
       psuInlets: [inlet({ id: 'ont-inlet-1', label: 'inlet' })],
     });
     const s = surface({ id: 'wall-west', label: 'west wall', form: 'wall', fixtures: [f] });
-    const markup = renderSurface(baseData({ placement: placement(s), portOpacity: 0 }));
+    const markup = renderSurface(baseData({ placement: placement(s) }));
     expect(markup).toContain('data-port-id="ont-inlet-1"');
   });
 

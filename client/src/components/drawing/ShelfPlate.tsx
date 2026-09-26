@@ -10,6 +10,7 @@ import { PORT_GLYPHS } from '../ports';
 // session) has not widened its re-export list to carry them yet.
 import type { OccupantView, ShelfView } from '../../document/view';
 import type { PortView, Sheath } from './contract';
+import type { LiveDrag } from './ChassisNode';
 import { shelfOccupantFaceplateItems, type Facing } from './elevation';
 import {
   U_PX,
@@ -18,6 +19,7 @@ import {
   counterScaledGlyphScale,
   glyphScaleFittingBudget,
 } from './geometry';
+import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
 import { SHEATH_VAR } from './sheath';
 
@@ -48,7 +50,6 @@ function isPatchFacing(occupant: Pick<OccupantView, 'kind' | 'ports'>): boolean 
 export interface ShelfPlateNodeData extends Record<string, unknown> {
   shelf: ShelfView;
   elevation: Facing;
-  selected: boolean;
   /** `design/places/renders/Shelf.png`: an occupied shelf's own render shows
    * a box per occupant with no gap between them. Neither `ShelfView` nor
    * `api/catalogue.ts` carries a shelf's own slot capacity yet (this
@@ -56,29 +57,38 @@ export interface ShelfPlateNodeData extends Record<string, unknown> {
    * one, which draws occupants only, no gap invented for a capacity nobody
    * stated. */
   slotCount: number | null;
-  /** Which occupant (if any) is open at the faceplate stop — UI-SPEC
-   * "Places" / "Motion" #10: "A box on a shelf opens at the
-   * faceplate stop by the same camera as everything else." Opening is the
-   * conjunction of this and the camera actually being at the faceplate stop
-   * (read locally off `useViewport`, the same way `RackNode`/`ChassisNode`
-   * read their own zoom) — never a second, independent toggle. */
-  selectedOccupantId: string | null;
   onSelectShelf: () => void;
   onSelectOccupant: (occupantId: string) => void;
   onSelectPort: (portId: string) => void;
-  liveDrag: { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
   portSheath: ReadonlyMap<string, Sheath>;
-  litCableId: string | null;
 }
 
 export type ShelfPlateNodeType = Node<ShelfPlateNodeData, 'shelf'>;
+
+/** GitHub issue #66: `selected`, `selectedOccupantId`, `liveDrag` and
+ * `litCableId` used to live on `ShelfPlateNodeData` above — see
+ * `ChassisNode.tsx`'s own `useChassisLiveData` for why that meant an
+ * unrelated hover, selection or drag rebuilt this shelf's own node object
+ * too. `selectedOccupantId` is "which occupant (if any) is open at the
+ * faceplate stop" — UI-SPEC "Places" / "Motion" #10 — read here off the
+ * SAME `selected` the store already carries, never a second, independent
+ * toggle. */
+function useShelfLiveData(shelfId: string) {
+  const selected = useLive((s) => s.selected?.kind === 'shelf' && s.selected.id === shelfId);
+  const selectedOccupantId = useLive((s) => (s.selected?.kind === 'occupant' ? s.selected.id : null));
+  const litCableId = useLive((s) => s.litCableId);
+  const dragFromPortId = useLive((s) => s.dragFromPortId);
+  const livePortIds = useLive((s) => s.livePortIds);
+  const liveDrag: LiveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
+  return { selected, selectedOccupantId, litCableId, liveDrag };
+}
 
 interface GlyphRowProps {
   ports: PortView[];
   scale: number;
   showLabels: boolean;
   onSelectPort: (portId: string) => void;
-  liveDrag: ShelfPlateNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: ShelfPlateNodeData['portSheath'];
   litCableId: string | null;
 }
@@ -174,7 +184,7 @@ function OccupantBox({
   zoom: number;
   onSelectOccupant: () => void;
   onSelectPort: (portId: string) => void;
-  liveDrag: ShelfPlateNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: ShelfPlateNodeData['portSheath'];
   litCableId: string | null;
 }) {
@@ -257,7 +267,7 @@ function OccupantInset({
   ports: PortView[];
   zoom: number;
   onSelectPort: (portId: string) => void;
-  liveDrag: ShelfPlateNodeData['liveDrag'];
+  liveDrag: LiveDrag;
   portSheath: ShelfPlateNodeData['portSheath'];
   litCableId: string | null;
 }) {
@@ -318,19 +328,8 @@ export function shelfPlateMode(heightU: number): 'compact' | 'full' {
 }
 
 export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
-  const {
-    shelf,
-    elevation,
-    selected,
-    slotCount,
-    selectedOccupantId,
-    onSelectShelf,
-    onSelectOccupant,
-    onSelectPort,
-    liveDrag,
-    portSheath,
-    litCableId,
-  } = data;
+  const { shelf, elevation, slotCount, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
+  const { selected, selectedOccupantId, litCableId, liveDrag } = useShelfLiveData(shelf.id);
   const { zoom } = useViewport();
   const zoomPercent = Math.round(zoom * 100);
   const cameraStop = cameraStopAt(zoomPercent);
