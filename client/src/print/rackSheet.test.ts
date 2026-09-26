@@ -1,8 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChassisView, OccupantView, ShelfView } from '../document/view';
+import type { ChassisView, OccupantView, PortView, ShelfView } from '../document/view';
 import { contentHeightMm } from './paper';
-import { elevationHeightMm, elevationItemsOf, elevationRowMm, paginateRackTableByHeight, rackDeviceRows, type RackDeviceRow } from './rackSheet';
+import {
+  dedupeCableLines,
+  elevationCableLines,
+  elevationHeightMm,
+  elevationItemsOf,
+  elevationRowMm,
+  emptyUnitRows,
+  faceplateGlyphRows,
+  facePortGlyphs,
+  paginateRackTableByHeight,
+  rackDeviceRows,
+  type ElevationCableLine,
+  type RackDeviceRow,
+} from './rackSheet';
+
+function port(id: string, overrides: Partial<PortView> = {}): PortView {
+  return {
+    id,
+    label: id,
+    connector: 'rj45',
+    row: 0,
+    column: 0,
+    uplink: false,
+    role: null,
+    face: 'front',
+    passThroughId: null,
+    cable: null,
+    ...overrides,
+  };
+}
 
 function chassis(id: string, positionU: number, heightU = 1, overrides: Partial<ChassisView> = {}): ChassisView {
   return {
@@ -140,5 +169,91 @@ describe('paginateRackTableByHeight', () => {
     const rows = ['a'].map((n) => ({ row: row(n), heightPx: 10 }));
     const pages = paginateRackTableByHeight(rows, -5, 25);
     expect(pages.map((p) => p.map((r) => r.name))).toEqual([[], ['a']]);
+  });
+});
+
+describe('faceplateGlyphRows', () => {
+  it('groups ports by row, ascending, each row by column', () => {
+    const ports = [port('b', { row: 0, column: 1 }), port('a', { row: 0, column: 0 }), port('c', { row: 1, column: 0 })];
+    const rows = faceplateGlyphRows(ports);
+    expect(rows.map((r) => r.map((p) => p.id))).toEqual([['a', 'b'], ['c']]);
+  });
+
+  it('a sketch device\'s ports all share row 0, so they still draw as one row', () => {
+    const ports = [port('eth0', { row: 0, column: 0 }), port('eth1', { row: 0, column: 1 })];
+    expect(faceplateGlyphRows(ports)).toHaveLength(1);
+  });
+});
+
+describe('facePortGlyphs', () => {
+  it('one glyph per port, left to right within the body width', () => {
+    const ports = [port('a', { column: 0 }), port('b', { column: 1 })];
+    const glyphs = facePortGlyphs(ports, 70);
+    expect(glyphs).toHaveLength(2);
+    expect(glyphs[0].x).toBeLessThan(glyphs[1].x);
+  });
+
+  it('a C14 connector draws as the hex inlet shape, an RJ45 as a rectangle', () => {
+    const glyphs = facePortGlyphs([port('p', { connector: 'c14' })], 70);
+    expect(glyphs[0].shape).toBe('hex');
+    expect(facePortGlyphs([port('p', { connector: 'rj45' })], 70)[0].shape).toBe('rect');
+  });
+
+  it('shrinks to fit rather than overflow the body, for a great many ports', () => {
+    const ports = Array.from({ length: 48 }, (_, i) => port(`p${i}`, { column: i }));
+    const glyphs = facePortGlyphs(ports, 70);
+    const last = glyphs[glyphs.length - 1];
+    expect(last.x + last.w).toBeLessThanOrEqual(70 - 2 + 0.01);
+  });
+
+  it('right-aligns a row when asked, for inlets at the body\'s far edge', () => {
+    const glyphs = facePortGlyphs([port('p')], 70, { rightAlign: true });
+    expect(glyphs[0].x).toBeGreaterThan(35);
+  });
+
+  it('stacks a later row below an earlier one via rowOffset', () => {
+    const glyphs = facePortGlyphs([port('p')], 70, { rowOffset: 2 });
+    const bare = facePortGlyphs([port('p')], 70)[0];
+    expect(glyphs[0].y).toBeGreaterThan(bare.y);
+  });
+});
+
+describe('emptyUnitRows', () => {
+  it('every physical row nothing occupies, top-down index', () => {
+    // A 4U rack, one 1U item at the very top (positionU 4) — rows 1,2,3
+    // (physical, 0 = top) are empty.
+    expect(emptyUnitRows(4, [{ positionU: 4, heightU: 1 }])).toEqual([1, 2, 3]);
+  });
+
+  it('nothing empty when every unit is covered', () => {
+    expect(emptyUnitRows(2, [{ positionU: 1, heightU: 2 }])).toEqual([]);
+  });
+});
+
+describe('elevationCableLines', () => {
+  it('names both ends by hostname and port, for the "Cables:" hop list', () => {
+    const a = chassis('a', 2, 1, { ports: [port('a-p0', { cable: { cableId: 'cbl-1', farPortId: 'b-p0', farChassisId: 'b', outsideCloset: false } })] });
+    const b = chassis('b', 1, 1, { hostname: 'b-host', ports: [port('b-p0', { label: 'eth0' })] });
+    const lines = elevationCableLines([a, b], 'front');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].fromText).toBe('a a-p0');
+    expect(lines[0].toText).toBe('b-host eth0');
+  });
+});
+
+describe('dedupeCableLines', () => {
+  it('keeps one line per cable id, first seen', () => {
+    const line = (cableId: string, sheath: string | null = null): ElevationCableLine => ({
+      fromChassisId: 'a',
+      toChassisId: 'b',
+      fromPortId: 'a-p',
+      toPortId: 'b-p',
+      fromText: 'a p',
+      toText: 'b p',
+      cableId,
+      sheath,
+    });
+    const out = dedupeCableLines([line('c1'), line('c2'), line('c1')]);
+    expect(out.map((l) => l.cableId)).toEqual(['c1', 'c2']);
   });
 });

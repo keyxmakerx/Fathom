@@ -24,6 +24,14 @@ export interface PrintMeta {
   printedAt: Date;
 }
 
+/** The page header's own two halves — bold title left, muted detail right
+ * (the board's `.sh-t`/`.sh-r`), e.g. "Rack R1 · Loft" and "front and rear
+ * · 24U · 8 devices · cables: all". */
+export interface SheetHeading {
+  title: string;
+  detail: string;
+}
+
 export interface RackSheetUnpaginated {
   kind: 'rack';
   rackId: string;
@@ -36,14 +44,14 @@ export interface RackSheetUnpaginated {
   frontCables: ElevationCableLine[];
   rearCables: ElevationCableLine[];
   deviceRows: RackDeviceRow[];
-  sheetLabel: string;
+  heading: SheetHeading;
 }
 
 export interface CutSheetUnpaginated {
   kind: 'cutsheet';
   columnHeader: CutSheetTableRow;
   bodyRows: CutSheetBodyRow[];
-  sheetLabel: string;
+  heading: SheetHeading;
 }
 
 export type SheetUnpaginated = RackSheetUnpaginated | CutSheetUnpaginated;
@@ -59,9 +67,11 @@ function buildRackSheet(
   rack: Pick<RackView, 'id' | 'label' | 'heightU' | 'unitNumbering' | 'chassis' | 'shelves'>,
   options: Pick<PrintOptions, 'cables' | 'hideSensitive'>,
   cables: readonly CableView[],
+  designName: string,
 ): RackSheetUnpaginated {
   const sheathByCableId = new Map(cables.map((c) => [c.id, c.sheath] as const));
   const cablesNote = options.cables === 'all' ? 'cables: all' : 'cables: none';
+  const deviceCount = rack.chassis.length + rack.shelves.reduce((sum, s) => sum + s.occupants.length, 0);
   return {
     kind: 'rack',
     rackId: rack.id,
@@ -74,7 +84,10 @@ function buildRackSheet(
     frontCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'front', sheathByCableId) : [],
     rearCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'rear', sheathByCableId) : [],
     deviceRows: rackDeviceRows(rack, options.hideSensitive),
-    sheetLabel: `Rack ${rack.label} · front and rear · ${cablesNote}`,
+    heading: {
+      title: `Rack ${rack.label} · ${designName}`,
+      detail: `front and rear · ${rack.heightU}U · ${deviceCount} device${deviceCount === 1 ? '' : 's'} · ${cablesNote}`,
+    },
   };
 }
 
@@ -84,7 +97,7 @@ function buildCutSheet(devices: readonly CutSheetDevice[]): CutSheetUnpaginated 
     kind: 'cutsheet',
     columnHeader: cutSheetColumnHeaderRow(),
     bodyRows: cutSheetBodyRows(devices),
-    sheetLabel: `Cut sheet · ${devices.length} devices · ${portCount} ports · by rack position, top down`,
+    heading: { title: 'Cut sheet', detail: `${devices.length} devices · ${portCount} ports · by rack position, top down` },
   };
 }
 
@@ -103,6 +116,6 @@ export function buildPrintJob(input: BuildPrintJobInput): PrintJob {
   const sheets: SheetUnpaginated[] =
     input.what === 'cut-sheet'
       ? [buildCutSheet(input.cutSheetDevices)]
-      : input.racks.map((rack) => buildRackSheet(rack, input.options, input.cables));
+      : input.racks.map((rack) => buildRackSheet(rack, input.options, input.cables, input.meta.designName));
   return { sheets, paper: input.options.paper, blackAndWhite: input.options.blackAndWhite, meta: input.meta };
 }

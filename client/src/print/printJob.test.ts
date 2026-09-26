@@ -87,8 +87,8 @@ describe('buildPrintJob', () => {
       meta,
     });
     const sheet = job.sheets[0];
-    expect(sheet.sheetLabel).toContain('R7');
-    expect(sheet.sheetLabel).toContain('cables: all');
+    expect(sheet.heading.title).toContain('R7');
+    expect(sheet.heading.detail).toContain('cables: all');
   });
 
   it('the cut sheet\'s label carries device and port counts', () => {
@@ -104,6 +104,20 @@ describe('buildPrintJob', () => {
       options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
       meta,
     });
-    expect(job.sheets[0].sheetLabel).toBe('Cut sheet · 2 devices · 1 ports · by rack position, top down');
+    expect(job.sheets[0].heading.detail).toBe('2 devices · 1 ports · by rack position, top down');
+  });
+
+  it('the rack-sheet heading names its own design, U count and device count', () => {
+    const job = buildPrintJob({
+      what: 'this-rack',
+      racks: [rack('r1', 'R1', 24, 3)],
+      cables: [],
+      cutSheetDevices: [],
+      options: { paper: 'A4', cables: 'none', hideSensitive: false, blackAndWhite: false },
+      meta,
+    });
+    const sheet = job.sheets[0];
+    expect(sheet.heading.title).toBe('Rack R1 · Drive network');
+    expect(sheet.heading.detail).toBe('front and rear · 24U · 3 devices · cables: none');
   });
 });

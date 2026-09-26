@@ -15,7 +15,7 @@ import {
   placeChassis,
   type CreateSurfaceOptions,
 } from './document/commands';
-import { setDeviceField } from './document/edit';
+import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addVlan } from './document/networks';
@@ -410,8 +410,9 @@ export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): D
     const before = doc;
     doc = createSketchDevice(doc, { hostname, actor: me });
     const chassisId = newestNode(before, doc, 'Chassis');
-    doc = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
-    doc = addSketchPort(doc, chassisId, { label: 'eth1', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    for (let p = 0; p < 6; p += 1) {
+      doc = addSketchPort(doc, chassisId, { label: `eth${p}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    }
     doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU: u, face: 'front' }, { actor: me });
     hostnames.push(hostname);
   }
@@ -445,6 +446,80 @@ export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): D
     doc = connectPorts(doc, vlanPort(i), vlanPort(i + 1), { sheath: 'yellow' }, { actor: me });
     doc = addVlan(doc, { vlanId: vlanIds[i], name: `many-vlans-${vlanIds[i]}`, attach: [{ target: { kind: 'port', portId: vlanPort(i), interfaceName: `vlan-${i}` } }] }, { actor: me });
   }
+
+  return doc;
+}
+
+/** A real, mixed-vendor rack, for the owner's own screenshots of the
+ * elevation against the board (`design/proposals/print/print-sheets.dc.html`
+ * panel 2): a patch panel, a switch, a firewall, two servers, a NAS, a UPS
+ * and a PDU, every model from the catalogue with a serial and a management
+ * address typed in. */
+export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const premisesId = premises.premisesId;
+
+  const before1 = doc;
+  doc = createRack(doc, premisesId, { label: 'R1', heightU: 24, unitNumbering: 'ascending', actor: me });
+  const rackId = newestNode(before1, doc, 'Rack');
+
+  function modelOf(vendor: string, model: string): CatalogueModel {
+    const found = catalogue.find((m) => m.vendor === vendor && m.model === model);
+    if (!found) throw new Error(`the drive catalogue fixture is missing ${vendor}/${model}`);
+    return found;
+  }
+
+  function place(positionU: number, vendor: string, model: string, hostname: string): { deviceId: string; chassisId: string } {
+    const before = doc;
+    doc = placeChassis(doc, rackId, modelOf(vendor, model), positionU, 'front', { actor: me });
+    const deviceId = newestNode(before, doc, 'Device');
+    const chassisId = newestNode(before, doc, 'Chassis');
+    doc = setDeviceField(doc, deviceId, 'hostname', hostname, { actor: me });
+    return { deviceId, chassisId };
+  }
+
+  place(24, 'panduit', 'NK6PPG24Y', 'patch-01');
+  const sw = place(22, 'ubiquiti', 'USW-24-PoE', 'sw-core');
+  const fw = place(21, 'juniper', 'SRX300', 'fw-01');
+  const dock1 = place(17, 'dell', 'R740xd', 'dock-01');
+  const dock2 = place(15, 'hpe', 'DL380 Gen10', 'dock-02');
+  const nas = place(14, 'synology', 'RS822+', 'nas-01');
+  const ups = place(2, 'cyberpower', 'PR1500LCDRT2U', 'ups-01');
+  const pdu = place(1, 'apc', 'AP7920B', 'pdu-01');
+
+  // Every device but the patch panel gets a serial and a management
+  // address — the board's own point: a real printout carries these, and
+  // "leave out serials" is what hides them, not their absence here.
+  const fitted: [{ deviceId: string; chassisId: string }, string, string][] = [
+    [sw, 'CTAZ2609J001', '10.20.0.2'],
+    [fw, 'AK0625AB0042', '10.20.0.1'],
+    [dock1, 'FCH2609AB01', '10.20.0.11'],
+    [dock2, 'MXQ2609XY02', '10.20.0.12'],
+    [nas, '2050LOFT0001', '10.20.0.20'],
+    [ups, '3B2609PR0099', '10.20.0.30'],
+    [pdu, '5A2609AP0007', '10.20.0.31'],
+  ];
+  for (const [target, serial, mgmt] of fitted) {
+    doc = setChassisField(doc, target.chassisId, 'serial', serial, { actor: me });
+    doc = setDeviceField(doc, target.deviceId, 'management_address', mgmt, { actor: me });
+  }
+
+  const view = viewOf(doc, catalogue);
+  const byHostname = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.hostname, c] as const));
+  function onePort(hostname: string, face: 'front' | 'rear', connector: string, occurrence: number): string {
+    const c = byHostname.get(hostname)!;
+    const ports = c.ports.filter((p) => p.face === face && p.connector === connector).sort((a, b) => a.column - b.column);
+    if (!ports[occurrence]) throw new Error(`${hostname} has no ${face} ${connector} port #${occurrence}`);
+    return ports[occurrence].id;
+  }
+
+  doc = connectPorts(doc, onePort('patch-01', 'front', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 0), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('sw-core', 'front', 'sfp_plus', 0), onePort('fw-01', 'front', 'sfp_plus', 0), { sheath: 'yellow', label: 'uplink, trunk' }, { actor: me });
+  doc = connectPorts(doc, onePort('dock-01', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 1), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('dock-02', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 2), { sheath: 'blue' }, { actor: me });
+  doc = connectPorts(doc, onePort('nas-01', 'rear', 'rj45', 0), onePort('sw-core', 'front', 'rj45', 3), { sheath: 'blue' }, { actor: me });
 
   return doc;
 }

@@ -1,29 +1,48 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
-import type { Facing } from '../components/drawing/elevation';
+import { faceplateItem, type Facing } from '../components/drawing/elevation';
 import { contentHeightMm, mmToPx, pageHeightMm, pageWidthMm, type PaperSize } from './paper';
 import {
   ELEVATION_CAPTION_MM,
   NOTE_MARGIN_TOP_MM,
+  dedupeCableLines,
   elevationHeightMm,
   elevationItemsOf,
   elevationRowMm,
+  emptyUnitRows,
+  faceplateGlyphRows,
+  facePortGlyphs,
   paginateRackTableByHeight,
+  type ElevationCableLine,
   type ElevationItem,
+  type FaceplateGlyph,
   type RackDeviceRow,
 } from './rackSheet';
 import { paginateCutSheetByHeight, type CutSheetTableRow } from './cutSheetTable';
-import type { PrintJob, RackSheetUnpaginated } from './printJob';
+import type { PrintJob, RackSheetUnpaginated, SheetHeading } from './printJob';
 import './print.css';
 
 const HIDE_SENSITIVE_NOTE = 'Serial numbers and management addresses left out of this printout.';
+
+/** The board's own "Cables: …" line under the elevations, plus the hop
+ * list when any are drawn — front and rear cables named once each. */
+function CablesNote({ sheet, dataRowId }: { sheet: RackSheetUnpaginated; dataRowId?: string }) {
+  const lines = dedupeCableLines([...sheet.frontCables, ...sheet.rearCables]);
+  return (
+    <div className="print-cables-note" data-row-id={dataRowId}>
+      <div>
+        <span className="print-cables-note__mark">Cables:</span> {lines.length > 0 ? `all · ${lines.length} shown` : 'none'}
+      </div>
+      {lines.length > 0 && <div className="print-cables-note__list">{lines.map((l) => `${l.fromText} → ${l.toText}`).join(' · ')}</div>}
+    </div>
+  );
+}
 
 interface TitleBlock {
   design: string;
   path: string;
   date: string;
   printedBy: string;
-  sheetLabel: string;
   page: number;
   of: number;
 }
@@ -44,6 +63,7 @@ type PageContent = RackPageContent | CutSheetPageContent;
 
 interface FinalPage {
   content: PageContent;
+  heading: SheetHeading;
   titleBlock: TitleBlock;
 }
 
@@ -65,28 +85,30 @@ function measureRowHeights(container: HTMLElement): Map<string, number> {
 
 function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage[] {
   const capacityPx = mmToPx(contentHeightMm(job.paper));
-  const built: { content: PageContent; sheetLabel: string }[] = [];
+  const built: { content: PageContent; heading: SheetHeading }[] = [];
 
   job.sheets.forEach((sheet, sheetIndex) => {
     if (sheet.kind === 'rack') {
       const theadPx = heights.get(`${sheetIndex}:thead`) ?? 0;
       const elevationPx = mmToPx(elevationHeightMm(sheet.heightU, job.paper));
       const notePx = sheet.hideSensitive ? (heights.get(`${sheetIndex}:note`) ?? 0) + mmToPx(NOTE_MARGIN_TOP_MM) : 0;
+      const cablesShown = sheet.frontCables.length > 0 || sheet.rearCables.length > 0;
+      const cablesNotePx = cablesShown ? (heights.get(`${sheetIndex}:cablesNote`) ?? 0) : 0;
       const rows = sheet.deviceRows.map((row, i) => ({ row, heightPx: heights.get(`${sheetIndex}:r${i}`) ?? 0 }));
-      const firstBudget = Math.max(0, capacityPx - elevationPx - notePx - theadPx);
+      const firstBudget = Math.max(0, capacityPx - elevationPx - notePx - cablesNotePx - theadPx);
       const laterBudget = Math.max(0, capacityPx - theadPx);
       const pages = paginateRackTableByHeight(rows, firstBudget, laterBudget);
       pages.forEach((pageRows, pageIndex) => {
         built.push({
           content: { kind: 'rack', sheet, showElevation: pageIndex === 0, rows: pageRows },
-          sheetLabel: sheet.sheetLabel,
+          heading: sheet.heading,
         });
       });
     } else {
       const headerPx = heights.get(`${sheetIndex}:header`) ?? 0;
       const bodyRows = sheet.bodyRows.map((u, i) => ({ ...u, heightPx: heights.get(`${sheetIndex}:b${i}`) ?? 0 }));
       const pages = paginateCutSheetByHeight({ row: sheet.columnHeader, heightPx: headerPx }, bodyRows, capacityPx);
-      pages.forEach((rows) => built.push({ content: { kind: 'cutsheet', rows }, sheetLabel: sheet.sheetLabel }));
+      pages.forEach((rows) => built.push({ content: { kind: 'cutsheet', rows }, heading: sheet.heading }));
     }
   });
 
@@ -94,7 +116,8 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
   const date = formatDate(job.meta.printedAt);
   return built.map((b, i) => ({
     content: b.content,
-    titleBlock: { design: job.meta.designName, path: job.meta.path, date, printedBy: job.meta.printedBy, sheetLabel: b.sheetLabel, page: i + 1, of },
+    heading: b.heading,
+    titleBlock: { design: job.meta.designName, path: job.meta.path, date, printedBy: job.meta.printedBy, page: i + 1, of },
   }));
 }
 
@@ -202,6 +225,7 @@ function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: Rea
                 {HIDE_SENSITIVE_NOTE}
               </div>
             )}
+            {(sheet.frontCables.length > 0 || sheet.rearCables.length > 0) && <CablesNote sheet={sheet} dataRowId={`${i}:cablesNote`} />}
           </div>
         ) : (
           <table key={i} className="print-table print-table--cutsheet">
@@ -224,7 +248,10 @@ function Page({ page, paper, blackAndWhite }: { page: FinalPage; paper: PaperSiz
   const h = pageHeightMm(paper);
   return (
     <div className="print-page" style={{ width: `${w}mm`, height: `${h}mm` }} data-testid="print-page">
-      <div className="print-page__header">{page.titleBlock.sheetLabel}</div>
+      <div className="print-page__header">
+        <span className="print-page__header-title">{page.heading.title}</span>
+        <span className="print-page__header-detail">{page.heading.detail}</span>
+      </div>
       <div className="print-page__content">
         {page.content.kind === 'rack' ? (
           <RackSheetContent content={page.content} paper={paper} blackAndWhite={blackAndWhite} />
@@ -331,6 +358,7 @@ function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPage
           <Elevation items={items} heightU={sheet.heightU} unitNumbering={sheet.unitNumbering} rowMm={rowMm} elevation="rear" blackAndWhite={blackAndWhite} cableLines={sheet.rearCables} />
         </div>
       )}
+      {showElevation && (sheet.frontCables.length > 0 || sheet.rearCables.length > 0) && <CablesNote sheet={sheet} />}
       <table className="print-table" data-testid="print-rack-device-table">
         <ColGroup widths={RACK_COLUMN_WIDTHS} />
         <RackTableHead />
@@ -349,6 +377,41 @@ function unitLabelOf(heightU: number, unitNumbering: string, positionU: number):
   return unitNumbering === 'descending' ? heightU - positionU + 1 : positionU;
 }
 
+/** An octagon, corners cut at 30% of the shorter side — the same silhouette
+ * `C14.tsx`'s own inlet glyph draws, for a power inlet or outlet here. */
+function hexPoints(x: number, y: number, w: number, h: number): string {
+  const cut = Math.min(w, h) * 0.3;
+  return [
+    [x + cut, y],
+    [x + w - cut, y],
+    [x + w, y + cut],
+    [x + w, y + h - cut],
+    [x + w - cut, y + h],
+    [x + cut, y + h],
+    [x, y + h - cut],
+    [x, y + cut],
+  ]
+    .map((p) => p.join(','))
+    .join(' ');
+}
+
+/** One faceplate's worth of port glyphs — filled when cabled/fed, hollow
+ * when free, ink either way (UI-SPEC "Ports": never a sheath). */
+function PortGlyphs({ glyphs }: { glyphs: readonly FaceplateGlyph[] }) {
+  return (
+    <>
+      {glyphs.map((g) => {
+        const cls = `print-elevation__port ${g.port.cable != null ? 'print-elevation__port--cabled' : 'print-elevation__port--free'}`;
+        return g.shape === 'hex' ? (
+          <polygon key={g.port.id} points={hexPoints(g.x, g.y, g.w, g.h)} className={cls} />
+        ) : (
+          <rect key={g.port.id} x={g.x} y={g.y} width={g.w} height={g.h} className={cls} />
+        );
+      })}
+    </>
+  );
+}
+
 function Elevation({
   items,
   heightU,
@@ -364,7 +427,7 @@ function Elevation({
   rowMm: number;
   elevation: Facing;
   blackAndWhite: boolean;
-  cableLines: readonly { fromChassisId: string; toChassisId: string; cableId: string; sheath: string | null }[];
+  cableLines: readonly ElevationCableLine[];
 }) {
   const railW = 8;
   const bodyW = 70;
@@ -373,10 +436,31 @@ function Elevation({
   const bodyHeight = heightU * rowMm;
   const height = bodyHeight + captionH;
   const byId = new Map(items.filter((i) => i.kind === 'chassis').map((i) => [i.chassis.id, i] as const));
+  const hatchId = `print-hatch-${elevation}`;
 
   function yOf(positionU: number, itemHeightU: number): number {
     return (heightU - (positionU + itemHeightU - 1)) * rowMm;
   }
+
+  // Every port's own glyph position, in this elevation's local coordinates
+  // — what the cable curves below anchor to, in place of a device's bare
+  // centre, when the port itself is visible on this face.
+  const portXY = new Map<string, { x: number; y: number }>();
+  for (const item of items) {
+    if (item.kind !== 'chassis') continue;
+    const y = yOf(item.positionU, item.heightU);
+    const face = faceplateItem(item.chassis, elevation);
+    const portGlyphs = facePortGlyphs(face.ports, bodyW);
+    const inletGlyphs = facePortGlyphs(face.inlets, bodyW, { rowOffset: faceplateGlyphRows(face.ports).length, rightAlign: true });
+    for (const g of [...portGlyphs, ...inletGlyphs]) {
+      portXY.set(g.port.id, { x: railW + g.x + g.w / 2, y: y + g.y + g.h / 2 });
+    }
+  }
+
+  const empties = emptyUnitRows(
+    heightU,
+    items.map((i) => (i.kind === 'chassis' ? i.chassis : i.shelf)),
+  );
 
   return (
     <svg
@@ -386,19 +470,32 @@ function Elevation({
       style={{ width: '100%', height: `${height}mm` }}
       data-testid={`print-elevation-${elevation}`}
     >
+      <defs>
+        <pattern id={hatchId} width="2" height="2" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="2" className="print-elevation__hatch-line" />
+        </pattern>
+      </defs>
       <text x={width / 2} y={captionH - 1} textAnchor="middle" className="print-elevation__caption">
         {elevation === 'front' ? 'FRONT' : 'REAR'}
       </text>
       <g transform={`translate(0, ${captionH})`}>
         <rect x={0.25} y={0.25} width={width - 0.5} height={bodyHeight - 0.5} className="print-elevation__frame" />
+        {empties.map((r) => (
+          <rect key={`empty-${r}`} x={railW} y={r * rowMm} width={bodyW} height={rowMm} fill={`url(#${hatchId})`} data-testid={`print-elevation-${elevation}-empty`} />
+        ))}
         {Array.from({ length: heightU }, (_, r) => {
           const positionU = heightU - r;
           const label = unitLabelOf(heightU, unitNumbering, positionU);
-          const y = r * rowMm;
+          const y = r * rowMm + rowMm / 2 + 1;
           return (
-            <text key={r} x={railW - 1} y={y + rowMm / 2 + 1} textAnchor="end" className="print-elevation__unit">
-              {label}
-            </text>
+            <g key={r}>
+              <text x={railW - 1} y={y} textAnchor="end" className="print-elevation__unit">
+                {label}
+              </text>
+              <text x={width - railW + 1} y={y} textAnchor="start" className="print-elevation__unit">
+                {label}
+              </text>
+            </g>
           );
         })}
         {items.map((item) => {
@@ -407,6 +504,9 @@ function Elevation({
           const clipId = `print-clip-${elevation}-${item.kind === 'chassis' ? item.chassis.id : item.shelf.id}`;
           if (item.kind === 'chassis') {
             const c = item.chassis;
+            const face = faceplateItem(c, elevation);
+            const portGlyphs = facePortGlyphs(face.ports, bodyW);
+            const inletGlyphs = facePortGlyphs(face.inlets, bodyW, { rowOffset: faceplateGlyphRows(face.ports).length, rightAlign: true });
             return (
               <g key={c.id} transform={`translate(${railW}, ${y})`}>
                 <clipPath id={clipId}>
@@ -414,10 +514,12 @@ function Elevation({
                 </clipPath>
                 <rect width={bodyW} height={h} className="print-elevation__box" />
                 <g clipPath={`url(#${clipId})`}>
-                  <text x={2} y={rowMm - 1.6} className="print-elevation__name">
+                  <PortGlyphs glyphs={portGlyphs} />
+                  <PortGlyphs glyphs={inletGlyphs} />
+                  <text x={2} y={h - 1.6} className="print-elevation__name">
                     {c.hostname || '—'}
                   </text>
-                  <text x={bodyW - 2} y={rowMm - 1.6} textAnchor="end" className="print-elevation__model">
+                  <text x={bodyW - 2} y={h - 1.6} textAnchor="end" className="print-elevation__model">
                     {c.model}
                   </text>
                 </g>
@@ -446,20 +548,22 @@ function Elevation({
           const a = byId.get(line.fromChassisId);
           const b = byId.get(line.toChassisId);
           if (!a || a.kind !== 'chassis' || !b || b.kind !== 'chassis') return null;
-          const ax = railW + bodyW / 2;
-          const ay = yOf(a.positionU, a.heightU) + (a.heightU * rowMm) / 2;
-          const bx = railW + bodyW / 2;
-          const by = yOf(b.positionU, b.heightU) + (b.heightU * rowMm) / 2;
+          const fallbackA = { x: railW + bodyW / 2, y: yOf(a.positionU, a.heightU) + (a.heightU * rowMm) / 2 };
+          const fallbackB = { x: railW + bodyW / 2, y: yOf(b.positionU, b.heightU) + (b.heightU * rowMm) / 2 };
+          const pa = portXY.get(line.fromPortId) ?? fallbackA;
+          const pb = portXY.get(line.toPortId) ?? fallbackB;
+          const c1y = pa.y + (pb.y - pa.y) * 0.4;
+          const c2y = pa.y + (pb.y - pa.y) * 0.6;
           const stroke = blackAndWhite ? undefined : line.sheath ? `var(--sheath-${line.sheath})` : undefined;
           return (
             <g key={line.cableId}>
               <path
-                d={`M ${ax} ${ay} L ${bx} ${by}`}
+                d={`M ${pa.x} ${pa.y} C ${pa.x} ${c1y}, ${pb.x} ${c2y}, ${pb.x} ${pb.y}`}
                 className={blackAndWhite ? 'print-elevation__cable print-elevation__cable--bw' : 'print-elevation__cable'}
                 style={stroke ? { stroke } : undefined}
               />
               {blackAndWhite && line.sheath && (
-                <text x={(ax + bx) / 2 + 1.5} y={(ay + by) / 2} className="print-elevation__cable-label">
+                <text x={(pa.x + pb.x) / 2 + 1.5} y={(pa.y + pb.y) / 2} className="print-elevation__cable-label">
                   {line.sheath}
                 </text>
               )}

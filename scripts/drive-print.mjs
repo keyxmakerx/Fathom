@@ -287,6 +287,40 @@ try {
   }
 
   // -------------------------------------------------------------------------
+  // The Loft scene: a real mixed-vendor rack, for the owner's own look
+  // against the board — with and without "leave out serials".
+  // -------------------------------------------------------------------------
+  for (const hideSensitive of [false, true]) {
+    await openPanel(page, 'print-loft');
+    await choosePaper(page, 'A4');
+    await chooseWhat(page, 'this-rack');
+    await page.locator('[data-testid="print-cables-all"]').click();
+    if (hideSensitive) await page.locator('[data-testid="print-hide-sensitive"]').click();
+    const label = `loft scene${hideSensitive ? ', serials left out' : ''}`;
+    await toPreviewAndReadTitleBlocks(page);
+    await checkNoOverflow(page, label);
+
+    const glyphCount = await page.locator('.print-elevation__port').count();
+    check(`${label}: every device's own ports draw a glyph`, glyphCount > 0, `${glyphCount} glyphs`);
+    const hatchCount = await page.locator('[data-testid^="print-elevation-"][data-testid$="-empty"]').count();
+    check(`${label}: the empty units between devices are hatched`, hatchCount > 0, `${hatchCount} hatched rows`);
+    const unitFront = await page.locator('[data-testid="print-elevation-front"] .print-elevation__unit').count();
+    check(`${label}: unit numbers run down both sides of the frame`, unitFront === 24 * 2, `${unitFront} labels`);
+    const heading = await page.locator('.print-page__header-detail').first().innerText();
+    check(`${label}: the heading names the U count and device count`, heading.includes('24U') && heading.includes('8 device'), heading);
+    const tableText = await page.locator('[data-testid="print-rack-device-table"]').first().innerText();
+    check(
+      `${label}: a real serial shows exactly when serials are not left out`,
+      tableText.includes('CTAZ2609J001') === !hideSensitive,
+      tableText.slice(0, 120),
+    );
+
+    await page.screenshot({ path: SHOTS + `P-04-loft${hideSensitive ? '-hidden' : ''}-top.png` });
+    console.log('    wrote ' + SHOTS + `P-04-loft${hideSensitive ? '-hidden' : ''}-top.png`);
+    await page.locator('[data-testid="print-preview-close"]').click();
+  }
+
+  // -------------------------------------------------------------------------
   // Nothing behind the preview may take a key or focus: Delete/Backspace/
   // Ctrl+Z/Ctrl+Y/Ctrl+K must all stay swallowed, and Escape must still work.
   // -------------------------------------------------------------------------

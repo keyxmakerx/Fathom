@@ -2,9 +2,11 @@
 // The elevation stays whole on the first page, scaled down if needed; the table continues on further pages, header repeated.
 import type { Facing } from '../components/drawing/elevation';
 import { faceplateItem } from '../components/drawing/elevation';
-import type { ChassisView, OccupantView, RackView, ShelfView } from '../document/view';
+import { portKindFor } from '../components/drawing/portGlyph';
+import type { PortKind } from '../components/ports';
+import type { ChassisView, OccupantView, PortView, RackView, ShelfView } from '../document/view';
 import { contentHeightMm, type PaperSize } from './paper';
-import { unitRangeLabel } from './units';
+import { physicalBottomRow, physicalTopRow, unitRangeLabel } from './units';
 
 /** Millimetres one rack unit draws at when a page has room for it. */
 export const ELEVATION_ROW_MM = 6;
@@ -74,10 +76,21 @@ export function rackDeviceRows(rack: Pick<RackView, 'heightU' | 'unitNumbering' 
 export interface ElevationCableLine {
   fromChassisId: string;
   toChassisId: string;
+  fromPortId: string;
+  toPortId: string;
+  /** For the "Cables:" hop list under the elevations — `hostname · port`,
+   * each end, so the line reads without a second lookup. */
+  fromText: string;
+  toText: string;
   cableId: string;
   /** The sheath word, `null` when none — black-and-white mode writes this
    * beside the line instead of relying on its ink. */
   sheath: string | null;
+}
+
+function portLabelOn(chassis: ChassisView, portId: string): string | null {
+  const found = [...chassis.ports, ...chassis.psuInlets].find((p) => p.id === portId);
+  return found ? found.label : null;
 }
 
 /** A cable this rack's elevation actually draws — both ends are chassis in
@@ -87,20 +100,26 @@ export function elevationCableLines(
   elevation: Facing,
   sheathByCableId: ReadonlyMap<string, string | null> = new Map(),
 ): ElevationCableLine[] {
-  const inRack = new Set(chassis.map((c) => c.id));
+  const byId = new Map(chassis.map((c) => [c.id, c] as const));
   const seen = new Set<string>();
   const lines: ElevationCableLine[] = [];
   for (const c of chassis) {
     const item = faceplateItem(c, elevation);
     for (const port of [...item.ports, ...item.inlets]) {
       const cable = port.cable;
-      if (cable == null || cable.farChassisId == null) continue;
-      if (!inRack.has(cable.farChassisId)) continue;
+      if (cable == null || cable.farChassisId == null || cable.farPortId == null) continue;
+      const far = byId.get(cable.farChassisId);
+      if (!far) continue;
       if (seen.has(cable.cableId)) continue;
       seen.add(cable.cableId);
+      const toLabel = portLabelOn(far, cable.farPortId) ?? cable.farPortId;
       lines.push({
         fromChassisId: c.id,
         toChassisId: cable.farChassisId,
+        fromPortId: port.id,
+        toPortId: cable.farPortId,
+        fromText: `${c.hostname || '—'} ${port.label}`,
+        toText: `${far.hostname || '—'} ${toLabel}`,
         cableId: cable.cableId,
         sheath: sheathByCableId.get(cable.cableId) ?? null,
       });
@@ -155,4 +174,100 @@ export function paginateRackTableByHeight(
   }
   if (current.length > 0 || pages.length === 0) pages.push(current);
   return pages;
+}
+
+/** A device's ports grouped into the catalogue's own faceplate rows —
+ * `PortView.row`, ascending — each row left to right by column. A sketch
+ * device's ports (no catalogue match) share row 0, so they still draw as
+ * one row of typed ports. */
+export function faceplateGlyphRows(ports: readonly PortView[]): PortView[][] {
+  const byRow = new Map<number, PortView[]>();
+  for (const p of ports) {
+    const list = byRow.get(p.row) ?? [];
+    list.push(p);
+    byRow.set(p.row, list);
+  }
+  return [...byRow.entries()].sort((a, b) => a[0] - b[0]).map(([, list]) => [...list].sort((a, b) => a.column - b.column));
+}
+
+export interface FaceplateGlyph {
+  port: PortView;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** `c14` draws as the hex power-inlet outline; every other kind is a
+   * plain rectangle — width is what tells one kind from another. */
+  shape: 'rect' | 'hex';
+}
+
+const GLYPH_H_UNITS = 1.5;
+const GLYPH_GAP_UNITS = 0.35;
+const GLYPH_ROW_STEP_UNITS = 2;
+const GLYPH_ROW_Y_START_UNITS = 1.1;
+const GLYPH_SIDE_MARGIN_UNITS = 2;
+const GLYPH_WIDTH_BY_KIND: Record<PortKind, number> = {
+  rj45: 0.9,
+  'sfp-plus': 1.3,
+  'qsfp-plus': 1.7,
+  lc: 1.1,
+  c14: 1.5,
+  generic: 1,
+};
+
+/** Where each port's own glyph draws on a faceplate, in the elevation's
+ * local units — one row per catalogue faceplate row, shrunk to fit the
+ * body width if a row would otherwise overflow it. `rowOffset` starts a
+ * second glyph (inlets, after the ports) below rows already drawn; `rightAlign`
+ * anchors a row at the body's right edge instead of its left. Pure. */
+export function facePortGlyphs(
+  ports: readonly PortView[],
+  bodyW: number,
+  opts: { rowOffset?: number; rightAlign?: boolean } = {},
+): FaceplateGlyph[] {
+  const rowOffset = opts.rowOffset ?? 0;
+  const rows = faceplateGlyphRows(ports);
+  const available = bodyW - GLYPH_SIDE_MARGIN_UNITS * 2;
+  const out: FaceplateGlyph[] = [];
+  rows.forEach((row, rowIndex) => {
+    const y = GLYPH_ROW_Y_START_UNITS + (rowOffset + rowIndex) * GLYPH_ROW_STEP_UNITS;
+    const kinds = row.map((p) => portKindFor(p.connector) ?? 'generic');
+    const naturalWidths = kinds.map((k) => GLYPH_WIDTH_BY_KIND[k]);
+    const naturalTotal = naturalWidths.reduce((sum, w) => sum + w, 0) + GLYPH_GAP_UNITS * Math.max(0, row.length - 1);
+    const scale = naturalTotal > available && naturalTotal > 0 ? available / naturalTotal : 1;
+    let x = opts.rightAlign ? bodyW - GLYPH_SIDE_MARGIN_UNITS - naturalTotal * scale : GLYPH_SIDE_MARGIN_UNITS;
+    row.forEach((p, i) => {
+      const w = naturalWidths[i] * scale;
+      out.push({ port: p, x, y, w, h: GLYPH_H_UNITS * scale, shape: kinds[i] === 'c14' ? 'hex' : 'rect' });
+      x += w + GLYPH_GAP_UNITS * scale;
+    });
+  });
+  return out;
+}
+
+/** Every physical unit row an elevation draws nothing on — hatched, so an
+ * empty slot reads as empty rather than as a gap in the drawing. Pure. */
+export function emptyUnitRows(heightU: number, items: readonly Pick<ElevationItem, 'positionU' | 'heightU'>[]): number[] {
+  const occupied = new Set<number>();
+  for (const item of items) {
+    const top = physicalTopRow(heightU, item);
+    const bottom = physicalBottomRow(heightU, item);
+    for (let r = top; r <= bottom; r += 1) occupied.add(r);
+  }
+  const empty: number[] = [];
+  for (let r = 0; r < heightU; r += 1) if (!occupied.has(r)) empty.push(r);
+  return empty;
+}
+
+/** The elevation's own cables, front and rear together, one line per cable
+ * — the "Cables:" hop list under the drawing names each once, not twice. */
+export function dedupeCableLines(lines: readonly ElevationCableLine[]): ElevationCableLine[] {
+  const seen = new Set<string>();
+  const out: ElevationCableLine[] = [];
+  for (const line of lines) {
+    if (seen.has(line.cableId)) continue;
+    seen.add(line.cableId);
+    out.push(line);
+  }
+  return out;
 }

@@ -21,6 +21,7 @@ import {
   seedFreestanding,
   seedNetworksScene,
   seedPrintAttackScene,
+  seedPrintLoftScene,
   seedPrintScene,
   seedSingleDevice,
   seedUnplacedDevice,
@@ -113,6 +114,7 @@ async function main() {
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
   else if (scene === 'print-attack') doc = seedPrintAttackScene(catalogue, ME);
+  else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

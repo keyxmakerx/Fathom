@@ -194,7 +194,20 @@
   padding-bottom: 4px;
   margin-bottom: 6px;
   font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.print-page__header-title {
   font-weight: 700;
+}
+
+.print-page__header-detail {
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .print-page__content {
@@ -265,6 +278,43 @@
 .print-elevation__cable-label {
   font-size: 2.2px;
   fill: var(--ink);
+}
+
+.print-elevation__hatch-line {
+  stroke: var(--hairline);
+  stroke-width: 0.3;
+}
+
+/* A port glyph — cabled/fed fills ink, free stays hollow. Never a sheath
+   colour, so black-and-white loses nothing (UI-SPEC "Ports"). */
+.print-elevation__port {
+  stroke: var(--ink);
+  stroke-width: 0.15;
+}
+
+.print-elevation__port--cabled {
+  fill: var(--ink);
+}
+
+.print-elevation__port--free {
+  fill: var(--page);
+}
+
+.print-cables-note {
+  margin-top: 1.5mm;
+  font-size: 7.5px;
+  line-height: 1.4;
+}
+
+.print-cables-note__mark {
+  font-weight: 700;
+}
+
+.print-cables-note__list {
+  font-size: 7px;
+  color: var(--muted);
+  font-family: 'DejaVu Sans Mono', Menlo, monospace;
+  overflow-wrap: anywhere;
 }
 
 .print-table {
