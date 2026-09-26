@@ -63,6 +63,18 @@
   cursor: pointer;
 }
 
+/* `design/tokens.css`'s global `input { appearance: none }` collapses a
+   radio/checkbox to a zero-size box unless something restores an
+   appearance and a size — this panel asks for the plain native one back,
+   rather than drawing its own glyph. */
+.print-panel__option input,
+.print-panel__check input {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .print-panel__option input:disabled + span {
   color: var(--muted);
 }
@@ -180,6 +192,16 @@
   flex-direction: column;
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
+  /* `design/tokens.css`'s own `body { line-height: 1.25rem }` is an
+     absolute 20px, inherited by every descendant regardless of its own
+     font-size — an 8px table cell here would otherwise render a 20px-tall
+     line box, roughly 6mm instead of the ~3mm the row-height budgets below
+     assume, and the sheet builders' own row counts would no longer match
+     what the page actually holds. A proportional line-height here is what
+     makes the two agree (found the same way the CSS break-after bug was:
+     the drive's own PDF-page-count check against the title block's own
+     "of y"). */
+  line-height: 1.2;
 }
 
 .print-page__header {
@@ -354,6 +376,14 @@
   }
   .print-page {
     border: none;
-    break-after: page;
+  }
+  /* A break BEFORE every page but the first — `break-after` on every page,
+     the first cut, forces one more break after the LAST page than there is
+     content for, and Chromium and Firefox both then print a trailing blank
+     page (found by the drive's own page-count check against the title
+     block's "of y": every A4 and Letter case printed one page more than
+     declared, off by exactly one, until this changed). */
+  .print-page + .print-page {
+    break-before: page;
   }
 }

@@ -24,14 +24,18 @@ import type { Place, ShellProps } from '../shell/types';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip and no new dependency — an object
- * URL an anchor click reaches for, revoked once the click has fired. */
+ * URL an anchor click reaches for, revoked once the click has fired. The
+ * anchor is attached to the document for the click — detached, some
+ * browsers accept the click but never start the download. */
 function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
   const blob = new Blob([new Uint8Array(bytes)], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -417,6 +421,18 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     );
 
+  // design/proposals/print/print-sheets.dc.html's own settled note: "Print
+  // opens a print sheet, not the live drawing." The preview REPLACES the
+  // place rather than overlaying it — not only for that reading, but
+  // because the drawing left mounted underneath a fixed-position preview is
+  // still there in normal document flow once print pagination takes over,
+  // and a real browser paginates it right along with the sheets, adding
+  // pages nothing asked for (found by the drive's own PDF-page-count check
+  // against the title block's own "of y").
+  if (printMode === 'preview' && printOptions) {
+    return <PrintPreview pages={printJob} paper={printOptions.paper} blackAndWhite={printOptions.blackAndWhite} onClose={closePrint} />;
+  }
+
   return (
     <>
       {place}
@@ -429,9 +445,6 @@ export function DesignPlace(props: DesignPlaceProps) {
           onDownloadXlsx={() => downloadCutSheet('xlsx')}
           onDownloadCsv={() => downloadCutSheet('csv')}
         />
-      )}
-      {printMode === 'preview' && printOptions && (
-        <PrintPreview pages={printJob} paper={printOptions.paper} blackAndWhite={printOptions.blackAndWhite} onClose={closePrint} />
       )}
     </>
   );

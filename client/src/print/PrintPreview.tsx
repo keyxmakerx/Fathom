@@ -132,7 +132,13 @@ function Elevation({
   }
 
   return (
-    <svg className="print-elevation" viewBox={`0 0 ${width} ${height}`} width="100%" data-testid={`print-elevation-${elevation}`}>
+    <svg
+      className="print-elevation"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height: `${height}mm` }}
+      data-testid={`print-elevation-${elevation}`}
+    >
       <text x={width / 2} y={-1} textAnchor="middle" className="print-elevation__caption">
         {elevation === 'front' ? 'FRONT' : 'REAR'}
       </text>

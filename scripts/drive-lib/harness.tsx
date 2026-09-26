@@ -20,6 +20,7 @@ import {
   seedEmptyDesign,
   seedFreestanding,
   seedNetworksScene,
+  seedPrintScene,
   seedSingleDevice,
   seedUnplacedDevice,
 } from './drive-seed';
@@ -109,6 +110,7 @@ async function main() {
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
+  else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

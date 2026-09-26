@@ -10,13 +10,14 @@ import {
   createSketchDevice,
   createSurface,
   fixTo,
+  movePlacement,
   placeChassis,
   type CreateSurfaceOptions,
 } from './document/commands';
 import { setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
-import { viewOf } from './document/view';
+import { naturalLabelCompare, viewOf } from './document/view';
 
 export function catalogueFrom(cat: { models: Record<string, unknown> }): CatalogueModel[] {
   return Object.values(cat.models).map((m) =>
@@ -278,5 +279,111 @@ export function seedNetworksScene(catalogue: CatalogueModel[], me: string): Docu
 export function seedDockerScene(catalogue: CatalogueModel[], me: string): Document {
   void catalogue;
   const doc = createSketchDevice(emptyDocument(), { hostname: 'dock-01', actor: me });
+  return doc;
+}
+
+/** GitHub issue #39's own drive — a 42U rack fully populated with 42
+ * devices (the brief's worked pagination example), plus five smaller,
+ * mixed racks so "every rack in this closet" has real breadth. Every
+ * device placement resolves its fresh node ids by diffing `doc.nodes`
+ * (`newestNode`, this file's own helper) rather than a `viewOf` call —
+ * `viewOf` runs once, at the very end, to resolve the port ids the cabling
+ * needs: "seed with one viewOf call, not one per cable, or seeding gets
+ * slow" is the brief's own instruction. The 42 devices are sketch devices
+ * with one port each, not a 48-port catalogue faceplate repeated 42 times
+ * — "pick models with the ports the scene needs" reads both ways: a
+ * front-RJ45-less model would refuse the cabling this scene wants, and a
+ * heavily-ported one draws thousands of port glyphs nothing here needs,
+ * slow enough in a real browser to look like a hang. */
+export function seedPrintScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const premisesId = premises.premisesId;
+
+  const varietyNames = ['SRX340', 'USW-24-PoE', 'UDM-SE'];
+  const variety = varietyNames.map((name) => catalogue.find((m) => m.model === name));
+  if (variety.some((m) => !m)) {
+    throw new Error('the drive catalogue fixture is missing a model seedPrintScene needs');
+  }
+
+  function mkRack(label: string, heightU: number): string {
+    const before = doc;
+    doc = createRack(doc, premisesId, { label, heightU, unitNumbering: 'ascending', actor: me });
+    return newestNode(before, doc, 'Rack');
+  }
+
+  function place(rackId: string, model: CatalogueModel, positionU: number, hostname: string): void {
+    const before = doc;
+    doc = placeChassis(doc, rackId, model, positionU, 'front', { actor: me });
+    const deviceId = newestNode(before, doc, 'Device');
+    doc = setDeviceField(doc, deviceId, 'hostname', hostname, { actor: me });
+  }
+
+  /** One RJ45 port, nothing else — light enough that 42 of these render in
+   * a real browser without the page looking hung. */
+  function placeSketch(rackId: string, positionU: number, hostname: string): void {
+    const before = doc;
+    doc = createSketchDevice(doc, { hostname, actor: me });
+    const chassisId = newestNode(before, doc, 'Chassis');
+    doc = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+    doc = movePlacement(doc, chassisId, { kind: 'rack', rackId, positionU, face: 'front' }, { actor: me });
+  }
+
+  // Rack 1 — the brief's own worked example: 42U, 42 devices, fully
+  // populated, so its own rack sheet needs exactly two pages on A4 and on
+  // Letter (`rackSheet.ts`'s own tests prove the pagination; this proves
+  // the real component pages the same way).
+  const rack1 = mkRack('R1', 42);
+  const rack1Hostnames: string[] = [];
+  for (let u = 1; u <= 42; u += 1) {
+    const hostname = `sw-${String(u).padStart(2, '0')}`;
+    placeSketch(rack1, u, hostname);
+    rack1Hostnames.push(hostname);
+  }
+
+  // Racks 2-6 — a smaller, mixed closet, two catalogue devices each (real
+  // faceplates, real free ports, for the cut sheet's own variety).
+  const otherPairs: [string, string][] = [];
+  for (let r = 2; r <= 6; r += 1) {
+    const rackId = mkRack(`R${r}`, 12);
+    const model = variety[(r - 2) % variety.length]!;
+    const a = `r${r}-a`;
+    const b = `r${r}-b`;
+    place(rackId, model, 10, a);
+    place(rackId, model, 8, b);
+    otherPairs.push([a, b]);
+  }
+
+  // One `viewOf` call for the whole scene — every port id below is a
+  // lookup against it, never a fresh traversal.
+  const view = viewOf(doc, catalogue);
+  const byHostname = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.hostname, c] as const));
+
+  function firstFrontRj45(hostname: string): string {
+    const chassis = byHostname.get(hostname);
+    if (!chassis) throw new Error(`no chassis named ${hostname}`);
+    const ports = chassis.ports
+      .filter((p) => p.face === 'front' && p.connector === 'rj45')
+      .sort((a, b) => naturalLabelCompare(a.label, b.label));
+    if (ports.length === 0) throw new Error(`${hostname} has no front rj45 port`);
+    return ports[0].id;
+  }
+
+  const sheaths: Sheath[] = ['blue', 'grey', 'yellow', 'green', 'red'];
+  let sheathIndex = 0;
+  function connect(hostA: string, hostB: string): void {
+    const a = firstFrontRj45(hostA);
+    const b = firstFrontRj45(hostB);
+    const sheath = sheaths[sheathIndex % sheaths.length];
+    sheathIndex += 1;
+    doc = connectPorts(doc, a, b, { sheath }, { actor: me });
+  }
+
+  for (let i = 0; i + 1 < rack1Hostnames.length; i += 2) {
+    connect(rack1Hostnames[i], rack1Hostnames[i + 1]);
+  }
+  for (const [a, b] of otherPairs) connect(a, b);
+
   return doc;
 }

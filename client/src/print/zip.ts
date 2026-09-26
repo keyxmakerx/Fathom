@@ -37,83 +37,116 @@ const EOCD_SIG = 0x06054b50;
 const DOS_TIME = 0;
 const DOS_DATE = 0x21;
 
-function u16(n: number): number[] {
-  return [n & 0xff, (n >>> 8) & 0xff];
-}
-
-function u32(n: number): number[] {
-  return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
-}
-
 function bytesOf(name: string): Uint8Array {
   return new TextEncoder().encode(name);
+}
+
+/**
+ * Appends `Uint8Array`s and copies them into one buffer with `.set()` at
+ * the end — never `array.push(...bigTypedArray)` or `[...a, ...b]` on a
+ * real worksheet's worth of bytes. Spreading a typed array into a function
+ * call turns into one argument per byte, and V8 refuses a call with too
+ * many of those (`RangeError: Maximum call stack size exceeded`) — a cut
+ * sheet with enough devices reached that ceiling in an early version of
+ * this file, found by the drive's own download check, not a test with
+ * only a handful of rows.
+ */
+class ByteWriter {
+  private parts: Uint8Array[] = [];
+  private length = 0;
+
+  push(bytes: Uint8Array): void {
+    this.parts.push(bytes);
+    this.length += bytes.length;
+  }
+
+  pushU16(n: number): void {
+    this.push(Uint8Array.of(n & 0xff, (n >>> 8) & 0xff));
+  }
+
+  pushU32(n: number): void {
+    this.push(Uint8Array.of(n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff));
+  }
+
+  get size(): number {
+    return this.length;
+  }
+
+  toBytes(): Uint8Array {
+    const out = new Uint8Array(this.length);
+    let offset = 0;
+    for (const part of this.parts) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    return out;
+  }
 }
 
 /** Every entry stored, method 0 — the zip's own "compressed size" equals
  * the uncompressed size throughout. */
 export function writeStoredZip(entries: readonly ZipEntry[]): Uint8Array {
-  const chunks: number[] = [];
-  const centralChunks: number[] = [];
-  let offset = 0;
+  const body = new ByteWriter();
+  const central = new ByteWriter();
 
   for (const entry of entries) {
     const nameBytes = bytesOf(entry.name);
     const crc = crc32(entry.data);
     const size = entry.data.length;
-    const localOffset = offset;
+    const localOffset = body.size;
 
-    const local = [
-      ...u32(LOCAL_SIG),
-      ...u16(20), // version needed
-      ...u16(0x0800), // flags: language encoding (UTF-8 names)
-      ...u16(0), // method: stored
-      ...u16(DOS_TIME),
-      ...u16(DOS_DATE),
-      ...u32(crc),
-      ...u32(size),
-      ...u32(size),
-      ...u16(nameBytes.length),
-      ...u16(0), // extra field length
-    ];
-    chunks.push(...local, ...nameBytes, ...entry.data);
-    offset += local.length + nameBytes.length + entry.data.length;
+    body.pushU32(LOCAL_SIG);
+    body.pushU16(20); // version needed
+    body.pushU16(0x0800); // flags: language encoding (UTF-8 names)
+    body.pushU16(0); // method: stored
+    body.pushU16(DOS_TIME);
+    body.pushU16(DOS_DATE);
+    body.pushU32(crc);
+    body.pushU32(size);
+    body.pushU32(size);
+    body.pushU16(nameBytes.length);
+    body.pushU16(0); // extra field length
+    body.push(nameBytes);
+    body.push(entry.data);
 
-    const central = [
-      ...u32(CENTRAL_SIG),
-      ...u16(20), // version made by
-      ...u16(20), // version needed
-      ...u16(0x0800),
-      ...u16(0),
-      ...u16(DOS_TIME),
-      ...u16(DOS_DATE),
-      ...u32(crc),
-      ...u32(size),
-      ...u32(size),
-      ...u16(nameBytes.length),
-      ...u16(0), // extra field length
-      ...u16(0), // comment length
-      ...u16(0), // disk number start
-      ...u16(0), // internal file attrs
-      ...u32(0), // external file attrs
-      ...u32(localOffset),
-    ];
-    centralChunks.push(...central, ...nameBytes);
+    central.pushU32(CENTRAL_SIG);
+    central.pushU16(20); // version made by
+    central.pushU16(20); // version needed
+    central.pushU16(0x0800);
+    central.pushU16(0);
+    central.pushU16(DOS_TIME);
+    central.pushU16(DOS_DATE);
+    central.pushU32(crc);
+    central.pushU32(size);
+    central.pushU32(size);
+    central.pushU16(nameBytes.length);
+    central.pushU16(0); // extra field length
+    central.pushU16(0); // comment length
+    central.pushU16(0); // disk number start
+    central.pushU16(0); // internal file attrs
+    central.pushU32(0); // external file attrs
+    central.pushU32(localOffset);
+    central.push(nameBytes);
   }
 
-  const centralStart = offset;
-  const centralSize = centralChunks.length;
-  const eocd = [
-    ...u32(EOCD_SIG),
-    ...u16(0), // disk number
-    ...u16(0), // disk with central directory start
-    ...u16(entries.length),
-    ...u16(entries.length),
-    ...u32(centralSize),
-    ...u32(centralStart),
-    ...u16(0), // comment length
-  ];
+  const centralStart = body.size;
+  const centralSize = central.size;
 
-  return Uint8Array.from([...chunks, ...centralChunks, ...eocd]);
+  const eocd = new ByteWriter();
+  eocd.pushU32(EOCD_SIG);
+  eocd.pushU16(0); // disk number
+  eocd.pushU16(0); // disk with central directory start
+  eocd.pushU16(entries.length);
+  eocd.pushU16(entries.length);
+  eocd.pushU32(centralSize);
+  eocd.pushU32(centralStart);
+  eocd.pushU16(0); // comment length
+
+  const out = new ByteWriter();
+  out.push(body.toBytes());
+  out.push(central.toBytes());
+  out.push(eocd.toBytes());
+  return out.toBytes();
 }
 
 /** The round trip this session's own tests need: every stored entry read
