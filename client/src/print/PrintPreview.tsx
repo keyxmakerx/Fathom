@@ -159,11 +159,8 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
     };
   }, []);
 
-  // A window-level capture listener, ahead of everything else the page
-  // owns — while the preview is open, no key reaches the hidden drawing
-  // behind it (its own Delete/Ctrl+Z, the shell's Ctrl+K). Tab keeps its
-  // default browser behaviour; `inert` on the place below already keeps
-  // it out of the tab order.
+  // A window-level capture listener, ahead of everything else the page owns
+  // — Tab keeps its default behaviour; `inert` below keeps the place out of the tab order.
   useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       event.stopImmediatePropagation();
@@ -206,10 +203,8 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
   );
 }
 
-/** Renders every sheet's rows unsplit, off-screen, inside an element with
- * the real page's own classes and width — `.print-page`'s `line-height`
- * and padding must apply here too, or a measured row reads about twice its
- * real printed height. */
+/** Renders every sheet's rows unsplit, off-screen, inside a real `.print-page`
+ * — its own line-height and padding must apply, or a measured row reads about twice its real height. */
 function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: React.RefObject<HTMLDivElement | null> }) {
   return (
     <div ref={containerRef} className="print-page print-measure" style={{ width: `${pageWidthMm(job.paper)}mm` }}>
@@ -446,9 +441,8 @@ function Elevation({
     return (heightU - (positionU + itemHeightU - 1)) * rowMm;
   }
 
-  // Every port's own glyph position, in this elevation's local coordinates
-  // — what the cable curves below anchor to, in place of a device's bare
-  // centre, when the port itself is visible on this face.
+  // Every visible port's own glyph position — what a cable curve below
+  // anchors to, in place of a device's bare centre.
   const portXY = new Map<string, { x: number; y: number }>();
   for (const item of items) {
     if (item.kind !== 'chassis') continue;

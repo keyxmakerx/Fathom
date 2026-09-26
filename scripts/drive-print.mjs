@@ -1,6 +1,5 @@
 // Drives the Print panel through the real App: prints each sheet kind to a
 // real PDF, checks its page count against the title blocks' own "x of y".
-// Usage: bash scripts/build-wasm.sh (if stale), then flock <lock> node scripts/drive-print.mjs
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

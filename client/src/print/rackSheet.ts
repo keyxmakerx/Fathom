@@ -13,11 +13,8 @@ export const ELEVATION_ROW_MM = 6;
 /** The FRONT/REAR caption strip above the frame. */
 export const ELEVATION_CAPTION_MM = 4;
 
-/** How tall one rack unit draws, scaled down only if the natural size would
- * overflow one page's content area — an elevation never splits across
- * pages. `reservedMm` is whatever else must still fit below it on page one
- * (the "leave out serials" note, the "Cables:" summary) — real, measured
- * space, not guessed, so the elevation shrinks enough to leave room. */
+/** How tall one rack unit draws, shrunk only if the natural size would
+ * overflow the page — `reservedMm` is real, measured space the notes below it must also keep. */
 export function elevationRowMm(heightU: number, paper: PaperSize, reservedMm = 0): number {
   const budget = contentHeightMm(paper) - ELEVATION_CAPTION_MM - reservedMm;
   const natural = heightU * ELEVATION_ROW_MM;
@@ -147,11 +144,8 @@ export function elevationItemsOf(rack: Pick<RackView, 'chassis' | 'shelves'>): E
  * not part of `getBoundingClientRect().height`, so a caller adds it by hand. */
 export const NOTE_MARGIN_TOP_MM = 2;
 
-/** Packs measured table rows into pages: `firstPageBudgetPx` is what the
- * elevation (and the note, when there is one) leaves on page one;
- * `laterPageBudgetPx` is a full page. A page with no room left at all is
- * left empty rather than forced to take a row it cannot fit; only a row
- * wider than a whole later page still gets forced onto its own. Pure. */
+/** Packs measured rows into pages against `firstPageBudgetPx`/`laterPageBudgetPx`
+ * — a page with no room left is left empty rather than forced to take a row it cannot fit. Pure. */
 export function paginateRackTableByHeight(
   rows: readonly { row: RackDeviceRow; heightPx: number }[],
   firstPageBudgetPx: number,
@@ -179,10 +173,8 @@ export function paginateRackTableByHeight(
   return pages;
 }
 
-/** A device's ports grouped into the catalogue's own faceplate rows —
- * `PortView.row`, ascending — each row left to right by column. A sketch
- * device's ports (no catalogue match) share row 0, so they still draw as
- * one row of typed ports. */
+/** A device's ports grouped by `PortView.row`, each row left to right by
+ * column — a sketch device's ports all share row 0, so they draw as one row. */
 export function faceplateGlyphRows(ports: readonly PortView[]): PortView[][] {
   const byRow = new Map<number, PortView[]>();
   for (const p of ports) {
@@ -218,11 +210,8 @@ const GLYPH_WIDTH_BY_KIND: Record<PortKind, number> = {
   generic: 1,
 };
 
-/** Where each port's own glyph draws on a faceplate, in the elevation's
- * local units — one row per catalogue faceplate row, shrunk to fit the
- * body width if a row would otherwise overflow it. `rowOffset` starts a
- * second glyph (inlets, after the ports) below rows already drawn; `rightAlign`
- * anchors a row at the body's right edge instead of its left. Pure. */
+/** Where each port's glyph draws, one row per faceplate row, shrunk to fit
+ * the body width. `rowOffset` stacks a second glyph group below the first; `rightAlign` anchors a row at the right edge instead of the left. Pure. */
 export function facePortGlyphs(
   ports: readonly PortView[],
   bodyW: number,

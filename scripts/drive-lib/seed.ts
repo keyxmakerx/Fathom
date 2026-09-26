@@ -450,11 +450,8 @@ export function seedPrintAttackScene(catalogue: CatalogueModel[], me: string): D
   return doc;
 }
 
-/** A real, mixed-vendor rack, for the owner's own screenshots of the
- * elevation against the board (`design/proposals/print/print-sheets.dc.html`
- * panel 2): a patch panel, a switch, a firewall, two servers, a NAS, a UPS
- * and a PDU, every model from the catalogue with a serial and a management
- * address typed in. */
+/** A real, mixed-vendor rack for the owner's own look against the board's
+ * print panel: a patch panel, a switch, a firewall, two servers, a NAS, a UPS and a PDU, every model real, with a serial and a management address. */
 export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Document {
   let doc = emptyDocument();
   const premises = createPremises(doc, { actor: me });
@@ -490,8 +487,7 @@ export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Doc
   const pdu = place(1, 'apc', 'AP7920B', 'pdu-01');
 
   // Every device but the patch panel gets a serial and a management
-  // address — the board's own point: a real printout carries these, and
-  // "leave out serials" is what hides them, not their absence here.
+  // address, so "leave out serials" has something real to hide.
   const fitted: [{ deviceId: string; chassisId: string }, string, string][] = [
     [sw, 'CTAZ2609J001', '10.20.0.2'],
     [fw, 'AK0625AB0042', '10.20.0.1'],

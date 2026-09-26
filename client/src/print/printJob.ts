@@ -24,9 +24,8 @@ export interface PrintMeta {
   printedAt: Date;
 }
 
-/** The page header's own two halves — bold title left, muted detail right
- * (the board's `.sh-t`/`.sh-r`), e.g. "Rack R1 · Loft" and "front and rear
- * · 24U · 8 devices · cables: all". */
+/** The page header's own two halves — bold title left, muted detail right,
+ * e.g. "Rack R1 · Loft" and "front and rear · 24U · 8 devices · cables: all". */
 export interface SheetHeading {
   title: string;
   detail: string;
