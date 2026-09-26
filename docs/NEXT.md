@@ -79,10 +79,15 @@ comparable amount again.
 
 ---
 
-## Handoff — read this first (updated 2026-09-23)
+## Handoff — read this first (updated 2026-09-26)
 
 **The backlog is in GitHub issues** (from 2026-09-25, #39 onward). A new ask becomes an issue; this
 file keeps only what is in flight and how to work.
+
+**2026-09-26.** PR #64 merged: the networks list with Docker (ADR-0058), staying signed in after a
+reload with idle limits and the address check (ADR-0057 decisions 4, 6 and 7), removing a device
+(#65) and the unplaced device's panel (#67). In flight: the signed-in browsers list (ADR-0057
+decision 8). Next: the intermittent drive timeouts (#66), then print (#39).
 
 **2026-09-25, the owner's full picture.** Homelab up to an ISP: customer networks and office
 locations (different designs), and offices generally. Wanted, in the owner's words where it
@@ -132,10 +137,8 @@ names every comparable product uses. Merged to `main` on 2026-09-22 as `ff11b43`
 built from that commit is the one to pull. The owner's deployment ran the ADR-0055 image with a
 password already set, so after the pull the server answers `done`, the two-step door appears, and
 the authenticator is set up from Home's account screen. Work paused that day at the owner's usage
-limit; the next session starts here. **Still first after it: the organisation claim over HTTP**
-(below), because a signed-in operator today has nothing to open, and it waits on one answer only
-the owner can give: keep a wrapped copy of the organisation's root private key for recovery
-holders, or discard it (`docs/OPEN-QUESTIONS.md`).
+limit. The organisation claim over HTTP that it lacked was built on 2026-09-25 (ADR-0057 decision
+5, PR #38).
 
 
 **Built 2026-09-21: ADR-0055, one person, two custodies.** The owner's asks of that day are in:
@@ -152,7 +155,7 @@ factor NIST asks for, in place of the authenticator app that ships today; the co
 own signature on a request that needs one; and a route that hands a newly requested colleague their
 own setup token, rather than minting and discarding it as today's build does.
 
-**The first thing to build after that: the organisation claim over HTTP.** On 2026-09-21 the owner's
+**Built 2026-09-25 (ADR-0057, PR #38): the organisation claim over HTTP.** Why it came first: On 2026-09-21 the owner's
 first real install could not sign in: the client offered the steward door only, and a fresh install
 holds one credential, the first-operator token. That is fixed (operator enrolment, operator sign-in,
 the operator console; `docs/STATE.md`, "The browser client"), and `ci.yml`'s compose job now proves
