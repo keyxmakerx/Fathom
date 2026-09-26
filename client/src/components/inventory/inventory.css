@@ -109,6 +109,16 @@
   padding: var(--s3);
 }
 
+/* The Networks kind (`NetworksPanel.tsx`) lays out its grid and side
+   panel edge to edge — the shared padding above would just double the
+   margin its `.networks-panel__side` already carries. */
+.inventory-place__main--flush {
+  padding: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
 .inventory-place__unbuilt {
   padding: var(--s4);
   color: var(--muted);

@@ -33,6 +33,7 @@ import {
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
+import { graceTokenFor } from '../state/graceToken';
 import { getSession, type ActiveSession } from '../state/sessionState';
 import { parseSignInAnswer } from './auth';
 import { keySlot, PRINCIPAL_KIND_OPERATOR } from './constants';
@@ -304,11 +305,12 @@ export function parseOperatorKeyAnswer(bytes: Uint8Array): { keyId: string; oper
   };
 }
 
-/** `POST /session`'s eight fields (ADR-0055 decision 10, ADR-0057 decision
- * 2). The operator plane carries no password: `sessions.rs`'s branch 1,
- * *"resolution 8 keeps `kind = 'operator'` a key sign-in"*. It does carry
- * the account-session endorsement decision 2 requires, and a verification
- * code when that session's own second-factor proof has gone stale. */
+/** `POST /session`'s nine fields (ADR-0055 decision 10, ADR-0057 decisions
+ * 2 and 6). The operator plane carries no password: `sessions.rs`'s branch
+ * 1, *"resolution 8 keeps `kind = 'operator'` a key sign-in"*. It does carry
+ * the account-session endorsement decision 2 requires, a verification code
+ * when that session's second-factor proof has gone stale, and decision
+ * 6's grace token when this tab still holds one for that session instead. */
 export function buildOperatorSignInBody(
   sessionPubkey: Uint8Array,
   nonce: Uint8Array,
@@ -316,6 +318,7 @@ export function buildOperatorSignInBody(
   verificationCode: string,
   accountSessionId: string,
   accountSessionSig: Uint8Array,
+  graceToken: Uint8Array = new Uint8Array(0),
 ): Uint8Array {
   return concatBytes(
     lp(utf8(PRINCIPAL_KIND_OPERATOR)),
@@ -326,6 +329,7 @@ export function buildOperatorSignInBody(
     lp(utf8(verificationCode.trim())),
     lp(utf8(accountSessionId)),
     lp(accountSessionSig),
+    lp(graceToken),
   );
 }
 
@@ -438,6 +442,7 @@ export async function completeOperatorBootstrap(
       verificationCode,
       accountSession.sessionId,
       accountSig,
+      graceTokenFor(accountSession.sessionId),
     ) as BodyInit,
   });
   if (!response.ok) {

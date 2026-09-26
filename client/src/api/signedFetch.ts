@@ -4,18 +4,41 @@
 // is the only way this client reaches a route that composes `Signed`
 // (`crates/fathom-server/src/api.rs`).
 
-import { readLp, toHex } from '../crypto/bytes';
+import { readLp, readU64LE, toHex } from '../crypto/bytes';
 import { signMessage } from '../crypto/keys';
 import { bodyDigest, requestBytes } from '../crypto/session';
+import { clearGraceToken } from '../state/graceToken';
 import {
+  ACCOUNT_PLANE,
+  clearPlane,
+  ensureCounterAtLeast,
   getSessionOn,
   nextRequestCounter,
   sessionForPath,
   type ActiveSession,
   type Plane,
 } from '../state/sessionState';
+import { clearAccountSession, thisTabId, touchAccountSession } from '../state/tabSessions';
 import { HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN } from './constants';
 import { refusalFrom } from './errors';
+
+/**
+ * A `401` on an established session means it is not live —
+ * `sessions.rs` folds every cause into one refusal on purpose. ADR-0057
+ * decision 4: clear that plane, and its record on the account plane, so
+ * sign-in shows instead of a screen retrying a dead session.
+ */
+async function clearOnUnauthorized(plane: Plane, response: Response): Promise<never> {
+  const refusal = await refusalFrom(response);
+  if (refusal.status === 401) {
+    clearPlane(plane);
+    if (plane === ACCOUNT_PLANE) {
+      void clearAccountSession(thisTabId());
+      clearGraceToken();
+    }
+  }
+  throw refusal;
+}
 
 const EMPTY_BODY = new Uint8Array(0);
 
@@ -95,9 +118,15 @@ async function send(
     },
   });
   if (!nonceResponse.ok) {
-    throw await refusalFrom(nonceResponse);
+    return clearOnUnauthorized(plane, nonceResponse);
   }
-  const { value: nonce } = readLp(new Uint8Array(await nonceResponse.arrayBuffer()));
+  // ADR-0057 decision 4: `LP(nonce) || u64(issued_counter)` — the counter
+  // lets a tab restored after a reload resume from the server's mark
+  // rather than restart at `1`, which `sessions.rs` would refuse outright.
+  const nonceBytes = new Uint8Array(await nonceResponse.arrayBuffer());
+  const { value: nonce, rest: afterNonce } = readLp(nonceBytes);
+  const issuedCounter = Number(readU64LE(afterNonce));
+  ensureCounterAtLeast(plane, issuedCounter);
 
   const unixMs = Date.now();
   const counter = nextRequestCounter(plane);
@@ -118,7 +147,12 @@ async function send(
     body: body.byteLength > 0 ? (body as BodyInit) : undefined,
   });
   if (!response.ok) {
-    throw await refusalFrom(response);
+    return clearOnUnauthorized(plane, response);
+  }
+  // Best effort, and only the plane decision 4 persists at all: a failure
+  // here changes nothing about whether the request itself succeeded.
+  if (plane === ACCOUNT_PLANE) {
+    void touchAccountSession(thisTabId());
   }
   return { bytes: new Uint8Array(await response.arrayBuffer()), headers: response.headers };
 }

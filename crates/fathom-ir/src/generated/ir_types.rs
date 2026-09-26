@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.10";
+    pub const SCHEMA_VERSION: &str = "0.11";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -326,12 +326,34 @@ mod body {
         /// (`asserted_by`, `asserted_at`), the same record every node already carries, so
         /// answering "who and when" needs no field this kind declares.
         Note,
+        /// A Docker network on its host (ADR-0058 decision 3): `docker network create`'s name,
+        /// driver and subnets. Owned by Device -- a container network lives and dies with the
+        /// host daemon that holds it, the same reasoning that keeps Container off this graph as
+        /// anything grander than a box on its host.
+        ///
+        /// NOTHING PARSES THIS YET -- A2 writes the reader. Declared now so schema 0.11 is the
+        /// only bump ADR-0058 needs (its own "order of work").
+        ContainerNetwork,
+        /// A Docker container on its host (ADR-0058 decision 3 and decision 5): the name only.
+        /// No environment, command or label fields -- compose files keep passwords there, and a
+        /// credential is protected by never arriving (CLAUDE.md rule 4).
+        ///
+        /// NOTHING PARSES THIS YET -- A2 writes the reader. Declared now for the same one-bump
+        /// reason ContainerNetwork is.
+        Container,
+        /// Destination NAT on the host, held exactly as `docker run -p` states it (ADR-0058
+        /// decision 4), so a later flow tracer can follow it. Two things until NatAction has a
+        /// shape, then one NatRule.
+        ///
+        /// NOTHING PARSES THIS YET -- A2 writes the reader. Declared now for the same one-bump
+        /// reason ContainerNetwork is.
+        PublishedPort,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 55;
+        pub const COUNT: usize = 58;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 55] = [
+        pub const ALL: [NodeKind; 58] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -387,6 +409,9 @@ mod body {
             NodeKind::Surface,
             NodeKind::Capture,
             NodeKind::Note,
+            NodeKind::ContainerNetwork,
+            NodeKind::Container,
+            NodeKind::PublishedPort,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -448,6 +473,9 @@ mod body {
                 NodeKind::Surface => "Surface",
                 NodeKind::Capture => "Capture",
                 NodeKind::Note => "Note",
+                NodeKind::ContainerNetwork => "ContainerNetwork",
+                NodeKind::Container => "Container",
+                NodeKind::PublishedPort => "PublishedPort",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -507,6 +535,9 @@ mod body {
                 "Surface" => Some(NodeKind::Surface),
                 "Capture" => Some(NodeKind::Capture),
                 "Note" => Some(NodeKind::Note),
+                "ContainerNetwork" => Some(NodeKind::ContainerNetwork),
+                "Container" => Some(NodeKind::Container),
+                "PublishedPort" => Some(NodeKind::PublishedPort),
                 _ => None,
             }
         }
@@ -572,6 +603,9 @@ mod body {
                 NodeKind::Surface => &[&["owner(Premises)", "label"]],
                 NodeKind::Capture => &[&["owner(Device)", "line_count", "platform"]],
                 NodeKind::Note => &[&["owner(Notable)", "text"]],
+                NodeKind::ContainerNetwork => &[&["owner(Device)", "name"]],
+                NodeKind::Container => &[&["owner(Device)", "name"]],
+                NodeKind::PublishedPort => &[&["owner(Container)", "protocol", "container_port", "host_address", "host_port"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -632,6 +666,9 @@ mod body {
                 NodeKind::Surface => Layer::Physical,
                 NodeKind::Capture => Layer::Config,
                 NodeKind::Note => Layer::Physical,
+                NodeKind::ContainerNetwork => Layer::Config,
+                NodeKind::Container => Layer::Config,
+                NodeKind::PublishedPort => Layer::Config,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -693,6 +730,9 @@ mod body {
                 NodeKind::Surface => false,
                 NodeKind::Capture => false,
                 NodeKind::Note => false,
+                NodeKind::ContainerNetwork => false,
+                NodeKind::Container => false,
+                NodeKind::PublishedPort => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -755,6 +795,9 @@ mod body {
                 NodeKind::Surface => &[crate::bag::FieldKey(319), crate::bag::FieldKey(320), crate::bag::FieldKey(321), crate::bag::FieldKey(322)],
                 NodeKind::Capture => &[crate::bag::FieldKey(326), crate::bag::FieldKey(327), crate::bag::FieldKey(328), crate::bag::FieldKey(329)],
                 NodeKind::Note => &[crate::bag::FieldKey(330), crate::bag::FieldKey(331), crate::bag::FieldKey(332)],
+                NodeKind::ContainerNetwork => &[crate::bag::FieldKey(333), crate::bag::FieldKey(334), crate::bag::FieldKey(335), crate::bag::FieldKey(336)],
+                NodeKind::Container => &[crate::bag::FieldKey(337)],
+                NodeKind::PublishedPort => &[crate::bag::FieldKey(338), crate::bag::FieldKey(339), crate::bag::FieldKey(340), crate::bag::FieldKey(341)],
             }
         }
     }
@@ -1078,12 +1121,24 @@ mod body {
         /// non-root node to have exactly one containment parent, the same reason every other
         /// containment edge in this tree exists.
         HasNote,
+        /// ADR-0058 decision 3. A Docker network lives and dies with its host, HasVlan's own shape.
+        HasContainerNetwork,
+        /// ADR-0058 decision 3.
+        HasContainer,
+        /// ADR-0058 decision 3.
+        HasPublishedPort,
+        /// ADR-0058 decision 3. A container attaches to one network several times only through several AttachedTo edges, never a repeated field.
+        AttachedTo,
+        /// ADR-0058 decision 3. Where a macvlan or ipvlan network rides a real interface, the
+        /// unit it parents. A REFERENCE EDGE, MountedIn's own reason: LogicalUnit already has a
+        /// containment parent (its InterfaceLike, via HasUnit) and containment is a forest.
+        ParentUnit,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 93;
+        pub const COUNT: usize = 98;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 93] = [
+        pub const ALL: [EdgeKind; 98] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1177,6 +1232,11 @@ mod body {
             EdgeKind::FixedTo,
             EdgeKind::HasCapture,
             EdgeKind::HasNote,
+            EdgeKind::HasContainerNetwork,
+            EdgeKind::HasContainer,
+            EdgeKind::HasPublishedPort,
+            EdgeKind::AttachedTo,
+            EdgeKind::ParentUnit,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1276,6 +1336,11 @@ mod body {
                 EdgeKind::FixedTo => "FixedTo",
                 EdgeKind::HasCapture => "HasCapture",
                 EdgeKind::HasNote => "HasNote",
+                EdgeKind::HasContainerNetwork => "HasContainerNetwork",
+                EdgeKind::HasContainer => "HasContainer",
+                EdgeKind::HasPublishedPort => "HasPublishedPort",
+                EdgeKind::AttachedTo => "AttachedTo",
+                EdgeKind::ParentUnit => "ParentUnit",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1373,6 +1438,11 @@ mod body {
                 "FixedTo" => Some(EdgeKind::FixedTo),
                 "HasCapture" => Some(EdgeKind::HasCapture),
                 "HasNote" => Some(EdgeKind::HasNote),
+                "HasContainerNetwork" => Some(EdgeKind::HasContainerNetwork),
+                "HasContainer" => Some(EdgeKind::HasContainer),
+                "HasPublishedPort" => Some(EdgeKind::HasPublishedPort),
+                "AttachedTo" => Some(EdgeKind::AttachedTo),
+                "ParentUnit" => Some(EdgeKind::ParentUnit),
                 _ => None,
             }
         }
@@ -1472,6 +1542,11 @@ mod body {
                 EdgeKind::FixedTo => EdgeClass::Reference,
                 EdgeKind::HasCapture => EdgeClass::Containment,
                 EdgeKind::HasNote => EdgeClass::Containment,
+                EdgeKind::HasContainerNetwork => EdgeClass::Containment,
+                EdgeKind::HasContainer => EdgeClass::Containment,
+                EdgeKind::HasPublishedPort => EdgeClass::Containment,
+                EdgeKind::AttachedTo => EdgeClass::Reference,
+                EdgeKind::ParentUnit => EdgeClass::Reference,
             }
         }
     }
@@ -1649,7 +1724,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1661,6 +1736,11 @@ mod body {
                 EdgeKind::FixedTo => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasCapture => &[NodeKind::Device],
                 EdgeKind::HasNote => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Rack],
+                EdgeKind::HasContainerNetwork => &[NodeKind::Device],
+                EdgeKind::HasContainer => &[NodeKind::Device],
+                EdgeKind::HasPublishedPort => &[NodeKind::Container],
+                EdgeKind::AttachedTo => &[NodeKind::Container],
+                EdgeKind::ParentUnit => &[NodeKind::ContainerNetwork],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1759,6 +1839,11 @@ mod body {
                 EdgeKind::FixedTo => &[NodeKind::Surface, NodeKind::PassiveNode],
                 EdgeKind::HasCapture => &[NodeKind::Capture],
                 EdgeKind::HasNote => &[NodeKind::Note],
+                EdgeKind::HasContainerNetwork => &[NodeKind::ContainerNetwork],
+                EdgeKind::HasContainer => &[NodeKind::Container],
+                EdgeKind::HasPublishedPort => &[NodeKind::PublishedPort],
+                EdgeKind::AttachedTo => &[NodeKind::ContainerNetwork],
+                EdgeKind::ParentUnit => &[NodeKind::LogicalUnit],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -1857,6 +1942,11 @@ mod body {
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasCapture => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasNote => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasContainerNetwork => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasContainer => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasPublishedPort => EdgeCardBound { min: 0, max: None },
+                EdgeKind::AttachedTo => EdgeCardBound { min: 0, max: None },
+                EdgeKind::ParentUnit => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -1955,6 +2045,11 @@ mod body {
                 EdgeKind::FixedTo => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCapture => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasNote => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasContainerNetwork => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasContainer => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasPublishedPort => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::AttachedTo => EdgeCardBound { min: 0, max: None },
+                EdgeKind::ParentUnit => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2054,6 +2149,11 @@ mod body {
                 EdgeKind::FixedTo => false,
                 EdgeKind::HasCapture => false,
                 EdgeKind::HasNote => false,
+                EdgeKind::HasContainerNetwork => false,
+                EdgeKind::HasContainer => false,
+                EdgeKind::HasPublishedPort => false,
+                EdgeKind::AttachedTo => false,
+                EdgeKind::ParentUnit => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2152,6 +2252,11 @@ mod body {
                 EdgeKind::FixedTo => false,
                 EdgeKind::HasCapture => false,
                 EdgeKind::HasNote => false,
+                EdgeKind::HasContainerNetwork => false,
+                EdgeKind::HasContainer => false,
+                EdgeKind::HasPublishedPort => false,
+                EdgeKind::AttachedTo => false,
+                EdgeKind::ParentUnit => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2250,6 +2355,11 @@ mod body {
                 EdgeKind::FixedTo => &[crate::bag::FieldKey(323), crate::bag::FieldKey(324)],
                 EdgeKind::HasCapture => &[],
                 EdgeKind::HasNote => &[],
+                EdgeKind::HasContainerNetwork => &[],
+                EdgeKind::HasContainer => &[],
+                EdgeKind::HasPublishedPort => &[],
+                EdgeKind::AttachedTo => &[crate::bag::FieldKey(342)],
+                EdgeKind::ParentUnit => &[],
             }
         }
     }
@@ -4275,6 +4385,61 @@ mod body {
         }
     }
 
+    /// Inline enum on `ContainerNetwork.driver` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ContainerNetworkDriver {
+        Bridge,
+        Host,
+        None,
+        Macvlan,
+        Ipvlan,
+        Overlay,
+        Other,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl ContainerNetworkDriver {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 7] = [
+            "bridge",
+            "host",
+            "none",
+            "macvlan",
+            "ipvlan",
+            "overlay",
+            "other",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> ContainerNetworkDriver {
+            match token {
+                "bridge" => ContainerNetworkDriver::Bridge,
+                "host" => ContainerNetworkDriver::Host,
+                "none" => ContainerNetworkDriver::None,
+                "macvlan" => ContainerNetworkDriver::Macvlan,
+                "ipvlan" => ContainerNetworkDriver::Ipvlan,
+                "overlay" => ContainerNetworkDriver::Overlay,
+                "other" => ContainerNetworkDriver::Other,
+                other => ContainerNetworkDriver::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                ContainerNetworkDriver::Bridge => "bridge",
+                ContainerNetworkDriver::Host => "host",
+                ContainerNetworkDriver::None => "none",
+                ContainerNetworkDriver::Macvlan => "macvlan",
+                ContainerNetworkDriver::Ipvlan => "ipvlan",
+                ContainerNetworkDriver::Overlay => "overlay",
+                ContainerNetworkDriver::Other => "other",
+                ContainerNetworkDriver::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -5013,6 +5178,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(NoteHow::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for ContainerNetworkDriver {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(ContainerNetworkDriver::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -7626,6 +7803,114 @@ mod body {
         }
     }
 
+    /// Fields of kind `ContainerNetwork`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ContainerNetworkField {
+        Name,
+        Driver,
+        Subnet,
+        Gateway,
+    }
+
+    impl ContainerNetworkField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [ContainerNetworkField; 4] = [
+            ContainerNetworkField::Name,
+            ContainerNetworkField::Driver,
+            ContainerNetworkField::Subnet,
+            ContainerNetworkField::Gateway,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                ContainerNetworkField::Name => "name",
+                ContainerNetworkField::Driver => "driver",
+                ContainerNetworkField::Subnet => "subnet",
+                ContainerNetworkField::Gateway => "gateway",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                ContainerNetworkField::Name => crate::bag::FieldKey(333),
+                ContainerNetworkField::Driver => crate::bag::FieldKey(334),
+                ContainerNetworkField::Subnet => crate::bag::FieldKey(335),
+                ContainerNetworkField::Gateway => crate::bag::FieldKey(336),
+            }
+        }
+    }
+
+    /// Fields of kind `Container`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ContainerField {
+        Name,
+    }
+
+    impl ContainerField {
+        pub const COUNT: usize = 1;
+        /// Every field, declaration order.
+        pub const ALL: [ContainerField; 1] = [
+            ContainerField::Name,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                ContainerField::Name => "name",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                ContainerField::Name => crate::bag::FieldKey(337),
+            }
+        }
+    }
+
+    /// Fields of kind `PublishedPort`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PublishedPortField {
+        Protocol,
+        ContainerPort,
+        HostPort,
+        HostAddress,
+    }
+
+    impl PublishedPortField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [PublishedPortField; 4] = [
+            PublishedPortField::Protocol,
+            PublishedPortField::ContainerPort,
+            PublishedPortField::HostPort,
+            PublishedPortField::HostAddress,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                PublishedPortField::Protocol => "protocol",
+                PublishedPortField::ContainerPort => "container_port",
+                PublishedPortField::HostPort => "host_port",
+                PublishedPortField::HostAddress => "host_address",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                PublishedPortField::Protocol => crate::bag::FieldKey(338),
+                PublishedPortField::ContainerPort => crate::bag::FieldKey(339),
+                PublishedPortField::HostPort => crate::bag::FieldKey(340),
+                PublishedPortField::HostAddress => crate::bag::FieldKey(341),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -8026,6 +8311,34 @@ mod body {
         }
     }
 
+    /// Fields of edge `AttachedTo`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum AttachedToField {
+        Address,
+    }
+
+    impl AttachedToField {
+        pub const COUNT: usize = 1;
+        /// Every field, declaration order.
+        pub const ALL: [AttachedToField; 1] = [
+            AttachedToField::Address,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                AttachedToField::Address => "address",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                AttachedToField::Address => crate::bag::FieldKey(342),
+            }
+        }
+    }
+
     /// Fields of edge `Cabled`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CabledField {
@@ -8089,7 +8402,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 332] = [
+    pub const FIELD_KEYS: [(&str, u32); 342] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -8422,15 +8735,25 @@ mod body {
         ("Note.text", 330),
         ("Note.how", 331),
         ("Note.line_count", 332),
+        ("ContainerNetwork.name", 333),
+        ("ContainerNetwork.driver", 334),
+        ("ContainerNetwork.subnet", 335),
+        ("ContainerNetwork.gateway", 336),
+        ("Container.name", 337),
+        ("PublishedPort.protocol", 338),
+        ("PublishedPort.container_port", 339),
+        ("PublishedPort.host_port", 340),
+        ("PublishedPort.host_address", 341),
+        ("AttachedTo.address", 342),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 42] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 43] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x0d,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x0e,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

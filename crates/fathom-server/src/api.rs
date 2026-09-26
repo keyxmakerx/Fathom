@@ -132,18 +132,50 @@ pub struct Signed {
     /// The proof, waiting for the transaction that will check it.
     pub pending: sessions::PendingRequest,
     pub body: Bytes,
+    /// This request's address, as `ClientAddress` decided it when the
+    /// request arrived — captured here rather than re-read from headers a
+    /// handler may have consumed, so [`Signed::verify`] can check it
+    /// (ADR-0057 decision 7).
+    pub address: String,
 }
 
 impl Signed {
     /// Run the rest of §4.1 clause (b) **inside `tx`**, so that whatever this
     /// handler authorises next sees the same snapshot the session was verified
     /// against.
+    ///
+    /// **Also checks this request's address against the session's bound
+    /// one** (ADR-0057 decision 7), in the same transaction, so a mismatch
+    /// ends the session before the handler acts on it, not after.
     pub async fn verify(
         &self,
         state: &ApiState,
         tx: &Transaction<'_>,
     ) -> Result<VerifiedSession, Refusal> {
-        Ok(state.sessions.verify_pending(tx, &self.pending).await?)
+        let session = state.sessions.verify_pending(tx, &self.pending).await?;
+        state
+            .sessions
+            .check_session_address(tx, session.id(), &self.address)
+            .await?;
+        Ok(session)
+    }
+}
+
+/// As [`Signed::verify`], but commits `tx` regardless of the outcome and
+/// hands it back on success. `verify` only borrows `tx`; without this, an
+/// ending it makes on `tx` is undone the moment the route refuses the very
+/// request that found it.
+async fn verify_and_commit<'a>(
+    signed: &Signed,
+    state: &ApiState,
+    tx: Transaction<'a>,
+) -> Result<(VerifiedSession, Transaction<'a>), Refusal> {
+    match signed.verify(state, &tx).await {
+        Ok(session) => Ok((session, tx)),
+        Err(e) => {
+            let _ = tx.commit().await;
+            Err(e)
+        }
     }
 }
 
@@ -178,8 +210,9 @@ impl Signed {
     pub async fn from_request_for(
         request: Request,
         sessions: &SessionStore,
+        client_address: &crate::client_address::ClientAddress,
     ) -> Result<Self, Refusal> {
-        signed_from_request(request, sessions).await
+        signed_from_request(request, sessions, client_address).await
     }
 }
 
@@ -199,11 +232,15 @@ impl FromRequest<ApiState> for Signed {
     /// what a request asks for, and leaving it outside the signature would be
     /// a hole the first route that takes a filter would fall into.
     async fn from_request(request: Request, state: &ApiState) -> Result<Self, Self::Rejection> {
-        signed_from_request(request, &state.sessions).await
+        signed_from_request(request, &state.sessions, &state.client_address).await
     }
 }
 
-async fn signed_from_request(request: Request, sessions: &SessionStore) -> Result<Signed, Refusal> {
+async fn signed_from_request(
+    request: Request,
+    sessions: &SessionStore,
+    client_address: &crate::client_address::ClientAddress,
+) -> Result<Signed, Refusal> {
     {
         let (parts, body) = request.into_parts();
         let method = parts.method.as_str().to_string();
@@ -213,6 +250,10 @@ async fn signed_from_request(request: Request, sessions: &SessionStore) -> Resul
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| parts.uri.path().to_string());
         let headers = parts.headers;
+        // Captured before the body is read, so this address (ADR-0057
+        // decision 7) does not depend on how much of the request a caller
+        // further down consumed.
+        let address = client_address.of(&headers, &parts.extensions);
 
         // A missing or unreadable header here is `NotSigned`, not
         // `Malformed`: a caller who presented nothing needs to be told to
@@ -253,7 +294,11 @@ async fn signed_from_request(request: Request, sessions: &SessionStore) -> Resul
             })
             .await?;
 
-        Ok(Signed { pending, body })
+        Ok(Signed {
+            pending,
+            body,
+            address,
+        })
     }
 }
 
@@ -296,22 +341,28 @@ async fn challenge_handler(
 
 /// `POST /session` — sign-in.
 ///
-/// Body, **eight fields since ADR-0057 decision 2**:
+/// Body, **nine fields since ADR-0057 decision 6**:
 /// `LP(principal_kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)
 ///  ‖ LP(password) ‖ LP(totp_code) ‖ LP(account_session_id)
-///  ‖ LP(account_session_sig)`. The last two are empty on the steward plane;
-/// on the operator plane they carry the id of a live session of the
-/// operator's own bound account and a signature by that session's key over
-/// this attempt's own challenge, binding the two together — without them the
-/// operator's key alone is refused.
-/// Answer, unchanged:
-/// `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)`.
+///  ‖ LP(account_session_sig) ‖ LP(grace_token)`. The last three are empty on
+/// the steward plane. On the operator plane the first two carry the id of a
+/// live session of the operator's bound account and a signature by that
+/// session's key over this attempt's challenge, binding the two together;
+/// without them the operator's key alone is refused. The ninth carries the
+/// memory-only grace token that session's sign-in minted, if this browser
+/// still holds one (decision 6).
 ///
-/// **`account_id` is appended, not inserted.** ADR-0053 §3: the client
-/// stamps it as the actor on every change it makes from here on, so undo can
-/// tell its own batches from a colleague's. It is additive on the wire — a
-/// client built before this change reads the first three fields and never
-/// looks past them, so it keeps working unchanged.
+/// Answer, **five fields since decision 6**:
+/// `LP(session_id) ‖ LP(token) ‖ u64(expires_at_unix) ‖ LP(account_id)
+///  ‖ LP(grace_token)`. The fifth is non-empty exactly when this sign-in
+/// verifies a fresh TOTP code on the steward plane, the one moment decision
+/// 6 mints one; it is empty on every operator sign-in and every steward
+/// sign-in that did not.
+///
+/// **Both `account_id` and `grace_token` are appended, not inserted.**
+/// ADR-0053 §3 established the pattern for the first: a client built before a
+/// given change reads only the fields it knows about and never looks past
+/// them, so each addition keeps every earlier client working unchanged.
 ///
 /// **This is the one route in this server a password may arrive on**, and
 /// §4.5's rule that it may not is reopened by the owner's own decision,
@@ -320,10 +371,10 @@ async fn challenge_handler(
 /// fails the build if a password-shaped field appears in any other handler in
 /// `api.rs`, `admin.rs` or `operators.rs`.
 ///
-/// **The count is still exact.** `read_fields(&body, 8)` refuses a body with
-/// seven fields and a body with nine, so a client built against either shape
+/// **The count is still exact.** `read_fields(&body, 9)` refuses a body with
+/// eight fields and a body with ten, so a client built against either shape
 /// is told it is wrong rather than having a field silently dropped — which is
-/// the same rule that used to be the reason there were four, then six.
+/// the same rule as before.
 async fn sign_in_handler(
     State(state): State<ApiState>,
     request: Request,
@@ -332,7 +383,7 @@ async fn sign_in_handler(
     let body = axum::body::to_bytes(request.into_body(), MAX_SIGNED_BODY)
         .await
         .map_err(|_| Refusal::from(SessionError::Malformed("request body")))?;
-    let fields = read_fields(&body, 8)?;
+    let fields = read_fields(&body, 9)?;
     let kind = principal_kind(&fields[0])?;
     let nonce = thirty_two(&fields[2], "nonce")?;
     let password = text(&fields[4], "credential")?;
@@ -354,6 +405,7 @@ async fn sign_in_handler(
             source: &source,
             account_session_id: &account_session_id,
             account_session_sig: &fields[7],
+            grace_token: &fields[8],
         })
         .await?;
 
@@ -362,6 +414,14 @@ async fn sign_in_handler(
     crypto::lp(&mut out, &signed_in.token);
     crypto::u64_le(&mut out, signed_in.expires_at_unix as u64);
     crypto::lp(&mut out, signed_in.account_id.as_bytes());
+    crypto::lp(
+        &mut out,
+        signed_in
+            .grace_token
+            .as_ref()
+            .map(|g| g.as_slice())
+            .unwrap_or(&[]),
+    );
     Ok(bytes_response(out))
 }
 
@@ -369,18 +429,24 @@ async fn sign_in_handler(
 ///
 /// Authenticated by the bearer token, because a signature needs a nonce and
 /// the caller has none yet. A nonce authorises nothing on its own.
+///
+/// Answer, **two fields since ADR-0057 decision 4**: `LP(nonce) ‖
+/// u64(issued_counter)`, the counter this nonce was issued against. Appended
+/// for the same reason as `account_id`, so a reloading client can resume at
+/// `max(local, issued_counter) + 1` instead of restarting at `1`.
 async fn nonce_handler(
     State(state): State<ApiState>,
     headers: HeaderMap,
 ) -> Result<Response, Refusal> {
     let session_id = header_text(&headers, HEADER_SESSION)?;
     let token = header_hex(&headers, HEADER_TOKEN)?;
-    let nonce = state
+    let issued = state
         .sessions
-        .issue_request_nonce(&session_id, &token)
+        .issue_request_nonce_ex(&session_id, &token)
         .await?;
-    let mut out = Vec::with_capacity(40);
-    crypto::lp(&mut out, &nonce);
+    let mut out = Vec::with_capacity(48);
+    crypto::lp(&mut out, &issued.nonce);
+    crypto::u64_le(&mut out, issued.issued_counter as u64);
     Ok(bytes_response(out))
 }
 
@@ -405,7 +471,7 @@ async fn sign_out_handler(
         .transaction()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = verify_and_commit(&signed, &state, tx).await?;
     state.sessions.sign_out_in(&tx, &session).await?;
     tx.commit()
         .await
@@ -482,7 +548,7 @@ async fn capability(
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
 
-    let session = signed.verify(state, &tx).await?;
+    let (session, tx) = verify_and_commit(signed, state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -595,7 +661,7 @@ impl FromRequest<CredentialApiState> for Signed {
         request: Request,
         state: &CredentialApiState,
     ) -> Result<Self, Self::Rejection> {
-        signed_from_request(request, &state.sessions).await
+        signed_from_request(request, &state.sessions, &state.client_address).await
     }
 }
 
@@ -612,14 +678,26 @@ async fn verified(state: &CredentialApiState, signed: &Signed) -> Result<Verifie
         .transaction()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
-    // The advanced `request_counter` is committed whatever the act does next,
-    // for the reason `capability` above states: rolling it back would leave
-    // the mark where it was while the browser's own tally moved on.
+    let result: Result<VerifiedSession, Refusal> = async {
+        let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+        // ADR-0057 decision 7: must run in the same transaction as the
+        // verification it follows — the row just advanced is locked until
+        // this transaction resolves, so a `DELETE` on another connection
+        // would wait on that lock forever.
+        state
+            .sessions
+            .check_session_address(&tx, session.id(), &signed.address)
+            .await?;
+        Ok(session)
+    }
+    .await;
+    // Committed whatever the block above decided, success or refusal: an
+    // advanced counter, idle death, or address-mismatch ending is rolled
+    // back only by a caller that commits on success.
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    Ok(session)
+    result
 }
 
 /// `POST /credentials/password`. Body: `LP(current) ‖ LP(new) ‖
@@ -1383,7 +1461,7 @@ async fn redeem_organisation_claim_handler(
     let source = state
         .client_address
         .of(request.headers(), request.extensions());
-    let signed = Signed::from_request_for(request, &state.sessions).await?;
+    let signed = Signed::from_request_for(request, &state.sessions, &state.client_address).await?;
     let fields = read_fields(&signed.body, 9)?;
     let token = &fields[0];
     let notice_address = text(&fields[1], "notice address")?;
@@ -1425,10 +1503,23 @@ async fn redeem_organisation_claim_handler(
         .transaction()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    let result: Result<VerifiedSession, Refusal> = async {
+        let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+        // ADR-0057 decision 7: same transaction as the verification it
+        // follows, committed below whether this refuses or not, as
+        // `verify_and_commit` does elsewhere — an ending delete made here
+        // must not be lost to a caller that only commits on success.
+        state
+            .sessions
+            .check_session_address(&tx, session.id(), &signed.address)
+            .await?;
+        Ok(session)
+    }
+    .await;
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = result?;
 
     let organisation = state
         .operators

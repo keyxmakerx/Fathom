@@ -352,6 +352,7 @@ describe('gapRows', () => {
   it('lists every rack free run as its own row', () => {
     const view = {
       premisesId: 'premises:1',
+      unplaced: [],
       cables: [],
       rows: [],
       surfaces: [],

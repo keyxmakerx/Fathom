@@ -5,6 +5,7 @@ import { liveTargetPortIds } from './liveTargets';
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   rows: [],
   surfaces: [],
   racks: [

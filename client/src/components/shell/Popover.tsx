@@ -42,6 +42,13 @@ export interface PopoverProps {
 /** Lets a row close the pop-over it sits in once it has acted. */
 const CloseContext = createContext<() => void>(() => {});
 
+/** The same close a `PopoverRow` calls before `onSelect`, for a row that
+ * renders something else and must decide for itself whether a press
+ * closes the popover. */
+export function usePopoverClose(): () => void {
+  return useContext(CloseContext);
+}
+
 export function Popover({ renderTrigger, children, align = 'left', className }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);

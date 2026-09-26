@@ -1268,10 +1268,12 @@ async fn one_failed_sign_in(
     lp(&mut body, &wrong.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
-    // code and the operator plane's account-session endorsement, all empty
-    // on the key-only steward branch this test drives. `read_fields` still
-    // refuses an inexact count, so the four empty fields are not optional.
+    // fields to six, ADR-0057 decision 2 to eight, and decision 6 to nine: a
+    // credential, an app code, the operator plane's account-session
+    // endorsement and its grace token, all empty on the key-only steward
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the five empty fields are not optional.
+    lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
@@ -1850,10 +1852,12 @@ async fn call_over_http(
     lp(&mut body, &person.key.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
-    // code and the operator plane's account-session endorsement, all empty
-    // on the key-only steward branch this test drives. `read_fields` still
-    // refuses an inexact count, so the four empty fields are not optional.
+    // fields to six, ADR-0057 decision 2 to eight, and decision 6 to nine: a
+    // credential, an app code, the operator plane's account-session
+    // endorsement and its grace token, all empty on the key-only steward
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the five empty fields are not optional.
+    lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
@@ -2493,9 +2497,17 @@ async fn a_signed_out_session_restored_from_a_backup_is_refused() {
 ///
 /// The type system carries the claim once the shape is right — a handler can
 /// only reach `verify_pending` with a transaction in its hand — so this reads
-/// the surface's own source for the two things that would undo it: a second
-/// `client.transaction()` inside `capability`, and a `verify_request` call on
-/// a route that goes on to authorise.
+/// the surface's source for the things that would undo it: a second
+/// `client.transaction()` inside `capability` or `verify_and_commit`, and a
+/// `verify_request` call on a route that goes on to authorise.
+///
+/// **`verify_and_commit` is the one place `Signed::verify` is called** —
+/// ADR-0057: a route's transaction must commit whether verification refuses
+/// the request or not, so an address-mismatch ending or an idle death
+/// `verify` makes on it is never undone by a caller that only committed on
+/// success. That function still hands the SAME `tx` back on success (never
+/// opens a second one), so the one-transaction claim holds exactly as it
+/// did when every route called `Signed::verify` directly.
 #[test]
 fn the_protected_routes_verify_and_authorise_in_one_transaction() {
     let source = include_str!("../src/api.rs");
@@ -2511,9 +2523,18 @@ fn the_protected_routes_verify_and_authorise_in_one_transaction() {
          `0014` closed"
     );
     assert!(
-        code.contains("signed.verify(&state, &tx)"),
+        code.contains("signed.verify(state, &tx)"),
         "the surface must verify through the path that takes the handler's own transaction, or \
          the rule above has nothing behind it"
+    );
+    let calls_a_second_transaction_inside_verify_and_commit = code
+        .split("async fn verify_and_commit")
+        .nth(1)
+        .and_then(|after| after.split("\n}\n").next())
+        .is_some_and(|body| body.contains("client.transaction()"));
+    assert!(
+        !calls_a_second_transaction_inside_verify_and_commit,
+        "verify_and_commit must hand the CALLER's own transaction back, never open a second one"
     );
 }
 
@@ -2640,6 +2661,15 @@ async fn adr55_superuser() -> tokio_postgres::Client {
     support::superuser_on_isolated(ADR55_TAG).await
 }
 
+/// The default limits with a year-long window, so a fixed-window boundary
+/// cannot fall inside a budget test and empty its bucket halfway.
+fn long_window_limits() -> SignInLimits {
+    SignInLimits {
+        window: Duration::from_secs(365 * 24 * 3600),
+        ..SignInLimits::defaults()
+    }
+}
+
 async fn adr55_store(pool: &Pool, ring: Arc<KeyRing>, limits: SignInLimits) -> SessionStore {
     let client = pool.get().await.expect("connection");
     let deployment = chains::deployment_id(&**client)
@@ -2750,6 +2780,7 @@ async fn adr55_sign_in(
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -3087,6 +3118,7 @@ async fn one_app_code_presented_by_four_sign_ins_at_once_opens_exactly_one_sessi
                     source: &source,
                     account_session_id: "",
                     account_session_sig: b"",
+                    grace_token: b"",
                 })
                 .await
         }));
@@ -3723,7 +3755,7 @@ async fn a_current_password_budget_is_charged_before_verification_and_refuses_a_
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
     let person = adr55_account(&pool, "budget").await;
@@ -3793,7 +3825,7 @@ async fn a_re_enrolment_code_budget_is_charged_before_verification_and_refuses_a
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
@@ -3873,7 +3905,7 @@ async fn a_successful_credential_change_does_not_spend_the_account_budget() {
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let addr = adr55_credential_surface(&pool, &ring, Arc::clone(&store)).await;
 
@@ -4115,6 +4147,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
 
@@ -4157,6 +4190,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await
         .expect(
@@ -4196,6 +4230,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
             source: &a_source_of_its_own(),
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
     assert!(
@@ -4260,6 +4295,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
                 source: &source,
                 account_session_id: "",
                 account_session_sig: b"",
+                grace_token: b"",
             })
             .await;
         assert!(
@@ -4301,6 +4337,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await
         .expect("the probes left the challenge unconsumed");
@@ -4334,6 +4371,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             source: &wrong_source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
     assert!(
@@ -4361,6 +4399,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
             source: &wrong_source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
     assert!(
@@ -4455,6 +4494,7 @@ async fn the_second_factor_answer_is_401_and_says_what_is_missing() {
         lp(&mut body, b"");
         lp(&mut body, b"");
         lp(&mut body, b"");
+        lp(&mut body, b""); // grace_token (ADR-0057 decision 6)
         let (status, answer) = post_bytes(
             addr,
             "/session",
@@ -4465,4 +4505,549 @@ async fn the_second_factor_answer_is_401_and_says_what_is_missing() {
         assert_eq!(status, "401", "no session was issued, so it is not a 200");
         assert_eq!(String::from_utf8_lossy(&answer), expected, "{why}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 4 — idle timeouts, in SQL against Postgres's clock
+// ---------------------------------------------------------------------------
+//
+// `last_seen_at` is deliberately outside the row MAC (`session_row_state`'s
+// doc comment says why), so moving it in SQL is the honest way to test
+// an idle death without a real wait — the mirror image of
+// `moving_a_sessions_expiry_in_sql_breaks_its_mac`, which is exactly why
+// `expires_at` may NOT be moved this way two tests up.
+
+async fn set_last_seen_seconds_ago(session_id: &str, seconds_ago: i64) {
+    support::superuser_client_on_test_database()
+        .await
+        .execute(
+            "UPDATE sessions SET last_seen_at = now() - make_interval(secs => $2) WHERE id = $1",
+            &[&session_id, &(seconds_ago as f64)],
+        )
+        .await
+        .expect("a superuser can move last_seen_at; it is not inside the row MAC");
+}
+
+async fn read_last_seen_epoch(session_id: &str) -> f64 {
+    // `EXTRACT` answers `numeric`; cast to `double precision` so the driver's
+    // `f64` decode has a type it actually supports.
+    support::superuser_client_on_test_database()
+        .await
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM last_seen_at)::double precision FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0)
+}
+
+/// **`>=`, not `>`: dead exactly at the mark, live a second short of it.**
+/// Both the nonce route and a signed request are checked, because a browser
+/// that lost its idle session must not be able to draw one more nonce from it
+/// either.
+#[tokio::test]
+async fn an_idle_account_session_is_refused_at_the_mark_and_passes_a_second_short_of_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+    let (signed_in, session_key) = sign_in(&store, &estate.steward).await;
+    let limit = sessions::ACCOUNT_IDLE_LIMIT.as_secs() as i64;
+
+    set_last_seen_seconds_ago(&signed_in.session_id, limit - 1).await;
+    let call = a_call(&store, &signed_in, &session_key, "GET", "/x", b"").await;
+    let ok = store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await;
+    assert!(ok.is_ok(), "3599 idle seconds must still verify: {ok:?}");
+
+    set_last_seen_seconds_ago(&signed_in.session_id, limit).await;
+    let nonce = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await;
+    assert!(
+        matches!(nonce, Err(SessionError::Expired)),
+        "a nonce request against an idle-dead session must be refused as expired: {nonce:?}"
+    );
+}
+
+/// A verified request moves `last_seen_at` to now; a refused one — signed by
+/// the wrong key, here — must never touch it. Otherwise a stolen bearer token
+/// alone (no valid signature needed) could keep an idle session alive
+/// forever by failing signatures on purpose.
+#[tokio::test]
+async fn a_verified_request_refreshes_idle_and_a_refused_one_never_does() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let store = store(&pool, Arc::clone(&ring)).await;
+    let (signed_in, session_key) = sign_in(&store, &estate.steward).await;
+
+    set_last_seen_seconds_ago(&signed_in.session_id, 500).await;
+    let before = read_last_seen_epoch(&signed_in.session_id).await;
+    let call = a_call(&store, &signed_in, &session_key, "GET", "/x", b"").await;
+    store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await
+        .expect("a live, correctly signed request verifies");
+    let after_ok = read_last_seen_epoch(&signed_in.session_id).await;
+    assert!(
+        after_ok > before + 400.0,
+        "a verified request must refresh last_seen_at to now, not leave the old mark in place: \
+         before {before}, after {after_ok}"
+    );
+
+    set_last_seen_seconds_ago(&signed_in.session_id, 500).await;
+    let before2 = read_last_seen_epoch(&signed_in.session_id).await;
+    let wrong_key = SoftwareKey::random().expect("a keypair");
+    let mut call = a_call(&store, &signed_in, &session_key, "GET", "/x", b"").await;
+    let message = sessions::request_bytes(
+        &call.session_id,
+        "GET",
+        "/x",
+        &sessions::body_digest(b""),
+        &call.nonce,
+        call.unix_ms,
+        call.counter,
+    );
+    call.signature = wrong_key.sign(&message);
+    let refused = store
+        .verify_request(&as_request(&call, "GET", "/x", b""))
+        .await;
+    assert!(
+        matches!(refused, Err(SessionError::Signature(_))),
+        "the wrong key must be refused as a bad signature: {refused:?}"
+    );
+    let after2 = read_last_seen_epoch(&signed_in.session_id).await;
+    assert_eq!(
+        before2, after2,
+        "a refused request must never refresh last_seen_at"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 7: the address check, driven over the real router — a
+// mismatch that reads 401 while the row survives is exactly what
+// `Signed::verify` running inside a handler's transaction produces without
+// a durable delete.
+// ---------------------------------------------------------------------------
+
+async fn session_row_exists(session_id: &str) -> bool {
+    support::superuser_client_on_test_database()
+        .await
+        .query_opt("SELECT 1 FROM sessions WHERE id = $1", &[&session_id])
+        .await
+        .expect("query")
+        .is_some()
+}
+
+async fn address_changed_at_is_set(session_id: &str) -> bool {
+    support::superuser_client_on_test_database()
+        .await
+        .query_one(
+            "SELECT address_changed_at IS NOT NULL FROM sessions WHERE id = $1",
+            &[&session_id],
+        )
+        .await
+        .expect("the session row")
+        .get(0)
+}
+
+/// 24 bits, mixed from the process id and a call counter — unique per call
+/// and per process, the same guarantee [`a_source_of_its_own`] gives the
+/// unparseable sources every OTHER test in this file uses. The address check
+/// needs ones that actually parse, so a repeated run inside the source
+/// bucket's window never collides on a literal.
+fn a_mixed_u24() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::process::id()
+        .wrapping_mul(2_654_435_761)
+        .wrapping_add(n)
+        & 0x00ff_ffff
+}
+
+/// A real IPv4 address, RFC 1918 `10.0.0.0/8`, unique per call, and a second
+/// one that differs from it only in the last bit of its last octet — always
+/// a different address, never the same one by construction.
+fn a_real_ipv4_pair_of_its_own() -> (String, String) {
+    let b = a_mixed_u24().to_be_bytes();
+    let base = std::net::Ipv4Addr::new(10, b[1], b[2], b[3]);
+    let different = std::net::Ipv4Addr::new(10, b[1], b[2], b[3] ^ 1);
+    (base.to_string(), different.to_string())
+}
+
+/// A real IPv6 `/64`, RFC 3849's documentation prefix `2001:db8::/32`, unique
+/// per call — and the three addresses each test below needs: itself, a
+/// second one inside the SAME `/64` (only the interface id differs, as
+/// RFC 8981 temporary addresses do), and a third in a DIFFERENT `/64` (the
+/// prefix itself differs).
+fn a_real_ipv6_slash64_trio_of_its_own() -> (String, String, String) {
+    let b = a_mixed_u24().to_be_bytes();
+    let prefix = format!("2001:db8:{:02x}{:02x}:{:02x}", b[1], b[2], b[3]);
+    let base = format!("{prefix}::1");
+    let inside = format!("{prefix}:aaaa:bbbb:cccc:dddd");
+    let outside = format!("2001:db8:{:02x}{:02x}:{:02x}", b[1], b[2], b[3] ^ 1) + "::1";
+    (base, inside, outside)
+}
+
+/// An `api::router` and a `SessionStore` sharing one pool, bound to `mode` —
+/// the harness every test below drives its own sign-in and requests through.
+async fn address_check_harness(
+    pool: &Pool,
+    ring: Arc<KeyRing>,
+    mode: sessions::AddressCheckMode,
+) -> (std::net::SocketAddr, Arc<SessionStore>, Estate) {
+    let estate = bootstrap(pool, &ring).await;
+    let store = Arc::new(
+        store(pool, Arc::clone(&ring))
+            .await
+            .with_address_check(mode),
+    );
+    let state = ApiState {
+        sessions: Arc::clone(&store),
+        watch: Arc::new(EpochWatch::new()),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::header("x-forwarded-for"),
+    };
+    let addr = serve(api::router(state)).await;
+    (addr, store, estate)
+}
+
+/// A signed `GET /organisations/{id}/capability`, presenting `from_address`
+/// as the request's address (via the header `ClientAddress::header` trusts
+/// from loopback, matching the harness above).
+async fn capability_from(
+    addr: std::net::SocketAddr,
+    store: &SessionStore,
+    signed_in: &SignedIn,
+    session_key: &SoftwareKey,
+    organisation: &OrganisationId,
+    from_address: &str,
+) -> String {
+    let call = a_call(
+        store,
+        signed_in,
+        session_key,
+        "GET",
+        &format!("/organisations/{organisation}/capability"),
+        b"",
+    )
+    .await;
+    let (status, _) = raw_request(
+        addr,
+        "GET",
+        &format!("/organisations/{organisation}/capability"),
+        &[
+            (HEADER_SESSION, call.session_id.clone()),
+            (HEADER_NONCE, hex(&call.nonce)),
+            (HEADER_TIMESTAMP, call.unix_ms.to_string()),
+            (HEADER_COUNTER, call.counter.to_string()),
+            (HEADER_SIGNATURE, hex(&call.signature)),
+            ("x-forwarded-for", from_address.to_string()),
+        ],
+        b"",
+    )
+    .await;
+    status
+}
+
+/// Signs in from `IP A`; a request from a different IPv4 in `all` mode is
+/// refused, the row is durably gone (not merely rolled back), and a LATER
+/// request from the ORIGINAL address is refused too.
+#[tokio::test]
+async fn address_check_all_mode_ends_the_session_durably_on_a_different_ipv4() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::All).await;
+    let (base_address, different_address) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+    assert!(session_row_exists(&signed_in.session_id).await);
+
+    let status = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &different_address,
+    )
+    .await;
+    assert_eq!(status, "401", "a different IPv4 in `all` mode is refused");
+    assert!(
+        !session_row_exists(&signed_in.session_id).await,
+        "the row must be gone at once, not merely rolled back with the handler's own transaction"
+    );
+
+    // A second request from the ORIGINAL address cannot even ask for a
+    // nonce: the row it would be checked against is gone, not merely rolled
+    // back — a genuinely gone session, not that address ever being the
+    // problem. (`capability_from`'s `a_call` cannot be reused here: it
+    // asks for a nonce first, which a row this gone has none left to give,
+    // and panics rather than answer with an HTTP status.)
+    let nonce_again = store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await;
+    assert!(
+        matches!(nonce_again, Err(SessionError::NoSuchSession)),
+        "the ORIGINAL address's session is gone for good, not recoverable by asking again: \
+         {nonce_again:?}"
+    );
+}
+
+/// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is the same class as the
+/// plain IPv4 it carries, so it does not end a session bound to that IPv4 —
+/// masked as v6 first, every mapped address is `::`, which would turn this
+/// check off for any client a dual-stack listener reports that way.
+#[tokio::test]
+async fn address_check_all_mode_treats_an_ipv4_mapped_address_as_its_ipv4() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::All).await;
+    let (base_address, _) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+
+    let status = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &format!("::ffff:{base_address}"),
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the mapped form of the same IPv4 must not be read as a different address"
+    );
+    assert!(session_row_exists(&signed_in.session_id).await);
+}
+
+/// RFC 8981 temporary addresses rotate inside one `/64` without a network
+/// change, so a request from a different address in the SAME `/64` survives;
+/// a different `/64` is a different network and ends the session.
+#[tokio::test]
+async fn address_check_all_mode_survives_inside_the_slash_64_and_ends_outside_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::All).await;
+    let (base_address, inside_address, outside_address) = a_real_ipv6_slash64_trio_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+
+    let inside = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &inside_address,
+    )
+    .await;
+    assert_eq!(
+        inside, "200",
+        "a different address in the same /64 survives"
+    );
+    assert!(session_row_exists(&signed_in.session_id).await);
+
+    let outside = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &outside_address,
+    )
+    .await;
+    assert_eq!(outside, "401", "a different /64 ends the session");
+    assert!(!session_row_exists(&signed_in.session_id).await);
+}
+
+/// A request address this server cannot even parse is not "nothing to
+/// compare" on a BOUND session — it is a mismatch like any other, and does
+/// not get a free pass.
+#[tokio::test]
+async fn address_check_all_mode_treats_an_unparseable_address_as_a_mismatch_on_a_bound_session() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::All).await;
+    let (base_address, _) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+
+    let status = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        "not-an-address-at-all",
+    )
+    .await;
+    assert_eq!(
+        status, "401",
+        "a bound session facing a request address that does not parse is refused, not waved \
+         through"
+    );
+    assert!(!session_row_exists(&signed_in.session_id).await);
+}
+
+/// The default mode never ends an account (steward-plane) session over an
+/// address change — laptops, VPNs and phones change address in the ordinary
+/// course of things — but the change is still recorded on the row.
+#[tokio::test]
+async fn address_check_site_mode_records_an_account_address_change_without_ending_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::Site).await;
+    let (base_address, different_address) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+    assert!(!address_changed_at_is_set(&signed_in.session_id).await);
+
+    let status = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &different_address,
+    )
+    .await;
+    assert_eq!(
+        status, "200",
+        "the default mode never ends an account session for this"
+    );
+    assert!(session_row_exists(&signed_in.session_id).await);
+    assert!(
+        address_changed_at_is_set(&signed_in.session_id).await,
+        "the change must still be recorded, for whoever reads the row later"
+    );
+}
+
+/// `off` checks nothing: no ending, and no record either.
+#[tokio::test]
+async fn address_check_off_mode_neither_ends_nor_records_a_changed_address() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::Off).await;
+    let (base_address, different_address) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+
+    let status = capability_from(
+        addr,
+        &store,
+        &signed_in,
+        &session_key,
+        &estate.organisation,
+        &different_address,
+    )
+    .await;
+    assert_eq!(status, "200", "`off` must not refuse for an address change");
+    assert!(session_row_exists(&signed_in.session_id).await);
+    assert!(
+        !address_changed_at_is_set(&signed_in.session_id).await,
+        "`off` must not even record the change"
+    );
+}
+
+/// Two signed requests, both from a different address, fired at once.
+///
+/// **The guarantee chosen: both are refused, not "at most one that had
+/// already verified".** A request whose signature verified is not yet one
+/// the session vouches for — the address check runs in the SAME
+/// transaction, before any promise to the browser, so "verified" and
+/// "accepted" are not separable moments to race between. Whichever request
+/// reaches the ending delete first ends the row; the other's `UPDATE`
+/// either finds the same mismatch, or finds the row already gone, and
+/// `RETURNING`'s empty result refuses it as `NoSuchSession`. Either way:
+/// 401, never 200.
+#[tokio::test]
+async fn two_concurrent_requests_from_a_different_address_are_both_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let (addr, store, estate) =
+        address_check_harness(&pool, ring.clone(), sessions::AddressCheckMode::All).await;
+    let (base_address, different_address) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let signed_in = sign_in_from(&store, &estate.steward, &session_key, &base_address)
+        .await
+        .expect("sign-in");
+
+    let path = format!("/organisations/{}/capability", estate.organisation);
+    // Both nonces drawn before either request is sent — issuing one nonce
+    // never depends on the other's outcome, and each is single-use, so two
+    // concurrent requests need two in hand up front.
+    let call_a = a_call(&store, &signed_in, &session_key, "GET", &path, b"").await;
+    let call_b = a_call(&store, &signed_in, &session_key, "GET", &path, b"").await;
+
+    let send = |call: Call| {
+        let path = path.clone();
+        let address = different_address.clone();
+        async move {
+            raw_request(
+                addr,
+                "GET",
+                &path,
+                &[
+                    (HEADER_SESSION, call.session_id.clone()),
+                    (HEADER_NONCE, hex(&call.nonce)),
+                    (HEADER_TIMESTAMP, call.unix_ms.to_string()),
+                    (HEADER_COUNTER, call.counter.to_string()),
+                    (HEADER_SIGNATURE, hex(&call.signature)),
+                    ("x-forwarded-for", address),
+                ],
+                b"",
+            )
+            .await
+            .0
+        }
+    };
+    let (status_a, status_b) = tokio::join!(send(call_a), send(call_b));
+
+    assert_eq!(
+        status_a, "401",
+        "the first of two concurrent requests from the wrong address must be refused: {status_a}"
+    );
+    assert_eq!(
+        status_b, "401",
+        "the second of two concurrent requests from the wrong address must be refused too, \
+         never accepted just because the first already ended the session: {status_b}"
+    );
+    assert!(
+        !session_row_exists(&signed_in.session_id).await,
+        "the session must be gone once both concurrent requests have answered"
+    );
 }

@@ -74,7 +74,7 @@ impl FromRequest<AdminState> for Signed {
     type Rejection = Refusal;
 
     async fn from_request(request: Request, state: &AdminState) -> Result<Self, Self::Rejection> {
-        api::Signed::from_request_for(request, &state.sessions).await
+        api::Signed::from_request_for(request, &state.sessions, &state.client_address).await
     }
 }
 
@@ -802,10 +802,26 @@ async fn verify(
         .transaction()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    let result: Result<crate::sessions::VerifiedSession, Refusal> = async {
+        let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+        // ADR-0057 decision 7: must run in the same transaction as the
+        // verification it follows — the row just advanced is locked until
+        // this transaction resolves, so a separate connection's `DELETE`
+        // would wait on that lock forever.
+        state
+            .sessions
+            .check_session_address(&tx, session.id(), &signed.address)
+            .await?;
+        Ok(session)
+    }
+    .await;
+    // Committed whatever the act above decided: an advanced counter, an idle
+    // death or an address-mismatch ending are all rolled back by a caller
+    // that only commits on success.
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = result?;
     // ADR-0055 stream (c): decision 11's confirmation is *"an operator
     // sign-in on the new host"*, so it has to be attributed to the operator
     // who actually reached the console. This is the one place that knows who

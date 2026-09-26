@@ -401,7 +401,11 @@ async function main() {
 
   // And the ordinary sign-in door, which only exists once the deployment is
   // `done` — an unauthenticated page like the two at the top, and one this
-  // script could not reach before the first run had happened.
+  // script could not reach before the first run had happened. ADR-0057
+  // decision 4 persists this browser's account session on this origin, so
+  // it is signed out first — otherwise a visit here would just restore Home.
+  await tab.click('.home__panel .home__btn');
+  await tab.waitForSelector('#signin-password', { timeout: 15000 });
   await visit('the sign-in door', `${SERVER_URL}/`, async () => {
     await tab.waitForSelector('#signin-password', { timeout: 15000 });
   });

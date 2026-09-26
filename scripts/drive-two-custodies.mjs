@@ -63,6 +63,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
@@ -94,7 +95,7 @@ const COLLEAGUE = { name: 'Second Operator', address: 'second@example.test' };
 
 const WORK =
   process.env.FATHOM_DRIVE_DIR ??
-  '/tmp/claude-0/-home-user-Fathom/e3fb841a-3739-5e05-b6f7-65bae229f9a6/scratchpad/drive-two-custodies';
+  join(tmpdir(), 'fathom-drive-two-custodies');
 const SHOTS = join(WORK, 'shots');
 mkdirSync(SHOTS, { recursive: true });
 
@@ -435,6 +436,20 @@ async function signInThroughTheDoor(page, { address, password, code, label, chec
   }
 }
 
+/**
+ * Navigate to `url` and land on the sign-in door. Decision 4 restores a
+ * live account session straight to Home instead of the door, so this
+ * signs out first when that happens.
+ */
+async function arriveAtTheDoor(page, url) {
+  await page.goto(`${url}/`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.home, #signin-password', { timeout: 20000 });
+  if ((await page.locator('.home').count()) > 0) {
+    await page.click('.home__panel .home__btn');
+    await page.waitForSelector('#signin-password', { timeout: 20000 });
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -737,7 +752,10 @@ async function main() {
     JSON.stringify(flagOldAfter),
   );
 
-  await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
+  // Decision 4 persists this browser's account session on this origin, so
+  // arriving here restores it rather than showing the door — sign out
+  // first, exactly as a person choosing to leave would.
+  await arriveAtTheDoor(page, OLD_URL);
   // A recovery code, not a code from the app: the second step takes either in
   // the one field (ADR-0056 decisions 3 and 4), and the person who reaches
   // for a recovery code has already lost their phone.

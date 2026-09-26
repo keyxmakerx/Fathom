@@ -207,6 +207,7 @@ async fn sign_in_with(
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await?;
     Ok((signed_in, session_key))
@@ -1350,6 +1351,7 @@ async fn a_second_browsers_key_signs_in_and_so_does_the_first() {
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await
         .expect("the FIRST browser's key must still sign in after the second registered one");
@@ -2120,6 +2122,7 @@ async fn one_failed_sign_in(
     lp(&mut body, b"");
     lp(&mut body, b"");
     lp(&mut body, b"");
+    lp(&mut body, b""); // grace_token (ADR-0057 decision 6)
     let (status, headers, answer) =
         raw_post(addr, "/session", &body, &[("x-forwarded-for", &source)]).await;
     (

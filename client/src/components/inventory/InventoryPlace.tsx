@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
 import { parseNodeId } from '../../document/model';
 import { viewOf, type ClosetView } from '../../document/view';
@@ -8,6 +8,8 @@ import { paletteFromCatalogue } from '../racks/palette';
 import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
 import { MiddleClip } from './MiddleClip';
+import { NetworksPanel } from './NetworksPanel';
+import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import {
   COLUMN_LABEL,
   columnsForLens,
@@ -19,14 +21,16 @@ import {
 } from './rows';
 import './inventory.css';
 
-const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [] };
+const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [] };
+const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
 
-type Kind = 'devices' | 'racks' | 'cables' | 'ports';
+type Kind = 'devices' | 'racks' | 'cables' | 'ports' | 'networks';
 const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
   { key: 'devices', label: 'Devices' },
   { key: 'racks', label: 'Racks' },
   { key: 'cables', label: 'Cables' },
   { key: 'ports', label: 'Ports' },
+  { key: 'networks', label: 'Networks' },
 ];
 
 /** Selection identity for a React key and an "is this row selected" check —
@@ -91,7 +95,7 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
   const { session, onShowOnRack, notesActions, lens, ...shellProps } = props;
-  const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, reloadDesign } = session;
+  const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -100,14 +104,64 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const groups = useMemo(() => (doc ? groupDeviceRows(view, doc) : []), [view, doc]);
   const gaps = useMemo(() => gapRows(view), [view]);
   const columns = columnsForLens(lens);
+  // ADR-0058 — the Networks kind's live count and its grid read the SAME
+  // derivation (computed once here, handed to `NetworksPanel` as a prop,
+  // never recomputed inside it) — one derivation per doc change, not two.
+  // `deriveNetworks` itself never throws, but the empty fallback is kept as
+  // a second line of defence: a page with devices to inventory must never
+  // go blank over a Networks-only reading.
+  //
+  // `deriveNetworks` runs synchronously only while the Networks kind is
+  // actually shown (it is a real graph walk, memoised on the `Document`
+  // object itself, but a re-render still pays for a first call after every
+  // edit).
+  const networksDerived = useMemo(() => {
+    if (!doc || kind !== 'networks') return EMPTY_NETWORKS_DERIVED;
+    try {
+      return deriveNetworks(doc);
+    } catch {
+      return EMPTY_NETWORKS_DERIVED;
+    }
+  }, [doc, kind]);
+
+  // The rail count, off the critical path, while ANY kind is shown: ADR-0046
+  // §2 says every count is read off the live document, and a ref that
+  // started at 0 and only updated while the reader was actually on Networks
+  // showed "0" on first arrival and a stale number after an undo made
+  // elsewhere. `null` (shown as "…") until the document has sat still for
+  // 250ms, then the real, memoised count — never a leftover one. While
+  // Networks itself is open, `networksDerived` above is already exactly
+  // current, so the rail reads that directly instead of waiting out its
+  // debounce.
+  const [backgroundNetworksCount, setBackgroundNetworksCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!doc) {
+      setBackgroundNetworksCount(null);
+      return undefined;
+    }
+    setBackgroundNetworksCount(null);
+    const timer = window.setTimeout(() => {
+      try {
+        const d = deriveNetworks(doc);
+        setBackgroundNetworksCount(d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length);
+      } catch {
+        setBackgroundNetworksCount(0);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [doc]);
+  const networksCount =
+    kind === 'networks'
+      ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length
+      : backgroundNetworksCount;
 
   // ADR-0046 §2: "Nothing in a list is typed" — every count below is read
   // off the live document, never a literal — a live `Chassis`/`Cable`/`PhysicalPort`
   // node, counted regardless of where (or whether) it is placed, so the
   // rail's own number and the grid's own row count can never disagree about
   // what a "device" is.
-  const counts: Record<Kind, number> = useMemo(() => {
-    if (!doc) return { devices: 0, racks: 0, cables: 0, ports: 0 };
+  const counts: Record<Kind, number | null> = useMemo(() => {
+    if (!doc) return { devices: 0, racks: 0, cables: 0, ports: 0, networks: 0 };
     let devices = 0;
     let cables = 0;
     let ports = 0;
@@ -118,12 +172,22 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       else if (nodeKind === 'Cable') cables += 1;
       else if (nodeKind === 'PhysicalPort') ports += 1;
     }
-    return { devices, racks: view.racks.length, cables, ports };
-  }, [doc, view.racks.length]);
+    return {
+      devices,
+      racks: view.racks.length,
+      cables,
+      ports,
+      networks: networksCount,
+    };
+  }, [doc, view.racks.length, networksCount]);
 
   // ADR-0047: absent, not empty, when nothing is selected (see RacksPlace).
+  // The Networks kind owns its right-hand panel (the Add network editor,
+  // `NetworksPanel`'s layout) rather than this shared one — a network
+  // row is not a `Selection` (ADR-0058, `NetworksPanel.tsx`'s header
+  // note), so `EditorFor` is not asked for it.
   const selectedPanel =
-    doc != null
+    doc != null && kind !== 'networks'
       ? EditorFor(
           selection,
           view,
@@ -174,7 +238,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                     onClick={() => setKind(k.key)}
                   >
                     <span>{k.label}</span>
-                    <span className="inventory-place__count">{counts[k.key]}</span>
+                    <span className="inventory-place__count">{counts[k.key] ?? '…'}</span>
                   </button>
                 </li>
               ))}
@@ -183,8 +247,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <p className="inventory-place__muted">Saved filters are not built yet.</p>
           </nav>
 
-          <div className="inventory-place__main">
-            {kind !== 'devices' ? (
+          <div className={kind === 'networks' ? 'inventory-place__main inventory-place__main--flush' : 'inventory-place__main'}>
+            {kind === 'networks' ? (
+              doc != null ? <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} /> : null
+            ) : kind !== 'devices' ? (
               <div className="inventory-place__unbuilt">This list is not built yet.</div>
             ) : (
               <>

@@ -53,7 +53,7 @@ import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNode
 import { ShelfPlate, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
 import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
 import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
-import { findAnyPort, locatePort, resolvePlaceNode } from './lookup';
+import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, portalCountLabel } from './portals';
 import { sheathsFor } from './sheath';
@@ -287,6 +287,7 @@ function DrawingInner({
   onSelect,
   onConnect,
   onDisconnect,
+  onRemoveDevice,
   onUndo,
   onRedo,
   canDraw,
@@ -1329,11 +1330,11 @@ function DrawingInner({
   const handlePickerCancel = useCallback(() => setPendingConnect(null), []);
 
   // UI-SPEC "Delete/Backspace on a selected cable calls onDisconnect after
-  // nothing else — no confirmation dialog; undo is the record's job."
-  // React Flow's own delete handling stays off (`deleteKeyCode={null}`
-  // below, unchanged from before this session) for racks and chassis,
-  // which do not have a delete feature yet — this listener acts only when
-  // a cable is the current selection.
+  // nothing else" extends to a selected device: `'chassis'` is always a
+  // real device; `'occupant'`/`'fixture'` also match a passive fixture
+  // (out of scope), so those two are checked against the view first.
+  // React Flow's delete handling stays off (`deleteKeyCode={null}` below)
+  // for racks, which have no delete feature yet.
   //
   // ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z / Ctrl Shift Z, at
   // this SAME listener (the brief's own words: "at the existing keydown
@@ -1362,13 +1363,31 @@ function DrawingInner({
         return;
       }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-      if (selected?.kind !== 'cable') return;
-      event.preventDefault();
-      onDisconnect?.(selected.id);
+      if (selected?.kind === 'cable') {
+        event.preventDefault();
+        onDisconnect?.(selected.id);
+        return;
+      }
+      if (selected?.kind === 'chassis') {
+        event.preventDefault();
+        onRemoveDevice?.(selected.id);
+        return;
+      }
+      if (selected?.kind === 'occupant') {
+        if (findOccupant(view, selected.id)?.occupant.kind !== 'chassis') return;
+        event.preventDefault();
+        onRemoveDevice?.(selected.id);
+        return;
+      }
+      if (selected?.kind === 'fixture') {
+        if (findFixture(view, selected.id)?.fixture.kind !== 'chassis') return;
+        event.preventDefault();
+        onRemoveDevice?.(selected.id);
+      }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onDisconnect, canDraw, onUndo, onRedo]);
+  }, [selected, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
 
   return (
     <div className="drawing" ref={containerRef} onDrop={handleDrop} onDragOver={handleDragOver}>

@@ -28,11 +28,12 @@ import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
 import { DesignPlace } from './components/design/DesignPlace';
 import { LENSES_IN } from './components/shell/lens';
-import { PopoverRow } from './components/shell/Popover';
+import { PopoverRow, usePopoverClose } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
 import { SignIn } from './components/SignIn';
 import { generateKeyPair, listKeySlots } from './crypto/keys';
 import { initialsFromAddress } from './initials';
+import { installExpiryTimers } from './state/expiryTimers';
 import {
   ACCOUNT_PLANE,
   getSession,
@@ -43,6 +44,7 @@ import {
   subscribe,
   type ActiveSession,
 } from './state/sessionState';
+import { claimThisTab, loadAccountSession, sweepStaleTabSessions } from './state/tabSessions';
 
 /**
  * Which door an unsigned-in visitor is at. Three since ADR-0056 decision 1
@@ -79,8 +81,98 @@ type OperatorSignInPending =
   | { kind: 'existing'; challenge: SignInChallenge }
   | { kind: 'bootstrap'; accountSession: ActiveSession; bootstrap: OperatorBootstrapChallenge };
 
+/** The "Site" row, pulled out as a separate component so this press can
+ * decide for itself, via `usePopoverClose`, whether the popover closes. */
+function SiteEntryRow({
+  enteringConsole,
+  onEnter,
+}: {
+  enteringConsole: boolean;
+  onEnter: (close: () => void) => void;
+}) {
+  const close = usePopoverClose();
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="shell-popover__row"
+      data-testid="console-entry"
+      disabled={enteringConsole}
+      onClick={() => onEnter(close)}
+    >
+      {enteringConsole ? 'Opening Site…' : 'Site'}
+    </button>
+  );
+}
+
+/** ADR-0057 decision 2's step-up code prompt, rendered inside the same
+ * popover the "Site" row sits in — its `usePopoverClose` so a wrong code
+ * can keep the menu open and a right one can close it. */
+function SiteCodePromptForm({
+  enteringConsole,
+  operatorCode,
+  onCodeChange,
+  onSubmit,
+}: {
+  enteringConsole: boolean;
+  operatorCode: string;
+  onCodeChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, close: () => void) => void;
+}) {
+  const close = usePopoverClose();
+  return (
+    <form
+      className="popover-row popover-row--form"
+      data-testid="console-code-prompt"
+      onSubmit={(event) => onSubmit(event, close)}
+    >
+      <label htmlFor="console-verification-code">Verification code</label>
+      <input
+        id="console-verification-code"
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        spellCheck={false}
+        value={operatorCode}
+        onChange={(event) => onCodeChange(event.target.value)}
+        disabled={enteringConsole}
+        required
+      />
+      <button type="submit" disabled={enteringConsole || operatorCode.trim().length === 0}>
+        {enteringConsole ? 'Checking…' : 'Continue'}
+      </button>
+    </form>
+  );
+}
+
 export default function App() {
   const session = useSyncExternalStore(subscribe, getSession);
+
+  // ADR-0057 decision 4: restores the account session before first render,
+  // so the sign-in door never flashes. Decision 6 excludes Site, which
+  // stays signed out on reload; `claimThisTab` refuses a duplicate tab.
+  const [restoringSession, setRestoringSession] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await sweepStaleTabSessions();
+      const { tabId, isCopy } = await claimThisTab();
+      if (!isCopy) {
+        const stored = await loadAccountSession(tabId);
+        if (stored && stored.expiresAtUnix > Date.now() / 1000 && !cancelled) {
+          setSession(stored);
+        }
+      }
+      if (!cancelled) setRestoringSession(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    installExpiryTimers();
+  }, []);
+
   // ADR-0055 client (a): a link carrying a reset token opens the reset
   // screen and nothing else. Read once, before the first render, so the
   // screen does not flash the ordinary door first.
@@ -216,13 +308,14 @@ export default function App() {
   const [operatorCodePending, setOperatorCodePending] = useState<OperatorSignInPending | null>(null);
   const [operatorCode, setOperatorCode] = useState('');
 
-  async function enterConsole() {
+  async function enterConsole(close: () => void) {
     const accountSession = getSessionOn(ACCOUNT_PLANE);
     if (!accountSession) return;
     // Already picked up in this browser: this is a change of plane, not a
     // second sign-in and not a second key registration.
     if (getSessionOn(OPERATOR_PLANE)) {
       setPlane(OPERATOR_PLANE);
+      close();
       return;
     }
     setEnteringConsole(true);
@@ -240,6 +333,7 @@ export default function App() {
         const challenge = await beginSignIn(existing, PRINCIPAL_KIND_OPERATOR);
         try {
           await completeSignIn(challenge);
+          close();
           return;
         } catch (error) {
           if (isSecondFactorNeeded(error)) {
@@ -264,6 +358,7 @@ export default function App() {
       try {
         const { session: operatorSession } = await completeOperatorBootstrap(accountSession, bootstrap);
         setSession(operatorSession);
+        close();
       } catch (error) {
         if (isSecondFactorNeeded(error)) {
           setOperatorCodePending({ kind: 'bootstrap', accountSession, bootstrap });
@@ -280,10 +375,12 @@ export default function App() {
       );
       // 403 is the ordinary answer for an account that holds no operator
       // custody, and 404 is a host the console does not answer on. Neither
-      // is worth a second press.
+      // is worth a second press. The refusal shows on Home, behind this
+      // popover, so this press closes it like any other.
       if (error instanceof ApiRefusal && (error.status === 403 || error.status === 404)) {
         setCustodyRefused(true);
       }
+      close();
     } finally {
       setEnteringConsole(false);
     }
@@ -291,7 +388,7 @@ export default function App() {
 
   /** Retry the pending operator sign-in with the verification code just
    * typed, over the same challenge (ADR-0057 decision 2). */
-  async function submitOperatorCode(event: FormEvent<HTMLFormElement>) {
+  async function submitOperatorCode(event: FormEvent<HTMLFormElement>, close: () => void) {
     event.preventDefault();
     if (!operatorCodePending) return;
     setEnteringConsole(true);
@@ -309,12 +406,15 @@ export default function App() {
       }
       setOperatorCodePending(null);
       setOperatorCode('');
+      close();
     } catch (error) {
       console.error(error);
       setConsoleRefusal(error instanceof ApiRefusal ? error.message : 'That code was not accepted.');
       setOperatorCode('');
       // A wrong code spends the challenge's nonce like any refusal, so a
-      // retry against it always fails — fetch a fresh one instead.
+      // retry against it always fails — fetch a fresh one instead. The
+      // prompt is about to be redrawn over the same open popover, not
+      // closed out from under the person mid-retry.
       try {
         if (operatorCodePending.kind === 'existing') {
           setOperatorCodePending({
@@ -472,6 +572,22 @@ export default function App() {
     );
   }
 
+  // ADR-0057 decision 4: nothing is drawn until this tab has finished
+  // trying to restore an account session of its own — a door that
+  // appeared and was then replaced by a successful restore would be a door
+  // that existed, exactly the reason the setup-state gate just below waits
+  // too.
+  if (!session && restoringSession) {
+    return (
+      <div className="signin">
+        <div className="signin__card">
+          <h1 className="signin__title">Fathom</h1>
+          <p className="signin__subtitle">Checking for a signed-in session…</p>
+        </div>
+      </div>
+    );
+  }
+
   // Nothing is drawn until the server has said which of the two screens this
   // deployment is on. A door that appeared and was then replaced by the
   // first-run flow would be a door that existed.
@@ -590,33 +706,22 @@ export default function App() {
           // ADR-0057 decision 2: a live account session endorses Site, and
           // one whose own second-factor proof has gone stale needs a
           // current code beside it — asked right here, in the same place
-          // Site is entered, rather than on a screen of its own.
-          <form
-            className="popover-row popover-row--form"
-            data-testid="console-code-prompt"
-            onSubmit={(event) => void submitOperatorCode(event)}
-          >
-            <label htmlFor="console-verification-code">Verification code</label>
-            <input
-              id="console-verification-code"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              spellCheck={false}
-              value={operatorCode}
-              onChange={(event) => setOperatorCode(event.target.value)}
-              disabled={enteringConsole}
-              required
-            />
-            <button type="submit" disabled={enteringConsole || operatorCode.trim().length === 0}>
-              {enteringConsole ? 'Checking…' : 'Continue'}
-            </button>
-          </form>
+          // Site is entered, rather than on a screen of its own. Not a
+          // `PopoverRow`: it decides for itself, via `usePopoverClose`,
+          // whether a submit closes the popover, since a wrong code must
+          // not close it mid-retry.
+          <SiteCodePromptForm
+            enteringConsole={enteringConsole}
+            operatorCode={operatorCode}
+            onCodeChange={setOperatorCode}
+            onSubmit={(event, close) => void submitOperatorCode(event, close)}
+          />
         )}
         {consoleHost && !custodyRefused && !operatorCodePending && (
-          <PopoverRow testId="console-entry" disabled={enteringConsole} onSelect={() => void enterConsole()}>
-            {enteringConsole ? 'Opening Site…' : 'Site'}
-          </PopoverRow>
+          // Not a `PopoverRow`: this press sometimes ends in the form
+          // above, rendered in this same popover, so it closes it via
+          // `usePopoverClose`.
+          <SiteEntryRow enteringConsole={enteringConsole} onEnter={(close) => void enterConsole(close)} />
         )}
       </>
     );

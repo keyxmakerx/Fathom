@@ -18,8 +18,11 @@ import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
 import { connectPorts } from '../document/cables';
-import { addSketchPort, createSketchDevice } from '../document/commands';
-import { emptyDocument, type Document } from '../document/model';
+import { addSketchPort, createSketchDevice, removeChassis } from '../document/commands';
+import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
+import { edgesIn, edgesOut, emptyDocument, type Document } from '../document/model';
+import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
+import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
 
@@ -409,5 +412,182 @@ describe('a design stays saveable after undo', () => {
     for (const batch of doc.batches.slice(-3).reverse()) doc = undo(doc, batch.id, step());
 
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  it('addVlan, addSubnet and removeVlanNetwork each still load through the Rust reader after undo', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_100_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const beforePort = doc;
+    doc = addSketchPort(doc, chassisId, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portId = added(beforePort, doc, 'physical-port:');
+
+    doc = addVlan(doc, { vlanId: 10, attach: [{ target: { kind: 'port', portId, interfaceName: 'Et1' } }] }, step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const beforeSecondVlan = doc;
+    doc = addVlan(doc, { vlanId: 10, attach: [{ target: { kind: 'port', portId, interfaceName: 'Et1' } }] }, step());
+    const vlanNodeId = added(beforeSecondVlan, doc, 'vlan:');
+    const unitId = added(beforeSecondVlan, doc, 'logical-unit:');
+
+    doc = addSubnet(doc, { prefix: '10.0.10.0/24', attach: [{ target: { kind: 'unit', unitId }, address: '10.0.10.5/24' }] }, step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    doc = removeVlanNetwork(doc, [vlanNodeId], step());
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  it('removeChassis cascades a VLAN, a gateway unit, a note and a Docker network — nothing it contained stays live, one undo restores all of it', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_200_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const deviceId = doc.nodes.find((n) => n.id.startsWith('device:'))!.id;
+
+    let before = doc;
+    doc = addSketchPort(doc, chassisId, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const accessPortId = added(before, doc, 'physical-port:');
+    before = doc;
+    doc = addSketchPort(doc, chassisId, { label: 'Et2', connector: 'rj45', face: 'front' }, step());
+    const gatewayPortId = added(before, doc, 'physical-port:');
+
+    doc = addVlan(
+      doc,
+      {
+        vlanId: 10,
+        name: 'Servers',
+        attach: [
+          { target: { kind: 'port', portId: accessPortId, interfaceName: 'Et1' } },
+          { target: { kind: 'port', portId: gatewayPortId, interfaceName: 'Et2' }, gateway: true },
+        ],
+        subnet: '10.0.10.0/24',
+        gatewayAddress: '10.0.10.1/24',
+      },
+      step(),
+    );
+    doc = addNote(doc, deviceId, { text: 'spare uplink', how: 'typed', ...step() });
+
+    before = doc;
+    doc = addContainerNetwork(doc, { hostDeviceId: deviceId, name: 'app_net', driver: 'bridge', subnets: ['172.18.0.0/16'] }, step());
+    const cnId = added(before, doc, 'container-network:');
+    before = doc;
+    doc = addContainer(doc, { hostDeviceId: deviceId, name: 'gitea' }, step());
+    const containerId = added(before, doc, 'container:');
+    doc = attachContainerToNetwork(doc, { container: { kind: 'existing', containerId }, networkId: cnId, address: '172.18.0.3/16' }, step());
+    doc = addPublishedPort(doc, { containerId, protocol: 'tcp', containerPort: 3000, hostPort: 3000 }, step());
+
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const liveIdsBefore = new Set(doc.nodes.filter((n) => n.absentSince === undefined).map((n) => n.id));
+
+    const removed = removeChassis(doc, chassisId, step());
+    const removeBatchId = removed.batches.at(-1)!.id;
+
+    // Nothing the device contained is live: the chassis, both ports, the
+    // VLAN, the gateway's address, the note, and the Docker network/container/port.
+    for (const id of liveIdsBefore) {
+      if (id === deviceId) continue;
+      expect(removed.nodes.find((n) => n.id === id)?.absentSince, `${id} should be tombstoned`).toBeDefined();
+    }
+    expect(removed.nodes.find((n) => n.id === deviceId)?.absentSince).toBeDefined();
+    expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+
+    const undone = undo(removed, removeBatchId, step());
+    for (const id of liveIdsBefore) {
+      expect(undone.nodes.find((n) => n.id === id)?.absentSince, `${id} should be live again`).toBeUndefined();
+    }
+    for (const e of doc.edges) {
+      if (e.absentSince !== undefined) continue;
+      expect(undone.edges.find((x) => x.id === e.id)?.absentSince, `${e.id} should be live again`).toBeUndefined();
+    }
+    expect(() => engine.loadPlain(writePlain(undone))).not.toThrow();
+  });
+
+  it('removing a container\'s own host tombstones the container and its AttachedTo — the overlay network on the other host no longer lists it', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_300_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const hostAId = doc.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const hostAChassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+
+    const beforeB = doc;
+    doc = createSketchDevice(doc, step());
+    const hostBId = doc.nodes.find((n) => n.id.startsWith('device:') && !beforeB.nodes.some((b) => b.id === n.id))!.id;
+
+    let before = doc;
+    doc = addContainerNetwork(doc, { hostDeviceId: hostBId, name: 'overlay_net', driver: 'overlay' }, step());
+    const overlayId = added(before, doc, 'container-network:');
+
+    before = doc;
+    doc = addContainer(doc, { hostDeviceId: hostAId, name: 'worker' }, step());
+    const containerId = added(before, doc, 'container:');
+    doc = attachContainerToNetwork(doc, { container: { kind: 'existing', containerId }, networkId: overlayId, address: '10.0.9.2/24' }, step());
+    const attachedToEdgeId = edgesOut(doc, containerId, 'AttachedTo')[0]!.id;
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const removed = removeChassis(doc, hostAChassisId, step());
+    expect(removed.nodes.find((n) => n.id === containerId)?.absentSince).toBeDefined();
+    expect(removed.edges.find((e) => e.id === attachedToEdgeId)?.absentSince).toBeDefined();
+    // host B and its overlay network are untouched
+    expect(removed.nodes.find((n) => n.id === hostBId)?.absentSince).toBeUndefined();
+    expect(removed.nodes.find((n) => n.id === overlayId)?.absentSince).toBeUndefined();
+    expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+  });
+
+  it('removeChassis takes a cable with it — both ends — and undo brings it, the device and the far port back; both loads run through the real engine', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_400_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const chassisA = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    doc = addSketchPort(doc, chassisA, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portA = edgesOut(doc, chassisA, 'HasPort')[0]!.to;
+
+    const beforeB = doc;
+    doc = createSketchDevice(doc, step());
+    const chassisB = doc.nodes.find((n) => n.id.startsWith('chassis:') && !beforeB.nodes.some((b) => b.id === n.id))!.id;
+    doc = addSketchPort(doc, chassisB, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portB = edgesOut(doc, chassisB, 'HasPort')[0]!.to;
+
+    doc = connectPorts(doc, portA, portB, {}, step());
+    const cableFromPortA = edgesIn(doc, portA, 'Terminates')[0]!.from;
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const removed = removeChassis(doc, chassisA, step());
+    const removeBatchId = removed.batches.at(-1)!.id;
+
+    expect(removed.nodes.find((n) => n.id === cableFromPortA)?.absentSince).toBeDefined();
+    expect(removed.nodes.find((n) => n.id === chassisA)?.absentSince).toBeDefined();
+    // The far device and its port are untouched — only the cable is gone.
+    expect(removed.nodes.find((n) => n.id === chassisB)?.absentSince).toBeUndefined();
+    expect(removed.nodes.find((n) => n.id === portB)?.absentSince).toBeUndefined();
+    expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+
+    const undone = undo(removed, removeBatchId, step());
+    expect(undone.nodes.find((n) => n.id === cableFromPortA)?.absentSince).toBeUndefined();
+    expect(undone.nodes.find((n) => n.id === chassisA)?.absentSince).toBeUndefined();
+    expect(edgesOut(undone, cableFromPortA, 'Terminates')).toHaveLength(2);
+    expect(() => engine.loadPlain(writePlain(undone))).not.toThrow();
   });
 });

@@ -63,9 +63,13 @@ mod body {
         ///
         /// `server` is one variant and not four. A NAS, a hypervisor host, a container
         /// host and a bare-metal application server differ in what is INSTALLED on them,
-        /// not in what they are, and the schema does not model installed software.
-        /// Splitting them would be a variant per product category, which is exactly how
-        /// an enum stops meaning anything.
+        /// not in what they are, and `role` does not carry that distinction -- splitting it
+        /// would be a variant per product category, which is exactly how an enum stops
+        /// meaning anything. A container HOST's own containers and Docker networks are
+        /// modelled anyway, as ContainerNetwork, Container and PublishedPort (ADR-0058
+        /// decision 3) -- three kinds on the device's config layer, not a fourth `role`.
+        /// A guest is a node in the same graph as a switch, the approved Hypervisor board's
+        /// own words; `role` only ever names what the box in the rack IS FOR.
         ///
         /// `access_point` is the 802.11 term, not a vendor's. It earns a variant because
         /// it is a distinct network function that every home lab and every branch office
@@ -1674,6 +1678,59 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(332))
         }
     }
+    /// Typed reads for `ContainerNetwork` fields.
+    pub mod container_network {
+        /// `ContainerNetwork.name` — `Text`, card `1`, emit `—`.
+        /// docker network create's NAME -- Text, not Identifier: dockerd has no charset check at all, so a name it accepts can carry a space or non-ASCII text Identifier would refuse. Text itself refuses nothing (scalar.rs's own doc); every rule below is this schema's own, enforced by the command that writes this field, sourced against raw.githubusercontent.com/moby/moby, read 2026-09-25/26. Refused: a name blank after TrimSpace, not only the empty string (daemon/libnetwork/controller.go's NewNetwork); network.IsReserved, `container` and any `container:`-prefixed name (daemon/network.go's createNetwork); network.IsPredefined's `default` (daemon/network/network_mode_unix.go's isPreDefined, network.NetworkDefault = "default" in api/types/network/network_types.go) -- a name no Docker network can ever carry, unlike the other three IsPredefined catches it. Accepted: `bridge`/`host`/`none` -- IsPredefined refuses dockerd only CREATING a second network under one of those three names, since one already exists by default on every host; it says nothing against RECORDING the one already there, which is this kind's whole job.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(333))
+        }
+        /// `ContainerNetwork.driver` — `enum { bridge, host, none, macvlan, ipvlan, overlay, other }`, card `1`, emit `—`.
+        /// Docker's own six, this file's own header comment cites the source; `other` is this schema's escape hatch, not Docker's.
+        pub fn driver<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::ContainerNetworkDriver, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(334))
+        }
+        /// `ContainerNetwork.subnet` — `IpPrefix`, card `0..n`, emit `—`.
+        /// docker network create --subnet, one or more.
+        pub fn subnet<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::IpPrefix>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(335))
+        }
+        /// `ContainerNetwork.gateway` — `IpAddr`, card `0..n`, emit `—`.
+        /// docker network create --gateway, one or more.
+        pub fn gateway<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::IpAddr>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(336))
+        }
+    }
+    /// Typed reads for `Container` fields.
+    pub mod container {
+        /// `Container.name` — `Identifier`, card `1`, emit `—`.
+        /// docker run --name, or the compose service name.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(337))
+        }
+    }
+    /// Typed reads for `PublishedPort` fields.
+    pub mod published_port {
+        /// `PublishedPort.protocol` — `IpProtocol`, card `1`, emit `—`.
+        /// 6 (tcp), 17 (udp) or 132 (sctp) -- docker run -p's /proto suffix. raw.githubusercontent.com/docker/docs/main/content/manuals/engine/network/port-publishing.md, read 2026-09-25, states the unsuffixed-means-tcp and /udp forms; the third, /sctp, is confirmed at the parser itself -- raw.githubusercontent.com/docker/go-connections/master/nat/nat.go, read 2026-09-25, validateProto: "case \"tcp\", \"udp\", \"sctp\""; SplitProtoPort defaults an unsuffixed port to tcp.
+        pub fn protocol<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpProtocol, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(338))
+        }
+        /// `PublishedPort.container_port` — `L4Port`, card `1`, emit `—`.
+        pub fn container_port<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::L4Port, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(339))
+        }
+        /// `PublishedPort.host_port` — `L4Port`, card `0..1`, emit `—`.
+        /// Absent means Docker assigned an ephemeral host port.
+        pub fn host_port<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::L4Port, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(340))
+        }
+        /// `PublishedPort.host_address` — `IpAddr`, card `0..1`, emit `—`.
+        /// docker run -p's optional bind address. Absent means the daemon's default bind address: all host addresses, 0.0.0.0 and [::], unless the daemon is set otherwise (docker/docs content/manuals/engine/network/port-publishing.md, "Setting the default bind address", read 2026-09-25).
+        pub fn host_address<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpAddr, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(341))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2012,6 +2069,16 @@ mod body {
             330 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             331 => Some((core::any::TypeId::of::<crate::generated::ir_types::NoteHow>(), "crate::generated::ir_types::NoteHow")),
             332 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            333 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            334 => Some((core::any::TypeId::of::<crate::generated::ir_types::ContainerNetworkDriver>(), "crate::generated::ir_types::ContainerNetworkDriver")),
+            335 => Some((core::any::TypeId::of::<Vec<crate::scalar::IpPrefix>>(), "Vec<crate::scalar::IpPrefix>")),
+            336 => Some((core::any::TypeId::of::<Vec<crate::scalar::IpAddr>>(), "Vec<crate::scalar::IpAddr>")),
+            337 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            338 => Some((core::any::TypeId::of::<crate::scalar::IpProtocol>(), "crate::scalar::IpProtocol")),
+            339 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
+            340 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
+            341 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
+            342 => Some((core::any::TypeId::of::<Vec<crate::scalar::InterfaceAddress>>(), "Vec<crate::scalar::InterfaceAddress>")),
             _ => None,
         }
     }
@@ -2352,6 +2419,16 @@ mod body {
             330 => crate::canon::slot_to::<crate::scalar::Text>(330, "crate::scalar::Text", value),
             331 => crate::canon::slot_to::<crate::generated::ir_types::NoteHow>(331, "crate::generated::ir_types::NoteHow", value),
             332 => crate::canon::slot_to::<u32>(332, "u32", value),
+            333 => crate::canon::slot_to::<crate::scalar::Text>(333, "crate::scalar::Text", value),
+            334 => crate::canon::slot_to::<crate::generated::ir_types::ContainerNetworkDriver>(334, "crate::generated::ir_types::ContainerNetworkDriver", value),
+            335 => crate::canon::slot_to::<Vec<crate::scalar::IpPrefix>>(335, "Vec<crate::scalar::IpPrefix>", value),
+            336 => crate::canon::slot_to::<Vec<crate::scalar::IpAddr>>(336, "Vec<crate::scalar::IpAddr>", value),
+            337 => crate::canon::slot_to::<crate::scalar::Identifier>(337, "crate::scalar::Identifier", value),
+            338 => crate::canon::slot_to::<crate::scalar::IpProtocol>(338, "crate::scalar::IpProtocol", value),
+            339 => crate::canon::slot_to::<crate::scalar::L4Port>(339, "crate::scalar::L4Port", value),
+            340 => crate::canon::slot_to::<crate::scalar::L4Port>(340, "crate::scalar::L4Port", value),
+            341 => crate::canon::slot_to::<crate::scalar::IpAddr>(341, "crate::scalar::IpAddr", value),
+            342 => crate::canon::slot_to::<Vec<crate::scalar::InterfaceAddress>>(342, "Vec<crate::scalar::InterfaceAddress>", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2690,6 +2767,16 @@ mod body {
             330 => crate::canon::slot_from::<crate::scalar::Text>(j),
             331 => crate::canon::slot_from::<crate::generated::ir_types::NoteHow>(j),
             332 => crate::canon::slot_from::<u32>(j),
+            333 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            334 => crate::canon::slot_from::<crate::generated::ir_types::ContainerNetworkDriver>(j),
+            335 => crate::canon::slot_from::<Vec<crate::scalar::IpPrefix>>(j),
+            336 => crate::canon::slot_from::<Vec<crate::scalar::IpAddr>>(j),
+            337 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            338 => crate::canon::slot_from::<crate::scalar::IpProtocol>(j),
+            339 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
+            340 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
+            341 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
+            342 => crate::canon::slot_from::<Vec<crate::scalar::InterfaceAddress>>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

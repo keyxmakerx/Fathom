@@ -6,18 +6,22 @@ import { createRoot } from 'react-dom/client';
 
 import './index.css';
 import App from './App';
-import { lp } from './crypto/bytes';
+import { concatBytes, lp, u64LE } from './crypto/bytes';
 import { generateKeyPair } from './crypto/keys';
 import { SCHEMA_VERSION, writePlain } from './document/plain';
 import { newUlid } from './document/ulid';
+import { Engine } from './engine/engine';
 import { setSession } from './state/sessionState';
 import {
   catalogueFrom,
   seedConflictingChange,
   seedConnectedDevices,
+  seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedNetworksScene,
   seedSingleDevice,
+  seedUnplacedDevice,
 } from './drive-seed';
 
 const ORG_ID = 'org-drive';
@@ -73,6 +77,18 @@ declare global {
     /** The two real ulids `ME`/`COLLEAGUE` above, so a driving script can
      * assert against the colleague's actual id without guessing one. */
     __driveActors__: { me: string; colleague: string };
+    /** Every payload this mocked backend "saves" (the `POST .../versions`
+     * handler below) is also loaded through the real engine, right here, the
+     * moment it lands — so a document the server would actually refuse can
+     * never hide behind a mock that accepted it. Empty when every save this
+     * scene made was loadable; a driving script asserts on that after each
+     * scene. */
+    __saveLoadFailures__: string[];
+    /** "Assert each scene saved at least once" — every successful
+     * `POST .../versions` this scene's mocked backend answered, so a driving
+     * script can tell a scene that never wrote anything apart from one whose
+     * writes all happened to load fine. */
+    __saveCount__: number;
   }
 }
 
@@ -90,11 +106,37 @@ async function main() {
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
+  else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
+  else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
+  else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else doc = seedEmptyDesign();
 
   let version = 1;
   let bytes = writePlain(doc);
+  // ADR-0058's drive check: "open a 0.10 design" — the header alone is
+  // downgraded (decision 6 is additive, so a 0.10 declaration over this
+  // scene's nodes is still legal), the same substitution `plain.test.ts`'s
+  // "opens a 0.10 vector" tests make.
+  if (scene === 'networks-010') {
+    const text = new TextDecoder().decode(bytes);
+    const downgraded = text.replace(`schema ${SCHEMA_VERSION}`, 'schema 0.10');
+    if (downgraded === text) throw new Error('networks-010: the schema-version substitution did not land');
+    bytes = new TextEncoder().encode(downgraded);
+  }
   const minor = schemaMinor();
+
+  // Boot the real engine once, so every mocked save below can be checked
+  // against it — the same `engine.loadPlain` the lead's "a design stays
+  // saveable after undo" proof calls, just run here for every scene rather
+  // than one test.
+  window.__saveLoadFailures__ = [];
+  window.__saveCount__ = 0;
+  let verifyEngine: Engine | null = null;
+  try {
+    verifyEngine = await Engine.init();
+  } catch (e) {
+    window.__saveLoadFailures__.push(`the verifying engine itself failed to boot: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   window.__requests__ = [];
   const realFetch = window.fetch.bind(window);
@@ -109,7 +151,9 @@ async function main() {
     const org = `/organisations/${ORG_ID}`;
 
     if (method === 'POST' && p === '/session/nonce') {
-      return new Response(lp(crypto.getRandomValues(new Uint8Array(16))) as BodyInit, { status: 200 });
+      // LP(nonce) || u64(issued_counter), the answer the client reads (ADR-0057 decision 4).
+      const nonce = lp(crypto.getRandomValues(new Uint8Array(16)));
+      return new Response(concatBytes(nonce, u64LE(0)) as BodyInit, { status: 200 });
     }
     if (method === 'GET' && p === '/setup/state') {
       return new Response(lp(new TextEncoder().encode('done')) as BodyInit, { status: 200 });
@@ -163,6 +207,14 @@ async function main() {
       }
       version += 1;
       bytes = requestBody.slice(4);
+      window.__saveCount__ += 1;
+      if (verifyEngine) {
+        try {
+          verifyEngine.loadPlain(bytes);
+        } catch (e) {
+          window.__saveLoadFailures__.push(`save at version ${version} does not load through the engine: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       return new Response(`${version}\n`, { status: 200 });
     }
     if (method === 'GET' && p === '/catalogue/models') {

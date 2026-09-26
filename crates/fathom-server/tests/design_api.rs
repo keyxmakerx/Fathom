@@ -443,6 +443,7 @@ async fn app(
         watch,
         ring,
         catalogue: Arc::new(catalogue),
+        client_address: fathom_server::client_address::ClientAddress::peer(),
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }
@@ -483,11 +484,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.10"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.11"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
-/// rather than a bare `10` at each call site so a future schema bump has one
+/// rather than a bare `11` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 10;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 11;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -642,10 +643,12 @@ async fn call_full(
     lp(&mut signin, &person.key.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
-    // code and the operator plane's account-session endorsement, all empty
-    // on the key-only steward branch this test drives. `read_fields` still
-    // refuses an inexact count, so the four empty fields are not optional.
+    // fields to six, ADR-0057 decision 2 to eight, and decision 6 to nine: a
+    // credential, an app code, the operator plane's account-session
+    // endorsement and its grace token, all empty on the key-only steward
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the five empty fields are not optional.
+    lp(&mut signin, b"");
     lp(&mut signin, b"");
     lp(&mut signin, b"");
     lp(&mut signin, b"");
@@ -740,10 +743,12 @@ async fn call_badly_signed(
     lp(&mut signin, &person.key.sign(&digest));
 
     // ADR-0055 decision 10 widened `POST /session` from four length-prefixed
-    // fields to six, and ADR-0057 decision 2 to eight: a credential, an app
-    // code and the operator plane's account-session endorsement, all empty
-    // on the key-only steward branch this test drives. `read_fields` still
-    // refuses an inexact count, so the four empty fields are not optional.
+    // fields to six, ADR-0057 decision 2 to eight, and decision 6 to nine: a
+    // credential, an app code, the operator plane's account-session
+    // endorsement and its grace token, all empty on the key-only steward
+    // branch this test drives. `read_fields` still refuses an inexact count,
+    // so the five empty fields are not optional.
+    lp(&mut signin, b"");
     lp(&mut signin, b"");
     lp(&mut signin, b"");
     lp(&mut signin, b"");

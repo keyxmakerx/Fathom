@@ -46,8 +46,16 @@ const ROW_MAC: &str = "82117615ec427470c5467365ecccc6d272a4c2c6b8ec7c309b677aedd
 /// state, not written as null, so a pre-`0027` seal still verifies.
 const ROW_MAC_NO_TOTP_VERIFIED_AT: &str =
     "253859015ed20330baa1a5b53ce37b863bd3b3d5e4d7be5bbc74d9c280a1b259";
+/// The same row again, this time carrying `0028`'s two additions: decision
+/// 6's grace token hash and decision 7's bound address class, both set.
+const ROW_MAC_WITH_0028_FIELDS: &str =
+    "4c7d1ac64111b776db5643cc392600a128977c0563093b1b499b668eaaf58982";
 /// A plausible instant between `ISSUED_AT` and `EXPIRES_AT`, not round.
 const TOTP_VERIFIED_AT: i64 = 1_760_000_050;
+/// `0028`'s two additions' fixed inputs, restated for the same reason the
+/// others above are: neither is all-zero, and the address is a real one.
+const GRACE_TOKEN_HASH: [u8; 32] = [0x35; 32];
+const BOUND_ADDRESS_CLASS: &str = "203.0.113.9";
 const SIGNATURE: &str = "f7287814e9e2082c43eed17e320b25e0f016c610aacfc187c5240cf1c7e8774b2f910812429571d9122bc2c1930fc96c\
      843ebc1ab854444ba884b3f7702215df";
 
@@ -302,6 +310,8 @@ fn the_session_row_mac_matches_the_document() {
             issued_at_unix: ISSUED_AT,
             expires_at_unix: EXPIRES_AT,
             totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
+            grace_token_hash: None,
+            bound_address_class: None,
         },
     );
     assert_eq!(
@@ -345,9 +355,50 @@ fn the_row_mac_with_no_totp_verified_at_matches_the_document() {
             issued_at_unix: ISSUED_AT,
             expires_at_unix: EXPIRES_AT,
             totp_verified_at_unix: None,
+            grace_token_hash: None,
+            bound_address_class: None,
         },
     );
     assert_eq!(hex(&mac), ROW_MAC_NO_TOTP_VERIFIED_AT);
+}
+
+/// The same row again, both of `0028`'s additions set: decision 6's grace
+/// token hash and decision 7's bound address class. Pinned in Python too.
+#[test]
+fn the_row_mac_with_grace_token_and_address_class_matches_the_document() {
+    let key = Key32::from_bytes(
+        unhex(K_ROW_SITE)
+            .try_into()
+            .expect("the row key is 32 bytes"),
+    );
+    let challenge =
+        sessions::session_challenge(&session_key().public_key(), &SERVER_NONCE, DEPLOYMENT);
+    let digest = sessions::evidence_digest(&challenge, &EVIDENCE_SIG);
+    let pubkey = session_key().public_key();
+    let token_hash = sessions::token_hash(&TOKEN);
+    let mac = sessions::session_row_mac(
+        &key,
+        &SessionFacts {
+            id: SESSION_ID,
+            principal_id: PRINCIPAL_ID,
+            principal_kind: PrincipalKind::Steward,
+            token_hash: &token_hash,
+            session_pubkey: &pubkey,
+            bound_nonce: &SERVER_NONCE,
+            evidence_key_id: Some(EVIDENCE_KEY_ID),
+            evidence_sig: Some(&EVIDENCE_SIG),
+            assertion_digest: Some(&digest),
+            assurance: Assurance::A1,
+            chain_seq: CHAIN_SEQ,
+            row_version: ROW_VERSION,
+            issued_at_unix: ISSUED_AT,
+            expires_at_unix: EXPIRES_AT,
+            totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
+            grace_token_hash: Some(&GRACE_TOKEN_HASH),
+            bound_address_class: Some(BOUND_ADDRESS_CLASS),
+        },
+    );
+    assert_eq!(hex(&mac), ROW_MAC_WITH_0028_FIELDS);
 }
 
 #[test]
@@ -375,6 +426,8 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
         issued_at_unix: ISSUED_AT,
         expires_at_unix: EXPIRES_AT,
         totp_verified_at_unix: Some(TOTP_VERIFIED_AT),
+        grace_token_hash: None,
+        bound_address_class: None,
     };
     let base = sessions::session_row_mac(&key, &facts());
 
@@ -438,6 +491,15 @@ fn every_field_of_the_row_state_is_inside_the_mac() {
             totp_verified_at_unix: Some(TOTP_VERIFIED_AT + 1),
             ..facts()
         },
+        // `0028`: decisions 6 and 7's two additions.
+        SessionFacts {
+            grace_token_hash: Some(&other_digest),
+            ..facts()
+        },
+        SessionFacts {
+            bound_address_class: Some("203.0.113.9"),
+            ..facts()
+        },
     ];
     for (n, variant) in variants.iter().enumerate() {
         assert_ne!(
@@ -473,6 +535,8 @@ fn a_session_row_mac_is_not_an_authority_row_seal() {
             issued_at_unix: ISSUED_AT,
             expires_at_unix: EXPIRES_AT,
             totp_verified_at_unix: None,
+            grace_token_hash: None,
+            bound_address_class: None,
         },
     );
     let elsewhere = authority::row_seal(

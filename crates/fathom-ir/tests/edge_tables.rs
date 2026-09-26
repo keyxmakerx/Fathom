@@ -102,9 +102,13 @@ fn slot_type_covers_every_registry_key() {
     // `.platform`, `.line_count`, `.shape` (326-329).
     // 329 -> 332 on 2026-09-19: ADR-0053 §5's three `Note` keys -- `.text`,
     // `.how`, `.line_count` (330-332).
+    // 332 -> 342: ADR-0058's ten keys -- `ContainerNetwork.name`,
+    // `.driver`, `.subnet`, `.gateway` (333-336), `Container.name` (337),
+    // `PublishedPort.protocol`, `.container_port`, `.host_port`,
+    // `.host_address` (338-341), `AttachedTo.address` (342).
     assert_eq!(
         FIELD_KEYS.len(),
-        332,
+        342,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

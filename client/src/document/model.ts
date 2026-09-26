@@ -426,6 +426,202 @@ export function token(s: string): CanonValue {
   return s;
 }
 
+// ---------------------------------------------------------------------------
+// The scalar encoders VLAN and subnet commands need, each byte-identical to
+// its `Scalar::canonical()` in `crates/fathom-ir/src/scalar.rs` (line refs
+// are that file's) and each wire-boxed as a JSON string, `scalar_canon!`'s
+// rule (`crates/fathom-ir/src/canon.rs`). IPv4 only (ADR-0058 decision 8) --
+// an IPv6 literal is refused, not guessed.
+
+/** `InterfaceName` (scalar.rs ~1028-1039): same charset as `Identifier`, its
+ * `ascii_graphic` check -- non-empty, `0x21..=0x7E`. */
+export function interfaceName(s: string): CanonValue {
+  return identifier(s);
+}
+
+/** `VlanId` (scalar.rs ~825-839): `1..=4094`, canonical form is the decimal
+ * string. */
+export function vlanId(n: number): CanonValue {
+  if (!Number.isInteger(n) || n < 1 || n > 4094) {
+    throw new RangeError(`VlanId: ${n} is outside 1..=4094`);
+  }
+  return String(n);
+}
+
+/** Four dot-separated decimal octets, each `0..=255`, no leading zero unless
+ * the octet is exactly "0" -- `std::net::Ipv4Addr`'s parser (`"010.0.0.1"`
+ * refused, `"10.0.0.1"` accepted). Returns the four octets so callers can
+ * mask them against a prefix length without re-parsing. */
+function parseIpv4(s: string): [number, number, number, number] {
+  const parts = s.split('.');
+  if (parts.length !== 4) {
+    throw new RangeError(`IPv4 address: "${s}" is not four dot-separated octets`);
+  }
+  const octets = parts.map((p) => {
+    if (!/^\d{1,3}$/.test(p) || (p.length > 1 && p[0] === '0')) {
+      throw new RangeError(`IPv4 address: "${s}": "${p}" is not a canonical octet`);
+    }
+    const n = Number(p);
+    if (n > 255) {
+      throw new RangeError(`IPv4 address: "${s}": "${p}" is outside 0..=255`);
+    }
+    return n;
+  });
+  return octets as [number, number, number, number];
+}
+
+function formatIpv4(o: readonly [number, number, number, number]): string {
+  return o.join('.');
+}
+
+/** `IpAddr` (scalar.rs ~663-675): IPv4 only (ADR-0058 decision 8) -- an
+ * address that is not four dotted octets, in particular any IPv6 spelling,
+ * is refused rather than guessed at. */
+export function ipAddr(s: string): CanonValue {
+  return formatIpv4(parseIpv4(s));
+}
+
+function splitPrefix(s: string, name: string): [string, number] {
+  const at = s.indexOf('/');
+  if (at < 0) {
+    throw new RangeError(`${name}: "${s}" is not "<address>/<prefix-length>"`);
+  }
+  const addr = s.slice(0, at);
+  const lenText = s.slice(at + 1);
+  // `parse_unsigned` (scalar.rs ~462): one or more digits, no leading zero
+  // unless the whole token is exactly "0" -- "/08" and "/00" are refused,
+  // "/0" stays legal.
+  if (!/^\d{1,2}$/.test(lenText) || (lenText.length > 1 && lenText[0] === '0')) {
+    throw new RangeError(`${name}: "${s}": prefix length is not a plain decimal`);
+  }
+  const len = Number(lenText);
+  if (len > 32) {
+    throw new RangeError(`${name}: "${s}": IPv4 prefix length is outside 0..=32`);
+  }
+  return [addr, len];
+}
+
+/** `IpPrefix` (scalar.rs ~677-698): `<address>/<len>`, IPv4 only, host bits
+ * refused -- every bit past `len` must be zero. */
+export function ipPrefix(s: string): CanonValue {
+  const [addrText, len] = splitPrefix(s, 'IpPrefix');
+  const octets = parseIpv4(addrText);
+  const value = (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3];
+  const mask = len === 0 ? 0 : (~0 << (32 - len)) >>> 0;
+  if ((value & ~mask) >>> 0 !== 0) {
+    throw new RangeError(`IpPrefix: "${s}" carries host bits past /${len}`);
+  }
+  return `${formatIpv4(octets)}/${len}`;
+}
+
+/** `InterfaceAddress` (scalar.rs ~700-718): `<address>/<len>`, IPv4 only.
+ * Unlike [`ipPrefix`], host bits are KEPT -- this is a host address, not a
+ * network. */
+export function interfaceAddress(s: string): CanonValue {
+  const [addrText, len] = splitPrefix(s, 'InterfaceAddress');
+  const octets = parseIpv4(addrText);
+  return `${formatIpv4(octets)}/${len}`;
+}
+
+/** A canonical `<address>/<len>` or bare dotted-quad string, already checked
+ * by [`ipAddr`]/[`ipPrefix`]/[`interfaceAddress`], to its 32-bit value and
+ * mask -- for numeric containment checks only (never re-serialised). Shared
+ * by the VLAN/subnet commands and their derivation, both of which need "is
+ * this address inside that prefix" without re-parsing octets twice. */
+export function ipv4NetworkOf(canonical: string): { value: number; len: number } {
+  const [addrText, lenText] = canonical.includes('/') ? canonical.split('/') : [canonical, '32'];
+  const octets = parseIpv4(addrText);
+  const value = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const len = Number(lenText);
+  const mask = len === 0 ? 0 : (~0 << (32 - len)) >>> 0;
+  return { value: (value & mask) >>> 0, len };
+}
+
+/** `LogicalUnit.families`'s `set{family}` (`schema/enums/family.yaml`'s
+ * declared order: inet, inet6, iso, mpls, ethernet_switching) --
+ * `BTreeSet<Family>`'s ascending order (`Family`'s derived `Ord` follows
+ * variant declaration order, `crates/fathom-ir/src/generated/ir_types.rs`),
+ * so the JSON array is written in exactly the order a Rust reader requires.
+ * A token outside this set is refused rather than carried as `Unknown` --
+ * unlike a catalogue-sourced enum, every value here is one the VLAN and
+ * subnet commands choose, so there is no undeclared vocabulary to
+ * preserve. */
+const FAMILY_DECLARED_ORDER = ['inet', 'inet6', 'iso', 'mpls', 'ethernet_switching'];
+
+export function familySet(tokens: readonly string[]): CanonValue {
+  for (const t of tokens) {
+    if (!FAMILY_DECLARED_ORDER.includes(t)) {
+      throw new RangeError(`Family: "${t}" is not one of: ${FAMILY_DECLARED_ORDER.join(', ')}`);
+    }
+  }
+  const unique = Array.from(new Set(tokens));
+  const sorted = unique.slice().sort((a, b) => FAMILY_DECLARED_ORDER.indexOf(a) - FAMILY_DECLARED_ORDER.indexOf(b));
+  return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0058 — the scalar encoders the Docker commands need, same rule as
+// the block above: byte-identical to `Scalar::canonical()` (scalar.rs line
+// refs are that file's).
+
+/** `L4Port` (scalar.rs ~790-800): `0..=65535`, canonical form is the plain
+ * decimal string (no leading zero unless the whole token is "0"). */
+export function l4Port(n: number): CanonValue {
+  if (!Number.isInteger(n) || n < 0 || n > 65_535) {
+    throw new RangeError(`L4Port: ${n} is outside 0..=65535`);
+  }
+  return String(n);
+}
+
+/** `IpProtocol` (scalar.rs ~777-788): a bare `0..=255` protocol number,
+ * canonical form the plain decimal string. docker/go-connections
+ * `nat.validateProto` names tcp (6), udp (17) and sctp (132) as
+ * `docker run -p`'s three `/proto` suffixes; unsuffixed defaults to tcp. */
+export function ipProtocol(n: number): CanonValue {
+  if (!Number.isInteger(n) || n < 0 || n > 255) {
+    throw new RangeError(`IpProtocol: ${n} is outside 0..=255`);
+  }
+  return String(n);
+}
+
+/** Whether `s` is well-formed UTF-16 — no unpaired surrogate. Docker's own
+ * names are always valid UTF-8, so a lone surrogate cannot occur in one;
+ * letting one through would silently become U+FFFD at the canonical-JSON
+ * boundary (`canon.ts`'s `TextEncoder`), breaking the wire's round trip. */
+export function isWellFormedUnicode(s: string): boolean {
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (Number.isNaN(next) || next < 0xdc00 || next > 0xdfff) return false;
+      i += 1;
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The exact code points Go's `unicode.IsSpace` accepts (`src/unicode/
+ * graphic.go`): the Latin-1 special case plus the Unicode `White_Space`
+ * property's remaining code points. Not the same set as JavaScript's `\s`/
+ * `trim()`, which also treats U+FEFF (BOM) as whitespace — a BOM-only name
+ * Go's `TrimSpace` leaves non-blank must not be refused as blank here. */
+const GO_WHITESPACE_CODEPOINTS: ReadonlySet<number> = new Set([
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+  0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
+]);
+
+/** Whether `s` is blank the way Go's `strings.TrimSpace(s) == ""` would
+ * find it — every code point in `s` is one `unicode.IsSpace` accepts. An
+ * empty string is trivially blank, matching `TrimSpace`. */
+export function isGoTrimSpaceBlank(s: string): boolean {
+  for (const ch of s) {
+    if (!GO_WHITESPACE_CODEPOINTS.has(ch.codePointAt(0)!)) return false;
+  }
+  return true;
+}
+
 function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
   const e = fields[name];
   return e && e.presence === 'set' ? e.value : undefined;

@@ -25,6 +25,7 @@ const NOOP_ACTIONS: EditorActions = { onEdit: () => {} };
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [],
@@ -78,6 +79,7 @@ const VIEW: ClosetView = {
 
 const BARE_VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [],
@@ -118,6 +120,7 @@ const BARE_VIEW: ClosetView = {
 
 const SKETCH_VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [
@@ -177,6 +180,7 @@ const SKETCH_VIEW: ClosetView = {
 // selected on either place — have something real to render.
 const PLACES_VIEW: ClosetView = {
   premisesId: 'closet-1',
+  unplaced: [],
   cables: [],
   rows: [],
   surfaces: [
@@ -487,6 +491,43 @@ describe('EditorFor', () => {
     const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-2' }, view, NOOP_ACTIONS) as never);
     expect(markup).toContain('No catalogue entry.');
     expect(markup).toContain('+ add a port');
+  });
+});
+
+// A device Inventory's "Unplaced" group opens (`document/view.ts`'s
+// `ClosetView.unplaced`) — the same `'chassis'` selection kind a rack-mounted
+// device uses, but found nowhere in `view.racks` (issue: the editor rendered
+// nothing at all for one).
+describe('EditorFor — a chassis with no placement at all', () => {
+  const UNPLACED_VIEW: ClosetView = {
+    ...VIEW,
+    racks: [],
+    unplaced: [{ ...VIEW.racks[0].chassis[0], id: 'chassis-unplaced', placement: { kind: 'none' } }],
+  };
+
+  it('opens the same panel a placed device gets', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-unplaced' }, UNPLACED_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('core-01');
+    expect(markup).toContain('EX4300-48P');
+    expect(markup).toContain('switch');
+    expect(markup).toContain('10.10.0.2');
+    expect(markup).toContain('SN-0042');
+  });
+
+  it('leaves out the rack-only fields', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-unplaced' }, UNPLACED_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).not.toContain('U38');
+    expect(markup).not.toContain('Duplicate');
+  });
+
+  it('still offers "Placed on" and "Remove device"', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-unplaced' }, UNPLACED_VIEW, NOOP_ACTIONS) as never);
+    expect(markup).toContain('Placed on');
+    expect(markup).toContain('Remove device');
+  });
+
+  it('is null for an id in neither `racks` nor `unplaced`', () => {
+    expect(EditorFor({ kind: 'chassis', id: 'nope' }, UNPLACED_VIEW, NOOP_ACTIONS)).toBeNull();
   });
 });
 

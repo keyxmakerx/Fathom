@@ -47,13 +47,34 @@ member through its host."
 8. **IPv4 first.** An IPv6 address is accepted once its spelling is proven identical to the
    server's.
 
+## Amendment, 2026-09-26: Docker's own rules
+
+Read from Docker's sources on raw.githubusercontent.com on 2026-09-25 and 2026-09-26: `docker/docs`,
+`docker/go-connections` and `moby/moby`, and Go's `src/unicode/graphic.go`.
+
+9. **A Docker network's name is free text.** dockerd checks no character set, so
+   `ContainerNetwork.name` is `Text`. This is decided before 0.11 ships, because a later widening
+   would be a retype. The editor refuses what dockerd refuses: a name blank under Go's
+   `unicode.IsSpace` (`libnetwork/controller.go`), `container` and `container:…`
+   (`network.IsReserved`), `default`, and text that is not well-formed Unicode. It accepts `bridge`,
+   `host` and `none`, which exist on every host. A container's name stays `Identifier`, which
+   accepts Docker's pattern `^[a-zA-Z0-9][a-zA-Z0-9_.-]+$` (`daemon/names/names.go`).
+10. **The editor refuses the addresses dockerd refuses:** a gateway outside its subnet
+    (`daemon/network.go`, `validateAddress`), and a container address outside the network's subnets
+    or already taken on it (`libnetwork/endpoint.go`).
+11. **Facts confirmed:** the six drivers (`drivers/_index.md`); an unset host address publishes on
+    every host address, 0.0.0.0 and [::] (`port-publishing.md`); `-p` takes tcp, udp and sctp
+    (`nat.go`, `validateProto`).
+
 ## What it gives up
 
 - Published ports and NAT rules are two things until `NatAction` has a shape.
 - The same-device rules for these edges are declarations; only the editor enforces them, and the
   list must cope with a payload that breaks them.
-- Docker's own documentation was not reachable on 2026-09-25; facts about drivers, default bind
-  addresses and name rules stay marked VERIFY until read from `docker/docs`.
+- Two containers publishing one host port and protocol are marked, not refused: Docker accepts both
+  and the second fails only when it starts. Every address against every address is a certain
+  clash; every address against one address is a likely one, since the kernel's answer depends on
+  reuse flags (Linux `inet_bhash2_addr_any_conflict`).
 
 ## Order of work
 

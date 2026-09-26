@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.10";
+export const SCHEMA_VERSION = "0.11";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -61,7 +61,10 @@ export type NodeKind =
   | "PowerSupply"
   | "Surface"
   | "Capture"
-  | "Note";
+  | "Note"
+  | "ContainerNetwork"
+  | "Container"
+  | "PublishedPort";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -118,6 +121,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Surface",
   "Capture",
   "Note",
+  "ContainerNetwork",
+  "Container",
+  "PublishedPort",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -214,7 +220,12 @@ export type EdgeKind =
   | "HasSurface"
   | "FixedTo"
   | "HasCapture"
-  | "HasNote";
+  | "HasNote"
+  | "HasContainerNetwork"
+  | "HasContainer"
+  | "HasPublishedPort"
+  | "AttachedTo"
+  | "ParentUnit";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -309,6 +320,11 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "FixedTo",
   "HasCapture",
   "HasNote",
+  "HasContainerNetwork",
+  "HasContainer",
+  "HasPublishedPort",
+  "AttachedTo",
+  "ParentUnit",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -447,6 +463,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Surface: ["label", "form", "width_mm", "height_mm"],
   Capture: ["text", "platform", "line_count", "shape"],
   Note: ["text", "how", "line_count"],
+  ContainerNetwork: ["name", "driver", "subnet", "gateway"],
+  Container: ["name"],
+  PublishedPort: ["protocol", "container_port", "host_port", "host_address"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -783,4 +802,14 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Note.text": 330,
   "Note.how": 331,
   "Note.line_count": 332,
+  "ContainerNetwork.name": 333,
+  "ContainerNetwork.driver": 334,
+  "ContainerNetwork.subnet": 335,
+  "ContainerNetwork.gateway": 336,
+  "Container.name": 337,
+  "PublishedPort.protocol": 338,
+  "PublishedPort.container_port": 339,
+  "PublishedPort.host_port": 340,
+  "PublishedPort.host_address": 341,
+  "AttachedTo.address": 342,
 };

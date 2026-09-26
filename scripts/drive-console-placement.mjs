@@ -63,6 +63,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
@@ -91,7 +92,7 @@ const ADDRESS = 'owner@example.test';
 // person actually chooses -- the CI script's own, for the same reason.
 const CREDENTIAL = 'harbour-lantern-copper-nine';
 
-const WORK = process.env.FATHOM_DRIVE_DIR ?? '/tmp/claude-0/-home-user-Fathom/e3fb841a-3739-5e05-b6f7-65bae229f9a6/scratchpad/drive-console';
+const WORK = process.env.FATHOM_DRIVE_DIR ?? join(tmpdir(), 'fathom-drive-console');
 const SHOTS = join(WORK, 'shots');
 mkdirSync(SHOTS, { recursive: true });
 
@@ -403,6 +404,21 @@ async function signInThroughTheDoor(page, { address, password, code, label }) {
   }
 }
 
+/**
+ * Navigate to `url` and land on the sign-in door. Decision 4 restores a
+ * live account session straight to Home instead of the door, so this
+ * signs out first when that happens; either way it returns with
+ * `#signin-password` on screen.
+ */
+async function arriveAtTheDoor(page, url) {
+  await page.goto(`${url}/`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.home, #signin-password', { timeout: 20000 });
+  if ((await page.locator('.home').count()) > 0) {
+    await page.click('.home__panel .home__btn');
+    await page.waitForSelector('#signin-password', { timeout: 20000 });
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -500,7 +516,7 @@ async function main() {
 
   const spent = new Set();
   await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
-  const { recoveryCodes } = await walkTheFirstRun(page, {
+  const { secret, recoveryCodes } = await walkTheFirstRun(page, {
     token,
     address: ADDRESS,
     password: CREDENTIAL,
@@ -541,6 +557,145 @@ async function main() {
     registerText.slice(0, 160).replace(/\n/g, ' '),
   );
   await shot('04-console-notices-and-register');
+
+  // ---- step 1b: a reload, then a wrong code, then the right one -----------
+  //
+  // ADR-0057 decisions 4 and 6 together: a reload keeps the account session
+  // (decision 4 — the non-extractable keypair survives in
+  // `fathom-tab-sessions`) but never the operator one, and decision 6's
+  // grace token goes with it, since that lives only in a JS variable the
+  // reload restarts. So the same account is asked for a code again right
+  // after a reload; the drive checks a wrong one is refused and the right
+  // one accepted, on the same screen, without a second reload.
+  await page.reload({ waitUntil: 'networkidle' });
+  check(
+    'a reload keeps the account signed in: no sign-in door after it',
+    (await page.locator('#signin-password').count()) === 0,
+  );
+
+  // The restored keypair is the same non-extractable `CryptoKey` decision 4
+  // keeps, read from `fathom-tab-sessions` — not freshly minted, and not
+  // one this origin could export the private half of.
+  const restoredKeyCheck = await page.evaluate(async () => {
+    const tabId = sessionStorage.getItem('fathom-tab-id');
+    if (!tabId) return { ok: false, why: 'no tab id in sessionStorage after a reload' };
+    const db = await new Promise((resolve, reject) => {
+      const r = indexedDB.open('fathom-tab-sessions');
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    const record = await new Promise((resolve, reject) => {
+      const r = db.transaction('sessions', 'readonly').objectStore('sessions').get(`${tabId}:account`);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    db.close();
+    if (!record) return { ok: false, why: 'no stored account session record for this tab' };
+    const privateKey = record.sessionKeyPair.privateKey;
+    if (privateKey.extractable !== false) {
+      return { ok: false, why: `extractable was ${privateKey.extractable}, not false` };
+    }
+    try {
+      await crypto.subtle.exportKey('pkcs8', privateKey);
+      return { ok: false, why: 'exportKey(pkcs8) on the restored key did not reject' };
+    } catch {
+      return { ok: true };
+    }
+  });
+  check(
+    'the restored session keypair is non-extractable and exportKey(pkcs8) rejects on it',
+    restoredKeyCheck.ok,
+    restoredKeyCheck.why ?? '',
+  );
+
+  await page.click('.shell-account');
+  await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
+  await page.click('[data-testid="console-entry"]');
+  try {
+    await page.waitForSelector('[data-testid="console-code-prompt"]', { timeout: 15000 });
+  } catch (e) {
+    await shot('04b-DEBUG-timeout');
+    console.log('DEBUG console errors:', consoleErrors.slice(-10));
+    console.log('DEBUG page errors:', pageErrors.slice(-10));
+    console.log('DEBUG last responses:', failed.slice(-10));
+    console.log('DEBUG body:', (await page.locator('body').innerText()).slice(0, 800));
+    throw e;
+  }
+  await shot('04b-code-asked-for-again-after-a-reload');
+
+  await page.fill('#console-verification-code', '000000');
+  // A wrong code is refused, not rolled back: the nonce it spent is dead,
+  // and `submitOperatorCode`'s catch re-fetches a fresh challenge before the
+  // prompt is usable again — waited for here by its network call rather
+  // than a guessed delay, so the right code below is never typed against a
+  // challenge already gone.
+  const [, refreshedChallenge] = await Promise.all([
+    page.click('[data-testid="console-code-prompt"] button[type=submit]'),
+    page.waitForResponse((r) => new URL(r.url()).pathname === '/session/challenge', {
+      timeout: 15000,
+    }),
+  ]);
+  check(
+    'the refused code is followed by a fresh challenge, not a reload',
+    refreshedChallenge.status() === 200,
+    String(refreshedChallenge.status()),
+  );
+  check(
+    'a wrong code is refused, and the prompt stays on screen — no reload, no lost place',
+    (await page.locator('[data-testid="console-code-prompt"]').count()) === 1 &&
+      (await page.locator('.console__section').count()) === 0,
+  );
+
+  // The submit button stays disabled while the code field is empty, so
+  // filling it is what unblocks it — not a separate wait. `fill` itself
+  // waits for the input to become editable (`enteringConsole` clearing).
+  await page.fill('#console-verification-code', await freshCode(secret, spent));
+  await page.click('[data-testid="console-code-prompt"] button[type=submit]');
+  try {
+    await page.waitForSelector('.console__section', { timeout: 20000 });
+  } catch (e) {
+    await shot('04c-DEBUG-timeout');
+    console.log('DEBUG console errors:', consoleErrors.slice(-10));
+    console.log('DEBUG page errors:', pageErrors.slice(-10));
+    console.log('DEBUG last responses:', failed.slice(-10));
+    console.log('DEBUG body:', (await page.locator('body').innerText()).slice(0, 800));
+    throw e;
+  }
+  check(
+    'and the right code, on that same screen, is accepted',
+    (await page.locator('.console__section').count()) > 0,
+  );
+  await shot('04c-right-code-accepted');
+
+  // ---- step 1d: a duplicated tab is caught, the original keeps working ----
+  //
+  // ADR-0057 decision 4: a page that shares this tab's `sessionStorage` id
+  // — exactly what a browser's "duplicate tab" does — cannot also hold the
+  // Web Lock this tab still holds, so it mints a fresh id, finds no record
+  // under it, and goes to sign-in. The original page's lock and session
+  // are untouched.
+  const originalTabId = await page.evaluate(() => sessionStorage.getItem('fathom-tab-id'));
+  const dup = await context.newPage();
+  await dup.addInitScript((id) => {
+    sessionStorage.setItem('fathom-tab-id', id);
+  }, originalTabId);
+  await dup.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
+  await dup.waitForSelector('#signin-password, .home', { timeout: 20000 });
+  check(
+    'a duplicated tab — the same tab id, the original still open — is refused the lock and goes to sign-in',
+    (await dup.locator('#signin-password').count()) === 1,
+  );
+  const dupTabId = await dup.evaluate(() => sessionStorage.getItem('fathom-tab-id'));
+  check(
+    "and it was handed a fresh tab id of its own, not the one it copied",
+    typeof dupTabId === 'string' && dupTabId.length > 0 && dupTabId !== originalTabId,
+  );
+  await dup.close();
+  check(
+    'the original tab kept its own lock and its console is unaffected',
+    (await page.locator('.console__section').count()) > 0,
+  );
+  await shot('04d-duplicate-tab-refused');
 
   // ---- step 2: the SMTP form ----------------------------------------------
   await page.fill('#smtp-host', 'smtp.example.test');
@@ -644,7 +799,7 @@ async function main() {
   // Home, and the Site entry decision 9 calls *absent, not hidden* is not in
   // the menu at all — nothing to click, not a control disabled or hidden by
   // CSS.
-  await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
+  await arriveAtTheDoor(page, OLD_URL);
   await signInThroughTheDoor(page, {
     address: ADDRESS,
     password: CREDENTIAL,
@@ -662,9 +817,10 @@ async function main() {
     (await page.locator('.console').count()) === 0,
   );
   await shot('10-no-site-entry-off-host');
-  // Signed in here on purpose (`signInThroughTheDoor` lands on `.home`);
-  // step 5 navigates fresh, which drops this browser's in-memory session
-  // exactly as a real navigation to another host would.
+  // Signed in here on purpose (`signInThroughTheDoor` lands on `.home`).
+  // Decision 4 persists that session on this origin, so step 5's
+  // navigation back would restore it rather than drop it —
+  // `arriveAtTheDoor` signs out first, as a person choosing to leave would.
 
   // ---- step 5: the revert --------------------------------------------------
   const waitMs = Math.max(0, 62_000 - (Date.now() - movedAt));
@@ -686,7 +842,7 @@ async function main() {
   // Back in at the ordinary door, which is now two steps: a recovery code
   // goes in the same field the verification code does (ADR-0056 decisions 3
   // and 4), and the person who reaches for one has lost their phone.
-  await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
+  await arriveAtTheDoor(page, OLD_URL);
   const backDoor = await signInThroughTheDoor(page, {
     address: ADDRESS,
     password: CREDENTIAL,
@@ -762,22 +918,19 @@ async function main() {
   //
   //   * `POST /admin/settings/{change}/test-send` → 503, the mail test send
   //     saying mail is not built yet. Once, because it is pressed once.
-  //   * `POST /session` → 401, ADR-0056 decision 3's second-factor probe: a
-  //     step in a two-step sign-in and not a failed one (the server rolls
-  //     back, writes no entry and leaves the nonce unspent; it charges the
-  //     source bucket and nothing else). Exactly one per two-step sign-in,
-  //     and this drive makes TWO_STEP_SIGN_INS of them: step 4's account
-  //     sign-in through the door (proving decision 9 with the account, since
-  //     ADR-0057 decision 2 makes a cold-browser operator-key-only sign-in
-  //     unreachable) and step 5's revert sign-in. Both go through the door
-  //     with the password only, so both hit the probe before the code is
-  //     sent; the operator's own sign-in carries its account-session
-  //     endorsement and, once fresh, its evidence at once.
+  //   * `POST /session` → 401, either ADR-0056 decision 3's second-factor
+  //     probe or ADR-0057 decision 2's step-up on the operator plane — a
+  //     step in a sign-in, not a failure (the server rolls that case back,
+  //     writes no entry, leaves the nonce unspent, and charges only the
+  //     source bucket). TWO_STEP_SIGN_INS counts step 4's account sign-in
+  //     and step 5's revert sign-in (one probe each), plus step 1b's
+  //     reload asking Site for a code again (its grace token gone with the
+  //     reload, decision 6) and step 1b's deliberate wrong code.
   //
   // Anything else -- a 404 from a console request made where the console does
   // not answer, say -- is this client asking for something it was told not to,
   // and it fails the drive whatever status it wears.
-  const TWO_STEP_SIGN_INS = 2;
+  const TWO_STEP_SIGN_INS = 4;
   const say = (f) => `${f.method} ${f.pathname} → ${f.status}`;
   const isProbe = (f) => f.method === 'POST' && f.pathname === '/session' && f.status === 401;
   const isTestSend = (f) =>

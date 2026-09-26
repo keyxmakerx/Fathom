@@ -51,8 +51,61 @@ use fathom_graph::{
 };
 use fathom_id::Ulid;
 use fathom_ir::bag::FieldKey;
-use fathom_ir::generated::ir_types::{FIELD_KEYS, SCHEMA_VERSION};
+use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
+
+/// ADR-0058 decision 6: 0.11 is additive, so a payload declared at an older
+/// version reads exactly like a current one — nothing renamed, retyped or
+/// removed. Every older version this crate still opens, and no other.
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10"];
+
+/// Node kinds `0.11` (ADR-0058) added. A payload declared at an older
+/// version cannot legitimately hold one — its editor never had the kind
+/// — so finding one is a sign the header is lying, not a design to open.
+const NODE_KINDS_SINCE_0_11: &[NodeKind] = &[
+    NodeKind::ContainerNetwork,
+    NodeKind::Container,
+    NodeKind::PublishedPort,
+];
+
+/// Edge kinds `0.11` (ADR-0058) added. Same reasoning as
+/// [`NODE_KINDS_SINCE_0_11`].
+const EDGE_KINDS_SINCE_0_11: &[EdgeKind] = &[
+    EdgeKind::HasContainerNetwork,
+    EdgeKind::HasContainer,
+    EdgeKind::HasPublishedPort,
+    EdgeKind::AttachedTo,
+    EdgeKind::ParentUnit,
+];
+
+/// Refuse a payload declared at `declared` that holds a kind newer than that
+/// version — ADR-0058 decision 6's second half, checked once per accepted
+/// older version rather than generically, because there is exactly one
+/// today.
+fn reject_kinds_too_new_for_declared_version(
+    declared: &str,
+    snapshot: &Snapshot,
+) -> Result<(), PlainError> {
+    if declared == "0.10" {
+        for n in &snapshot.nodes {
+            if NODE_KINDS_SINCE_0_11.contains(&n.id.kind) {
+                return Err(PlainError::KindNotInDeclaredVersion {
+                    declared_version: declared.to_owned(),
+                    element_kind: n.id.kind.name(),
+                });
+            }
+        }
+        for e in &snapshot.edges {
+            if EDGE_KINDS_SINCE_0_11.contains(&e.id.kind) {
+                return Err(PlainError::KindNotInDeclaredVersion {
+                    declared_version: declared.to_owned(),
+                    element_kind: e.id.kind.name(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Line 1's magic. Deliberately not `.fathom`'s: this face does not claim the
 /// sealed container's name, and it does not claim `17` §15.2's `fathom-json`
@@ -85,6 +138,13 @@ pub enum PlainError {
     SchemaVersionMismatch {
         found: String,
         supported: &'static str,
+    },
+    /// A declared older version's editor never had this kind (ADR-0058
+    /// decision 6) -- distinct from `SchemaVersionMismatch`, which is about
+    /// the header's version token itself, not what it holds.
+    KindNotInDeclaredVersion {
+        declared_version: String,
+        element_kind: &'static str,
     },
     MalformedHeader {
         line: u32,
@@ -172,14 +232,15 @@ pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
         return Err(PlainError::MissingPlaintextBanner);
     }
 
-    // 4 — the schema version, exact match. Migration policy is not this
-    // crate's (WO-05 §10.2), so a difference is a refusal and nothing else.
+    // 4 — the schema version. Exact match, or one of the accepted older
+    // versions (ADR-0058 decision 6: 0.11 is additive, so a design saved
+    // before the upgrade keeps opening after it). Anything else refuses.
     let line3 =
         core::str::from_utf8(header[2]).map_err(|_| PlainError::MalformedHeader { line: 3 })?;
     let declared = line3
         .strip_prefix("schema ")
         .ok_or(PlainError::MalformedHeader { line: 3 })?;
-    if declared != SCHEMA_VERSION {
+    if declared != SCHEMA_VERSION && !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Err(PlainError::SchemaVersionMismatch {
             found: declared.to_owned(),
             supported: SCHEMA_VERSION,
@@ -193,6 +254,7 @@ pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
 
     let json = Json::parse_canonical(body)?;
     let snapshot = snapshot_from_json(&json)?;
+    reject_kinds_too_new_for_declared_version(declared, &snapshot)?;
     Ok(Graph::from_snapshot(&snapshot)?)
 }
 

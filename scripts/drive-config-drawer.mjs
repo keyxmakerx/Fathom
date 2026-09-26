@@ -33,7 +33,8 @@
 // absolute path from the machine, the same as every other `scripts/drive-*`.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const pw = await import(
@@ -49,7 +50,7 @@ const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5199;
 const BASE = `http://127.0.0.1:${PORT}`;
-const SHOTS = '/tmp/claude-0/';
+const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
 mkdirSync(SHOTS, { recursive: true });
 
 const PREVIEW_HTML = CLIENT + '/drive.html';

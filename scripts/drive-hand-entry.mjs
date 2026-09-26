@@ -15,7 +15,8 @@
 // absolute path, like every other `scripts/drive-*`.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const pw = await import(
@@ -31,7 +32,7 @@ const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5330;
 const BASE = `http://127.0.0.1:${PORT}`;
-const SHOTS = '/tmp/claude-0/-home-user-Fathom/d8191dbf-f958-5925-a6d7-6859ef27f844/scratchpad/shots/';
+const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
 mkdirSync(SHOTS, { recursive: true });
 
 const PREVIEW_HTML = CLIENT + '/drive.html';
@@ -176,9 +177,11 @@ try {
   const panelTextAfterRange = await page.locator('.drawing-editor__panel').innerText();
   check('eth0 typed onto the faceplate', panelTextAfterRange.includes('eth0'));
   check('eth7 typed onto the faceplate', panelTextAfterRange.includes('eth7'));
-  // One "remove" button per port — an exact match so Duplicate/notes buttons
-  // never count.
-  const removeButtonCount = await page.locator('.drawing-editor__panel button', { hasText: 'remove' }).count();
+  // One "remove" button per port — an exact match (a regex anchored both
+  // ends) so Duplicate/notes buttons, and the device panel's "Remove
+  // device" (a `hasText` STRING match is a case-insensitive substring one,
+  // which "Remove device" also satisfies), never count.
+  const removeButtonCount = await page.locator('.drawing-editor__panel button', { hasText: /^remove$/ }).count();
   check('8 ports typed in one go', removeButtonCount === 8, `${removeButtonCount} "remove" buttons`);
   // Natural label order (`document/view.ts`'s `naturalLabelCompare`), not
   // mint order.

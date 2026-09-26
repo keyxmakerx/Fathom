@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ACCOUNT_PLANE,
+  clearPlane,
+  ensureCounterAtLeast,
   getPlane,
   getSession,
   getSessionOn,
@@ -250,5 +252,81 @@ describe('sessionState: the plane a path belongs to', () => {
   it('has nothing to sign with when no session is held', () => {
     expect(sessionForPath('/designs')).toBeNull();
     expect(sessionForPath('/admin/operators')).toBeNull();
+  });
+});
+
+// ADR-0057 decision 4: a restored tab's counter has to be raised to at least
+// the server's mark before the next value is handed out, or the very
+// first request after a restore is refused as `CounterNotFresh`.
+describe('sessionState: ensureCounterAtLeast (ADR-0057 decision 4)', () => {
+  afterEach(() => {
+    setSession(null);
+  });
+
+  it('raises the floor so the next counter is strictly past it', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000020'));
+    ensureCounterAtLeast(ACCOUNT_PLANE, 41);
+    expect(nextRequestCounter(ACCOUNT_PLANE)).toBe(42);
+  });
+
+  it('never lowers an already-ahead local counter', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000021'));
+    expect(nextRequestCounter(ACCOUNT_PLANE)).toBe(1);
+    expect(nextRequestCounter(ACCOUNT_PLANE)).toBe(2);
+    ensureCounterAtLeast(ACCOUNT_PLANE, 1);
+    expect(nextRequestCounter(ACCOUNT_PLANE)).toBe(3);
+  });
+
+  it('is a no-op with no session held, and touches only the plane it is given', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000022'));
+    setSession(anOperatorSession());
+    ensureCounterAtLeast(ACCOUNT_PLANE, 99);
+    expect(nextRequestCounter(OPERATOR_PLANE)).toBe(1);
+    expect(nextRequestCounter(ACCOUNT_PLANE)).toBe(100);
+  });
+});
+
+// ADR-0057 decision 4: a `401` this client reads as "this session is not
+// live" clears the plane it arrived on, without touching the other.
+describe('sessionState: clearPlane', () => {
+  afterEach(() => {
+    setSession(null);
+  });
+
+  it('ends one plane and leaves the other live', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000023'));
+    setSession(anOperatorSession());
+    clearPlane(OPERATOR_PLANE);
+    expect(getSessionOn(OPERATOR_PLANE)).toBeNull();
+    expect(getSessionOn(ACCOUNT_PLANE)).not.toBeNull();
+  });
+
+  it('brings the view back to the account plane when the cleared plane was in view', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000024'));
+    setSession(anOperatorSession());
+    expect(getPlane()).toBe(OPERATOR_PLANE);
+    clearPlane(OPERATOR_PLANE);
+    expect(getPlane()).toBe(ACCOUNT_PLANE);
+  });
+
+  it('resets that plane’s counter, so a later sign-in on it starts at one again', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000025'));
+    setSession(anOperatorSession());
+    expect(nextRequestCounter(OPERATOR_PLANE)).toBe(1);
+    clearPlane(OPERATOR_PLANE);
+    setSession(anOperatorSession('01JXOPSESSION0000000000003'));
+    expect(nextRequestCounter(OPERATOR_PLANE)).toBe(1);
+  });
+
+  it('does nothing, and notifies nobody, when that plane already holds no session', () => {
+    setSession(aSession('01JXACCOUNTIDEXAMPLE000026'));
+    let calls = 0;
+    const unsubscribe = subscribe(() => {
+      calls += 1;
+    });
+    clearPlane(OPERATOR_PLANE);
+    unsubscribe();
+    expect(calls).toBe(0);
+    expect(getSessionOn(ACCOUNT_PLANE)).not.toBeNull();
   });
 });
