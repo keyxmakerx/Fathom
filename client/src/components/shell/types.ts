@@ -71,6 +71,9 @@ export interface ShellProps {
   onUndo: () => void;
   onRedo: () => void;
 
+  /** The Print button, next to Undo/Redo; absent with no design open. */
+  onPrint?: () => void;
+
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;

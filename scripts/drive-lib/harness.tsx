@@ -20,6 +20,9 @@ import {
   seedEmptyDesign,
   seedFreestanding,
   seedNetworksScene,
+  seedPrintAttackScene,
+  seedPrintLoftScene,
+  seedPrintScene,
   seedSingleDevice,
   seedUnplacedDevice,
 } from './drive-seed';
@@ -109,6 +112,9 @@ async function main() {
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
+  else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
+  else if (scene === 'print-attack') doc = seedPrintAttackScene(catalogue, ME);
+  else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;
@@ -170,7 +176,7 @@ async function main() {
           scope_id: SCOPE_ID,
           parent_scope_id: null,
           kind: 'network',
-          display_name: 'Drive network',
+          display_name: scene === 'print-loft' ? 'Loft' : 'Drive network',
           depth: 0,
           path: 'drive',
           capability: 'steward',
