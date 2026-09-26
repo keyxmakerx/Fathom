@@ -197,6 +197,29 @@ pub const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 /// before an operator sign-in it endorses also needs a fresh code.
 pub const SECOND_FACTOR_FRESHNESS: Duration = Duration::from_secs(15 * 60);
 
+/// ADR-0057 decision 4: how long an account-plane session may go without a
+/// verified request before it is treated as dead, even inside its absolute
+/// [`SESSION_LIFETIME`].
+///
+/// NIST SP 800-63B-4, the session table: at AAL2 the idle timeout SHOULD be
+/// no more than one hour. `docs/OPERATING.md` carries this number and its
+/// basis for ASVS 5.0.0 7.1.1's *"document the reasoning"*.
+pub const ACCOUNT_IDLE_LIMIT: Duration = Duration::from_secs(60 * 60);
+
+/// ADR-0057 decision 4: the operator plane's idle limit — fifteen minutes,
+/// the same number [`SECOND_FACTOR_FRESHNESS`] uses, and inside NIST SP
+/// 800-63B-4's AAL3 idle figure. The console is the more sensitive plane,
+/// so it gets the tighter of the two.
+pub const OPERATOR_IDLE_LIMIT: Duration = Duration::from_secs(15 * 60);
+
+/// Which limit applies to a session of `kind`.
+fn idle_limit_seconds(kind: PrincipalKind) -> i64 {
+    match kind {
+        PrincipalKind::Steward => ACCOUNT_IDLE_LIMIT.as_secs() as i64,
+        PrincipalKind::Operator => OPERATOR_IDLE_LIMIT.as_secs() as i64,
+    }
+}
+
 /// How long a challenge nonce — sign-in or per-request — stays usable.
 ///
 /// Two minutes covers a human reading a prompt and a browser producing a
@@ -399,6 +422,49 @@ impl SignInLimits {
 impl Default for SignInLimits {
     fn default() -> Self {
         Self::defaults()
+    }
+}
+
+/// ADR-0057 decision 7: `FATHOM_SESSION_ADDRESS_CHECK`, which planes a
+/// changed request address ends a session on.
+///
+/// OWASP Session Management Cheat Sheet, "Binding the Session ID to Other
+/// User Properties": binding a session to the client address detects
+/// hijacking but is "not... trustworthy" on its own — a shared NAT or proxy
+/// defeats it. That is why an account session is never ended by it (laptops,
+/// VPNs and phones change address in the ordinary course of things) while
+/// the operator plane, the more sensitive one, is by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AddressCheckMode {
+    /// Default. Only the operator plane ends on a changed address; an
+    /// account session records the change and stays live.
+    #[default]
+    Site,
+    /// Both planes end on a changed address.
+    All,
+    /// Neither plane is checked at all.
+    Off,
+}
+
+impl AddressCheckMode {
+    /// `FATHOM_SESSION_ADDRESS_CHECK`'s three spellings. `None` for anything
+    /// else, for `config.rs`'s `ConfigError::Unparseable`.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "site" => Some(Self::Site),
+            "all" => Some(Self::All),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    /// Whether a changed address ends a session of `kind` under this mode.
+    fn ends_session(self, kind: PrincipalKind) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Site => kind == PrincipalKind::Operator,
+            Self::All => true,
+        }
     }
 }
 
@@ -715,6 +781,13 @@ pub struct SignInAttempt<'a> {
     /// challenge (`session_challenge`), binding the two together. Empty on
     /// the steward plane.
     pub account_session_sig: &'a [u8],
+    /// ADR-0057 decision 6. On the operator plane, the memory-only grace
+    /// token a previous password-and-code sign-in of `account_session_id`
+    /// returned, empty if this browser holds none (never written to
+    /// storage, so a reload starts empty). Checked in
+    /// [`SessionStore::verify_account_endorsement`]; a mismatch only falls
+    /// back to asking for a live code, not a refusal on its own.
+    pub grace_token: &'a [u8],
 }
 
 /// What a caller must present on every request that reaches a design payload
@@ -804,6 +877,13 @@ impl VerifiedSession {
     }
 }
 
+/// [`SessionStore::issue_request_nonce_ex`]'s answer: the nonce, and the
+/// counter mark it was issued against.
+pub struct IssuedNonce {
+    pub nonce: [u8; 32],
+    pub issued_counter: i64,
+}
+
 /// What sign-in hands back to the browser.
 pub struct SignedIn {
     pub session_id: String,
@@ -814,19 +894,28 @@ pub struct SignedIn {
     /// actor on every change it makes, so undo can tell its own batches from
     /// a colleague's.
     pub account_id: String,
+    /// ADR-0057 decision 6. `Some` exactly when this sign-in verified a
+    /// fresh TOTP code on the steward plane, the one moment a grace token is
+    /// minted. Held in memory only, never storage, and presented as
+    /// [`SignInAttempt::grace_token`] on a later sign-in within
+    /// [`SECOND_FACTOR_FRESHNESS`]. `None` otherwise.
+    pub grace_token: Option<[u8; 32]>,
 }
 
 impl core::fmt::Debug for SignedIn {
-    /// **The token is not printed**, by the same rule `secret.rs` exists for
+    /// **Neither secret is printed**, by the same rule `secret.rs` exists for
     /// and that `SoftwareKey`'s own `Debug` already follows: a type that can
     /// be formatted into a log line is a type whose `Debug` decides what ends
-    /// up in one, and `{:?}` is reached for in a hurry.
+    /// up in one, and `{:?}` is reached for in a hurry. The grace token is a
+    /// bearer credential exactly as the session token is, for the fifteen
+    /// minutes it is good.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SignedIn")
             .field("session_id", &self.session_id)
             .field("token", &"<not printed>")
             .field("expires_at_unix", &self.expires_at_unix)
             .field("account_id", &self.account_id)
+            .field("grace_token", &self.grace_token.map(|_| "<not printed>"))
             .finish()
     }
 }
@@ -1170,6 +1259,17 @@ pub struct SessionStore {
     deployment: String,
     limits: SignInLimits,
     lifetime: Duration,
+    /// ADR-0057 decision 7. `FATHOM_SESSION_ADDRESS_CHECK`, defaulted to
+    /// [`AddressCheckMode::Site`] so that every deployment built before this
+    /// existed keeps its operator plane bound without a config change.
+    address_check: AddressCheckMode,
+}
+
+/// What [`SessionStore::verify_account_endorsement`] returns: enough for its
+/// caller to decide freshness without a second read of the row.
+struct EndorsingFreshness {
+    totp_verified_at_unix: Option<i64>,
+    grace_token_hash: Option<[u8; 32]>,
 }
 
 impl SessionStore {
@@ -1198,7 +1298,17 @@ impl SessionStore {
             deployment,
             limits,
             lifetime,
+            address_check: AddressCheckMode::default(),
         }
+    }
+
+    /// `FATHOM_SESSION_ADDRESS_CHECK`, set once at startup (`main.rs`). A
+    /// builder rather than a `new` parameter, so every existing caller keeps
+    /// compiling unchanged and gets the same default a deployment that never
+    /// sets the variable gets.
+    pub fn with_address_check(mut self, mode: AddressCheckMode) -> Self {
+        self.address_check = mode;
+        self
     }
 
     pub fn deployment(&self) -> &str {
@@ -1366,6 +1476,7 @@ impl SessionStore {
             source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await
     }
@@ -2169,13 +2280,14 @@ impl SessionStore {
                             SessionError::SignInRefused,
                         ),
                     })?;
-                let totp_verified_at = self
+                let freshness = self
                     .verify_account_endorsement(
                         tx,
                         &endorsing_account,
                         account_session_id,
                         account_session_sig,
                         &challenge,
+                        attempt.source,
                     )
                     .await
                     .map_err(|e| {
@@ -2191,9 +2303,22 @@ impl SessionStore {
                 // answer ADR-0056 decision 3's two-step sign-in gives, so
                 // the caller learns to ask for one rather than being refused
                 // outright.
-                let fresh = totp_verified_at
-                    .map(|at| now.saturating_sub(at) <= SECOND_FACTOR_FRESHNESS.as_secs() as i64)
-                    .unwrap_or(false);
+                //
+                // **ADR-0057 decision 6.** Time alone is not enough: the
+                // browser must also present the grace token that same
+                // sign-in minted, matching the hash the endorsing row holds
+                // — a value that lives only in that tab's memory, never
+                // IndexedDB, so a reload or a copied profile cannot produce
+                // it.
+                let fresh = match (freshness.totp_verified_at_unix, freshness.grace_token_hash) {
+                    (Some(at), Some(hash)) => {
+                        now.saturating_sub(at) <= SECOND_FACTOR_FRESHNESS.as_secs() as i64
+                            && !attempt.grace_token.is_empty()
+                            && same_bytes(&Sha256::digest(attempt.grace_token), &hash)
+                                .unwrap_or(false)
+                    }
+                    _ => false,
+                };
                 if !fresh {
                     if totp_code.is_empty() {
                         return Err((
@@ -2442,6 +2567,30 @@ impl SessionStore {
         // looked for every addition on this path and a reader doing that again
         // should not have to work out which ones are safe.
         let expires_at_unix = now.saturating_add(self.lifetime.as_secs() as i64);
+
+        // ADR-0057 decision 6: minted only when this sign-in just verified a
+        // fresh TOTP code on the steward plane. The browser holds it in
+        // memory alone, never storage; this deployment keeps only its hash,
+        // under the row MAC like `totp_verified_at`, so a disk copy of the
+        // session never carries the fact that lets a later operator sign-in
+        // skip the code.
+        let grace_token = if totp_verified_now {
+            Some(
+                random_32()
+                    .map_err(|e| (Some(AccountBucket::Account(account.clone())), "random", e))?,
+            )
+        } else {
+            None
+        };
+        let grace_token_hash = grace_token.map(|t| Sha256::digest(t).into());
+
+        // ADR-0057 decision 7: the class this session is bound to, from the
+        // address the source bucket above already counted this attempt
+        // against. `None` when it could not be classed — unknown peer or an
+        // unparseable address — so it is never compared and never wrongly
+        // ended.
+        let bound_address_class = crate::client_address::address_class(attempt.source);
+
         let row = SessionRow {
             id: id.clone(),
             principal_id: account.clone(),
@@ -2459,6 +2608,11 @@ impl SessionStore {
             expires_at_unix,
             request_counter: 0,
             totp_verified_at_unix: totp_verified_now.then_some(now),
+            grace_token_hash,
+            bound_address_class: bound_address_class.clone(),
+            // A row just minted is zero seconds idle by definition; the real
+            // value only ever matters on a row `read_session` reads back.
+            idle_seconds: 0,
         };
         let mac = self
             .row_mac(tx, &row)
@@ -2499,10 +2653,11 @@ impl SessionStore {
                  (id, principal_id, principal_kind, token_hash, session_pubkey, session_alg, \
                   bound_nonce, evidence_key_id, evidence_sig, assertion_digest, assurance, \
                   chain_seq, issued_at, last_seen_at, expires_at, row_version, row_mac, \
-                  evidence_operator_key_id, totp_verified_at) \
+                  evidence_operator_key_id, totp_verified_at, grace_token_hash, \
+                  bound_address_class) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
                      to_timestamp($13), to_timestamp($13), to_timestamp($14), 1, $15, $16, \
-                     to_timestamp($17))",
+                     to_timestamp($17), $18, $19)",
             &[
                 &row.id,
                 &row.principal_id,
@@ -2521,6 +2676,8 @@ impl SessionStore {
                 &mac.to_vec(),
                 &operator_evidence,
                 &row.totp_verified_at_unix.map(|v| v as f64),
+                &row.grace_token_hash.map(|h| h.to_vec()),
+                &row.bound_address_class,
             ],
         )
         .await
@@ -2539,6 +2696,7 @@ impl SessionStore {
                 token,
                 expires_at_unix,
                 account_id: account,
+                grace_token,
             },
         ))
     }
@@ -2547,11 +2705,18 @@ impl SessionStore {
     /// sign-in. Checked before the operator's own key, so a stolen operator
     /// key alone stops here.
     ///
-    /// Live (not expired, not signed out, its row MAC intact), naming
-    /// `account`, and signing `challenge` — the operator sign-in's own
-    /// challenge digest — with the key that session was issued. Returns
-    /// when that session last verified a TOTP code, for the caller to weigh
-    /// against [`SECOND_FACTOR_FRESHNESS`].
+    /// Live (not expired, not idle-dead, not signed out, its row MAC intact),
+    /// naming `account`, and signing `challenge` — the operator sign-in's
+    /// challenge digest — with the key that session was issued. Returns when
+    /// that session last verified a TOTP code and the hash of its decision-6
+    /// grace token, for the caller to weigh against
+    /// [`SECOND_FACTOR_FRESHNESS`] and a presented grace token.
+    ///
+    /// **Also checked against decision 7's address binding**, under the same
+    /// rules a live request on this session faces: recorded under `site`,
+    /// ended under `all`. An ended endorsing session refuses like any other
+    /// reason this returns; the ending runs on `tx`, which
+    /// `attempt_sign_in`'s caller commits regardless of outcome.
     async fn verify_account_endorsement(
         &self,
         tx: &Transaction<'_>,
@@ -2559,7 +2724,8 @@ impl SessionStore {
         account_session_id: &str,
         account_session_sig: &[u8],
         challenge: &[u8; 32],
-    ) -> Result<Option<i64>, SessionError> {
+        source: &str,
+    ) -> Result<EndorsingFreshness, SessionError> {
         if account_session_id.is_empty() {
             return Err(SessionError::SignInRefused);
         }
@@ -2573,12 +2739,28 @@ impl SessionStore {
         if row.expires_at_unix <= now_unix() {
             return Err(SessionError::SignInRefused);
         }
+        // ADR-0057 decision 4: an idle-dead session endorses nothing, exactly
+        // as one past its absolute lifetime does not. Not deleted here —
+        // this row is not the one this request is signed with; the next
+        // request actually made under it, through `verify_inside`, is where
+        // its idle death belongs.
+        if row.idle_seconds >= idle_limit_seconds(PrincipalKind::Steward) {
+            return Err(SessionError::SignInRefused);
+        }
         if row.principal_kind != PrincipalKind::Steward || row.principal_id != account {
             return Err(SessionError::SignInRefused);
         }
         authority::verify_es256(&row.session_pubkey, challenge, account_session_sig)
             .map_err(|_| SessionError::SignInRefused)?;
-        Ok(row.totp_verified_at_unix)
+        if self.address_check != AddressCheckMode::Off {
+            self.check_session_address_inside(tx, &row.id, source)
+                .await
+                .map_err(|_| SessionError::SignInRefused)?;
+        }
+        Ok(EndorsingFreshness {
+            totp_verified_at_unix: row.totp_verified_at_unix,
+            grace_token_hash: row.grace_token_hash,
+        })
     }
 
     /// The second factor at sign-in: an app code, or a backup code standing in
@@ -2923,11 +3105,31 @@ impl SessionStore {
     /// signature needs a nonce and the client has none yet. That is the whole
     /// of what the token buys, and it buys nothing else: a nonce authorises
     /// nothing on its own.
+    ///
+    /// The nonce alone, for every caller before ADR-0057 decision 4 — see
+    /// [`SessionStore::issue_request_nonce_ex`] for the counter mark
+    /// alongside it, which is what `api.rs`'s nonce answer now also carries.
     pub async fn issue_request_nonce(
         &self,
         session_id: &str,
         token: &[u8],
     ) -> Result<[u8; 32], SessionError> {
+        Ok(self.issue_request_nonce_ex(session_id, token).await?.nonce)
+    }
+
+    /// As [`SessionStore::issue_request_nonce`], and also the counter mark
+    /// this nonce was issued against.
+    ///
+    /// ADR-0057 decision 4: a restored tab's in-memory counter restarts at
+    /// `1`, which `verify_inside`'s `request.counter <= issued_counter`
+    /// refuses outright — the mark a row long since carried is always well
+    /// past `1`. The client's fix is to pick its next counter up from here:
+    /// `max(local, issued_counter) + 1`.
+    pub async fn issue_request_nonce_ex(
+        &self,
+        session_id: &str,
+        token: &[u8],
+    ) -> Result<IssuedNonce, SessionError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
@@ -2951,6 +3153,17 @@ impl SessionStore {
             return Err(SessionError::NoSuchSession);
         }
         if row.expires_at_unix <= now_unix() {
+            delete_session(&tx, &row.id).await?;
+            leave_session_custody(&tx).await?;
+            tx.commit().await?;
+            return Err(SessionError::Expired);
+        }
+        // ADR-0057 decision 4: idle death, computed by Postgres's clock
+        // against Postgres's `last_seen_at` — the "one clock" rule a
+        // reload's restored session must be held to as tightly as a live
+        // request is in `verify_inside`. A dead session gets no nonce, and
+        // the row goes exactly as an expired one does.
+        if row.idle_seconds >= idle_limit_seconds(row.principal_kind) {
             delete_session(&tx, &row.id).await?;
             leave_session_custody(&tx).await?;
             tx.commit().await?;
@@ -2985,7 +3198,10 @@ impl SessionStore {
 
         leave_session_custody(&tx).await?;
         tx.commit().await?;
-        Ok(nonce)
+        Ok(IssuedNonce {
+            nonce,
+            issued_counter: row.request_counter,
+        })
     }
 
     /// **Step one of §4.1 clause (b): spend the nonce, in a transaction of its
@@ -3127,6 +3343,100 @@ impl SessionStore {
         result
     }
 
+    /// ADR-0057 decision 7: check `address` — as the caller's `ClientAddress`
+    /// policy decided it — against the class `session_id` was bound to at
+    /// sign-in, and act on a mismatch per
+    /// [`SessionStore::with_address_check`].
+    ///
+    /// A caller's explicit second step, not folded into
+    /// [`SessionStore::verify_inside`]: every route already holds
+    /// `session_id` and a `ClientAddress` once it has a [`VerifiedSession`],
+    /// so this reads the row fresh rather than threading one more field
+    /// through [`SignedRequest`], [`PendingRequest`], and every caller of
+    /// them.
+    ///
+    /// Call this **after** the request's signature has verified: an address
+    /// mismatch is a fact about a session that is genuinely live, not a
+    /// reason to skip verifying it.
+    pub async fn check_session_address(
+        &self,
+        tx: &Transaction<'_>,
+        session_id: &str,
+        address: &str,
+    ) -> Result<(), SessionError> {
+        if self.address_check == AddressCheckMode::Off {
+            return Ok(());
+        }
+        enter_session_custody(tx).await?;
+        let result = self
+            .check_session_address_inside(tx, session_id, address)
+            .await;
+        leave_session_custody(tx).await?;
+        result
+    }
+
+    async fn check_session_address_inside(
+        &self,
+        tx: &Transaction<'_>,
+        session_id: &str,
+        address: &str,
+    ) -> Result<(), SessionError> {
+        let Some(row) = read_session(tx, session_id).await? else {
+            // Gone, not "already answered for": a concurrent request on
+            // another connection can delete this row (sign-out, expiry
+            // sweep, or decision 7's ending) between `verify_inside`'s read
+            // and this one, under READ COMMITTED. A missing row here is
+            // never `Ok`: the caller is refused exactly as it would be if
+            // verification itself had found it gone.
+            return Err(SessionError::Expired);
+        };
+        let Some(bound) = &row.bound_address_class else {
+            // Nothing to compare — a sign-in this feature could not class,
+            // or one made before it existed.
+            return Ok(());
+        };
+        // A bound session must keep matching by class. An address this
+        // request carries that does not even parse is not "nothing to
+        // compare" — it is not the one this session is bound to, so it is a
+        // mismatch like any other, never a free pass.
+        let class = crate::client_address::address_class(address);
+        if class.as_deref() == Some(bound.as_str()) {
+            return Ok(());
+        }
+        if self.address_check.ends_session(row.principal_kind) {
+            tracing::warn!(
+                session = %row.id,
+                kind = %row.principal_kind.as_str(),
+                "session ended: this request's address does not match the one it signed in \
+                 from (ADR-0057 decision 7)"
+            );
+            // On `tx`, never a separate connection: a request that verified
+            // successfully already updated this row's
+            // `last_seen_at`/`request_counter` on `tx` (`verify_inside` step
+            // 6), uncommitted — a `DELETE` on any other connection would
+            // block on that lock forever. Durability is the caller's job:
+            // every production call site commits `tx` regardless of
+            // outcome, exactly as `verify_request` already does for
+            // `Expired`.
+            delete_session(tx, &row.id).await?;
+            return Err(SessionError::Expired);
+        }
+        // Steward plane under `site` mode: recorded, not ended — laptops,
+        // VPNs and phones change address in the ordinary course of things.
+        tx.execute(
+            "UPDATE sessions SET address_changed_at = COALESCE(address_changed_at, now()) \
+              WHERE id = $1",
+            &[&row.id],
+        )
+        .await?;
+        tracing::info!(
+            session = %row.id,
+            "this session's request address changed since sign-in (ADR-0057 decision 7); kept \
+             live"
+        );
+        Ok(())
+    }
+
     async fn verify_inside(
         &self,
         tx: &Transaction<'_>,
@@ -3147,6 +3457,18 @@ impl SessionStore {
         // (3) Expiry.
         let now = now_unix();
         if row.expires_at_unix <= now {
+            delete_session(tx, &row.id).await?;
+            return Err(SessionError::Expired);
+        }
+
+        // (3a) Idle death (ADR-0057 decision 4): Postgres's idle age against
+        // this plane's limit, dead at the mark itself (`idle_seconds >=
+        // limit`, not `>`). Not a recorded sign-out — the row is deleted
+        // exactly as an expired one is, because nobody chose to end this
+        // session, time did. Durable only because the caller commits `tx`
+        // regardless of outcome, matching `verify_request`'s "committed
+        // either way".
+        if row.idle_seconds >= idle_limit_seconds(row.principal_kind) {
             delete_session(tx, &row.id).await?;
             return Err(SessionError::Expired);
         }
@@ -3325,14 +3647,25 @@ impl SessionStore {
         );
         authority::verify_es256(&row.session_pubkey, &message, &request.signature)?;
 
-        tx.execute(
-            "UPDATE sessions \
-                SET last_seen_at = now(), \
-                    request_counter = GREATEST(request_counter, $2) \
-              WHERE id = $1",
-            &[&row.id, &request.counter],
-        )
-        .await?;
+        // A concurrent request on another connection may have deleted this
+        // row (a sign-out, an expiry sweep, or decision 7's ending) between
+        // the read above and here — this transaction's read committed
+        // isolation would see it gone. Zero rows touched is that race, not a
+        // no-op: a request verified against a row that no longer exists
+        // must never be treated as verified.
+        let touched = tx
+            .query_opt(
+                "UPDATE sessions \
+                    SET last_seen_at = now(), \
+                        request_counter = GREATEST(request_counter, $2) \
+                  WHERE id = $1 \
+                  RETURNING id",
+                &[&row.id, &request.counter],
+            )
+            .await?;
+        if touched.is_none() {
+            return Err(SessionError::NoSuchSession);
+        }
 
         Ok(VerifiedSession {
             id: row.id,
@@ -3600,6 +3933,24 @@ struct SessionRow {
     /// or one made before the account had a confirmed authenticator. Not
     /// inside the row MAC; `0027` says why.
     totp_verified_at_unix: Option<i64>,
+    /// ADR-0057 decision 6: `SHA-256` of this session's grace token, when its
+    /// sign-in minted one — set together with `totp_verified_at_unix` and
+    /// never afterward. Inside the row MAC (`0028`'s header): a
+    /// database-only attacker must not be able to plant a hash their chosen
+    /// token matches.
+    grace_token_hash: Option<[u8; 32]>,
+    /// ADR-0057 decision 7: the address class (`client_address::address_class`)
+    /// this session was bound to at sign-in, or `None` when the source could
+    /// not be classed. Inside the row MAC for the same reason
+    /// `grace_token_hash` is — a database-only attacker must not be able to
+    /// rewrite it to match wherever they are calling from.
+    bound_address_class: Option<String>,
+    /// Postgres's idle age of this row, `EXTRACT(EPOCH FROM (now() -
+    /// last_seen_at))`. Computed in the same `SELECT` that reads everything
+    /// else, so an idle check never compares this server's clock against
+    /// the database's. **Not part of the MAC**, for the same reason
+    /// `last_seen_at` itself is not: it changes on every verified request.
+    idle_seconds: i64,
 }
 
 impl SessionRow {
@@ -3620,6 +3971,8 @@ impl SessionRow {
             issued_at_unix: self.issued_at_unix,
             expires_at_unix: self.expires_at_unix,
             totp_verified_at_unix: self.totp_verified_at_unix,
+            grace_token_hash: self.grace_token_hash.as_ref(),
+            bound_address_class: self.bound_address_class.as_deref(),
         }
     }
 }
@@ -3648,6 +4001,10 @@ pub struct SessionFacts<'a> {
     pub expires_at_unix: i64,
     /// Decision 2's freshness clock, inside the MAC (`0027`'s header).
     pub totp_verified_at_unix: Option<i64>,
+    /// Decision 6's grace token hash, inside the MAC (`0028`'s header).
+    pub grace_token_hash: Option<&'a [u8; 32]>,
+    /// Decision 7's bound address class, inside the MAC (`0028`'s header).
+    pub bound_address_class: Option<&'a str>,
 }
 
 /// §4.3's `row_mac`, in `authority::row_seal`'s construction under the
@@ -3736,6 +4093,17 @@ fn session_row_state(row: &SessionFacts<'_>) -> Vec<u8> {
     // must still recompute unchanged after this column arrives.
     if let Some(at) = row.totp_verified_at_unix {
         map.insert("totp_verified_at".to_string(), Json::Int(at));
+    }
+    // Same rule, `0028`: a row made before decision 6 or decision 7 existed
+    // has neither, and must still verify unchanged.
+    if let Some(hash) = row.grace_token_hash {
+        map.insert("grace_token_hash".to_string(), Json::Str(hex(hash)));
+    }
+    if let Some(class) = row.bound_address_class {
+        map.insert(
+            "bound_address_class".to_string(),
+            Json::Str(class.to_string()),
+        );
     }
     Json::Obj(map).to_canonical_bytes()
 }
@@ -3988,7 +4356,9 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
                     evidence_sig, assertion_digest, assurance, chain_seq, \
                     row_version, EXTRACT(EPOCH FROM issued_at)::bigint, \
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter, \
-                    EXTRACT(EPOCH FROM totp_verified_at)::bigint \
+                    EXTRACT(EPOCH FROM totp_verified_at)::bigint, grace_token_hash, \
+                    bound_address_class, \
+                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint \
                FROM sessions WHERE id = $1",
             &[&id],
         )
@@ -3999,6 +4369,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
     let assertion_digest: Option<Vec<u8>> = row.get(8);
     let kind: String = row.get(2);
     let assurance: String = row.get(9);
+    let grace_token_hash: Option<Vec<u8>> = row.get(16);
     Ok(Some(SessionRow {
         id: row.get(0),
         principal_id: row.get(1),
@@ -4021,6 +4392,12 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
         expires_at_unix: row.get(13),
         request_counter: row.get(14),
         totp_verified_at_unix: row.get(15),
+        grace_token_hash: match grace_token_hash {
+            Some(h) => Some(as_32(&h, "session grace token hash")?),
+            None => None,
+        },
+        bound_address_class: row.get(17),
+        idle_seconds: row.get(18),
     }))
 }
 
@@ -4612,6 +4989,8 @@ mod tests {
             issued_at_unix: 1_760_000_000,
             expires_at_unix: 1_760_003_600,
             totp_verified_at_unix: None,
+            grace_token_hash: None,
+            bound_address_class: None,
         };
         assert_eq!(
             session_row_state(&facts),

@@ -1288,6 +1288,9 @@ pub async fn confirm_on_the_new_host(
 pub struct PlacementState {
     pub sessions: Arc<SessionStore>,
     pub placement: Arc<PlacementStore>,
+    /// ADR-0057 decision 7. The same policy every other route's state
+    /// carries (`src/client_address.rs`).
+    pub client_address: ClientAddress,
 }
 
 impl axum::extract::FromRequest<PlacementState> for Signed {
@@ -1297,7 +1300,7 @@ impl axum::extract::FromRequest<PlacementState> for Signed {
         request: Request,
         state: &PlacementState,
     ) -> Result<Self, Self::Rejection> {
-        Signed::from_request_for(request, &state.sessions).await
+        Signed::from_request_for(request, &state.sessions, &state.client_address).await
     }
 }
 
@@ -1428,10 +1431,23 @@ async fn verify(state: &PlacementState, signed: &Signed) -> Result<VerifiedSessi
         .transaction()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
-    let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+    let result: Result<VerifiedSession, Refusal> = async {
+        let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
+        // ADR-0057 decision 7: the ending delete a mismatch triggers must
+        // run on this transaction — the row just advanced is locked until
+        // this transaction resolves, so a separate connection's `DELETE`
+        // would wait on that lock forever.
+        state
+            .sessions
+            .check_session_address(&tx, session.id(), &signed.address)
+            .await?;
+        Ok(session)
+    }
+    .await;
     tx.commit()
         .await
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let session = result?;
     note_acting_operator(&session);
     Ok(session)
 }

@@ -40,7 +40,7 @@
 //                                      signs in immediately afterwards)
 //   2. POST /session/challenge         LP("steward") ‖ LP(address) ‖ LP(session_pubkey)
 //                                      → LP(nonce) ‖ LP(deployment_id)
-//   3. POST /session                   eight fields: LP(kind) ‖ LP(session_pubkey)
+//   3. POST /session                   nine fields: LP(kind) ‖ LP(session_pubkey)
 //                                      ‖ LP(nonce) ‖ LP(evidence_sig) ‖ LP(credential)
 //                                      ‖ LP(app_code)   [the WIRE field name,
 //                                        which ADR-0056 decision 4 leaves
@@ -53,8 +53,18 @@
 //                                        account, by that session's own key
 //                                        signing this same challenge digest;
 //                                        empty on every steward sign-in]
+//                                      ‖ LP(grace_token) [ADR-0057 decision 6:
+//                                        empty on every sign-in except the
+//                                        operator one this script drives,
+//                                        carrying the token minted by the
+//                                        endorsing account session's answer
+//                                        below -- held on that session
+//                                        object, never persisted]
 //                                      → LP(session_id) ‖ LP(token) ‖ u64(expires)
-//                                        ‖ LP(principal_id)
+//                                        ‖ LP(principal_id) ‖ LP(grace_token)
+//                                        [ADR-0057 decision 6: empty except on
+//                                        a steward sign-in whose second factor
+//                                        was just proved]
 //   4. POST /credentials/totp/enrol    signed, LP(current_credential) ‖ LP(code)
 //                                      → LP(otpauth_uri) ‖ LP(secret_base32)
 //                                      (ADR-0057 decision 3: both fields are
@@ -354,6 +364,11 @@ async function postSession(
   const evidence = evidenceKey ? await sign(evidenceKey, challenge) : EMPTY;
   const accountSessionId = accountSession ? utf8(accountSession.id) : EMPTY;
   const accountSessionSig = accountSession ? await sign(accountSession.key, challenge) : EMPTY;
+  // ADR-0057 decision 6's grace token, ninth field: carries the token the
+  // endorsing account session's sign-in answer just minted -- held on that
+  // session object, never persisted, matching how the client keeps it in
+  // memory only.
+  const graceToken = accountSession?.graceToken ?? EMPTY;
   return post(
     '/session',
     concat(
@@ -365,22 +380,28 @@ async function postSession(
       lp(utf8(appCode)),
       lp(accountSessionId),
       lp(accountSessionSig),
+      lp(graceToken),
     ),
   );
 }
 
-/// The four fields a session answer carries, with the keypair that will sign
-/// this session's requests.
+/// The five fields a session answer carries, with the keypair that will sign
+/// this session's requests. The fifth, decision 6's grace token, is empty
+/// except after a steward sign-in whose second factor was just proved --
+/// the shape this script's operator sign-in (step 9) presents back to
+/// satisfy the endorsement's freshness check.
 function readSession(si, sessionKey) {
   const { value: sessionIdBytes, rest: afterSid } = readLp(si.bytes);
   const { value: sessionToken, rest: afterTok } = readLp(afterSid);
-  const { value: principalBytes } = readLp(afterTok.slice(8));
+  const { value: principalBytes, rest: afterPrincipal } = readLp(afterTok.slice(8));
+  const { value: graceToken } = readLp(afterPrincipal);
   counter = 0;
   return {
     id: dec.decode(sessionIdBytes),
     token: sessionToken,
     key: sessionKey,
     principal: dec.decode(principalBytes),
+    graceToken,
   };
 }
 
@@ -588,9 +609,10 @@ console.log(`operator key: ${dec.decode(opKeyIdBytes)} registered for operator $
 // (resolution 8), with the browser's key as the evidence and no password --
 // but ADR-0057 decision 2 now also asks Site for the account: this sign-in
 // must carry a signature by `withCode`, the live account session above, over
-// this same challenge. `withCode` proved its second factor moments ago
-// (the two-step sign-in just above), so it is fresh and no verification code
-// is asked for a second time.
+// this same challenge. `withCode` proved its second factor moments ago (the
+// two-step sign-in just above) and carries the grace token that answer
+// minted, so it holds what decision 6 requires -- no verification code is
+// asked for a second time.
 const op = await signIn('operator', operatorId, {
   evidenceKey: browserKey,
   accountSession: withCode,

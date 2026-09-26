@@ -194,7 +194,7 @@ describe('the operator custody an account picks up', () => {
     expect(() => parseOperatorKeyAnswer(fromHex(`${hex}ff`))).toThrow(/trailing/);
   });
 
-  it("signs the operator in with eight fields, the last three empty: the operator plane carries no password, and a fresh account session needs no code", () => {
+  it("signs the operator in with nine fields, the last four empty: the operator plane carries no password, a fresh account session needs no code, and this tab holds no grace token", () => {
     const body = buildOperatorSignInBody(
       new Uint8Array([4, 5, 6]),
       new Uint8Array([7, 8]),
@@ -211,7 +211,8 @@ describe('the operator custody an account picks up', () => {
         '00000000' + //                LP("") -- no password
         '00000000' + //                LP("") -- no verification code
         '00000000' + //                LP("") -- no account session id
-        '00000000', //                 LP("") -- no account session signature
+        '00000000' + //                LP("") -- no account session signature
+        '00000000', //                 LP("") -- no grace token
     );
   });
 
@@ -232,8 +233,22 @@ describe('the operator custody an account picks up', () => {
         '00000000' + //                LP("") -- no password
         '06000000313233343536' + //    LP("123456")
         '1800000030314a584143435430303030303030303030303030303031' + // LP(account session id)
-        '020000000102', //             LP(account session signature)
+        '020000000102' + //            LP(account session signature)
+        '00000000', //                 LP("") -- no grace token
     );
+  });
+
+  it('carries the grace token when this tab holds one for the endorsing session', () => {
+    const body = buildOperatorSignInBody(
+      new Uint8Array([4]),
+      new Uint8Array([7]),
+      new Uint8Array([9]),
+      '',
+      '01JXACCT0000000000000001',
+      new Uint8Array([1, 2]),
+      new Uint8Array([0xaa, 0xbb]),
+    );
+    expect(toHex(body).endsWith('02000000aabb')).toBe(true);
   });
 });
 

@@ -131,6 +131,12 @@ ROW_VERSION = 1
 # A plausible instant between ISSUED_AT and EXPIRES_AT, not round.
 TOTP_VERIFIED_AT = 1_760_000_050
 
+# 0028: decision 6's grace token hash and decision 7's bound address class,
+# both omitted-when-unset like TOTP_VERIFIED_AT above. A plausible IPv4, not
+# a round one.
+GRACE_TOKEN_HASH = bytes([0x35]) * 32
+BOUND_ADDRESS_CLASS = b"203.0.113.9"
+
 # ---------------------------------------------------------------------------
 # P-256, in plain Python, for the ES256 half
 # ---------------------------------------------------------------------------
@@ -393,6 +399,24 @@ row_mac_no_totp_verified_at = mac(
     + lp(row_state_no_totp_verified_at),
 )
 
+# 0028: a row carrying both new fields.
+row_state_with_0028_fields = canon(
+    {
+        **row_state_dict,
+        "grace_token_hash": hexs(GRACE_TOKEN_HASH),
+        "bound_address_class": BOUND_ADDRESS_CLASS.decode(),
+    }
+)
+row_mac_with_0028_fields = mac(
+    k_row_site,
+    lp(TAG_ROW)
+    + lp(b"sessions")
+    + lp(SESSION_ID)
+    + u64_le(CHAIN_SEQ)
+    + u32_le(ROW_VERSION)
+    + lp(row_state_with_0028_fields),
+)
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -442,6 +466,8 @@ if __name__ == "__main__":
         ("ROW_MAC", row_mac),
         ("ROW_STATE_NO_TOTP_VERIFIED_AT", row_state_no_totp_verified_at),
         ("ROW_MAC_NO_TOTP_VERIFIED_AT", row_mac_no_totp_verified_at),
+        ("ROW_STATE_WITH_0028_FIELDS", row_state_with_0028_fields),
+        ("ROW_MAC_WITH_0028_FIELDS", row_mac_with_0028_fields),
         ("SIGNATURE", SIGNATURE_OVER_REQUEST_BYTES),
     ]:
         print(rust(name, value))

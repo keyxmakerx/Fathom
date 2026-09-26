@@ -435,6 +435,20 @@ async function signInThroughTheDoor(page, { address, password, code, label, chec
   }
 }
 
+/**
+ * Navigate to `url` and land on the sign-in door. Decision 4 restores a
+ * live account session straight to Home instead of the door, so this
+ * signs out first when that happens.
+ */
+async function arriveAtTheDoor(page, url) {
+  await page.goto(`${url}/`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.home, #signin-password', { timeout: 20000 });
+  if ((await page.locator('.home').count()) > 0) {
+    await page.click('.home__panel .home__btn');
+    await page.waitForSelector('#signin-password', { timeout: 20000 });
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -737,7 +751,10 @@ async function main() {
     JSON.stringify(flagOldAfter),
   );
 
-  await page.goto(`${OLD_URL}/`, { waitUntil: 'networkidle' });
+  // Decision 4 persists this browser's account session on this origin, so
+  // arriving here restores it rather than showing the door — sign out
+  // first, exactly as a person choosing to leave would.
+  await arriveAtTheDoor(page, OLD_URL);
   // A recovery code, not a code from the app: the second step takes either in
   // the one field (ADR-0056 decisions 3 and 4), and the person who reaches
   // for a recovery code has already lost their phone.

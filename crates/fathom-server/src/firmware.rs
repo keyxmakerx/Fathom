@@ -628,6 +628,8 @@ impl IntoResponse for FirmwareError {
 pub struct Signed {
     pending: PendingRequest,
     body: Bytes,
+    /// ADR-0057 decision 7, captured at extraction like `api::Signed`'s.
+    address: String,
 }
 
 impl Signed {
@@ -636,7 +638,30 @@ impl Signed {
         state: &FirmwareState,
         tx: &Transaction<'_>,
     ) -> Result<VerifiedSession, SessionError> {
-        state.sessions.verify_pending(tx, &self.pending).await
+        let session = state.sessions.verify_pending(tx, &self.pending).await?;
+        state
+            .sessions
+            .check_session_address(tx, session.id(), &self.address)
+            .await?;
+        Ok(session)
+    }
+
+    /// As [`Signed::verify`], but commits `tx` regardless of the outcome and
+    /// hands it back on success. `verify` only borrows `tx`; without this,
+    /// an ending it makes on `tx` is undone the moment the route refuses
+    /// the very request that found it.
+    async fn verify_and_commit<'a>(
+        &self,
+        state: &FirmwareState,
+        tx: Transaction<'a>,
+    ) -> Result<(VerifiedSession, Transaction<'a>), SessionError> {
+        match self.verify(state, &tx).await {
+            Ok(session) => Ok((session, tx)),
+            Err(e) => {
+                let _ = tx.commit().await;
+                Err(e)
+            }
+        }
     }
 }
 
@@ -655,6 +680,7 @@ impl FromRequest<FirmwareState> for Signed {
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| parts.uri.path().to_string());
         let headers = parts.headers;
+        let address = state.store.client_address.of(&headers, &parts.extensions);
 
         let unsigned = || SessionError::NotSigned;
         let session_id = header_text(&headers, api::HEADER_SESSION).ok_or_else(unsigned)?;
@@ -689,7 +715,11 @@ impl FromRequest<FirmwareState> for Signed {
             })
             .await?;
 
-        Ok(Self { pending, body })
+        Ok(Self {
+            pending,
+            body,
+            address,
+        })
     }
 }
 
@@ -863,7 +893,7 @@ async fn declare_handler(
 
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = authorise_in(
         &tx,
         &state,
@@ -1315,7 +1345,7 @@ async fn issue_fetch_url_handler(
 
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
 
     // Authorised against the image's own scope when the image exists, and
     // against the ORGANISATION's scope when it does not — `design_api`'s
@@ -1702,7 +1732,7 @@ async fn list_handler(
 
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = authorise_in(
         &tx,
         &state,

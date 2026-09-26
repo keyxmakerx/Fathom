@@ -201,6 +201,10 @@ async fn an_operator(operators: &OperatorStore, sessions: &SessionStore) -> Oper
             source: &source,
             account_session_id: &account_signed_in.session_id,
             account_session_sig: &account_session_sig,
+            grace_token: account_signed_in
+                .grace_token
+                .as_ref()
+                .map_or(b"".as_slice(), |g| g.as_slice()),
         })
         .await
         .expect("an operator with an enrolled key and a live account session signs in");
@@ -282,6 +286,7 @@ struct CachedEndorsement {
     expires_at_unix: i64,
     minted_at_unix: i64,
     scalar: [u8; 32],
+    grace_token: Option<[u8; 32]>,
 }
 static FRESH_ENDORSEMENT: tokio::sync::OnceCell<tokio::sync::Mutex<Option<CachedEndorsement>>> =
     tokio::sync::OnceCell::const_new();
@@ -307,6 +312,7 @@ async fn fresh_endorsing_session(
                     token: cached.token,
                     expires_at_unix: cached.expires_at_unix,
                     account_id: account.to_string(),
+                    grace_token: cached.grace_token,
                 },
                 session_key,
             );
@@ -364,6 +370,7 @@ async fn fresh_endorsing_session(
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
     // Put back at once, whichever way that went — every OTHER caller of this
@@ -378,6 +385,7 @@ async fn fresh_endorsing_session(
         expires_at_unix: signed_in.expires_at_unix,
         minted_at_unix: now,
         scalar,
+        grace_token: signed_in.grace_token,
     });
     (signed_in, session_key)
 }
@@ -665,6 +673,7 @@ async fn serve(
         .merge(placement::router(PlacementState {
             sessions: Arc::clone(&sessions),
             placement: Arc::clone(&placement),
+            client_address: ClientAddress::peer(),
         }))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&placement),

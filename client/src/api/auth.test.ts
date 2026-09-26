@@ -97,7 +97,7 @@ describe('parseSignInAnswer (crates/fathom-server/src/api.rs sign_in_handler)', 
 // `read_fields(&body, 8)` since ADR-0057 decision 2 widened it again. Built
 // here from the same hand-rolled `u32le` the tests above use, so the
 // expectation does not come from the encoder under test.
-describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 decision 2)', () => {
+describe('buildSignInBody (api.rs sign_in_handler, nine fields since ADR-0057 decision 6)', () => {
   const pubkey = Uint8Array.from([0x04, ...Array.from({ length: 64 }, (_, i) => i)]);
   const nonce = Uint8Array.from(Array.from({ length: 32 }, (_, i) => 255 - i));
 
@@ -106,7 +106,7 @@ describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 d
     return [...u32le(list.length), ...list];
   }
 
-  it('writes kind, session pubkey, nonce, evidence, password, verification code and the account endorsement in that order', () => {
+  it('writes kind, session pubkey, nonce, evidence, password, verification code, the account endorsement and the grace token in that order', () => {
     const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 9));
     const body = buildSignInBody(
       'steward',
@@ -128,7 +128,25 @@ describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 d
       ...lpField('123456'),
       ...lpField(''),
       ...lpOf(new Uint8Array(0)),
+      ...lpOf(new Uint8Array(0)), // no grace token, since the ninth argument is omitted
     ]);
+  });
+
+  it('carries an explicit grace token as the ninth field', () => {
+    const evidence = Uint8Array.from(Array.from({ length: 64 }, () => 9));
+    const graceToken = Uint8Array.from([1, 2, 3]);
+    const body = buildSignInBody(
+      'operator',
+      pubkey,
+      nonce,
+      evidence,
+      '',
+      '',
+      '01JXACCOUNTSESSION0000001',
+      new Uint8Array(64).fill(7),
+      graceToken,
+    );
+    expect(Array.from(body).slice(-lpOf(graceToken).length)).toEqual(lpOf(graceToken));
   });
 
   it('sends the account-session fields on the operator plane', () => {
@@ -144,7 +162,8 @@ describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 d
       '01JXACCOUNTSESSION0000001',
       accountSessionSig,
     );
-    expect(Array.from(body).slice(-lpOf(accountSessionSig).length)).toEqual(lpOf(accountSessionSig));
+    const withoutGraceToken = Array.from(body).slice(0, Array.from(body).length - 4);
+    expect(withoutGraceToken.slice(-lpOf(accountSessionSig).length)).toEqual(lpOf(accountSessionSig));
     expect(Array.from(body).length).toBe(
       lpField('operator').length +
         lpOf(pubkey).length +
@@ -153,7 +172,8 @@ describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 d
         4 +
         4 +
         lpField('01JXACCOUNTSESSION0000001').length +
-        lpOf(accountSessionSig).length,
+        lpOf(accountSessionSig).length +
+        4, // an empty grace token: no ninth argument was given
     );
   });
 
@@ -184,7 +204,8 @@ describe('buildSignInBody (api.rs sign_in_handler, eight fields since ADR-0057 d
       new Uint8Array(0),
     );
     const tail = lpField('') // account_session_id
-      .concat(lpOf(new Uint8Array(0))); // account_session_sig
+      .concat(lpOf(new Uint8Array(0))) // account_session_sig
+      .concat(lpOf(new Uint8Array(0))); // grace_token
     const withoutTail = Array.from(body).slice(0, Array.from(body).length - tail.length);
     expect(withoutTail.slice(-10)).toEqual(lpField('000111'));
   });
@@ -270,13 +291,14 @@ describe('completeSignIn, twice on one challenge', () => {
     expect(Array.from(posts[1].body.slice(0, uptoPassword))).toEqual(
       Array.from(posts[0].body.slice(0, uptoPassword)),
     );
-    // The last two fields — the account-session endorsement — are empty on
-    // the steward plane on both posts (ADR-0057 decision 2).
-    expect(Array.from(posts[0].body).slice(-8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(Array.from(posts[1].body).slice(-8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    // The last three fields — the account-session endorsement and the grace
+    // token — are empty on the steward plane on both posts (ADR-0057
+    // decisions 2 and 6).
+    expect(Array.from(posts[0].body).slice(-12)).toEqual(new Array(12).fill(0));
+    expect(Array.from(posts[1].body).slice(-12)).toEqual(new Array(12).fill(0));
     // The first post carries an empty code; the second carries the code —
-    // both followed by those same eight zero bytes.
-    expect(Array.from(posts[0].body).slice(-12, -8)).toEqual([0, 0, 0, 0]);
-    expect(Array.from(posts[1].body).slice(-18, -8)).toEqual(lpField('123456'));
+    // both followed by those same twelve zero bytes.
+    expect(Array.from(posts[0].body).slice(-16, -12)).toEqual([0, 0, 0, 0]);
+    expect(Array.from(posts[1].body).slice(-22, -12)).toEqual(lpField('123456'));
   });
 });

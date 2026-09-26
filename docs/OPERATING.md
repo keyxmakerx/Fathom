@@ -169,6 +169,51 @@ rather than typing one. **Remove it from `.env` once setup is done, then run `do
 container until you do — the server warns at every start while it is still set and no longer
 needed.
 
+## Session timeouts and the address check
+
+ADR-0057 decision 4 keeps a signed-in tab signed in across a reload, and bounds how long it stays
+that way; decisions 6 and 7 add two further limits that a reload cannot undo. None of these are
+configurable — see each number's own reasoning below for why.
+
+**Idle and absolute limits**, enforced server-side in SQL against `now()`, never against this
+process's own clock:
+
+| Plane | Idle | Absolute |
+|---|---|---|
+| Account | 1 hour | 12 hours |
+| Operator (Site) | 15 minutes | 12 hours |
+
+An idle session's row is deleted the moment a request is checked against it — not on a timer — and
+that deletion is not a recorded sign-out, the same way an expired one is not. NIST SP 800-63B-4
+(read 2026-09-25) gives AAL2 an idle bound of at most one hour and an absolute one of at most a day;
+the account plane sits at that idle bound and well inside the absolute one. The operator plane's
+fifteen minutes matches [`SECOND_FACTOR_FRESHNESS`](../crates/fathom-server/src/sessions.rs) — the
+same window decision 2 gives an account session's own second-factor proof — and sits inside NIST's
+AAL3 figures, because the console is the more sensitive plane. OWASP ASVS 5.0.0 7.1.1 asks that the
+reasoning behind a number like this be written down; this is that writing.
+
+**A reload keeps the account session, never the operator one.** Decision 4's non-extractable
+session keypair survives a reload in `fathom-tab-sessions`, IndexedDB, one record per browser tab;
+decision 6 keeps the operator (Site) session out of that database entirely; a reload of a tab that
+was in Site always asks for a fresh verification code, however fresh the account session's own
+proof still is. The fifteen-minute grace decision 2 gives that proof is itself gated on a token this
+tab holds only in memory — never written anywhere — so a copied browser profile, which carries
+everything IndexedDB does, still cannot skip the code. Restoring tabs after a browser restart is
+the same reload, so a tab the browser brings back opens straight back into the account session it
+held — no sign-in door — provided that session's own idle limit above had not already run out.
+
+**`FATHOM_SESSION_ADDRESS_CHECK`** (decision 7), default `site`: a session whose requests start
+coming from a different address than the one it signed in from is ended by it, on the operator
+plane only. `all` ends an account session the same way; `off` checks neither. An account session is
+never ended by this under the default, because laptops, VPNs and phones change address in the
+ordinary course of things — mainstream products do not sign people out for it either — but the
+change is recorded against the session regardless, for whoever reads it later. The check binds an
+IPv4 address exactly and an IPv6 address by its `/64`, because RFC 8981's temporary addresses rotate
+inside one `/64` without a network change. See `.env.example` for the three settings. With
+`FATHOM_TRUSTED_PROXIES` unset, every client arrives as the proxy's own address (see above), so this
+check compares the proxy with itself and never ends anything — set it for this check to mean
+anything behind a proxy.
+
 ## Where the operator console answers
 
 Since 2026-09-20 the console (`/admin/*` and `/enrolment/operator`) can be confined to host names

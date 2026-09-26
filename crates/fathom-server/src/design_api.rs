@@ -201,6 +201,11 @@ pub struct DesignApiState {
     /// data, and every request reads the same `Vec` rather than the
     /// filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,
+    /// ADR-0057 decision 7. The same policy every other route's state
+    /// carries (`src/client_address.rs`) — design payload and vault
+    /// ciphertext are what §4.1 clause (b) protects, so this plane is not
+    /// left out of the check.
+    pub client_address: crate::client_address::ClientAddress,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -291,6 +296,8 @@ pub struct Signed {
     /// consumes the whole `Request`, so a handler that also wants a query
     /// parameter has nowhere else to read it from once this has run.
     query: Option<String>,
+    /// ADR-0057 decision 7, captured at extraction like `api::Signed`'s.
+    address: String,
 }
 
 impl Signed {
@@ -302,7 +309,30 @@ impl Signed {
         state: &DesignApiState,
         tx: &Transaction<'_>,
     ) -> Result<VerifiedSession, SessionError> {
-        state.sessions.verify_pending(tx, &self.pending).await
+        let session = state.sessions.verify_pending(tx, &self.pending).await?;
+        state
+            .sessions
+            .check_session_address(tx, session.id(), &self.address)
+            .await?;
+        Ok(session)
+    }
+
+    /// As [`Signed::verify`], but commits `tx` regardless of the outcome and
+    /// hands it back on success. `verify` only borrows `tx`; without this,
+    /// an ending it makes on `tx` is undone the moment the route refuses
+    /// the very request that found it.
+    async fn verify_and_commit<'a>(
+        &self,
+        state: &DesignApiState,
+        tx: Transaction<'a>,
+    ) -> Result<(VerifiedSession, Transaction<'a>), SessionError> {
+        match self.verify(state, &tx).await {
+            Ok(session) => Ok((session, tx)),
+            Err(e) => {
+                let _ = tx.commit().await;
+                Err(e)
+            }
+        }
     }
 
     /// One query parameter, unescaped. Every value this module reads off a
@@ -385,6 +415,7 @@ impl FromRequest<DesignApiState> for Signed {
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| parts.uri.path().to_string());
         let headers = parts.headers;
+        let address = state.client_address.of(&headers, &parts.extensions);
 
         // As `api::Signed`: a missing or unreadable header is `NotSigned`,
         // never `Malformed`, so a caller who presented nothing is told to
@@ -436,6 +467,7 @@ impl FromRequest<DesignApiState> for Signed {
             pending,
             body,
             query,
+            address,
         })
     }
 }
@@ -758,7 +790,7 @@ async fn list_organisations_handler(
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
 
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     // `sessions::account_without_tenant` is the named bridge for a route with
     // no tenant to open; it refuses an operator session itself. Parsing
     // `principal_id()` back into an `AccountId` here instead would be the
@@ -806,7 +838,7 @@ async fn list_designs_handler(
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
 
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -929,7 +961,7 @@ async fn list_scopes_handler(
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
 
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1066,7 +1098,7 @@ async fn create_scope_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1186,7 +1218,7 @@ async fn create_design_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1258,7 +1290,7 @@ async fn open_design_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1361,7 +1393,7 @@ async fn save_design_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
 
     // ADR-0054 #5: one transaction. `ctx`, `tenant_key` and `scope` below are
     // exactly what `authorise_on_design` used to compute and check itself in
@@ -1607,7 +1639,7 @@ async fn history_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx =
         authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
 
@@ -1691,7 +1723,7 @@ async fn verify_design_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    let session = signed.verify(&state, &tx).await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1854,7 +1886,7 @@ async fn catalogue_list_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    signed.verify(&state, &tx).await?;
+    let (_, tx) = signed.verify_and_commit(&state, tx).await?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     let items = state
@@ -1887,7 +1919,7 @@ async fn catalogue_model_handler(
         .await
         .map_err(SessionError::Pool)?;
     let tx = client.transaction().await.map_err(SessionError::Db)?;
-    signed.verify(&state, &tx).await?;
+    let (_, tx) = signed.verify_and_commit(&state, tx).await?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     match state

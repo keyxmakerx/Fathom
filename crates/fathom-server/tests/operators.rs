@@ -706,6 +706,10 @@ async fn try_sign_in_as_operator(
                 source: &source,
                 account_session_id: &account_signed_in.session_id,
                 account_session_sig: &account_session_sig,
+                grace_token: account_signed_in
+                    .grace_token
+                    .as_ref()
+                    .map_or(b"".as_slice(), |g| g.as_slice()),
             })
             .await;
         if attempt == 0
@@ -821,6 +825,7 @@ struct CachedEndorsement {
     expires_at_unix: i64,
     minted_at_unix: i64,
     scalar: [u8; 32],
+    grace_token: Option<[u8; 32]>,
 }
 static FRESH_ENDORSEMENT: std::sync::OnceLock<
     tokio::sync::Mutex<std::collections::HashMap<EndorsementCacheKey, CachedEndorsement>>,
@@ -852,6 +857,7 @@ async fn fresh_endorsing_session(
                     token: cached.token,
                     expires_at_unix: cached.expires_at_unix,
                     account_id: account.to_string(),
+                    grace_token: cached.grace_token,
                 },
                 session_key,
             );
@@ -930,6 +936,7 @@ async fn mint_and_cache(
             source: &source,
             account_session_id: "",
             account_session_sig: b"",
+            grace_token: b"",
         })
         .await;
     // Put back at once: every other caller of this account assumes
@@ -946,6 +953,7 @@ async fn mint_and_cache(
             expires_at_unix: signed_in.expires_at_unix,
             minted_at_unix: now,
             scalar,
+            grace_token: signed_in.grace_token,
         },
     );
     (signed_in, session_key)
@@ -1153,12 +1161,30 @@ async fn begin_operator_attempt<'a>(
 }
 
 impl OperatorAttempt<'_> {
+    /// `grace_token` empty is every call this test file made before decision
+    /// 6 existed: refused before freshness is even asked about, or relying
+    /// on a live code instead. The one call that needs freshness to hold
+    /// without a code passes the real token a fresh endorsing session's
+    /// sign-in minted.
     async fn finish(
         &self,
         operator_sig: &[u8],
         endorsing_session_id: &str,
         endorsing_sig: &[u8],
         code: &str,
+    ) -> Result<SignedIn, SessionError> {
+        self.finish_with_grace(operator_sig, endorsing_session_id, endorsing_sig, code, b"")
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_with_grace(
+        &self,
+        operator_sig: &[u8],
+        endorsing_session_id: &str,
+        endorsing_sig: &[u8],
+        code: &str,
+        grace_token: &[u8],
     ) -> Result<SignedIn, SessionError> {
         self.store
             .sign_in_with_credentials(&SignInAttempt {
@@ -1171,6 +1197,7 @@ impl OperatorAttempt<'_> {
                 source: &self.source,
                 account_session_id: endorsing_session_id,
                 account_session_sig: endorsing_sig,
+                grace_token,
             })
             .await
     }
@@ -1319,11 +1346,15 @@ async fn an_endorsement_signature_cannot_be_replayed_on_a_new_challenge() {
     let first_operator_sig = op.key.sign(&first.digest);
     let first_endorsing_sig = fresh_key.sign(&first.digest);
     let ok = first
-        .finish(
+        .finish_with_grace(
             &first_operator_sig,
             &fresh.session_id,
             &first_endorsing_sig,
             "",
+            fresh
+                .grace_token
+                .as_ref()
+                .map_or(b"".as_slice(), |g| g.as_slice()),
         )
         .await;
     assert!(
@@ -1407,6 +1438,130 @@ async fn a_stale_endorsing_session_asks_for_a_code_and_accepts_only_the_right_on
         matches!(r, Err(SessionError::PasswordRefused)),
         "a code already spent at one step-up is refused on a second challenge, not honoured \
          again: {r:?}"
+    );
+}
+
+/// ADR-0057 decision 4's idle timeout, on the operator plane specifically:
+/// dead at 900 seconds while an account session at the very same mark is
+/// still live, because `ACCOUNT_IDLE_LIMIT` is four times as long.
+/// `last_seen_at` is outside the row MAC, so moving it in SQL is the honest
+/// way to test this without a real fifteen-minute wait.
+#[tokio::test]
+async fn an_idle_operator_session_is_refused_at_900_seconds_while_an_account_session_at_900_still_works(
+) {
+    const TAG: &str = "b_idle_operator";
+    let (pool, operators, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let account_side = an_account_key_sign_in(&sessions_store, &account, &op.key).await;
+
+    async fn set_last_seen_seconds_ago(pool: &Pool, session_id: &str, seconds_ago: i64) {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await
+            .expect("session custody");
+        tx.execute(
+            "UPDATE sessions SET last_seen_at = now() - make_interval(secs => $2) WHERE id = $1",
+            &[&session_id, &(seconds_ago as f64)],
+        )
+        .await
+        .expect("last_seen_at is not inside the row MAC");
+        tx.commit().await.expect("commit");
+    }
+
+    set_last_seen_seconds_ago(
+        &pool,
+        &op.signed_in.session_id,
+        sessions::OPERATOR_IDLE_LIMIT.as_secs() as i64,
+    )
+    .await;
+    set_last_seen_seconds_ago(
+        &pool,
+        &account_side.signed_in.session_id,
+        sessions::OPERATOR_IDLE_LIMIT.as_secs() as i64,
+    )
+    .await;
+
+    let operator_nonce = sessions_store
+        .issue_request_nonce(&op.signed_in.session_id, &op.signed_in.token)
+        .await;
+    assert!(
+        matches!(operator_nonce, Err(SessionError::Expired)),
+        "the operator plane's own 900-second idle limit must refuse a nonce request at the \
+         mark: {operator_nonce:?}"
+    );
+
+    let account_check = try_verify(
+        &sessions_store,
+        &account_side.signed_in,
+        &account_side.session_key,
+        "GET",
+        "/designs",
+        b"",
+    )
+    .await;
+    assert!(
+        account_check.is_ok(),
+        "an account session at the SAME 900 idle seconds is still well inside its own one-hour \
+         limit: {account_check:?}"
+    );
+    let _ = ring;
+}
+
+/// ADR-0057 decision 4: an idle-dead account session endorses nothing. The
+/// account session that would otherwise endorse this operator sign-in is
+/// pushed past `ACCOUNT_IDLE_LIMIT` in SQL, and the attempt is refused
+/// exactly as a bad endorsement is — not with a distinguishable answer, so
+/// there is nothing here for an outside caller to learn from it.
+#[tokio::test]
+async fn an_idle_dead_account_session_cannot_endorse_an_operator_sign_in() {
+    const TAG: &str = "b_idle_endorsement";
+    let (pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+
+    {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        tx.execute("SELECT set_config('app.session_custody', 'yes', true)", &[])
+            .await
+            .expect("session custody");
+        tx.execute(
+            "UPDATE sessions SET last_seen_at = now() - make_interval(secs => $2) WHERE id = $1",
+            &[
+                &fresh.session_id,
+                &(sessions::ACCOUNT_IDLE_LIMIT.as_secs() as f64),
+            ],
+        )
+        .await
+        .expect("last_seen_at is not inside the row MAC");
+        tx.commit().await.expect("commit");
+    }
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = fresh_key.sign(&attempt.digest);
+    let r = attempt
+        .finish_with_grace(
+            &operator_sig,
+            &fresh.session_id,
+            &endorsing_sig,
+            "",
+            fresh
+                .grace_token
+                .as_ref()
+                .map_or(b"".as_slice(), |g| g.as_slice()),
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SignInRefused)),
+        "an idle-dead account session must endorse nothing, whatever grace token or code \
+         accompanies it: {r:?}"
     );
 }
 
@@ -7642,5 +7797,264 @@ async fn a_wrong_purpose_operator_token_answers_promptly_and_does_not_lock_the_c
         site_entries_of("operator_signin_failed").await - refused_before,
         1,
         "the refusal itself is recorded exactly once"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 6, attacked further: a grace token that does not match —
+// empty, wrong, or another session's — must force a code exactly as no
+// token at all does. Time alone was never the whole of decision 6.
+// ---------------------------------------------------------------------------
+
+/// A fresh endorsing session's timestamp is inside the window, but an
+/// EMPTY grace token is presented anyway: still refused with a request for a
+/// code.
+#[tokio::test]
+async fn an_empty_grace_token_on_a_fresh_endorsing_session_still_asks_for_a_code() {
+    const TAG: &str = "b_grace_empty";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+    assert!(
+        fresh.grace_token.is_some(),
+        "the fixture's own fresh sign-in must have minted a real grace token"
+    );
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = fresh_key.sign(&attempt.digest);
+    let r = attempt
+        .finish(&operator_sig, &fresh.session_id, &endorsing_sig, "")
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SecondFactorNeeded)),
+        "an empty grace token on an otherwise fresh session must still ask for a code: {r:?}"
+    );
+}
+
+/// A WRONG grace token — not the one this fresh sign-in minted — is refused
+/// exactly as an empty one is.
+#[tokio::test]
+async fn a_wrong_grace_token_on_a_fresh_endorsing_session_still_asks_for_a_code() {
+    const TAG: &str = "b_grace_wrong";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = fresh_key.sign(&attempt.digest);
+    let wrong_token = [0x42u8; 32];
+    let r = attempt
+        .finish_with_grace(
+            &operator_sig,
+            &fresh.session_id,
+            &endorsing_sig,
+            "",
+            &wrong_token,
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SecondFactorNeeded)),
+        "a grace token that does not match the endorsing session's own is refused, not \
+         accepted as if it were freshness: {r:?}"
+    );
+}
+
+/// ANOTHER live session's grace token — real, fresh, just not this
+/// session's — is refused too: the hash compared is the ENDORSING row's.
+#[tokio::test]
+async fn another_sessions_grace_token_on_a_fresh_endorsing_session_still_asks_for_a_code() {
+    const TAG: &str = "b_grace_other";
+    let (_pool, operators, sessions_store, _ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+    // A second, genuinely different sign-in of the SAME account, bypassing
+    // the cache so its grace token is not the one above.
+    let (other, _other_key) =
+        mint_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+    assert_ne!(
+        fresh.grace_token, other.grace_token,
+        "the fixture must hand back two distinct tokens for this to test anything"
+    );
+
+    let attempt = begin_operator_attempt(&sessions_store, &op.id).await;
+    let operator_sig = op.key.sign(&attempt.digest);
+    let endorsing_sig = fresh_key.sign(&attempt.digest);
+    let r = attempt
+        .finish_with_grace(
+            &operator_sig,
+            &fresh.session_id,
+            &endorsing_sig,
+            "",
+            other
+                .grace_token
+                .as_ref()
+                .map_or(b"".as_slice(), |g| g.as_slice()),
+        )
+        .await;
+    assert!(
+        matches!(r, Err(SessionError::SecondFactorNeeded)),
+        "another session's own real, fresh grace token does not endorse THIS session: {r:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0057 decision 7, on the operator plane, through the real admin router.
+// ---------------------------------------------------------------------------
+
+/// A real, parseable IPv4 address, RFC 1918 `10.0.0.0/8`, unique per call,
+/// and a second one differing only in the last bit of its last octet —
+/// `tests/sessions.rs` carries the same helper and the same reasoning:
+/// `a_source_of_its_own`'s address never parses, on purpose, and this check
+/// needs one that does.
+fn a_real_ipv4_pair_of_its_own() -> (String, String) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let mixed = std::process::id()
+        .wrapping_mul(2_654_435_761)
+        .wrapping_add(n)
+        & 0x00ff_ffff;
+    let b = mixed.to_be_bytes();
+    let base = std::net::Ipv4Addr::new(10, b[1], b[2], b[3]);
+    let different = std::net::Ipv4Addr::new(10, b[1], b[2], b[3] ^ 1);
+    (base.to_string(), different.to_string())
+}
+
+/// A signed GET, presenting `from_address` as the request's address via the
+/// header `ClientAddress::header` trusts from loopback.
+async fn get_signed_from(
+    addr: std::net::SocketAddr,
+    path: &str,
+    session_id: &str,
+    token: &[u8; 32],
+    session_key: &SoftwareKey,
+    store: &SessionStore,
+    from_address: &str,
+) -> String {
+    let nonce = store
+        .issue_request_nonce(session_id, token)
+        .await
+        .expect("a nonce");
+    let counter = next_counter(store, session_id).await;
+    let unix_ms = now_ms();
+    let message = sessions::request_bytes(
+        session_id,
+        "GET",
+        path,
+        &sessions::body_digest(b""),
+        &nonce,
+        unix_ms,
+        counter,
+    );
+    let signature = session_key.sign(&message);
+    let headers = [
+        (HEADER_SESSION, session_id.to_string()),
+        (HEADER_NONCE, hex(&nonce)),
+        (HEADER_TIMESTAMP, unix_ms.to_string()),
+        (HEADER_COUNTER, counter.to_string()),
+        (HEADER_SIGNATURE, hex(&signature)),
+        ("x-forwarded-for", from_address.to_string()),
+    ];
+    let (status, _) = raw_request(addr, "GET", path, &headers, b"").await;
+    status
+}
+
+/// The default mode ends an OPERATOR session on a different request address
+/// — unlike the account plane, which only records it — and the ending is
+/// durable: `check_session_address` runs inside `admin.rs`'s handler
+/// transaction, which only commits if the request goes on to succeed, so a
+/// delete not made on that connection would be rolled back the instant it
+/// refused the very request that found the mismatch.
+#[tokio::test]
+async fn address_check_site_mode_ends_an_operator_session_on_a_different_address() {
+    const TAG: &str = "b_address_check_admin";
+    let (_pool, operators, sessions_store, ring) =
+        a_fresh_deployment(TAG, Duration::from_secs(1)).await;
+    let operators = Arc::new(operators);
+    let sessions_store = Arc::new(sessions_store);
+    let op = a_lone_operator(TAG, &operators, &sessions_store).await;
+    let account = account_of_operator(&operators, &op.id).await;
+    let (fresh, fresh_key) =
+        fresh_endorsing_session(TAG, &sessions_store, &operators, &account).await;
+
+    let (base_address, different_address) = a_real_ipv4_pair_of_its_own();
+    let session_key = SoftwareKey::random().expect("a session keypair");
+    let pubkey = session_key.public_key();
+    let challenge = sessions_store
+        .issue_challenge(PrincipalKind::Operator, &op.id, &pubkey, &base_address)
+        .await
+        .expect("a challenge");
+    let digest = sessions::session_challenge(&pubkey, &challenge.nonce, &challenge.deployment_id);
+    let evidence = op.key.sign(&digest);
+    let account_session_sig = fresh_key.sign(&digest);
+    let signed_in = sessions_store
+        .sign_in_with_credentials(&SignInAttempt {
+            kind: PrincipalKind::Operator,
+            session_pubkey: &pubkey,
+            nonce: &challenge.nonce,
+            evidence_sig: &evidence,
+            password: "",
+            totp_code: "",
+            source: &base_address,
+            account_session_id: &fresh.session_id,
+            account_session_sig: &account_session_sig,
+            grace_token: fresh
+                .grace_token
+                .as_ref()
+                .map_or(b"".as_slice(), |g| g.as_slice()),
+        })
+        .await
+        .expect("a fresh endorsement signs the operator in");
+
+    let state = AdminState {
+        sessions: Arc::clone(&sessions_store),
+        operators: Arc::clone(&operators),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::header("x-forwarded-for"),
+    };
+    let addr = serve(admin::router(state)).await;
+
+    let status = get_signed_from(
+        addr,
+        "/admin/operators",
+        &signed_in.session_id,
+        &signed_in.token,
+        &session_key,
+        &sessions_store,
+        &different_address,
+    )
+    .await;
+    assert_eq!(
+        status, "401",
+        "a different address on the operator plane, the default mode's ending case, is refused"
+    );
+    assert!(
+        cached_session_is_gone_or_revoked(TAG, &signed_in.session_id).await,
+        "the row must be gone at once, not merely rolled back with the handler's own transaction"
+    );
+
+    // A second request from the ORIGINAL address cannot even ask for a
+    // nonce: the row it would be checked against is gone, not merely rolled
+    // back. (`get_signed_from`'s nonce request panics on a refusal rather
+    // than answer with an HTTP status, which is right for every other
+    // caller of it — this is the one case that expects the refusal.)
+    let nonce_again = sessions_store
+        .issue_request_nonce(&signed_in.session_id, &signed_in.token)
+        .await;
+    assert!(
+        matches!(nonce_again, Err(SessionError::NoSuchSession)),
+        "the ORIGINAL address's session is gone for good, not recoverable by asking again: \
+         {nonce_again:?}"
     );
 }

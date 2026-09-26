@@ -13,7 +13,15 @@ import {
   signMessage,
 } from '../crypto/keys';
 import { sessionChallenge } from '../crypto/session';
-import { ACCOUNT_PLANE, getSessionOn, heldSessions, setSession } from '../state/sessionState';
+import { clearGraceToken, graceTokenFor, setGraceToken } from '../state/graceToken';
+import {
+  ACCOUNT_PLANE,
+  getSessionOn,
+  heldSessions,
+  setSession,
+  type ActiveSession,
+} from '../state/sessionState';
+import { announceSessionsChanged, clearAccountSession, saveAccountSession, thisTabId } from '../state/tabSessions';
 import {
   keySlot,
   looksLikeOperatorId,
@@ -276,8 +284,13 @@ export async function completeSignIn(
   // endorse this attempt over its own challenge digest -- the operator key
   // alone is refused. There is nothing to endorse with on the account
   // plane, so the two fields go up empty there.
+  //
+  // **Decision 6:** this account session's grace token, if this tab holds
+  // one — proof the last freshness check happened in this tab, not a
+  // copied or restored session. Empty when this tab holds none.
   let accountSessionId = '';
   let accountSessionSig: Uint8Array = new Uint8Array(0);
+  let graceToken: Uint8Array = new Uint8Array(0);
   if (kind === PRINCIPAL_KIND_OPERATOR) {
     const accountSession = getSessionOn(ACCOUNT_PLANE);
     if (!accountSession) {
@@ -288,6 +301,7 @@ export async function completeSignIn(
     const digest = await sessionChallenge(sessionPubkey, serverNonce, deploymentId);
     accountSessionSig = await signMessage(accountSession.sessionKeyPair.privateKey, digest);
     accountSessionId = accountSession.sessionId;
+    graceToken = graceTokenFor(accountSession.sessionId);
   }
 
   const signInBody = buildSignInBody(
@@ -299,6 +313,7 @@ export async function completeSignIn(
     verificationCode,
     accountSessionId,
     accountSessionSig,
+    graceToken,
   );
   const signInResponse = await fetch('/session', {
     method: 'POST',
@@ -307,9 +322,8 @@ export async function completeSignIn(
   if (!signInResponse.ok) {
     throw await refusalFrom(signInResponse);
   }
-  const { sessionId, token, expiresAtUnix, accountId } = parseSignInAnswer(
-    new Uint8Array(await signInResponse.arrayBuffer()),
-  );
+  const { sessionId, token, expiresAtUnix, accountId, graceToken: mintedGraceToken } =
+    parseSignInAnswer(new Uint8Array(await signInResponse.arrayBuffer()));
 
   if (challenge.pendingSlot !== null) {
     // The server just accepted a signature made with the pending key, so it
@@ -319,7 +333,7 @@ export async function completeSignIn(
     await promotePendingKeyPair(challenge.pendingSlot, keySlot(kind, address)).catch(() => {});
   }
 
-  setSession({
+  const session: ActiveSession = {
     sessionId,
     kind,
     token,
@@ -327,7 +341,23 @@ export async function completeSignIn(
     expiresAtUnix,
     address,
     accountId,
-  });
+  };
+  setSession(session);
+
+  // ADR-0057 decision 6: a grace token minted here lives in memory only,
+  // never storage — `graceToken.ts`'s reason to exist. Non-empty exactly
+  // when a steward sign-in just verified a fresh code.
+  if (mintedGraceToken.length > 0) {
+    setGraceToken(sessionId, mintedGraceToken);
+  }
+
+  // ADR-0057 decision 4: only the account plane is written to this tab's
+  // IndexedDB record — decision 6 forbids the same for an operator session.
+  // Best effort: a failed write just asks for the password again after a
+  // reload.
+  if (kind === PRINCIPAL_KIND_STEWARD) {
+    await saveAccountSession(thisTabId(), session).catch(() => {});
+  }
 
   // **This browser's own key, registered silently once there is a session to
   // register it under** (ADR-0055 decision 6: the browser is not paired, it
@@ -378,16 +408,16 @@ export interface SignInCredential {
 /**
  * `POST /session`'s body: `LP(kind) ‖ LP(session_pubkey) ‖ LP(nonce) ‖
  * LP(evidence_sig) ‖ LP(password) ‖ LP(code) ‖ LP(account_session_id) ‖
- * LP(account_session_sig)`. The sixth field is the server's `app_code` — a
- * wire name, unchanged by ADR-0056 decision 4, which renames what a person
- * reads and not what a route is called. The last two are ADR-0057 decision
- * 2's account-session endorsement, empty on the steward plane.
+ * LP(account_session_sig) ‖ LP(grace_token)`. The sixth field is the
+ * server's `app_code` — a wire name, unchanged by ADR-0056 decision 4, which
+ * renames what a person reads and not what a route is called. The seventh
+ * and eighth are ADR-0057 decision 2's account-session endorsement; the
+ * ninth is decision 6's grace token. All three are empty on the steward
+ * plane.
  *
- * Eight fields since decision 2 widened the route again (four since
- * ADR-0055 decision 10 first did), and `api.rs`'s `read_fields` refuses an
- * inexact count — so every field is sent on every path, empty where there
- * is nothing to put in it. Exported so `auth.test.ts` can check the framing
- * without a network call.
+ * Nine fields: `api.rs`'s `read_fields` refuses an inexact count, so every
+ * field is sent on every path, empty where there is nothing to put in it.
+ * Exported so `auth.test.ts` can check the framing without a network call.
  */
 export function buildSignInBody(
   kind: PrincipalKind,
@@ -398,6 +428,7 @@ export function buildSignInBody(
   verificationCode: string,
   accountSessionId: string,
   accountSessionSig: Uint8Array,
+  graceToken: Uint8Array = new Uint8Array(0),
 ): Uint8Array {
   return concatBytes(
     lp(utf8(kind)),
@@ -408,6 +439,7 @@ export function buildSignInBody(
     lp(utf8(verificationCode.trim())),
     lp(utf8(accountSessionId)),
     lp(accountSessionSig),
+    lp(graceToken),
   );
 }
 
@@ -447,13 +479,15 @@ async function findKey(address: string, kind: PrincipalKind | undefined): Promis
 
 /**
  * Parses `POST /session`'s answer: `LP(session_id) || LP(token) ||
- * u64(expires_at_unix) || LP(account_id)`.
+ * u64(expires_at_unix) || LP(account_id) || LP(grace_token)`.
  *
- * ADR-0053 §3: `account_id` is appended after the three fields this client
- * already read, so it can be added without breaking a client built before
- * this change. `account_id` is the signed-in principal's ulid, and this
- * client stamps it as the actor on every change it makes from here on
- * (`useDesignSession.ts`).
+ * ADR-0053 §3 and ADR-0057 decision 6: `account_id` and `grace_token` are
+ * each appended after the fields a client already read, so either can be
+ * added without breaking an older client. `account_id` is the signed-in
+ * principal's ulid, stamped as the actor on every change this client makes
+ * from here on (`useDesignSession.ts`). `grace_token` is non-empty exactly
+ * when this sign-in verified a fresh TOTP code on the steward plane; read
+ * as empty when the bytes run out before it.
  *
  * Exported for `auth.test.ts`, which drives it directly rather than through
  * a stubbed `fetch` and the rest of `signIn`'s IndexedDB machinery.
@@ -463,16 +497,26 @@ export function parseSignInAnswer(bytes: Uint8Array): {
   token: Uint8Array;
   expiresAtUnix: number;
   accountId: string;
+  graceToken: Uint8Array;
 } {
   const { value: sessionIdBytes, rest: afterSessionId } = readLp(bytes);
   const { value: token, rest: afterToken } = readLp(afterSessionId);
   const expiresAtUnix = Number(readU64LE(afterToken));
-  const { value: accountIdBytes } = readLp(afterToken.slice(8));
+  const { value: accountIdBytes, rest: afterAccountId } = readLp(afterToken.slice(8));
+  let graceToken: Uint8Array = new Uint8Array(0);
+  if (afterAccountId.length >= 4) {
+    try {
+      graceToken = readLp(afterAccountId).value;
+    } catch {
+      graceToken = new Uint8Array(0);
+    }
+  }
   return {
     sessionId: new TextDecoder().decode(sessionIdBytes),
     token,
     expiresAtUnix,
     accountId: new TextDecoder().decode(accountIdBytes),
+    graceToken,
   };
 }
 
@@ -494,6 +538,12 @@ export async function signOut(): Promise<void> {
     held.map(({ plane }) => signedFetchOn(plane, 'DELETE', '/session')),
   );
   setSession(null);
+  // ADR-0057 decision 4: the record clears even when `DELETE /session`
+  // timed out and never told the server — a forgotten session must not
+  // keep offering itself to a reload. Best effort, never re-thrown.
+  await clearAccountSession(thisTabId());
+  clearGraceToken();
+  announceSessionsChanged();
   const failed = results.find((r) => r.status === 'rejected');
   if (failed && failed.status === 'rejected') {
     throw failed.reason;

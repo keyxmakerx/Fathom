@@ -171,6 +171,11 @@ pub struct Config {
     /// locks every account out for a window and would read as "no limit".
     pub sign_in_limits: SignInLimits,
 
+    /// `FATHOM_SESSION_ADDRESS_CHECK`, default `site`. ADR-0057 decision 7:
+    /// `site` ends only the operator plane on an address change and records
+    /// it on an account session; `all` ends both; `off` checks neither.
+    pub session_address_check: crate::sessions::AddressCheckMode,
+
     /// Which request header carries the real client address, for the source
     /// half of the sign-in rate limit. `FATHOM_TRUSTED_CLIENT_IP_HEADER`,
     /// **unset by default**.
@@ -560,6 +565,16 @@ impl Config {
         let sign_in_limits = SignInLimits::from_lookup(&get)
             .map_err(|variable| ConfigError::Unparseable { variable })?;
 
+        let session_address_check =
+            match get("FATHOM_SESSION_ADDRESS_CHECK").filter(|v| !v.trim().is_empty()) {
+                None => crate::sessions::AddressCheckMode::default(),
+                Some(v) => crate::sessions::AddressCheckMode::parse(&v).ok_or(
+                    ConfigError::Unparseable {
+                        variable: "FATHOM_SESSION_ADDRESS_CHECK",
+                    },
+                )?,
+            };
+
         let firmware_dir = get("FATHOM_FIRMWARE_DIR")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
@@ -719,6 +734,7 @@ impl Config {
             audit_syslog,
             audit_spool_bounds,
             sign_in_limits,
+            session_address_check,
             trusted_client_ip_header,
             trusted_proxies,
             forwarded_hops,
@@ -822,6 +838,44 @@ mod tests {
         assert_eq!(c.health_timeout, Duration::from_millis(2000));
         assert_eq!(c.pool_size, 8);
         assert_eq!(c.schema_root, "schema");
+    }
+
+    #[test]
+    fn the_session_address_check_defaults_to_site_and_parses_its_three_words() {
+        let c = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        assert_eq!(
+            c.session_address_check,
+            crate::sessions::AddressCheckMode::Site
+        );
+
+        for (word, mode) in [
+            ("site", crate::sessions::AddressCheckMode::Site),
+            ("all", crate::sessions::AddressCheckMode::All),
+            ("off", crate::sessions::AddressCheckMode::Off),
+            ("ALL", crate::sessions::AddressCheckMode::All),
+        ] {
+            let c = Config::from_lookup(env(&[
+                ("DATABASE_URL", "postgres://u@h/db"),
+                ("FATHOM_SESSION_ADDRESS_CHECK", word),
+            ]))
+            .unwrap();
+            assert_eq!(c.session_address_check, mode, "{word}");
+        }
+
+        let err = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_SESSION_ADDRESS_CHECK", "sometimes"),
+        ]))
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ConfigError::Unparseable {
+                    variable: "FATHOM_SESSION_ADDRESS_CHECK"
+                }
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]

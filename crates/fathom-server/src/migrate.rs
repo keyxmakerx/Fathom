@@ -179,6 +179,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0027_operator_signin_needs_the_account.sql",
         sql: include_str!("../migrations/0027_operator_signin_needs_the_account.sql"),
     },
+    // ADR-0057 decisions 4, 6 and 7: the reload, the grace token and the
+    // bound address.
+    Migration {
+        version: 28,
+        name: "0028_session_reload_hardening.sql",
+        sql: include_str!("../migrations/0028_session_reload_hardening.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -174,6 +174,22 @@ export function setPlane(plane: Plane): void {
   notify();
 }
 
+/**
+ * End one plane's session without touching the other — ADR-0057 decision
+ * 4: a `401` on one plane's session does not mean the other is dead.
+ * `setSession(null)` still ends both, for a deliberate sign-out.
+ *
+ * Does nothing if that plane already holds no session, and falls back to
+ * the account plane if the one just cleared was in view.
+ */
+export function clearPlane(plane: Plane): void {
+  if (sessions[plane] === null) return;
+  sessions[plane] = null;
+  counters[plane] = 0;
+  if (inView === plane) inView = ACCOUNT_PLANE;
+  notify();
+}
+
 /** For `useSyncExternalStore`, so the shell re-renders the moment a sign-in,
  * a sign-out or a change of plane changes which screen is current. */
 export function subscribe(listener: Listener): () => void {
@@ -198,4 +214,18 @@ export function subscribe(listener: Listener): () => void {
 export function nextRequestCounter(plane: Plane = inView): number {
   counters[plane] += 1;
   return counters[plane];
+}
+
+/**
+ * Raise `plane`'s counter to at least `floor`, never lower it.
+ *
+ * ADR-0057 decision 4: a restored tab's counter starts at `0` like a fresh
+ * sign-in, while the session row already carries a higher mark. Called
+ * with `issued_counter` on every request; a session that was never
+ * restored is already ahead of it, so this is a no-op there.
+ */
+export function ensureCounterAtLeast(plane: Plane, floor: number): void {
+  if (counters[plane] < floor) {
+    counters[plane] = floor;
+  }
 }

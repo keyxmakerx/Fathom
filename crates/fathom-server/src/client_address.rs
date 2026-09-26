@@ -277,6 +277,30 @@ impl ClientAddress {
     }
 }
 
+/// ADR-0057 decision 7: the class a session is bound to at sign-in — an
+/// IPv4 address exactly, an IPv6 address by its `/64`. RFC 8981 temporary
+/// addresses rotate within the same `/64`, so a fresh privacy address is
+/// not a network change; a different `/64` still is.
+///
+/// `None` for anything that is not a parseable address, chiefly
+/// `ClientAddress::of`'s `"unknown"` fallback. A session that could not be
+/// classed at sign-in is never compared and never wrongly ended.
+pub fn address_class(source: &str) -> Option<String> {
+    let ip: IpAddr = source.parse().ok()?;
+    // An IPv4-mapped IPv6 address (`::ffff:10.0.0.5`) is unmapped first, as
+    // `Cidr::contains` already does — masked as v6 it becomes `::`, the
+    // same class for every mapped address, which would turn this check off
+    // for any dual-stack client.
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        v4 => v4,
+    };
+    Some(match ip {
+        IpAddr::V4(v4) => IpAddr::V4(v4).to_string(),
+        IpAddr::V6(v6) => mask(IpAddr::V6(v6), 64).to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,5 +521,31 @@ mod tests {
             HeaderValue::from_str(&long).expect("ascii"),
         );
         assert_eq!(p.of(&h, &from("127.0.0.1")).len(), 255);
+    }
+
+    #[test]
+    fn address_class_is_exact_for_ipv4() {
+        assert_eq!(address_class("203.0.113.9").as_deref(), Some("203.0.113.9"));
+        assert_ne!(address_class("203.0.113.9"), address_class("203.0.113.10"));
+    }
+
+    #[test]
+    fn address_class_is_a_slash_64_for_ipv6() {
+        // RFC 8981 temporary addresses rotate the interface identifier
+        // inside the same /64 a network assigns: two addresses that differ
+        // only there are one class.
+        let a = address_class("2001:db8:1234:5678:aaaa:bbbb:cccc:dddd");
+        let b = address_class("2001:db8:1234:5678:1111:2222:3333:4444");
+        assert!(a.is_some());
+        assert_eq!(a, b);
+        // A different /64 is a different class.
+        assert_ne!(a, address_class("2001:db8:1234:5679::1"));
+    }
+
+    #[test]
+    fn address_class_is_none_for_anything_unparseable() {
+        assert_eq!(address_class("unknown"), None);
+        assert_eq!(address_class(""), None);
+        assert_eq!(address_class("203.0.113.9-42-7"), None);
     }
 }

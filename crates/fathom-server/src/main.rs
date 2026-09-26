@@ -504,12 +504,15 @@ async fn main() -> ExitCode {
     // §13 item 7's limits. `EpochWatch` is the one per-process value §3.4 step
     // 3 asks for, and this is the first thing in the server with a request
     // layer to hold it.
-    let sessions = Arc::new(fathom_server::sessions::SessionStore::new(
-        pool.clone(),
-        Arc::clone(&ring),
-        deployment.clone(),
-        config.sign_in_limits,
-    ));
+    let sessions = Arc::new(
+        fathom_server::sessions::SessionStore::new(
+            pool.clone(),
+            Arc::clone(&ring),
+            deployment.clone(),
+            config.sign_in_limits,
+        )
+        .with_address_check(config.session_address_check),
+    );
     let watch = Arc::new(fathom_server::grants::EpochWatch::new());
     // One address policy for every route that counts one
     // (`src/client_address.rs`). Parsed again here from text the config
@@ -523,7 +526,9 @@ async fn main() -> ExitCode {
     match client_address.header_name() {
         None => tracing::warn!(
             "client addresses: the peer. Behind a reverse proxy that is the proxy, so every \
-             client shares one sign-in rate-limit bucket and one address in the audit trail; \
+             client shares one sign-in rate-limit bucket and one address in the audit trail, \
+             and ADR-0057 decision 7's session address binding compares the proxy with itself \
+             and never ends a session; \
              set FATHOM_TRUSTED_PROXIES to the proxy's address or range to count clients apart"
         ),
         Some(header) => tracing::info!(
@@ -586,6 +591,7 @@ async fn main() -> ExitCode {
         watch,
         ring: Arc::clone(&ring),
         catalogue,
+        client_address: client_address.clone(),
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is not configured
@@ -1221,6 +1227,7 @@ async fn main() -> ExitCode {
             fathom_server::placement::PlacementState {
                 sessions: Arc::clone(&sessions),
                 placement: Arc::clone(&placement),
+                client_address: client_address.clone(),
             },
         ))
         // The confirmation and the sweep: the first verified `/admin` request
