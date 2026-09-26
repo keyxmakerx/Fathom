@@ -53,9 +53,7 @@ export function rowKey(row: Pick<RowView, 'label'>, index: number): string {
  * same x the ordinary `bayIndex * (rackWidthPx + gapPx)` formula would give
  * it for the reversed bay order — the two are the same reflection, one
  * generalised to an x a drag left off any slot, the other assuming one. */
-/** Session-only gap between racks placed side by side — never a document
- * fact, never saved (layout is remembered in component state only for the
- * session; persisting it is `OPEN-QUESTIONS` D5). */
+/** Session-only gap between racks placed side by side — never saved as a document fact (`OPEN-QUESTIONS` D5). */
 export const RACK_GAP_PX = 96;
 
 /** Vertical gap between one row's band and the next — the same kind of

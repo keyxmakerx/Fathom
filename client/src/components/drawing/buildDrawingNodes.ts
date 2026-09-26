@@ -1,11 +1,5 @@
-/** This session's brief item 5 — every React Flow node `Drawing.tsx` draws
- * for a rack, a chassis, a shelf, a surface or a portal tray, pulled into
- * one pure function: the same view, layout and caches in, the nodes array
- * out, no React and no DOM. A vitest can call it directly, across more
- * than one call with the SAME caches, which `Drawing.tsx` itself cannot be
- * (there is no DOM in CI, and no new dependency may add one) — that is
- * this function's whole reason to exist.
- */
+/** Every React Flow node `Drawing.tsx` draws — rack, chassis, shelf, surface,
+ * tray — built by one pure function: view, layout and caches in, the nodes array out, no React and no DOM. */
 
 import type { Node } from '@xyflow/react';
 
@@ -32,13 +26,11 @@ import { RACK_NODE_WIDTH, rackNodeHeight, type RackNodeData } from './RackNode';
 import { ROW_LABEL_WIDTH, type RowLabelNodeData } from './RowLabelNode';
 import { type ShelfPlateNodeData } from './ShelfPlate';
 import { type SurfaceNodeData } from './SurfaceNode';
-import { rowBandY, rowKey, type RowLayout, type SurfacesLayout } from './rows';
+import { RACK_GAP_PX, ROW_GAP_PX, rowBandY, rowKey, type RowLayout, type SurfacesLayout } from './rows';
 import type { RowView } from './contract';
 import type { ShelfView } from '../../document/view';
 
-/** Gap between one rack's portal tray(s) and the next, on the same side —
- * `Drawing.tsx`'s own choice, kept here since a tray's own position is now
- * built here. */
+/** Gap between one rack's portal tray(s) and the next, on the same side. */
 const TRAY_GAP_PX = 12;
 
 export interface DrawingNodeCaches {
@@ -50,10 +42,8 @@ export interface DrawingNodeCaches {
   shelfRef: StableRef<ShelfView>;
   placementRef: StableRef<import('./rows').SurfacePlacement>;
   portalGroupRef: StableRef<PortalGroup>;
-  /** The array `buildDrawingNodes` handed back last call — reused, same
-   * reference, when every element this call built is `===` the element at
-   * the same index last time (this session's brief item 3: "React Flow
-   * must get the same nodes array when no node object changed"). */
+  /** The array handed back last call — reused, same reference, when every
+   * element this call built is `===` the element at the same index last time. */
   prevNodes: Node[] | null;
 }
 
@@ -96,20 +86,16 @@ export interface BuildDrawingNodesInput {
 
 export interface BuildDrawingNodesResult {
   nodes: Node[];
-  /** UI-SPEC "Config": the selected chassis's own flow-space centre, for
-   * the config-drawer recentre effect — `null` when nothing chassis-shaped
-   * is selected. */
+  /** The selected chassis's own flow-space centre, for the config-drawer
+   * recentre — `null` when nothing chassis-shaped is selected. */
   selectedChassisFlowCentre: { x: number; y: number } | null;
-  /** This session's brief items 2/3: the selected port's owning box's own
-   * flow-space centre, for "go to end" — `null` when no port is selected
-   * or that port's owner is not on `nodes`. */
+  /** The selected port's owning box's own flow-space centre, for "go to
+   * end" — `null` when no port is selected or its owner is not on `nodes`. */
   selectedPortOwnerCentre: { x: number; y: number } | null;
 }
 
-/** This session's brief items 2/3: which React Flow node a port's own
- * owning box is — the chassis node for a rack chassis's own port, the
- * shelf node for a shelf occupant's, the surface node for a surface
- * fixture's. `null` when this view carries no such port. */
+/** Which React Flow node a port's own owning box is — the chassis node,
+ * the shelf node or the surface node, `null` when this view carries no such port. */
 function ownerNodeIdForPort(view: ClosetView, portId: string): string | null {
   const location = locatePort(view, portId);
   if (location == null) return null;
@@ -368,11 +354,3 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
 
   return { nodes: stableNodes, selectedChassisFlowCentre, selectedPortOwnerCentre };
 }
-
-/** Session-only gap between racks placed side by side — `Drawing.tsx`'s own
- * choice, kept here since the row-label's own x now builds here too. */
-const RACK_GAP_PX = 96;
-
-/** Vertical gap between one row's band and the next — `Drawing.tsx`'s own
- * choice, kept here for the same reason. */
-const ROW_GAP_PX = 64;

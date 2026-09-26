@@ -18,13 +18,11 @@ export interface LiveState {
    * a portal tray's outline. */
   litCableId: string | null;
   /** Every cable and tray on `litCableId`'s own physical path — a cable
-   * edge reads its own membership here instead of through its `data`, so a
-   * hover never rebuilds the edges array. */
+   * edge reads its own membership here rather than through its `data`. */
   litCableIdSet: ReadonlySet<string>;
   litTrayKeySet: ReadonlySet<string>;
-  /** The cable a mouse is currently over — written straight here by
-   * `CableEdge`/`RackNode`'s own hover handlers, never through
-   * `Drawing.tsx`'s state, so a hover alone never re-renders it. */
+  /** The cable a mouse is over, written straight here by a hover handler —
+   * never through `Drawing.tsx`'s state, so a hover alone never re-renders it. */
   hoveredCableId: string | null;
   /** Non-null while a drag-to-connect is in progress. */
   dragFromPortId: string | null;

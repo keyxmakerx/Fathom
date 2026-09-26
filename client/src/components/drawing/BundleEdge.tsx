@@ -34,9 +34,8 @@ const BAND_WIDTH_PER_MEMBER_PX = 1.4;
  * badge's box is always ink-on-page, never a sheath, never a risk colour.
  */
 export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<BundleEdgeType>) {
-  // This session's brief item 3 — read live rather than through `data`, so
-  // a hover elsewhere never rebuilds this bundle's edge. Ahead of the
-  // `!data` guard below so the hook always runs.
+  // Read live rather than through `data`, so a hover elsewhere never
+  // rebuilds this bundle's edge — ahead of the `!data` guard so the hook always runs.
   const dimmed = useLive((s) => (data ? s.litCableId != null && !data.bundle.members.some((m) => s.litCableIdSet.has(m.id)) : false));
   if (!data) return null;
   const { bundle, fanned, onFan } = data;

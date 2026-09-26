@@ -19,9 +19,7 @@ import { SHEATH_VAR } from './sheath';
 
 /** Static, per element — CSS reads the live zoom half itself. */
 const OCCUPANT_LABEL_BASE_PX = 9;
-/** The compact occupant box's own row budget never changes at runtime
- * (`U_PX`, `OCCUPANT_LABEL_BASE_PX` are both constants) — computed once,
- * read by every occupant box's own `--budget-cap`. */
+/** Computed once, since both inputs are constants — read by every occupant box's own `--budget-cap`. */
 const OCCUPANT_GLYPH_BUDGET_CAP = glyphScaleBudgetCap(Math.max(0, U_PX - OCCUPANT_LABEL_BASE_PX));
 
 /** See the file header on `elevation.ts`'s own `shelfOccupantFaceplateItem`:
@@ -74,12 +72,8 @@ function useMyIds(shelf: ShelfView): { occupantIds: ReadonlySet<string>; myCable
   }, [shelf]);
 }
 
-/** `selected`, `selectedOccupantId`, `litCableId`, `liveDrag` and
- * `cameraStop` live in the external store — each selector answers for this
- * shelf alone, so a change elsewhere never rebuilds this shelf's own node.
- * `selectedOccupantId` is "which occupant (if any) is open at the faceplate
- * stop," read off the same `selected` the store already carries, but only
- * when it names one of THIS shelf's own occupants. */
+/** Each selector answers for this shelf alone, so a change elsewhere never
+ * rebuilds this shelf's own node. `selectedOccupantId` is `selected` read as "one of this shelf's own occupants," or `null`. */
 function useShelfLiveData(shelfId: string, occupantIds: ReadonlySet<string>, myCableIds: ReadonlySet<string>) {
   const selected = useLive((s) => s.selected?.kind === 'shelf' && s.selected.id === shelfId);
   const selectedOccupantId = useLive((s) =>

@@ -44,9 +44,8 @@ const STROKE_WIDTH_VAR: Record<CableView['kind'], string> = {
  * changing anything about how a single cable draws below.
  */
 export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<CableEdgeType>) {
-  // This session's brief item 3 — read straight from `liveStore.ts` rather
-  // than through `data`, so a hover never rebuilds every cable's edge.
-  // Ahead of the `!data` guard below so these hooks always run.
+  // Read straight from `liveStore.ts`, so a hover never rebuilds every
+  // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;

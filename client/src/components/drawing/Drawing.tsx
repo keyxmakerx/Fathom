@@ -126,9 +126,8 @@ function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps
  * Matches `drawing.css`'s `--drawing-shake-ms`. */
 const SHAKE_MS = 220;
 
-/** This session's brief item 2 — how long a wheel tick (or a pan) must go
- * quiet before its viewport is committed to React state, rather than every
- * single tick. */
+/** How long a wheel tick (or a pan) must go quiet before its viewport
+ * commits to React state, rather than on every single tick. */
 const WHEEL_SETTLE_MS = 100;
 
 /** This session's brief item 5, the "Show on rack" fix — whether the
@@ -257,12 +256,8 @@ interface LiveLitPathProps {
   liveStore: LiveStore;
 }
 
-/** This session's brief item 3 — a cable's own hover must not re-render
- * `Drawing.tsx`. Subscribed to `liveStore.ts`'s own `hoveredCableId`
- * (written there directly by a cable's or a rail hexagon's hover, never
- * through `Drawing.tsx`'s state), this is the one place that recomputes the
- * lit path and writes it back — so only this component re-renders on a
- * hover, never the node-building loop below it. */
+/** Subscribed to `liveStore.ts`'s own `hoveredCableId`, written there
+ * directly by a hover — recomputes the lit path and writes it back, so only this re-renders on a hover, never the node-building loop below it. */
 function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathProps) {
   const hoveredCableId = useLive((s) => s.hoveredCableId);
   const litCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
@@ -301,11 +296,8 @@ function DrawingInner({
   // header. One store per mounted drawing, provided to every node this
   // drawing draws via `LiveStoreProvider` below.
   const [liveStore] = useState(() => createLiveStore());
-  // Each node object (and its `data`) keeps its reference unless the
-  // device, rack, shelf, surface or tray it draws actually changed —
-  // `buildDrawingNodes.ts`'s own caches, decided against field by field
-  // (`nodeEquality.ts`), never by stringifying the whole thing. One
-  // instance per mounted drawing, like `liveStore` above.
+  // Each node object keeps its reference unless what it draws actually
+  // changed — `buildDrawingNodes.ts`'s own caches. One instance per mounted drawing, like `liveStore` above.
   const drawingNodeCachesRef = useRef(createDrawingNodeCaches());
   // `portSheath` (below) is a `Map`, rebuilt with a fresh reference on ANY
   // document edit (`view.cables` is rebuilt fresh by `viewOf` even when the
@@ -349,10 +341,8 @@ function DrawingInner({
   const [dragFromPortId, setDragFromPortId] = useState<string | null>(null);
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
-  // This session's brief item 3 — writes straight to `liveStore.ts` rather
-  // than to component state, so hovering a cable or a rail hexagon never
-  // re-renders this component. Permanently stable, like the `useState`
-  // setter it replaces.
+  // Writes straight to `liveStore.ts` rather than to component state, so
+  // hovering a cable or a rail hexagon never re-renders this component.
   const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId }), [liveStore]);
   // This session's brief item 1 — the cables view control: "the choice is
   // per browser (localStorage, wrapped in try/catch) and never saved to the
@@ -529,20 +519,11 @@ function DrawingInner({
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
   const allRacksPositioned = view.racks.every((r) => rackPositions[r.id] != null);
 
-  // `handleViewportChange` (below) applies a wheel tick's own zoom locally
-  // the same instant it reports the rounded percentage upward; that
-  // report's own echo can arrive back here after a LATER tick has already
-  // moved `viewport` on. `pendingEchoRef` is the most recent percentage
-  // this component itself reported and has not yet seen come back — when
-  // the incoming `zoom` matches it exactly, it is skipped rather than
-  // reapplied, so it never fights a wheel still turning.
+  // The most recent percentage this component itself reported and has not
+  // yet seen come back — a matching echo is skipped rather than reapplied, so it never fights a wheel still turning.
   const pendingEchoRef = useRef<number | null>(null);
-  // This session's brief item 1 — set while a `setCenter`/`fitView` move is
-  // in flight. React Flow drives that move's own frames straight into its
-  // internal store; echoing each of them back into this controlled
-  // `viewport` prop hands it a fresh "jump here," which cancels the move
-  // after its first frame. `handleViewportChange` skips the echo entirely
-  // until `runProgrammaticMove`'s own `.then` clears this and commits once.
+  // Set while a `setCenter`/`fitView` move is in flight, since echoing its
+  // own frames back into `viewport` would cancel it; `runProgrammaticMove` clears this and commits once the move ends.
   const programmaticMoveRef = useRef(false);
   const liveViewportRef = useRef(viewport);
   const wheelSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -620,14 +601,8 @@ function DrawingInner({
     runProgrammaticMove(() => rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [])));
   }, [fitRequest, rf, view.racks, view.surfaces, runProgrammaticMove]);
 
-  // This session's brief item 2 — a wheel tick, pinch or drag calls this
-  // every frame, but `cameraStop` and the `--zoom`/`--zoom-pct` styling only
-  // need the answer once it settles: this commits into React state right
-  // away when the stop it reads as actually changes (every other render in
-  // this component depends on that), and otherwise only once
-  // `WHEEL_SETTLE_MS` passes with no further tick — never on every one of
-  // them. A programmatic move in flight skips this entirely; it commits its
-  // own landed viewport once itself (`runProgrammaticMove`, above).
+  // A wheel tick, pinch or drag calls this every frame; this only commits
+  // into React state when the camera stop it reads as changes, or once `WHEEL_SETTLE_MS` passes with no further tick — never on every one of them.
   const handleViewportChange = useCallback(
     (vp: Viewport) => {
       liveViewportRef.current = vp;
@@ -778,9 +753,7 @@ function DrawingInner({
     [],
   );
   const onSelectShelf = useCallback((shelfId: string) => onSelect({ kind: 'shelf', id: shelfId }), [onSelect]);
-  // Motion #10: "A box on a shelf opens at the faceplate stop by the same
-  // camera as everything else" — one continuous `setCenter`, never a
-  // second, independent jump.
+  // A box on a shelf opens at the faceplate stop by the same continuous camera every other selection moves — never a second, independent jump.
   const onOpenShelfOccupant = useCallback(
     (occupantId: string, centreX: number, centreY: number) => {
       onSelect({ kind: 'occupant', id: occupantId });
@@ -789,9 +762,7 @@ function DrawingInner({
     [onSelect, runProgrammaticMove, rf],
   );
 
-  // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
-  // `portals.ts` does the grouping; `buildDrawingNodes.ts` lays the
-  // resulting boxes out above or below their rack.
+  // One tray node per (rack, side, far label) group — `portals.ts` does the grouping; `buildDrawingNodes.ts` lays the boxes out.
   const portalGroups = useMemo(() => groupPortals(view), [view]);
 
   // ADR-0051 §1/§2, `design/places/renders/Surfaces.png`: the closet layout
@@ -824,10 +795,8 @@ function DrawingInner({
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
   );
 
-  // This session's brief item 5 — every rack, chassis, shelf, surface and
-  // tray node this closet draws, built by `buildDrawingNodes.ts`'s own pure
-  // function so a vitest can exercise the same code and caches this
-  // component calls, with no DOM at all.
+  // Every rack, chassis, shelf, surface and tray node this closet draws —
+  // `buildDrawingNodes.ts`'s own pure function, so a vitest can exercise the same code and caches this component calls, with no DOM at all.
   const { nodes, selectedChassisFlowCentre, selectedPortOwnerCentre } = buildDrawingNodes(
     {
       view,
@@ -854,15 +823,8 @@ function DrawingInner({
     drawingNodeCachesRef.current,
   );
 
-  // UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
-  // `.drawing-config-drawer` reserves the pane's own bottom
-  // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
-  // chassis inside the remaining top strip, centred in it, whenever the
-  // drawer opens — an edge-triggered `setCenter`, fired once on the
-  // transition into "a chassis is selected and the camera reads the
-  // faceplate stop," never on every zoom tick while it stays there, so a
-  // person's own subsequent pan or scroll is never fought mid-read. One
-  // camera, glide and all — UI-SPEC "Motion" #10.
+  // Keeps the selected chassis centred in the strip above the drawer,
+  // fired once when it opens — never on every zoom tick while it stays open.
   const configDrawerOpen = configDrawerContent != null;
   useEffect(() => {
     if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
@@ -873,25 +835,16 @@ function DrawingInner({
     const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
     const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
     runProgrammaticMove(() => rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
-    // on purpose (see comment above): `selectedChassisFlowCentre` itself is
-    // rebuilt fresh every render and would fire this on every pixel of a
-    // person's own drag or scroll if it were a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `selectedChassisFlowCentre` is rebuilt fresh every render; listing it would fire this on every pixel of a pan or scroll.
   }, [configDrawerOpen, selectedChassis?.id, rf]);
 
-  // This session's brief items 2/3 — "Go to far end"/"Go to end A/B" pans
-  // the camera to the selected port's own owning box at the faceplate stop,
-  // one camera (`buildDrawingNodes.ts` resolves which box that is).
+  // Pans the camera to the selected port's own owning box at the faceplate
+  // stop (`buildDrawingNodes.ts` resolves which box that is).
   const selectedPortId = selected?.kind === 'port' ? selected.id : null;
   useEffect(() => {
     if (selectedPortId == null || selectedPortOwnerCentre == null) return;
     runProgrammaticMove(() => rf.setCenter(selectedPortOwnerCentre.x, selectedPortOwnerCentre.y, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
-    // on the selected port's own id alone, the same reasoning
-    // `configDrawerOpen`'s own effect above already gives
-    // `selectedChassisFlowCentre`: recomputed fresh every render, and
-    // listing it here would fire this on every pixel of a person's own pan
-    // or scroll once a port happens to be selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `selectedPortOwnerCentre` is rebuilt fresh every render, the same reasoning as above.
   }, [selectedPortId, rf]);
 
   // ADR-0050 §1: "in the rear elevation a power lead ends on the inlet on
@@ -1277,11 +1230,7 @@ function DrawingInner({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selected, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
 
-  // The other place this drawing writes to `liveStore.ts` (`LiveLitPath`
-  // above owns `litCableId`/`litCableIdSet`/`litTrayKeySet`, on its own
-  // hover-driven schedule). `useLayoutEffect`, not `useEffect` — this
-  // commits before the browser paints, so a node subscribed to one of these
-  // never draws one frame stale after a click or a drop.
+  // `useLayoutEffect`, not `useEffect` — commits before the browser paints, so a node subscribed to one of these never draws one frame stale.
   useLayoutEffect(() => {
     liveStore.setState({
       selected,

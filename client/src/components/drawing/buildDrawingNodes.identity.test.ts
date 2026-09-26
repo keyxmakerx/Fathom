@@ -1,9 +1,5 @@
-/** This session's brief item 5 — `Drawing.tsx` cannot be exercised in CI (no
- * DOM, and none may be added), so this calls `buildDrawingNodes` directly,
- * across more than one call with the SAME caches, the way `Drawing.tsx`
- * itself does (`nodeBuild.identity.test.ts`'s own reasoning, one level up:
- * every rack, chassis, shelf, surface and tray node, not only a chassis's
- * own). Assertions are reference equality (`toBe`/`not.toBe`). */
+/** `Drawing.tsx` has no DOM to render in CI, so this calls `buildDrawingNodes`
+ * directly, across more than one call with the same caches. Assertions are reference equality (`toBe`/`not.toBe`). */
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, PortView } from './contract';
@@ -15,12 +11,8 @@ const RACK_COUNT = 50;
 const CHASSIS_PER_RACK = 42;
 const DEVICE_COUNT = RACK_COUNT * CHASSIS_PER_RACK; // 2,100
 
-// Shared across every `baseInput` call in this file, the same way
-// `Drawing.tsx` itself hands every node the SAME `useCallback`-stabilised
-// function and the SAME `portSheath` reference across a render nothing
-// touched — a fresh closure or a fresh empty `Map` here on every call would
-// invalidate every node's own cache entry for a reason this function has
-// nothing to do with.
+// Shared across every `baseInput` call — a fresh closure or empty `Map`
+// each call would invalidate every node's own cache entry for no real reason.
 const noop = () => {};
 const noopHover = (_id: string | null) => {};
 const sharedPortSheath = new Map();
@@ -168,10 +160,7 @@ describe('buildDrawingNodes — node and array identity across 2,100 devices', (
     const input = baseInput(racks);
     const first = buildDrawingNodes(input, caches);
 
-    // `viewOf` rebuilds the whole `ClosetView` on any edit — every rack and
-    // chassis gets a fresh object reference here, even though only one
-    // chassis's own fields actually changed (`nodeBuild.identity.test.ts`'s
-    // own reasoning).
+    // A real edit rebuilds every rack and chassis object fresh, even though only one chassis's own fields actually changed.
     const editedRack = 3;
     const editedU = 5;
     const editedRacks = racksFor((r, u) => (r === editedRack && u === editedU ? chassisFor(r, u, 'renamed-host') : chassisFor(r, u)));

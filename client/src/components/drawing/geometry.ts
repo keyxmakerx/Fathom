@@ -100,12 +100,8 @@ export const MAX_GLYPH_TRUE_HEIGHT_PX = 21;
  * fit is the honest option `ChassisNode.tsx` has left once a caller reports
  * how much room the ports row actually got.
  */
-/** `glyphScaleFittingBudget`'s own budget half, alone: the scale a glyph
- * could grow to before it outgrows `availableFlowPx`, with no zoom in it at
- * all — a node's own CSS reads this as `--budget-cap` and takes the
- * smaller of it and `1 / var(--zoom)` itself (`glyphScaleFittingBudget`
- * above is exactly that `min`), so the zoom half never has to be
- * recomputed in JS on a live viewport. */
+/** The zoom-free half of the glyph budget: how far a glyph can grow before
+ * it outgrows the available space. CSS combines this with `1 / var(--zoom)` itself as `--budget-cap`, so nothing here needs recomputing on a live viewport. */
 export function glyphScaleBudgetCap(availableFlowPx: number, trueHeightPx: number = MAX_GLYPH_TRUE_HEIGHT_PX): number {
   return Math.max(0, availableFlowPx / trueHeightPx);
 }
