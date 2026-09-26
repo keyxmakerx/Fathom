@@ -576,8 +576,27 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackIdsKey, allRacksPositioned, rf]);
 
-  // The bar's − / + zoom about the centre of the pane, not the top-left.
+  // GitHub issue #66's own drive (drive-hand-entry, drag-to-connect after a
+  // wheel zoom) found a pre-existing race here, now more visible than it
+  // used to be simply because a render is cheaper: `handleViewportChange`
+  // (below) applies a wheel tick's own zoom LOCALLY the same instant it
+  // reports the rounded percentage upward (`onZoomChange`); that report's
+  // own echo arrives back here as this effect's `zoom` dependency one or
+  // more renders later. Under a fast burst of wheel ticks, `viewport` can
+  // already have moved on to a LATER tick's zoom by the time an EARLIER
+  // tick's echo lands — this effect existed only for the bar's own +/-
+  // (a real external change), but had no way to tell the two apart, so an
+  // echo could yank the pane back to the stale percentage it itself just
+  // reported, fighting the wheel a person is still turning. `pendingEchoRef`
+  // is the most recent percentage THIS component reported and has not yet
+  // seen come back: when the incoming `zoom` matches it exactly, it is that
+  // echo, not the bar's own +/-, and is skipped rather than reapplied.
+  const pendingEchoRef = useRef<number | null>(null);
   useEffect(() => {
+    if (pendingEchoRef.current === zoom) {
+      pendingEchoRef.current = null;
+      return;
+    }
     setViewport((v) => {
       if (Math.round(v.zoom * 100) === zoom) return v;
       const nextZoom = zoom / 100;
@@ -600,7 +619,10 @@ function DrawingInner({
     (vp: Viewport) => {
       setViewport(vp);
       const pct = Math.round(vp.zoom * 100);
-      if (pct !== zoom) onZoomChange(pct);
+      if (pct !== zoom) {
+        pendingEchoRef.current = pct;
+        onZoomChange(pct);
+      }
     },
     [zoom, onZoomChange],
   );
@@ -934,11 +956,26 @@ function DrawingInner({
   // `.drawing-config-drawer` reserves the pane's own bottom
   // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
   // chassis inside the remaining top strip, centred in it, whenever the
-  // drawer opens — an edge-triggered `setCenter` (the same call Motion #10's
-  // shelf-occupant open already makes, above), fired once on the transition
-  // into "a chassis is selected and the camera reads the faceplate stop,"
-  // never on every zoom tick while it stays there, so a person's own
-  // subsequent pan or scroll is never fought mid-read.
+  // drawer opens — an edge-triggered `setCenter`, fired once on the
+  // transition into "a chassis is selected and the camera reads the
+  // faceplate stop," never on every zoom tick while it stays there, so a
+  // person's own subsequent pan or scroll is never fought mid-read.
+  //
+  // GitHub issue #66's own drive (drive-hand-entry) found that transition
+  // itself CAN coincide with a person's own wheel zoom still landing the
+  // camera on that same faceplate stop (a rapid burst of wheel ticks right
+  // after a selection): an ANIMATED `setCenter` (this used `duration: 300`,
+  // the same glide `Motion #10`'s own shelf-occupant open uses, above)
+  // leaves a few hundred milliseconds during which d3-zoom's own wheel
+  // handler can interrupt the still-running transition and compound its own
+  // multiplicative delta on top of wherever that transition had reached —
+  // not merely a redundant recentre, a WRONG one, overshooting well past
+  // the faceplate stop. `duration: 0` — instant — removes the window
+  // entirely: there is nothing left for a wheel tick landing a moment later
+  // to interrupt. The trade is a snap here instead of a glide; UI-SPEC's own
+  // "Motion" #9 (the drawer sliding in) is `drawing.css`'s own CSS
+  // transition on the drawer itself, untouched by this — only the camera's
+  // own approach to it stops animating.
   const configDrawerOpen = configDrawerContent != null;
   useEffect(() => {
     if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
@@ -948,7 +985,7 @@ function DrawingInner({
     const DRAWER_HEIGHT_FRACTION = 0.46; // matches `drawing.css`'s own literal
     const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
     const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
-    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 });
+    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
     // on purpose (see comment above): `selectedChassisFlowCentre` itself is
     // rebuilt fresh every render and would fire this on every pixel of a
