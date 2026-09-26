@@ -228,6 +228,34 @@ try {
   }
 
   // -------------------------------------------------------------------
+  // 3b. A drag that actually relocates a device: the device must follow
+  //     the pointer live (checked mid-drag, before release) and settle at
+  //     the new slot after drop — not stay put, not merely jump there on
+  //     release.
+  // -------------------------------------------------------------------
+  const dev1 = chassisNodes.nth(0);
+  const dev1Before = await dev1.boundingBox();
+  check('3b. found dev-01 to relocate', dev1Before != null);
+  if (dev1Before) {
+    const fx = dev1Before.x + dev1Before.width / 2;
+    const fy = dev1Before.y + dev1Before.height / 2;
+    const tx = fx;
+    const ty = fy + 300; // well past U 16 (every occupied slot), lands on free rack space
+    await page.mouse.move(fx, fy);
+    await page.mouse.down();
+    await page.mouse.move(fx, fy + 150, { steps: 8 });
+    const midDrag = await dev1.boundingBox();
+    await page.mouse.move(tx, ty, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const dev1After = await dev1.boundingBox();
+    const midMoved = midDrag != null && Math.abs(midDrag.y - dev1Before.y) > 50;
+    check('3b. followed the pointer mid-drag (not a jiggle)', midMoved, midDrag ? `moved ${Math.abs(midDrag.y - dev1Before.y)}px` : 'no box');
+    const settledMoved = dev1After != null && Math.abs(dev1After.y - dev1Before.y) > 50;
+    check('3b. settled at the new slot after drop', settledMoved, dev1After ? `moved ${Math.abs(dev1After.y - dev1Before.y)}px` : 'no box');
+  }
+
+  // -------------------------------------------------------------------
   // 4. Wheel-zoom — in, then out, at the pane's own centre.
   // -------------------------------------------------------------------
   const paneBox = await page.locator('.react-flow__pane').boundingBox();

@@ -1,45 +1,30 @@
-/**
- * GitHub issue #66: the one piece of `Drawing.tsx`'s own node-building loop
- * pulled out where a test can call it directly, without rendering React at
- * all — `Drawing.tsx` calls this exact function for every chassis it draws
- * (`ChassisNode`, the "2,100 devices" the brief measures against); a
- * vitest that imported `Drawing.tsx` itself and drove it through
- * `renderToStaticMarkup` could not exercise a SECOND render with the SAME
- * caches at all (SSR runs a component once, no `useEffect`, no re-render),
- * which is exactly what "kept its reference across a hover/selection/zoom/
- * drag render" needs to prove. This needs no React renderer to call:
- * `IdCache`/`RefSignatureCache` are the caller's own, held across calls the
- * same way `Drawing.tsx` holds them in a `useRef`.
- */
+/** `Drawing.tsx` calls this once per chassis it draws — pulled out here so a
+ * test can call it directly, across more than one call with the same
+ * caches, without rendering React at all. */
 
 import type { Node } from '@xyflow/react';
 
 import type { ChassisView, InletView, PortView, Sheath } from './contract';
 import type { ChassisNodeData, ChassisNodeType } from './ChassisNode';
 import type { Facing } from './elevation';
-import { IdCache, RefSignatureCache } from './idCache';
+import { IdCache, StableRef } from './idCache';
+import { chassisEqual } from './nodeEquality';
 import { chassisNodeId } from './nodeId';
 
 export interface ChassisNodeCaches {
-  // `Node`, not `ChassisNodeType` — `Drawing.tsx` keeps ONE `IdCache` shared
-  // by every node type it draws (one `sweep()`, one place a removed rack,
-  // chassis, shelf, surface or tray's stale entry is dropped), and this is
-  // that same cache passed in, not a second one only this function owns.
+  // Shared with every other node kind `Drawing.tsx` draws, one `sweep()`.
   nodeCache: IdCache<Node>;
-  chassisSig: RefSignatureCache;
+  chassisRef: StableRef<ChassisView>;
 }
 
 export function createChassisNodeCaches(): ChassisNodeCaches {
-  return { nodeCache: new IdCache<Node>(), chassisSig: new RefSignatureCache() };
+  return { nodeCache: new IdCache<Node>(), chassisRef: new StableRef<ChassisView>() };
 }
 
-/** One chassis's own React Flow node — `Drawing.tsx`'s own node-building
- * loop calls this once per `FaceplateItem` it walks. `chassis`'s own
- * fingerprint (`RefSignatureCache`, never a look past this one device) plus
- * `elevation`/`portSheath`/position/`canDraw`/`onSelectPort` are this node's
- * whole dependency list — nothing hover, selection, zoom or drag touches is
- * in it (`liveStore.ts` carries all of that instead), so the SAME `Node`
- * object comes back on any render where none of those actually changed. */
+/** One chassis's own React Flow node. `chassis` is stabilised first (the
+ * same reference as last time when nothing about it changed field by
+ * field) so the node cache below sees no change across an edit elsewhere.
+ * `portSheath` is expected already stabilised by the caller. */
 export function buildChassisNode(
   chassis: ChassisView,
   ports: PortView[],
@@ -48,23 +33,16 @@ export function buildChassisNode(
   position: { x: number; y: number },
   canDraw: boolean,
   portSheath: ReadonlyMap<string, Sheath>,
-  // `portSheath` itself is a `Map`, rebuilt with a fresh reference on ANY
-  // document edit (`view.cables` is rebuilt fresh by `viewOf`, even one that
-  // touched no cable at all) — a caller's own content signature of it
-  // (`Drawing.tsx`'s `portSheathSig`, one `RefSignatureCache` shared by
-  // every chassis/shelf/surface rather than one each), so an edit
-  // elsewhere never invalidates a device whose own sheaths did not change.
-  portSheathSig: string,
   onSelectPort: (portId: string) => void,
   widthPx: number,
   heightPx: number,
   caches: ChassisNodeCaches,
 ): ChassisNodeType {
   const id = chassisNodeId(chassis.id);
-  const chassisSig = caches.chassisSig.of(chassis.id, chassis);
+  const stableChassis = caches.chassisRef.get(chassis.id, chassis, chassisEqual);
   return caches.nodeCache.get(
     id,
-    [chassisSig, elevation, portSheathSig, position.x, position.y, canDraw, onSelectPort],
+    [stableChassis, elevation, portSheath, position.x, position.y, canDraw, onSelectPort],
     () => ({
       id,
       type: 'chassis',
@@ -72,8 +50,15 @@ export function buildChassisNode(
       draggable: canDraw,
       selectable: true,
       zIndex: 10,
+      // React Flow's own `width`/`height` fields, not only `style` below —
+      // every size here is known up front, so this node never needs a
+      // `ResizeObserver` measurement (and the `visibility: hidden` React
+      // Flow shows until one lands) even on a render that gives it a fresh
+      // reference, such as its own drag.
+      width: widthPx,
+      height: heightPx,
       style: { width: widthPx, height: heightPx },
-      data: { chassis, ports, inlets, elevation, onSelectPort, portSheath } satisfies ChassisNodeData,
+      data: { chassis: stableChassis, ports, inlets, elevation, onSelectPort, portSheath } satisfies ChassisNodeData,
     }),
   ) as ChassisNodeType;
 }

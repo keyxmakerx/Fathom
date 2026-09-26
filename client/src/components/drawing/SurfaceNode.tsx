@@ -1,18 +1,14 @@
-import type { CSSProperties, MouseEvent } from 'react';
-import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import '../../styles/drawing.css';
 
 import { PORT_GLYPHS } from '../ports';
-// `FixtureView`/`SurfaceView` are ADR-0051 §1's own new shapes — read
-// straight off `document/view.ts`, the one place they are declared, for the
-// same reason `elevation.ts`'s, `lookup.ts`'s and `ShelfPlate.tsx`'s own
-// file headers give: `./contract.ts` (off limits this session) has not
-// widened its re-export list to carry them yet.
+// `FixtureView`/`SurfaceView` come from `document/view.ts`, the one place
+// they are declared; `./contract.ts` does not re-export them yet.
 import type { FixtureView } from '../../document/view';
 import type { LiveDrag } from './ChassisNode';
 import type { InletView, PortView, Sheath } from './contract';
-import { counterScaledFontPx, portOpacity as portOpacityAt } from './geometry';
 import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
 import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
@@ -62,24 +58,34 @@ export interface SurfaceNodeData extends Record<string, unknown> {
 
 export type SurfaceNodeType = Node<SurfaceNodeData, 'surface'>;
 
-/** GitHub issue #66: `liveDrag`, `litCableId` and `portOpacity` used to
- * live on `SurfaceNodeData` above — see `ChassisNode.tsx`'s own
- * `useChassisLiveData` for why that meant an unrelated hover, zoom tick or
- * drag rebuilt this surface's own node object too, even though a surface
- * carries no `selected` concept of its own to key a store lookup by (a
- * whole wall's worth of fixtures shares one node). `portOpacity` is
- * zoom-derived, read straight off React Flow's own `useViewport`, the same
- * reading `ChassisNode.tsx` gives it. */
-function useSurfaceLiveData(zoomPercent: number) {
-  const litCableId = useLive((s) => s.litCableId);
+/** Every cable id ending on one of this surface's own fixtures. */
+function collectCableIds(fixtures: readonly FixtureView[], ids: Set<string>): void {
+  for (const f of fixtures) {
+    for (const p of f.ports) if (p.cable) ids.add(p.cable.cableId);
+    for (const p of f.psuInlets) if (p.cable) ids.add(p.cable.cableId);
+    collectCableIds(f.fixtures, ids);
+  }
+}
+
+function useMyCableIds(fixtures: readonly FixtureView[]): ReadonlySet<string> {
+  return useMemo(() => {
+    const ids = new Set<string>();
+    collectCableIds(fixtures, ids);
+    return ids;
+  }, [fixtures]);
+}
+
+/** The lit cable and drag state live in the external store; the lit-cable
+ * selector answers for this surface's own fixtures alone. */
+function useSurfaceLiveData(myCableIds: ReadonlySet<string>) {
+  const litCableId = useLive((s) => (s.litCableId != null && myCableIds.has(s.litCableId) ? s.litCableId : null));
   const dragFromPortId = useLive((s) => s.dragFromPortId);
   const livePortIds = useLive((s) => s.livePortIds);
   const liveDrag: LiveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
-  return { litCableId, liveDrag, portOpacity: portOpacityAt(zoomPercent) };
+  return { litCableId, liveDrag };
 }
 
 const HEADER_PX = 16;
-const LABEL_BASE_PX = 10;
 const RAIL_GUTTER_PX = 26;
 const FIXTURE_WIDTH_PX = 92;
 const FIXTURE_MIN_HEIGHT_PX = 34;
@@ -123,22 +129,15 @@ function isPartiallyMeasured(f: Pick<FixtureView, 'xMm' | 'yMm'>): boolean {
 
 interface PlateProps {
   ports: readonly PortView[];
-  scale: number;
   onSelectPort: (portId: string) => void;
   liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
-  opacity: number;
 }
 
-/** One row of port glyphs — non-uplink left, uplink right, the same UI-SPEC
- * "Ports": "uplinks right" rule `ChassisNode.tsx`'s own `PortRow` and
- * `ShelfPlate.tsx`'s own `GlyphRow` already keep. Not shared code with
- * either (both are off limits or private to their own module this
- * session), but the same shape deliberately, so a fixture's faceplate reads
- * as one more plate in the same family rather than a fourth visual
- * language. */
-function PortGlyphs({ ports, scale, onSelectPort, liveDrag, portSheath, litCableId, opacity }: PlateProps) {
+/** One row of port glyphs — non-uplink left, uplink right, UI-SPEC "Ports":
+ * "uplinks right", the same shape `ChassisNode.tsx`'s `PortRow` keeps. */
+function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: PlateProps) {
   if (ports.length === 0) return null;
   const downlink = ports.filter((p) => !p.uplink);
   const uplink = ports.filter((p) => p.uplink);
@@ -168,13 +167,13 @@ function PortGlyphs({ ports, scale, onSelectPort, liveDrag, portSheath, litCable
           onSelectPort(port.id);
         }}
       >
-        <Glyph cabled={cabled} title={port.label} scale={scale} />
+        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--zoomed" />
         <Handle type="source" position={Position.Right} id={port.id} isConnectable={!cabled} className="drawing-surface__port-handle" />
       </button>
     );
   };
   return (
-    <div className="drawing-surface__port-row" style={{ opacity }} aria-hidden={opacity === 0}>
+    <div className="drawing-surface__port-row">
       <div className="drawing-surface__port-group">{downlink.map(glyph)}</div>
       <div className="drawing-surface__port-group drawing-surface__port-group--uplink">{uplink.map(glyph)}</div>
     </div>
@@ -190,12 +189,10 @@ function PortGlyphs({ ports, scale, onSelectPort, liveDrag, portSheath, litCable
 function InletStrip({
   inlets,
   onSelectPort,
-  scale,
   litCableId,
 }: {
   inlets: readonly InletView[];
   onSelectPort: (portId: string) => void;
-  scale: number;
   litCableId: string | null;
 }) {
   if (inlets.length === 0) return null;
@@ -221,8 +218,9 @@ function InletStrip({
               <Glyph
                 cabled={cabled}
                 title={`${inlet.slot || inlet.label} — ${inlet.fitted ? (cabled ? 'fed' : 'fitted, no lead') : 'not fitted'}`}
-                scale={scale}
-                className={inlet.fitted ? undefined : 'drawing-chassis__inlet--unfitted'}
+                className={
+                  inlet.fitted ? 'drawing-port-glyph--zoomed' : 'drawing-port-glyph--zoomed drawing-chassis__inlet--unfitted'
+                }
               />
               <Handle
                 type="source"
@@ -247,9 +245,6 @@ interface FixtureBoxProps {
   liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
-  portOpacity: number;
-  glyphScale: number;
-  labelFontPx: number;
   /** True for a fixture drawn upright on the floor band — fixtures on it
    * stand as upright boxes (`design/places/renders/Surfaces.png`, ADR-0051
    * §1/§2). Only changes the
@@ -297,9 +292,6 @@ function FixtureBox({
   liveDrag,
   portSheath,
   litCableId,
-  portOpacity,
-  glyphScale,
-  labelFontPx,
   upright = false,
 }: FixtureBoxProps) {
   if (fixture.form === 'board') {
@@ -310,7 +302,7 @@ function FixtureBox({
       <div className="drawing-surface__board" style={{ width: widthPx, height: heightPx }}>
         <div
           className="drawing-surface__board-header nodrag"
-          style={{ fontSize: labelFontPx, cursor: 'pointer' }}
+          style={{ cursor: 'pointer' }}
           onClick={(event: MouseEvent) => {
             event.stopPropagation();
             onSelectFixture(fixture.id);
@@ -320,22 +312,12 @@ function FixtureBox({
           {fixture.model && <span className="drawing-surface__fixture-model">{fixture.model}</span>}
         </div>
         {fixture.ports.length > 0 && (
-          <PortGlyphs
-            ports={fixture.ports}
-            scale={glyphScale}
-            onSelectPort={onSelectPort}
-            liveDrag={liveDrag}
-            portSheath={portSheath}
-            litCableId={litCableId}
-            opacity={portOpacity}
-          />
+          <PortGlyphs ports={fixture.ports} onSelectPort={onSelectPort} liveDrag={liveDrag} portSheath={portSheath} litCableId={litCableId} />
         )}
         <div className="drawing-surface__board-stage">
-          {/* ADR-0051 §1: "positions from the board's edges" — the SAME
-              from-left/from-floor convention `FixedTo.x_mm`/`.y_mm` already
-              carries at the wall's own scale, applied again one level down,
-              anchored to this board's own bottom-left rather than the
-              wall's. */}
+          {/* A board's own children position from ITS edges, not the
+              wall's — the same from-left/from-floor convention one level
+              down, anchored to the board's own bottom-left. */}
           {children.map((child) => (
             <div key={child.id} className="drawing-surface__fixture-anchor" style={positionStyle(child, uPx)}>
               {isPartiallyMeasured(child) && (
@@ -349,9 +331,6 @@ function FixtureBox({
                 liveDrag={liveDrag}
                 portSheath={portSheath}
                 litCableId={litCableId}
-                portOpacity={portOpacity}
-                glyphScale={glyphScale}
-                labelFontPx={labelFontPx}
               />
             </div>
           ))}
@@ -369,9 +348,6 @@ function FixtureBox({
                 liveDrag={liveDrag}
                 portSheath={portSheath}
                 litCableId={litCableId}
-                portOpacity={portOpacity}
-                glyphScale={glyphScale}
-                labelFontPx={labelFontPx}
               />
             ))}
           </div>
@@ -402,7 +378,7 @@ function FixtureBox({
         onSelectFixture(fixture.id);
       }}
     >
-      <div className="drawing-surface__fixture-header" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-surface__fixture-header">
         <span className="drawing-surface__fixture-label">{fixture.label}</span>
         {singleFed && <span className="drawing-chassis__single-fed">single-fed</span>}
         {oneFitted && <span className="drawing-chassis__one-fitted">one fitted</span>}
@@ -417,17 +393,9 @@ function FixtureBox({
         <span className="drawing-surface__fixture-model">{usage ? pduUsageLabel(usage) : fixture.model}</span>
       )}
       {fixture.ports.length > 0 && (
-        <PortGlyphs
-          ports={fixture.ports}
-          scale={glyphScale}
-          onSelectPort={onSelectPort}
-          liveDrag={liveDrag}
-          portSheath={portSheath}
-          litCableId={litCableId}
-          opacity={portOpacity}
-        />
+        <PortGlyphs ports={fixture.ports} onSelectPort={onSelectPort} liveDrag={liveDrag} portSheath={portSheath} litCableId={litCableId} />
       )}
-      <InletStrip inlets={fixture.psuInlets} onSelectPort={onSelectPort} scale={glyphScale} litCableId={litCableId} />
+      <InletStrip inlets={fixture.psuInlets} onSelectPort={onSelectPort} litCableId={litCableId} />
       {/* A bundle band's one shared anchor per fixture, the same trick
           `ChassisNode.tsx`'s own `__bundle__` handle uses. */}
       <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-surface__bundle-handle nodrag" />
@@ -446,18 +414,7 @@ function FixtureBox({
  * bare name here would hide every one of those, so it draws as its own
  * full box instead — the same `FixtureBox` every positioned board already
  * uses — "never as a bare name" (the brief's own words). */
-function NotMeasuredEntry({
-  fixture,
-  uPx,
-  onSelectPort,
-  onSelectFixture,
-  liveDrag,
-  portSheath,
-  litCableId,
-  portOpacity,
-  glyphScale,
-  labelFontPx,
-}: FixtureBoxProps) {
+function NotMeasuredEntry({ fixture, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId }: FixtureBoxProps) {
   if (fixture.form === 'board') {
     return (
       <FixtureBox
@@ -468,9 +425,6 @@ function NotMeasuredEntry({
         liveDrag={liveDrag}
         portSheath={portSheath}
         litCableId={litCableId}
-        portOpacity={portOpacity}
-        glyphScale={glyphScale}
-        labelFontPx={labelFontPx}
       />
     );
   }
@@ -485,7 +439,7 @@ function NotMeasuredEntry({
  * itself draws (`mmRailTicks`, `rows.ts`). A fixture with no position
  * (`isPositioned` false) never guesses one — it sits instead in the "not
  * measured" strip at the panel's own foot, named, nothing invented. */
-function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
+function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId }: {
   placement: SurfacePlacement;
   uPx: number;
   onSelectPort: (portId: string) => void;
@@ -493,9 +447,6 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
   liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
-  portOpacity: number;
-  glyphScale: number;
-  labelFontPx: number;
 }) {
   const { surface } = placement;
   const bodyHeightPx = Math.max(0, placement.heightPx - HEADER_PX);
@@ -505,7 +456,7 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
 
   return (
     <div className="drawing-surface drawing-surface--panel" style={{ width: placement.widthPx, height: placement.heightPx }}>
-      <div className="drawing-surface__header" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-surface__header">
         <span className="drawing-surface__label">{surface.label}</span>
         <span className="drawing-surface__form">{surface.form.toUpperCase()}</span>
       </div>
@@ -534,9 +485,6 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
                   liveDrag={liveDrag}
                   portSheath={portSheath}
                   litCableId={litCableId}
-                  portOpacity={portOpacity}
-                  glyphScale={glyphScale}
-                  labelFontPx={labelFontPx}
                 />
               </div>
             );
@@ -556,17 +504,11 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
               liveDrag={liveDrag}
               portSheath={portSheath}
               litCableId={litCableId}
-              portOpacity={portOpacity}
-              glyphScale={glyphScale}
-              labelFontPx={labelFontPx}
             />
           ))}
         </div>
       )}
-      {/* A surface has no rear and no flip (ADR-0051 §1/§2) — named on the
-          plate itself, the same way a rack's own flip control names its two
-          states, so the absence reads as a fact about this box rather than
-          a missing feature. */}
+      {/* A surface has no rear and no flip — named on the plate itself. */}
       <span className="drawing-surface__no-rear" aria-hidden="true">
         no rear · no flip
       </span>
@@ -574,16 +516,10 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
   );
 }
 
-/** The floor — `design/places/renders/Surfaces.png` (ADR-0051 §1/§2): a
- * band beneath the row's racks; fixtures on it (a UPS) stand as upright
- * boxes at xMm. No mm rail (a band has no elevation to measure height
- * against). `FixedTo.y_mm`'s own schema doc: "a floor fixture states x_mm
- * only, or neither" — the floor reads `xMm` alone. A fixture with no `xMm`
- * gets no invented distance: it draws in its own named "not measured" strip
- * at the band's foot, the same strip `Panel` above gives a wall fixture with
- * neither coordinate — never spaced out at a distinct guessed offset, which
- * would read as a real, asserted position nobody gave it. */
-function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx }: {
+/** The floor — a band beneath the row's racks; fixtures on it stand as
+ * upright boxes at xMm, no mm rail. A fixture with no `xMm` gets no
+ * invented distance: it draws in the "not measured" strip instead. */
+function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId }: {
   placement: SurfacePlacement;
   uPx: number;
   onSelectPort: (portId: string) => void;
@@ -591,16 +527,13 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
   liveDrag: LiveDrag;
   portSheath: SurfaceNodeData['portSheath'];
   litCableId: string | null;
-  portOpacity: number;
-  glyphScale: number;
-  labelFontPx: number;
 }) {
   const { surface } = placement;
   const positioned = surface.fixtures.filter((f) => f.xMm != null);
   const unmeasured = surface.fixtures.filter((f) => f.xMm == null);
   return (
     <div className="drawing-surface drawing-surface--floor" style={{ width: placement.widthPx, height: placement.heightPx }}>
-      <div className="drawing-surface__header" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-surface__header">
         <span className="drawing-surface__label">{surface.label}</span>
         <span className="drawing-surface__form">FLOOR</span>
       </div>
@@ -617,9 +550,6 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
                 liveDrag={liveDrag}
                 portSheath={portSheath}
                 litCableId={litCableId}
-                portOpacity={portOpacity}
-                glyphScale={glyphScale}
-                labelFontPx={labelFontPx}
                 upright
               />
             </div>
@@ -639,9 +569,6 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
               liveDrag={liveDrag}
               portSheath={portSheath}
               litCableId={litCableId}
-              portOpacity={portOpacity}
-              glyphScale={glyphScale}
-              labelFontPx={labelFontPx}
             />
           ))}
         </div>
@@ -660,20 +587,9 @@ function FloorBand({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, po
  * (ADR-0051 §1/§2) shows. */
 export function SurfaceNode({ data }: NodeProps<SurfaceNodeType>) {
   const { placement, uPx, onSelectPort, onSelectFixture, portSheath } = data;
-  const { zoom } = useViewport();
-  const { liveDrag, litCableId, portOpacity } = useSurfaceLiveData(zoom * 100);
-  const labelFontPx = counterScaledFontPx(LABEL_BASE_PX, zoom);
-  // Port glyphs draw at true size, the same `1/zoom` reading every other
-  // faceplate in this drawing uses (`geometry.ts`'s own `counterScaledGlyphScale`
-  // — inlined here rather than imported a second symbol only for a one-line
-  // reciprocal, the same choice `ShelfPlate.tsx` did not need to make
-  // because it imports the real helper; kept local since this module's own
-  // scale story is already `rows.ts`'s `pxPerMm`, not `geometry.ts`'s glyph
-  // scale, and pulling in a second concern for one call site would blur
-  // which module owns which number).
-  const glyphScale = zoom > 0 ? 1 / zoom : 1;
-
-  const shared = { uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId, portOpacity, glyphScale, labelFontPx };
+  const myCableIds = useMyCableIds(placement.surface.fixtures);
+  const { liveDrag, litCableId } = useSurfaceLiveData(myCableIds);
+  const shared = { uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId };
 
   if (placement.surface.form === 'floor') {
     return <FloorBand placement={placement} {...shared} />;

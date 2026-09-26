@@ -1,5 +1,5 @@
-import type { MouseEvent } from 'react';
-import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import '../../styles/shelf.css';
 
@@ -12,22 +12,17 @@ import type { OccupantView, ShelfView } from '../../document/view';
 import type { PortView, Sheath } from './contract';
 import type { LiveDrag } from './ChassisNode';
 import { shelfOccupantFaceplateItems, type Facing } from './elevation';
-import {
-  U_PX,
-  cameraStopAt,
-  counterScaledFontPx,
-  counterScaledGlyphScale,
-  glyphScaleFittingBudget,
-} from './geometry';
+import { U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
 import { SHEATH_VAR } from './sheath';
 
-/** `drawing.css`'s own rack-stop label sizes, mirrored here so
- * `counterScaledFontPx` has the same floor to counter-scale from — see
- * `RackNode.tsx`'s own constants of the same shape. */
-const SHELF_LABEL_BASE_PX = 10;
+/** Static, per element — CSS reads the live zoom half itself. */
 const OCCUPANT_LABEL_BASE_PX = 9;
+/** The compact occupant box's own row budget never changes at runtime
+ * (`U_PX`, `OCCUPANT_LABEL_BASE_PX` are both constants) — computed once,
+ * read by every occupant box's own `--budget-cap`. */
+const OCCUPANT_GLYPH_BUDGET_CAP = glyphScaleBudgetCap(Math.max(0, U_PX - OCCUPANT_LABEL_BASE_PX));
 
 /** See the file header on `elevation.ts`'s own `shelfOccupantFaceplateItem`:
  * `OccupantView` (this session's CONTRACT) carries no catalogue "role"
@@ -65,27 +60,44 @@ export interface ShelfPlateNodeData extends Record<string, unknown> {
 
 export type ShelfPlateNodeType = Node<ShelfPlateNodeData, 'shelf'>;
 
-/** GitHub issue #66: `selected`, `selectedOccupantId`, `liveDrag` and
- * `litCableId` used to live on `ShelfPlateNodeData` above — see
- * `ChassisNode.tsx`'s own `useChassisLiveData` for why that meant an
- * unrelated hover, selection or drag rebuilt this shelf's own node object
- * too. `selectedOccupantId` is "which occupant (if any) is open at the
- * faceplate stop" — UI-SPEC "Places" / "Motion" #10 — read here off the
- * SAME `selected` the store already carries, never a second, independent
- * toggle. */
-function useShelfLiveData(shelfId: string) {
+/** This shelf's own occupant ids, and every cable id ending on one of their
+ * ports — what `useShelfLiveData` scopes its selectors against. */
+function useMyIds(shelf: ShelfView): { occupantIds: ReadonlySet<string>; myCableIds: ReadonlySet<string> } {
+  return useMemo(() => {
+    const occupantIds = new Set<string>();
+    const myCableIds = new Set<string>();
+    for (const occupant of shelf.occupants) {
+      occupantIds.add(occupant.id);
+      for (const p of occupant.ports) if (p.cable) myCableIds.add(p.cable.cableId);
+    }
+    return { occupantIds, myCableIds };
+  }, [shelf]);
+}
+
+/** `selected`, `selectedOccupantId`, `litCableId`, `liveDrag` and
+ * `cameraStop` live in the external store — each selector answers for this
+ * shelf alone, so a change elsewhere never rebuilds this shelf's own node.
+ * `selectedOccupantId` is "which occupant (if any) is open at the faceplate
+ * stop," read off the same `selected` the store already carries, but only
+ * when it names one of THIS shelf's own occupants. */
+function useShelfLiveData(shelfId: string, occupantIds: ReadonlySet<string>, myCableIds: ReadonlySet<string>) {
   const selected = useLive((s) => s.selected?.kind === 'shelf' && s.selected.id === shelfId);
-  const selectedOccupantId = useLive((s) => (s.selected?.kind === 'occupant' ? s.selected.id : null));
-  const litCableId = useLive((s) => s.litCableId);
+  const selectedOccupantId = useLive((s) =>
+    s.selected?.kind === 'occupant' && occupantIds.has(s.selected.id) ? s.selected.id : null,
+  );
+  const litCableId = useLive((s) => (s.litCableId != null && myCableIds.has(s.litCableId) ? s.litCableId : null));
   const dragFromPortId = useLive((s) => s.dragFromPortId);
   const livePortIds = useLive((s) => s.livePortIds);
+  const cameraStop = useLive((s) => s.cameraStop);
   const liveDrag: LiveDrag = dragFromPortId != null ? { fromPortId: dragFromPortId, livePortIds } : null;
-  return { selected, selectedOccupantId, litCableId, liveDrag };
+  return { selected, selectedOccupantId, litCableId, liveDrag, cameraStop };
 }
 
 interface GlyphRowProps {
   ports: PortView[];
-  scale: number;
+  /** `--budgeted` for the compact rack-stop box (capped to its own row
+   * budget), `--zoomed` for the faceplate inset (uncapped, true counter-scale). */
+  glyphClassName: string;
   showLabels: boolean;
   onSelectPort: (portId: string) => void;
   liveDrag: LiveDrag;
@@ -94,18 +106,15 @@ interface GlyphRowProps {
 }
 
 /** One occupant's ports, glyph by glyph — the shared renderer between the
- * compact rack-stop box (small, no labels, shrunk to fit —
- * `glyphScaleFittingBudget`, the same helper `ChassisNode.tsx`'s own
- * `PortRow` uses) and the faceplate-stop inset (`design/places/renders/Shelf.png`'s
- * own middle panel: full glyph size with labels — `counterScaledGlyphScale`,
- * the same "true size" a `ChassisNode`'s own faceplate reads at, never
- * shrunk). Each glyph
- * carries the same kind of `Handle` `ChassisNode.tsx`'s own port glyph does
- * (loose connection mode, `Drawing.tsx`), under the SAME port id, so a
- * cable can start or land on a shelf occupant's port exactly as it does on
- * a rack-mounted chassis's — once `lookup.ts` can find it (this session's
- * own handback note: it does not yet, see the report). */
-function GlyphRow({ ports, scale, showLabels, onSelectPort, liveDrag, portSheath, litCableId }: GlyphRowProps) {
+ * compact rack-stop box and the faceplate-stop inset
+ * (`design/places/renders/Shelf.png`'s own middle panel: full glyph size
+ * with labels). Each glyph carries the same kind of `Handle`
+ * `ChassisNode.tsx`'s own port glyph does (loose connection mode,
+ * `Drawing.tsx`), under the SAME port id, so a cable can start or land on a
+ * shelf occupant's port exactly as it does on a rack-mounted chassis's —
+ * once `lookup.ts` can find it (this session's own handback note: it does
+ * not yet, see the report). */
+function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, portSheath, litCableId }: GlyphRowProps) {
   return (
     <div className="drawing-shelf__glyph-row">
       {ports.map((port) => {
@@ -142,7 +151,7 @@ function GlyphRow({ ports, scale, showLabels, onSelectPort, liveDrag, portSheath
               onSelectPort(port.id);
             }}
           >
-            <Glyph cabled={cabled} title={port.label} scale={scale} />
+            <Glyph cabled={cabled} title={port.label} className={glyphClassName} />
             {showLabels && (
               <span className="drawing-shelf__port-label">
                 {port.label} · {port.connector}
@@ -170,7 +179,6 @@ function OccupantBox({
   ports,
   open,
   selected,
-  zoom,
   onSelectOccupant,
   onSelectPort,
   liveDrag,
@@ -181,7 +189,6 @@ function OccupantBox({
   ports: PortView[];
   open: boolean;
   selected: boolean;
-  zoom: number;
   onSelectOccupant: () => void;
   onSelectPort: (portId: string) => void;
   liveDrag: LiveDrag;
@@ -195,9 +202,7 @@ function OccupantBox({
   // everything else reveals on hover or selection," applied to a shelf
   // occupant.
   const showCompactPorts = patchFacing && !open;
-  const budget = Math.max(0, U_PX - OCCUPANT_LABEL_BASE_PX);
-  const compactScale = glyphScaleFittingBudget(zoom, budget);
-  const labelFontPx = counterScaledFontPx(OCCUPANT_LABEL_BASE_PX, zoom);
+  const style = { '--budget-cap': OCCUPANT_GLYPH_BUDGET_CAP } as CSSProperties;
 
   return (
     <button
@@ -207,15 +212,14 @@ function OccupantBox({
           ? 'drawing-shelf__occupant drawing-shelf__occupant--selected nodrag'
           : 'drawing-shelf__occupant nodrag'
       }
+      style={style}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onSelectOccupant();
       }}
     >
       <span className="drawing-shelf__occupant-header">
-        <span className="drawing-shelf__occupant-label" style={{ fontSize: labelFontPx }}>
-          {occupant.label}
-        </span>
+        <span className="drawing-shelf__occupant-label">{occupant.label}</span>
         {occupant.sketch && (
           // `design/places/renders/Shelf.png`: a dotted TYPED mark on a
           // sketch — a fact about provenance, not risk, so it carries no
@@ -233,7 +237,7 @@ function OccupantBox({
       {showCompactPorts && (
         <GlyphRow
           ports={ports}
-          scale={compactScale}
+          glyphClassName="drawing-port-glyph--budgeted"
           showLabels={false}
           onSelectPort={onSelectPort}
           liveDrag={liveDrag}
@@ -257,7 +261,6 @@ function OccupantBox({
 function OccupantInset({
   occupant,
   ports,
-  zoom,
   onSelectPort,
   liveDrag,
   portSheath,
@@ -265,17 +268,14 @@ function OccupantInset({
 }: {
   occupant: OccupantView;
   ports: PortView[];
-  zoom: number;
   onSelectPort: (portId: string) => void;
   liveDrag: LiveDrag;
   portSheath: ShelfPlateNodeData['portSheath'];
   litCableId: string | null;
 }) {
-  const trueScale = counterScaledGlyphScale(zoom);
-  const headerFontPx = counterScaledFontPx(OCCUPANT_LABEL_BASE_PX, zoom);
   return (
     <div className={occupant.sketch ? 'drawing-shelf__inset drawing-shelf__inset--sketch' : 'drawing-shelf__inset'}>
-      <div className="drawing-shelf__inset-header" style={{ fontSize: headerFontPx }}>
+      <div className="drawing-shelf__inset-header">
         <span className="drawing-shelf__inset-label">{occupant.label}</span>
         {occupant.model ? (
           <span className="drawing-shelf__inset-model">{occupant.model}</span>
@@ -287,7 +287,7 @@ function OccupantInset({
       </div>
       <GlyphRow
         ports={ports}
-        scale={trueScale}
+        glyphClassName="drawing-port-glyph--zoomed"
         showLabels
         onSelectPort={onSelectPort}
         liveDrag={liveDrag}
@@ -329,11 +329,8 @@ export function shelfPlateMode(heightU: number): 'compact' | 'full' {
 
 export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
   const { shelf, elevation, slotCount, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
-  const { selected, selectedOccupantId, litCableId, liveDrag } = useShelfLiveData(shelf.id);
-  const { zoom } = useViewport();
-  const zoomPercent = Math.round(zoom * 100);
-  const cameraStop = cameraStopAt(zoomPercent);
-  const labelFontPx = counterScaledFontPx(SHELF_LABEL_BASE_PX, zoom);
+  const { occupantIds, myCableIds } = useMyIds(shelf);
+  const { selected, selectedOccupantId, litCableId, liveDrag, cameraStop } = useShelfLiveData(shelf.id, occupantIds, myCableIds);
   const height = shelf.heightU * U_PX;
 
   const items = shelfOccupantFaceplateItems(shelf, elevation);
@@ -384,7 +381,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
           onSelectShelf();
         }}
       >
-        <div className="drawing-shelf__compact-row" style={{ fontSize: labelFontPx }}>
+        <div className="drawing-shelf__compact-row">
           <span className="drawing-shelf__label">{shelf.label}</span>
           {/* Gap 4: never an empty plate — the shelf's own name above is
               always drawn, occupants or not; this row is simply empty when
@@ -423,7 +420,6 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
           <OccupantInset
             occupant={openOccupant.occupant}
             ports={openOccupant.ports}
-            zoom={zoom}
             onSelectPort={onSelectPort}
             liveDrag={liveDrag}
             portSheath={portSheath}
@@ -444,7 +440,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         onSelectShelf();
       }}
     >
-      <div className="drawing-shelf__header" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-shelf__header">
         <span className="drawing-shelf__label">{shelf.label}</span>
         <span className="drawing-shelf__height">SHELF {shelf.heightU}U</span>
       </div>
@@ -465,7 +461,6 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
               ports={item.ports}
               open={openOccupant?.occupant.id === item.occupant.id}
               selected={selectedOccupantId === item.occupant.id}
-              zoom={zoom}
               onSelectOccupant={() => onSelectOccupant(item.occupant.id)}
               onSelectPort={onSelectPort}
               liveDrag={liveDrag}
@@ -479,7 +474,6 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         <OccupantInset
           occupant={openOccupant.occupant}
           ports={openOccupant.ports}
-          zoom={zoom}
           onSelectPort={onSelectPort}
           liveDrag={liveDrag}
           portSheath={portSheath}

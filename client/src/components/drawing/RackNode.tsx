@@ -1,16 +1,10 @@
-import { Handle, Position, useViewport, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { C14 } from '../ports';
 import type { Facing, FaceplateItem } from './elevation';
 import type { RackView } from './contract';
-import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, cameraStopAt, counterScaledFontPx, sortFreeRuns } from './geometry';
+import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
 import { useLive } from './liveStore';
-
-/** The rack label's and U numbers' flow-space size at the rack stop —
- * `drawing.css`'s own `--t-micro` (10px) and 8px, kept here so
- * `counterScaledFontPx` has a `basePx` to counter-scale from. */
-const RACK_LABEL_BASE_PX = 10;
-const U_NUMBER_BASE_PX = 8;
 
 /** The C14 glyph's true (`scale` 1) box is 22×16 (`components/ports/C14.tsx`'s
  * `frame(22, 16)`) — UI-SPEC "Power": "the C14 glyph... at rail scale," read
@@ -52,19 +46,14 @@ export interface RackNodeData extends Record<string, unknown> {
 
 export type RackNodeType = Node<RackNodeData, 'rack'>;
 
-/** GitHub issue #66: `selected`, `dropPreview`, `shaking` and `showFlip`
- * used to live on `RackNodeData` above — see `ChassisNode.tsx`'s own
- * `useChassisLiveData` for why that meant an unrelated hover or drag
- * rebuilt this rack's own node object too. `selected`/`dropPreview`/
- * `shaking` come from `liveStore.ts` now; `showFlip` is zoom-derived
- * (`cameraStop === 'rack'`), so it is read straight off React Flow's own
- * `useViewport`, the same reading `ChassisNode.tsx`'s own `portOpacity`
- * gives. */
-function useRackLiveData(rackId: string, zoomPercent: number) {
+/** `selected`, `dropPreview` and `shaking` live in the external store —
+ * each selector answers for this rack alone, so a change elsewhere never
+ * rebuilds this rack's own node. */
+function useRackLiveData(rackId: string) {
   const selected = useLive((s) => s.selected?.kind === 'rack' && s.selected.id === rackId);
   const dropPreview = useLive((s) => s.dropPreview[rackId] ?? null);
   const shaking = useLive((s) => s.shakingRackId === rackId);
-  return { selected, dropPreview, shaking, showFlip: cameraStopAt(zoomPercent) === 'rack' };
+  return { selected, dropPreview, shaking };
 }
 
 /** One inlet's rail position: `chassis`'s own row, `index` of `count`
@@ -99,18 +88,11 @@ function psuSlot(rack: RackView, chassis: FaceplateItem['chassis'], index: numbe
  * over it, untouched. */
 export function RackNode({ data }: NodeProps<RackNodeType>) {
   const { rack, chassisItems, elevation, onFlip, onHoverInlet } = data;
-  const { zoom } = useViewport();
-  const { selected, dropPreview, shaking, showFlip } = useRackLiveData(rack.id, zoom * 100);
+  const { selected, dropPreview, shaking } = useRackLiveData(rack.id);
   const frameHeight = rack.heightU * U_PX;
   const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
   const runs = sortFreeRuns(rack.freeRuns);
   const width = RAIL_PX * 2 + RACK_INNER_PX;
-  // UI-SPEC "Motion": one continuous camera, but the rack label and U
-  // numbers must stay legible at the closet stop — `geometry.ts`'s
-  // `counterScaledFontPx` pins their on-screen size to a 9px floor rather
-  // than letting them shrink below it as the camera zooms out.
-  const labelFontPx = counterScaledFontPx(RACK_LABEL_BASE_PX, zoom);
-  const uNumberFontPx = counterScaledFontPx(U_NUMBER_BASE_PX, zoom);
 
   // ADR-0050 §1: rail hexagons are the front elevation's own way for a power
   // lead to end ("as today"); the rear elevation's leads end directly on the
@@ -130,35 +112,36 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
         .join(' ')}
       style={{ width }}
     >
-      <div className="drawing-rack__label" style={{ fontSize: labelFontPx }}>
+      <div className="drawing-rack__label">
         <span className="drawing-rack__label-text">
           {rack.label} &middot; {rack.heightU}U &middot; {usedU} used
         </span>
-        {showFlip && (
-          <span className="drawing-rack__flip nodrag">
-            <button
-              type="button"
-              className={elevation === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (elevation !== 'front') onFlip();
-              }}
-            >
-              front
-            </button>
-            <span aria-hidden="true"> | </span>
-            <button
-              type="button"
-              className={elevation === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (elevation !== 'rear') onFlip();
-              }}
-            >
-              rear
-            </button>
-          </span>
-        )}
+        {/* Always mounted; `drawing.css` hides it outside the rack stop by
+            `data-camera-stop` on the drawing's own wrapper, so this idle
+            button never has to read the viewport itself. */}
+        <span className="drawing-rack__flip nodrag">
+          <button
+            type="button"
+            className={elevation === 'front' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (elevation !== 'front') onFlip();
+            }}
+          >
+            front
+          </button>
+          <span aria-hidden="true"> | </span>
+          <button
+            type="button"
+            className={elevation === 'rear' ? 'drawing-rack__face drawing-rack__face--on' : 'drawing-rack__face'}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (elevation !== 'rear') onFlip();
+            }}
+          >
+            rear
+          </button>
+        </span>
       </div>
       <div className="drawing-rack__frame" style={{ height: frameHeight }}>
         <div className="drawing-rack__rail drawing-rack__rail--left" style={{ width: RAIL_PX }}>
@@ -184,7 +167,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
               })}
               <div className="drawing-rack__u-numbers drawing-rack__u-numbers--left" style={{ width: RAIL_PX }}>
                 {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                  <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                  <div key={u} className="drawing-rack__u-number" style={{ height: U_PX }}>
                     {u}
                   </div>
                 ))}
@@ -196,7 +179,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
           {railSide === 'right' && (
             <div className="drawing-rack__u-numbers drawing-rack__u-numbers--right" style={{ width: RAIL_PX }}>
               {Array.from({ length: rack.heightU }, (_, i) => rack.heightU - i).map((u) => (
-                <div key={u} className="drawing-rack__u-number" style={{ height: U_PX, fontSize: uNumberFontPx }}>
+                <div key={u} className="drawing-rack__u-number" style={{ height: U_PX }}>
                   {u}
                 </div>
               ))}

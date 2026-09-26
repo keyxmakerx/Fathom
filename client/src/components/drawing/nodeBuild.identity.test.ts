@@ -1,19 +1,8 @@
-/**
- * GitHub issue #66: the node object `Drawing.tsx` hands React Flow for a
- * chassis must keep its own reference across a hover, a selection, a zoom
- * tick and a drag elsewhere in the drawing — none of those touch anything
- * `buildChassisNode`'s own cache is keyed on (`liveStore.ts` carries all of
- * that instead, off `data` entirely) — and, after a real edit to the whole
- * design (`viewOf` rebuilds every chassis with a fresh object reference,
- * `document/view.ts`'s own doc), only the ONE chassis that actually changed
- * gets a new node object; the other 2,099 keep theirs. This calls
- * `Drawing.tsx`'s own `buildChassisNode` directly, across more than one
- * "render" with the SAME caches held between calls — exactly what
- * `Drawing.tsx` does from inside its own render, and something no
- * `renderToStaticMarkup` test could exercise at all (a server render never
- * re-renders). Assertions are reference equality (`toBe`), never a
- * deep-equal proxy for it.
- */
+/** The node object `Drawing.tsx` hands React Flow for a chassis must keep
+ * its own reference across a hover, selection or zoom tick, and only the
+ * one device dragged or edited gets a new one. Calls `buildChassisNode`
+ * directly, across more than one call with the same caches, the way
+ * `Drawing.tsx` itself does. Assertions are reference equality (`toBe`). */
 import { describe, expect, it } from 'vitest';
 
 import type { ChassisView, PortView, Sheath } from './contract';
@@ -65,12 +54,6 @@ function positionFor(i: number): { x: number; y: number } {
 }
 
 const portSheath: ReadonlyMap<string, Sheath> = new Map();
-// A constant string: nothing in this test ever changes which port carries
-// which sheath, the same "unchanged Map, unchanged signature" reading
-// `Drawing.tsx`'s own `portSheathSig` gives across a hover/selection/zoom/
-// drag render (`nodeBuild.ts`'s own file header on why this is a separate
-// parameter from `portSheath` itself).
-const portSheathSig = '[]';
 const onSelectPort = () => {};
 
 function buildAll(
@@ -87,7 +70,6 @@ function buildAll(
       (positionOverride ?? positionFor)(i),
       true,
       portSheath,
-      portSheathSig,
       onSelectPort,
       120,
       16,
@@ -96,7 +78,7 @@ function buildAll(
   );
 }
 
-describe('buildChassisNode — node identity across 2,100 devices (GitHub issue #66)', () => {
+describe('buildChassisNode — node identity across 2,100 devices', () => {
   it('keeps every node reference across a render nothing about that device touched (hover/selection/zoom)', () => {
     const devices = Array.from({ length: DEVICE_COUNT }, (_, i) => chassisFor(i));
     const caches = createChassisNodeCaches();
@@ -154,11 +136,8 @@ describe('buildChassisNode — node identity across 2,100 devices (GitHub issue 
       if (i === editedIndex) continue;
       expect(second[i]).toBe(first[i]);
     }
-    // The one render that must re-stringify every device's own bounded
-    // slice (`RefSignatureCache`'s own reference-miss path) — bounded by
-    // device count and each device's own field count, never the design
-    // around it (the rejected whole-design compare took ~6s at this same
-    // scale, `docs`'s own brief on why that approach was dropped).
+    // The one render that must field-compare every device's chassis —
+    // bounded by device count and field count, never stringified.
     expect(elapsedMs).toBeLessThan(1000);
   });
 

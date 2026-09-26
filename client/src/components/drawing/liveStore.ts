@@ -1,24 +1,13 @@
 /**
  * The drawing's own external store for anything hover, selection, the lit
- * path or a drag touches — GitHub issue #66. `Drawing.tsx` used to carry
- * every one of these straight into each React Flow node's `data`, so a
- * hover or a zoom tick rebuilt every node object, and React Flow drops a
- * node's measured size whenever its node object changes — a slow machine
- * saw nodes blink or stay blank. React Flow's own advice (their docs on a
- * large flow): keep this in a small store nodes subscribe to with a
- * selector, so a change here re-renders only the node whose OWN answer
- * changed, never the node object array itself.
- *
- * Deliberately not the deep-comparison approach tried before this: nothing
- * here is compared against a whole design, and nothing here is a memo whose
- * key is an object rebuilt every render — every subscriber picks its own
- * primitive (or small, referentially-stable) answer out of `LiveState`, and
- * `useSyncExternalStore`'s own `Object.is` check is what decides whether
- * that subscriber re-renders at all.
+ * path, drag or zoom-band state touches. A node reads its own answer via
+ * `useLive`'s selector, so a change here re-renders only the node whose own
+ * answer changed, never every node's object at once.
  */
 
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import type { Selection } from './contract';
+import type { CameraStop } from './geometry';
 
 export type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
 
@@ -36,9 +25,13 @@ export interface LiveState {
   dropPreview: DropPreview;
   /** The rack, if any, mid-shake after a refused drop. */
   shakingRackId: string | null;
-  /** s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — the selected
-   * chassis's own id while its config drawer is open, `null` otherwise. */
+  /** UI-SPEC "Config": "Plate stays above, dimmed" — the selected chassis's
+   * own id while its config drawer is open, `null` otherwise. */
   dimmedChassisId: string | null;
+  /** The camera's current stop — a shelf plate reads this instead of the
+   * viewport itself, so a wheel tick only re-renders a shelf when the stop
+   * it is in actually changes, not on every tick. */
+  cameraStop: CameraStop;
 }
 
 export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
@@ -52,6 +45,7 @@ export const INITIAL_LIVE_STATE: LiveState = {
   dropPreview: {},
   shakingRackId: null,
   dimmedChassisId: null,
+  cameraStop: 'rack',
 };
 
 export interface LiveStore {
