@@ -8,7 +8,9 @@ session to decide something already decided.
 **The target: a first usable version.** A person signs in, lands on a home page, draws a rack-first
 network diagram, saves it, finds it again in a basic inventory, and shares it view-only with a
 colleague, on the Docker stack, with the security foundation already built underneath. *Home and a
-basic inventory joined the target on 2026-09-15 (ADR-0046 §8).* Roughly six to nine sessions of the size of 2026-09-12/13.
+basic inventory joined the target on 2026-09-15 (ADR-0046 §8).* **Redefined by the owner on
+2026-09-22: usable means beta. Polished, the app basically done, a few features allowed to be
+missing, and the owner reaches a saved diagram unaided. Until then no document calls it usable.** Roughly six to nine sessions of the size of 2026-09-12/13.
 The vault, live multi-user editing, inventory, teaching, groups and LDAP come after, and are a
 comparable amount again.
 
@@ -126,9 +128,14 @@ owner decided:
 wrong with it: three fields, three links, a typed address to mismatch, a second factor a password
 manager could not see, and "app code". ADR-0056 replaces the sign-in page with one server-decided
 first-run flow (five screens), a two-step sign-in, an authenticator screen with a QR code, and the
-names every comparable product uses. The code follows the decision on the same branch. **Still
-first after it: the organisation claim over HTTP** (below), because a signed-in operator today has
-nothing to open.
+names every comparable product uses. Merged to `main` on 2026-09-22 as `ff11b43` (PR #35); the image
+built from that commit is the one to pull. The owner's deployment ran the ADR-0055 image with a
+password already set, so after the pull the server answers `done`, the two-step door appears, and
+the authenticator is set up from Home's account screen. Work paused that day at the owner's usage
+limit; the next session starts here. **Still first after it: the organisation claim over HTTP**
+(below), because a signed-in operator today has nothing to open, and it waits on one answer only
+the owner can give: keep a wrapped copy of the organisation's root private key for recovery
+holders, or discard it (`docs/OPEN-QUESTIONS.md`).
 
 
 **Built 2026-09-21: ADR-0055, one person, two custodies.** The owner's asks of that day are in:

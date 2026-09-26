@@ -6,9 +6,13 @@ it. Teaching and estate-of-record are co-equal goals.
 **Server product.** Data lives on the server; the browser is a window onto it. Multi-tenant, live
 multi-user editing, thousands of devices per design.
 
-**Status: first usable version, pending the owner's OSV gate run** (2026-09-19). The
-engine, server and rebuilt client are in; the rebuild's reasoning is `docs/REBUILD-PLAN.md`, and
-`docs/NEXT.md` says what is next.
+**Status: built and green, not yet usable** (2026-09-22). The engine, server and rebuilt client
+are in and every gate passes, but the owner's first real use found the product unusable: no
+organisation can be created over HTTP, so nothing downstream can be reached; empty states explain
+nothing; the operator's panel speaks the decision records' language; layout was never inspected by
+a person. **"Usable" is the owner's word and means beta: polished, the app basically done, a few
+features allowed to be missing.** Green gates do not grant it; a walkthrough by the owner does.
+The rebuild's reasoning is `docs/REBUILD-PLAN.md`, and `docs/NEXT.md` says what is next.
 
 ---
 
