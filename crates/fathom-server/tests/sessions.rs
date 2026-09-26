@@ -4106,7 +4106,7 @@ async fn an_empty_verification_code_asks_for_the_second_factor_and_leaves_the_ch
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "twostep").await;
     let account = enrolled.person.account.to_string();
@@ -4261,7 +4261,7 @@ async fn every_second_factor_probe_costs_one_source_unit_and_leaves_the_rest_alo
     let _serial = ADR55_SERIAL.lock().await;
     let pool = adr55_deployment().await;
     let ring = ring();
-    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), SignInLimits::defaults()).await);
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = adr55_credentials(&pool, Arc::clone(&ring)).await;
     let enrolled = adr55_enrolled(&pool, &ring, &store, &creds, "probecost").await;
     let account = enrolled.person.account.to_string();
