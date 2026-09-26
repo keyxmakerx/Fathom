@@ -1,29 +1,5 @@
-// Proves nodes never blink hidden, end to end in a real browser, against
-// the real compiled client (the shared throwaway harness —
-// `scripts/drive-lib/harness.tsx` + `seed.ts` + `catalogue.json`, copied
-// into `client/` and removed below, see `drive-config-drawer.mjs` for why a
-// scripted sign-in isn't available) — sixteen rack-mounted devices, one
-// cable between the first two.
-//
-// React Flow marks a node `visibility: hidden` in its own inline style
-// until it has been measured (`@xyflow/react`'s own `NodeWrapper`) —
-// dropped, and re-applied, whenever the `Node` object a caller hands it
-// changes reference. This installs a `MutationObserver` on every
-// `.react-flow__node`'s own `style` attribute AFTER the first draw (so the
-// node's own real, one-time initial measurement is never counted), then
-// hovers a cable, selects several devices, drags one (including a real
-// relocation, not a jiggle), and wheel-zooms, and asserts that observer
-// counted zero `visibility: hidden` transitions the whole time.
-//
-// Usage:
-//   bash scripts/build-wasm.sh                 # once, if the artefact is stale
-//   node scripts/drive-node-identity.mjs
-//   FATHOM_DRIVE_CPU_THROTTLE=6 node scripts/drive-node-identity.mjs   # slow only this tab
-//
-// Environment, all overridable: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT,
-// FATHOM_DRIVE_CPU_THROTTLE (`drive-lib/cpuThrottle.mjs`). Playwright is not
-// a repo dependency (ADR-0032 gate zero) — reached by absolute path, like
-// every other `scripts/drive-*`.
+// Proves no React Flow node blinks `visibility: hidden` (its own re-measure
+// flag) while a real browser hovers, selects, drags and wheel-zooms sixteen rack-mounted devices, against the real compiled client.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,7 +15,7 @@ const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 // Not shared with any other `scripts/drive-*.mjs` — `grep -h "PORT = "
-// scripts/drive-*.mjs` before picking a new one, per this drive's own brief.
+// scripts/drive-*.mjs` before picking a new one.
 const PORT = 18777;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SHOTS = `${process.env.FATHOM_SHOTS ?? join(tmpdir(), 'fathom-shots')}/`;
@@ -58,10 +34,8 @@ function check(name, ok, detail) {
 
 const DEVICE_COUNT = 16;
 
-// ---------------------------------------------------------------------------
 // Step 0: the wasm artefact — same check every drawing drive makes; never
 // built here silently.
-// ---------------------------------------------------------------------------
 const WASM_ARTIFACT = CLIENT + '/public/engine/fathom_wasm.wasm';
 if (!existsSync(WASM_ARTIFACT)) {
   console.log('==> building the wasm artefact (missing): bash scripts/build-wasm.sh');
@@ -69,9 +43,7 @@ if (!existsSync(WASM_ARTIFACT)) {
 }
 check('the wasm artefact exists', existsSync(WASM_ARTIFACT), WASM_ARTIFACT);
 
-// ---------------------------------------------------------------------------
 // Step 1: copy the shared throwaway harness into `client/`.
-// ---------------------------------------------------------------------------
 for (const f of [PREVIEW_HTML, PREVIEW_TSX, PREVIEW_SEED, PREVIEW_CATALOGUE]) {
   if (existsSync(f)) {
     console.error(`refusing to run: ${f} already exists (left from an earlier run?); remove it first`);
@@ -103,9 +75,7 @@ check('drive.tsx copied from drive-lib/harness.tsx', existsSync(PREVIEW_TSX));
 check('drive-seed.ts copied from drive-lib/seed.ts', existsSync(PREVIEW_SEED));
 check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PREVIEW_CATALOGUE));
 
-// ---------------------------------------------------------------------------
 // Step 2: the client dev server, this run's own port.
-// ---------------------------------------------------------------------------
 let viteProc = null;
 let browser = null;
 
@@ -153,9 +123,7 @@ try {
   );
   check(`the scene placed all ${DEVICE_COUNT} devices`, true);
 
-  // Let the very first draw's own real measurement settle (every node is
-  // genuinely unmeasured for one frame on mount — that is not this bug)
-  // before the observer starts counting.
+  // Let the very first draw's own real measurement settle before the observer starts counting.
   await page.waitForTimeout(500);
 
   await page.evaluate(() => {
@@ -175,12 +143,7 @@ try {
     window.__stopNodeIdentityObserver__ = () => observer.disconnect();
   });
 
-  // -------------------------------------------------------------------
-  // 0. Render-count budgets — this harness runs under `StrictMode` (dev
-  //    only), which double-invokes render, so a raw count here is up to
-  //    2x what the same gesture costs in production; the checker's own
-  //    production bench is the source for the literal numbers.
-  // -------------------------------------------------------------------
+  // Render-count budgets — `StrictMode` (dev only) double-invokes render, so a raw count here is up to 2x a production gesture's own cost.
   const chassisRenderDelta = async (gesture) => {
     const before = await page.evaluate(() => window.__cn ?? 0);
     await gesture();
@@ -205,9 +168,7 @@ try {
   await page.mouse.click(50, 50); // clear selection before the identity gestures below
   await page.waitForTimeout(150);
 
-  // -------------------------------------------------------------------
   // 1. Hover — the cable between dev-01 and dev-02.
-  // -------------------------------------------------------------------
   const cableEdge = page.locator('.react-flow__edge').first();
   await cableEdge.waitFor({ state: 'visible', timeout: 10_000 });
   const edgeBox = await cableEdge.boundingBox();
@@ -219,9 +180,7 @@ try {
   await page.waitForTimeout(200);
   check('1. hovered the cable between dev-01 and dev-02', edgeBox != null);
 
-  // -------------------------------------------------------------------
   // 2. Selection — click several different devices in turn.
-  // -------------------------------------------------------------------
   const chassisNodes = page.locator('.react-flow__node-chassis');
   for (const i of [0, 5, 10, 3, 15]) {
     await chassisNodes.nth(i).click();
@@ -229,17 +188,8 @@ try {
   }
   check('2. selected five different devices in turn', true);
 
-  // -------------------------------------------------------------------
-  // 3. Drag — dev-16 (unrelated to the cabled pair or anything selected
-  //    last), jiggled a few pixels and released back in the same slot
-  //    (`geometry.ts`'s own `snapDropToU` rounds a few px either way back
-  //    to the SAME `positionU` it started at). A gesture that ends with no
-  //    real edit at all — this proves the DRAG itself never disturbs a
-  //    node's own reference; a drop that genuinely relocates a device is a
-  //    real, one-time content change for that one device, a different
-  //    question from this drive's own ("nothing about this render should
-  //    disturb a node NOTHING changed for").
-  // -------------------------------------------------------------------
+  // Drag dev-16 a few pixels and release back in the same slot — a gesture
+  // with no real edit, so this proves the drag itself never disturbs a node's own reference.
   const dragged = chassisNodes.nth(15);
   const dragBox = await dragged.boundingBox();
   check('3. found a device to drag', dragBox != null);
@@ -255,12 +205,7 @@ try {
     await page.waitForTimeout(300);
   }
 
-  // -------------------------------------------------------------------
-  // 3b. A drag that actually relocates a device: the device must follow
-  //     the pointer live (checked mid-drag, before release) and settle at
-  //     the new slot after drop — not stay put, not merely jump there on
-  //     release.
-  // -------------------------------------------------------------------
+  // A drag that relocates a device: it must follow the pointer live and settle at the new slot after drop, not merely jump there on release.
   const dev1 = chassisNodes.nth(0);
   const dev1Before = await dev1.boundingBox();
   check('3b. found dev-01 to relocate', dev1Before != null);
@@ -283,9 +228,7 @@ try {
     check('3b. settled at the new slot after drop', settledMoved, dev1After ? `moved ${Math.abs(dev1After.y - dev1Before.y)}px` : 'no box');
   }
 
-  // -------------------------------------------------------------------
   // 4. Wheel-zoom — in, then out, at the pane's own centre.
-  // -------------------------------------------------------------------
   const paneBox = await page.locator('.react-flow__pane').boundingBox();
   check('4. found the pane to zoom', paneBox != null);
   if (paneBox) {

@@ -689,23 +689,12 @@ async function runProof(browser, seed) {
   const oneRefusalCount = await one.locator('.racks-place__refusal').count();
   check('browser one (steward): placing a device saves with no refusal', oneRefusalCount === 0, `refusal divs: ${oneRefusalCount}`);
   await openTheTrail(one); // folded to a strip on the right edge
-  // GitHub issue #66's own brief item 4: `.racks-trail__row`, never `> *` of
-  // `.racks-trail__rows` — an empty-state line (no changes yet) is a direct
-  // child of that wrapper too, and is not itself a row; counting `> *`
-  // would pass on an empty Trail exactly as easily as a real one.
+  // `.racks-trail__row`, never `> *` — an empty-state line is also a direct child of the wrapper, but is not itself a row.
   const trailRowsAfterFirstSave = await one.locator('.racks-trail__rows').first().locator('.racks-trail__row').count();
   check('browser one (steward): the Trail carries at least one entry after the first save', trailRowsAfterFirstSave >= 1);
 
-  // FOUND BUG, now fixed (`components/racks/RacksPlace.tsx`'s `handlePlace`):
-  // this drop mints a Premises and a Rack (`ensureRackToPlaceInto`) and then
-  // places the Chassis (`placeChassis`) — every one of those three calls
-  // used to dispatch with no `Actor` opts at all, so
-  // `document/commands.ts`'s own `resolve` fell back to
-  // `document/model.ts`'s `LOCAL_ACTOR` even while the steward is really
-  // signed in, and the Trail's newest row (`components/racks/trail.ts`'s
-  // `whoLabel`) read `'local'` for every one of the three rows this drop
-  // produced. Asserted here against the newest row, the one this drop just
-  // made.
+  // This drop mints a Premises and a Rack and places the Chassis — three
+  // commands, each dispatched with the steward's real `Actor`, so the Trail's newest row reads the steward, not `'local'`.
   const newestWho = (await one.locator('.racks-trail__row').first().locator('.racks-trail__col--who').innerText()).trim();
   check(
     "browser one (steward): the Trail's newest row names the signed-in account, not 'local' (LOCAL_ACTOR)",

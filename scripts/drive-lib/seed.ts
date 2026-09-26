@@ -281,13 +281,8 @@ export function seedDockerScene(catalogue: CatalogueModel[], me: string): Docume
   return doc;
 }
 
-/** GitHub issue #66's own drive (`scripts/drive-node-identity.mjs`): enough
- * rack-mounted devices, side by side, one to a unit, that a hover, a
- * selection, a drag or a wheel-zoom is touching many nodes nobody meant to
- * disturb at once — the same shape the reported bug needed ("a device
- * dragged onto a rack stayed hidden," "a hidden `.drawing-rack__frame`") to
- * show up under real load. One cable between the first two, so a hover has
- * something lit to prove stays lit rather than only proving nothing blinks. */
+/** Enough rack-mounted devices, side by side, that a hover, a selection, a
+ * drag or a wheel-zoom touches many nodes nobody meant to disturb. One cable between the first two, so a hover has something lit to prove stays lit. */
 export function seedManyDevicesScene(catalogue: CatalogueModel[], me: string, count = 16): Document {
   const { doc, rackId } = oneRack(catalogue, me);
   const model = catalogue.find((m) => m.model === 'EX4300-48P');
