@@ -10,7 +10,6 @@ import {
   type Edge,
   type FinalConnectionState,
   type IsValidConnection,
-  type Node,
   type NodeMouseHandler,
   type OnConnectEnd,
   type OnConnectStart,
@@ -32,48 +31,45 @@ import {
   MIN_ZOOM,
   RACK_HEADER_PX,
   RACK_INNER_PX,
-  RAIL_PX,
   U_PX,
   cableSagPath,
   cameraStopAt,
   overlapsRack,
   rackAtPoint,
   snapDropToU,
-  sortFreeRuns,
-  uToOffsetPx,
   zoomAboutPaneCentre,
 } from './geometry';
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
-import { IdCache, StableRef } from './idCache';
-import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider } from './liveStore';
-import { buildChassisNode, createChassisNodeCaches } from './nodeBuild';
-import {
-  faceplateItemsEqual,
-  placementEqual,
-  portalGroupEqual,
-  portSheathEqual,
-  rackSnapshotEqual,
-  shelfEqual,
-} from './nodeEquality';
-import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
-import { PortalTrayNode, PORTAL_TRAY_HEIGHT, type PortalTrayNodeData, type PortalTrayNodeType } from './PortalTrayNode';
-import { ROW_LABEL_WIDTH, RowLabelNode, type RowLabelNodeData, type RowLabelNodeType } from './RowLabelNode';
-import { ShelfPlate, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
-import { SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
-import { chassisNodeId, parseNodeId, rackNodeId, rowLabelNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { StableRef } from './idCache';
+import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
+import { portSheathEqual } from './nodeEquality';
+import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeType } from './RackNode';
+import { PortalTrayNode, type PortalTrayNodeType } from './PortalTrayNode';
+import { RowLabelNode, type RowLabelNodeType } from './RowLabelNode';
+import { ShelfPlate, type ShelfPlateNodeType } from './ShelfPlate';
+import { SurfaceNode, type SurfaceNodeType } from './SurfaceNode';
+import { chassisNodeId, parseNodeId, rackNodeId, surfaceNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
-import { groupPortals, portalCountLabel, type PortalGroup } from './portals';
+import { groupPortals, type PortalGroup } from './portals';
 import { sheathsFor } from './sheath';
 import { groupBundles } from './bundles';
 import { litPathFor } from './paths';
-import { faceplateItems, type FaceplateItem, powerLeadHandle, type Facing } from './elevation';
-import { layoutRow, layoutSurfaces, mirroredRackX, rowKey, type RowLayout, type SurfacePlacement } from './rows';
-import type { ShelfView } from '../../document/view';
-import type { RackSnapshot } from './nodeEquality';
+import { powerLeadHandle, type Facing } from './elevation';
+import {
+  layoutRow,
+  layoutSurfaces,
+  mirroredRackX,
+  RACK_GAP_PX,
+  ROW_GAP_PX,
+  rowBandY as rowBandYOf,
+  rowKey,
+  type RowLayout,
+} from './rows';
+import { buildDrawingNodes, createDrawingNodeCaches } from './buildDrawingNodes';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -84,10 +80,6 @@ const NODE_TYPES = {
   shelf: ShelfPlate,
 };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
-
-/** Vertical gap between one row's band and the next — session's own choice,
- * like `RACK_GAP_PX` beside it (below); not a document fact. */
-const ROW_GAP_PX = 64;
 
 /** ADR-0050 §2: "a rack with no row is its own row." `view.rows` is the
  * document builder's own logic (`document/view.ts`'s session note) and may
@@ -110,42 +102,11 @@ function rowsOf(view: Pick<ClosetView, 'rows' | 'racks'>): RowView[] {
   return order.map((key) => ({ label: byRow.get(key)![0]!.row, racks: byRow.get(key)! }));
 }
 
-/** The flow-space top of the `rowIndex`-th row's band — every row stacked
- * top to bottom, each band as tall as its tallest rack. */
+/** The flow-space top of the `rowIndex`-th row's band — `rows.ts`'s own
+ * `rowBandY`, fixed to this drawing's own rack height and row gap. */
 function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number): number {
-  let y = 0;
-  for (let i = 0; i < rowIndex; i += 1) {
-    const heights = rowLayouts[i]!.racks.map((r) => rackNodeHeight(r));
-    y += Math.max(0, ...heights) + ROW_GAP_PX;
-  }
-  return y;
+  return rowBandYOf(rowLayouts, rowIndex, rackNodeHeight, ROW_GAP_PX);
 }
-
-/** This session's brief items 2/3 — "Go to far end"/"Go to end A/B" both
- * select a port and pan the camera to its owning box at the faceplate
- * stop. This resolves WHICH React Flow node that is: the chassis node for a
- * rack chassis's own port (a PSU inlet included — the faceplate is always
- * the right box to land on, regardless of which handle a cable end actually
- * anchors to at this camera stop, `resolveEnd`'s own concern, below), the
- * shelf node for a shelf occupant's, the surface node for a surface
- * fixture's — `locatePort`'s own three places, the same one `resolveEnd`
- * already walks for a cable end. `null` when this view carries no such
- * port, never invented. */
-function ownerNodeIdForPort(view: ClosetView, portId: string): string | null {
-  const location = locatePort(view, portId);
-  if (location == null) return null;
-  if (location.place === 'chassis') return chassisNodeId(location.chassis.id);
-  if (location.place === 'shelf') return shelfNodeId(location.shelf.id);
-  return surfaceNodeId(location.surface.id);
-}
-
-/** Gap between a rack's frame and the portal tray(s) drawn above or below
- * it — session's own choice, not a board's literal pixel (`Main.dc.html`'s
- * two trays sit at a different overall scale than this drawing's flow
- * space). Kept small enough that the sagging cable connecting them reads
- * as continuous with the rack, per UI-SPEC "Portals": "Not either/or —
- * both." */
-const TRAY_GAP_PX = 12;
 
 /** The live drooping lead while a drag-to-connect is in progress — UI-SPEC
  * "Motion" #1: "Cable droops as you pull it," and "Cables": "you see the
@@ -160,15 +121,15 @@ function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps
   );
 }
 
-/** Session-only gap between racks placed side by side — not a document
- * fact, never saved (brief: "remembered in component state only in this
- * session"; persisting layout is `OPEN-QUESTIONS` D5). */
-const RACK_GAP_PX = 96;
-
 /** How long the shake plays before the rejected drop's mark clears —
  * UI-SPEC "Motion" #2: "target shakes once sideways, lead springs back."
  * Matches `drawing.css`'s `--drawing-shake-ms`. */
 const SHAKE_MS = 220;
+
+/** This session's brief item 2 — how long a wheel tick (or a pan) must go
+ * quiet before its viewport is committed to React state, rather than every
+ * single tick. */
+const WHEEL_SETTLE_MS = 100;
 
 /** This session's brief item 5, the "Show on rack" fix — whether the
  * mount-time "fit every rack" camera move (the `allRacksPositioned` effect,
@@ -289,6 +250,31 @@ interface PendingConnect {
  * `RACK_GAP_PX`'s own session-only layout follows). */
 type LastSheathByKind = Partial<Record<CableKind, Sheath>>;
 
+interface LiveLitPathProps {
+  view: ClosetView;
+  portalGroups: readonly PortalGroup[];
+  selected: Selection | null;
+  liveStore: LiveStore;
+}
+
+/** This session's brief item 3 — a cable's own hover must not re-render
+ * `Drawing.tsx`. Subscribed to `liveStore.ts`'s own `hoveredCableId`
+ * (written there directly by a cable's or a rail hexagon's hover, never
+ * through `Drawing.tsx`'s state), this is the one place that recomputes the
+ * lit path and writes it back — so only this component re-renders on a
+ * hover, never the node-building loop below it. */
+function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathProps) {
+  const hoveredCableId = useLive((s) => s.hoveredCableId);
+  const litCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
+  const litPath = useMemo(() => (litCableId ? litPathFor(view, litCableId, portalGroups) : null), [view, litCableId, portalGroups]);
+  const litCableIdSet = useMemo(() => new Set(litPath?.cableIds ?? []), [litPath]);
+  const litTrayKeySet = useMemo(() => new Set(litPath?.trayKeys ?? []), [litPath]);
+  useLayoutEffect(() => {
+    liveStore.setState({ litCableId, litCableIdSet, litTrayKeySet });
+  }, [liveStore, litCableId, litCableIdSet, litTrayKeySet]);
+  return null;
+}
+
 function DrawingInner({
   view,
   selected,
@@ -316,24 +302,11 @@ function DrawingInner({
   // drawing draws via `LiveStoreProvider` below.
   const [liveStore] = useState(() => createLiveStore());
   // Each node object (and its `data`) keeps its reference unless the
-  // device, rack, shelf, surface or tray it draws actually changed — these
-  // caches are what "actually changed" is decided against, keyed by id and
-  // compared field by field (`nodeEquality.ts`), never by stringifying the
-  // whole thing. One instance per mounted drawing, like `liveStore` above.
-  const nodeCacheRef = useRef(new IdCache<Node>());
-  const faceplateItemsCacheRef = useRef(new IdCache<readonly FaceplateItem[]>());
-  const chassisNodeCachesRef = useRef(createChassisNodeCaches());
-  const rackSnapshotRef = useRef(new StableRef<RackSnapshot>());
-  // `items` (`faceplateItemsCacheRef`, below) gets a fresh array reference
-  // on ANY document edit, even one that touched nothing in THIS rack (every
-  // rack's own `chassis` array is rebuilt by `viewOf` on any edit at all) —
-  // compared field by field and handed back the previous reference when
-  // nothing in it actually changed, the same treatment `portSheath` below
-  // gets.
-  const itemsRef = useRef(new StableRef<readonly FaceplateItem[]>());
-  const shelfRef = useRef(new StableRef<ShelfView>());
-  const placementRef = useRef(new StableRef<SurfacePlacement>());
-  const portalGroupRef = useRef(new StableRef<PortalGroup>());
+  // device, rack, shelf, surface or tray it draws actually changed —
+  // `buildDrawingNodes.ts`'s own caches, decided against field by field
+  // (`nodeEquality.ts`), never by stringifying the whole thing. One
+  // instance per mounted drawing, like `liveStore` above.
+  const drawingNodeCachesRef = useRef(createDrawingNodeCaches());
   // `portSheath` (below) is a `Map`, rebuilt with a fresh reference on ANY
   // document edit (`view.cables` is rebuilt fresh by `viewOf` even when the
   // edit touched nothing about a cable) — handed back its previous
@@ -376,7 +349,11 @@ function DrawingInner({
   const [dragFromPortId, setDragFromPortId] = useState<string | null>(null);
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
-  const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
+  // This session's brief item 3 — writes straight to `liveStore.ts` rather
+  // than to component state, so hovering a cable or a rail hexagon never
+  // re-renders this component. Permanently stable, like the `useState`
+  // setter it replaces.
+  const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId }), [liveStore]);
   // This session's brief item 1 — the cables view control: "the choice is
   // per browser (localStorage, wrapped in try/catch) and never saved to the
   // document." Read once, lazily, on mount (`useState`'s own initialiser
@@ -466,6 +443,7 @@ function DrawingInner({
   // — used directly as a node cache dependency below, so an edit touching
   // no cable's colour never invalidates every chassis, shelf and surface.
   const portSheath = portSheathRef.current.get('portSheath', freshPortSheath, portSheathEqual);
+  portSheathRef.current.sweep();
 
   // ADR-0050 §2: "the closet stop arranges racks by row, bays left to right
   // as seen from the front." Every rack's position is derived from
@@ -550,6 +528,48 @@ function DrawingInner({
   // manual scroll-zoom already takes (`handleViewportChange`, below).
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
   const allRacksPositioned = view.racks.every((r) => rackPositions[r.id] != null);
+
+  // `handleViewportChange` (below) applies a wheel tick's own zoom locally
+  // the same instant it reports the rounded percentage upward; that
+  // report's own echo can arrive back here after a LATER tick has already
+  // moved `viewport` on. `pendingEchoRef` is the most recent percentage
+  // this component itself reported and has not yet seen come back — when
+  // the incoming `zoom` matches it exactly, it is skipped rather than
+  // reapplied, so it never fights a wheel still turning.
+  const pendingEchoRef = useRef<number | null>(null);
+  // This session's brief item 1 — set while a `setCenter`/`fitView` move is
+  // in flight. React Flow drives that move's own frames straight into its
+  // internal store; echoing each of them back into this controlled
+  // `viewport` prop hands it a fresh "jump here," which cancels the move
+  // after its first frame. `handleViewportChange` skips the echo entirely
+  // until `runProgrammaticMove`'s own `.then` clears this and commits once.
+  const programmaticMoveRef = useRef(false);
+  const liveViewportRef = useRef(viewport);
+  const wheelSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const commitViewport = useCallback(
+    (vp: Viewport) => {
+      setViewport(vp);
+      const pct = Math.round(vp.zoom * 100);
+      if (pct !== zoom) {
+        pendingEchoRef.current = pct;
+        onZoomChange(pct);
+      }
+    },
+    [zoom, onZoomChange],
+  );
+
+  const runProgrammaticMove = useCallback(
+    (move: () => Promise<boolean>) => {
+      programmaticMoveRef.current = true;
+      void move().then(() => {
+        programmaticMoveRef.current = false;
+        commitViewport(rf.getViewport());
+      });
+    },
+    [commitViewport, rf],
+  );
+
   // This session's brief item 5: guards the race `shouldFitOnMount` above
   // documents — flips true on the first qualifying run and stays there, so
   // only that first run can ever be skipped.
@@ -560,7 +580,7 @@ function DrawingInner({
     hasFitOnceRef.current = true;
     if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     const raf = requestAnimationFrame(() => {
-      void rf.fitView(rackFitViewOptions(view.racks));
+      runProgrammaticMove(() => rf.fitView(rackFitViewOptions(view.racks)));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -576,15 +596,8 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rackIdsKey, allRacksPositioned, rf]);
 
-  // `handleViewportChange` (below) applies a wheel tick's own zoom locally
-  // the same instant it reports the rounded percentage upward; that
-  // report's own echo can arrive back here after a LATER tick has already
-  // moved `viewport` on. `pendingEchoRef` is the most recent percentage
-  // this component itself reported and has not yet seen come back — when
-  // the incoming `zoom` matches it exactly, it is skipped rather than
-  // reapplied, so it never fights a wheel still turning.
-  const pendingEchoRef = useRef<number | null>(null);
   useEffect(() => {
+    if (programmaticMoveRef.current) return; // a move already owns the echo; let it finish and commit once
     if (pendingEchoRef.current === zoom) {
       pendingEchoRef.current = null;
       return;
@@ -604,20 +617,35 @@ function DrawingInner({
   useEffect(() => {
     if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
     prevFitRequestRef.current = fitRequest;
-    void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? []));
-  }, [fitRequest, rf, view.racks, view.surfaces]);
+    runProgrammaticMove(() => rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [])));
+  }, [fitRequest, rf, view.racks, view.surfaces, runProgrammaticMove]);
 
+  // This session's brief item 2 — a wheel tick, pinch or drag calls this
+  // every frame, but `cameraStop` and the `--zoom`/`--zoom-pct` styling only
+  // need the answer once it settles: this commits into React state right
+  // away when the stop it reads as actually changes (every other render in
+  // this component depends on that), and otherwise only once
+  // `WHEEL_SETTLE_MS` passes with no further tick — never on every one of
+  // them. A programmatic move in flight skips this entirely; it commits its
+  // own landed viewport once itself (`runProgrammaticMove`, above).
   const handleViewportChange = useCallback(
     (vp: Viewport) => {
-      setViewport(vp);
-      const pct = Math.round(vp.zoom * 100);
-      if (pct !== zoom) {
-        pendingEchoRef.current = pct;
-        onZoomChange(pct);
+      liveViewportRef.current = vp;
+      if (programmaticMoveRef.current) return;
+      if (wheelSettleTimerRef.current != null) clearTimeout(wheelSettleTimerRef.current);
+      const crossedStop = cameraStopAt(Math.round(vp.zoom * 100)) !== cameraStopAt(Math.round(viewport.zoom * 100));
+      if (crossedStop) {
+        commitViewport(vp);
+        return;
       }
+      wheelSettleTimerRef.current = setTimeout(() => commitViewport(liveViewportRef.current), WHEEL_SETTLE_MS);
     },
-    [zoom, onZoomChange],
+    [viewport.zoom, commitViewport],
   );
+
+  useEffect(() => () => {
+    if (wheelSettleTimerRef.current != null) clearTimeout(wheelSettleTimerRef.current);
+  }, []);
 
   const triggerShake = useCallback((id: string) => {
     if (shakeTimer.current != null) clearTimeout(shakeTimer.current);
@@ -653,16 +681,6 @@ function DrawingInner({
     if (rowIndex == null) return 'front';
     return rowFacing[rowKey(rowViews[rowIndex]!, rowIndex)] ?? 'front';
   }
-
-  // UI-SPEC "Selection" + "Keeping it readable at forty cables" #3 / s6f #2:
-  // hoisted ahead of the node-building loop below (unlike `litPath`'s own
-  // fuller derivation, further down, which needs `portalGroups` that loop
-  // has not built yet) so a rail hexagon's own hover — the same
-  // `setHoveredCableId` `onHoverChange` already gives a `CableEdge`,
-  // `RackNode.tsx`'s `onHoverInlet` below — marks its inlet's own glyph in
-  // the same pass a cable's own hover already marks the cable itself,
-  // "the same hover key" both read off `ChassisNodeData.litCableId`.
-  const litCableId = selected?.kind === 'cable' ? selected.id : (hoveredCableId ?? null);
 
   // ADR-0052 §1/§4/§5, this session's brief items 2/3 — the config drawer
   // (item 2, `renderConfigDrawer`) and the inside stop (item 3,
@@ -752,218 +770,29 @@ function DrawingInner({
   const handleSelectPort = useCallback((portId: string) => onSelect({ kind: 'port', id: portId }), [onSelect]);
   const handleSelectFixture = useCallback((fixtureId: string) => onSelect({ kind: 'fixture', id: fixtureId }), [onSelect]);
 
-  const nodes: Node[] = [];
+  // One stable function per node kind, shared instead of built fresh per
+  // node per render.
+  const onFlipRow = useCallback((key: string) => setRowFacing((prev) => ({ ...prev, [key]: prev[key] === 'rear' ? 'front' : 'rear' })), []);
+  const onFlipRack = useCallback(
+    (rackId: string) => setRackFacing((prev) => ({ ...prev, [rackId]: prev[rackId] === 'rear' ? 'front' : 'rear' })),
+    [],
+  );
+  const onSelectShelf = useCallback((shelfId: string) => onSelect({ kind: 'shelf', id: shelfId }), [onSelect]);
+  // Motion #10: "A box on a shelf opens at the faceplate stop by the same
+  // camera as everything else" — one continuous `setCenter`, never a
+  // second, independent jump.
+  const onOpenShelfOccupant = useCallback(
+    (occupantId: string, centreX: number, centreY: number) => {
+      onSelect({ kind: 'occupant', id: occupantId });
+      runProgrammaticMove(() => rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 }));
+    },
+    [onSelect, runProgrammaticMove, rf],
+  );
 
-  // s6g #1, UI-SPEC "Config": "Plate stays above, dimmed" — the selected
-  // chassis's own flow-space centre, captured while its `basePosition` is
-  // computed below, so the camera-recentre effect further down (which keeps
-  // this plate above the config drawer rather than covering it) has a real
-  // point to centre on without a second walk of `view.racks`.
-  let selectedChassisFlowCentre: { x: number; y: number } | null = null;
-
-  rowLayouts.forEach((layout, rowIndex) => {
-    const y = rowBandY(rowLayouts, rowIndex);
-    if (cameraStop === 'closet' && layout.racks.length > 0) {
-      const key = rowKey(rowViews[rowIndex]!, rowIndex);
-      const bandHeight = Math.max(0, ...layout.racks.map((r) => rackNodeHeight(r)));
-      // Kept across a render none of these deps touched — `IdCache.get`'s
-      // own `build` thunk only runs on a miss.
-      nodes.push(
-        nodeCacheRef.current.get(rowLabelNodeId(key), [layout.label, layout.elevation, bandHeight, y], () => ({
-          id: rowLabelNodeId(key),
-          type: 'rowLabel',
-          position: { x: -(ROW_LABEL_WIDTH + RACK_GAP_PX / 2), y },
-          draggable: false,
-          selectable: false,
-          width: ROW_LABEL_WIDTH,
-          height: bandHeight,
-          style: { width: ROW_LABEL_WIDTH, height: bandHeight },
-          data: {
-            label: layout.label,
-            elevation: layout.elevation,
-            onFlip: () => setRowFacing((prev) => ({ ...prev, [key]: prev[key] === 'rear' ? 'front' : 'rear' })),
-          } satisfies RowLabelNodeData,
-        })),
-      );
-    }
-
-    for (const rack of layout.racks) {
-      const pos = rackPositions[rack.id] ?? { x: 0, y };
-      const elevation = elevationFor(rack.id);
-      // ADR-0050 §1: every mounted chassis draws at every elevation now —
-      // as its own faceplate for this face, or a plain plate when it has
-      // none — so this is no longer a filtered subset the way the retired
-      // `faces.ts`'s `chassisToDraw` was. Cached per rack id, keyed on
-      // `rack.chassis`'s own reference and `elevation`: `view` itself is
-      // unchanged across a hover/selection/zoom/drag render (`RacksPlace.tsx`
-      // memoises it on `[doc, catalogue]`), so `rack.chassis` — and so
-      // `items`, and so every `item.ports`/`.inlets` array nested in it — is
-      // the SAME reference on every one of those renders, never rebuilt.
-      const freshItems = faceplateItemsCacheRef.current.get(rack.id, [rack.chassis, elevation], () =>
-        faceplateItems(rack.chassis, elevation),
-      );
-      const items = itemsRef.current.get(rack.id, freshItems, faceplateItemsEqual);
-
-      // `rack` itself is a fresh object on every real edit (`viewOf` rebuilds
-      // the whole `ClosetView`, structural sharing included) — this reduces
-      // to THIS rack's own bounded slice of fields (never the design around
-      // it), so an edit to some OTHER device still reads as "this rack did
-      // not change" here. `rack.freeRuns` is sorted first (`geometry.ts`'s
-      // own `sortFreeRuns`) since `document/view.ts` gives no ordering
-      // guarantee across a rebuild — a no-op move would otherwise read as a
-      // change.
-      const rackSnapshot = rackSnapshotRef.current.get(
-        rack.id,
-        { label: rack.label, heightU: rack.heightU, freeRuns: sortFreeRuns(rack.freeRuns) },
-        rackSnapshotEqual,
-      );
-      nodes.push(
-        nodeCacheRef.current.get(rackNodeId(rack.id), [rackSnapshot, items, elevation, pos.x, pos.y, canDraw], () => ({
-          id: rackNodeId(rack.id),
-          type: 'rack',
-          position: pos,
-          draggable: canDraw,
-          selectable: true,
-          width: RACK_NODE_WIDTH,
-          height: rackNodeHeight(rack),
-          style: { width: RACK_NODE_WIDTH, height: rackNodeHeight(rack) },
-          data: {
-            rack,
-            chassisItems: items,
-            elevation,
-            onFlip: () => setRackFacing((prev) => ({ ...prev, [rack.id]: prev[rack.id] === 'rear' ? 'front' : 'rear' })),
-            // s6f #2: reuses `setHoveredCableId` itself — the exact function
-            // a `CableEdge`'s own `onHoverChange` already calls, and itself
-            // a `useState` setter, permanently stable — so a rail hexagon's
-            // hover and a cable's own hover write the same state, and this
-            // dependency never invalidates the cache above on its own.
-            onHoverInlet: setHoveredCableId,
-          } satisfies RackNodeData,
-        })),
-      );
-
-      for (const item of items) {
-        const { chassis } = item;
-        // The document's own position, unless this is the one chassis
-        // actively being dragged — then `dragOverride` (a pointer-move
-        // callback, not a render-time computation) wins instead, so the
-        // dragged chassis follows the pointer.
-        const documentPosition = {
-          x: pos.x + RAIL_PX,
-          y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
-        };
-        const nodePosition =
-          dragOverride != null && dragOverride.id === chassisNodeId(chassis.id) ? dragOverride.position : documentPosition;
-        // `nodeBuild.ts`'s own `buildChassisNode` — pulled out of this loop
-        // so a vitest can call the SAME code this loop calls, with the SAME
-        // caches, across more than one call (`renderToStaticMarkup` runs a
-        // component once; this needs no renderer at all to exercise twice).
-        nodes.push(
-          buildChassisNode(
-            chassis,
-            item.ports,
-            item.inlets,
-            elevation,
-            nodePosition,
-            canDraw,
-            portSheath,
-            handleSelectPort,
-            RACK_INNER_PX,
-            chassis.heightU * U_PX,
-            chassisNodeCachesRef.current,
-          ),
-        );
-        if (chassis.id === selectedChassis?.id) {
-          selectedChassisFlowCentre = {
-            x: nodePosition.x + RACK_INNER_PX / 2,
-            y: nodePosition.y + (chassis.heightU * U_PX) / 2,
-          };
-        }
-      }
-
-      // ADR-0051 §1/§2: a shelf takes rack units exactly as a chassis does —
-      // one sibling React Flow node per `ShelfView`, positioned at its own
-      // `positionU`/`.heightU` the same way `basePosition` above lays out a
-      // chassis, never listed among `rack.chassis` (`document/view.ts`'s own
-      // `rackView` keeps the two apart).
-      for (const shelf of rack.shelves) {
-        const shelfPosition = {
-          x: pos.x + RAIL_PX,
-          y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, shelf.positionU, shelf.heightU),
-        };
-        const shelfSnapshot = shelfRef.current.get(shelf.id, shelf, shelfEqual);
-        nodes.push(
-          nodeCacheRef.current.get(
-            shelfNodeId(shelf.id),
-            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort],
-            () => ({
-              id: shelfNodeId(shelf.id),
-              type: 'shelf',
-              position: shelfPosition,
-              // Selection/opening is handled inside `ShelfPlate.tsx` itself
-              // (its own `onClick`, stopped before it reaches React Flow) —
-              // the same `draggable: false, selectable: false` choice this
-              // component already makes for a `SurfaceNode`, above.
-              draggable: false,
-              selectable: false,
-              zIndex: 10,
-              width: RACK_INNER_PX,
-              height: shelf.heightU * U_PX,
-              style: { width: RACK_INNER_PX, height: shelf.heightU * U_PX },
-              data: {
-                shelf: shelfSnapshot,
-                elevation,
-                // `api/catalogue.ts` carries no shelf slot-capacity field
-                // yet — `ShelfPlateNodeData.slotCount`'s own doc on why
-                // `null` (occupants only, no gap invented) is the honest
-                // reading until it does.
-                slotCount: null,
-                onSelectShelf: () => onSelect({ kind: 'shelf', id: shelf.id }),
-                onSelectOccupant: (occupantId: string) => {
-                  onSelect({ kind: 'occupant', id: occupantId });
-                  // Motion #10: "A box on a shelf opens at the faceplate
-                  // stop by the same camera as everything else" — one
-                  // continuous `setCenter`, the same camera every other
-                  // zoom change in this drawing already moves, never a
-                  // second, independent jump.
-                  const centreX = shelfPosition.x + RACK_INNER_PX / 2;
-                  const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
-                  void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
-                },
-                onSelectPort: handleSelectPort,
-                portSheath,
-              } satisfies ShelfPlateNodeData,
-            }),
-          ),
-        );
-      }
-    }
-  });
-
-  // UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
-  // `.drawing-config-drawer` reserves the pane's own bottom
-  // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
-  // chassis inside the remaining top strip, centred in it, whenever the
-  // drawer opens — an edge-triggered `setCenter`, fired once on the
-  // transition into "a chassis is selected and the camera reads the
-  // faceplate stop," never on every zoom tick while it stays there, so a
-  // person's own subsequent pan or scroll is never fought mid-read. One
-  // camera, glide and all — UI-SPEC "Motion" #10.
-  const configDrawerOpen = configDrawerContent != null;
-  useEffect(() => {
-    if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
-    const paneHeight = containerRef.current?.clientHeight ?? 0;
-    if (paneHeight === 0) return;
-    const zoomLevel = CAMERA_STOPS.faceplate / 100;
-    const DRAWER_HEIGHT_FRACTION = 0.46; // matches `drawing.css`'s own literal
-    const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
-    const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
-    void rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
-    // on purpose (see comment above): `selectedChassisFlowCentre` itself is
-    // rebuilt fresh every render and would fire this on every pixel of a
-    // person's own drag or scroll if it were a dependency.
-  }, [configDrawerOpen, selectedChassis?.id, rf]);
+  // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
+  // `portals.ts` does the grouping; `buildDrawingNodes.ts` lays the
+  // resulting boxes out above or below their rack.
+  const portalGroups = useMemo(() => groupPortals(view), [view]);
 
   // ADR-0051 §1/§2, `design/places/renders/Surfaces.png`: the closet layout
   // places surfaces after the rows, walls to the right of their premises'
@@ -995,64 +824,68 @@ function DrawingInner({
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
   );
 
-  for (const placement of [...surfacesLayout.panels, ...(surfacesLayout.floor ? [surfacesLayout.floor] : [])]) {
-    // `placement` itself carries the whole surface, fixtures and all — see
-    // `rows.ts`'s own `SurfacePlacement`. Fingerprinted the same way a
-    // rack/chassis/shelf is (`idCache.ts`'s own file header): a hover- or
-    // zoom-only render reuses this instantly (`view` itself unchanged,
-    // `surfacesLayout`'s own `useMemo` above keeps `placement`'s reference
-    // too), a real edit re-stringifies only this one surface's own bounded
-    // slice.
-    const placementSnapshot = placementRef.current.get(placement.surface.id, placement, placementEqual);
-    nodes.push(
-      nodeCacheRef.current.get(
-        surfaceNodeId(placement.surface.id),
-        [placementSnapshot, portSheath, handleSelectPort, handleSelectFixture],
-        () => ({
-          id: surfaceNodeId(placement.surface.id),
-          type: 'surface',
-          position: { x: placementSnapshot.x, y: placementSnapshot.y },
-          draggable: false,
-          selectable: false,
-          width: placementSnapshot.widthPx,
-          height: placementSnapshot.heightPx,
-          style: { width: placementSnapshot.widthPx, height: placementSnapshot.heightPx },
-          data: {
-            placement: placementSnapshot,
-            uPx: U_PX,
-            onSelectPort: handleSelectPort,
-            // ADR-0051 §1/§2 — "clicking a fixture on a surface selects it."
-            onSelectFixture: handleSelectFixture,
-            portSheath,
-          } satisfies SurfaceNodeData,
-        }),
-      ),
-    );
-  }
+  // This session's brief item 5 — every rack, chassis, shelf, surface and
+  // tray node this closet draws, built by `buildDrawingNodes.ts`'s own pure
+  // function so a vitest can exercise the same code and caches this
+  // component calls, with no DOM at all.
+  const { nodes, selectedChassisFlowCentre, selectedPortOwnerCentre } = buildDrawingNodes(
+    {
+      view,
+      rowViews,
+      rowLayouts,
+      rackPositions,
+      cameraStop,
+      elevationFor,
+      canDraw,
+      portSheath,
+      dragOverride,
+      selectedChassisId: selectedChassis?.id ?? null,
+      selected,
+      handleSelectPort,
+      handleSelectFixture,
+      onFlipRow,
+      onFlipRack,
+      onSelectShelf,
+      onOpenShelfOccupant,
+      onHoverInlet: handleHoverCable,
+      surfacesLayout,
+      portalGroups,
+    },
+    drawingNodeCachesRef.current,
+  );
 
-  // This session's brief items 2/3 — "Go to far end"/"Go to end A/B ...
-  // pans the camera to it at the faceplate stop, one camera." Every rack
-  // chassis, shelf and surface node this closet draws is on `nodes` by now
-  // (the rows loop and the surfaces loop just above, both already run) —
-  // this reads the SELECTED port's own owning box straight off that array,
-  // the same "search what is already built" reading `resolveEnd`'s own
-  // `findAnyPort`/`resolvePlaceNode` already give a cable end, below.
+  // UI-SPEC "Config": "Plate stays above, dimmed" — `drawing.css`'s
+  // `.drawing-config-drawer` reserves the pane's own bottom
+  // `DRAWER_HEIGHT_FRACTION` for the drawer; this keeps the selected
+  // chassis inside the remaining top strip, centred in it, whenever the
+  // drawer opens — an edge-triggered `setCenter`, fired once on the
+  // transition into "a chassis is selected and the camera reads the
+  // faceplate stop," never on every zoom tick while it stays there, so a
+  // person's own subsequent pan or scroll is never fought mid-read. One
+  // camera, glide and all — UI-SPEC "Motion" #10.
+  const configDrawerOpen = configDrawerContent != null;
+  useEffect(() => {
+    if (!configDrawerOpen || selectedChassisFlowCentre == null) return;
+    const paneHeight = containerRef.current?.clientHeight ?? 0;
+    if (paneHeight === 0) return;
+    const zoomLevel = CAMERA_STOPS.faceplate / 100;
+    const DRAWER_HEIGHT_FRACTION = 0.46; // matches `drawing.css`'s own literal
+    const plateScreenFraction = (1 - DRAWER_HEIGHT_FRACTION) / 2; // the visible strip's own midpoint
+    const targetY = selectedChassisFlowCentre.y + (paneHeight * (0.5 - plateScreenFraction)) / zoomLevel;
+    runProgrammaticMove(() => rf.setCenter(selectedChassisFlowCentre.x, targetY, { zoom: zoomLevel, duration: 300 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
+    // on purpose (see comment above): `selectedChassisFlowCentre` itself is
+    // rebuilt fresh every render and would fire this on every pixel of a
+    // person's own drag or scroll if it were a dependency.
+  }, [configDrawerOpen, selectedChassis?.id, rf]);
+
+  // This session's brief items 2/3 — "Go to far end"/"Go to end A/B" pans
+  // the camera to the selected port's own owning box at the faceplate stop,
+  // one camera (`buildDrawingNodes.ts` resolves which box that is).
   const selectedPortId = selected?.kind === 'port' ? selected.id : null;
-  let selectedPortOwnerCentre: { x: number; y: number } | null = null;
-  if (selectedPortId != null) {
-    const ownerNodeId = ownerNodeIdForPort(view, selectedPortId);
-    const ownerNode = ownerNodeId != null ? nodes.find((n) => n.id === ownerNodeId) : undefined;
-    if (ownerNode != null) {
-      const style = ownerNode.style ?? {};
-      const w = typeof style.width === 'number' ? style.width : 0;
-      const h = typeof style.height === 'number' ? style.height : 0;
-      selectedPortOwnerCentre = { x: ownerNode.position.x + w / 2, y: ownerNode.position.y + h / 2 };
-    }
-  }
-
   useEffect(() => {
     if (selectedPortId == null || selectedPortOwnerCentre == null) return;
-    void rf.setCenter(selectedPortOwnerCentre.x, selectedPortOwnerCentre.y, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 });
+    runProgrammaticMove(() => rf.setCenter(selectedPortOwnerCentre.x, selectedPortOwnerCentre.y, { zoom: CAMERA_STOPS.faceplate / 100, duration: 300 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
     // on the selected port's own id alone, the same reasoning
     // `configDrawerOpen`'s own effect above already gives
@@ -1060,75 +893,6 @@ function DrawingInner({
     // listing it here would fire this on every pixel of a person's own pan
     // or scroll once a port happens to be selected.
   }, [selectedPortId, rf]);
-
-  // UI-SPEC "Portals": one tray node per (rack, side, far label) group —
-  // `portals.ts` does the grouping; this only lays the resulting boxes out
-  // above or below their rack, stacking more than one on the same side.
-  const portalGroups = useMemo(() => groupPortals(view), [view]);
-
-  // UI-SPEC "Selection" + "Keeping it readable at forty cables" #3: the
-  // selected (or hovered) cable's *whole physical path* lights at full
-  // opacity with a pale halo — through a panel's paired port, out to a
-  // portal tray — and everything off that path sits at the phantom
-  // opacity. Nothing lit leaves every cable at its plain, undimmed colour.
-  // (`litCableId` itself is computed above, ahead of the node-building loop.)
-  const somethingLit = litCableId != null;
-  const litPath = useMemo(
-    () => (litCableId ? litPathFor(view, litCableId, portalGroups) : null),
-    [view, litCableId, portalGroups],
-  );
-  const litCableIdSet = useMemo(() => new Set(litPath?.cableIds ?? []), [litPath]);
-  const litTrayKeySet = useMemo(() => new Set(litPath?.trayKeys ?? []), [litPath]);
-
-  const traySlots: Record<string, number> = {};
-  for (const group of portalGroups) {
-    const pos = rackPositions[group.rackId];
-    if (pos == null) continue;
-    const rack = view.racks.find((r) => r.id === group.rackId);
-    if (rack == null) continue;
-    const slotKey = `${group.rackId}|${group.side}`;
-    const slot = traySlots[slotKey] ?? 0;
-    traySlots[slotKey] = slot + 1;
-    const y =
-      group.side === 'above'
-        ? pos.y - (slot + 1) * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX)
-        : pos.y + rackNodeHeight(rack) + TRAY_GAP_PX + slot * (PORTAL_TRAY_HEIGHT + TRAY_GAP_PX);
-    // `PortalTrayNode.tsx` reads whether it is lit off `liveStore.ts`'s
-    // `litTrayKeySet` itself, keyed by `group.key` (`trayKey` below).
-    const groupSnapshot = portalGroupRef.current.get(group.key, group, portalGroupEqual);
-    nodes.push(
-      nodeCacheRef.current.get(trayNodeId(group.key), [groupSnapshot, pos.x, y], () => ({
-          id: trayNodeId(group.key),
-          type: 'tray',
-          position: { x: pos.x, y },
-          draggable: false,
-          selectable: false,
-          width: RACK_NODE_WIDTH,
-          height: PORTAL_TRAY_HEIGHT,
-          style: { width: RACK_NODE_WIDTH, height: PORTAL_TRAY_HEIGHT },
-          data: {
-            label: groupSnapshot.label,
-            countLabel: portalCountLabel(groupSnapshot),
-            side: groupSnapshot.side,
-            trayKey: groupSnapshot.key,
-          } satisfies PortalTrayNodeData,
-        }),
-      ),
-    );
-  }
-
-  // Drop any entry this render never asked for — a rack, chassis, shelf,
-  // surface, tray or item a document edit removed.
-  nodeCacheRef.current.sweep();
-  faceplateItemsCacheRef.current.sweep();
-  chassisNodeCachesRef.current.nodeCache.sweep();
-  chassisNodeCachesRef.current.chassisRef.sweep();
-  rackSnapshotRef.current.sweep();
-  itemsRef.current.sweep();
-  shelfRef.current.sweep();
-  placementRef.current.sweep();
-  portalGroupRef.current.sweep();
-  portSheathRef.current.sweep();
 
   // ADR-0050 §1: "in the rear elevation a power lead ends on the inlet on
   // the face; in the front elevation it ends on the rail hexagon as today."
@@ -1199,10 +963,8 @@ function DrawingInner({
 
     const edgeData: CableEdgeData = {
       cable,
-      lit: somethingLit && litCableIdSet.has(cable.id),
-      dimmed: somethingLit && !litCableIdSet.has(cable.id),
       onSelect: (cableId: string) => onSelect({ kind: 'cable', id: cableId }),
-      onHoverChange: setHoveredCableId,
+      onHoverChange: handleHoverCable,
       portPairLabel,
     };
     return {
@@ -1230,7 +992,6 @@ function DrawingInner({
     const bundleData: BundleEdgeData = {
       bundle,
       fanned,
-      dimmed: somethingLit && !bundle.members.some((m) => litCableIdSet.has(m.id)),
       onFan: setFannedBundleKey,
     };
     edges.push({
@@ -1516,15 +1277,14 @@ function DrawingInner({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selected, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
 
-  // The one place this drawing writes to `liveStore.ts`. `useLayoutEffect`,
-  // not `useEffect` — this commits before the browser paints, so a node
-  // subscribed to one of these never draws one frame stale after a click or
-  // a drop.
+  // The other place this drawing writes to `liveStore.ts` (`LiveLitPath`
+  // above owns `litCableId`/`litCableIdSet`/`litTrayKeySet`, on its own
+  // hover-driven schedule). `useLayoutEffect`, not `useEffect` — this
+  // commits before the browser paints, so a node subscribed to one of these
+  // never draws one frame stale after a click or a drop.
   useLayoutEffect(() => {
     liveStore.setState({
       selected,
-      litCableId,
-      litTrayKeySet,
       dragFromPortId,
       livePortIds: livePortIds ?? EMPTY_STRING_SET,
       dropPreview,
@@ -1532,18 +1292,7 @@ function DrawingInner({
       dimmedChassisId,
       cameraStop,
     });
-  }, [
-    liveStore,
-    selected,
-    litCableId,
-    litTrayKeySet,
-    dragFromPortId,
-    livePortIds,
-    dropPreview,
-    shakingId,
-    dimmedChassisId,
-    cameraStop,
-  ]);
+  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop]);
 
   // No drawing node reads the live viewport; zoom-derived styling reads
   // these two custom properties, inherited from here, in CSS instead.
@@ -1551,6 +1300,7 @@ function DrawingInner({
 
   return (
     <LiveStoreProvider value={liveStore}>
+    <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} />
     <div
       className="drawing"
       ref={containerRef}

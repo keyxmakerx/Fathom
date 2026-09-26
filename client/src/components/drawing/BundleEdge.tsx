@@ -2,6 +2,7 @@ import type { Edge, EdgeProps } from '@xyflow/react';
 
 import type { Bundle } from './bundles';
 import { cableSagPath } from './geometry';
+import { useLive } from './liveStore';
 
 export interface BundleEdgeData extends Record<string, unknown> {
   bundle: Bundle;
@@ -11,7 +12,6 @@ export interface BundleEdgeData extends Record<string, unknown> {
    * leaving the same region it occupied while collapsed is what folds the
    * fan back — UI-SPEC #2: "then it folds back on leave." */
   fanned: boolean;
-  dimmed: boolean;
   onFan: (key: string | null) => void;
 }
 
@@ -34,8 +34,12 @@ const BAND_WIDTH_PER_MEMBER_PX = 1.4;
  * badge's box is always ink-on-page, never a sheath, never a risk colour.
  */
 export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<BundleEdgeType>) {
+  // This session's brief item 3 — read live rather than through `data`, so
+  // a hover elsewhere never rebuilds this bundle's edge. Ahead of the
+  // `!data` guard below so the hook always runs.
+  const dimmed = useLive((s) => (data ? s.litCableId != null && !data.bundle.members.some((m) => s.litCableIdSet.has(m.id)) : false));
   if (!data) return null;
-  const { bundle, fanned, dimmed, onFan } = data;
+  const { bundle, fanned, onFan } = data;
   const d = cableSagPath(sourceX, sourceY, targetX, targetY, bundle.kind);
   const count = bundle.members.length;
   const width = BAND_BASE_WIDTH_PX + BAND_WIDTH_PER_MEMBER_PX * (count - 1);

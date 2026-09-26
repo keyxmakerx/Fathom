@@ -53,10 +53,30 @@ export function rowKey(row: Pick<RowView, 'label'>, index: number): string {
  * same x the ordinary `bayIndex * (rackWidthPx + gapPx)` formula would give
  * it for the reversed bay order — the two are the same reflection, one
  * generalised to an x a drag left off any slot, the other assuming one. */
+/** Session-only gap between racks placed side by side — never a document
+ * fact, never saved (layout is remembered in component state only for the
+ * session; persisting it is `OPEN-QUESTIONS` D5). */
+export const RACK_GAP_PX = 96;
+
+/** Vertical gap between one row's band and the next — the same kind of
+ * session choice `RACK_GAP_PX` above is. */
+export const ROW_GAP_PX = 64;
+
 export function mirroredRackX(x: number, rackCount: number, rackWidthPx: number, gapPx: number): number {
   if (rackCount <= 0) return x;
   const rowWidth = (rackCount - 1) * (rackWidthPx + gapPx) + rackWidthPx;
   return rowWidth - rackWidthPx - x;
+}
+
+/** The flow-space top of the `rowIndex`-th row's band — every row stacked
+ * top to bottom, each band as tall as its tallest rack. */
+export function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number, rackHeight: (rack: RowLayout['racks'][number]) => number, gapPx: number): number {
+  let y = 0;
+  for (let i = 0; i < rowIndex; i += 1) {
+    const heights = rowLayouts[i]!.racks.map(rackHeight);
+    y += Math.max(0, ...heights) + gapPx;
+  }
+  return y;
 }
 
 /* ---- surfaces, after the rows — ADR-0051 §1/§2,

@@ -17,7 +17,15 @@ export interface LiveState {
    * `litCableId`. Lights a cable's edge, a rail hexagon's own inlet glyph,
    * a portal tray's outline. */
   litCableId: string | null;
+  /** Every cable and tray on `litCableId`'s own physical path — a cable
+   * edge reads its own membership here instead of through its `data`, so a
+   * hover never rebuilds the edges array. */
+  litCableIdSet: ReadonlySet<string>;
   litTrayKeySet: ReadonlySet<string>;
+  /** The cable a mouse is currently over — written straight here by
+   * `CableEdge`/`RackNode`'s own hover handlers, never through
+   * `Drawing.tsx`'s state, so a hover alone never re-renders it. */
+  hoveredCableId: string | null;
   /** Non-null while a drag-to-connect is in progress. */
   dragFromPortId: string | null;
   livePortIds: ReadonlySet<string>;
@@ -39,7 +47,9 @@ export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
 export const INITIAL_LIVE_STATE: LiveState = {
   selected: null,
   litCableId: null,
+  litCableIdSet: EMPTY_STRING_SET,
   litTrayKeySet: EMPTY_STRING_SET,
+  hoveredCableId: null,
   dragFromPortId: null,
   livePortIds: EMPTY_STRING_SET,
   dropPreview: {},

@@ -3,19 +3,11 @@ import type { Edge, EdgeProps } from '@xyflow/react';
 
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';
+import { useLive } from './liveStore';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 
 export interface CableEdgeData extends Record<string, unknown> {
   cable: CableView;
-  /** This cable is the selected one, or is being hovered — UI-SPEC
-   * "Selection": "itself at full opacity with the pale halo." */
-  lit: boolean;
-  /** Something else in the drawing is lit and this cable is not it —
-   * UI-SPEC "Keeping it readable at forty cables": "Everything off the lit
-   * path sits at 28%." When nothing at all is lit, neither `lit` nor
-   * `dimmed` is true and the cable draws at its plain, undimmed colour —
-   * `Main.dc.html`'s own caption: "Nothing is lit, so nothing is dimmed." */
-  dimmed: boolean;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
   /** UI-SPEC "Keeping it readable at forty cables" #2: "the band opens into
@@ -52,8 +44,14 @@ const STROKE_WIDTH_VAR: Record<CableView['kind'], string> = {
  * changing anything about how a single cable draws below.
  */
 export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<CableEdgeType>) {
+  // This session's brief item 3 — read straight from `liveStore.ts` rather
+  // than through `data`, so a hover never rebuilds every cable's edge.
+  // Ahead of the `!data` guard below so these hooks always run.
+  const litCableId = useLive((s) => s.litCableId);
+  const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
-  const { cable, lit, dimmed, onSelect, onHoverChange, portPairLabel } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel } = data;
+  const dimmed = litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
   const colour = SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
