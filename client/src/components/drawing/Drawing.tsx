@@ -561,7 +561,7 @@ function DrawingInner({
     hasFitOnceRef.current = true;
     if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     const raf = requestAnimationFrame(() => {
-      runProgrammaticMove(() => rf.fitView(rackFitViewOptions(view.racks)));
+      void rf.fitView(rackFitViewOptions(view.racks));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -598,8 +598,8 @@ function DrawingInner({
   useEffect(() => {
     if (fitRequest == null || fitRequest === prevFitRequestRef.current) return;
     prevFitRequestRef.current = fitRequest;
-    runProgrammaticMove(() => rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [])));
-  }, [fitRequest, rf, view.racks, view.surfaces, runProgrammaticMove]);
+    void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? []));
+  }, [fitRequest, rf, view.racks, view.surfaces]);
 
   // A wheel tick, pinch or drag calls this every frame; this only commits
   // into React state when the camera stop it reads as changes, or once `WHEEL_SETTLE_MS` passes with no further tick — never on every one of them.
