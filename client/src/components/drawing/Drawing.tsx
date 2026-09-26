@@ -39,6 +39,7 @@ import {
   overlapsRack,
   rackAtPoint,
   snapDropToU,
+  sortFreeRuns,
   uToOffsetPx,
   zoomAboutPaneCentre,
 } from './geometry';
@@ -315,9 +316,24 @@ function DrawingInner({
   const faceplateItemsCacheRef = useRef(new IdCache<readonly FaceplateItem[]>());
   const chassisSigRef = useRef(new RefSignatureCache());
   const rackSigRef = useRef(new RefSignatureCache());
+  // `items` (`faceplateItemsCacheRef`, below) gets a fresh array reference
+  // on ANY document edit, even one that touched nothing in THIS rack (every
+  // rack's own `chassis` array is rebuilt by `viewOf` on any edit at all) —
+  // used directly as a dependency it would invalidate this rack's own node
+  // the same way the raw `portSheath` Map once did (`portSheathSigRef`,
+  // above); this is that same fix for `items`.
+  const rackItemsSigRef = useRef(new RefSignatureCache());
   const shelfSigRef = useRef(new RefSignatureCache());
   const surfaceSigRef = useRef(new RefSignatureCache());
   const traySigRef = useRef(new RefSignatureCache());
+  // `portSheath` (below) is a `Map`, rebuilt with a fresh reference on ANY
+  // document edit (`view.cables` is rebuilt fresh by `viewOf` even when the
+  // edit touched nothing about a cable) — used directly as a node cache
+  // dependency, that reference churn alone invalidated every chassis, shelf
+  // and surface node on ANY edit, not only one that actually recoloured a
+  // port. This one signature, content-based like every other cache here,
+  // is what every node's own dependency list carries instead.
+  const portSheathSigRef = useRef(new RefSignatureCache());
 
   const [rackPositions, setRackPositions] = useState<RackPositions>({});
   // s6f #3: racks a person has dragged by hand — the row-flip layout effect
@@ -333,7 +349,19 @@ function DrawingInner({
   // than re-snapping every row's racks whenever `rowLayouts` changes for
   // any reason (a document update, a different row's own flip).
   const prevRowElevationRef = useRef<Record<string, Facing>>({});
-  const [dragOverride, setDragOverride] = useState<Record<string, { x: number; y: number }>>({});
+  // GitHub issue #66: a `dragOverride` echoing `onNodeDrag`'s own live
+  // position back into this chassis's OWN controlled `position` used to
+  // live here — React Flow already moves an actively-dragged node itself,
+  // internally, live, without a caller feeding its position back through
+  // `nodes` at all (`onNodeDrag`'s own `node.position` argument, read by
+  // `handleNodeDrag`/`handleNodeDragStop` below for the drop preview, is
+  // already that live position) — echoing it back only gave this one
+  // chassis's own node object a new reference on every pointer-move tick
+  // of its own drag, exactly the reference churn this whole fix removes
+  // everywhere else. Removed; a chassis's own `nodePosition` below is
+  // always its document position now, so a plain reposition drag never
+  // touches this chassis's own cached node at all until the drop actually
+  // lands (a real edit, or a shake back to where it already was).
   const [dropPreview, setDropPreview] = useState<DropPreview>({});
   const [shakingId, setShakingId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: Math.max(zoom, 1) / 100 });
@@ -435,6 +463,9 @@ function DrawingInner({
     }
     return map;
   }, [visibleCables]);
+  const portSheathSig = portSheathSigRef.current.of('portSheath', portSheath, (value) =>
+    JSON.stringify([...(value as ReadonlyMap<string, Sheath>).entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
+  );
 
   // ADR-0050 §2: "the closet stop arranges racks by row, bays left to right
   // as seen from the front." Every rack's position is derived from
@@ -449,7 +480,7 @@ function DrawingInner({
   // `drawing.css`'s own node transition is what makes that read as a slide
   // rather than a jump. A rack a person has freely dragged keeps that
   // position across renders where `rowLayouts` itself does not change (nothing
-  // here runs merely because `dragOverride`/`rackPositions` changed); it is
+  // here runs merely because `rackPositions` changed); it is
   // only re-derived, like every other rack's, the next time a row's own flip
   // (or the document's row/bay data) actually changes.
   //
@@ -500,7 +531,7 @@ function DrawingInner({
     });
     prevRowElevationRef.current = nextElevation;
     // `draggedRackIds` deliberately not a dependency, the same reasoning the
-    // paragraph above already gives `dragOverride`/`rackPositions`: a drag
+    // paragraph above already gives `rackPositions`: a drag
     // itself must not re-run this effect, only the next actual row-flip or
     // document change reads whatever `draggedRackIds` holds by then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -769,13 +800,21 @@ function DrawingInner({
       // fingerprints THIS rack's own bounded slice of fields (never the
       // design around it, `idCache.ts`'s own file header), so an edit to
       // some OTHER device still reads as "this rack did not change" here.
+      // `rack.freeRuns` is signed in a fixed order (`geometry.ts`'s own
+      // `sortFreeRuns`, the same one `RackNode.tsx` itself sorts by before
+      // drawing): `document/view.ts` gives no ordering guarantee across a
+      // rebuild, and a no-op move (dropped back where it already was) still
+      // asks the document layer to move it, still rebuilding the whole
+      // view — reordering the SAME free runs would otherwise read as "this
+      // rack changed" when nothing about it actually did.
       const rackSig = rackSigRef.current.of(rack.id, {
         label: rack.label,
         heightU: rack.heightU,
-        freeRuns: rack.freeRuns,
+        freeRuns: sortFreeRuns(rack.freeRuns),
       });
+      const itemsSig = rackItemsSigRef.current.of(rack.id, items);
       nodes.push(
-        nodeCacheRef.current.get(rackNodeId(rack.id), [rackSig, items, elevation, pos.x, pos.y, canDraw], () => ({
+        nodeCacheRef.current.get(rackNodeId(rack.id), [rackSig, itemsSig, elevation, pos.x, pos.y, canDraw], () => ({
           id: rackNodeId(rack.id),
           type: 'rack',
           position: pos,
@@ -799,12 +838,13 @@ function DrawingInner({
 
       for (const item of items) {
         const { chassis } = item;
-        const id = chassisNodeId(chassis.id);
-        const basePosition = {
+        // Always the document's own position, never an echo of `onNodeDrag`'s
+        // own live one — see this component's `dragOverride` removal note,
+        // above, on why.
+        const nodePosition = {
           x: pos.x + RAIL_PX,
           y: pos.y + RACK_HEADER_PX + uToOffsetPx(rack.heightU, chassis.positionU, chassis.heightU),
         };
-        const nodePosition = dragOverride[id] ?? basePosition;
         // `nodeBuild.ts`'s own `buildChassisNode` — pulled out of this loop
         // so a vitest can call the SAME code this loop calls, with the SAME
         // caches, across more than one call (`renderToStaticMarkup` runs a
@@ -818,6 +858,7 @@ function DrawingInner({
             nodePosition,
             canDraw,
             portSheath,
+            portSheathSig,
             handleSelectPort,
             RACK_INNER_PX,
             chassis.heightU * U_PX,
@@ -846,7 +887,7 @@ function DrawingInner({
         nodes.push(
           nodeCacheRef.current.get(
             shelfNodeId(shelf.id),
-            [shelfSig, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort],
+            [shelfSig, elevation, portSheathSig, shelfPosition.x, shelfPosition.y, handleSelectPort],
             () => ({
               id: shelfNodeId(shelf.id),
               type: 'shelf',
@@ -956,7 +997,7 @@ function DrawingInner({
     nodes.push(
       nodeCacheRef.current.get(
         surfaceNodeId(placement.surface.id),
-        [surfaceSig, portSheath, handleSelectPort, handleSelectFixture],
+        [surfaceSig, portSheathSig, handleSelectPort, handleSelectFixture],
         () => ({
           id: surfaceNodeId(placement.surface.id),
           type: 'surface',
@@ -1221,7 +1262,6 @@ function DrawingInner({
     (_event, node) => {
       const parsed = parseNodeId(node.id);
       if (parsed?.kind !== 'chassis') return;
-      setDragOverride((prev) => ({ ...prev, [node.id]: node.position }));
 
       const heightU = chassisHeightUFor(node as FlowNode);
       const centre = { x: node.position.x + RACK_INNER_PX / 2, y: node.position.y + (heightU * U_PX) / 2 };
@@ -1257,11 +1297,6 @@ function DrawingInner({
       const centre = { x: node.position.x + RACK_INNER_PX / 2, y: node.position.y + (heightU * U_PX) / 2 };
       const rack = rackAtPoint<RackView>(view.racks, rackPositions, centre, RACK_NODE_WIDTH);
 
-      setDragOverride((prev) => {
-        const next = { ...prev };
-        delete next[node.id];
-        return next;
-      });
       setDropPreview({});
 
       if (rack == null) {

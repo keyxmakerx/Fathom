@@ -19,6 +19,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedManyDevicesScene,
   seedNetworksScene,
   seedSingleDevice,
   seedUnplacedDevice,
@@ -109,6 +110,7 @@ async function main() {
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
+  else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;

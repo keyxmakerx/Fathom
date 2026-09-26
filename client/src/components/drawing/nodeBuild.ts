@@ -48,6 +48,13 @@ export function buildChassisNode(
   position: { x: number; y: number },
   canDraw: boolean,
   portSheath: ReadonlyMap<string, Sheath>,
+  // `portSheath` itself is a `Map`, rebuilt with a fresh reference on ANY
+  // document edit (`view.cables` is rebuilt fresh by `viewOf`, even one that
+  // touched no cable at all) — a caller's own content signature of it
+  // (`Drawing.tsx`'s `portSheathSig`, one `RefSignatureCache` shared by
+  // every chassis/shelf/surface rather than one each), so an edit
+  // elsewhere never invalidates a device whose own sheaths did not change.
+  portSheathSig: string,
   onSelectPort: (portId: string) => void,
   widthPx: number,
   heightPx: number,
@@ -57,7 +64,7 @@ export function buildChassisNode(
   const chassisSig = caches.chassisSig.of(chassis.id, chassis);
   return caches.nodeCache.get(
     id,
-    [chassisSig, elevation, portSheath, position.x, position.y, canDraw, onSelectPort],
+    [chassisSig, elevation, portSheathSig, position.x, position.y, canDraw, onSelectPort],
     () => ({
       id,
       type: 'chassis',

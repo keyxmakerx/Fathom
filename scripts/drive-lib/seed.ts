@@ -280,3 +280,23 @@ export function seedDockerScene(catalogue: CatalogueModel[], me: string): Docume
   const doc = createSketchDevice(emptyDocument(), { hostname: 'dock-01', actor: me });
   return doc;
 }
+
+/** GitHub issue #66's own drive (`scripts/drive-node-identity.mjs`): enough
+ * rack-mounted devices, side by side, one to a unit, that a hover, a
+ * selection, a drag or a wheel-zoom is touching many nodes nobody meant to
+ * disturb at once — the same shape the reported bug needed ("a device
+ * dragged onto a rack stayed hidden," "a hidden `.drawing-rack__frame`") to
+ * show up under real load. One cable between the first two, so a hover has
+ * something lit to prove stays lit rather than only proving nothing blinks. */
+export function seedManyDevicesScene(catalogue: CatalogueModel[], me: string, count = 16): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const model = catalogue.find((m) => m.model === 'EX4300-48P');
+  if (!model) throw new Error('the drive catalogue fixture has no juniper/EX4300-48P');
+  let working = doc;
+  for (let i = 0; i < count; i += 1) {
+    working = place(working, catalogue, rackId, model, i + 1, `dev-${String(i + 1).padStart(2, '0')}`, me);
+  }
+  const a = frontRj45(working, catalogue, 'dev-01');
+  const b = frontRj45(working, catalogue, 'dev-02');
+  return connectPorts(working, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
+}

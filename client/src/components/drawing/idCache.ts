@@ -61,10 +61,15 @@ function sameDeps(a: readonly unknown[], b: readonly unknown[]): boolean {
 export class RefSignatureCache {
   private readonly entries = new Map<string, { ref: unknown; signature: string }>();
 
-  of(id: string, value: unknown): string {
+  /** `serialize` defaults to `JSON.stringify`; a caller signing a `Map`
+   * (`Drawing.tsx`'s own `portSheath`, keyed by every chassis/shelf/surface
+   * that reads it, not just one id) supplies its own — `JSON.stringify` on
+   * a `Map` gives `"{}"`, every entry silently dropped, which would read
+   * every sheath as unchanged forever. */
+  of(id: string, value: unknown, serialize: (value: unknown) => string = JSON.stringify): string {
     const cached = this.entries.get(id);
     if (cached && cached.ref === value) return cached.signature;
-    const signature = JSON.stringify(value);
+    const signature = serialize(value);
     this.entries.set(id, { ref: value, signature });
     return signature;
   }

@@ -65,6 +65,12 @@ function positionFor(i: number): { x: number; y: number } {
 }
 
 const portSheath: ReadonlyMap<string, Sheath> = new Map();
+// A constant string: nothing in this test ever changes which port carries
+// which sheath, the same "unchanged Map, unchanged signature" reading
+// `Drawing.tsx`'s own `portSheathSig` gives across a hover/selection/zoom/
+// drag render (`nodeBuild.ts`'s own file header on why this is a separate
+// parameter from `portSheath` itself).
+const portSheathSig = '[]';
 const onSelectPort = () => {};
 
 function buildAll(
@@ -81,6 +87,7 @@ function buildAll(
       (positionOverride ?? positionFor)(i),
       true,
       portSheath,
+      portSheathSig,
       onSelectPort,
       120,
       16,
@@ -134,7 +141,7 @@ describe('buildChassisNode — node identity across 2,100 devices (GitHub issue 
     // own doc, `nodeBuild.ts`'s file header) — every chassis gets a fresh
     // object reference here, even though only one's content changed.
     const editedIndex = 1234;
-    const rebuilt = devices.map((c, i) => (i === editedIndex ? chassisFor(i, 'renamed-host') : chassisFor(i)));
+    const rebuilt = devices.map((_c, i) => (i === editedIndex ? chassisFor(i, 'renamed-host') : chassisFor(i)));
     expect(rebuilt[editedIndex]).not.toBe(devices[editedIndex]);
     expect(rebuilt[0]).not.toBe(devices[0]); // every reference is new, not only the edited one
 
