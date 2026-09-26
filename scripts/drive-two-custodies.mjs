@@ -63,6 +63,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
@@ -94,7 +95,7 @@ const COLLEAGUE = { name: 'Second Operator', address: 'second@example.test' };
 
 const WORK =
   process.env.FATHOM_DRIVE_DIR ??
-  '/tmp/claude-0/-home-user-Fathom/e3fb841a-3739-5e05-b6f7-65bae229f9a6/scratchpad/drive-two-custodies';
+  join(tmpdir(), 'fathom-drive-two-custodies');
 const SHOTS = join(WORK, 'shots');
 mkdirSync(SHOTS, { recursive: true });
 
