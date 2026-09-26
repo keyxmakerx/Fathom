@@ -325,10 +325,26 @@ fn a_source_of_its_own() -> String {
 
 /// A staging directory of this test's own, so that "the partial file was
 /// deleted" is a statement about a directory nothing else writes to.
-fn a_staging_directory() -> PathBuf {
+fn a_staging_directory() -> StagingDir {
     let dir = std::env::temp_dir().join(unique("fathom-firmware"));
     std::fs::create_dir_all(&dir).expect("create this test's staging directory");
-    dir
+    StagingDir(dir)
+}
+
+/// Removes the staging directory when the test ends, so runs do not fill the disk.
+struct StagingDir(PathBuf);
+
+impl std::ops::Deref for StagingDir {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+impl Drop for StagingDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn files_in(dir: &PathBuf) -> Vec<String> {
