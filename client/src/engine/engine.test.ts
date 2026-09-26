@@ -20,7 +20,7 @@ import { fileLoader } from './wasm';
 import { connectPorts } from '../document/cables';
 import { addSketchPort, createSketchDevice, removeChassis } from '../document/commands';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
-import { edgesOut, emptyDocument, type Document } from '../document/model';
+import { edgesIn, edgesOut, emptyDocument, type Document } from '../document/model';
 import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
@@ -551,5 +551,43 @@ describe('a design stays saveable after undo', () => {
     expect(removed.nodes.find((n) => n.id === hostBId)?.absentSince).toBeUndefined();
     expect(removed.nodes.find((n) => n.id === overlayId)?.absentSince).toBeUndefined();
     expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+  });
+
+  it('removeChassis takes a cable with it — both ends — and undo brings it, the device and the far port back; both loads run through the real engine', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_400_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+
+    let doc = emptyDocument();
+    doc = createSketchDevice(doc, step());
+    const chassisA = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    doc = addSketchPort(doc, chassisA, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portA = edgesOut(doc, chassisA, 'HasPort')[0]!.to;
+
+    const beforeB = doc;
+    doc = createSketchDevice(doc, step());
+    const chassisB = doc.nodes.find((n) => n.id.startsWith('chassis:') && !beforeB.nodes.some((b) => b.id === n.id))!.id;
+    doc = addSketchPort(doc, chassisB, { label: 'Et1', connector: 'rj45', face: 'front' }, step());
+    const portB = edgesOut(doc, chassisB, 'HasPort')[0]!.to;
+
+    doc = connectPorts(doc, portA, portB, {}, step());
+    const cableFromPortA = edgesIn(doc, portA, 'Terminates')[0]!.from;
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const removed = removeChassis(doc, chassisA, step());
+    const removeBatchId = removed.batches.at(-1)!.id;
+
+    expect(removed.nodes.find((n) => n.id === cableFromPortA)?.absentSince).toBeDefined();
+    expect(removed.nodes.find((n) => n.id === chassisA)?.absentSince).toBeDefined();
+    // The far device and its port are untouched — only the cable is gone.
+    expect(removed.nodes.find((n) => n.id === chassisB)?.absentSince).toBeUndefined();
+    expect(removed.nodes.find((n) => n.id === portB)?.absentSince).toBeUndefined();
+    expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+
+    const undone = undo(removed, removeBatchId, step());
+    expect(undone.nodes.find((n) => n.id === cableFromPortA)?.absentSince).toBeUndefined();
+    expect(undone.nodes.find((n) => n.id === chassisA)?.absentSince).toBeUndefined();
+    expect(edgesOut(undone, cableFromPortA, 'Terminates')).toHaveLength(2);
+    expect(() => engine.loadPlain(writePlain(undone))).not.toThrow();
   });
 });

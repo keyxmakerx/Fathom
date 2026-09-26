@@ -177,9 +177,11 @@ try {
   const panelTextAfterRange = await page.locator('.drawing-editor__panel').innerText();
   check('eth0 typed onto the faceplate', panelTextAfterRange.includes('eth0'));
   check('eth7 typed onto the faceplate', panelTextAfterRange.includes('eth7'));
-  // One "remove" button per port — an exact match so Duplicate/notes buttons
-  // never count.
-  const removeButtonCount = await page.locator('.drawing-editor__panel button', { hasText: 'remove' }).count();
+  // One "remove" button per port — an exact match (a regex anchored both
+  // ends) so Duplicate/notes buttons, and the device panel's "Remove
+  // device" (a `hasText` STRING match is a case-insensitive substring one,
+  // which "Remove device" also satisfies), never count.
+  const removeButtonCount = await page.locator('.drawing-editor__panel button', { hasText: /^remove$/ }).count();
   check('8 ports typed in one go', removeButtonCount === 8, `${removeButtonCount} "remove" buttons`);
   // Natural label order (`document/view.ts`'s `naturalLabelCompare`), not
   // mint order.

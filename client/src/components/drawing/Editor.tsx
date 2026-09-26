@@ -563,6 +563,13 @@ export function disconnectCableChange(id: string): EditorChange {
   return { kind: 'cable-disconnect', id };
 }
 
+/** UI-SPEC's cable-delete rule — the device panel's "Remove device"
+ * action: `document/commands.ts`'s `removeChassis`, the same shape
+ * `disconnectCableChange` above already is. */
+export function removeDeviceChange(chassisId: string): EditorChange {
+  return { kind: 'device-remove', chassisId };
+}
+
 /** The sheath colour selector — UI-SPEC "Cables": "Colour is the real
  * sheath," and this session's brief: "a colour selector using the same
  * lists as the connect-time picker for that kind (power fixed to grey)
@@ -1575,6 +1582,16 @@ export function EditorFor(
             hostname and the capture, so its notes are `HasNote`'d off
             `chassis.deviceId`, not `chassis.id`. */}
         <NotesSection ownerId={chassis.deviceId} actions={actions} />
+
+        {/* UI-SPEC's cable-delete rule — the same one-shot action shape
+            `SupplyAction` already gives "remove"/"Disconnect", raising
+            `document/commands.ts`'s `removeChassis` through
+            `EditorActions.onEdit`. No confirmation dialog; undo is the
+            record's job. */}
+        <SupplyAction
+          label="Remove device"
+          onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined}
+        />
       </div>
     );
   }
@@ -1629,6 +1646,17 @@ export function EditorFor(
         ) : null}
 
         <PlacedOnControl itemId={occupant.id} placement={placement} view={view} actions={actions} />
+
+        {/* UI-SPEC's cable-delete rule — a device on a shelf removes exactly
+            like a rack-mounted one; a passive occupant (a splitter, an
+            outlet) has no such action — racks/surfaces and everything on
+            them that is not a device stay out of scope. */}
+        {occupant.kind === 'chassis' ? (
+          <SupplyAction
+            label="Remove device"
+            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(occupant.id)) : undefined}
+          />
+        ) : null}
       </div>
     );
   }
@@ -1696,6 +1724,16 @@ export function EditorFor(
         ) : null}
 
         <PlacedOnControl itemId={fixture.id} placement={placement} view={view} actions={actions} />
+
+        {/* UI-SPEC's cable-delete rule — a device fixed to a surface removes
+            exactly like a rack-mounted one; a board or any other passive
+            fixture has no such action. */}
+        {fixture.kind === 'chassis' ? (
+          <SupplyAction
+            label="Remove device"
+            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(fixture.id)) : undefined}
+          />
+        ) : null}
       </div>
     );
   }

@@ -579,7 +579,11 @@ export function moveChassis(
 /** Removes a device entirely: every node it containment-reaches (chassis,
  * ports, units, VLANs, Docker networks/containers, and so on — the schema's
  * own containment edges say what, not a list kept here), plus every other
- * live edge touching any of it, in one batch (`cascade.ts`). */
+ * live edge touching any of it, in one batch (`cascade.ts`). A cable
+ * plugged into one of its ports goes too, since a cable with one end is
+ * not something the drawing shows; the far device loses only that cable.
+ * Works the same wherever the device sits, since the cascade walks
+ * containment and live edges, never where anything is placed. */
 export function removeChassis(doc: Document, chassisId: string, opts?: Actor): Document {
   if (!findNode(doc, chassisId)) throw new UnknownReferenceError(chassisId, 'Chassis');
   const hasChassis = edgesIn(doc, chassisId, 'HasChassis')[0];

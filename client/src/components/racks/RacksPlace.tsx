@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { captureOf } from '../../document/capture';
 import { connectPorts, disconnect, type Sheath } from '../../document/cables';
-import { SURFACE_FORMS, createSketchDevice, moveChassis, movePlacement, placeChassis } from '../../document/commands';
+import { SURFACE_FORMS, createSketchDevice, moveChassis, movePlacement, placeChassis, removeChassis } from '../../document/commands';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine } from '../../engine/engine';
@@ -533,6 +533,23 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange, accountId],
   );
 
+  // UI-SPEC's cable-delete rule — Delete/Backspace on a selected device,
+  // the same shape `handleDisconnect` above already gives a selected
+  // cable: `document/commands.ts`'s `removeChassis`, the one command the
+  // panel's "Remove device" button reaches too (through `handleEdit`'s
+  // `'device-remove'` kind), not a second one.
+  const handleRemoveDevice = useCallback(
+    (chassisId: string) => {
+      if (doc == null) return;
+      try {
+        applyDocChange(removeChassis(doc, chassisId, actorOpts(accountId)));
+      } catch {
+        // As `handleDisconnect` above.
+      }
+    },
+    [doc, applyDocChange, accountId],
+  );
+
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession` — this session's brief item 1 — so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
@@ -610,6 +627,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onMove={handleMove}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
+          onRemoveDevice={handleRemoveDevice}
           onSelect={setSelection}
           canDraw={canDraw}
           renderConfigDrawer={renderConfigDrawer}

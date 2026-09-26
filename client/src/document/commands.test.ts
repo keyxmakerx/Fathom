@@ -31,6 +31,7 @@ import {
   removeChassis,
   removeSketchPort,
 } from './commands';
+import { connectPorts } from './cables';
 import {
   edgesIn,
   edgesOut,
@@ -50,6 +51,7 @@ import {
   type Document,
 } from './model';
 import { newUlid } from './ulid';
+import { undo } from './undo';
 import { viewOf } from './view';
 
 const NOW = 1_700_000_000_000;
@@ -345,6 +347,114 @@ describe('removeChassis', () => {
     expect(() => removeChassis(doc, 'chassis:01ARZ3NDEKTSV4RRFFQ69G5FAV', { now: NOW })).toThrow(
       UnknownReferenceError,
     );
+  });
+
+  // "The device must work wherever it sits": each of the four placements a
+  // Chassis or PassiveNode can carry (rack, above; shelf/surface/none
+  // here), `removeChassis` never asks which.
+  it('removes a device sitting on a shelf, freeing the slot', () => {
+    const { doc, shelfId } = shelfOf();
+    const { doc: withItem, chassisId } = bareChassis(doc);
+    const placed = placeOnShelf(withItem, chassisId, shelfId, 1, { now: NOW });
+
+    const removed = removeChassis(placed, chassisId, { now: NOW });
+
+    expect(removed.nodes.find((n) => n.id === chassisId)?.absentSince).toBe(NOW);
+    expect(edgesOut(removed, chassisId, 'SitsOn')).toHaveLength(0);
+    // The slot is free again.
+    const { doc: withOther, chassisId: otherId } = bareChassis(removed);
+    expect(() => placeOnShelf(withOther, otherId, shelfId, 1, { now: NOW })).not.toThrow();
+  });
+
+  it('removes a device fixed to a surface, freeing the spot', () => {
+    const { doc, premisesId } = docWithPremises();
+    const withSurface = createSurface(doc, premisesId, { label: 'North wall', form: 'wall', now: NOW });
+    const surfaceId = edgesOut(withSurface, premisesId, 'HasSurface')[0].to;
+    const { doc: withItem, chassisId } = bareChassis(withSurface);
+    const fixed = fixTo(withItem, chassisId, surfaceId, {}, { now: NOW });
+
+    const removed = removeChassis(fixed, chassisId, { now: NOW });
+
+    expect(removed.nodes.find((n) => n.id === chassisId)?.absentSince).toBe(NOW);
+    expect(edgesOut(removed, chassisId, 'FixedTo')).toHaveLength(0);
+    // The spot is free again.
+    const { doc: withOther, chassisId: otherId } = bareChassis(removed);
+    expect(() => fixTo(withOther, otherId, surfaceId, {}, { now: NOW })).not.toThrow();
+  });
+
+  it('removes a device with no placement at all (an unplaced sketch device)', () => {
+    const { doc } = docWithPremises();
+    const { doc: withItem, chassisId } = bareChassis(doc);
+    const removed = removeChassis(withItem, chassisId, { now: NOW });
+    expect(removed.nodes.find((n) => n.id === chassisId)?.absentSince).toBe(NOW);
+  });
+
+  // A cable ending at a removed device's port goes with it, both ends; the
+  // far device (and its port) is untouched but for losing that one cable.
+  it('takes a cable with it — both Terminates ends — leaving the far device\'s port live', () => {
+    const { doc } = docWithPremises();
+    const { doc: withA, chassisId: chassisA } = bareChassis(doc);
+    const withPortA = addSketchPort(withA, chassisA, { label: 'Et1', connector: 'rj45', face: 'front' }, { now: NOW });
+    const portA = edgesOut(withPortA, chassisA, 'HasPort')[0].to;
+
+    const { doc: withB, chassisId: chassisB } = bareChassis(withPortA);
+    const withPortB = addSketchPort(withB, chassisB, { label: 'Et1', connector: 'rj45', face: 'front' }, { now: NOW });
+    const portB = edgesOut(withPortB, chassisB, 'HasPort')[0].to;
+
+    const cabled = connectPorts(withPortB, portA, portB, {}, { now: NOW });
+    const cableId = edgesIn(cabled, portA, 'Terminates')[0].from;
+    const termIds = edgesOut(cabled, cableId, 'Terminates').map((e) => e.id);
+    expect(termIds).toHaveLength(2);
+
+    const removed = removeChassis(cabled, chassisA, { now: NOW });
+
+    expect(removed.nodes.find((n) => n.id === cableId)?.absentSince).toBe(NOW);
+    for (const id of termIds) {
+      expect(removed.edges.find((e) => e.id === id)?.absentSince, `${id} should be tombstoned`).toBe(NOW);
+    }
+    // The far device and its own port are untouched — only the cable is gone.
+    expect(removed.nodes.find((n) => n.id === chassisB)?.absentSince).toBeUndefined();
+    expect(removed.nodes.find((n) => n.id === portB)?.absentSince).toBeUndefined();
+  });
+
+  it('one undo restores the device, its cable and the far port together', () => {
+    const ACTOR = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    const { doc } = docWithPremises();
+    const { doc: withA, chassisId: chassisA } = bareChassis(doc);
+    const withPortA = addSketchPort(
+      withA,
+      chassisA,
+      { label: 'Et1', connector: 'rj45', face: 'front' },
+      { actor: ACTOR, now: NOW },
+    );
+    const portA = edgesOut(withPortA, chassisA, 'HasPort')[0].to;
+
+    const { doc: withB, chassisId: chassisB } = bareChassis(withPortA);
+    const withPortB = addSketchPort(
+      withB,
+      chassisB,
+      { label: 'Et1', connector: 'rj45', face: 'front' },
+      { actor: ACTOR, now: NOW },
+    );
+    const portB = edgesOut(withPortB, chassisB, 'HasPort')[0].to;
+
+    const cabled = connectPorts(withPortB, portA, portB, {}, { actor: ACTOR, now: NOW + 1 });
+    const cableId = edgesIn(cabled, portA, 'Terminates')[0].from;
+
+    const liveIdsBefore = new Set(cabled.nodes.filter((n) => n.absentSince === undefined).map((n) => n.id));
+    const liveEdgeIdsBefore = new Set(cabled.edges.filter((e) => e.absentSince === undefined).map((e) => e.id));
+
+    const removed = removeChassis(cabled, chassisA, { actor: ACTOR, now: NOW + 2 });
+    const removeBatchId = removed.batches.at(-1)!.id;
+
+    const undone = undo(removed, removeBatchId, { actor: ACTOR, now: NOW + 3 });
+    for (const id of liveIdsBefore) {
+      expect(undone.nodes.find((n) => n.id === id)?.absentSince, `${id} should be live again`).toBeUndefined();
+    }
+    for (const id of liveEdgeIdsBefore) {
+      expect(undone.edges.find((e) => e.id === id)?.absentSince, `${id} should be live again`).toBeUndefined();
+    }
+    expect(edgesIn(undone, portA, 'Terminates')[0]?.from).toBe(cableId);
   });
 });
 

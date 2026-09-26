@@ -42,6 +42,7 @@ import {
   duplicateDevice,
   isSurfaceForm,
   movePlacement,
+  removeChassis,
   removeSketchPort,
 } from '../../document/commands';
 import { disconnect, setCableField } from '../../document/cables';
@@ -304,6 +305,8 @@ export function useDesignSession(organisationId: string, designId: string, capab
           }
         } else if (change.kind === 'cable-disconnect') {
           next = disconnect(doc, change.id, opts);
+        } else if (change.kind === 'device-remove') {
+          next = removeChassis(doc, change.chassisId, opts);
         } else if (change.kind === 'move-placement') {
           next = movePlacement(doc, change.itemId, change.placement, opts);
         } else if (change.kind === 'add-sketch-port') {

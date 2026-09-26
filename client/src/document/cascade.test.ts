@@ -40,3 +40,57 @@ describe('cascadeRemoval — performance', () => {
     expect(elapsed).toBeLessThan(2_000);
   });
 });
+
+describe('cascadeRemoval — cables', () => {
+  it('takes a cable terminating on a reached port with it, both Terminates edges, leaving the far port and its own device untouched', () => {
+    const deviceA = formatNodeId('Device', newUlid(NOW));
+    const chassisA = formatNodeId('Chassis', newUlid(NOW));
+    const portA = formatNodeId('PhysicalPort', newUlid(NOW));
+    const deviceB = formatNodeId('Device', newUlid(NOW));
+    const chassisB = formatNodeId('Chassis', newUlid(NOW));
+    const portB = formatNodeId('PhysicalPort', newUlid(NOW));
+    const cableId = formatNodeId('Cable', newUlid(NOW));
+    const termA = formatEdgeId('Terminates', newUlid(NOW));
+    const termB = formatEdgeId('Terminates', newUlid(NOW));
+
+    const edges: GraphEdge[] = [
+      { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceA, to: chassisA, prov: newUlid(NOW), fields: {} },
+      { id: formatEdgeId('HasPort', newUlid(NOW)), from: chassisA, to: portA, prov: newUlid(NOW), fields: {} },
+      { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceB, to: chassisB, prov: newUlid(NOW), fields: {} },
+      { id: formatEdgeId('HasPort', newUlid(NOW)), from: chassisB, to: portB, prov: newUlid(NOW), fields: {} },
+      { id: termA, from: cableId, to: portA, prov: newUlid(NOW), fields: {} },
+      { id: termB, from: cableId, to: portB, prov: newUlid(NOW), fields: {} },
+    ];
+    const doc: Document = { ...emptyDocument(), edges };
+
+    const result = cascadeRemoval(doc, deviceA);
+
+    expect(result.nodeIds.has(cableId)).toBe(true);
+    expect(result.edgeIds.has(termA)).toBe(true);
+    expect(result.edgeIds.has(termB)).toBe(true);
+    // The far device, its chassis and its port are not reached at all.
+    expect(result.nodeIds.has(deviceB)).toBe(false);
+    expect(result.nodeIds.has(chassisB)).toBe(false);
+    expect(result.nodeIds.has(portB)).toBe(false);
+  });
+
+  it('leaves an already-tombstoned cable alone', () => {
+    const deviceA = formatNodeId('Device', newUlid(NOW));
+    const chassisA = formatNodeId('Chassis', newUlid(NOW));
+    const portA = formatNodeId('PhysicalPort', newUlid(NOW));
+    const cableId = formatNodeId('Cable', newUlid(NOW));
+    const termA = formatEdgeId('Terminates', newUlid(NOW));
+
+    const edges: GraphEdge[] = [
+      { id: formatEdgeId('HasChassis', newUlid(NOW)), from: deviceA, to: chassisA, prov: newUlid(NOW), fields: {} },
+      { id: formatEdgeId('HasPort', newUlid(NOW)), from: chassisA, to: portA, prov: newUlid(NOW), fields: {} },
+      { id: termA, from: cableId, to: portA, prov: newUlid(NOW), fields: {}, absentSince: NOW },
+    ];
+    const doc: Document = { ...emptyDocument(), edges };
+
+    const result = cascadeRemoval(doc, deviceA);
+
+    expect(result.nodeIds.has(cableId)).toBe(false);
+    expect(result.edgeIds.has(termA)).toBe(false);
+  });
+});

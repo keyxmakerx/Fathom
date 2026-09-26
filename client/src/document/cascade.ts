@@ -1,7 +1,9 @@
 // A remove cascade driven by the schema's own edge classes
 // (`schema/generated/schema.json`'s `class: containment`), never a hand-kept
-// list of kinds. `Terminates`/`PassThrough` are excluded: the derivation
-// already tolerates a dangling reference to a removed port (`portRemoved`).
+// list of kinds. `PassThrough` is excluded: both its ports are already
+// reached by containment (front/rear of the same removed chassis), so
+// nothing dangles. `Terminates` is handled separately below, since a
+// one-ended cable is not something the drawing shows.
 
 import schemaJson from '../../../schema/generated/schema.json';
 import { parseEdgeId, type Document, type EdgeKind, type GraphEdge } from './model';
@@ -17,7 +19,7 @@ const CONTAINMENT_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set(
     .map((e) => e.edge as EdgeKind),
 );
 
-const CASCADE_EXCLUDED_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set(['Terminates', 'PassThrough'] as EdgeKind[]);
+const CASCADE_EXCLUDED_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set(['PassThrough'] as EdgeKind[]);
 
 export interface CascadeResult {
   nodeIds: Set<string>;
@@ -58,11 +60,26 @@ export function cascadeRemoval(doc: Document, rootId: string): CascadeResult {
     frontier = next;
   }
 
+  // A cable with one end inside this cascade is removed in full (a one-
+  // ended cable is not shown); an outside far port only loses this cable.
+  const cablesToRemove = new Set<string>();
+  for (const e of doc.edges) {
+    if (e.absentSince !== undefined) continue;
+    if (parseEdgeId(e.id).kind !== 'Terminates') continue;
+    if (nodeIds.has(e.to)) cablesToRemove.add(e.from);
+  }
+  for (const cableId of cablesToRemove) nodeIds.add(cableId);
+
   const edgeIds = new Set<string>(containmentEdgeIds);
   for (const e of doc.edges) {
     if (e.absentSince !== undefined) continue;
+    const kind = parseEdgeId(e.id).kind;
+    if (kind === 'Terminates') {
+      if (cablesToRemove.has(e.from)) edgeIds.add(e.id);
+      continue;
+    }
     if (!nodeIds.has(e.from) && !nodeIds.has(e.to)) continue;
-    if (CASCADE_EXCLUDED_EDGE_KINDS.has(parseEdgeId(e.id).kind)) continue;
+    if (CASCADE_EXCLUDED_EDGE_KINDS.has(kind)) continue;
     edgeIds.add(e.id);
   }
 

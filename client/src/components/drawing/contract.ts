@@ -77,6 +77,13 @@ export interface DrawingActions {
    * else; undo is the caller's concern, not this drawing's. Optional, same
    * reason as `onConnect`. */
   onDisconnect?(cableId: string): void;
+  /** UI-SPEC's cable-delete rule — Delete/Backspace on a selected device
+   * (`Selection`'s `'chassis'` kind always, `'occupant'`/`'fixture'` when
+   * they name a Chassis rather than a passive fixture) removes it exactly
+   * the way `onDisconnect` removes a cable: nothing else first, no dialog;
+   * undo is the caller's job. Optional, same reading as `onConnect`/
+   * `onDisconnect`. */
+  onRemoveDevice?(chassisId: string): void;
   /** ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete
@@ -168,7 +175,14 @@ export type EditorChange =
    * panel's own "Disconnect" action, `document/cables.ts`'s `disconnect`.
    * An action, not a field edit, the same shape `'supply-remove'` already
    * is. */
-  | { kind: 'cable-disconnect'; id: string };
+  | { kind: 'cable-disconnect'; id: string }
+  /** UI-SPEC's cable-delete rule — the device panel's "Remove device"
+   * action: `document/commands.ts`'s `removeChassis`, an action rather
+   * than a field edit, the same shape `'cable-disconnect'`/
+   * `'supply-remove'` already are. `chassisId` is a live `Chassis` id
+   * regardless of which panel raises it (rack, shelf occupant or surface
+   * fixture) — `removeChassis` itself finds the `Device` that owns it. */
+  | { kind: 'device-remove'; chassisId: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through
