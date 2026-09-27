@@ -182,6 +182,24 @@ try {
   await page.screenshot({ path: SHOTS + 'tags-02-device-two-chips.png' });
   console.log('    wrote ' + SHOTS + 'tags-02-device-two-chips.png');
 
+  // Enter on a name that is only a PREFIX of an existing tag ("rack-a")
+  // creates a new tag by that exact typed name, never the one it prefixes
+  // — the highlight defaults to the new-tag row unless the typed text
+  // equals a suggestion exactly.
+  await deviceTagInput.fill('rack');
+  await page.waitForSelector('.drawing-editor__panel [role="listbox"]', { timeout: 5_000 });
+  const listboxCount = await page.locator('.drawing-editor__panel [role="listbox"]').count();
+  const optionCount = await page.locator('.drawing-editor__panel [role="option"]').count();
+  check('the suggestion list carries listbox and option roles', listboxCount === 1 && optionCount > 0, `listbox=${listboxCount} option=${optionCount}`);
+  await deviceTagInput.press('Enter');
+  await page.waitForTimeout(300);
+  const afterPrefixEnter = await page.locator('.drawing-editor__panel .tag-chip .tag-chip__name').allTextContents();
+  check(
+    'Enter on "rack" (a prefix, not an exact match) creates "rack", not "rack-a" again',
+    afterPrefixEnter.includes('rack') && afterPrefixEnter.filter((n) => n === 'rack-a').length === 1,
+    afterPrefixEnter.join(', '),
+  );
+
   // -------------------------------------------------------------------------
   // 2 — the cable takes a tag too, picked from the suggestion list ("Add
   // tag" suggests existing tags as you type).
@@ -224,6 +242,18 @@ try {
   check('the cable now carries the picked "core" tag', cableChipsAfterPick.includes('core'), cableChipsAfterPick.join(', '));
   await page.screenshot({ path: SHOTS + 'tags-04-cable-tagged.png' });
   console.log('    wrote ' + SHOTS + 'tags-04-cable-tagged.png');
+
+  // Enter on a name that matches an existing tag EXACTLY (ignoring case)
+  // reuses it rather than creating a duplicate node — the highlight starts
+  // on that suggestion's own row, not the new-tag row.
+  await cableTagInput.fill('rack-a');
+  await page.waitForSelector('.drawing-editor__panel .tag-chips__suggestion', { timeout: 5_000 });
+  const newRowShown = await page.locator('.drawing-editor__panel .tag-chips__suggestion--new').count();
+  check('typing an exact existing name offers no "new tag" row', newRowShown === 0);
+  await cableTagInput.press('Enter');
+  await page.waitForTimeout(300);
+  const cableChipsAfterExact = await page.locator('.drawing-editor__panel .tag-chip .tag-chip__name').allTextContents();
+  check('Enter on the exact name reuses "rack-a" on the cable', cableChipsAfterExact.includes('rack-a'), cableChipsAfterExact.join(', '));
 
   // -------------------------------------------------------------------------
   // 3 — rename that tag (from the cable's own panel); the device's chip,

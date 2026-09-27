@@ -11,7 +11,7 @@
 // name, when `onRename` is supplied, turns it into an inline rename field —
 // decision 8's fourth undoable action, with no separate control the board
 // does not draw.
-import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import './tagChips.css';
 
 /** Inline, not a class: `.shell-editor button` (`styles/shell.css`) gives
@@ -55,6 +55,27 @@ export interface TagChipsProps {
   onRename?: (tagId: string, name: string) => { refused: string } | void;
 }
 
+/**
+ * The suggestion list for `draft`, and which row Enter takes by default —
+ * a pure function so this decision is unit-testable with no DOM. The
+ * highlight starts on the typed name's OWN row: the existing tag when the
+ * typed text equals one ignoring case, "new tag …" otherwise — never a mere
+ * substring match, so Enter on a genuinely new name never silently tags an
+ * unrelated existing one it happens to be a prefix of.
+ */
+export function matchSuggestions(
+  draft: string,
+  suggestions: readonly TagSuggestion[],
+  attachedNames: ReadonlySet<string>,
+): { filtered: TagSuggestion[]; showNewRow: boolean; defaultHighlight: number } {
+  const query = draft.trim().toLowerCase();
+  const filtered = query.length === 0 ? [] : suggestions.filter((s) => s.name.toLowerCase().includes(query) && !attachedNames.has(s.name.toLowerCase()));
+  const exactMatchIndex = filtered.findIndex((s) => s.name.toLowerCase() === query);
+  const showNewRow = query.length > 0 && exactMatchIndex < 0;
+  const defaultHighlight = exactMatchIndex >= 0 ? exactMatchIndex : filtered.length;
+  return { filtered, showNewRow, defaultHighlight };
+}
+
 export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: TagChipsProps) {
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
@@ -78,14 +99,14 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
     setRenaming(null);
   }
 
-  const query = draft.trim().toLowerCase();
   const attached = new Set(tags.map((t) => t.name.toLowerCase()));
-  const filtered =
-    query.length === 0
-      ? []
-      : suggestions.filter((s) => s.name.toLowerCase().includes(query) && !attached.has(s.name.toLowerCase()));
-  const exactMatch = filtered.some((s) => s.name.toLowerCase() === query);
-  const showNewRow = query.length > 0 && !exactMatch;
+  const { filtered, showNewRow, defaultHighlight } = matchSuggestions(draft, suggestions, attached);
+  const listboxId = useId();
+
+  useEffect(() => {
+    setHighlight(defaultHighlight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   function commit(name: string) {
     const trimmed = name.trim();
@@ -161,11 +182,14 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
             className="tag-chips__input"
             placeholder="+ Add tag"
             aria-label="Add tag"
+            role="combobox"
+            aria-expanded={open && (filtered.length > 0 || showNewRow)}
+            aria-controls={listboxId}
+            aria-activedescendant={open ? `${listboxId}-${highlight}` : undefined}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
               setOpen(true);
-              setHighlight(0);
               setRefusal(null);
             }}
             onFocus={() => setOpen(true)}
@@ -173,10 +197,13 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
             onBlur={() => setTimeout(() => setOpen(false), 150)}
           />
           {open && (filtered.length > 0 || showNewRow) ? (
-            <div className="tag-chips__suggestions">
+            <div className="tag-chips__suggestions" role="listbox" id={listboxId}>
               {filtered.map((s, i) => (
                 <div
                   key={s.name}
+                  id={`${listboxId}-${i}`}
+                  role="option"
+                  aria-selected={i === highlight}
                   className={'tag-chips__suggestion' + (i === highlight ? ' tag-chips__suggestion--on' : '')}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -189,6 +216,9 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
               ))}
               {showNewRow ? (
                 <div
+                  id={`${listboxId}-${filtered.length}`}
+                  role="option"
+                  aria-selected={highlight === filtered.length}
                   className={
                     'tag-chips__suggestion tag-chips__suggestion--new' +
                     (highlight === filtered.length ? ' tag-chips__suggestion--on' : '')
