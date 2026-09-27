@@ -1,7 +1,5 @@
-// ADR-0059 — a tag is a node, not a field: `Tag`, one field `name`, with
-// objects pointing at it through `TaggedWith`. Two names equal ignoring
-// case are the same tag (decision 5); every read and write below treats a
-// duplicate-name pair as one group.
+// ADR-0059: a tag is a `Tag` node that objects point at through `TaggedWith`. Tag nodes
+// whose names fold to the same key (decision 5) read and write as one tag.
 
 import {
   LOCAL_ACTOR,
@@ -29,14 +27,8 @@ import {
 import { cascadeRemoval } from './cascade';
 import { newUlid } from './ulid';
 
-// `parseNodeId`/`parseEdgeId` validate the ulid on every call (a decode and
-// a re-encode, `ulid.ts`'s own `canonicalUlid`) — right for the one id a
-// caller names, wrong for a filter run over every node and edge in the
-// document: at 2,100 devices (134,500 nodes, 137,200 edges) that validation
-// alone was the whole cost of building the index below, ~1.4 s where the
-// budget is 50 ms. A node/edge id's kind prefix is already fixed by
-// `formatNodeId`/`formatEdgeId` (`kebab(kind)`), so the index's own two
-// hot loops check that prefix directly and never call either parser.
+// Kind filters over every node and edge check the id's `kebab(kind)` prefix;
+// `parseNodeId` validates the ulid, which is too slow to run over them all.
 const TAG_NODE_PREFIX = `${kebab('Tag')}:`;
 const TAGGED_WITH_EDGE_PREFIX = `${kebab('TaggedWith')}:`;
 
@@ -49,10 +41,8 @@ function resolve(opts: Actor | undefined): { actor: string; now: number } {
   return { actor: opts?.actor ?? LOCAL_ACTOR, now: opts?.now ?? Date.now() };
 }
 
-/** `Taggable` (`schema/schema.yaml`) — the kinds a `TaggedWith` edge may
- * carry `from:`. A `Vlan` row is tagged through its members (decision 6),
- * never directly by the row itself, which is derived and has no node id of
- * its own — `Vlan` stays in this list because each MEMBER is a real node. */
+/** `Taggable` in `schema/schema.yaml`. A VLAN row has no node of its own; it is tagged
+ * through its member `Vlan` nodes (decision 6). */
 const TAGGABLE_KINDS: readonly NodeKind[] = [
   'Device',
   'PassiveNode',
@@ -98,19 +88,15 @@ function asString(v: FieldEntry['value'] | undefined): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** Decision 5: trim, collapse inner runs of whitespace to one space, refuse
- * control (Cc) and invisible format (Cf, including the zero-width space)
- * characters, store normalised to NFC, and refuse outside 1..64 characters
- * counted in code points, not UTF-16 units — a surrogate-pair emoji is one
- * character, not two. Refuses by name and writes nothing — the caller never
- * sees a half-normalised name land. */
+/** Decision 5: trim, collapse inner whitespace, refuse control (Cc), format (Cf) and lone
+ * surrogate (Cs) characters, store NFC, and allow 1 to 64 code points. */
 export function normalizeTagName(raw: string): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ');
   if (collapsed.length === 0) {
     refuse('name-blank', 'a tag name must not be blank');
   }
-  if (/[\p{Cc}\p{Cf}]/u.test(collapsed)) {
-    refuse('name-invalid', 'a tag name must not contain control or invisible formatting characters');
+  if (/[\p{Cc}\p{Cf}\p{Cs}]/u.test(collapsed)) {
+    refuse('name-invalid', 'a tag name must not contain control, invisible or broken characters');
   }
   const nfc = collapsed.normalize('NFC');
   const codePoints = Array.from(nfc).length;
@@ -120,24 +106,15 @@ export function normalizeTagName(raw: string): string {
   return nfc;
 }
 
-/** Decision 5: the comparison key every group below is built from — the
- * name normalised to NFKC, upper-cased, then lower-cased. That folds ß, SS
- * and ss to one key, a full-width letter to its ASCII equivalent, and a
- * composed or decomposed é to the same key, on top of plain case. */
+/** Decision 5's comparison key: NFKC, upper-cased, then lower-cased, so ß/SS/ss,
+ * full-width letters and composed or decomposed é each fold to one key. */
 export function foldTagName(name: string): string {
   return name.normalize('NFKC').toUpperCase().toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
-// The tag index. One pass over `doc.nodes` and one over `doc.edges` builds
-// every group, and every read below (`tagsOf`, `listTags`, `tagObject`'s own
-// "already carries this group" check, quick search) is then O(1) per
-// lookup rather than an edge scan per object -- 2,100 devices took a
-// device-name search from 108 ms to 125 s before this existed, `tagsOf`
-// alone accounting for the blow-up. Memoised in a `WeakMap` keyed by the
-// `Document` object itself: every write in this module returns a NEW
-// `Document` (immutable, `model.ts`'s own convention), so the cache can
-// never read a stale index for a document some caller still holds.
+// The tag index: one pass over nodes and edges, memoised per Document. Every
+// write returns a new Document, so a cached index is never stale.
 
 interface TagGroup {
   /** The comparison key (`foldTagName` of the canonical name). */

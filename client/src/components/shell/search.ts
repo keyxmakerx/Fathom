@@ -24,9 +24,7 @@ export function searchDesign(view: Pick<ClosetView, 'racks'>, query: string, doc
   const q = query.trim().toLowerCase();
   if (q.length === 0) return [];
   const has = (s: string | null | undefined) => s != null && s.toLowerCase().includes(q);
-  // One `tagsOf` call per object, not two (a prior `hasTag`-then-`tagWhy`
-  // shape called it twice for every match) -- at 2,100 devices this halves
-  // the per-object cost the index build itself does not cover.
+  // One `tagsOf` per object, and only when its name did not already match.
   const matchingTagName = (id: string): string | undefined => {
     if (!doc) return undefined;
     for (const chip of tagsOf(doc, id)) {

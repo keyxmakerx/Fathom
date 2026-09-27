@@ -69,8 +69,7 @@ describe('normalizeTagName', () => {
   });
 
   it('stores the name normalised to NFC', () => {
-    const decomposed = 'café'; // e + combining acute, not the composed é
-    expect(normalizeTagName(decomposed)).toBe('café');
+    expect(normalizeTagName('cafe\u0301')).toBe('caf\u00e9'); // e + combining acute -> é
   });
 
   it('refuses control characters (Cc)', () => {
@@ -79,9 +78,15 @@ describe('normalizeTagName', () => {
   });
 
   it('refuses invisible format characters (Cf), including the zero-width space', () => {
-    expect(() => normalizeTagName('prod​')).toThrow(TagRefusalError);
-    expect(() => normalizeTagName('‍')).toThrow(TagRefusalError);
-    expect(() => normalizeTagName('‮evil')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('prod\u200b')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('\u200d')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('\u202eevil')).toThrow(TagRefusalError);
+  });
+
+  it('refuses half of a surrogate pair (Cs), and still accepts a whole one', () => {
+    expect(() => normalizeTagName('prod\ud83d')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('\ude00prod')).toThrow(TagRefusalError);
+    expect(normalizeTagName('prod\ud83d\ude00')).toBe('prod\u{1f600}');
   });
 
   it('counts length in code points, not UTF-16 units — a surrogate-pair emoji is one character', () => {
@@ -92,7 +97,7 @@ describe('normalizeTagName', () => {
 
   it('counts the NFC-normalised length, so a decomposed run under the raw code-point cap is not wrongly refused', () => {
     // 40 decomposed pairs = 80 raw code points, but 40 composed characters once normalised.
-    expect(normalizeTagName('é'.repeat(40))).toBe('é'.repeat(40));
+    expect(normalizeTagName('e\u0301'.repeat(40))).toBe('\u00e9'.repeat(40));
   });
 });
 
@@ -108,11 +113,11 @@ describe('foldTagName', () => {
   });
 
   it('full-width letters fold the same as their ASCII equivalents', () => {
-    expect(foldTagName('ＰＲＯＤ')).toBe(foldTagName('prod'));
+    expect(foldTagName('\uff30\uff32\uff2f\uff24')).toBe(foldTagName('prod')); // full-width PROD
   });
 
   it('a composed and a decomposed é fold the same', () => {
-    expect(foldTagName('café')).toBe(foldTagName('café'));
+    expect(foldTagName('caf\u00e9')).toBe(foldTagName('cafe\u0301'));
   });
 });
 

@@ -1,14 +1,11 @@
-// ADR-0059 — one chip component, used everywhere a tag is shown. A
-// read-only view (no `onAdd`/`onRemove`) shows chips with no input or
-// remove control; clicking a chip's name, when `onRename` is supplied,
-// turns it into an inline rename field.
+// ADR-0059: the one tag chip component. Without `onAdd` and `onRemove` it is read-only;
+// with `onRename`, clicking a chip's name renames it inline.
 import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { foldTagName } from '../document/tags';
 import './tagChips.css';
 
-/** Inline, not a class: `.shell-editor button` (`styles/shell.css`) would
- * otherwise give this plain "×" its own border and padding box. Inline wins
- * over any class regardless of specificity — `Editor.tsx`'s `SelectLink`/
- * `LINK_STYLE` own precedent. */
+/** Inline, because `.shell-editor button` (`styles/shell.css`) would otherwise give the ×
+ * a border and padding, and an inline style wins over any class. */
 const REMOVE_STYLE: CSSProperties = {
   display: 'inline-block',
   border: 'none',
@@ -25,8 +22,7 @@ const REMOVE_STYLE: CSSProperties = {
 export interface TagChipItem {
   id: string;
   name: string;
-  /** Shown after the name, muted — a VLAN row's chip not every member
-   * carries reads "2 of 3" rather than as plain as one every member has. */
+  /** Shown muted after the name: "2 of 3" on a VLAN row's chip that not every member carries. */
   coverage?: string;
 }
 
@@ -37,31 +33,23 @@ export interface TagSuggestion {
 
 export interface TagChipsProps {
   tags: readonly TagChipItem[];
-  /** Every tag in the design, not only the ones already on this object —
-   * a suggestion offers what exists, `cable-filter.dc.html`'s own "existing
-   * tags first." Omitted (or empty) reads as "nothing to suggest yet." */
+  /** Every tag in the design, offered as the user types. */
   suggestions?: readonly TagSuggestion[];
   onAdd?: (name: string) => { refused: string } | void;
   onRemove?: (tagId: string) => { refused: string } | void;
   onRename?: (tagId: string, name: string) => { refused: string } | void;
 }
 
-/**
- * The suggestion list for `draft`, and which row Enter takes by default —
- * a pure function so this decision is unit-testable with no DOM. The
- * highlight starts on the typed name's OWN row: the existing tag when the
- * typed text equals one ignoring case, "new tag …" otherwise — never a mere
- * substring match, so Enter on a genuinely new name never silently tags an
- * unrelated existing one it happens to be a prefix of.
- */
+/** The suggestions for `draft`, compared by `foldTagName`, and the row Enter takes by default:
+ * the existing tag the typed name folds to, otherwise "new tag …", never a longer match. */
 export function matchSuggestions(
   draft: string,
   suggestions: readonly TagSuggestion[],
   attachedNames: ReadonlySet<string>,
 ): { filtered: TagSuggestion[]; showNewRow: boolean; defaultHighlight: number } {
-  const query = draft.trim().toLowerCase();
-  const filtered = query.length === 0 ? [] : suggestions.filter((s) => s.name.toLowerCase().includes(query) && !attachedNames.has(s.name.toLowerCase()));
-  const exactMatchIndex = filtered.findIndex((s) => s.name.toLowerCase() === query);
+  const query = foldTagName(draft.trim().replace(/\s+/g, ' '));
+  const filtered = query.length === 0 ? [] : suggestions.filter((s) => foldTagName(s.name).includes(query) && !attachedNames.has(foldTagName(s.name)));
+  const exactMatchIndex = filtered.findIndex((s) => foldTagName(s.name) === query);
   const showNewRow = query.length > 0 && exactMatchIndex < 0;
   const defaultHighlight = exactMatchIndex >= 0 ? exactMatchIndex : filtered.length;
   return { filtered, showNewRow, defaultHighlight };
@@ -90,7 +78,7 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
     setRenaming(null);
   }
 
-  const attached = new Set(tags.map((t) => t.name.toLowerCase()));
+  const attached = new Set(tags.map((t) => foldTagName(t.name)));
   const { filtered, showNewRow, defaultHighlight } = matchSuggestions(draft, suggestions, attached);
   const listboxId = useId();
 
