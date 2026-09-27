@@ -1409,3 +1409,41 @@ export function cablesCarryingVlan(doc: Document, vlanNodeIds: readonly string[]
   }
   return [...cableIds].sort();
 }
+
+/** GitHub issue #54 decision 5 — the Cables list's VLAN group draws dashed
+ * "a trunk member at either end of its path, through passive hops": every
+ * cable on the chain (`cabledFarPort`'s own `cableIds`, passive hops and
+ * all) leading away from a port whose unit carries `vlanNodeIds` in TRUNK
+ * mode, restricted to this row's own domain the same way `cablesCarryingVlan`
+ * is. A cable an access member also reaches is not excluded here — the
+ * caller (`components/drawing/cableGroups.ts`) is the one place that decides
+ * "another ticked group carrying it untagged draws it solid", by set
+ * difference against every ticked group's own plain membership, not by this
+ * function guessing which other groups are on. */
+export function trunkCableIdsForVlan(doc: Document, vlanNodeIds: readonly string[]): string[] {
+  const idx = buildIndex(doc);
+  const nodes = vlanNodeIds.map((id) => liveNode(idx, id)).filter((n): n is GraphNode => n !== undefined);
+  if (nodes.length === 0) return [];
+  const idValue = vlanIdOfNode(nodes[0]);
+  if (idValue === undefined) return [];
+  const idSet = new Set(allLiveVlanNodesWithId(idx, idValue).map((n) => n.id));
+  const base = buildPortGraph(idx);
+  const candidateUnitIds = buildVlanCarrierIndex(idx).get(idValue) ?? EMPTY_UNIT_IDS;
+  const domainUf = buildDomainUnionFind(idx, base, idValue, idSet, candidateUnitIds);
+  const key = nodeComponentKey(idx, base, domainUf, nodes[0]);
+  const cableIds = new Set<string>();
+  const seenUnits = new Set<string>();
+  for (const unitId of candidateUnitIds) {
+    if (seenUnits.has(unitId)) continue;
+    seenUnits.add(unitId);
+    if (unitCarries(idx, unitId, idValue, idSet)?.mode !== 'trunk') continue;
+    const ctx = unitContext(idx, unitId);
+    if (!ctx) continue;
+    const res = resolvePortForInterface(idx, ctx.interfaceId);
+    if (res.kind !== 'live' && res.kind !== 'inferred') continue;
+    if (domainKeyOfPort(base, domainUf, res.portId) !== key) continue;
+    const partner = base.cablePartner.get(res.portId);
+    if (partner) for (const c of partner.cableIds) cableIds.add(c);
+  }
+  return [...cableIds].sort();
+}
