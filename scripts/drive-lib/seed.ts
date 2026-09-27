@@ -20,6 +20,7 @@ import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addVlan } from './document/networks';
+import { tagObject } from './document/tags';
 import { naturalLabelCompare, viewOf } from './document/view';
 
 export function catalogueFrom(cat: { models: Record<string, unknown> }): CatalogueModel[] {
@@ -534,6 +535,15 @@ export function seedManyDevicesScene(catalogue: CatalogueModel[], me: string, co
   const a = frontRj45(working, catalogue, 'dev-01');
   const b = frontRj45(working, catalogue, 'dev-02');
   return connectPorts(working, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
+}
+
+/** ADR-0059's own drive: `seedConnectedDevices`'s two devices and cable, with
+ * `core-01` already carrying one tag ("core") so the suggestion list has
+ * something to offer when the cable is tagged next. */
+export function seedTagsScene(catalogue: CatalogueModel[], me: string): Document {
+  const doc = seedConnectedDevices(catalogue, me);
+  const core = firstRack(doc, catalogue).chassis.find((c) => c.hostname === 'core-01')!;
+  return tagObject(doc, core.deviceId, 'core', { actor: me });
 }
 
 /** One rack holding a shelf at U20, with the sketch device `box-01` on its first slot. */
