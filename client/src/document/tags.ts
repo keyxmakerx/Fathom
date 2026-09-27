@@ -81,6 +81,7 @@ export type TagRefusalCode =
   | 'not-taggable'
   | 'not-a-tag'
   | 'name-blank'
+  | 'name-invalid'
   | 'name-too-long'
   | 'name-in-use'
   | 'already-tagged'
@@ -108,24 +109,34 @@ function asString(v: FieldEntry['value'] | undefined): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** Decision 5, verbatim: trim, collapse inner runs of whitespace to one
- * space, refuse outside 1..64 characters. Refuses by name and writes
- * nothing — the caller never sees a half-normalised name land. */
+/** Decision 5: trim, collapse inner runs of whitespace to one space, refuse
+ * control (Cc) and invisible format (Cf, including the zero-width space)
+ * characters, store normalised to NFC, and refuse outside 1..64 characters
+ * counted in code points, not UTF-16 units — a surrogate-pair emoji is one
+ * character, not two. Refuses by name and writes nothing — the caller never
+ * sees a half-normalised name land. */
 export function normalizeTagName(raw: string): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ');
   if (collapsed.length === 0) {
     refuse('name-blank', 'a tag name must not be blank');
   }
-  if (collapsed.length > 64) {
-    refuse('name-too-long', `a tag name must be 64 characters or fewer, got ${collapsed.length}`);
+  if (/[\p{Cc}\p{Cf}]/u.test(collapsed)) {
+    refuse('name-invalid', 'a tag name must not contain control or invisible formatting characters');
   }
-  return collapsed;
+  const nfc = collapsed.normalize('NFC');
+  const codePoints = Array.from(nfc).length;
+  if (codePoints > 64) {
+    refuse('name-too-long', `a tag name must be 64 characters or fewer, got ${codePoints}`);
+  }
+  return nfc;
 }
 
-/** Decision 5: two names equal ignoring case are the same tag — the
- * comparison key every group below is built from. */
+/** Decision 5: the comparison key every group below is built from — the
+ * name normalised to NFKC, upper-cased, then lower-cased. That folds ß, SS
+ * and ss to one key, a full-width letter to its ASCII equivalent, and a
+ * composed or decomposed é to the same key, on top of plain case. */
 export function foldTagName(name: string): string {
-  return name.toLowerCase();
+  return name.normalize('NFKC').toUpperCase().toLowerCase();
 }
 
 // ---------------------------------------------------------------------------

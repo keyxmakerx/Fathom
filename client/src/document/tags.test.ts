@@ -67,12 +67,52 @@ describe('normalizeTagName', () => {
     expect(normalizeTagName('a'.repeat(64))).toBe('a'.repeat(64));
     expect(() => normalizeTagName('a'.repeat(65))).toThrow(TagRefusalError);
   });
+
+  it('stores the name normalised to NFC', () => {
+    const decomposed = 'café'; // e + combining acute, not the composed é
+    expect(normalizeTagName(decomposed)).toBe('café');
+  });
+
+  it('refuses control characters (Cc)', () => {
+    expect(() => normalizeTagName('a\u0000b')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('a\u001bb')).toThrow(TagRefusalError);
+  });
+
+  it('refuses invisible format characters (Cf), including the zero-width space', () => {
+    expect(() => normalizeTagName('prod​')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('‍')).toThrow(TagRefusalError);
+    expect(() => normalizeTagName('‮evil')).toThrow(TagRefusalError);
+  });
+
+  it('counts length in code points, not UTF-16 units — a surrogate-pair emoji is one character', () => {
+    expect(normalizeTagName('\u{1f600}'.repeat(33))).toBe('\u{1f600}'.repeat(33)); // 33 code points, 66 UTF-16 units
+    expect(normalizeTagName('\u{1f600}'.repeat(64))).toBe('\u{1f600}'.repeat(64)); // 64 code points, 128 UTF-16 units
+    expect(() => normalizeTagName('\u{1f600}'.repeat(65))).toThrow(TagRefusalError);
+  });
+
+  it('counts the NFC-normalised length, so a decomposed run under the raw code-point cap is not wrongly refused', () => {
+    // 40 decomposed pairs = 80 raw code points, but 40 composed characters once normalised.
+    expect(normalizeTagName('é'.repeat(40))).toBe('é'.repeat(40));
+  });
 });
 
 describe('foldTagName', () => {
   it('two names equal only in case fold the same', () => {
     expect(foldTagName('Cameras')).toBe(foldTagName('cameras'));
     expect(foldTagName('CAMERAS')).toBe(foldTagName('cameras'));
+  });
+
+  it('ß, SS and ss fold to the same key', () => {
+    expect(foldTagName('straße')).toBe(foldTagName('STRASSE'));
+    expect(foldTagName('straße')).toBe(foldTagName('strasse'));
+  });
+
+  it('full-width letters fold the same as their ASCII equivalents', () => {
+    expect(foldTagName('ＰＲＯＤ')).toBe(foldTagName('prod'));
+  });
+
+  it('a composed and a decomposed é fold the same', () => {
+    expect(foldTagName('café')).toBe(foldTagName('café'));
   });
 });
 
