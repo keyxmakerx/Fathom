@@ -159,6 +159,21 @@ try {
   await page.screenshot({ path: SHOTS + 'tags-01-device-chip.png' });
   console.log('    wrote ' + SHOTS + 'tags-01-device-chip.png');
 
+  // Backspace and Delete while typing in "Add tag" edit the field, never
+  // the selected device (c8e19f5).
+  const deviceTagInput = page.locator('.drawing-editor__panel .tag-chips__input');
+  await deviceTagInput.click();
+  await deviceTagInput.pressSequentially('ab');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  check(
+    'Backspace/Delete in "Add tag" with the device selected leaves both devices in place',
+    (await page.locator('.react-flow__node-chassis').count()) === 2,
+  );
+  await deviceTagInput.fill('');
+
   await page.locator('.drawing-editor__panel .tag-chips__input').fill('rack-a');
   await page.locator('.drawing-editor__panel .tag-chips__input').press('Enter');
   await page.waitForTimeout(300);
@@ -180,6 +195,21 @@ try {
     cablePanelText.toLowerCase().includes('ownership'),
     cablePanelText.slice(0, 200),
   );
+
+  // Backspace and Delete while typing in "Add tag" edit the field, never
+  // the selected cable (c8e19f5).
+  const cableTagInput = page.locator('.drawing-editor__panel .tag-chips__input');
+  await cableTagInput.click();
+  await cableTagInput.pressSequentially('xy');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  check(
+    'Backspace/Delete in "Add tag" with the cable selected leaves the cable in place',
+    (await page.evaluate(() => document.querySelectorAll('[data-cable-id]').length)) === 1,
+  );
+  await cableTagInput.fill('');
 
   await page.locator('.drawing-editor__panel .tag-chips__input').fill('co');
   await page.waitForSelector('.drawing-editor__panel .tag-chips__suggestions', { timeout: 5_000 });
