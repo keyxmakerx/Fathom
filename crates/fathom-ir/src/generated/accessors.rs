@@ -1731,6 +1731,14 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(341))
         }
     }
+    /// Typed reads for `Tag` fields.
+    pub mod tag {
+        /// `Tag.name` — `Text`, card `1`, emit `—`.
+        /// The tag's identity (decision 5).
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(343))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2079,6 +2087,7 @@ mod body {
             340 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
             341 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
             342 => Some((core::any::TypeId::of::<Vec<crate::scalar::InterfaceAddress>>(), "Vec<crate::scalar::InterfaceAddress>")),
+            343 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2429,6 +2438,7 @@ mod body {
             340 => crate::canon::slot_to::<crate::scalar::L4Port>(340, "crate::scalar::L4Port", value),
             341 => crate::canon::slot_to::<crate::scalar::IpAddr>(341, "crate::scalar::IpAddr", value),
             342 => crate::canon::slot_to::<Vec<crate::scalar::InterfaceAddress>>(342, "Vec<crate::scalar::InterfaceAddress>", value),
+            343 => crate::canon::slot_to::<crate::scalar::Text>(343, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2777,6 +2787,7 @@ mod body {
             340 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
             341 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
             342 => crate::canon::slot_from::<Vec<crate::scalar::InterfaceAddress>>(j),
+            343 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

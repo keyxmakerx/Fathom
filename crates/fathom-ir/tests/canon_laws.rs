@@ -152,7 +152,17 @@ fn schema_version_is_the_trees() {
     // a new edge kind all MINOR; an old build keeps the unrecognised kind in
     // `unknown` rather than refusing the file. Nothing existing moved. Decision 6:
     // the reader still opens a 0.10 payload and the writer always writes 0.11.
-    assert_eq!(SCHEMA_VERSION, "0.11");
+    //
+    // 0.11 -> 0.12: ADR-0059, tags. One new node kind `Tag` (joins `Placeable`,
+    // `Note`'s own precedent), one field `name`. One new class `Taggable`. Two new
+    // edge kinds -- `HasTag` (containment, `HasTenant`'s shape, `root -> Tag`) and
+    // `TaggedWith` (reference, `AttachedTo`'s shape, `Taggable -> Tag`, both ends
+    // `0..n`). One new field key, 343. 62 §16.2 prices a new node kind, a field on
+    // a new declarer and a new edge kind all MINOR; an old build keeps the
+    // unrecognised kind in `unknown` rather than refusing the file. Nothing
+    // existing moved. Decision 9: the reader still opens a 0.11 payload and the
+    // writer always writes 0.12.
+    assert_eq!(SCHEMA_VERSION, "0.12");
 }
 
 #[test]
@@ -673,7 +683,10 @@ fn dispatch_names_every_registry_key() {
     // `.driver`, `.subnet`, `.gateway` (333-336), `Container.name` (337),
     // `PublishedPort.protocol`, `.container_port`, `.host_port`, `.host_address`
     // (338-341), `AttachedTo.address` (342) -- appended after `Note.line_count`.
-    assert_eq!(FIELD_KEYS.len(), 342, "the registry grew or shrank");
+    //
+    // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
+    // `AttachedTo.address`.
+    assert_eq!(FIELD_KEYS.len(), 343, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

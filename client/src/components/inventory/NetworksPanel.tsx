@@ -62,9 +62,60 @@ import {
   type VlanMemberRow,
   type VlanRow,
 } from '../../document/networks-derive';
+// ADR-0059 — tag chips on a VLAN row (through its members, decision 6), a
+// Docker network and a container, calling `document/tags.ts` directly and
+// handing the result to `applyDocChange`, the same door every other write
+// here already uses.
+import { listTags, renameTag, tagObject, tagVlanRow, tagsOf as tagsOfDoc, tagsOfVlanRow, untagObject, untagVlanRow } from '../../document/tags';
 import { getSession } from '../../state/sessionState';
+import { TagChips } from '../TagChips';
 import { formatLastChange } from './rows';
 import './networks.css';
+
+/** `TagChips`'s own `onAdd`/`onRemove` contract, built once per row from
+ * whichever of `tagObject`/`tagVlanRow` (and their untag reverse) the
+ * caller's row shape needs — `EditorActions.onAddTag`'s own "refuse by name,
+ * write nothing" reading, off `document/tags.ts`'s `TagRefusalError`. */
+function tagHandlers(
+  applyDocChange: (next: Document) => void,
+  canDraw: boolean,
+  add: (name: string) => Document,
+  remove: (tagId: string) => Document,
+): { onAdd?: (name: string) => { refused: string } | void; onRemove?: (tagId: string) => { refused: string } | void } {
+  if (!canDraw) return {};
+  return {
+    onAdd: (name) => {
+      try {
+        applyDocChange(add(name));
+      } catch (e) {
+        return { refused: e instanceof Error ? e.message : 'That tag was refused.' };
+      }
+    },
+    onRemove: (tagId) => {
+      try {
+        applyDocChange(remove(tagId));
+      } catch (e) {
+        return { refused: e instanceof Error ? e.message : 'That removal was refused.' };
+      }
+    },
+  };
+}
+
+/** `renameTag`'s own door onto `TagChips.onRename` — not owner-scoped
+ * (`document/tags.ts`'s own reading), so this needs no `add`/`remove`
+ * builder the way `tagHandlers` does. */
+function renameTagHandler(doc: Document, applyDocChange: (next: Document) => void, canDraw: boolean) {
+  if (!canDraw) return undefined;
+  return (tagId: string, name: string): { refused: string } | void => {
+    try {
+      // Not an error, just no change -- `renameTag`'s own doc.
+      const next = renameTag(doc, tagId, name, actorOpts());
+      if (next !== doc) applyDocChange(next);
+    } catch (e) {
+      return { refused: e instanceof Error ? e.message : 'That rename was refused.' };
+    }
+  };
+}
 
 const DOCKER_DRIVERS: readonly DockerDriver[] = ['bridge', 'host', 'none', 'macvlan', 'ipvlan', 'overlay', 'other'];
 const DOCKER_PROTOCOLS = ['tcp', 'udp', 'sctp'] as const;
@@ -642,6 +693,7 @@ export function NetworksPanel(props: NetworksPanelProps) {
                   hostnameOf={hostnameOf}
                   doc={doc}
                   view={view}
+                  applyDocChange={applyDocChange}
                 />
               ))}
             </>
@@ -699,6 +751,8 @@ export function NetworksPanel(props: NetworksPanelProps) {
                   }}
                   canDraw={canDraw}
                   hostnameOf={hostnameOf}
+                  doc={doc}
+                  applyDocChange={applyDocChange}
                 />
               ))}
             </>
@@ -739,8 +793,9 @@ function VlanRowGroup(props: {
   hostnameOf: (id: string) => string;
   doc: Document;
   view: ClosetView;
+  applyDocChange: (next: Document) => void;
 }) {
-  const { row, open, onToggle, onRemove, onDetach, canDraw, hostnameOf, doc, view } = props;
+  const { row, open, onToggle, onRemove, onDetach, canDraw, hostnameOf, doc, view, applyDocChange } = props;
   return (
     <>
       <div className={open ? 'networks-grid__cell networks-grid__row--open' : 'networks-grid__cell'} onClick={onToggle}>
@@ -794,6 +849,26 @@ function VlanRowGroup(props: {
             </div>
           ))}
           {row.members.length === 0 ? <div className="networks-editor__empty">No members yet.</div> : null}
+          {/* ADR-0059 decision 6 — a VLAN row is tagged through its members;
+              the chips shown are the union of every member's tags. */}
+          <div className="networks-grid__tags">
+            <TagChips
+              key={row.key}
+              tags={tagsOfVlanRow(doc, row.vlanNodeIds).map((t) => ({
+                id: t.tagId,
+                name: t.name,
+                coverage: t.carriedBy < t.total ? `${t.carriedBy} of ${t.total}` : undefined,
+              }))}
+              suggestions={listTags(doc)}
+              {...tagHandlers(
+                applyDocChange,
+                canDraw,
+                (name) => tagVlanRow(doc, row.vlanNodeIds, name, actorOpts()),
+                (tagId) => untagVlanRow(doc, row.vlanNodeIds, tagId, actorOpts()),
+              )}
+              onRename={renameTagHandler(doc, applyDocChange, canDraw)}
+            />
+          </div>
           {canDraw ? (
             <div className="networks-grid__open-actions">
               {row.members.map((m) =>
@@ -1076,8 +1151,14 @@ function AttachContainerForm(props: { doc: Document; applyDocChange: (next: Docu
 
 /** One member row — data only, five columns under the rail, the VLAN row's
  * own `.networks-grid__member` shape and widths. */
-function DockerMemberRow(props: { container: DockerContainerRow; hostnameOf: (id: string) => string }) {
-  const { container: c, hostnameOf } = props;
+function DockerMemberRow(props: {
+  container: DockerContainerRow;
+  hostnameOf: (id: string) => string;
+  doc: Document;
+  applyDocChange: (next: Document) => void;
+  canDraw: boolean;
+}) {
+  const { container: c, hostnameOf, doc, applyDocChange, canDraw } = props;
   return (
     <div className="networks-grid__member">
       <div className="networks-grid__member-rail" />
@@ -1086,6 +1167,20 @@ function DockerMemberRow(props: { container: DockerContainerRow; hostnameOf: (id
       <div>{c.address ?? '—'}</div>
       <div>{hostnameOf(c.deviceId)}</div>
       <div>{publishedPortsCellText(c.publishedPorts)}</div>
+      <div className="networks-grid__member-tags">
+        <TagChips
+          key={c.containerId}
+          tags={tagsOfDoc(doc, c.containerId).map((t) => ({ id: t.tagId, name: t.name }))}
+          suggestions={listTags(doc)}
+          {...tagHandlers(
+            applyDocChange,
+            canDraw,
+            (name) => tagObject(doc, c.containerId, name, actorOpts()),
+            (tagId) => untagObject(doc, c.containerId, tagId, actorOpts()),
+          )}
+          onRename={renameTagHandler(doc, applyDocChange, canDraw)}
+        />
+      </div>
     </div>
   );
 }
@@ -1150,9 +1245,24 @@ function DockerNetworkRowGroup(props: {
               </div>
             ))}
           {row.containers.map((c) => (
-            <DockerMemberRow key={c.containerId} container={c} hostnameOf={hostnameOf} />
+            <DockerMemberRow key={c.containerId} container={c} hostnameOf={hostnameOf} doc={doc} applyDocChange={applyDocChange} canDraw={canDraw} />
           ))}
           {row.containers.length === 0 ? <div className="networks-editor__empty">No containers yet.</div> : null}
+          {/* ADR-0059 decision 2 — a Docker network takes its tag directly. */}
+          <div className="networks-grid__tags">
+            <TagChips
+              key={row.containerNetworkId}
+              tags={tagsOfDoc(doc, row.containerNetworkId).map((t) => ({ id: t.tagId, name: t.name }))}
+              suggestions={listTags(doc)}
+              {...tagHandlers(
+                applyDocChange,
+                canDraw,
+                (name) => tagObject(doc, row.containerNetworkId, name, actorOpts()),
+                (tagId) => untagObject(doc, row.containerNetworkId, tagId, actorOpts()),
+              )}
+              onRename={renameTagHandler(doc, applyDocChange, canDraw)}
+            />
+          </div>
           {addingContainer ? (
             <AttachContainerForm doc={doc} applyDocChange={applyDocChange} row={row} onClose={() => setAddingContainer(false)} />
           ) : null}
@@ -1217,8 +1327,10 @@ function DockerUnattachedContainerRowGroup(props: {
   onRemove: () => void;
   canDraw: boolean;
   hostnameOf: (id: string) => string;
+  doc: Document;
+  applyDocChange: (next: Document) => void;
 }) {
-  const { row, open, onToggle, onRemove, canDraw, hostnameOf } = props;
+  const { row, open, onToggle, onRemove, canDraw, hostnameOf, doc, applyDocChange } = props;
   const asMember: DockerContainerRow = {
     containerId: row.containerId,
     name: row.name,
@@ -1259,7 +1371,7 @@ function DockerUnattachedContainerRowGroup(props: {
 
       {open ? (
         <div className="networks-grid__open">
-          <DockerMemberRow container={asMember} hostnameOf={hostnameOf} />
+          <DockerMemberRow container={asMember} hostnameOf={hostnameOf} doc={doc} applyDocChange={applyDocChange} canDraw={canDraw} />
           {canDraw ? (
             <div className="networks-grid__open-actions">
               <button type="button" className="networks-grid__link" onClick={onRemove}>

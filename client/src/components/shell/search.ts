@@ -1,3 +1,5 @@
+import type { Document } from '../../document/model';
+import { tagsOf } from '../../document/tags';
 import type { ClosetView } from '../../document/view';
 import type { Selection } from '../drawing/contract';
 
@@ -11,12 +13,21 @@ export interface SearchHit {
 
 const GROUP_ORDER: readonly SearchHit['group'][] = ['Devices', 'Racks', 'Ports'];
 
-/** Case-insensitive search of the open design, devices first. A port matches
- * only when the query reaches past its device's name ("acc-01 · 6", not "acc"). */
-export function searchDesign(view: Pick<ClosetView, 'racks'>, query: string, limit = 12): SearchHit[] {
+/** Case-insensitive search of the open design, devices first; given `doc`, an object also
+ * matches by its tags. A port matches only when the query reaches past its device's name
+ * ("acc-01 · 6", not "acc"). */
+export function searchDesign(view: Pick<ClosetView, 'racks'>, query: string, doc?: Document, limit = 12): SearchHit[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return [];
   const has = (s: string | null | undefined) => s != null && s.toLowerCase().includes(q);
+  // One `tagsOf` per object, and only when its name did not already match.
+  const matchingTagName = (id: string): string | undefined => {
+    if (!doc) return undefined;
+    for (const chip of tagsOf(doc, id)) {
+      if (chip.name.toLowerCase().includes(q)) return chip.name;
+    }
+    return undefined;
+  };
 
   const nameOf = new Map<string, string>();
   for (const rack of view.racks) {
@@ -28,19 +39,27 @@ export function searchDesign(view: Pick<ClosetView, 'racks'>, query: string, lim
 
   const hits: SearchHit[] = [];
   for (const rack of view.racks) {
-    if (has(rack.label)) {
-      hits.push({ group: 'Racks', name: rack.label, why: `${rack.heightU}U · ${rack.chassis.length} devices`, selection: { kind: 'rack', id: rack.id } });
+    const rackNameMatches = has(rack.label);
+    const rackTagHit = rackNameMatches ? undefined : matchingTagName(rack.id);
+    if (rackNameMatches || rackTagHit) {
+      const why = rackTagHit ? `tag: ${rackTagHit}` : `${rack.heightU}U · ${rack.chassis.length} devices`;
+      hits.push({ group: 'Racks', name: rack.label, why, selection: { kind: 'rack', id: rack.id } });
     }
     for (const ch of rack.chassis) {
       const device = ch.hostname || ch.model;
-      if (has(ch.hostname) || has(ch.model) || has(ch.serial) || has(ch.managementAddress)) {
-        hits.push({ group: 'Devices', name: device, why: `${ch.model} · ${rack.label} U${ch.positionU}`, selection: { kind: 'chassis', id: ch.id } });
+      const deviceNameMatches = has(ch.hostname) || has(ch.model) || has(ch.serial) || has(ch.managementAddress);
+      const deviceTagHit = deviceNameMatches ? undefined : matchingTagName(ch.deviceId);
+      if (deviceNameMatches || deviceTagHit) {
+        const why = deviceTagHit ? `tag: ${deviceTagHit}` : `${ch.model} · ${rack.label} U${ch.positionU}`;
+        hits.push({ group: 'Devices', name: device, why, selection: { kind: 'chassis', id: ch.id } });
       }
       for (const port of ch.ports) {
         const name = `${device} · ${port.label}`;
-        if (!has(port.label) && !(has(name) && !has(device))) continue;
+        const portNameMatches = has(port.label) || (has(name) && !has(device));
+        const portTagHit = portNameMatches ? undefined : matchingTagName(port.id);
+        if (!portNameMatches && !portTagHit) continue;
         const far = port.cable?.farPortId ? nameOf.get(port.cable.farPortId) : null;
-        const why = port.cable == null ? 'free' : port.cable.outsideCloset ? 'cabled out of this closet' : `cabled to ${far ?? 'another port'}`;
+        const why = portTagHit ? `tag: ${portTagHit}` : (port.cable == null ? 'free' : port.cable.outsideCloset ? 'cabled out of this closet' : `cabled to ${far ?? 'another port'}`);
         hits.push({ group: 'Ports', name, why, selection: { kind: 'port', id: port.id } });
       }
     }

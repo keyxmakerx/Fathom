@@ -27,6 +27,7 @@ import {
   seedPrintScene,
   seedShelfScene,
   seedSingleDevice,
+  seedTagsScene,
   seedUnplacedDevice,
 } from './drive-seed';
 
@@ -115,6 +116,7 @@ async function main() {
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
+  else if (scene === 'tags') doc = seedTagsScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
@@ -127,9 +129,10 @@ async function main() {
   let version = 1;
   let bytes = writePlain(doc);
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
-  // downgraded (decision 6 is additive, so a 0.10 declaration over this
-  // scene's nodes is still legal), the same substitution `plain.test.ts`'s
-  // "opens a 0.10 vector" tests make.
+  // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
+  // accumulates rather than replaces, so a 0.10 declaration over this
+  // scene's nodes is still legal at 0.12), the same substitution
+  // `plain.test.ts`'s "opens a 0.10 vector" tests make.
   if (scene === 'networks-010') {
     const text = new TextDecoder().decode(bytes);
     const downgraded = text.replace(`schema ${SCHEMA_VERSION}`, 'schema 0.10');

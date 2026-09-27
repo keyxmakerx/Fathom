@@ -301,6 +301,22 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   colour selector and the ends, ports selectable with Select cable and Go to far end, a cables
   view control by kind, and the wrong-drop shake on a port.
 
+- **Print, phase 1** (#39). A Print button beside Undo, or Ctrl+P, opens a panel: this rack, every
+  rack in the closet, or the cut sheet; A4 or Letter; cables none or all; serial numbers and
+  management addresses left out on request; black and white, with cable colours written as words.
+  Every page carries its own title block and page x of y. A rack sheet draws the front and rear to
+  scale with faceplates, hatched empty units and cables, and a device table; the cut sheet has a
+  block per device and a row per port, and downloads as .csv or .xlsx. The map sheet and "as
+  filtered on screen" are not built.
+
+- **Tags** (ADR-0059, schema 0.12). A tag is a node that a device, passive, port, cable, rack,
+  premises, VLAN, Docker network or container points at. Chips sit in the device, port, cable and
+  rack editors and on VLAN rows, Docker networks and containers: "Add tag" suggests existing tags,
+  a click on a chip's name renames the tag, and a VLAN row tags through its members, showing "2 of
+  3" on a chip not every member carries. Quick search finds devices, racks and ports by tag. The
+  Inventory column and filter, tags in the cable filter (#54), and search over cables, VLANs and
+  containers are not built.
+
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;
 the server's credential check is the detector only, with SNMPv3 auth and priv values a known

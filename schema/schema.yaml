@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.11"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.12"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -212,6 +212,15 @@ schema:
                     # Whole change = MINOR. Decision 6 holds regardless: the client and server
                     # read 0.10 payloads and write 0.11, so a design saved before this lands
                     # keeps opening after it.
+                    #
+                    # 0.12 is ADR-0059 (tags, 2026-09-26), all additive. One new node kind, Tag
+                    # (one field, name, key 343), joining Placeable as every kind but LayoutPin
+                    # does. One new class, Taggable. Two new edge kinds, HasTag (containment,
+                    # HasTenant's own shape, root to Tag) and TaggedWith (reference, AttachedTo's
+                    # own shape, Taggable to Tag, both ends 0..n) (62 §16.2: each of these is
+                    # minor). No kind removed, no retype, no tuple reordered, no containment
+                    # moved for anything that already had one. Whole change = MINOR. Decision 9
+                    # holds regardless: the client and server read 0.11 payloads and write 0.12.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -423,6 +432,10 @@ classes:
       - ContainerNetwork
       - Container
       - PublishedPort
+      # ADR-0059 decision 1. A tag joins Placeable as every kind but LayoutPin does
+      # (shipped_tree.rs's own drift test) -- the client does not draw one; the diagram
+      # simply has no tag box, the same as it has no Tenant or ServiceType box today.
+      - Tag
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
@@ -433,6 +446,10 @@ classes:
       Rack joins Notable rather than gaining a `notes` field of its own — the rack's
       deliberate "no notes field" (ADR-0053 §5) stays true, because a note reached
       through Notable's containment edge is a node, never a field on Rack.
+  - class: Taggable
+    members: [Device, PassiveNode, PhysicalPort, Cable, Rack, Premises, Vlan, ContainerNetwork, Container]
+    doc: |
+      The owners of TaggedWith (ADR-0059 decision 2). Widens later, as Placeable has.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -1772,6 +1789,27 @@ kinds:
       # host ports (both host_port absent) and on the same host port bound to
       # two addresses. container_port and host_address separate both cases.
       - [ owner(Container), protocol, container_port, host_address, host_port ]
+
+  # ADR-0059 (tags, 2026-09-26). Appended at the tail because order is wire identity (62 §13)
+  # -- PublishedPort's own precedent.
+  - kind: Tag
+    layer: physical
+    emits: false
+    doc: |
+      A tag is a node, not a field (ADR-0059 decision 1): one name, hung off the workspace
+      root through HasTag, exactly as Tenant is. `emits: false` and `layer: physical` keep a
+      parsed configuration from ever creating one, Note's own precedent. It joins Placeable
+      because every kind but LayoutPin does; the client does not draw a tag box.
+
+      A name is a tag's identity (decision 5): trimmed, inner runs of whitespace collapsed to
+      one space, 1 to 64 characters. Two names equal ignoring case are the same tag. That
+      fold is enforced by the editor only -- the same gap Service.cid's own natural key
+      leaves for L1 -- so a payload holding two same-named tags still opens, and readers
+      treat them as one (decision 5, "what it gives up").
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—", doc: "The tag's identity (decision 5)." }
+    identity:
+      - [ name ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -3131,6 +3169,34 @@ edges:
       ADR-0058 decision 3. Where a macvlan or ipvlan network rides a real interface, the
       unit it parents. A REFERENCE EDGE, MountedIn's own reason: LogicalUnit already has a
       containment parent (its InterfaceLike, via HasUnit) and containment is a forest.
+
+  # ADR-0059 (tags, 2026-09-26). Appended at the tail because order is wire identity (62 §13)
+  # -- ParentUnit's own precedent.
+  - edge: HasTag
+    class: containment
+    from: [root]
+    to: [Tag]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0059 decision 1. One tag list per design, hung off the root exactly as HasTenant hangs Tenant.
+  - edge: TaggedWith
+    class: reference
+    from: [Taggable]
+    to: [Tag]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0059 decision 2. An object takes any number of tags and a tag is on any number of
+      objects, AttachedTo's own shape: both ends "0..n". A REFERENCE EDGE because Tag already
+      has a containment parent (root, via HasTag).
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

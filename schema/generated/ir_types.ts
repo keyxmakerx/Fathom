@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.11";
+export const SCHEMA_VERSION = "0.12";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -64,7 +64,8 @@ export type NodeKind =
   | "Note"
   | "ContainerNetwork"
   | "Container"
-  | "PublishedPort";
+  | "PublishedPort"
+  | "Tag";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -124,6 +125,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "ContainerNetwork",
   "Container",
   "PublishedPort",
+  "Tag",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -225,7 +227,9 @@ export type EdgeKind =
   | "HasContainer"
   | "HasPublishedPort"
   | "AttachedTo"
-  | "ParentUnit";
+  | "ParentUnit"
+  | "HasTag"
+  | "TaggedWith";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -325,6 +329,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasPublishedPort",
   "AttachedTo",
   "ParentUnit",
+  "HasTag",
+  "TaggedWith",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -466,6 +472,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ContainerNetwork: ["name", "driver", "subnet", "gateway"],
   Container: ["name"],
   PublishedPort: ["protocol", "container_port", "host_port", "host_address"],
+  Tag: ["name"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -812,4 +819,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PublishedPort.host_port": 340,
   "PublishedPort.host_address": 341,
   "AttachedTo.address": 342,
+  "Tag.name": 343,
 };

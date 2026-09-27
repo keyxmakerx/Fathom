@@ -431,3 +431,6 @@ fields:
   PublishedPort.host_port: 340
   PublishedPort.host_address: 341
   AttachedTo.address: 342
+  # ADR-0059 (tags, 2026-09-26). Appended at the tail with the next integer, which is the
+  # only way a key is ever assigned.
+  Tag.name: 343

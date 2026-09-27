@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { parseNodeId } from '../../document/model';
 import { viewOf, type ClosetView } from '../../document/view';
 import type { DesignSession } from '../design/useDesignSession';
-import { EditorFor, type NotesActions, type Selection } from '../drawing';
+import { EditorFor, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { paletteFromCatalogue } from '../racks/palette';
 import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
@@ -76,11 +76,13 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
    * Racks with `selection` already chosen and the camera asked to the
    * faceplate stop (`RacksPlace`'s own `initialFocus`). */
   onShowOnRack: (selection: Selection) => void;
-  /** ADR-0053 §5/§6, this session's brief item 4 — Notes, the same three
-   * doors `RacksPlace.tsx` receives, built once by `DesignPlace.tsx` and
-   * threaded straight into this place's own `EditorFor` call: "the one
-   * editor" holds for Notes exactly as it does for every other field. */
+  /** ADR-0053 §5/§6 — Notes, the same three doors `RacksPlace.tsx`
+   * receives, built once by `DesignPlace.tsx` and threaded straight into
+   * this place's own `EditorFor` call: "the one editor" holds for Notes
+   * exactly as it does for every other field. */
   notesActions: NotesActions;
+  /** ADR-0059 — Tags, `notesActions`'s own shape. */
+  tagsActions: TagsActions;
 }
 
 /**
@@ -94,7 +96,7 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  * unbuilt rather than a grid with nothing behind it.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, lens, ...shellProps } = props;
+  const { session, onShowOnRack, notesActions, tagsActions, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
@@ -199,6 +201,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             notesOf: notesActions.notesOf,
             onAddNote: canDraw ? notesActions.onAddNote : undefined,
             onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
+            tagsOf: tagsActions.tagsOf,
+            allTags: tagsActions.allTags,
+            onAddTag: canDraw ? tagsActions.onAddTag : undefined,
+            onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
+            onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
           },
           paletteFromCatalogue(catalogue),
         )
