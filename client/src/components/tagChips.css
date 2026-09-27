@@ -1,0 +1,126 @@
+/* ADR-0059, board panel 3 (design/proposals/cables/cable-filter.dc.html):
+   chips are ink -- a black border, no fill colour. Every colour, rule and
+   size below is a token from design/tokens.css, this codebase's own rule. */
+
+.tag-chips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.tag-chips__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+
+.tag-chips__empty {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  padding: 1px 7px;
+  font-size: var(--t-small);
+  line-height: 15px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tag-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tag-chip__name--editable {
+  cursor: text;
+}
+
+.tag-chip__coverage {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  flex-shrink: 0;
+}
+
+.tag-chip__rename {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  padding: 1px 7px;
+  font-size: var(--t-small);
+  line-height: 15px;
+  width: 10ch;
+}
+
+.tag-chips__add {
+  position: relative;
+}
+
+.tag-chips__input {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  padding: 1px 7px;
+  font-size: var(--t-small);
+  line-height: 15px;
+  width: 100%;
+}
+
+.tag-chips__input::placeholder {
+  color: var(--muted);
+}
+
+.tag-chips__suggestions {
+  position: absolute;
+  z-index: var(--z-modal);
+  top: 100%;
+  left: 0;
+  margin-top: var(--s1);
+  min-width: 180px;
+  border: 1px solid var(--ink);
+  background: var(--page);
+}
+
+.tag-chips__suggestion {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: 5px var(--s2);
+  font-size: var(--t-small);
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.tag-chips__suggestion:last-child {
+  border-bottom: none;
+}
+
+.tag-chips__suggestion--on {
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.tag-chips__suggestion--new {
+  color: var(--muted);
+}
+
+.tag-chips__suggestion-count {
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.tag-chips__refusal {
+  border: 1px solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-micro);
+}

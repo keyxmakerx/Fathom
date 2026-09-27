@@ -372,6 +372,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::ContainerNetwork
         | NodeKind::Container
         | NodeKind::PublishedPort
+        //     ADR-0059: a tag is a name with no geometry, drawn UNTABLED
+        //     like `Note` above -- the client draws no tag box.
+        | NodeKind::Tag
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a

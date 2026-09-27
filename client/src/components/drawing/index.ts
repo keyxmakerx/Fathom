@@ -13,6 +13,9 @@ export type {
   RackView,
   RowView,
   Selection,
+  TagChip,
+  TagsActions,
+  TagSummary,
 } from './contract';
 export { Drawing, type DrawingProps } from './Drawing';
 export { EditorFor } from './Editor';
