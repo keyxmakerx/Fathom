@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import { addSketchPort, createSketchDevice, removeChassis } from './commands';
-import { edgesIn, edgesOut, emptyDocument, findNode, formatEdgeId, formatNodeId, parseNodeId, UnknownReferenceError, type Document } from './model';
+import {
+  edgesIn,
+  edgesOut,
+  emptyDocument,
+  findNode,
+  formatEdgeId,
+  formatNodeId,
+  parseNodeId,
+  UnknownReferenceError,
+  type Document,
+  type GraphEdge,
+  type GraphNode,
+} from './model';
 import { addVlan } from './networks';
 import {
   TagRefusalError,
@@ -259,6 +271,83 @@ describe('duplicate-name tags read as one (decision 5)', () => {
   });
 });
 
+describe('every operation treats a duplicate-name group as one tag (decision 5)', () => {
+  // The device carries edges to BOTH duplicate nodes (a and b); the port
+  // carries an edge to b only — the shape two independent "add tag" batches
+  // on the same object could actually produce, and the one `tagObject`
+  // itself never will (it always reuses).
+  function dupGroupDoc(): { doc: Document; deviceId: string; portId: string; a: string; b: string } {
+    const { doc, deviceId, portId } = deviceDoc();
+    const a = formatNodeId('Tag', newUlid(NOW));
+    const b = formatNodeId('Tag', newUlid(NOW + 5));
+    const node = (id: string, name: string, t: number) => ({
+      id,
+      existence: newUlid(t),
+      fields: { 'Tag.name': { presence: 'set' as const, prov: newUlid(t), value: name } },
+    });
+    const withGroup: Document = {
+      ...doc,
+      nodes: [...doc.nodes, node(a, 'cameras', NOW), node(b, 'Cameras', NOW + 5)].sort((x, y) => (x.id < y.id ? -1 : 1)),
+      edges: [
+        ...doc.edges,
+        { id: formatEdgeId('TaggedWith', newUlid(NOW + 6)), from: deviceId, to: a, prov: newUlid(NOW), fields: {} },
+        { id: formatEdgeId('TaggedWith', newUlid(NOW + 7)), from: deviceId, to: b, prov: newUlid(NOW), fields: {} },
+        { id: formatEdgeId('TaggedWith', newUlid(NOW + 8)), from: portId, to: b, prov: newUlid(NOW), fields: {} },
+      ],
+    };
+    return { doc: withGroup, deviceId, portId, a, b };
+  }
+
+  it('listTags counts distinct objects, not edges (device holds 2 edges, port holds 1, 2 objects total)', () => {
+    const { doc } = dupGroupDoc();
+    const rows = listTags(doc);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].count).toBe(2);
+  });
+
+  it('untag from the device removes both of its edges into the group in one call', () => {
+    const { doc, deviceId } = dupGroupDoc();
+    const chip = tagsOf(doc, deviceId)[0]!;
+    const after = untagObject(doc, deviceId, chip.tagId, { now: NOW + 10 });
+    expect(tagsOf(after, deviceId)).toHaveLength(0);
+  });
+
+  it('rename starting from the non-canonical node (the port only carries b) renames the whole group', () => {
+    const { doc, deviceId, portId, b } = dupGroupDoc();
+    const portChip = tagsOf(doc, portId)[0]!;
+    expect(portChip.tagId).toBe(b); // the port only ever carries an edge to b
+    const renamed = renameTag(doc, portChip.tagId, 'lobby cams', { now: NOW + 10 });
+    expect(tagsOf(renamed, deviceId).map((c) => c.name)).toEqual(['lobby cams']);
+    expect(tagsOf(renamed, portId).map((c) => c.name)).toEqual(['lobby cams']);
+    expect(listTags(renamed)).toEqual([{ id: expect.any(String), name: 'lobby cams', count: 2 }]);
+  });
+
+  it('a rename that only changes case is allowed, even started from the non-canonical node', () => {
+    const { doc, portId, b } = dupGroupDoc();
+    expect(() => renameTag(doc, b, 'CAMERAS', { now: NOW + 10 })).not.toThrow();
+    const renamed = renameTag(doc, b, 'CAMERAS', { now: NOW + 10 });
+    expect(tagsOf(renamed, portId).map((c) => c.name)).toEqual(['CAMERAS']);
+  });
+
+  it('removeTag by the listTags row id removes every node in the group', () => {
+    const { doc, deviceId, portId } = dupGroupDoc();
+    const rowId = listTags(doc)[0]!.id;
+    const removed = removeTag(doc, rowId, { now: NOW + 10 });
+    expect(listTags(removed)).toEqual([]);
+    expect(tagsOf(removed, deviceId)).toHaveLength(0);
+    expect(tagsOf(removed, portId)).toHaveLength(0);
+  });
+
+  it('tagObject refuses when the object already carries the group through a different node, and adds no edge', () => {
+    const { doc, portId } = dupGroupDoc();
+    const before = doc.edges.length;
+    expect(() => tagObject(doc, portId, 'cameras', { now: NOW + 10 })).toThrow(TagRefusalError);
+    // Refusal writes nothing: the edge count a caught exception might have
+    // left behind if the check ran after the write is unchanged.
+    expect(doc.edges.length).toBe(before);
+  });
+});
+
 describe('VLAN-row tagging (decision 6)', () => {
   function twoDeviceVlan(): { doc: Document; vlanNodeIds: string[] } {
     const a = createSketchDevice(emptyDocument(), { now: NOW });
@@ -368,5 +457,71 @@ describe('cascade on removing a tagged device', () => {
     expect(findNode(removed, tagId)!.absentSince).toBeUndefined();
     expect(listTags(removed).map((t) => t.name)).toEqual(['cameras']);
     expect(listTags(removed)[0].count).toBe(0);
+  });
+});
+
+describe('the tag index — one build, not one scan per object', () => {
+  // The checker's own diagnostic runs this shape at 2,100 devices, 60 ports
+  // each, 50 tags (client/src/attack/perf.test.ts, not shipped here); a
+  // lighter scale is kept as a permanent regression guard in this suite so
+  // every run of the full test file is not paying that document's build
+  // cost — the ratio this proves (second call far cheaper than the first)
+  // holds at either scale, only the absolute numbers move.
+  function bigDoc(devices: number, portsPerDevice: number, tags: number): { doc: Document; firstDeviceId: string } {
+    let seq = 0;
+    const u = () => newUlid(NOW + seq++);
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const prov = u();
+    function node(kind: Parameters<typeof formatNodeId>[0]): string {
+      const id = formatNodeId(kind, u());
+      nodes.push({ id, existence: prov, fields: {} });
+      return id;
+    }
+    function edge(kind: Parameters<typeof formatEdgeId>[0], from: string, to: string): void {
+      edges.push({ id: formatEdgeId(kind, u()), from, to, prov, fields: {} });
+    }
+    const tagIds: string[] = [];
+    for (let t = 0; t < tags; t += 1) {
+      const id = formatNodeId('Tag', u());
+      nodes.push({ id, existence: prov, fields: { 'Tag.name': { presence: 'set', prov, value: `tag-${t}` } } });
+      tagIds.push(id);
+    }
+    let firstDeviceId = '';
+    for (let d = 0; d < devices; d += 1) {
+      const deviceId = node('Device');
+      if (d === 0) firstDeviceId = deviceId;
+      const chassisId = node('Chassis');
+      edge('HasChassis', deviceId, chassisId);
+      for (let p = 0; p < portsPerDevice; p += 1) edge('HasPort', chassisId, node('PhysicalPort'));
+      edge('TaggedWith', deviceId, tagIds[d % tags]!);
+    }
+    nodes.sort((a, b) => (a.id < b.id ? -1 : 1));
+    edges.sort((a, b) => (a.id < b.id ? -1 : 1));
+    return { doc: { nodes, edges, provenance: [], history: [], batches: [] }, firstDeviceId };
+  }
+
+  it('a second lookup on the same document is far cheaper than the first — the index, not a per-call scan', () => {
+    const { doc, firstDeviceId } = bigDoc(150, 10, 15);
+    const firstStart = performance.now();
+    listTags(doc);
+    const firstMs = performance.now() - firstStart;
+
+    const secondStart = performance.now();
+    for (let i = 0; i < 200; i += 1) {
+      listTags(doc);
+      tagsOf(doc, firstDeviceId);
+    }
+    const secondMs = (performance.now() - secondStart) / 200;
+
+    // Ratio-only, deliberately no absolute-ms ceiling: shared, noisy
+    // hardware makes any wall-clock bound flaky, but the bug this index
+    // replaced was a ~1,000x blow-up per object (108 ms to 125 s at 2,100
+    // devices, client/src/attack/perf.test.ts), so a lookup after the index
+    // exists staying at least an order of magnitude cheaper than the one
+    // that built it is still a real, wide-margin regression guard.
+    expect(secondMs).toBeLessThan(firstMs / 10 + 2);
+
+    tagObject(doc, firstDeviceId, 'brand-new', { now: NOW });
   });
 });

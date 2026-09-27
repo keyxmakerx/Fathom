@@ -1,27 +1,28 @@
 // ADR-0059 — a tag is a node, not a field: `Tag`, one field `name`, found by
-// scanning `doc.nodes` for the kind (`HasTag` reads `from: [root]`, and
-// `cables.ts`'s own header explains why a root-containment edge is never
-// actually written: `check_edge_l0` refuses it outright, so a `Tag` is a
-// forest root with no containment edge at all, exactly like `Cable` and
-// `Premises`). Objects point at a tag through `TaggedWith`, a reference edge
-// -- `docker.ts`'s `AttachedTo` is the shape this module copies.
+// scanning `doc.nodes` for the kind (`HasTag` reads `from: [root]`, and a
+// root-containment edge is refused outright wherever this document's writes
+// are checked, `cables.ts`'s own header comment -- a `Tag` is a forest root
+// with no containment edge, exactly like `Cable` and `Premises`). Objects
+// point at a tag through `TaggedWith`, a reference edge, `docker.ts`'s
+// `AttachedTo` own shape.
 //
 // A name is a tag's identity (decision 5): trimmed, inner runs of whitespace
 // collapsed to one space, 1 to 64 characters. Two names equal ignoring case
-// are the same tag -- enforced here, at the editor, never in the schema
-// (decision 5's own "what it gives up"), so a payload holding two same-named
-// tags still opens and this module's readers treat them as one.
+// are the same tag -- enforced here, never in the schema, so a payload
+// holding two same-named `Tag` nodes still opens. Every read and write below
+// treats that pair as one tag: `tagsOf` gives one chip, `untagObject`/
+// `renameTag`/`removeTag` act on every node in the group, `listTags` counts
+// distinct objects, and `tagObject` always reuses the group's lowest id.
 
 import {
   LOCAL_ACTOR,
   UnknownReferenceError,
   archiveField,
   assertHand,
-  edgesIn,
-  edgesOut,
   findNode,
   formatEdgeId,
   formatNodeId,
+  kebab,
   parseNodeId,
   replaceNode,
   requireFieldName,
@@ -32,12 +33,23 @@ import {
   type Batch,
   type Document,
   type FieldEntry,
-  type GraphNode,
+  type GraphEdge,
   type NodeKind,
   type Op,
 } from './model';
 import { cascadeRemoval } from './cascade';
 import { newUlid } from './ulid';
+
+// `parseNodeId`/`parseEdgeId` validate the ulid on every call (a decode and
+// a re-encode, `ulid.ts`'s own `canonicalUlid`) — right for the one id a
+// caller names, wrong for a filter run over every node and edge in the
+// document: at 2,100 devices (134,500 nodes, 137,200 edges) that validation
+// alone was the whole cost of building the index below, ~1.4 s where the
+// budget is 50 ms. A node/edge id's kind prefix is already fixed by
+// `formatNodeId`/`formatEdgeId` (`kebab(kind)`), so the index's own two
+// hot loops check that prefix directly and never call either parser.
+const TAG_NODE_PREFIX = `${kebab('Tag')}:`;
+const TAGGED_WITH_EDGE_PREFIX = `${kebab('TaggedWith')}:`;
 
 interface Actor {
   actor?: string;
@@ -96,10 +108,6 @@ function asString(v: FieldEntry['value'] | undefined): string {
   return typeof v === 'string' ? v : '';
 }
 
-function tagName(node: GraphNode): string {
-  return asString(fieldValue(node.fields, 'Tag.name'));
-}
-
 /** Decision 5, verbatim: trim, collapse inner runs of whitespace to one
  * space, refuse outside 1..64 characters. Refuses by name and writes
  * nothing — the caller never sees a half-normalised name land. */
@@ -114,9 +122,117 @@ export function normalizeTagName(raw: string): string {
   return collapsed;
 }
 
-/** Decision 5: two names equal ignoring case are the same tag. */
+/** Decision 5: two names equal ignoring case are the same tag — the
+ * comparison key every group below is built from. */
 export function foldTagName(name: string): string {
   return name.toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// The tag index. One pass over `doc.nodes` and one over `doc.edges` builds
+// every group, and every read below (`tagsOf`, `listTags`, `tagObject`'s own
+// "already carries this group" check, quick search) is then O(1) per
+// lookup rather than an edge scan per object -- 2,100 devices took a
+// device-name search from 108 ms to 125 s before this existed, `tagsOf`
+// alone accounting for the blow-up. Memoised in a `WeakMap` keyed by the
+// `Document` object itself: every write in this module returns a NEW
+// `Document` (immutable, `model.ts`'s own convention), so the cache can
+// never read a stale index for a document some caller still holds.
+
+interface TagGroup {
+  /** The comparison key (`foldTagName` of the canonical name). */
+  key: string;
+  /** The canonical (lowest id) node's own stored name — what every reader
+   * shows for the group. */
+  name: string;
+  /** The lowest-id live node in the group — `tagObject`'s own reuse target. */
+  canonicalId: string;
+  /** Every live node in the group, lowest id first. */
+  nodeIds: readonly string[];
+}
+
+interface TagIndex {
+  /** Comparison key -> group. */
+  groups: ReadonlyMap<string, TagGroup>;
+  /** Any live Tag node id -> the key of the group it belongs to. */
+  keyOfNode: ReadonlyMap<string, string>;
+  /** Object id -> its own live `TaggedWith` edges out, in `doc.edges` order. */
+  edgesOfObject: ReadonlyMap<string, readonly GraphEdge[]>;
+  /** Group key -> the distinct object ids with a live edge into the group. */
+  objectsOfGroup: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Object id -> the set of group keys it carries — `tagObject`'s "already
+   * carries this group" check, regardless of which node the edge names. */
+  groupsOfObject: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+const INDEX_CACHE = new WeakMap<Document, TagIndex>();
+
+function buildTagIndex(doc: Document): TagIndex {
+  // `doc.nodes` is id-sorted (`withNode`'s own invariant), so the first
+  // node pushed into a group is always its lowest id -- the canonical one,
+  // with no separate sort needed here.
+  const groupsByKey = new Map<string, { name: string; nodeIds: string[] }>();
+  for (const n of doc.nodes) {
+    if (n.absentSince !== undefined) continue;
+    if (!n.id.startsWith(TAG_NODE_PREFIX)) continue;
+    const name = asString(fieldValue(n.fields, 'Tag.name'));
+    const key = foldTagName(name);
+    let g = groupsByKey.get(key);
+    if (!g) {
+      g = { name, nodeIds: [] };
+      groupsByKey.set(key, g);
+    }
+    g.nodeIds.push(n.id);
+  }
+
+  const keyOfNode = new Map<string, string>();
+  const groups = new Map<string, TagGroup>();
+  for (const [key, g] of groupsByKey) {
+    groups.set(key, { key, name: g.name, canonicalId: g.nodeIds[0]!, nodeIds: g.nodeIds });
+    for (const id of g.nodeIds) keyOfNode.set(id, key);
+  }
+
+  const edgesOfObject = new Map<string, GraphEdge[]>();
+  const objectsOfGroup = new Map<string, Set<string>>();
+  const groupsOfObject = new Map<string, Set<string>>();
+  for (const e of doc.edges) {
+    if (e.absentSince !== undefined) continue;
+    if (!e.id.startsWith(TAGGED_WITH_EDGE_PREFIX)) continue;
+    const key = keyOfNode.get(e.to);
+    if (key === undefined) continue; // points at a tombstoned/unknown tag — nothing to index
+
+    let el = edgesOfObject.get(e.from);
+    if (!el) {
+      el = [];
+      edgesOfObject.set(e.from, el);
+    }
+    el.push(e);
+
+    let os = objectsOfGroup.get(key);
+    if (!os) {
+      os = new Set();
+      objectsOfGroup.set(key, os);
+    }
+    os.add(e.from);
+
+    let gk = groupsOfObject.get(e.from);
+    if (!gk) {
+      gk = new Set();
+      groupsOfObject.set(e.from, gk);
+    }
+    gk.add(key);
+  }
+
+  return { groups, keyOfNode, edgesOfObject, objectsOfGroup, groupsOfObject };
+}
+
+function tagIndex(doc: Document): TagIndex {
+  let idx = INDEX_CACHE.get(doc);
+  if (!idx) {
+    idx = buildTagIndex(doc);
+    INDEX_CACHE.set(doc, idx);
+  }
+  return idx;
 }
 
 function requireLiveTaggable(doc: Document, id: string): void {
@@ -129,47 +245,33 @@ function requireLiveTaggable(doc: Document, id: string): void {
   }
 }
 
-function requireLiveTag(doc: Document, id: string): GraphNode {
-  const n = findNode(doc, id);
-  if (!n || n.absentSince !== undefined || parseNodeId(id).kind !== 'Tag') {
-    refuse('not-a-tag', `"${id}" is not a live Tag in this document`);
+/** The group `tagId` belongs to, or a `not-a-tag` refusal — every group-wide
+ * operation (untag, rename, remove) starts here. */
+function requireGroup(doc: Document, tagId: string): TagGroup {
+  const idx = tagIndex(doc);
+  const key = idx.keyOfNode.get(tagId);
+  if (key === undefined) {
+    refuse('not-a-tag', `"${tagId}" is not a live Tag in this document`);
   }
-  return n;
+  return idx.groups.get(key)!;
 }
 
-/** Every live `Tag` node, in `doc.nodes` order (id order — `withNode`'s own
- * sort), which is what makes the first node in a duplicate-name group the
- * same one on every read. */
-function liveTagNodes(doc: Document): GraphNode[] {
-  return doc.nodes.filter((n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'Tag');
-}
-
-/** The first live tag (id order) whose folded name matches — decision 5's
- * "readers treat two such tags as one", read from the low side. */
-function findLiveTagByFoldedName(doc: Document, folded: string): GraphNode | undefined {
-  return liveTagNodes(doc).find((n) => foldTagName(tagName(n)) === folded);
-}
-
-function isLiveTaggedWith(doc: Document, objectId: string, tagId: string): boolean {
-  return edgesOut(doc, objectId, 'TaggedWith').some((e) => e.absentSince === undefined && e.to === tagId);
-}
-
-/** Creates the `Tag` node if `rawName`'s fold matches no live tag, or reuses
- * the one that already carries it (decision 5). No containment edge is
- * written for it — `HasTag` reads `from: [root]`, and a root-containment
- * edge is refused outright wherever this document's writes are checked
- * (`cables.ts`'s own header comment). */
+/** Creates the `Tag` node if `rawName`'s fold matches no live group, or
+ * reuses that group's canonical (lowest id) node (decision 5). No
+ * containment edge is written for it — `HasTag` reads `from: [root]`, and a
+ * root-containment edge is refused outright wherever this document's writes
+ * are checked (`cables.ts`'s own header comment). */
 function ensureTag(
   doc: Document,
   now: number,
   actor: string,
   rawName: string,
-): { doc: Document; tagId: string; name: string; ops: Op[] } {
+): { doc: Document; tagId: string; name: string; key: string; ops: Op[] } {
   const name = normalizeTagName(rawName);
-  const folded = foldTagName(name);
-  const existing = findLiveTagByFoldedName(doc, folded);
+  const key = foldTagName(name);
+  const existing = tagIndex(doc).groups.get(key);
   if (existing) {
-    return { doc, tagId: existing.id, name: tagName(existing), ops: [] };
+    return { doc, tagId: existing.canonicalId, name: existing.name, key, ops: [] };
   }
 
   let working = doc;
@@ -189,7 +291,7 @@ function ensureTag(
     { type: 'add_node', node: tagId, prov: existence.id },
     { type: 'set_field', element: tagId, key: 'Tag.name', presence: 'set', prov: nameProv.id },
   );
-  return { doc: working, tagId, name, ops };
+  return { doc: working, tagId, name, key, ops };
 }
 
 function addTaggedWithEdge(
@@ -208,57 +310,79 @@ function addTaggedWithEdge(
 
 /**
  * ADR-0059 decisions 1/2/8 — tags `objectId` with `rawName`, creating the
- * `Tag` if its fold matches no live tag. One undoable batch. Refuses an
+ * `Tag` if its fold matches no live group. One undoable batch. Refuses an
  * object this document has no live node for, one outside `Taggable`, or one
- * that already carries this tag.
+ * that already carries the group (through any of its nodes, decision 5).
  */
 export function tagObject(doc: Document, objectId: string, rawName: string, opts?: Actor): Document {
   requireLiveTaggable(doc, objectId);
+  const name = normalizeTagName(rawName);
+  const key = foldTagName(name);
+  // Checked against `doc`'s OWN index, before `ensureTag` runs: a brand new
+  // group cannot already be on `objectId` (nothing pointed at a node that
+  // did not exist a moment ago), so this never has to build a second index
+  // for the fresh `Document` a new tag's own `add_node` would otherwise
+  // produce — the whole reason `tagObject` cost as much as the index build
+  // itself even with the index already cached for `doc`.
+  const idx = tagIndex(doc);
+  const alreadyCarries = idx.groupsOfObject.get(objectId)?.has(key) ?? false;
+  if (alreadyCarries) {
+    refuse('already-tagged', `"${objectId}" is already tagged "${idx.groups.get(key)!.name}"`);
+  }
   const { actor, now } = resolve(opts);
   const ensured = ensureTag(doc, now, actor, rawName);
-  if (isLiveTaggedWith(ensured.doc, objectId, ensured.tagId)) {
-    refuse('already-tagged', `"${objectId}" is already tagged "${ensured.name}"`);
-  }
   const edge = addTaggedWithEdge(ensured.doc, now, actor, objectId, ensured.tagId);
   const batch: Batch = { id: newUlid(now), label: 'tag', ops: [...ensured.ops, ...edge.ops] };
   return withBatch(edge.doc, batch);
 }
 
 /**
- * The reverse of `tagObject`: tombstones the one live `TaggedWith` edge from
- * `objectId` to `tagId`. The `Tag` node itself is untouched (decision 7 — a
- * tag outlives its last use). Refuses when there is no such live edge.
+ * The reverse of `tagObject`: tombstones every live `TaggedWith` edge from
+ * `objectId` to `tagId`'s whole group (decision 5 — two duplicate nodes are
+ * one tag, so removing it removes both links). The `Tag` node(s) themselves
+ * are untouched (decision 7 — a tag outlives its last use). Refuses when
+ * `objectId` carries no edge into the group.
  */
 export function untagObject(doc: Document, objectId: string, tagId: string, opts?: Actor): Document {
-  const edge = edgesOut(doc, objectId, 'TaggedWith').find((e) => e.absentSince === undefined && e.to === tagId);
-  if (!edge) refuse('not-tagged', `"${objectId}" does not carry tag "${tagId}"`);
+  const group = requireGroup(doc, tagId);
+  const edges = (tagIndex(doc).edgesOfObject.get(objectId) ?? []).filter((e) => group.key === tagIndex(doc).keyOfNode.get(e.to));
+  if (edges.length === 0) refuse('not-tagged', `"${objectId}" does not carry tag "${group.name}"`);
 
   const { actor, now } = resolve(opts);
-  const working: Document = { ...doc, edges: doc.edges.map((e) => (e.id === edge.id ? { ...e, absentSince: now } : e)) };
-  const ops: Op[] = [{ type: 'tombstone', element: edge.id, at: now, by: actor }];
+  const edgeIds = new Set(edges.map((e) => e.id));
+  const working: Document = { ...doc, edges: doc.edges.map((e) => (edgeIds.has(e.id) ? { ...e, absentSince: now } : e)) };
+  const ops: Op[] = edges.map((e): Op => ({ type: 'tombstone', element: e.id, at: now, by: actor }));
   return withBatch(working, { id: newUlid(now), label: 'untag', ops });
 }
 
 /**
- * ADR-0059 decision 8 — renames `tagId` to `rawName`. Refused by name when
- * another live tag already carries that name (case-insensitively); a
- * rename to a case variant of the tag's own current name is not a
- * collision (decision 5's own "what it gives up": merging is for later).
+ * ADR-0059 decision 8 — renames `tagId`'s whole group to `rawName` (decision
+ * 5: two duplicate nodes are one tag, so every node in the group takes the
+ * new name). Refused by name when another, DIFFERENT group already carries
+ * that name (case-insensitively); a rename to a case variant of the group's
+ * own current name is not a collision.
  */
 export function renameTag(doc: Document, tagId: string, rawName: string, opts?: Actor): Document {
-  const node = requireLiveTag(doc, tagId);
+  const group = requireGroup(doc, tagId);
   const name = normalizeTagName(rawName);
-  const folded = foldTagName(name);
-  const collision = liveTagNodes(doc).find((n) => n.id !== tagId && foldTagName(tagName(n)) === folded);
-  if (collision) refuse('name-in-use', `a tag named "${name}" already exists`);
+  const key = foldTagName(name);
+  if (key !== group.key) {
+    const collision = tagIndex(doc).groups.get(key);
+    if (collision) refuse('name-in-use', `a tag named "${name}" already exists`);
+  }
 
   const { actor, now } = resolve(opts);
-  const existing = node.fields['Tag.name'];
-  const prov = assertHand(doc, { assertedAt: now, assertedBy: actor, supersedes: existing?.prov });
-  let working = existing !== undefined ? archiveField(prov.doc, tagId, 'Tag.name', existing) : prov.doc;
-  const entry: FieldEntry = { presence: 'set', prov: prov.id, value: text(name) };
-  working = replaceNode(working, tagId, (n) => ({ ...n, fields: { ...n.fields, 'Tag.name': entry } }));
-  const ops: Op[] = [{ type: 'set_field', element: tagId, key: 'Tag.name', presence: 'set', prov: prov.id }];
+  let working = doc;
+  const ops: Op[] = [];
+  for (const nodeId of group.nodeIds) {
+    const node = findNode(working, nodeId)!;
+    const existing = node.fields['Tag.name'];
+    const prov = assertHand(working, { assertedAt: now, assertedBy: actor, supersedes: existing?.prov });
+    working = existing !== undefined ? archiveField(prov.doc, nodeId, 'Tag.name', existing) : prov.doc;
+    const entry: FieldEntry = { presence: 'set', prov: prov.id, value: text(name) };
+    working = replaceNode(working, nodeId, (n) => ({ ...n, fields: { ...n.fields, 'Tag.name': entry } }));
+    ops.push({ type: 'set_field', element: nodeId, key: 'Tag.name', presence: 'set', prov: prov.id });
+  }
   return withBatch(working, { id: newUlid(now), label: 'rename tag', ops });
 }
 
@@ -268,20 +392,18 @@ export interface TagChip {
   name: string;
 }
 
-/** Every live tag `objectId` carries, one chip per distinct name — decision
- * 5's merge applied at read time, in case `objectId` somehow carries two
- * live edges to two duplicate-name tag nodes. */
+/** Every live tag `objectId` carries, one chip per group (decision 5). */
 export function tagsOf(doc: Document, objectId: string): TagChip[] {
-  const byFold = new Map<string, TagChip>();
-  for (const e of edgesOut(doc, objectId, 'TaggedWith')) {
-    if (e.absentSince !== undefined) continue;
-    const tagNode = findNode(doc, e.to);
-    if (!tagNode || tagNode.absentSince !== undefined) continue;
-    const name = tagName(tagNode);
-    const folded = foldTagName(name);
-    if (!byFold.has(folded)) byFold.set(folded, { edgeId: e.id, tagId: e.to, name });
+  const idx = tagIndex(doc);
+  const seen = new Set<string>();
+  const out: TagChip[] = [];
+  for (const e of idx.edgesOfObject.get(objectId) ?? []) {
+    const key = idx.keyOfNode.get(e.to);
+    if (key === undefined || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ edgeId: e.id, tagId: e.to, name: idx.groups.get(key)!.name });
   }
-  return Array.from(byFold.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export interface TagSummary {
@@ -290,35 +412,36 @@ export interface TagSummary {
   count: number;
 }
 
-/** Every live tag in the design, its own name and how many live objects
+/** Every live tag in the design, its own name and how many DISTINCT objects
  * carry it — a duplicate-name group (decision 5) reads as one row, the
- * first (lowest id) node's name, counts summed across the group. */
+ * canonical (lowest id) node's name, an object counted once even if it
+ * somehow holds edges to more than one node in the group. */
 export function listTags(doc: Document): TagSummary[] {
-  const byFold = new Map<string, TagSummary>();
-  for (const n of liveTagNodes(doc)) {
-    const name = tagName(n);
-    const folded = foldTagName(name);
-    const count = edgesIn(doc, n.id, 'TaggedWith').filter((e) => e.absentSince === undefined).length;
-    const existing = byFold.get(folded);
-    if (existing) {
-      existing.count += count;
-    } else {
-      byFold.set(folded, { id: n.id, name, count });
-    }
+  const idx = tagIndex(doc);
+  const out: TagSummary[] = [];
+  for (const g of idx.groups.values()) {
+    out.push({ id: g.canonicalId, name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 });
   }
-  return Array.from(byFold.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
- * Removes `tagId` and every live edge touching it — `cascade.ts`'s own
- * schema-driven cascade, so `TaggedWith` never needs a hand-kept list here.
- * Every tagged object loses the tag; none of them are otherwise touched
+ * Removes `tagId`'s whole group and every live edge touching any node in it
+ * — `cascade.ts`'s own schema-driven cascade, run once per node and merged
+ * into one batch, so `TaggedWith` never needs a hand-kept list here. Every
+ * tagged object loses the tag; none of them are otherwise touched
  * (decision 7).
  */
 export function removeTag(doc: Document, tagId: string, opts?: Actor): Document {
-  requireLiveTag(doc, tagId);
+  const group = requireGroup(doc, tagId);
   const { actor, now } = resolve(opts);
-  const { nodeIds, edgeIds } = cascadeRemoval(doc, tagId);
+  const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
+  for (const nodeId of group.nodeIds) {
+    const cascaded = cascadeRemoval(doc, nodeId);
+    for (const id of cascaded.nodeIds) nodeIds.add(id);
+    for (const id of cascaded.edgeIds) edgeIds.add(id);
+  }
   const working: Document = {
     ...doc,
     nodes: doc.nodes.map((n) => (nodeIds.has(n.id) ? { ...n, absentSince: now } : n)),
@@ -337,7 +460,7 @@ export function removeTag(doc: Document, tagId: string, opts?: Actor): Document 
 
 /**
  * Tags every member of a VLAN row, creating the tag once if it is new.
- * Refuses only when every member already carries the tag — a partial
+ * Refuses only when every member already carries the group — a partial
  * carry (one port tagged individually before the row existed) is not a
  * refusal, it is the row catching the rest up.
  */
@@ -345,32 +468,44 @@ export function tagVlanRow(doc: Document, vlanNodeIds: readonly string[], rawNam
   if (vlanNodeIds.length === 0) refuse('unknown-reference', 'a VLAN row with no members cannot be tagged');
   for (const id of vlanNodeIds) requireLiveTaggable(doc, id);
 
+  const name = normalizeTagName(rawName);
+  const key = foldTagName(name);
+  // Fixed by `doc`'s OWN index, before any write: `tagObject`'s own reason
+  // for reading `doc` rather than the doc each edge add produces — a member
+  // list this short would not show it, but the same one-rebuild-per-node
+  // cost is what the index exists to avoid at all.
+  const idx = tagIndex(doc);
+  const membersAlreadyCarrying = new Set(vlanNodeIds.filter((id) => idx.groupsOfObject.get(id)?.has(key) ?? false));
+
   const { actor, now } = resolve(opts);
   const ensured = ensureTag(doc, now, actor, rawName);
   let working = ensured.doc;
   const ops: Op[] = [...ensured.ops];
   let addedAny = false;
   for (const id of vlanNodeIds) {
-    if (isLiveTaggedWith(working, id, ensured.tagId)) continue;
+    if (membersAlreadyCarrying.has(id)) continue;
     const edge = addTaggedWithEdge(working, now, actor, id, ensured.tagId);
     working = edge.doc;
     ops.push(...edge.ops);
     addedAny = true;
   }
-  if (!addedAny) refuse('already-tagged', `every member of this VLAN already carries "${ensured.name}"`);
+  if (!addedAny) refuse('already-tagged', `every member of this VLAN already carries "${name}"`);
   return withBatch(working, { id: newUlid(now), label: 'tag VLAN', ops });
 }
 
-/** The reverse of `tagVlanRow`: untags every member that carries `tagId`.
- * Refuses when no member carries it. */
+/** The reverse of `tagVlanRow`: untags every member that carries `tagId`'s
+ * group. Refuses when no member carries it. */
 export function untagVlanRow(doc: Document, vlanNodeIds: readonly string[], tagId: string, opts?: Actor): Document {
+  const group = requireGroup(doc, tagId);
+  const idx = tagIndex(doc);
   const { actor, now } = resolve(opts);
   const toTombstone: string[] = [];
   for (const id of vlanNodeIds) {
-    const edge = edgesOut(doc, id, 'TaggedWith').find((e) => e.absentSince === undefined && e.to === tagId);
-    if (edge) toTombstone.push(edge.id);
+    for (const e of idx.edgesOfObject.get(id) ?? []) {
+      if (idx.keyOfNode.get(e.to) === group.key) toTombstone.push(e.id);
+    }
   }
-  if (toTombstone.length === 0) refuse('not-tagged', `no member of this VLAN carries tag "${tagId}"`);
+  if (toTombstone.length === 0) refuse('not-tagged', `no member of this VLAN carries tag "${group.name}"`);
 
   const edgeIds = new Set(toTombstone);
   const working: Document = { ...doc, edges: doc.edges.map((e) => (edgeIds.has(e.id) ? { ...e, absentSince: now } : e)) };
@@ -378,14 +513,17 @@ export function untagVlanRow(doc: Document, vlanNodeIds: readonly string[], tagI
   return withBatch(working, { id: newUlid(now), label: 'untag VLAN', ops });
 }
 
-/** The union of every member's tags, one chip per distinct name. */
+/** The union of every member's tags, one chip per group. */
 export function tagsOfVlanRow(doc: Document, vlanNodeIds: readonly string[]): TagChip[] {
-  const byFold = new Map<string, TagChip>();
+  const seen = new Set<string>();
+  const out: TagChip[] = [];
   for (const id of vlanNodeIds) {
     for (const chip of tagsOf(doc, id)) {
-      const folded = foldTagName(chip.name);
-      if (!byFold.has(folded)) byFold.set(folded, chip);
+      const key = foldTagName(chip.name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(chip);
     }
   }
-  return Array.from(byFold.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
