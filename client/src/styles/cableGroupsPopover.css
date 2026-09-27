@@ -80,6 +80,36 @@
   display: flex;
 }
 
+/* `design/tokens.css` sets `appearance: none` on every input (no native
+   box left to render at all) — a visible one is built here, the board's
+   own small square-plus-tick (`cable-filter.dc.html`'s `.box`/`.box--on`). */
+.cable-groups-pop__check input[type='checkbox'] {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: var(--rule-hair) solid var(--muted);
+  background: var(--page);
+  cursor: pointer;
+  position: relative;
+}
+
+.cable-groups-pop__check input[type='checkbox']:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.cable-groups-pop__check input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: -1px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--page);
+  border-width: 0 1.4px 1.4px 0;
+  transform: rotate(40deg);
+}
+
 .cable-groups-pop__name {
   flex-grow: 1;
   overflow: hidden;
