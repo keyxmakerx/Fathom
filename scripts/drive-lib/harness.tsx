@@ -17,6 +17,8 @@ import {
   catalogueFrom,
   seedCanvasScene,
   seedLookScene,
+  seedCableGroupsScene,
+  seedCableGroupsSpeedScene,
   seedConflictingChange,
   seedConnectedDevices,
   seedDockerScene,
@@ -36,6 +38,11 @@ import {
 const ORG_ID = 'org-drive';
 const SCOPE_ID = 'scope-drive';
 const DESIGN_ID = 'design-drive';
+/** GitHub issue #54's own drive — "open a second design: it has its own
+ * list." Every other scene still opens exactly one design (`DESIGN_ID`
+ * alone); this one is seeded too only when `scene === 'cable-groups'`,
+ * below. */
+const DESIGN_ID_2 = 'design-drive-2';
 /** The signed-in account this harness installs — every seeded batch below
  * is stamped with this same id, so `document/undo.ts`'s `undoable` finds
  * them as "mine". A real ulid, not a readable string: the wasm engine
@@ -128,9 +135,10 @@ async function main() {
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
+  else if (scene === 'cable-groups') doc = seedCableGroupsScene(catalogue, ME);
+  else if (scene === 'cable-groups-speed') doc = seedCableGroupsSpeedScene(catalogue, ME, Number(params.get('count') ?? '2100'));
   else doc = seedEmptyDesign();
 
-  let version = 1;
   let bytes = writePlain(doc);
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
@@ -144,6 +152,19 @@ async function main() {
     bytes = new TextEncoder().encode(downgraded);
   }
   const minor = schemaMinor();
+
+  // GitHub issue #54's own drive: a second, wholly separate design —
+  // `fathom.cables.<designId>` (`cableGroups.ts`) is per design, so a second
+  // one must open with no list of its own. Every other scene keeps carrying
+  // exactly the one entry every earlier version of this harness held as
+  // plain `version`/`bytes` locals; `designs` below is that same pair,
+  // generalised to a map so the two id-addressed routes further down can
+  // serve either design by id rather than only ever `DESIGN_ID`.
+  const designs = new Map<string, { version: number; bytes: Uint8Array }>();
+  designs.set(DESIGN_ID, { version: 1, bytes });
+  if (scene === 'cable-groups') {
+    designs.set(DESIGN_ID_2, { version: 1, bytes: writePlain(seedEmptyDesign()) });
+  }
 
   // Boot the real engine once, so every mocked save below can be checked
   // against it — the same `engine.loadPlain` the lead's "a design stays
@@ -159,7 +180,7 @@ async function main() {
   }
 
   window.__savedPositionU__ = (hostname) => {
-    const saved = viewOf(readPlain(bytes), catalogue);
+    const saved = viewOf(readPlain(designs.get(DESIGN_ID)!.bytes), catalogue);
     return saved.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostname)?.positionU ?? null;
   };
 
@@ -203,44 +224,51 @@ async function main() {
       ]);
     }
     if (method === 'GET' && p === `${org}/designs`) {
-      return json([
-        {
-          design_id: DESIGN_ID,
+      return json(
+        [...designs.entries()].map(([id, entry]) => ({
+          design_id: id,
           scope_id: SCOPE_ID,
           created_at_unix: Math.floor(Date.now() / 1000),
           created_by: ME,
           capability,
-          latest_version: version,
-        },
-      ]);
+          latest_version: entry.version,
+        })),
+      );
     }
-    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}`) {
-      return new Response(bytes as BodyInit, {
+    const designMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)$/.exec(p);
+    if (method === 'GET' && designMatch) {
+      const entry = designs.get(designMatch[1]);
+      if (!entry) return new Response('no such design\n', { status: 404 });
+      return new Response(entry.bytes as BodyInit, {
         status: 200,
         headers: {
-          'fathom-design-version': String(version),
+          'fathom-design-version': String(entry.version),
           'fathom-payload-schema-version': String(minor),
         },
       });
     }
-    if (method === 'POST' && p === `${org}/designs/${DESIGN_ID}/versions`) {
+    const versionsMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)\/versions$/.exec(p);
+    if (method === 'POST' && versionsMatch) {
+      const entry = designs.get(versionsMatch[1]);
+      if (!entry) return new Response('no such design\n', { status: 404 });
       const base = Number(u.searchParams.get('base'));
-      if (base !== version) {
-        return new Response(`the design is at version ${version}; this save was based on version ${base}\n`, {
+      if (base !== entry.version) {
+        return new Response(`the design is at version ${entry.version}; this save was based on version ${base}\n`, {
           status: 409,
         });
       }
-      version += 1;
-      bytes = requestBody.slice(4);
+      const nextVersion = entry.version + 1;
+      const nextBytes = requestBody.slice(4);
+      designs.set(versionsMatch[1], { version: nextVersion, bytes: nextBytes });
       window.__saveCount__ += 1;
       if (verifyEngine) {
         try {
-          verifyEngine.loadPlain(bytes);
+          verifyEngine.loadPlain(nextBytes);
         } catch (e) {
-          window.__saveLoadFailures__.push(`save at version ${version} does not load through the engine: ${e instanceof Error ? e.message : String(e)}`);
+          window.__saveLoadFailures__.push(`save at version ${nextVersion} does not load through the engine: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
-      return new Response(`${version}\n`, { status: 200 });
+      return new Response(`${nextVersion}\n`, { status: 200 });
     }
     if (method === 'GET' && p === '/catalogue/models') {
       return json(cat.list);
