@@ -1,5 +1,9 @@
 # The interface — approved 2026-09-11
 
+**Partly replaced by ADR-0060 (2026-09-27).** It sets these: one canvas with detail added by
+degrees, the places named Canvas and Inventory, a labelled side panel, right-click menus, and
+Organisation and Admin tabs on the home screen. Where this page and ADR-0060 disagree, ADR-0060 wins.
+
 **The shell, approved 2026-09-16 (ADR-0047):** https://claude.ai/artifact/GkXzzMe3JG6SQAaXke9C4p —
 sources and PNG renders in `design/shell/`. The bar, the stops, the lenses, the estate, optics,
 tracked changes. This is the frame every other picture sits in.

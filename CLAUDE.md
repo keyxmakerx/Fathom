@@ -6,9 +6,10 @@ it. Teaching and estate-of-record are co-equal goals.
 **Server product.** Data lives on the server; the browser is a window onto it. Multi-tenant, live
 multi-user editing, thousands of devices per design.
 
-**Status: built and green, not yet usable** (2026-09-26). The engine, server and client are in and
+**Status: built and green, not yet usable** (2026-09-27). The engine, server and client are in and
 every gate passes. The owner's first real use on 2026-09-22 found it unusable; the organisation claim
-over HTTP it lacked has since been built (ADR-0057, PR #38). **"Usable" is the owner's word and means
+over HTTP it lacked has since been built (ADR-0057, PR #38). A second walkthrough on 2026-09-27 set
+the next direction: ADR-0060, one canvas with detail added by degrees. **"Usable" is the owner's word and means
 beta: polished, the app basically done, a few features allowed to be missing.** Green gates do not
 grant it; a walkthrough by the owner does. The backlog is in GitHub issues; `docs/NEXT.md` says how
 to work, and `docs/REBUILD-PLAN.md` holds the rebuild's reasoning.
@@ -29,7 +30,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
 | Decisions already made | `docs/decisions/` |
-| Questions waiting on the owner | `docs/OPEN-QUESTIONS.md` |
+| Questions waiting on the owner | New ones go on the sign-off page (ADR-0060, decision 9); older ones are in `docs/OPEN-QUESTIONS.md` |
 
 **`docs/archive/` is history. Do not read it unless a task names a specific file in it.** It holds
 the reasoning behind everything above, written mostly about a version of the product that no
