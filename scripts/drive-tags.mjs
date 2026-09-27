@@ -306,6 +306,14 @@ try {
   console.log('    wrote ' + SHOTS + 'tags-08-search.png');
   await page.keyboard.press('Escape');
 
+  // Every save this scene made, loaded back through a second real engine
+  // (`drive-lib/harness.tsx`'s own mocked backend) — `drive-networks.mjs`'s
+  // own "assert each scene saved at least once" pairing.
+  const saveCount = await page.evaluate(() => window.__saveCount__ ?? 0);
+  check('the scene saved at least once', saveCount > 0, `saveCount=${saveCount}`);
+  const saveLoadFailures = await page.evaluate(() => window.__saveLoadFailures__ ?? []);
+  check('every saved payload loaded through the engine', saveLoadFailures.length === 0, saveLoadFailures.join(' | '));
+
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
   await browser.close();
