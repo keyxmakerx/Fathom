@@ -477,6 +477,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         notesActions={notesActions}
         tagsActions={tagsActions}
         onActiveRackChange={setActiveRackId}
+        designId={designId}
       />
     ) : (
       <InventoryPlace

@@ -287,6 +287,24 @@ function SupplyAction({
   );
 }
 
+/** GitHub issue #54 decision 6 — "Hide this cable" / "Show this cable" in
+ * the cable's own panel: a view choice, never an edit — never gated on
+ * `actions.onEdit` the way `SupplyAction` above is, so a read-only viewer
+ * can hide a cable too. Absent only when the caller supplies neither half
+ * of the pair at all. */
+function HideCableAction({ cable, actions }: { cable: CableView; actions: EditorActions }) {
+  if (!actions.isCableHidden || !actions.onToggleCableHidden) return null;
+  const hidden = actions.isCableHidden(cable.id);
+  return (
+    <div className="drawing-editor__hide-cable">
+      <button type="button" onClick={() => actions.onToggleCableHidden!(cable.id)}>
+        {hidden ? 'Show this cable' : 'Hide this cable'}
+      </button>
+      {!hidden && <span className="drawing-editor__hide-cable-note">in this browser only; nothing is deleted</span>}
+    </div>
+  );
+}
+
 /** ADR-0051 §1 — a shelf's own editor lists
  * its occupants by slot, each a link that selects the occupant
  * (`EditorActions.onSelect`, optional — nothing renders here if a caller
@@ -2036,6 +2054,8 @@ export function EditorFor(
           label="Disconnect"
           onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
         />
+
+        <HideCableAction cable={cable} actions={actions} />
 
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
         <TagsSection ownerId={cable.id} actions={actions} />
