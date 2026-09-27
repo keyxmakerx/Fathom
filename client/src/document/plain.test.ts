@@ -331,6 +331,16 @@ describe('readPlain refusals', () => {
     }
   });
 
+  // A design saved at 0.10 (ADR-0058) still keeps opening at 0.12 — there
+  // is no migration chain, so nothing shipped since is allowed to narrow
+  // what already opened.
+  it('opens a 0.10 vector and writes it back at the current version', () => {
+    const at010 = PINNED.replace('schema 0.12', 'schema 0.10');
+    const doc = readPlain(bytesOf(at010));
+    const rewritten = new TextDecoder().decode(writePlain(doc));
+    expect(rewritten).toEqual(PINNED);
+  });
+
   // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
   // saving it again writes the current version, not the one it arrived at.
   it('opens a 0.11 vector and writes it back at the current version', () => {
@@ -341,13 +351,60 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses an unlisted older version', () => {
-    const at010 = PINNED.replace('schema 0.12', 'schema 0.10');
+    const at09 = PINNED.replace('schema 0.12', 'schema 0.9');
+    try {
+      readPlain(bytesOf(at09));
+      throw new Error('expected a refusal');
+    } catch (e) {
+      expect(e).toBeInstanceOf(PlainError);
+      expect((e as PlainError).reason.kind).toBe('schema-version-mismatch');
+    }
+  });
+
+  it('refuses a 0.10 header holding a 0.11-only kind', () => {
+    const doc = readPlain(bytesOf(PINNED));
+    const withNetwork: Document = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        { id: formatNodeId('ContainerNetwork', newUlid()), existence: newUlid(), fields: {} },
+      ],
+    };
+    const atCurrent = new TextDecoder().decode(writePlain(withNetwork));
+    const at010 = atCurrent.replace('schema 0.12', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
     } catch (e) {
       expect(e).toBeInstanceOf(PlainError);
-      expect((e as PlainError).reason.kind).toBe('schema-version-mismatch');
+      expect((e as PlainError).reason).toEqual({
+        kind: 'kind-not-in-declared-version',
+        declaredVersion: '0.10',
+        elementKind: 'ContainerNetwork',
+      });
+      expect((e as PlainError).message).toBe('ContainerNetwork does not exist in schema 0.10');
+    }
+  });
+
+  it('refuses a 0.10 header holding a 0.12-only kind', () => {
+    const doc = readPlain(bytesOf(PINNED));
+    const withTag: Document = {
+      ...doc,
+      nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
+    };
+    const atCurrent = new TextDecoder().decode(writePlain(withTag));
+    const at010 = atCurrent.replace('schema 0.12', 'schema 0.10');
+    try {
+      readPlain(bytesOf(at010));
+      throw new Error('expected a refusal');
+    } catch (e) {
+      expect(e).toBeInstanceOf(PlainError);
+      expect((e as PlainError).reason).toEqual({
+        kind: 'kind-not-in-declared-version',
+        declaredVersion: '0.10',
+        elementKind: 'Tag',
+      });
+      expect((e as PlainError).message).toBe('Tag does not exist in schema 0.10');
     }
   });
 

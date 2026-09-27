@@ -128,15 +128,14 @@ async function main() {
 
   let version = 1;
   let bytes = writePlain(doc);
-  // ADR-0058's drive check: "open an older design" — the header alone is
-  // downgraded to the one older version ADR-0059 decision 9 still accepts
-  // (0.11, not 0.10 any more: nothing has shipped, so this window moves
-  // with each bump rather than accumulating — `plain_face.rs`'s own PINNED
-  // doc, "deliberate pre-release"), the same substitution `plain.test.ts`'s
-  // "opens a 0.11 vector" tests make.
+  // ADR-0058's drive check: "open a 0.10 design" — the header alone is
+  // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
+  // accumulates rather than replaces, so a 0.10 declaration over this
+  // scene's nodes is still legal at 0.12), the same substitution
+  // `plain.test.ts`'s "opens a 0.10 vector" tests make.
   if (scene === 'networks-010') {
     const text = new TextDecoder().decode(bytes);
-    const downgraded = text.replace(`schema ${SCHEMA_VERSION}`, 'schema 0.11');
+    const downgraded = text.replace(`schema ${SCHEMA_VERSION}`, 'schema 0.10');
     if (downgraded === text) throw new Error('networks-010: the schema-version substitution did not land');
     bytes = new TextEncoder().encode(downgraded);
   }
