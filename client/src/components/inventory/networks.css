@@ -182,8 +182,9 @@
   display: grid;
   /* The rail (26px) and name (260px) columns match the outer grid's
      expand-icon and name columns exactly, so a member's name lines up under
-     the row's. */
-  grid-template-columns: 26px 260px 80px 200px 140px 1fr;
+     the row's. ADR-0059 added the trailing tags column (1fr; published
+     ports moved to a fixed 200px so tags has room to wrap). */
+  grid-template-columns: 26px 260px 80px 200px 140px 200px 1fr;
   font-family: var(--mono);
   font-size: var(--t-mono);
   color: var(--muted);
@@ -227,6 +228,16 @@
   padding: var(--s1) var(--s2);
   font-family: var(--sans);
   font-size: var(--t-small);
+}
+
+/* ADR-0059 — a VLAN row's (through its members), a Docker network's or a
+   container's own tag chips, inside the open section. */
+.networks-grid__tags {
+  padding: var(--s1) var(--s2);
+}
+
+.networks-grid__member-tags {
+  font-family: var(--sans);
 }
 
 .networks-grid__open-actions {

@@ -1,0 +1,192 @@
+// ADR-0059, this session's brief item 3 — one chip component, used
+// everywhere a tag is shown: the device, port, cable and rack editors
+// (`drawing/Editor.tsx`) and VLAN rows, Docker networks and containers
+// (`inventory/NetworksPanel.tsx`). Board panel 3
+// (design/proposals/cables/cable-filter.dc.html): chips are ink, "Add tag"
+// suggests existing tags as you type, Enter on a new name creates it.
+//
+// A read-only view (no `onAdd`/`onRemove`) shows the chips with no input and
+// no remove control — ADR-0052 §5's "no action, not a disabled one",
+// `drawing/Editor.tsx`'s `NotesSection` own convention. Clicking a chip's own
+// name, when `onRename` is supplied, turns it into an inline rename field —
+// decision 8's fourth undoable action, with no separate control the board
+// does not draw.
+import { useState, type KeyboardEvent } from 'react';
+import './tagChips.css';
+
+export interface TagChipItem {
+  id: string;
+  name: string;
+}
+
+export interface TagSuggestion {
+  name: string;
+  count: number;
+}
+
+export interface TagChipsProps {
+  tags: readonly TagChipItem[];
+  /** Every tag in the design, not only the ones already on this object —
+   * a suggestion offers what exists, `cable-filter.dc.html`'s own "existing
+   * tags first." Omitted (or empty) reads as "nothing to suggest yet." */
+  suggestions?: readonly TagSuggestion[];
+  onAdd?: (name: string) => { refused: string } | void;
+  onRemove?: (tagId: string) => { refused: string } | void;
+  onRename?: (tagId: string, name: string) => { refused: string } | void;
+}
+
+export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: TagChipsProps) {
+  const [draft, setDraft] = useState('');
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+
+  function commitRename() {
+    if (!renaming || !onRename) return;
+    const trimmed = renaming.draft.trim();
+    if (trimmed.length === 0) {
+      setRenaming(null);
+      return;
+    }
+    const result = onRename(renaming.id, trimmed);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setRenaming(null);
+  }
+
+  const query = draft.trim().toLowerCase();
+  const attached = new Set(tags.map((t) => t.name.toLowerCase()));
+  const filtered =
+    query.length === 0
+      ? []
+      : suggestions.filter((s) => s.name.toLowerCase().includes(query) && !attached.has(s.name.toLowerCase()));
+  const exactMatch = filtered.some((s) => s.name.toLowerCase() === query);
+  const showNewRow = query.length > 0 && !exactMatch;
+
+  function commit(name: string) {
+    const trimmed = name.trim();
+    if (trimmed.length === 0 || !onAdd) return;
+    const result = onAdd(trimmed);
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setDraft('');
+    setOpen(false);
+    setHighlight(0);
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    const rowCount = filtered.length + (showNewRow ? 1 : 0);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (rowCount > 0) setHighlight((h) => Math.min(h + 1, rowCount - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (rowCount > 0) setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlight < filtered.length) commit(filtered[highlight]!.name);
+      else commit(draft);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="tag-chips">
+      <div className="tag-chips__list">
+        {tags.length === 0 && !onAdd ? <span className="tag-chips__empty">—</span> : null}
+        {tags.map((t) =>
+          renaming?.id === t.id ? (
+            <input
+              key={t.id}
+              autoFocus
+              className="tag-chip tag-chip__rename"
+              aria-label={`rename tag ${t.name}`}
+              value={renaming.draft}
+              onChange={(e) => setRenaming({ id: t.id, draft: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+                else if (e.key === 'Escape') setRenaming(null);
+              }}
+              onBlur={commitRename}
+            />
+          ) : (
+            <span key={t.id} className="tag-chip">
+              <span
+                className={onRename ? 'tag-chip__name tag-chip__name--editable' : 'tag-chip__name'}
+                onClick={onRename ? () => setRenaming({ id: t.id, draft: t.name }) : undefined}
+              >
+                {t.name}
+              </span>
+              {onRemove ? (
+                <button type="button" className="tag-chip__remove" aria-label={`remove tag ${t.name}`} onClick={() => onRemove(t.id)}>
+                  ×
+                </button>
+              ) : null}
+            </span>
+          ),
+        )}
+      </div>
+      {onAdd ? (
+        <div className="tag-chips__add">
+          <input
+            type="text"
+            className="tag-chips__input"
+            placeholder="+ Add tag"
+            aria-label="Add tag"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setOpen(true);
+              setHighlight(0);
+              setRefusal(null);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={onKeyDown}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+          />
+          {open && (filtered.length > 0 || showNewRow) ? (
+            <div className="tag-chips__suggestions">
+              {filtered.map((s, i) => (
+                <div
+                  key={s.name}
+                  className={'tag-chips__suggestion' + (i === highlight ? ' tag-chips__suggestion--on' : '')}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(s.name);
+                  }}
+                >
+                  <span>{s.name}</span>
+                  <span className="tag-chips__suggestion-count">{s.count}</span>
+                </div>
+              ))}
+              {showNewRow ? (
+                <div
+                  className={
+                    'tag-chips__suggestion tag-chips__suggestion--new' +
+                    (highlight === filtered.length ? ' tag-chips__suggestion--on' : '')
+                  }
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(draft);
+                  }}
+                >
+                  <span>new tag &ldquo;{draft.trim()}&rdquo;</span>
+                  <span className="tag-chips__suggestion-count">Enter</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {refusal != null ? <div className="tag-chips__refusal">{refusal}</div> : null}
+    </div>
+  );
+}

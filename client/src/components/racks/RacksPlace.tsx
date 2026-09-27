@@ -9,7 +9,7 @@ import { Engine } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
-import { Drawing, EditorFor, Palette, type NotesActions, type Selection } from '../drawing';
+import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
@@ -161,6 +161,9 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
    * into `EditorFor`'s own `actions` below. */
   notesActions: NotesActions;
+  /** ADR-0059, this session's brief item 3 — Tags, threaded straight into
+   * `EditorFor`'s own `actions` below, `notesActions`'s own shape. */
+  tagsActions: TagsActions;
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
@@ -183,6 +186,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     onOpenInventory,
     accountId,
     notesActions,
+    tagsActions,
     onActiveRackChange,
     ...shellProps
   } = props;
@@ -610,6 +614,13 @@ export function RacksPlace(props: RacksPlaceProps) {
             notesOf: notesActions.notesOf,
             onAddNote: canDraw ? notesActions.onAddNote : undefined,
             onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
+            // ADR-0059, this session's brief item 3 — every reader may read
+            // a Tags section; only a writer may add or remove one.
+            tagsOf: tagsActions.tagsOf,
+            allTags: tagsActions.allTags,
+            onAddTag: canDraw ? tagsActions.onAddTag : undefined,
+            onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
+            onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
           },
           paletteFromCatalogue(catalogue),
         )

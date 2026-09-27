@@ -24,6 +24,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement } from '../../document/view';
+import { TagChips } from '../TagChips';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -1264,6 +1265,33 @@ function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorAc
   );
 }
 
+/**
+ * ADR-0059, this session's brief item 3 — the Tags section shared by the
+ * device, port, cable and rack panels (four call sites below), `NotesSection`'s
+ * own shape: absent entirely when the caller supplies neither `tagsOf` nor
+ * `onAddTag` (ADR-0052 §5's "no action, not a disabled one"); a reader still
+ * sees the chips (`tagsOf` is never gated the way `onAddTag`/`onRemoveTag`
+ * are) but gets no input and no remove control (`TagChips`'s own reading).
+ */
+function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+  if (!actions.tagsOf && !actions.onAddTag) return null;
+  const tags = actions.tagsOf ? actions.tagsOf(ownerId) : [];
+  const suggestions = actions.allTags ? actions.allTags() : [];
+
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Tags</div>
+      <TagChips
+        tags={tags.map((t) => ({ id: t.tagId, name: t.name }))}
+        suggestions={suggestions}
+        onAdd={actions.onAddTag ? (name) => actions.onAddTag!(ownerId, name) : undefined}
+        onRemove={actions.onRemoveTag ? (tagId) => actions.onRemoveTag!(ownerId, tagId) : undefined}
+        onRename={actions.onRenameTag}
+      />
+    </div>
+  );
+}
+
 function AddNoteForm({
   ownerId,
   onAddNote,
@@ -1384,6 +1412,7 @@ export function EditorFor(
             is a note reached through `HasNote`, a node, never a field
             `Rack` itself declares. */}
         <NotesSection ownerId={rack.id} actions={actions} />
+        <TagsSection ownerId={rack.id} actions={actions} />
       </div>
     );
   }
@@ -1592,6 +1621,7 @@ export function EditorFor(
             hostname and the capture, so its notes are `HasNote`'d off
             `chassis.deviceId`, not `chassis.id`. */}
         <NotesSection ownerId={chassis.deviceId} actions={actions} />
+        <TagsSection ownerId={chassis.deviceId} actions={actions} />
 
         {/* UI-SPEC's cable-delete rule — the same one-shot action shape
             `SupplyAction` already gives "remove"/"Disconnect", raising
@@ -1831,6 +1861,9 @@ export function EditorFor(
           label="Disconnect"
           onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
         />
+
+        {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
+        <TagsSection ownerId={cable.id} actions={actions} />
       </div>
     );
   }
@@ -1860,6 +1893,7 @@ export function EditorFor(
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
         <NotesSection ownerId={port.id} actions={actions} />
+        <TagsSection ownerId={port.id} actions={actions} />
       </div>
     );
   }
@@ -1876,6 +1910,7 @@ export function EditorFor(
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
+        <TagsSection ownerId={port.id} actions={actions} />
       </div>
     );
   }
@@ -1891,6 +1926,7 @@ export function EditorFor(
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
+      <TagsSection ownerId={port.id} actions={actions} />
     </div>
   );
 }

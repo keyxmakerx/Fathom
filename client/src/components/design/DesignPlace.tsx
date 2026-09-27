@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
+import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
@@ -323,6 +324,48 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  const tagsOfCallback = useCallback((ownerId: string) => (session.doc ? tagsOfDoc(session.doc, ownerId) : []), [session.doc]);
+  const allTagsCallback = useCallback(() => (session.doc ? listTags(session.doc) : []), [session.doc]);
+
+  const handleAddTag = useCallback(
+    (ownerId: string, name: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        session.applyDocChange(tagObject(current, ownerId, name, accountId ? { actor: accountId } : undefined));
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : 'That tag was refused.' };
+      }
+    },
+    [session, accountId],
+  );
+
+  const handleRemoveTag = useCallback(
+    (ownerId: string, tagId: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        session.applyDocChange(untagObject(current, ownerId, tagId, accountId ? { actor: accountId } : undefined));
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : 'That removal was refused.' };
+      }
+    },
+    [session, accountId],
+  );
+
+  const handleRenameTag = useCallback(
+    (tagId: string, name: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        session.applyDocChange(renameTag(current, tagId, name, accountId ? { actor: accountId } : undefined));
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : 'That rename was refused.' };
+      }
+    },
+    [session, accountId],
+  );
+
   const showOnRack = useCallback(
     (selection: Selection) => {
       setFocus({ ...selection });
@@ -352,7 +395,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // allowed to write.
   // Quick search (the owner's option A): the open design; a choice shows it on the rack.
   const search = {
-    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query) : []),
+    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query, session.doc) : []),
     choose: (selection: Selection) => showOnRack(selection),
   };
 
@@ -384,6 +427,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   };
 
   const notesActions = { notesOf: notesOfCallback, onAddNote: handleAddNote, onRemoveNote: handleRemoveNote };
+  const tagsActions = {
+    tagsOf: tagsOfCallback,
+    allTags: allTagsCallback,
+    onAddTag: handleAddTag,
+    onRemoveTag: handleRemoveTag,
+    onRenameTag: handleRenameTag,
+  };
 
   // The closet view for the print panel/preview only — computed while
   // either is actually open, never on every render of the place itself.
@@ -403,6 +453,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onOpenInventory={openInInventory}
         accountId={accountId}
         notesActions={notesActions}
+        tagsActions={tagsActions}
         onActiveRackChange={setActiveRackId}
       />
     ) : (
@@ -412,6 +463,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={session}
         onShowOnRack={showOnRack}
         notesActions={notesActions}
+        tagsActions={tagsActions}
       />
     );
 

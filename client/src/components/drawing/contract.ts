@@ -46,6 +46,11 @@ import type { Placement, Sheath } from '../../document/view';
 // document/ shape" precedent `Placement`/`Sheath` above already set for this
 // file.
 import type { NoteHow, NoteView } from '../../document/notes';
+// ADR-0059, this session's brief item 3 — tag chips on a device, a port, a
+// cable and a rack: `TagChip`/`TagSummary` are the read-side shapes
+// `EditorActions.tagsOf`/`.allTags` below hand back, `NoteView`'s own
+// precedent for re-exporting the one `document/` shape a caller needs.
+import type { TagChip, TagSummary } from '../../document/tags';
 
 export type {
   CableEnd,
@@ -61,6 +66,7 @@ export type {
   Sheath,
 } from '../../document/view';
 export type { NoteHow, NoteView } from '../../document/notes';
+export type { TagChip, TagSummary } from '../../document/tags';
 
 export interface DrawingActions {
   onPlace(rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number): void;
@@ -246,6 +252,28 @@ export interface EditorActions {
    * `onEdit` (nothing to await: a tombstone needs no gate). Optional, same
    * reading. */
   onRemoveNote?(noteId: string): { refused: string } | void;
+  /** ADR-0059, this session's brief item 3 — every live tag `ownerId`
+   * carries (a Device, PhysicalPort, Cable or Rack — `document/tags.ts`'s
+   * own `Taggable`), re-read fresh off the caller's held `Document` on every
+   * call, `notesOf`'s own contract. Optional — absent renders no Tags
+   * section at all (ADR-0052 §5's "no action, not a disabled one"). */
+  tagsOf?(ownerId: string): TagChip[];
+  /** Every live tag in the whole design, for "Add tag"'s suggestions —
+   * unlike `tagsOf` this is not keyed to one owner, because a suggestion
+   * offers every tag that exists, not only the ones already on `ownerId`. */
+  allTags?(): TagSummary[];
+  /** Tags `ownerId` with `name`, creating the tag if its fold matches no
+   * live tag (decision 5) — `document/tags.ts`'s `tagObject`. Synchronous,
+   * unlike `onAddNote`: a tag name never goes through the redaction gate.
+   * Optional, `onEdit`'s own reading. */
+  onAddTag?(ownerId: string, name: string): { refused: string } | void;
+  /** The reverse — `document/tags.ts`'s `untagObject`. Optional, same
+   * reading. */
+  onRemoveTag?(ownerId: string, tagId: string): { refused: string } | void;
+  /** `document/tags.ts`'s `renameTag` — decision 8's fourth undoable action.
+   * Not keyed to an owner, `allTags`'s own reading: a tag's name is one fact
+   * shared by everything that carries it. Optional, `onEdit`'s own reading. */
+  onRenameTag?(tagId: string, name: string): { refused: string } | void;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only
@@ -254,6 +282,11 @@ export interface EditorActions {
  * both `RacksPlace`/`InventoryPlace`, each of which spreads it into its own
  * `EditorFor` call's `actions`. */
 export type NotesActions = Required<Pick<EditorActions, 'notesOf' | 'onAddNote' | 'onRemoveNote'>>;
+
+/** `EditorActions`'s four Tags members, grouped the same way `NotesActions`
+ * groups its own three — `DesignPlace.tsx` builds exactly one of these and
+ * hands it to both `RacksPlace`/`InventoryPlace`. */
+export type TagsActions = Required<Pick<EditorActions, 'tagsOf' | 'allTags' | 'onAddTag' | 'onRemoveTag' | 'onRenameTag'>>;
 
 export type Selection =
   | { kind: 'rack'; id: string }
