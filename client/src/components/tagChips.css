@@ -29,7 +29,15 @@
   padding: 1px 7px;
   font-size: var(--t-small);
   line-height: 15px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tag-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .tag-chip__name--editable {

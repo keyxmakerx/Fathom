@@ -32,6 +32,7 @@ const REMOVE_STYLE: CSSProperties = {
   lineHeight: '15px',
   padding: '0 2px',
   cursor: 'pointer',
+  flexShrink: 0,
 };
 
 export interface TagChipItem {
@@ -162,6 +163,7 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
             <span key={t.id} className="tag-chip">
               <span
                 className={onRename ? 'tag-chip__name tag-chip__name--editable' : 'tag-chip__name'}
+                title={t.name}
                 onClick={onRename ? () => setRenaming({ id: t.id, draft: t.name }) : undefined}
               >
                 {t.name}
