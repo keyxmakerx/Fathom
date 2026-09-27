@@ -1168,6 +1168,7 @@ function DrawingInner({
         return;
       }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      if (focusIsInAField()) return;
       if (selected?.kind === 'cable') {
         event.preventDefault();
         onDisconnect?.(selected.id);
