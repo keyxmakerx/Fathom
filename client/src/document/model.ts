@@ -333,25 +333,80 @@ export function replaceEdge(doc: Document, id: string, update: (e: GraphEdge) =>
   return { ...doc, edges: doc.edges.map((e) => (e.id === id ? update(e) : e)) };
 }
 
+// Lookups by id and by end, built once per nodes or edges array. A document is never changed in
+// place (every write returns new arrays), so an index stays true for the array it was built from.
+interface EdgeIndex {
+  byId: Map<string, GraphEdge>;
+  out: Map<string, GraphEdge[]>;
+  into: Map<string, GraphEdge[]>;
+}
+
+const NODE_INDEX = new WeakMap<readonly GraphNode[], Map<string, GraphNode>>();
+const EDGE_INDEX = new WeakMap<readonly GraphEdge[], EdgeIndex>();
+const NO_EDGES: readonly GraphEdge[] = [];
+const ID_PREFIX = new Map<string, string>();
+
+// Reads the kind off the id's `kebab(kind):` prefix. Ids come from `formatNodeId`/`formatEdgeId` or
+// from a payload the server's reader has already checked, so the ulid is not decoded again here.
+function hasKindPrefix(id: string, kind: NodeKind | EdgeKind): boolean {
+  let prefix = ID_PREFIX.get(kind);
+  if (prefix === undefined) {
+    prefix = `${kebab(kind)}:`;
+    ID_PREFIX.set(kind, prefix);
+  }
+  return id.startsWith(prefix);
+}
+
+/** Whether `id` names a node of `kind`, without `parseNodeId`'s check of the ulid. */
+export function isNodeOfKind(id: string, kind: NodeKind): boolean {
+  return hasKindPrefix(id, kind);
+}
+
+function nodeIndex(nodes: readonly GraphNode[]): Map<string, GraphNode> {
+  let byId = NODE_INDEX.get(nodes);
+  if (!byId) {
+    byId = new Map();
+    for (const n of nodes) if (!byId.has(n.id)) byId.set(n.id, n);
+    NODE_INDEX.set(nodes, byId);
+  }
+  return byId;
+}
+
+function pushEdge(map: Map<string, GraphEdge[]>, key: string, e: GraphEdge): void {
+  const list = map.get(key);
+  if (list) list.push(e);
+  else map.set(key, [e]);
+}
+
+function edgeIndex(edges: readonly GraphEdge[]): EdgeIndex {
+  let idx = EDGE_INDEX.get(edges);
+  if (!idx) {
+    idx = { byId: new Map(), out: new Map(), into: new Map() };
+    for (const e of edges) {
+      if (!idx.byId.has(e.id)) idx.byId.set(e.id, e);
+      pushEdge(idx.out, e.from, e);
+      pushEdge(idx.into, e.to, e);
+    }
+    EDGE_INDEX.set(edges, idx);
+  }
+  return idx;
+}
+
 export function findNode(doc: Document, id: string): GraphNode | undefined {
-  return doc.nodes.find((n) => n.id === id);
+  return nodeIndex(doc.nodes).get(id);
 }
 
 export function findEdge(doc: Document, id: string): GraphEdge | undefined {
-  return doc.edges.find((e) => e.id === id);
+  return edgeIndex(doc.edges).byId.get(id);
 }
 
-/** Every live (not `absentSince`-marked) edge of `kind` out of `from`. */
+/** Every live (not `absentSince`-marked) edge of `kind` out of `from`, in document order. */
 export function edgesOut(doc: Document, from: string, kind: EdgeKind): GraphEdge[] {
-  return doc.edges.filter(
-    (e) => e.from === from && e.absentSince === undefined && parseEdgeId(e.id).kind === kind,
-  );
+  return (edgeIndex(doc.edges).out.get(from) ?? NO_EDGES).filter((e) => e.absentSince === undefined && hasKindPrefix(e.id, kind));
 }
 
 export function edgesIn(doc: Document, to: string, kind: EdgeKind): GraphEdge[] {
-  return doc.edges.filter(
-    (e) => e.to === to && e.absentSince === undefined && parseEdgeId(e.id).kind === kind,
-  );
+  return (edgeIndex(doc.edges).into.get(to) ?? NO_EDGES).filter((e) => e.absentSince === undefined && hasKindPrefix(e.id, kind));
 }
 
 // ---------------------------------------------------------------------------
