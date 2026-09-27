@@ -173,9 +173,10 @@ export function cableGroupsStateFromOldVisibility(old: CableVisibility, view: Cl
   if (old === 'none') return { ...base, none: true };
   const key = cableGroupRefKey({ kind: 'type', type: old });
   const alreadyListed = base.groups.some((g) => cableGroupRefKey(g.ref) === key);
+  const newGroup: StoredCableGroup = { ref: { kind: 'type', type: old }, on: true };
   const groups = alreadyListed
     ? base.groups.map((g) => (cableGroupRefKey(g.ref) === key ? { ...g, on: true } : g))
-    : [...base.groups, { ref: { kind: 'type', type: old }, on: true }];
+    : [...base.groups, newGroup];
   return { groups, none: false, hiddenCableIds: [] };
 }
 

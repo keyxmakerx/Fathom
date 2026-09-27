@@ -51,6 +51,10 @@ export function Shell({
   menu,
   onHome,
   search,
+  cablesGroupsPopover,
+  cablesGroupsSummary,
+  hiddenCablesCount,
+  onShowAllHiddenCables,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -76,6 +80,10 @@ export function Shell({
         menu={menu}
         onHome={onHome}
         search={search}
+        cablesGroupsPopover={cablesGroupsPopover}
+        cablesGroupsSummary={cablesGroupsSummary}
+        hiddenCablesCount={hiddenCablesCount}
+        onShowAllHiddenCables={onShowAllHiddenCables}
       />
       <div className="shell__body">
         {/* The folded rail exists where it has something to open (the Racks

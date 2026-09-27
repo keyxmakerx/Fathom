@@ -71,6 +71,7 @@
   --cable-power:   3.4px;      /* one heavy stroke */
   --cable-lit:     2.6px;      /* the selected path's core, over --cable-halo */
   --cable-halo:    9px;
+  --cable-dash:    5px 3px;    /* a VLAN group's trunk member, GitHub issue #54 */
   --phantom:       0.28;       /* everything off the lit path */
 
   /* --- rules ---------------------------------------------------- §9 ----- */

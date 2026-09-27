@@ -16,6 +16,12 @@ export interface CableEdgeData extends Record<string, unknown> {
    * `undefined` the rest of the time, when a cable draws exactly as before
    * this session. */
   portPairLabel?: string;
+  /** GitHub issue #54 decision 5 — a ticked VLAN group's own trunk member,
+   * "a trunk member at either end of its path, through passive hops," drawn
+   * dashed while that group is on and no other ticked group also carries it
+   * untagged. `Drawing.tsx`'s own `computeCableDraw` decides this; drawn
+   * here as a stroke, never a colour (UI-SPEC "Plastic is a line"). */
+  dashed?: boolean;
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -49,13 +55,14 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const litCableId = useLive((s) => s.litCableId);
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
-  const { cable, onSelect, onHoverChange, portPairLabel } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel, dashed } = data;
   const dimmed = litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
   const colour = SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
   const d = cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
   const opacity = dimmed ? 'var(--phantom)' : 1;
+  const dashArray = dashed ? 'var(--cable-dash)' : undefined;
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
 
@@ -94,11 +101,11 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       )}
       {cable.kind === 'fibre' ? (
         <>
-          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" />
-          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" />
+          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} />
         </>
       ) : (
-        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
       )}
       {/* A fatter, invisible stroke widens the click/hover target beyond the
           cable's own thin line — the same reasoning UI-SPEC gives a port

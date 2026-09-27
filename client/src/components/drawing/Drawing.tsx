@@ -21,8 +21,7 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
-import { CablesViewControl } from './CablesViewControl';
-import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
+import { computeCableDraw, type ResolvedCableGroup } from './cableGroups';
 import type { CableKind, CableView, ChassisView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
@@ -235,6 +234,18 @@ export interface DrawingProps extends DrawingActions {
    * "reuse what is already there" reading `litCableId` above gives the
    * rail hexagon's own hover. `null`/absent lights nothing. */
   litPortLabel?: string | null;
+  /** GitHub issue #54 — the Cables list's own ticked groups, already
+   * resolved by the caller (`racks/RacksPlace.tsx`, which holds the
+   * `Document` this drawing never imports for cable membership — a VLAN or
+   * a tag needs it, `cableGroups.ts`'s own resolution layer). Empty means
+   * "All": every cable not hidden one at a time draws. */
+  tickedCableGroups?: readonly Pick<ResolvedCableGroup, 'cableIds' | 'dashedCableIds'>[];
+  /** The list's own None shortcut — every cable hidden regardless of any
+   * ticked group. */
+  cableGroupsNone?: boolean;
+  /** Decision 6 — cables hidden one at a time; never touched by a group
+   * toggle, always subtracted from what draws. */
+  hiddenCableIds?: ReadonlySet<string>;
 }
 
 type AnyRackNode = RackNodeType;
@@ -303,6 +314,9 @@ function DrawingInner({
   renderConfigDrawer,
   renderInsideStop,
   litPortLabel,
+  tickedCableGroups,
+  cableGroupsNone,
+  hiddenCableIds,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -350,16 +364,6 @@ function DrawingInner({
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
   const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId }), [liveStore]);
-  // This session's brief item 1 — the cables view control: "the choice is
-  // per browser (localStorage, wrapped in try/catch) and never saved to the
-  // document." Read once, lazily, on mount (`useState`'s own initialiser
-  // form) rather than in an effect, so the very first render already draws
-  // whatever this browser last chose instead of flashing "all" for a frame.
-  const [cableVisibility, setCableVisibilityState] = useState<CableVisibility>(() => loadCableVisibility());
-  const handleCableVisibilityChange = useCallback((next: CableVisibility) => {
-    setCableVisibilityState(next);
-    saveCableVisibility(next);
-  }, []);
   // This session's brief items 3/4 — the selected cable's two ports (a
   // hairline ring) and the port a refused cable drop landed on (a shake),
   // both toggled as a DOM class on the SAME `data-port-id` element
@@ -411,30 +415,39 @@ function DrawingInner({
     [view, dragFromPortId],
   );
 
-  // This session's brief item 1 — "hiding a kind removes those cables and
-  // bundles from the drawing and their fill from ports, never a box." The
-  // one filtered list everything below draws from; the boxes themselves
-  // (chassis, shelf, surface, portal tray) are built from the real `view`,
-  // never this one, so a hidden kind never removes anything but a cable, a
-  // bundle and a port's own sheath fill.
-  const visibleCables = useMemo(
-    () => filterCablesByVisibility(view.cables ?? [], cableVisibility),
-    [view.cables, cableVisibility],
+  // GitHub issue #54 decision 4/7 — the draw rule: a cable hidden one at a
+  // time never draws; otherwise None hides everything, a ticked group draws
+  // the union of its own cables, and no ticked group draws every cable
+  // ("All"). `tickedCableGroups`/`cableGroupsNone`/`hiddenCableIds` are the
+  // caller's own resolved state (`racks/RacksPlace.tsx` holds the
+  // `Document` a VLAN or a tag group needs — this drawing never imports it).
+  // The boxes themselves (chassis, shelf, surface, portal tray) are built
+  // from the real `view`, never this filtered list, so a hidden cable never
+  // removes anything but itself, its bundle and (decision 7) nothing at all
+  // off a port's own fill.
+  const allCableIds = useMemo(() => (view.cables ?? []).map((c) => c.id), [view.cables]);
+  const cableDraw = useMemo(
+    () => computeCableDraw(allCableIds, hiddenCableIds ?? EMPTY_STRING_SET, cableGroupsNone ?? false, tickedCableGroups ?? []),
+    [allCableIds, hiddenCableIds, cableGroupsNone, tickedCableGroups],
+  );
+  const drawnCables = useMemo(
+    () => (view.cables ?? []).filter((c) => cableDraw.drawnIds.has(c.id)),
+    [view.cables, cableDraw],
   );
 
-  // UI-SPEC "Cables": "the port a cable fills takes the sheath colour" —
-  // built once per view change rather than have every `ChassisNode` search
-  // the whole cable list for its own ports.
+  // Decision 7 — "Port fill comes from every cable, not only the drawn
+  // ones": unlike `drawnCables` above, this reads the full `view.cables`,
+  // so a hidden or filtered-out cable's two ports keep their fill.
   const freshPortSheath = useMemo(() => {
     const map = new Map<string, Sheath>();
-    for (const cable of visibleCables) {
+    for (const cable of view.cables ?? []) {
       if (cable.sheath == null) continue;
       for (const end of cable.ends) {
         if ('portId' in end) map.set(end.portId, cable.sheath);
       }
     }
     return map;
-  }, [visibleCables]);
+  }, [view.cables]);
   // The previous map when no entry changed, so an edit that touches no cable
   // colour leaves every chassis, shelf and surface node as it was.
   const portSheath = caches.portSheath.get('portSheath', freshPortSheath, portSheathEqual);
@@ -857,10 +870,10 @@ function DrawingInner({
 
   // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
   // ends (and the same lane/kind, `bundles.ts`'s own doc) draw as one band.
-  // Built off `visibleCables` (this session's brief item 1) — a bundle with
-  // every member hidden by the cables view control is a bundle nobody
-  // should see either.
-  const bundles = useMemo(() => groupBundles(visibleCables), [visibleCables]);
+  // Decision 7 — "Bundles and the lit path count only drawn cables": built
+  // off `drawnCables`, never the full `view.cables`, so a bundle with every
+  // member hidden or filtered out is a bundle nobody should see either.
+  const bundles = useMemo(() => groupBundles(drawnCables), [drawnCables]);
 
   function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
     const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
@@ -883,6 +896,7 @@ function DrawingInner({
       onSelect: (cableId: string) => onSelect({ kind: 'cable', id: cableId }),
       onHoverChange: handleHoverCable,
       portPairLabel,
+      dashed: cableDraw.dashedIds.has(cable.id),
     };
     return {
       id: cable.id,
@@ -933,7 +947,7 @@ function DrawingInner({
     }
   }
 
-  for (const cable of visibleCables) {
+  for (const cable of drawnCables) {
     if (bundledCableIds.has(cable.id)) continue; // drawn above, as the bundle's band and (when fanned) its members
     const built = buildCableEdge(cable);
     if (built) edges.push(built);
@@ -1263,12 +1277,6 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
       </ReactFlow>
-      {/* This session's brief item 1 — "a cables view control: a small
-          control on the canvas near the lens row... a view control, not a
-          lens." An overlay sibling of the canvas, like `ColourPicker` below
-          — never part of the React Flow pane, so it survives a pan or zoom
-          untouched. */}
-      <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
       {pendingConnect && (
         <ColourPicker
           kind={pendingConnect.kind}
