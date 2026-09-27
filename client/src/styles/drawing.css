@@ -584,7 +584,7 @@
   font-variant-numeric: var(--num-tabular);
 }
 
-/* GitHub issue #54 decision 6 — "Hide this cable" / "Show this cable". */
+/* "Hide this cable" / "Show this cable". */
 .drawing-editor__hide-cable {
   display: flex;
   align-items: center;

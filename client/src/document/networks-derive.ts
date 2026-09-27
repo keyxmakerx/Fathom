@@ -42,7 +42,24 @@
 // and every numeric parse is guarded — an inet6 or otherwise unreadable
 // Address must not take the whole list down, it is skipped.
 
-import { ipv4NetworkOf, parseEdgeId, parseNodeId, type Document, type FieldEntry, type GraphEdge, type GraphNode } from './model';
+import { ipv4NetworkOf, kebab, parseEdgeId, parseNodeId, type Document, type FieldEntry, type GraphEdge, type GraphNode, NODE_KINDS, EDGE_KINDS } from './model';
+
+// A node/edge kind, read off its id's own prefix through a plain `Map`
+// lookup rather than `parseNodeId`/`parseEdgeId` — those also canonicalise
+// and validate the ulid half, work this file's own hot paths (one call per
+// node or per port, thousands at scale) never need just to know a kind.
+// `document/tags.ts` reads its one kind the same way, for the same reason.
+const NODE_KIND_BY_PREFIX = new Map<string, string>(NODE_KINDS.map((k) => [kebab(k), k]));
+const EDGE_KIND_BY_PREFIX = new Map<string, string>(EDGE_KINDS.map((k) => [kebab(k), k]));
+
+function nodeKindOf(id: string): string | undefined {
+  const i = id.indexOf(':');
+  return i < 0 ? undefined : NODE_KIND_BY_PREFIX.get(id.slice(0, i));
+}
+function edgeKindOf(id: string): string | undefined {
+  const i = id.indexOf(':');
+  return i < 0 ? undefined : EDGE_KIND_BY_PREFIX.get(id.slice(0, i));
+}
 
 function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): FieldEntry['value'] | undefined {
   const e = fields[name];
@@ -98,7 +115,8 @@ function buildIndex(doc: Document): DocIndex {
   for (const n of doc.nodes) {
     if (n.absentSince !== undefined) continue;
     nodeById.set(n.id, n);
-    const kind = parseNodeId(n.id).kind;
+    const kind = nodeKindOf(n.id);
+    if (kind === undefined) continue;
     const arr = nodesByKind.get(kind);
     if (arr) arr.push(n);
     else nodesByKind.set(kind, [n]);
@@ -109,7 +127,8 @@ function buildIndex(doc: Document): DocIndex {
   const passThroughByPort = new Map<string, GraphEdge>();
   for (const e of doc.edges) {
     if (e.absentSince !== undefined) continue;
-    const kind = parseEdgeId(e.id).kind;
+    const kind = edgeKindOf(e.id);
+    if (kind === undefined) continue;
     pushIndexed(outByKind, `${e.from}\u0000${kind}`, e);
     pushIndexed(inByKind, `${e.to}\u0000${kind}`, e);
     if (kind === 'PassThrough') {
@@ -305,7 +324,7 @@ function cabledFarPort(idx: DocIndex, startPortId: string): { farPortId?: string
     if (!near || !liveNode(idx, near.from)) return { cableIds, viaPassiveHops: hops };
     cableIds.push(near.from);
     const far = edgesOutIdx(idx, near.from, 'Terminates').find((e) => e.id !== near.id);
-    if (!far || parseNodeId(far.to).kind !== 'PhysicalPort' || !liveNode(idx, far.to)) return { cableIds, viaPassiveHops: hops };
+    if (!far || nodeKindOf(far.to) !== 'PhysicalPort' || !liveNode(idx, far.to)) return { cableIds, viaPassiveHops: hops };
     const farPort = far.to;
     const pass = idx.passThroughByPort.get(farPort);
     if (pass) {
@@ -374,9 +393,7 @@ function buildPortGraph(idx: DocIndex): PortGraph {
   const livePorts = new Set<string>();
   const blankBridgeDeviceOfPort = new Map<string, string>();
 
-  for (const n of idx.nodeById.values()) {
-    if (parseNodeId(n.id).kind === 'PhysicalPort') livePorts.add(n.id);
-  }
+  for (const n of idx.nodesByKind.get('PhysicalPort') ?? EMPTY_NODES) livePorts.add(n.id);
   for (const portId of livePorts) {
     const walk = cabledFarPort(idx, portId);
     if (walk.farPortId && livePorts.has(walk.farPortId)) {
@@ -385,8 +402,8 @@ function buildPortGraph(idx: DocIndex): PortGraph {
       addAdjacency(adjacency, portId, walk.farPortId);
     }
   }
-  for (const n of idx.nodeById.values()) {
-    if (parseNodeId(n.id).kind !== 'Device' || !isBlankBridge(idx, n.id)) continue;
+  for (const n of idx.nodesByKind.get('Device') ?? EMPTY_NODES) {
+    if (!isBlankBridge(idx, n.id)) continue;
     const ports = chassisPortsOf(idx, n.id);
     for (const p of ports) blankBridgeDeviceOfPort.set(p, n.id);
     for (let i = 1; i < ports.length; i += 1) {
@@ -1362,6 +1379,28 @@ function foldMacvlanContainersIntoRows(dockerRows: readonly DockerNetworkRow[], 
 
 const derivedCache = new WeakMap<Document, NetworksDerived>();
 
+/** The index, the port graph and the VLAN carrier index, built once per
+ * `Document` and shared by `deriveNetworks` and `cablesForVlan` — each used
+ * to cost a fresh `buildIndex`/`buildPortGraph` pass per call, quadratic
+ * across a render that asks for several VLANs' own cables off the same
+ * document. */
+interface DocGraph {
+  idx: DocIndex;
+  base: PortGraph;
+  carrierIndex: Map<number, string[]>;
+}
+const graphCache = new WeakMap<Document, DocGraph>();
+function graphOf(doc: Document): DocGraph {
+  const cached = graphCache.get(doc);
+  if (cached) return cached;
+  const idx = buildIndex(doc);
+  const base = buildPortGraph(idx);
+  const carrierIndex = buildVlanCarrierIndex(idx);
+  const g: DocGraph = { idx, base, carrierIndex };
+  graphCache.set(doc, g);
+  return g;
+}
+
 /** The whole Networks list, in one pass over one shared, indexed port graph.
  * Pure — a fresh computation over `doc` the first time it is asked for, then
  * memoised on the `Document` object itself: a caller that hands back the
@@ -1372,9 +1411,7 @@ const derivedCache = new WeakMap<Document, NetworksDerived>();
 export function deriveNetworks(doc: Document): NetworksDerived {
   const cached = derivedCache.get(doc);
   if (cached) return cached;
-  const idx = buildIndex(doc);
-  const base = buildPortGraph(idx);
-  const carrierIndex = buildVlanCarrierIndex(idx);
+  const { idx, base, carrierIndex } = graphOf(doc);
   const vlanRows = vlanRowsOf(idx, base, carrierIndex);
   const excludeUnits = new Set(vlanRows.flatMap((r) => r.members.map((m) => m.unitId)));
   const subnetRowsPlain = subnetRowsOf(idx, base, excludeUnits);
@@ -1389,49 +1426,41 @@ export function deriveNetworks(doc: Document): NetworksDerived {
   return result;
 }
 
-/** GitHub issue #54 — "show only the cables of VLAN 30": every live `Cable`
- * id carrying a member of ONE joined row, given by its `vlanNodeIds`. */
-export function cablesCarryingVlan(doc: Document, vlanNodeIds: readonly string[]): string[] {
-  const idx = buildIndex(doc);
+export interface VlanCableIds {
+  /** Every live `Cable` id carrying a member of one joined row, given by its
+   * `vlanNodeIds` — "show only the cables of VLAN 30". */
+  cableIds: string[];
+  /** The same row's own trunk members: every cable on the chain leading
+   * away from a port whose unit carries `vlanNodeIds` in TRUNK mode
+   * (passive hops and all), restricted to this row's own domain the same
+   * way `cableIds` is. A cable an access member also reaches is not
+   * excluded here — the caller (`components/drawing/cableGroups.ts`) is the
+   * one place that decides "another ticked VLAN group carrying it untagged
+   * draws it solid". */
+  trunkCableIds: string[];
+}
+
+/** `cablesCarryingVlan` and `trunkCableIdsForVlan`, merged: both read the
+ * same domain walk over the same cached graph, so this pays it once. */
+export function cablesForVlan(doc: Document, vlanNodeIds: readonly string[]): VlanCableIds {
+  const { idx, base, carrierIndex } = graphOf(doc);
   const nodes = vlanNodeIds.map((id) => liveNode(idx, id)).filter((n): n is GraphNode => n !== undefined);
-  if (nodes.length === 0) return [];
+  if (nodes.length === 0) return { cableIds: [], trunkCableIds: [] };
   const idValue = vlanIdOfNode(nodes[0]);
-  if (idValue === undefined) return [];
+  if (idValue === undefined) return { cableIds: [], trunkCableIds: [] };
   const idSet = new Set(allLiveVlanNodesWithId(idx, idValue).map((n) => n.id));
-  const base = buildPortGraph(idx);
-  const domainUf = buildDomainUnionFind(idx, base, idValue, idSet, buildVlanCarrierIndex(idx).get(idValue) ?? EMPTY_UNIT_IDS);
+  const candidateUnitIds = carrierIndex.get(idValue) ?? EMPTY_UNIT_IDS;
+  const domainUf = buildDomainUnionFind(idx, base, idValue, idSet, candidateUnitIds);
   const key = nodeComponentKey(idx, base, domainUf, nodes[0]);
+
   const cableIds = new Set<string>();
   for (const portId of base.livePorts) {
     if (domainKeyOfPort(base, domainUf, portId) !== key) continue;
     const partner = base.cablePartner.get(portId);
     if (partner) for (const c of partner.cableIds) cableIds.add(c);
   }
-  return [...cableIds].sort();
-}
 
-/** GitHub issue #54 decision 5 — the Cables list's VLAN group draws dashed
- * "a trunk member at either end of its path, through passive hops": every
- * cable on the chain (`cabledFarPort`'s own `cableIds`, passive hops and
- * all) leading away from a port whose unit carries `vlanNodeIds` in TRUNK
- * mode, restricted to this row's own domain the same way `cablesCarryingVlan`
- * is. A cable an access member also reaches is not excluded here — the
- * caller (`components/drawing/cableGroups.ts`) is the one place that decides
- * "another ticked group carrying it untagged draws it solid", by set
- * difference against every ticked group's own plain membership, not by this
- * function guessing which other groups are on. */
-export function trunkCableIdsForVlan(doc: Document, vlanNodeIds: readonly string[]): string[] {
-  const idx = buildIndex(doc);
-  const nodes = vlanNodeIds.map((id) => liveNode(idx, id)).filter((n): n is GraphNode => n !== undefined);
-  if (nodes.length === 0) return [];
-  const idValue = vlanIdOfNode(nodes[0]);
-  if (idValue === undefined) return [];
-  const idSet = new Set(allLiveVlanNodesWithId(idx, idValue).map((n) => n.id));
-  const base = buildPortGraph(idx);
-  const candidateUnitIds = buildVlanCarrierIndex(idx).get(idValue) ?? EMPTY_UNIT_IDS;
-  const domainUf = buildDomainUnionFind(idx, base, idValue, idSet, candidateUnitIds);
-  const key = nodeComponentKey(idx, base, domainUf, nodes[0]);
-  const cableIds = new Set<string>();
+  const trunkCableIds = new Set<string>();
   const seenUnits = new Set<string>();
   for (const unitId of candidateUnitIds) {
     if (seenUnits.has(unitId)) continue;
@@ -1443,7 +1472,8 @@ export function trunkCableIdsForVlan(doc: Document, vlanNodeIds: readonly string
     if (res.kind !== 'live' && res.kind !== 'inferred') continue;
     if (domainKeyOfPort(base, domainUf, res.portId) !== key) continue;
     const partner = base.cablePartner.get(res.portId);
-    if (partner) for (const c of partner.cableIds) cableIds.add(c);
+    if (partner) for (const c of partner.cableIds) trunkCableIds.add(c);
   }
-  return [...cableIds].sort();
+
+  return { cableIds: [...cableIds].sort(), trunkCableIds: [...trunkCableIds].sort() };
 }

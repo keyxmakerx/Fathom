@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 
 import type { Document } from '../../document/model';
 import {
-  availableCableGroupRefs,
+  availableCableGroupCandidates,
   cableGroupRefKey,
+  closetHiddenCableCount,
   isAllShortcutLit,
   isNoneShortcutLit,
   resolveCableGroup,
-  resolveStoredGroups,
   withAllShortcut,
   withGroupAdded,
   withGroupRemoved,
@@ -15,20 +15,26 @@ import {
   withNoneShortcut,
   type CableGroupKindLabel,
   type CableGroupRef,
+  type ResolvedCableGroup,
+  type StoredCableGroup,
   type StoredCableGroupsState,
 } from './cableGroups';
 import type { ClosetView } from './contract';
 import '../../styles/cableGroupsPopover.css';
 
+const PICKER_ROW_CAP = 50;
+
 export interface CableGroupsPopoverProps {
   doc: Document;
   view: ClosetView;
   state: StoredCableGroupsState;
+  /** Already resolved by the caller (`racks/RacksPlace.tsx`) — this popover
+   * never resolves a group a second time. */
+  rows: ReadonlyArray<{ stored: StoredCableGroup; resolved: ResolvedCableGroup }>;
   onStateChange: (next: StoredCableGroupsState) => void;
-  /** The rack stop's own drawn-cable count, out of every cable in the view
-   * — decision 2's "showing 5 of 38", computed once by the caller
-   * (`Drawing.tsx`'s own `computeCableDraw`) so this popover need not repeat
-   * the draw rule. */
+  /** The rack stop's own drawn-cable count, out of every cable in this
+   * closet, computed once by the caller (`RacksPlace.tsx`'s own
+   * `computeCableDraw`) so this popover need not repeat the draw rule. */
   drawnCount: number;
   totalCount: number;
   onShowAllHidden: () => void;
@@ -36,34 +42,48 @@ export interface CableGroupsPopoverProps {
 
 const KIND_ORDER: Record<CableGroupKindLabel, number> = { VLAN: 0, TAG: 1, TYPE: 2, DEVICE: 3 };
 
-/** GitHub issue #54 — the Cables list, hanging from the lit Cables lens
- * (`Bar.tsx`). One popover, two screens: the groups themselves, and the
- * "+ Add a group…" picker over VLANs, tags, types and devices. Never saved
- * to the design (`cableGroups.ts`'s own storage layer) — this component
- * only turns a click into a new `StoredCableGroupsState` and hands it back.
+/** The Cables list, hanging from the lit Cables lens (`Bar.tsx`). One
+ * popover, two screens: the groups themselves, and the "+ Add a group…"
+ * picker over VLANs, tags, types and devices. Never saved to the design
+ * (`cableGroups.ts`'s own storage layer) — this component only turns a
+ * click into a new `StoredCableGroupsState` and hands it back.
  */
-export function CableGroupsPopover({ doc, view, state, onStateChange, drawnCount, totalCount, onShowAllHidden }: CableGroupsPopoverProps) {
+export function CableGroupsPopover({ doc, view, state, rows, onStateChange, drawnCount, totalCount, onShowAllHidden }: CableGroupsPopoverProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
+  const [highlight, setHighlight] = useState(0);
 
-  const { rows } = useMemo(() => resolveStoredGroups(doc, view, state), [doc, view, state]);
-
+  // Filters the cheap candidate list (a name, never a resolved cable count)
+  // by text FIRST, caps what is left, and only then resolves membership for
+  // the rows actually shown — never for every VLAN, tag and device in the
+  // design up front.
   const pickerRows = useMemo(() => {
     if (!pickerOpen) return [];
     const already = new Set(state.groups.map((g) => cableGroupRefKey(g.ref)));
     const q = pickerQuery.trim().toLowerCase();
-    const candidates: Array<{ ref: CableGroupRef; kindLabel: CableGroupKindLabel; name: string; count: number }> = [];
-    for (const ref of availableCableGroupRefs(doc, view)) {
-      const key = cableGroupRefKey(ref);
+    const matched: Array<{ ref: CableGroupRef; kindLabel: CableGroupKindLabel; name: string }> = [];
+    for (const candidate of availableCableGroupCandidates(doc, view)) {
+      const key = cableGroupRefKey(candidate.ref);
       if (already.has(key)) continue;
-      const resolved = resolveCableGroup(doc, view, ref);
-      if (!resolved) continue;
-      if (q.length > 0 && !resolved.name.toLowerCase().includes(q) && !resolved.kindLabel.toLowerCase().includes(q)) continue;
-      candidates.push({ ref, kindLabel: resolved.kindLabel, name: resolved.name, count: resolved.cableIds.size });
+      if (q.length > 0 && !candidate.name.toLowerCase().includes(q) && !candidate.kindLabel.toLowerCase().includes(q)) continue;
+      matched.push(candidate);
     }
-    candidates.sort((a, b) => KIND_ORDER[a.kindLabel] - KIND_ORDER[b.kindLabel] || a.name.localeCompare(b.name));
-    return candidates;
+    matched.sort((a, b) => KIND_ORDER[a.kindLabel] - KIND_ORDER[b.kindLabel] || a.name.localeCompare(b.name));
+    const shown = matched.slice(0, PICKER_ROW_CAP);
+    return shown.map((candidate) => {
+      const resolved = resolveCableGroup(doc, view, candidate.ref);
+      return { ref: candidate.ref, kindLabel: candidate.kindLabel, name: candidate.name, count: resolved?.cableIds.size ?? 0 };
+    });
   }, [pickerOpen, pickerQuery, doc, view, state.groups]);
+
+  function addHighlighted(): void {
+    const row = pickerRows[highlight];
+    if (!row) return;
+    onStateChange(withGroupAdded(state, row.ref));
+    setPickerOpen(false);
+    setPickerQuery('');
+    setHighlight(0);
+  }
 
   if (pickerOpen) {
     return (
@@ -80,21 +100,41 @@ export function CableGroupsPopover({ doc, view, state, onStateChange, drawnCount
             type="text"
             placeholder="VLAN, tag, type or device"
             value={pickerQuery}
-            onChange={(e) => setPickerQuery(e.target.value)}
+            onChange={(e) => {
+              setPickerQuery(e.target.value);
+              setHighlight(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setHighlight((h) => Math.min(h + 1, Math.max(pickerRows.length - 1, 0)));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setHighlight((h) => Math.max(h - 1, 0));
+              } else if (e.key === 'Enter') {
+                e.preventDefault();
+                addHighlighted();
+              }
+            }}
           />
         </div>
         <div className="cable-groups-pop__rows" role="listbox">
           {pickerRows.length === 0 && <div className="cable-groups-pop__empty">nothing matches</div>}
-          {pickerRows.map((row) => (
+          {pickerRows.map((row, i) => (
             <button
               key={cableGroupRefKey(row.ref)}
               type="button"
               role="option"
-              className="cable-groups-pop__pick-row"
+              aria-selected={i === highlight}
+              className={
+                i === highlight ? 'cable-groups-pop__pick-row cable-groups-pop__pick-row--highlight' : 'cable-groups-pop__pick-row'
+              }
+              onMouseEnter={() => setHighlight(i)}
               onClick={() => {
                 onStateChange(withGroupAdded(state, row.ref));
                 setPickerOpen(false);
                 setPickerQuery('');
+                setHighlight(0);
               }}
             >
               <span className="cable-groups-pop__name">{row.name}</span>
@@ -157,14 +197,23 @@ export function CableGroupsPopover({ doc, view, state, onStateChange, drawnCount
           </div>
         );
       })}
-      <button type="button" className="cable-groups-pop__add" onClick={() => setPickerOpen(true)}>
+      <button
+        type="button"
+        className="cable-groups-pop__add"
+        onClick={() => {
+          setPickerOpen(true);
+          setHighlight(0);
+        }}
+      >
         <span className="cable-groups-pop__add-plus">+</span>
         <span>Add a group…</span>
         <span className="cable-groups-pop__hint">by VLAN, tag, type or device</span>
       </button>
       {state.hiddenCableIds.length > 0 && (
         <div className="cable-groups-pop__hidden">
-          <span className="cable-groups-pop__hidden-chip">{state.hiddenCableIds.length} hidden one at a time</span>
+          <span className="cable-groups-pop__hidden-chip">
+            {closetHiddenCableCount(view, state.hiddenCableIds)} hidden one at a time
+          </span>
           <button type="button" className="cable-groups-pop__show-link" onClick={onShowAllHidden}>
             show
           </button>

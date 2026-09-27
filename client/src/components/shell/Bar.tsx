@@ -65,18 +65,16 @@ export interface BarProps {
   /** The caller's own account-menu rows (Site, credentials, Home), above
    * Theme and Sign out. A row is present only when it acts. */
   menu?: ReactNode;
-  /** GitHub issue #54 decision 2 — the Cables list, hanging from the Cables
-   * lens: absent everywhere but the Racks place. The lens shows a ▾ while
-   * lit, and a click while it is ALREADY lit opens this as a popover; a
-   * click while some other lens is lit only switches to Cables, the same as
-   * every other lens button. */
+  /** The Cables list, hanging from the Cables lens: absent everywhere but
+   * the Racks place. The lens shows a ▾ while lit, and a click while it is
+   * ALREADY lit opens this as a popover; a click while some other lens is
+   * lit only switches to Cables, the same as every other lens button. */
   cablesGroupsPopover?: ReactNode;
-  /** "While anything is filtered, [the lens] reads 'Cables · 5 of 38.'"
+  /** While anything is filtered, the lens reads "Cables · 5 of 38."
    * `null`/absent leaves the lens reading plain "Cables". */
   cablesGroupsSummary?: string | null;
-  /** GitHub issue #54 decision 6 — "the bar shows '3 hidden · show' in the
-   * Racks place" while any cable is hidden one at a time. Zero or absent
-   * renders nothing. */
+  /** The bar shows "3 hidden · show" in the Racks place while any cable in
+   * this closet is hidden one at a time. Zero or absent renders nothing. */
   hiddenCablesCount?: number;
   onShowAllHiddenCables?: () => void;
 }
@@ -257,11 +255,11 @@ export function Bar({
                         aria-controls={triggerProps['aria-controls']}
                         onClick={(event) => {
                           triggerRef.current = event.currentTarget;
-                          // GitHub issue #54 decision 2 — "clicking the Cables
-                          // lens while it is lit opens the list": while it is
-                          // some other lens's turn, a click only switches to
-                          // Cables, the same as any other lens button; it
-                          // never also opens the popover in the same click.
+                          // Clicking the Cables lens while it is lit opens
+                          // the list; while it is some other lens's turn, a
+                          // click only switches to Cables, the same as any
+                          // other lens button — it never also opens the
+                          // popover in the same click.
                           if (candidate !== lens) {
                             onLensChange(candidate);
                             return;
@@ -298,7 +296,7 @@ export function Bar({
             {hiddenCablesCount != null && hiddenCablesCount > 0 && (
               <>
                 <Sep />
-                <span className="shell-chip" data-testid="shell-hidden-cables-chip">
+                <span className="shell-chip shell-bar__hidden-chip" data-testid="shell-hidden-cables-chip">
                   {hiddenCablesCount} hidden ·{' '}
                   <button type="button" className="shell-chip__link" onClick={onShowAllHiddenCables}>
                     show

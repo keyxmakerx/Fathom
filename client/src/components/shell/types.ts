@@ -85,11 +85,11 @@ export interface ShellProps {
   /** Quick search. Absent where there is nothing to search yet (Home, Site). */
   search?: ShellSearch;
 
-  /** GitHub issue #54 decision 2 — the Cables list, hanging from the Cables
-   * lens. `Bar.tsx`'s own doc: absent everywhere but the Racks place. */
+  /** The Cables list, hanging from the Cables lens. `Bar.tsx`'s own doc:
+   * absent everywhere but the Racks place. */
   cablesGroupsPopover?: ReactNode;
   cablesGroupsSummary?: string | null;
-  /** Decision 6 — the hidden-one-at-a-time chip. */
+  /** The hidden-one-at-a-time chip. */
   hiddenCablesCount?: number;
   onShowAllHiddenCables?: () => void;
 

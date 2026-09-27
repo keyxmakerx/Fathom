@@ -16,11 +16,10 @@ export interface CableEdgeData extends Record<string, unknown> {
    * `undefined` the rest of the time, when a cable draws exactly as before
    * this session. */
   portPairLabel?: string;
-  /** GitHub issue #54 decision 5 — a ticked VLAN group's own trunk member,
-   * "a trunk member at either end of its path, through passive hops," drawn
-   * dashed while that group is on and no other ticked group also carries it
-   * untagged. `Drawing.tsx`'s own `computeCableDraw` decides this; drawn
-   * here as a stroke, never a colour (UI-SPEC "Plastic is a line"). */
+  /** A ticked VLAN group's own trunk member, drawn dashed while that group
+   * is on and no other ticked VLAN group also carries it untagged
+   * (`cableGroups.ts`'s own `computeCableDraw`); drawn here as a stroke,
+   * never a colour (UI-SPEC "Plastic is a line"). */
   dashed?: boolean;
 }
 

@@ -273,10 +273,10 @@ export interface EditorActions {
    * Not keyed to an owner, `allTags`'s own reading: a tag's name is one fact
    * shared by everything that carries it. Optional, `onEdit`'s own reading. */
   onRenameTag?(tagId: string, name: string): { refused: string } | void;
-  /** GitHub issue #54 decision 6 — "Hide this cable" / "Show this cable" in
-   * the cable's own panel. A view choice, not an edit (never gated on
-   * `onEdit`'s own presence — "a read-only viewer can do it too"): absent
-   * only where the caller supplies no hidden-cable tracking at all. */
+  /** "Hide this cable" / "Show this cable" in the cable's own panel. A view
+   * choice, not an edit (never gated on `onEdit`'s own presence — a
+   * read-only viewer can do it too): absent only where the caller supplies
+   * no hidden-cable tracking at all. */
   isCableHidden?(cableId: string): boolean;
   onToggleCableHidden?(cableId: string): void;
 }

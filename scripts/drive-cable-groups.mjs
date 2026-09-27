@@ -1,9 +1,10 @@
-// GitHub issue #54 — the Cables list, end to end against the real compiled
-// client: open the list from the lit Cables lens, add a VLAN group and a
-// type group, the draw rule (a ticked group, the trunk dashed, None, All),
-// hide one cable from its editor and bring it back, the list surviving a
-// reload, a second design carrying its own separate list, and that none of
-// it ever saved a document version.
+// The Cables list, end to end against the real compiled client: open the
+// list from the lit Cables lens, add a VLAN group and a type group, the
+// draw rule (a ticked group, the exact trunk cable dashed, None, All), a
+// tag on a shelf-mounted device catching its cable, the lit path ignoring a
+// hidden cable, hide one cable from its editor and bring it back, the list
+// surviving a reload, a second design carrying its own separate list, and
+// that none of it ever saved a document version.
 //
 // Uses the shared throwaway harness (`scripts/drive-lib/harness.tsx` +
 // `seed.ts` + `catalogue.json`, copied into `client/` and removed below —
@@ -74,7 +75,7 @@ writeFileSync(
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Fathom — GitHub issue #54 proof preview (throwaway, not shipped)</title>
+    <title>Fathom — Cables list drive preview (throwaway, not shipped)</title>
   </head>
   <body>
     <div id="root"></div>
@@ -141,9 +142,9 @@ async function selectCableOfKind(page, kind) {
 }
 
 /** Every cabled port's own fill state (`ChassisNode.tsx`'s `--port-sheath`
- * custom property and its `--cabled` class) — GitHub issue #54 decision 7:
- * "Port fill comes from every cable, not only the drawn ones." Keyed and
- * sorted so two snapshots compare equal regardless of DOM traversal order. */
+ * custom property and its `--cabled` class) — "port fill comes from every
+ * cable, not only the drawn ones." Keyed and sorted so two snapshots
+ * compare equal regardless of DOM traversal order. */
 async function cabledPortFillSnapshot(page) {
   const raw = await page.evaluate(() => {
     const out = {};
@@ -176,6 +177,26 @@ async function addGroup(page, query, onPickerOpen) {
 
 async function tickGroup(page, name) {
   await page.locator('.cable-groups-pop__row', { hasText: name }).locator('input[type="checkbox"]').check();
+}
+
+async function untickGroup(page, name) {
+  await page.locator('.cable-groups-pop__row', { hasText: name }).locator('input[type="checkbox"]').uncheck();
+}
+
+async function removeGroup(page, name) {
+  await page.locator('.cable-groups-pop__row', { hasText: name }).locator('.cable-groups-pop__remove').click();
+}
+
+/** Every cable id currently drawing dashed — `[data-cable-id]`'s own child
+ * `path` carries `stroke-dasharray` when `CableEdge.tsx` reads `dashed`
+ * true; walked back up to the cable id rather than counted, so a caller can
+ * assert exactly WHICH cable, not just that some cable is dashed. */
+async function dashedCableIds(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('[data-cable-id] path')]
+      .filter((p) => p.getAttribute('stroke-dasharray'))
+      .map((p) => p.closest('[data-cable-id]').getAttribute('data-cable-id')),
+  );
 }
 
 /** Opens `designId` from Home in the Racks place — with two designs seeded
@@ -222,7 +243,7 @@ try {
   check('every device in the scene is on the drawing', (await page.locator('.react-flow__node-chassis').count()) === 8);
 
   const initialCables = await drawnCableIds(page);
-  check('every cable draws on open ("All", nothing stored yet)', initialCables.length === 5, initialCables.join(', '));
+  check('every cable draws on open ("All", nothing stored yet)', initialCables.length === 6, initialCables.join(', '));
 
   // -------------------------------------------------------------------------
   // 1 — open the list from the lit Cables lens.
@@ -233,8 +254,35 @@ try {
   console.log('    wrote ' + SHOTS + 'cable-groups-01-list.png');
 
   // -------------------------------------------------------------------------
-  // 2 — add a VLAN group and tick it: only its cables draw, the trunk
-  // dashed, and every port keeps its fill.
+  // 1b — the trunk cable's own id, by its "uplinks" tag (the seed's own
+  // choice: the tag names exactly the trunk cable, nothing else) — read
+  // once, alone, before any other group is ticked, so later steps can
+  // assert exactly WHICH cable draws dashed rather than merely that one
+  // does.
+  // -------------------------------------------------------------------------
+  await addGroup(page, 'uplinks');
+  await tickGroup(page, 'uplinks');
+  await page.waitForTimeout(200);
+  const uplinksOnly = await drawnCableIds(page);
+  check('the "uplinks" tag names exactly the trunk cable', uplinksOnly.length === 1, uplinksOnly.join(', '));
+  const trunkCableId = uplinksOnly[0];
+  await removeGroup(page, 'uplinks');
+  await page.waitForTimeout(200);
+
+  // -------------------------------------------------------------------------
+  // 1c — a tag on a shelf-mounted device catches its cable.
+  // -------------------------------------------------------------------------
+  await addGroup(page, 'shelfgear');
+  await tickGroup(page, 'shelfgear');
+  await page.waitForTimeout(200);
+  const shelfgearOnly = await drawnCableIds(page);
+  check("a tag on a shelf device catches exactly its own cable", shelfgearOnly.length === 1, shelfgearOnly.join(', '));
+  await removeGroup(page, 'shelfgear');
+  await page.waitForTimeout(200);
+
+  // -------------------------------------------------------------------------
+  // 2 — add a VLAN group and tick it: only its cables draw, exactly the
+  // trunk cable dashed, and every port keeps its fill.
   // -------------------------------------------------------------------------
   const portFillBefore = await cabledPortFillSnapshot(page);
   await addGroup(page, 'VLAN 30', async () => {
@@ -246,22 +294,32 @@ try {
 
   const afterVlan = await drawnCableIds(page);
   check('ticking the VLAN group draws only its own two cables', afterVlan.length === 2, afterVlan.join(', '));
-  const dashedAfterVlan = await page.evaluate(
-    () => [...document.querySelectorAll('[data-cable-id] path')].filter((p) => p.getAttribute('stroke-dasharray')).length,
-  );
-  check('the trunk member draws dashed', dashedAfterVlan > 0, `${dashedAfterVlan} dashed path(s)`);
+  const dashedAfterVlan = await dashedCableIds(page);
+  check('exactly the trunk cable draws dashed', dashedAfterVlan.length === 1 && dashedAfterVlan[0] === trunkCableId, dashedAfterVlan.join(', '));
   const portFillAfterVlan = await cabledPortFillSnapshot(page);
   check('every cabled port keeps exactly the same fill', portFillAfterVlan === portFillBefore);
   await page.screenshot({ path: SHOTS + 'cable-groups-03-filtered.png' });
   console.log('    wrote ' + SHOTS + 'cable-groups-03-filtered.png');
 
   // -------------------------------------------------------------------------
+  // 2b — ticking Copper too (the trunk is an unmarked-media, "copper" cable)
+  // keeps the trunk dashed: only another ticked VLAN group carrying it
+  // untagged may solidify it, never a type group.
+  // -------------------------------------------------------------------------
+  await tickGroup(page, 'Copper');
+  await page.waitForTimeout(200);
+  const dashedWithCopperToo = await dashedCableIds(page);
+  check('VLAN 30 plus Copper keeps the trunk dashed', dashedWithCopperToo.includes(trunkCableId), dashedWithCopperToo.join(', '));
+  await untickGroup(page, 'Copper');
+  await page.waitForTimeout(200);
+
+  // -------------------------------------------------------------------------
   // 3 — add Fibre: both groups' cables draw. Fibre is already on the list
-  // (decision 3: "with nothing stored for a design, the list starts with
-  // the types that occur in the view, all unticked" — this scene carries a
-  // fibre cable from the start) — ticking it is "adding" it to what draws,
-  // the picker's own job (already shown for the VLAN group above) not
-  // needed a second time for a group already listed.
+  // ("with nothing stored for a design, the list starts with the types
+  // that occur in the view, all unticked" — this scene carries a fibre
+  // cable from the start) — ticking it is "adding" it to what draws, the
+  // picker's own job (already shown above) not needed a second time for a
+  // group already listed.
   // -------------------------------------------------------------------------
   await tickGroup(page, 'Fibre');
   await page.waitForTimeout(200);
@@ -279,7 +337,7 @@ try {
   await page.locator('.cable-groups-pop__fchip', { hasText: 'All' }).click();
   await page.waitForTimeout(200);
   const afterAll = await drawnCableIds(page);
-  check('All unticks every group and draws every cable again', afterAll.length === 5, afterAll.join(', '));
+  check('All unticks every group and draws every cable again', afterAll.length === 6, afterAll.join(', '));
 
   // -------------------------------------------------------------------------
   // 5 — hide a cable from its editor: the chip reads "1 hidden"; "show"
@@ -289,7 +347,7 @@ try {
   await page.locator('.drawing-editor__hide-cable button', { hasText: 'Hide this cable' }).click();
   await page.waitForTimeout(200);
   const afterHide = await drawnCableIds(page);
-  check('the hidden cable stops drawing', !afterHide.includes(powerCableId) && afterHide.length === 4, afterHide.join(', '));
+  check('the hidden cable stops drawing', !afterHide.includes(powerCableId) && afterHide.length === 5, afterHide.join(', '));
   const hiddenChipText = await page.locator('[data-testid="shell-hidden-cables-chip"]').innerText();
   check('the bar shows "1 hidden · show"', /1 hidden/.test(hiddenChipText), hiddenChipText);
   await page.screenshot({ path: SHOTS + 'cable-groups-04-hidden-chip.png' });
@@ -299,11 +357,39 @@ try {
     await page.locator('.drawing-editor__hide-cable button', { hasText: 'Show this cable' }).isVisible(),
   );
 
+  // The lit path only reads drawn cables: the cable this editor panel is
+  // still open on is now hidden, so it must light nothing and dim nothing
+  // — every other drawn cable's own opacity reads plain "1", never the
+  // dimmed value a live selection would otherwise apply.
+  const opacitiesWhileSelectedCableHidden = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-cable-id]')].map((el) => el.style.opacity),
+  );
+  check(
+    'a selected cable that is hidden dims nothing else',
+    opacitiesWhileSelectedCableHidden.every((o) => o === '1' || o === ''),
+    opacitiesWhileSelectedCableHidden.join(', '),
+  );
+
   await page.locator('[data-testid="shell-hidden-cables-chip"] .shell-chip__link').click();
   await page.waitForTimeout(200);
   const afterShow = await drawnCableIds(page);
-  check('"show" brings every hidden cable back', afterShow.length === 5, afterShow.join(', '));
+  check('"show" brings every hidden cable back', afterShow.length === 6, afterShow.join(', '));
   check('the hidden chip is gone', (await page.locator('[data-testid="shell-hidden-cables-chip"]').count()) === 0);
+
+  // -------------------------------------------------------------------------
+  // 5b — nothing done so far ever saved a document version. Checked HERE,
+  // before the reload just below wipes `window.__requests__` clean — a
+  // check placed after the reload would only ever see requests the reload
+  // itself made, never catch a real leak from any step above it.
+  // -------------------------------------------------------------------------
+  const versionPostsBeforeReload = await page.evaluate(
+    () => (window.__requests__ ?? []).filter((r) => r.method === 'POST' && r.url.includes('/versions')),
+  );
+  check(
+    'no group toggle, hide/show, add or remove saved a version',
+    versionPostsBeforeReload.length === 0,
+    JSON.stringify(versionPostsBeforeReload),
+  );
 
   // -------------------------------------------------------------------------
   // 6 — reload: the list and the ticks are still there.
@@ -338,12 +424,13 @@ try {
   check('the second design opens with no groups of its own', secondDesignRows === 0, `${secondDesignRows} row(s)`);
 
   // -------------------------------------------------------------------------
-  // 8 — nothing here ever saved a document version.
+  // 8 — nothing since the reload saved a version either, and every saved
+  // payload loaded clean through the engine.
   // -------------------------------------------------------------------------
-  const versionPosts = await page.evaluate(
+  const versionPostsAfterReload = await page.evaluate(
     () => (window.__requests__ ?? []).filter((r) => r.method === 'POST' && r.url.includes('/versions')),
   );
-  check('no group toggle, hide/show or reload saved a version', versionPosts.length === 0, JSON.stringify(versionPosts));
+  check('nothing since the reload saved a version either', versionPostsAfterReload.length === 0, JSON.stringify(versionPostsAfterReload));
   const saveLoadFailures = await page.evaluate(() => window.__saveLoadFailures__ ?? []);
   check('every saved payload (there were none) loaded through the engine', saveLoadFailures.length === 0, saveLoadFailures.join(' | '));
 

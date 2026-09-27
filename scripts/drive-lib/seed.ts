@@ -611,12 +611,14 @@ function freeFrontRj45(doc: Document, catalogue: CatalogueModel[], hostname: str
   throw new Error(`${hostname} has no free front rj45 port`);
 }
 
-/** GitHub issue #54 — the Cables list's own drive: one rack, `sw-core` and
- * `sw-edge` (a trunk uplink between them carrying VLAN 30 tagged), `cam-01`
- * (VLAN 30, access), `srv-01` (VLAN 10, access), a fibre pair (`nas-01` /
- * `patch-01`, LC-LC, media smf) and a power lead (`ups-01` / `pdu-01`,
- * C13-C14). Five cables: the trunk, the two access leads, the fibre pair
- * and the power lead.
+/** The Cables list's own drive: one rack, `sw-core` and `sw-edge` (a trunk
+ * uplink between them carrying VLAN 30 tagged), `cam-01` (VLAN 30, access),
+ * `srv-01` (VLAN 10, access), a fibre pair (`nas-01` / `patch-01`, LC-LC,
+ * media smf), a power lead (`ups-01` / `pdu-01`, C13-C14) and `wifi-ap`, sat
+ * on its own shelf rather than mounted directly, tagged `shelfgear` — a
+ * Device-kind tag proving it catches a shelf occupant's cable the same way
+ * it catches a rack-mounted one's. Six cables: the trunk, the two access
+ * leads, the fibre pair, the power lead and the shelf device's own uplink.
  *
  * The trunk cannot be built through `document/networks.ts`'s own
  * `attachToVlan` — "tagged... is refused unless the resolved unit already
@@ -676,6 +678,25 @@ export function seedCableGroupsScene(catalogue: CatalogueModel[], me: string): D
   working = connectPorts(working, nas.portId, patch.portId, { media: 'smf' }, { actor: me });
   working = connectPorts(working, ups.portId, pdu.portId, {}, { actor: me });
 
+  // `wifi-ap`, sat on its own shelf rather than mounted directly — a
+  // Device-kind tag placed on it (below) must catch its cable the same way
+  // it catches a rack-mounted device's, `document/view.ts`'s own
+  // `ShelfView.occupants` reached through `SitsOn`, never `MountedIn`.
+  const beforeShelf = working;
+  working = createShelf(working, rackId, { positionU: 4, label: 'AP shelf', actor: me });
+  const shelfId = newestNode(beforeShelf, working, 'PassiveNode');
+  const beforeShelfDevice = working;
+  working = createSketchDevice(working, { hostname: 'wifi-ap', actor: me });
+  const shelfChassisId = newestNode(beforeShelfDevice, working, 'Chassis');
+  const shelfDeviceId = newestNode(beforeShelfDevice, working, 'Device');
+  working = placeOnShelf(working, shelfChassisId, shelfId, 0, { actor: me });
+  const beforeShelfPort = working;
+  working = addSketchPort(working, shelfChassisId, { label: 'Et0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  const shelfPortId = newestNode(beforeShelfPort, working, 'PhysicalPort');
+  const shelfFar = freeFrontRj45(working, catalogue, 'sw-edge');
+  working = connectPorts(working, shelfPortId, shelfFar.portId, { sheath: 'grey' as Sheath }, { actor: me });
+  working = tagObject(working, shelfDeviceId, 'shelfgear', { actor: me });
+
   // `sw-core` bridges its own downlink (to `cam-01`) and its uplink (to
   // `sw-edge`) onto the SAME VLAN 30 domain — the "blank bridge" rule above,
   // now safe: `sw-core` carries exactly these two cabled ports.
@@ -726,7 +747,7 @@ export function seedCableGroupsScene(catalogue: CatalogueModel[], me: string): D
   return working;
 }
 
-/** GitHub issue #54's own "Speed" measurement, at `count` devices —
+/** The Cables list's own speed measurement, at `count` devices —
  * `seedManyDevicesScene`'s own scene (racks packed to capacity, dev-01
  * cabled to dev-02) plus one VLAN on that same cable, so "tick a VLAN
  * group" has a real one to tick rather than only a type group, which
