@@ -126,7 +126,14 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // and `ParentUnit` are NOT here for `MountedIn`'s reason: both
     // targets (`ContainerNetwork`, `LogicalUnit`) already have a real
     // containment parent, so both are `reference`.
-    assert_eq!(resolved, 115, "the containment pair set moved");
+    //
+    // 115 -> 116 (ADR-0059, schema 0.12): `HasTag` reads `from: [root]`, the
+    // five original root-containment kinds' own shape, so it names no
+    // (NodeKind, NodeKind) pair — +0. Joining `Placeable` adds exactly one,
+    // (Tag, LayoutPin) through `HasLayoutPin` — +1. `TaggedWith` is NOT here
+    // for `MountedIn`'s reason: `Tag` is a `reference` target, never a
+    // containment one, from every `Taggable` kind.
+    assert_eq!(resolved, 116, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -151,7 +158,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // (Device -> ContainerNetwork), `HasContainer` (Device -> Container),
     // `HasPublishedPort` (Container -> PublishedPort). `AttachedTo` and
     // `ParentUnit` are REFERENCE and do not count here.
-    assert_eq!(containment, 51);
+    // 52 (ADR-0059, schema 0.12): `HasTag` (root -> Tag). `TaggedWith` is
+    // REFERENCE and does not count here.
+    assert_eq!(containment, 52);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -170,7 +179,12 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             "Cable",
             "Premises",
             "Tenant",
-            "ServiceType"
+            "ServiceType",
+            // ADR-0059, schema 0.12: `Tag` is `HasTag`'s child, and `HasTag`
+            // reads `from: [root]` — root is not a `NodeKind`, so no owner in
+            // `NodeKind::ALL` ever resolves to it, `Tenant`'s and
+            // `ServiceType`'s own reason.
+            "Tag"
         ],
         "the set of kinds no node kind contains moved"
     );

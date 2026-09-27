@@ -54,41 +54,31 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// ADR-0058 decision 6: 0.11 is additive, so a payload declared at an older
+/// ADR-0059 decision 9: 0.12 is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10"];
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.11"];
 
-/// Node kinds `0.11` (ADR-0058) added. A payload declared at an older
+/// Node kinds `0.12` (ADR-0059) added. A payload declared at an older
 /// version cannot legitimately hold one — its editor never had the kind
 /// — so finding one is a sign the header is lying, not a design to open.
-const NODE_KINDS_SINCE_0_11: &[NodeKind] = &[
-    NodeKind::ContainerNetwork,
-    NodeKind::Container,
-    NodeKind::PublishedPort,
-];
+const NODE_KINDS_SINCE_0_12: &[NodeKind] = &[NodeKind::Tag];
 
-/// Edge kinds `0.11` (ADR-0058) added. Same reasoning as
-/// [`NODE_KINDS_SINCE_0_11`].
-const EDGE_KINDS_SINCE_0_11: &[EdgeKind] = &[
-    EdgeKind::HasContainerNetwork,
-    EdgeKind::HasContainer,
-    EdgeKind::HasPublishedPort,
-    EdgeKind::AttachedTo,
-    EdgeKind::ParentUnit,
-];
+/// Edge kinds `0.12` (ADR-0059) added. Same reasoning as
+/// [`NODE_KINDS_SINCE_0_12`].
+const EDGE_KINDS_SINCE_0_12: &[EdgeKind] = &[EdgeKind::HasTag, EdgeKind::TaggedWith];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
-/// version — ADR-0058 decision 6's second half, checked once per accepted
+/// version — ADR-0059 decision 9's second half, checked once per accepted
 /// older version rather than generically, because there is exactly one
 /// today.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    if declared == "0.10" {
+    if declared == "0.11" {
         for n in &snapshot.nodes {
-            if NODE_KINDS_SINCE_0_11.contains(&n.id.kind) {
+            if NODE_KINDS_SINCE_0_12.contains(&n.id.kind) {
                 return Err(PlainError::KindNotInDeclaredVersion {
                     declared_version: declared.to_owned(),
                     element_kind: n.id.kind.name(),
@@ -96,7 +86,7 @@ fn reject_kinds_too_new_for_declared_version(
             }
         }
         for e in &snapshot.edges {
-            if EDGE_KINDS_SINCE_0_11.contains(&e.id.kind) {
+            if EDGE_KINDS_SINCE_0_12.contains(&e.id.kind) {
                 return Err(PlainError::KindNotInDeclaredVersion {
                     declared_version: declared.to_owned(),
                     element_kind: e.id.kind.name(),

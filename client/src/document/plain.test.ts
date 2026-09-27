@@ -20,7 +20,7 @@ import { newUlid } from './ulid';
 const PINNED =
   'fathom-plain 1\n' +
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n' +
-  'schema 0.11\n' +
+  'schema 0.12\n' +
   '\n' +
   '{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}\n';
 
@@ -317,7 +317,7 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses a mismatched schema version', () => {
-    const bumped = PINNED.replace('schema 0.11', 'schema 0.1');
+    const bumped = PINNED.replace('schema 0.12', 'schema 0.1');
     try {
       readPlain(bytesOf(bumped));
       throw new Error('expected a refusal');
@@ -326,24 +326,24 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.11',
+        supported: '0.12',
       });
     }
   });
 
-  // ADR-0058 decision 6: a design saved at 0.10 keeps opening at 0.11, and
+  // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
   // saving it again writes the current version, not the one it arrived at.
-  it('opens a 0.10 vector and writes it back at the current version', () => {
-    const at010 = PINNED.replace('schema 0.11', 'schema 0.10');
-    const doc = readPlain(bytesOf(at010));
+  it('opens a 0.11 vector and writes it back at the current version', () => {
+    const at011 = PINNED.replace('schema 0.12', 'schema 0.11');
+    const doc = readPlain(bytesOf(at011));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
   it('refuses an unlisted older version', () => {
-    const at09 = PINNED.replace('schema 0.11', 'schema 0.9');
+    const at010 = PINNED.replace('schema 0.12', 'schema 0.10');
     try {
-      readPlain(bytesOf(at09));
+      readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
     } catch (e) {
       expect(e).toBeInstanceOf(PlainError);
@@ -351,28 +351,25 @@ describe('readPlain refusals', () => {
     }
   });
 
-  it('refuses a 0.10 header holding a 0.11-only kind', () => {
+  it('refuses a 0.11 header holding a 0.12-only kind', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const withNetwork: Document = {
+    const withTag: Document = {
       ...doc,
-      nodes: [
-        ...doc.nodes,
-        { id: formatNodeId('ContainerNetwork', newUlid()), existence: newUlid(), fields: {} },
-      ],
+      nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
-    const at011 = new TextDecoder().decode(writePlain(withNetwork));
-    const at010 = at011.replace('schema 0.11', 'schema 0.10');
+    const at012 = new TextDecoder().decode(writePlain(withTag));
+    const at011 = at012.replace('schema 0.12', 'schema 0.11');
     try {
-      readPlain(bytesOf(at010));
+      readPlain(bytesOf(at011));
       throw new Error('expected a refusal');
     } catch (e) {
       expect(e).toBeInstanceOf(PlainError);
       expect((e as PlainError).reason).toEqual({
         kind: 'kind-not-in-declared-version',
-        declaredVersion: '0.10',
-        elementKind: 'ContainerNetwork',
+        declaredVersion: '0.11',
+        elementKind: 'Tag',
       });
-      expect((e as PlainError).message).toBe('ContainerNetwork does not exist in schema 0.10');
+      expect((e as PlainError).message).toBe('Tag does not exist in schema 0.11');
     }
   });
 });

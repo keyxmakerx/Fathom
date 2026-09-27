@@ -37,7 +37,9 @@ use std::collections::BTreeSet;
 /// 0.10 ADR-0053 §5's `Note` kind, its `text`/`how`/`line_count` fields, the
 /// `Notable` class and the `HasNote` edge, 0.11 ADR-0058's `ContainerNetwork`/
 /// `Container`/`PublishedPort` kinds, their fields, and the `HasContainerNetwork`/
-/// `HasContainer`/`HasPublishedPort`/`AttachedTo`/`ParentUnit` edges) move only this line
+/// `HasContainer`/`HasPublishedPort`/`AttachedTo`/`ParentUnit` edges, 0.12
+/// ADR-0059's `Tag` kind, its `name` field, the `Taggable` class and the
+/// `HasTag`/`TaggedWith` edges) move only this line
 /// again. The payload below is
 /// byte-identical across every bump, which is the useful thing this vector
 /// proves — adding a kind and two edges changes the header and nothing else,
@@ -55,7 +57,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.11\n",
+    "schema 0.12\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -475,57 +477,56 @@ fn schema_version_mismatch_refused_by_name() {
     }
 }
 
-/// ADR-0058 decision 6: a design saved at 0.10 keeps opening at 0.11, and
+/// ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
 /// saving it again writes the current version, not the one it arrived at.
 #[test]
-fn a_0_10_vector_opens_and_writes_0_11() {
+fn a_0_11_vector_opens_and_writes_0_12() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
-    let at_0_10 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.10", 1);
-    assert_ne!(at_0_10, PINNED, "the substitution must have landed");
-    let graph = read_plain(at_0_10.as_bytes()).expect("a 0.10 payload opens");
+    let at_0_11 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.11", 1);
+    assert_ne!(at_0_11, PINNED, "the substitution must have landed");
+    let graph = read_plain(at_0_11.as_bytes()).expect("a 0.11 payload opens");
     let rewritten = write_plain(&graph).expect("writes");
     assert_eq!(
         String::from_utf8(rewritten).expect("UTF-8"),
         PINNED,
-        "saving a 0.10 design writes the current schema version, byte-identical otherwise"
+        "saving a 0.11 design writes the current schema version, byte-identical otherwise"
     );
 }
 
-/// Decision 6 names exactly one older version. Anything else, including a
+/// Decision 9 names exactly one older version. Anything else, including a
 /// version older than the one named, still refuses.
 #[test]
 fn an_unlisted_older_version_still_refused() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
-    let at_0_9 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.9", 1);
-    match read_plain(at_0_9.as_bytes()).err() {
-        Some(PlainError::SchemaVersionMismatch { found, .. }) => assert_eq!(found, "0.9"),
-        other => panic!("0.9 is not an accepted older version: {other:?}"),
+    let at_0_10 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.10", 1);
+    match read_plain(at_0_10.as_bytes()).err() {
+        Some(PlainError::SchemaVersionMismatch { found, .. }) => assert_eq!(found, "0.10"),
+        other => panic!("0.10 is not an accepted older version: {other:?}"),
     }
 }
 
-/// Decision 6's second half: a 0.10 header cannot legitimately hold a kind
-/// 0.11 added, because 0.10's editor never had it. Caught, not opened.
+/// Decision 9's second half: a 0.11 header cannot legitimately hold a kind
+/// 0.12 added, because 0.11's editor never had it. Caught, not opened.
 #[test]
-fn a_0_10_payload_holding_a_0_11_kind_is_refused() {
+fn a_0_11_payload_holding_a_0_12_kind_is_refused() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
     let mut g = Graph::new();
     g.begin_batch(BatchId(ulid(0)), "build").expect("open");
-    g.insert_node(NodeKind::ContainerNetwork, ulid(1), prov(1))
-        .expect("container network");
+    g.insert_node(NodeKind::Tag, ulid(1), prov(1)).expect("tag");
     g.end_batch().expect("close");
-    let at_0_11 = write_plain(&g).expect("writes");
-    let text = String::from_utf8(at_0_11).expect("UTF-8");
-    let at_0_10 = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.10", 1);
-    assert_ne!(at_0_10, text, "the substitution must have landed");
-    match read_plain(at_0_10.as_bytes()).err() {
+    let at_0_12 = write_plain(&g).expect("writes");
+    let text = String::from_utf8(at_0_12).expect("UTF-8");
+    let at_0_11 = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.11", 1);
+    assert_ne!(at_0_11, text, "the substitution must have landed");
+    match read_plain(at_0_11.as_bytes()).err() {
         Some(PlainError::KindNotInDeclaredVersion {
             declared_version,
             element_kind,
         }) => {
-            assert_eq!(declared_version, "0.10");
-            assert_eq!(element_kind, "ContainerNetwork");
+            assert_eq!(declared_version, "0.11");
+            assert_eq!(element_kind, "Tag");
         }
-        other => panic!("a 0.11-only kind under a 0.10 header must refuse: {other:?}"),
+        other => panic!("a 0.12-only kind under a 0.11 header must refuse: {other:?}"),
     }
 }
 

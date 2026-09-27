@@ -372,6 +372,12 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::ContainerNetwork
         | NodeKind::Container
         | NodeKind::PublishedPort
+        //     ADR-0059: a tag is a name with no geometry, the same shape as
+        //     `Note` above. `56` predates tags entirely, so it is drawn
+        //     UNTABLED. It joins `Placeable` (schema.yaml's own class)
+        //     because that test admits every kind but the pin, not because
+        //     the client draws a tag box -- it does not.
+        | NodeKind::Tag
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a
