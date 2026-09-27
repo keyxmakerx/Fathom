@@ -79,11 +79,25 @@ day. Nothing below is built yet. Where this record and `docs/UI-SPEC.md` disagre
      presses Approve, or Needs changes with a note.
    - The lead reads the answers back from the page.
    - A card links the render it asks about. Renders are temporary pages, not repository files.
+10. **Opening a device.** Today a click shows "a tiny view on the left hand side … and that's it".
+    - A click selects a device and shows its details.
+    - Right-click → Open, or a double-click, goes into it. The device fills the screen, drawn large
+      with its ports, in free space rather than a rack: "jot mode", in the owner's words.
+    - Other equipment can be dropped into that space and cabled straight to the device's ports.
+    - It is the same canvas zoomed onto one device, so anything added there is part of the design.
+    - The top bar's path, or Esc, leads back out.
 
 ## Open, for the next cards
 
 - **The missing side bar.** The first sketch left out a side bar. It is probably the trail strip on
   the right edge, and the editor that slides in beside it. The next render shows the whole screen.
+- **The tiny view.** Which panel the owner saw on clicking a device. The details panel is 316 pixels
+  wide at the right in the code, so the next render shows today's screen and asks.
+- **Inside an opened device.**
+  - Where the things dropped around a device appear on the full canvas: beside it, or waiting to be
+    placed.
+  - Whether a device's insides (virtual machines, firewall zones) are one more step in, as the
+    approved Inside boards draw them.
 - **Which three rack sizes.** Proposal: 42U, 24U and 12U, then Custom.
 - **Icon sets.** Which standard network icons, under what licence, and whether the style is set per
   design or per viewer. The licence is checked from its source before any set is used.
