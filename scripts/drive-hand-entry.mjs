@@ -197,6 +197,21 @@ try {
   await page.screenshot({ path: SHOTS + 'H-02-ports.png' });
   console.log('    wrote ' + SHOTS + 'H-02-ports.png');
 
+  // Backspace and Delete while typing in a field edit the field, never the selected device.
+  const noteBox = page.locator('.drawing-editor__panel').getByPlaceholder('add a note');
+  await noteBox.click();
+  await noteBox.pressSequentially('ab');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  check(
+    'Backspace and Delete in a text field leave the selected device in place',
+    (await page.locator('.react-flow__node-chassis').count()) === 1,
+  );
+  check('and edit the field instead', (await noteBox.inputValue()) === '');
+  await noteBox.blur();
+
   // Duplicate the device (`duplicateDevice`).
   await page.locator('.drawing-editor__panel button', { hasText: 'Duplicate' }).click();
   await page.waitForTimeout(400);
