@@ -406,6 +406,29 @@ export function listTags(doc: Document): TagSummary[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** GitHub issue #54, the Cables list's tag group — a stored reference is the
+ * fold key (decision 5's own comparison key), never a node id that a rename
+ * or a duplicate merge could move off: the canonical name and count for
+ * whichever group currently folds to `key`, `null` when nothing does. */
+export function tagGroupByFold(doc: Document, key: string): { tagId: string; name: string; count: number } | null {
+  const idx = tagIndex(doc);
+  const g = idx.groups.get(key);
+  if (!g) return null;
+  return { tagId: g.canonicalId, name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 };
+}
+
+const EMPTY_OBJECT_IDS: ReadonlySet<string> = new Set();
+
+/** The raw membership set behind `tagGroupByFold`'s count — every live
+ * object id carrying the group `key` folds to, read straight off the one
+ * cached index (`tagIndex`) rather than a fresh scan per caller. The Cables
+ * list's own tag group turns this into cable ids in one further pass over
+ * `view.cables` (`components/drawing/cableGroups.ts`), never one lookup per
+ * cable through this module. */
+export function objectsInTagGroupByFold(doc: Document, key: string): ReadonlySet<string> {
+  return tagIndex(doc).objectsOfGroup.get(key) ?? EMPTY_OBJECT_IDS;
+}
+
 /**
  * Removes `tagId`'s whole group and every live edge touching any node in it
  * — `cascade.ts`'s own schema-driven cascade, run once per node and merged
