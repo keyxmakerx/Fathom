@@ -32,16 +32,6 @@
   white-space: nowrap;
 }
 
-.tag-chip__remove {
-  border: none;
-  background: none;
-  color: var(--ink);
-  font-size: var(--t-small);
-  line-height: 1;
-  padding: 0;
-  cursor: pointer;
-}
-
 .tag-chip__name--editable {
   cursor: text;
 }

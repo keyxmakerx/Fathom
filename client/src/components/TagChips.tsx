@@ -11,8 +11,28 @@
 // name, when `onRename` is supplied, turns it into an inline rename field —
 // decision 8's fourth undoable action, with no separate control the board
 // does not draw.
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type CSSProperties, type KeyboardEvent } from 'react';
 import './tagChips.css';
+
+/** Inline, not a class: `.shell-editor button` (`styles/shell.css`) gives
+ * every button inside an editor panel its own border and padding box —
+ * "square, flat, one hairline" is right for "remove"/"Duplicate", wrong for
+ * this plain "×" beside the chip's own single border. Inline wins over any
+ * class regardless of specificity, `Editor.tsx`'s `SelectLink`/`LINK_STYLE`
+ * own precedent ("Inline styles (segments, links) still win" — `shell.css`'s
+ * own comment on that file's rule). Padding, not border/background, is what
+ * keeps the same hit area a bordered box gave it. */
+const REMOVE_STYLE: CSSProperties = {
+  display: 'inline-block',
+  border: 'none',
+  background: 'none',
+  color: 'var(--ink)',
+  font: 'inherit',
+  fontSize: 'var(--t-small)',
+  lineHeight: '15px',
+  padding: '0 2px',
+  cursor: 'pointer',
+};
 
 export interface TagChipItem {
   id: string;
@@ -126,7 +146,7 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
                 {t.name}
               </span>
               {onRemove ? (
-                <button type="button" className="tag-chip__remove" aria-label={`remove tag ${t.name}`} onClick={() => onRemove(t.id)}>
+                <button type="button" style={REMOVE_STYLE} aria-label={`remove tag ${t.name}`} onClick={() => onRemove(t.id)}>
                   ×
                 </button>
               ) : null}
