@@ -56,12 +56,7 @@ use fathom_ir::scalar::Text;
 
 /// Every 0.10-to-0.12 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
-/// removed. Every older version this crate still opens, and no other:
-/// accumulated across bumps rather than replaced, so a design saved at 0.10
-/// and not opened since (before ADR-0058 landed) still opens today — there
-/// is no migration chain, so "the client and server read 0.11 payloads"
-/// (ADR-0059 decision 9) can only ADD to what already opened, never narrow
-/// it.
+/// removed. Every older version this crate still opens, and no other.
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11"];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot

@@ -1,27 +1,14 @@
-// ADR-0059, this session's brief item 3 — one chip component, used
-// everywhere a tag is shown: the device, port, cable and rack editors
-// (`drawing/Editor.tsx`) and VLAN rows, Docker networks and containers
-// (`inventory/NetworksPanel.tsx`). Board panel 3
-// (design/proposals/cables/cable-filter.dc.html): chips are ink, "Add tag"
-// suggests existing tags as you type, Enter on a new name creates it.
-//
-// A read-only view (no `onAdd`/`onRemove`) shows the chips with no input and
-// no remove control — ADR-0052 §5's "no action, not a disabled one",
-// `drawing/Editor.tsx`'s `NotesSection` own convention. Clicking a chip's own
-// name, when `onRename` is supplied, turns it into an inline rename field —
-// decision 8's fourth undoable action, with no separate control the board
-// does not draw.
+// ADR-0059 — one chip component, used everywhere a tag is shown. A
+// read-only view (no `onAdd`/`onRemove`) shows chips with no input or
+// remove control; clicking a chip's name, when `onRename` is supplied,
+// turns it into an inline rename field.
 import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import './tagChips.css';
 
-/** Inline, not a class: `.shell-editor button` (`styles/shell.css`) gives
- * every button inside an editor panel its own border and padding box —
- * "square, flat, one hairline" is right for "remove"/"Duplicate", wrong for
- * this plain "×" beside the chip's own single border. Inline wins over any
- * class regardless of specificity, `Editor.tsx`'s `SelectLink`/`LINK_STYLE`
- * own precedent ("Inline styles (segments, links) still win" — `shell.css`'s
- * own comment on that file's rule). Padding, not border/background, is what
- * keeps the same hit area a bordered box gave it. */
+/** Inline, not a class: `.shell-editor button` (`styles/shell.css`) would
+ * otherwise give this plain "×" its own border and padding box. Inline wins
+ * over any class regardless of specificity — `Editor.tsx`'s `SelectLink`/
+ * `LINK_STYLE` own precedent. */
 const REMOVE_STYLE: CSSProperties = {
   display: 'inline-block',
   border: 'none',

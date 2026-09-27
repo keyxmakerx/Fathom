@@ -1,18 +1,7 @@
-// ADR-0059 — a tag is a node, not a field: `Tag`, one field `name`, found by
-// scanning `doc.nodes` for the kind (`HasTag` reads `from: [root]`, and a
-// root-containment edge is refused outright wherever this document's writes
-// are checked, `cables.ts`'s own header comment -- a `Tag` is a forest root
-// with no containment edge, exactly like `Cable` and `Premises`). Objects
-// point at a tag through `TaggedWith`, a reference edge, `docker.ts`'s
-// `AttachedTo` own shape.
-//
-// A name is a tag's identity (decision 5): trimmed, inner runs of whitespace
-// collapsed to one space, 1 to 64 characters. Two names equal ignoring case
-// are the same tag -- enforced here, never in the schema, so a payload
-// holding two same-named `Tag` nodes still opens. Every read and write below
-// treats that pair as one tag: `tagsOf` gives one chip, `untagObject`/
-// `renameTag`/`removeTag` act on every node in the group, `listTags` counts
-// distinct objects, and `tagObject` always reuses the group's lowest id.
+// ADR-0059 — a tag is a node, not a field: `Tag`, one field `name`, with
+// objects pointing at it through `TaggedWith`. Two names equal ignoring
+// case are the same tag (decision 5); every read and write below treats a
+// duplicate-name pair as one group.
 
 import {
   LOCAL_ACTOR,

@@ -76,13 +76,12 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
    * Racks with `selection` already chosen and the camera asked to the
    * faceplate stop (`RacksPlace`'s own `initialFocus`). */
   onShowOnRack: (selection: Selection) => void;
-  /** ADR-0053 §5/§6, this session's brief item 4 — Notes, the same three
-   * doors `RacksPlace.tsx` receives, built once by `DesignPlace.tsx` and
-   * threaded straight into this place's own `EditorFor` call: "the one
-   * editor" holds for Notes exactly as it does for every other field. */
+  /** ADR-0053 §5/§6 — Notes, the same three doors `RacksPlace.tsx`
+   * receives, built once by `DesignPlace.tsx` and threaded straight into
+   * this place's own `EditorFor` call: "the one editor" holds for Notes
+   * exactly as it does for every other field. */
   notesActions: NotesActions;
-  /** ADR-0059, this session's brief item 3 — Tags, `notesActions`'s own
-   * shape. */
+  /** ADR-0059 — Tags, `notesActions`'s own shape. */
   tagsActions: TagsActions;
 }
 

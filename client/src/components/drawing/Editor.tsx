@@ -1,12 +1,9 @@
 import { useEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
-// ADR-0053 §6, this session's brief item 4 — "the black block reused from
-// the drawer where a value was destroyed": `.config-drawer__block`
-// (`config/config.css`) is imported here, read-only, rather than copied —
-// the same visual, `NotesSection`'s own marker parsing below only ever
-// applies the class the gate's own `<REDACTED:label>` convention already
-// gets in `ConfigDrawer.tsx`.
+// ADR-0053 §6 — "the black block reused from the drawer where a value was
+// destroyed": `.config-drawer__block` (`config/config.css`) is imported
+// here, read-only, rather than copied.
 import '../config/config.css';
 import { DEVICE_ROLES } from '../../document/edit';
 import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
@@ -265,7 +262,7 @@ function SupplyAction({
   );
 }
 
-/** ADR-0051 §1, this session's brief item 4 — a shelf's own editor lists
+/** ADR-0051 §1 — a shelf's own editor lists
  * its occupants by slot, each a link that selects the occupant
  * (`EditorActions.onSelect`, optional — nothing renders here if a caller
  * has not supplied one, the same graceful-absence `DrawingActions.onConnect`
@@ -392,7 +389,7 @@ const MANAGEMENT_ADDRESS_NOTE =
 
 // ===========================================================================
 // ADR-0051 §1 — the "PLACED ON" control, a sketch's typed ports, and a
-// rack's "+ add a shelf" (this session's brief items 1–3). Each raises one
+// rack's "+ add a shelf". Each raises one
 // `EditorChange` (`contract.ts`) through `EditorActions.onEdit`, the same
 // `{ refused: string } | void` contract every existing action already uses
 // — a refusal shows beside the control with `CAUTION_STYLE`, the same wash
@@ -684,7 +681,7 @@ interface PlacedOnControlProps {
   actions: EditorActions;
 }
 
-/** ADR-0051 §1, this session's brief item 1 — "PLACED ON" as three choices,
+/** ADR-0051 §1 — "PLACED ON" as three choices,
  * the current one marked; choosing another asks for what that place needs
  * (a rack and a unit; a shelf and a slot; a surface or board and optional
  * millimetres, per `design/places/renders/Shelf.png`'s own editor) and
@@ -1169,7 +1166,7 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
 }
 
 // ===========================================================================
-// ADR-0053 §5/§6, this session's brief item 4 — Notes, on a device, a port
+// ADR-0053 §5/§6 — Notes, on a device, a port
 // and a rack (exactly `document/notes.ts`'s `Notable` set): the notes with
 // who, when, typed or pasted; an add box for each of the two; remove.
 
@@ -1266,7 +1263,7 @@ function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorAc
 }
 
 /**
- * ADR-0059, this session's brief item 3 — the Tags section shared by the
+ * ADR-0059 — the Tags section shared by the
  * device, port, cable and rack panels (four call sites below), `NotesSection`'s
  * own shape: absent entirely when the caller supplies neither `tagsOf` nor
  * `onAddTag` (ADR-0052 §5's "no action, not a disabled one"); a reader still
@@ -1418,11 +1415,11 @@ export function EditorFor(
     );
   }
 
-  // ADR-0051 §1, this session's brief items 1/4 — a shelf itself (as
-  // opposed to one of its occupants, `'occupant'` below): its own name,
-  // editable (item 1 — `PassiveNode.label` is schema card "1", so the plate
-  // has something to show instead of the node id), and its occupants
-  // listed by slot, each a link that selects the occupant (item 4).
+  // ADR-0051 §1 — a shelf itself (as opposed to one of its occupants,
+  // `'occupant'` below): its own name, editable (`PassiveNode.label` is
+  // schema card "1", so the plate has something to show instead of the
+  // node id), and its occupants listed by slot, each a link that selects
+  // the occupant.
   if (selection.kind === 'shelf') {
     const found = findShelf(view, selection.id);
     if (found == null) return null;
@@ -1479,7 +1476,7 @@ export function EditorFor(
     // `chassis.sketch` (`document/view.ts`) only reads `true` once at least
     // one port exists — right for the box on the plate (nothing to mark
     // "typed" with zero ports), wrong for the editor: a device
-    // `createSketchDevice` (this session's brief item 2) just minted has NO
+    // `createSketchDevice` just minted has NO
     // catalogue model and NO ports yet, and gating "+ add a port" on
     // `chassis.sketch` would hide the one control that could ever add its
     // first one. Computed locally instead, off `chassis.model` alone — the
@@ -1637,7 +1634,7 @@ export function EditorFor(
     );
   }
 
-  // ADR-0051 §1/§2, this session's brief item 3 — a shelf occupant, shown
+  // ADR-0051 §1/§2 — a shelf occupant, shown
   // with what `OccupantView` carries: its label, model or sketch mark, the
   // shelf/slot it sits on, and its ports (typed by hand or read off the
   // catalogue) — the same "typed by hand" add/remove `SketchPortsSection`
@@ -1653,9 +1650,9 @@ export function EditorFor(
     const placement: Placement = { kind: 'shelf', shelfId: shelf.id, slot: occupant.slot };
     // `occupant.sketch` (`document/view.ts`), like `chassis.sketch` above,
     // only reads `true` once a port already exists — the SAME chicken-and-
-    // egg fix (this session's brief item 2's own doc, on the chassis
-    // branch above): a device dropped straight onto a shelf slot has no
-    // ports yet, and would otherwise never see "+ add a port" at all.
+    // egg fix as the chassis branch above: a device dropped straight onto a
+    // shelf slot has no ports yet, and would otherwise never see "+ add a
+    // port" at all.
     const occupantSketch = occupant.model == null;
     return (
       <div className="drawing-editor__panel">
@@ -1702,7 +1699,7 @@ export function EditorFor(
     );
   }
 
-  // ADR-0051 §1/§2, this session's brief item 3 — a surface fixture (a
+  // ADR-0051 §1/§2 — a surface fixture (a
   // board included, since a board is itself a `FixtureView`), shown the same
   // way: label, model or sketch, its position on the surface, its ports and
   // its own `psuInlets` (a `FixtureView`, unlike `OccupantView`, carries

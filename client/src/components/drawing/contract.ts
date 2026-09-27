@@ -39,14 +39,14 @@
 // seam that once redeclared them locally was collapsed on 2026-09-16 once
 // the document carried cables.
 import type { Placement, Sheath } from '../../document/view';
-// ADR-0053 §5/§6, this session's brief item 4 — the Notes section shared by
+// ADR-0053 §5/§6 — the Notes section shared by
 // a device, a port and a rack's own editor panel (`document/notes.ts`'s
 // `NOTABLE_KINDS`): `NoteView` is the one read-side shape a caller hands
 // back from `EditorActions.notesOf` below, the same "re-export the one
 // document/ shape" precedent `Placement`/`Sheath` above already set for this
 // file.
 import type { NoteHow, NoteView } from '../../document/notes';
-// ADR-0059, this session's brief item 3 — tag chips on a device, a port, a
+// ADR-0059 — tag chips on a device, a port, a
 // cable and a rack: `TagChip`/`TagSummary` are the read-side shapes
 // `EditorActions.tagsOf`/`.allTags` below hand back, `NoteView`'s own
 // precedent for re-exporting the one `document/` shape a caller needs.
@@ -90,7 +90,7 @@ export interface DrawingActions {
    * undo is the caller's job. Optional, same reading as `onConnect`/
    * `onDisconnect`. */
   onRemoveDevice?(chassisId: string): void;
-  /** ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z, at the same
+  /** ADR-0053 §1/§3 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete
    * key already carries no such guard, since nothing else on this canvas
@@ -117,10 +117,9 @@ export type EditorChange =
   | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
   | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
-  /** ADR-0051 §1, this session's brief item 1 — a shelf's own editor
-   * commits its name through `document/edit.ts`'s `setPassiveNodeField`
-   * (`'shelf'` names the caller's own intent; the write-side function takes
-   * any `PassiveNode`, a shelf being this session's own one caller of it). */
+  /** ADR-0051 §1 — a shelf's own editor commits its name through
+   * `document/edit.ts`'s `setPassiveNodeField` (`'shelf'` names the caller's
+   * own intent; the write-side function takes any `PassiveNode`). */
   | { kind: 'shelf'; id: string; field: 'label'; value: string | null }
   | { kind: 'supply'; id: string; field: 'serial' | 'model'; value: string | null }
   | { kind: 'supply-remove'; id: string }
@@ -222,7 +221,7 @@ export interface EditorActions {
    * `Editor.tsx`'s own `EditableValue`/`SupplyAction`/`PlacedOnControl` and
    * the "+ add a port"/"+ add a shelf" controls all read this the same way. */
   onEdit?(change: EditorChange): { refused: string } | void;
-  /** ADR-0051 §1, this session's brief item 4 — a shelf's own editor lists
+  /** ADR-0051 §1 — a shelf's own editor lists
    * its occupants by slot, each a link that selects the occupant (moves the
    * whole editor to that occupant's own panel) rather than editing
    * anything — a plain selection change, so it is its own callback, not an
@@ -231,7 +230,7 @@ export interface EditorActions {
    * (`contract.ts`'s own file header note on that pattern): a caller that
    * does not supply one simply has no selecting links, not a crash. */
   onSelect?(selection: Selection): void;
-  /** ADR-0053 §5, this session's brief item 4 — every live note on
+  /** ADR-0053 §5 — every live note on
    * `ownerId` (a Device, a PhysicalPort or a Rack — `document/notes.ts`'s
    * own `Notable`), re-read fresh off the caller's held `Document` on every
    * call rather than cached here: the same "no `Document` in this file"
@@ -252,7 +251,7 @@ export interface EditorActions {
    * `onEdit` (nothing to await: a tombstone needs no gate). Optional, same
    * reading. */
   onRemoveNote?(noteId: string): { refused: string } | void;
-  /** ADR-0059, this session's brief item 3 — every live tag `ownerId`
+  /** ADR-0059 — every live tag `ownerId`
    * carries (a Device, PhysicalPort, Cable or Rack — `document/tags.ts`'s
    * own `Taggable`), re-read fresh off the caller's held `Document` on every
    * call, `notesOf`'s own contract. Optional — absent renders no Tags
@@ -293,7 +292,7 @@ export type Selection =
   | { kind: 'chassis'; id: string }
   | { kind: 'port'; id: string }
   | { kind: 'cable'; id: string }
-  /** ADR-0051 §1, this session's brief items 1/4 — a shelf itself (as
+  /** ADR-0051 §1 — a shelf itself (as
    * opposed to one of its occupants, `'occupant'` below), selected by
    * clicking its own plate rather than a box on it. */
   | { kind: 'shelf'; id: string }

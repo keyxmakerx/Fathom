@@ -42,11 +42,7 @@ export { SCHEMA_VERSION };
 // Every 0.10-to-0.12 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
-// `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`. Accumulated across
-// bumps, not replaced: a design saved at 0.10 and not opened since (before
-// ADR-0058 landed) still opens today -- there is no migration chain, so a
-// later bump's own "reads 0.11 payloads" can only add to what already
-// opened, never narrow it.
+// `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
 export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot

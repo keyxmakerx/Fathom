@@ -18,8 +18,8 @@ import { ensureRackToPlaceInto } from './emptyDesign';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import './racks.css';
 
-// `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`
-// (this session's brief item 1) — re-exported here, unchanged, so the two
+// `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
+// re-exported here unchanged, so the two
 // test files that import them from `'./RacksPlace'`
 // (`RacksPlace.canDraw.test.ts`, `RacksPlace.edit.test.ts`) keep passing
 // without themselves needing to know the logic moved.
@@ -62,7 +62,7 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
 };
 
 /**
- * ADR-0051 §1, this session's brief item 3 — "+ add a surface". There is no
+ * ADR-0051 §1 — "+ add a surface". There is no
  * premises editor (`EditorFor`'s own `Selection` has no `'premises'` kind
  * yet) and no separate page header for the Racks place
  * (`shell/types.ts`'s `ShellProps` has no header slot); the rail — this
@@ -158,11 +158,11 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The signed-in account, stamped on each change as its actor. `null` in the
    * moment between an expired session and the shell noticing. */
   accountId: string | null;
-  /** ADR-0053 §5/§6, this session's brief item 4 — Notes, threaded straight
-   * into `EditorFor`'s own `actions` below. */
+  /** ADR-0053 §5/§6 — Notes, threaded straight into `EditorFor`'s own
+   * `actions` below. */
   notesActions: NotesActions;
-  /** ADR-0059, this session's brief item 3 — Tags, threaded straight into
-   * `EditorFor`'s own `actions` below, `notesActions`'s own shape. */
+  /** ADR-0059 — Tags, threaded straight into `EditorFor`'s own `actions`
+   * below, `notesActions`'s own shape. */
   tagsActions: TagsActions;
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
@@ -171,8 +171,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
 
 /**
  * The Racks place for one open design: reads the `Document`/`SaveQueue`
- * `session` prop (shared with `InventoryPlace` over the same design —
- * `DesignPlace.tsx`, this session's brief item 1) and turns every `Drawing`
+ * `session` prop (shared with `InventoryPlace` over the same design,
+ * `DesignPlace.tsx`) and turns every `Drawing`
  * action into a command from `document/commands.ts` followed by a save.
  * Every change saves — the server is where the data lives — through the
  * session's one `SaveQueue`, so a save already running is never joined by a
@@ -195,8 +195,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
 
-  // "Show on rack" (`InventoryPlace.tsx`) — this session's brief item 5: a
-  // caller landing here with something already chosen selects it and asks
+  // "Show on rack" (`InventoryPlace.tsx`): a caller landing here with
+  // something already chosen selects it and asks
   // for the faceplate stop the moment the document is ready (an
   // `initialFocus` handed in before `doc` loads waits for it rather than
   // selecting an id `EditorFor` cannot yet resolve to anything). Fires once
@@ -213,7 +213,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     // `onZoomChange` is a stable setter from `App.tsx`.
   }, [initialFocus, doc]);
 
-  // ADR-0052 §1/§4, this session's brief item 2 — the config drawer's
+  // ADR-0052 §1/§4 — the config drawer's
   // engine. `Engine.init()` fetches and boots the wasm module
   // (`engine.ts`'s own doc), which is not free, so it happens on first
   // need — the first time a chassis is selected in this session — and
@@ -333,7 +333,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     [withMirror, applyDocChange],
   );
 
-  // ADR-0052 §5, this session's brief item 2 — "when a chassis is selected
+  // ADR-0052 §5 — "when a chassis is selected
   // at the faceplate stop and canDraw or a capture exists." `Drawing.tsx`
   // decides WHEN this runs (a chassis selected, the camera at the
   // faceplate stop); this decides WHAT it draws — the real `ConfigDrawer`
@@ -369,7 +369,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, canDraw, handlePasteInto, pasteRefusal],
   );
 
-  // ADR-0051 "Inside a box" / this session's brief item 3 — `mirror.inside`
+  // ADR-0051 "Inside a box" — `mirror.inside`
   // is synchronous once the module holds the document (`Mirror`'s own
   // contract), but the module itself may still be booting the first time a
   // chassis reaches this stop — `mirrorRef.current == null` then, and
@@ -467,7 +467,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       // that stamp).
       const opts = actorOpts(accountId);
 
-      // ADR-0051 §1/§2, this session's brief item 2 — the palette's own two
+      // ADR-0051 §1/§2 — the palette's own two
       // extra rows (`racks/palette.ts`'s `SKETCH_DEVICE_PALETTE_ITEM`/
       // `BOARD_PALETTE_ITEM`) are told apart from a real catalogue drop by
       // vendor alone, before either ever reaches the `catalogue.find` below.
@@ -596,7 +596,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
-  // `useDesignSession` — this session's brief item 1 — so the exact same
+  // `useDesignSession`, so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
   // here too: "an edit here is the same edit there."
   // ADR-0047: the editor is absent, not empty, when nothing is selected —
@@ -614,7 +614,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             notesOf: notesActions.notesOf,
             onAddNote: canDraw ? notesActions.onAddNote : undefined,
             onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
-            // ADR-0059, this session's brief item 3 — every reader may read
+            // ADR-0059 — every reader may read
             // a Tags section; only a writer may add or remove one.
             tagsOf: tagsActions.tagsOf,
             allTags: tagsActions.allTags,
@@ -645,7 +645,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       </>
     ) : null;
 
-  // ADR-0052 §5, this session's brief item 1 — "the rail shows no palette
+  // ADR-0052 §5 — "the rail shows no palette
   // and no add controls" for a reader: the whole rail is empty rather than
   // showing a palette that could never place anything or a surface control
   // that could never write.
@@ -655,7 +655,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         premisesId={realView.premisesId}
         onAdd={(label, form) => handleEdit({ kind: 'create-surface', premisesId: realView.premisesId, label, form })}
       />
-      {/* ADR-0051 §1/§2, this session's brief item 2 — `paletteRows` adds
+      {/* ADR-0051 §1/§2 — `paletteRows` adds
           the sketch-device and board rows beside the catalogue's own
           models; `AddShelfControl`'s own model dropdown (inside `editor`
           above) keeps using plain `paletteFromCatalogue` so a shelf's
@@ -685,7 +685,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
-          // ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z / Ctrl
+          // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}
           onRedo={shellProps.onRedo}

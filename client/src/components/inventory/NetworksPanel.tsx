@@ -62,10 +62,10 @@ import {
   type VlanMemberRow,
   type VlanRow,
 } from '../../document/networks-derive';
-// ADR-0059, this session's brief item 3 — tag chips on a VLAN row (through
-// its members, decision 6), a Docker network and a container. This panel
-// calls `document/tags.ts` directly and hands the result to `applyDocChange`,
-// the same door every other write here already uses (file header note).
+// ADR-0059 — tag chips on a VLAN row (through its members, decision 6), a
+// Docker network and a container, calling `document/tags.ts` directly and
+// handing the result to `applyDocChange`, the same door every other write
+// here already uses.
 import { listTags, renameTag, tagObject, tagVlanRow, tagsOf as tagsOfDoc, tagsOfVlanRow, untagObject, untagVlanRow } from '../../document/tags';
 import { getSession } from '../../state/sessionState';
 import { TagChips } from '../TagChips';
