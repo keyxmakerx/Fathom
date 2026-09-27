@@ -853,6 +853,7 @@ function VlanRowGroup(props: {
               the chips shown are the union of every member's tags. */}
           <div className="networks-grid__tags">
             <TagChips
+              key={row.key}
               tags={tagsOfVlanRow(doc, row.vlanNodeIds).map((t) => ({ id: t.tagId, name: t.name }))}
               suggestions={listTags(doc)}
               {...tagHandlers(
@@ -1164,6 +1165,7 @@ function DockerMemberRow(props: {
       <div>{publishedPortsCellText(c.publishedPorts)}</div>
       <div className="networks-grid__member-tags">
         <TagChips
+          key={c.containerId}
           tags={tagsOfDoc(doc, c.containerId).map((t) => ({ id: t.tagId, name: t.name }))}
           suggestions={listTags(doc)}
           {...tagHandlers(
@@ -1245,6 +1247,7 @@ function DockerNetworkRowGroup(props: {
           {/* ADR-0059 decision 2 — a Docker network takes its tag directly. */}
           <div className="networks-grid__tags">
             <TagChips
+              key={row.containerNetworkId}
               tags={tagsOfDoc(doc, row.containerNetworkId).map((t) => ({ id: t.tagId, name: t.name }))}
               suggestions={listTags(doc)}
               {...tagHandlers(

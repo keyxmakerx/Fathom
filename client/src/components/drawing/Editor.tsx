@@ -1282,6 +1282,7 @@ function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorAct
     <div className="drawing-editor__field">
       <div className="drawing-editor__field-label">Tags</div>
       <TagChips
+        key={ownerId}
         tags={tags.map((t) => ({ id: t.tagId, name: t.name }))}
         suggestions={suggestions}
         onAdd={actions.onAddTag ? (name) => actions.onAddTag!(ownerId, name) : undefined}
