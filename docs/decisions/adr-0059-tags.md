@@ -2,7 +2,8 @@
 
 **Status:** accepted 2026-09-26. The owner asked for tags on "pretty much everything" on 2026-09-25
 (#55). On 2026-09-26 the owner asked the lead to go with the board's proposal of plain ink tags, and
-left the modelling to the lead. Schema 0.11 becomes 0.12.
+left the modelling to the lead. Schema 0.11 becomes 0.12. Decisions 5, 8 and 9 were made precise
+on 2026-09-27, when tags were built.
 
 ## The ask
 
@@ -36,9 +37,14 @@ the cable groups (#54) and search.
 3. **Tags are plain ink.** A tag has no colour. On a cable, colour keeps meaning the real sheath.
 4. **One tag list per design.** Tags that span an organisation come later.
 5. **A name is a tag's identity.** A name is trimmed, runs of spaces inside it become one, and it is
-   1 to 64 characters long. Two names that differ only in case are the same tag. The editor refuses
-   a second tag with an existing name, and readers treat two such tags as one. Two people adding
-   the same tag at once can produce two nodes, and nobody should see that as two tags.
+   stored in Unicode's composed form (NFC). It is 1 to 64 characters long, counted in code points,
+   and may not hold control characters, invisible formatting characters such as the zero-width
+   space, or half of a surrogate pair. Two names are the same tag when they fold to the same key:
+   the name in compatibility form (NFKC), upper-cased, then lower-cased. So names that differ only
+   in case, ß and ss, full-width and ordinary letters, and composed and decomposed accents are each
+   one tag. The editor refuses a second tag with an existing name, and readers treat two such tags
+   as one. Two people adding the same tag at once can produce two nodes, and nobody should see that
+   as two tags.
 6. **A VLAN row takes a tag through its members.** A VLAN row is derived from several `Vlan` nodes
    (ADR-0058 decision 1). Tagging the row tags every member, untagging it untags every member, and
    the row shows the tags of all its members together. A Docker network is one node and takes its
@@ -46,10 +52,12 @@ the cable groups (#54) and search.
 7. **A tag outlives its last use.** It stays in the list and is still offered when its last object
    loses it. Removing a tag is its own action, and it takes the tag off every object.
 8. **Each tag action is one undoable change** (ADR-0053): tag an object (creating the tag if it is
-   new), untag it, rename a tag, remove a tag. A rename to a name already in use is refused by name.
+   new), untag it, rename a tag, remove a tag. A rename to a name another tag already uses is refused
+   by name. A rename to the same tag under another spelling, such as a change of case, is allowed,
+   and a rename that changes nothing writes nothing.
 9. **0.12 is additive, and old designs keep opening.** One new kind, one new field
-   (`Tag.name`, field key 343), one new class and two new edges. The client and the server read 0.11
-   payloads and write 0.12 (ADR-0058 decision 6).
+   (`Tag.name`, field key 343), one new class and two new edges. The client and the server read 0.10
+   and 0.11 payloads and write 0.12 (ADR-0058 decision 6).
 
 ## What it gives up
 
@@ -59,11 +67,14 @@ the cable groups (#54) and search.
   opens, and shows them as one.
 - A rename that would merge two tags is refused rather than merged. Merging can come later, if it is
   missed.
+- The fold is simple, not linguistic. A capital ẞ does not fold with ß or ss, a dotless ı folds with
+  i, and a Turkish dotted İ folds apart from i. Names that need a zero-width joiner or non-joiner,
+  such as some emoji and some Persian words, are refused.
 
 ## Order of work
 
 1. The schema: `Tag`, `HasTag`, `Taggable`, `TaggedWith`, field key 343 and version 0.12; regenerate,
-   and read 0.11 payloads.
+   and read 0.10 and 0.11 payloads.
 2. Tag chips in the device, port, cable, rack and network editors, with "Add tag" suggesting existing
    tags.
 3. Tags in search, as a column and filter in Inventory, and as groups in the cable filter (#54).

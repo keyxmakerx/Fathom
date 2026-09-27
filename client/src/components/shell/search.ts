@@ -13,13 +13,9 @@ export interface SearchHit {
 
 const GROUP_ORDER: readonly SearchHit['group'][] = ['Devices', 'Racks', 'Ports'];
 
-/** Case-insensitive search of the open design, devices first. A port matches
- * only when the query reaches past its device's name ("acc-01 · 6", not "acc").
- *
- * ADR-0059 — a device, a rack or a port also matches by any tag it
- * carries, `doc` optional: a caller with no open
- * `Document` (this file's own tests) still gets name-only matching, never a
- * crash on a missing argument. */
+/** Case-insensitive search of the open design, devices first; given `doc`, an object also
+ * matches by its tags. A port matches only when the query reaches past its device's name
+ * ("acc-01 · 6", not "acc"). */
 export function searchDesign(view: Pick<ClosetView, 'racks'>, query: string, doc?: Document, limit = 12): SearchHit[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return [];
