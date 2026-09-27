@@ -8,7 +8,8 @@ import './index.css';
 import App from './App';
 import { concatBytes, lp, u64LE } from './crypto/bytes';
 import { generateKeyPair } from './crypto/keys';
-import { SCHEMA_VERSION, writePlain } from './document/plain';
+import { readPlain, SCHEMA_VERSION, writePlain } from './document/plain';
+import { viewOf } from './document/view';
 import { newUlid } from './document/ulid';
 import { Engine } from './engine/engine';
 import { setSession } from './state/sessionState';
@@ -19,10 +20,12 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedManyDevicesScene,
   seedNetworksScene,
   seedPrintAttackScene,
   seedPrintLoftScene,
   seedPrintScene,
+  seedShelfScene,
   seedSingleDevice,
   seedUnplacedDevice,
 } from './drive-seed';
@@ -92,6 +95,8 @@ declare global {
      * script can tell a scene that never wrote anything apart from one whose
      * writes all happened to load fine. */
     __saveCount__: number;
+    /** The `positionU` the last saved document gives the chassis with this hostname. */
+    __savedPositionU__: (hostname: string) => number | null;
   }
 }
 
@@ -115,6 +120,8 @@ async function main() {
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
   else if (scene === 'print-attack') doc = seedPrintAttackScene(catalogue, ME);
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
+  else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
+  else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
   let version = 1;
@@ -143,6 +150,11 @@ async function main() {
   } catch (e) {
     window.__saveLoadFailures__.push(`the verifying engine itself failed to boot: ${e instanceof Error ? e.message : String(e)}`);
   }
+
+  window.__savedPositionU__ = (hostname) => {
+    const saved = viewOf(readPlain(bytes), catalogue);
+    return saved.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostname)?.positionU ?? null;
+  };
 
   window.__requests__ = [];
   const realFetch = window.fetch.bind(window);
@@ -245,6 +257,10 @@ async function main() {
     address: 'drive@fathom.test',
     accountId: ME,
   });
+
+  // A render counter `ChassisNode.tsx` adds to when this is a number; under
+  // `StrictMode` in dev a count is up to twice a production one.
+  (window as unknown as { __cn: number }).__cn = 0;
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

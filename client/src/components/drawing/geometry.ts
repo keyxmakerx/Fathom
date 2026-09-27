@@ -100,6 +100,12 @@ export const MAX_GLYPH_TRUE_HEIGHT_PX = 21;
  * fit is the honest option `ChassisNode.tsx` has left once a caller reports
  * how much room the ports row actually got.
  */
+/** The zoom-free half of the glyph budget: how far a glyph can grow before
+ * it outgrows the available space. CSS combines this with `1 / var(--zoom)` itself as `--budget-cap`, so nothing here needs recomputing on a live viewport. */
+export function glyphScaleBudgetCap(availableFlowPx: number, trueHeightPx: number = MAX_GLYPH_TRUE_HEIGHT_PX): number {
+  return Math.max(0, availableFlowPx / trueHeightPx);
+}
+
 export function glyphScaleFittingBudget(
   zoom: number,
   availableFlowPx: number,
@@ -198,6 +204,18 @@ export function portOpacity(zoomPercent: number): number {
   if (zoomPercent <= rack) return 0;
   if (zoomPercent >= faceplate) return 1;
   return (zoomPercent - rack) / (faceplate - rack);
+}
+
+/** The zoom bands `drawing.css` styles by, each named by its lower bound in
+ * percent; ports fade in over the 100-200 bands. */
+export const ZOOM_BANDS = [50, 77.5, 100, 125, 150, 175, 200, 250, 300] as const;
+export type ZoomBand = (typeof ZOOM_BANDS)[number];
+
+/** The band a zoom percentage falls in; anything below 77.5 is the lowest. */
+export function zoomBandAt(zoomPercent: number): ZoomBand {
+  let band: ZoomBand = ZOOM_BANDS[0];
+  for (const lower of ZOOM_BANDS) if (zoomPercent >= lower) band = lower;
+  return band;
 }
 
 /** The occupied U range of a chassis-shaped thing: `positionU` is its
