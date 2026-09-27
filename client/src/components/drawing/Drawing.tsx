@@ -30,7 +30,6 @@ import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
-import { computeCableDraw, type ResolvedCableGroup } from './cableGroups';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
@@ -259,18 +258,13 @@ export interface DrawingProps extends DrawingActions {
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
   /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
   onCalloutChange?: (id: string | null) => void;
-  /** GitHub issue #54 — the Cables list's own ticked groups, already
-   * resolved by the caller (`racks/RacksPlace.tsx`, which holds the
-   * `Document` this drawing never imports for cable membership — a VLAN or
-   * a tag needs it, `cableGroups.ts`'s own resolution layer). Empty means
-   * "All": every cable not hidden one at a time draws. */
-  tickedCableGroups?: readonly Pick<ResolvedCableGroup, 'cableIds' | 'dashedCableIds'>[];
-  /** The list's own None shortcut — every cable hidden regardless of any
-   * ticked group. */
-  cableGroupsNone?: boolean;
-  /** Decision 6 — cables hidden one at a time; never touched by a group
-   * toggle, always subtracted from what draws. */
-  hiddenCableIds?: ReadonlySet<string>;
+  /** The Cables list's own draw rule, already computed once by the caller
+   * (`racks/RacksPlace.tsx`, which holds the `Document` a VLAN or a tag
+   * group needs — this drawing never imports it, and never runs the draw
+   * rule itself). `undefined` means "All": every cable draws, nothing
+   * dashed. */
+  drawnCableIds?: ReadonlySet<string>;
+  dashedCableIds?: ReadonlySet<string>;
 }
 
 type AnyRackNode = RackNodeType;
@@ -305,13 +299,21 @@ interface LiveLitPathProps {
   portalGroups: readonly PortalGroup[];
   selected: Selection | null;
   liveStore: LiveStore;
+  /** `undefined` means every cable draws — nothing to exclude. Present, a
+   * selected or hovered cable outside it lights nothing and dims nothing
+   * ("the lit path only reads drawn cables"): the raw id is dropped to
+   * `null` before it ever reaches `litPathFor`, the same as no selection at
+   * all, rather than asking that function for a path through a cable it was
+   * never given. */
+  drawnCableIds?: ReadonlySet<string>;
 }
 
 /** Subscribed to `liveStore.ts`'s own `hoveredCableId`, written there
  * directly by a hover — recomputes the lit path and writes it back, so only this re-renders on a hover, never the node-building loop below it. */
-function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathProps) {
+function LiveLitPath({ view, portalGroups, selected, liveStore, drawnCableIds }: LiveLitPathProps) {
   const hoveredCableId = useLive((s) => s.hoveredCableId);
-  const litCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
+  const rawLitCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
+  const litCableId = rawLitCableId != null && drawnCableIds != null && !drawnCableIds.has(rawLitCableId) ? null : rawLitCableId;
   const litPath = useMemo(() => (litCableId ? litPathFor(view, litCableId, portalGroups) : null), [view, litCableId, portalGroups]);
   const litCableIdSet = useMemo(() => new Set(litPath?.cableIds ?? []), [litPath]);
   const litTrayKeySet = useMemo(() => new Set(litPath?.trayKeys ?? []), [litPath]);
@@ -357,9 +359,8 @@ function DrawingInner({
   emptyHint,
   openRequest,
   onCalloutChange,
-  tickedCableGroups,
-  cableGroupsNone,
-  hiddenCableIds,
+  drawnCableIds,
+  dashedCableIds,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -565,24 +566,17 @@ function DrawingInner({
     [view, dragFromPortId],
   );
 
-  // GitHub issue #54 decision 4/7 — the draw rule: a cable hidden one at a
-  // time never draws; otherwise None hides everything, a ticked group draws
-  // the union of its own cables, and no ticked group draws every cable
-  // ("All"). `tickedCableGroups`/`cableGroupsNone`/`hiddenCableIds` are the
-  // caller's own resolved state (`racks/RacksPlace.tsx` holds the
-  // `Document` a VLAN or a tag group needs — this drawing never imports it).
-  // The boxes themselves (chassis, shelf, surface, portal tray) are built
-  // from the real `view`, never this filtered list, so a hidden cable never
-  // removes anything but itself, its bundle and (decision 7) nothing at all
-  // off a port's own fill.
-  const allCableIds = useMemo(() => (view.cables ?? []).map((c) => c.id), [view.cables]);
-  const cableDraw = useMemo(
-    () => computeCableDraw(allCableIds, hiddenCableIds ?? EMPTY_STRING_SET, cableGroupsNone ?? false, tickedCableGroups ?? []),
-    [allCableIds, hiddenCableIds, cableGroupsNone, tickedCableGroups],
-  );
+  // The draw rule itself runs once, in the caller (`racks/RacksPlace.tsx`,
+  // which holds the `Document` a VLAN or a tag group needs); this only
+  // filters the real `view.cables` down to the ids it was handed.
+  // `drawnCableIds` absent means "All": every cable draws. The boxes
+  // themselves (chassis, shelf, surface, portal tray) are built from the
+  // real `view`, never this filtered list, so a hidden cable never removes
+  // anything but itself, its bundle and nothing at all off a port's own
+  // fill.
   const drawnCables = useMemo(
-    () => (view.cables ?? []).filter((c) => cableDraw.drawnIds.has(c.id)),
-    [view.cables, cableDraw],
+    () => (drawnCableIds ? (view.cables ?? []).filter((c) => drawnCableIds.has(c.id)) : (view.cables ?? [])),
+    [view.cables, drawnCableIds],
   );
 
   // Decision 7 — "Port fill comes from every cable, not only the drawn
@@ -1146,7 +1140,7 @@ function DrawingInner({
       endLabels: l0 != null && l1 != null ? [l0, l1] : undefined,
       stub: real.length === 2 ? stubFor(cable.id, real[0]!, real[1]!, boxes[0], boxes[1]) : undefined,
       onPanTo: handlePanTo,
-      dashed: cableDraw.dashedIds.has(cable.id),
+      dashed: dashedCableIds?.has(cable.id) ?? false,
     };
     return {
       id: cable.id,
@@ -1555,7 +1549,7 @@ function DrawingInner({
 
   return (
     <LiveStoreProvider value={liveStore}>
-    <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} />
+    <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} drawnCableIds={drawnCableIds} />
     <div
       className="drawing"
       ref={containerRef}

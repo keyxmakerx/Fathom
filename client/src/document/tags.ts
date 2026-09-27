@@ -406,27 +406,31 @@ export function listTags(doc: Document): TagSummary[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** GitHub issue #54, the Cables list's tag group — a stored reference is the
- * fold key (decision 5's own comparison key), never a node id that a rename
- * or a duplicate merge could move off: the canonical name and count for
- * whichever group currently folds to `key`, `null` when nothing does. */
-export function tagGroupByFold(doc: Document, key: string): { tagId: string; name: string; count: number } | null {
+/** The Cables list's own tag group — a stored reference is a node id of the
+ * group (one of the tag ids that folds into it), resolved through the same
+ * node-to-group map `untagObject`/`renameTag` read: a rename keeps
+ * resolving, since it never moves the node off its own group. `null` when
+ * `nodeId` names no live tag. */
+export function tagGroupByNodeId(doc: Document, nodeId: string): { name: string; count: number } | null {
   const idx = tagIndex(doc);
-  const g = idx.groups.get(key);
-  if (!g) return null;
-  return { tagId: g.canonicalId, name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 };
+  const key = idx.keyOfNode.get(nodeId);
+  if (key === undefined) return null;
+  const g = idx.groups.get(key)!;
+  return { name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 };
 }
 
 const EMPTY_OBJECT_IDS: ReadonlySet<string> = new Set();
 
-/** The raw membership set behind `tagGroupByFold`'s count — every live
- * object id carrying the group `key` folds to, read straight off the one
- * cached index (`tagIndex`) rather than a fresh scan per caller. The Cables
- * list's own tag group turns this into cable ids in one further pass over
- * `view.cables` (`components/drawing/cableGroups.ts`), never one lookup per
- * cable through this module. */
-export function objectsInTagGroupByFold(doc: Document, key: string): ReadonlySet<string> {
-  return tagIndex(doc).objectsOfGroup.get(key) ?? EMPTY_OBJECT_IDS;
+/** The raw membership set behind `tagGroupByNodeId`'s count — every live
+ * object id carrying that same group, read straight off the one cached
+ * index (`tagIndex`) rather than a fresh scan per caller. The Cables list's
+ * own tag group turns this into cable ids in one further pass over the
+ * view (`components/drawing/cableGroups.ts`), never one lookup per cable
+ * through this module. */
+export function objectsInTagGroupByNodeId(doc: Document, nodeId: string): ReadonlySet<string> {
+  const idx = tagIndex(doc);
+  const key = idx.keyOfNode.get(nodeId);
+  return key === undefined ? EMPTY_OBJECT_IDS : (idx.objectsOfGroup.get(key) ?? EMPTY_OBJECT_IDS);
 }
 
 /**

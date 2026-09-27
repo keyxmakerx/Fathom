@@ -287,11 +287,10 @@ function SupplyAction({
   );
 }
 
-/** GitHub issue #54 decision 6 — "Hide this cable" / "Show this cable" in
- * the cable's own panel: a view choice, never an edit — never gated on
- * `actions.onEdit` the way `SupplyAction` above is, so a read-only viewer
- * can hide a cable too. Absent only when the caller supplies neither half
- * of the pair at all. */
+/** "Hide this cable" / "Show this cable" in the cable's own panel: a view
+ * choice, never an edit — never gated on `actions.onEdit` the way
+ * `SupplyAction` above is, so a read-only viewer can hide a cable too.
+ * Absent only when the caller supplies neither half of the pair at all. */
 function HideCableAction({ cable, actions }: { cable: CableView; actions: EditorActions }) {
   if (!actions.isCableHidden || !actions.onToggleCableHidden) return null;
   const hidden = actions.isCableHidden(cable.id);

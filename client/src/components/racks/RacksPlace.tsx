@@ -31,20 +31,22 @@ import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import {
-  cableGroupsStateFromOldVisibility,
+  cableGroupsStorageKey,
+  closetCableIdSet,
+  closetHiddenCableCount,
   computeCableDraw,
-  defaultCableGroupsState,
   isCableGroupsFiltered,
   loadCableGroupsState,
+  migratedOrDefaultCableGroupsState,
   resolveStoredGroups,
   saveCableGroupsState,
   withAllCablesShown,
   withCableHidden,
   withCableShown,
+  withHiddenCablesPruned,
   type StoredCableGroupsState,
 } from '../drawing/cableGroups';
 import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
-import { loadCableVisibility } from '../drawing/cableVisibility';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { loadLook, saveLook, type Look } from '../drawing/look';
@@ -208,8 +210,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
-  /** GitHub issue #54 decision 8 — the Cables list's own storage key
-   * (`fathom.cables.<designId>`), one per design, never the document. */
+  /** The Cables list's own storage key (`fathom.cables.<designId>`), one
+   * per design, never the document. */
   designId: string;
 }
 
@@ -497,30 +499,53 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
 
-  // GitHub issue #54 — the Cables list. Placeholder until the real document
-  // arrives (`Drawing` itself is absent until then, so nothing reads this
-  // for real before the effect below replaces it); loaded/migrated/defaulted
-  // exactly once per `designId`, so switching design (without remounting
-  // this component) starts that design's own list rather than keeping the
-  // last one's.
-  const [cableGroupsState, setCableGroupsStateRaw] = useState<StoredCableGroupsState>({ groups: [], none: false, hiddenCableIds: [] });
-  const cableGroupsInitialisedForRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (doc == null || cableGroupsInitialisedForRef.current === designId) return;
-    cableGroupsInitialisedForRef.current = designId;
+  // The Cables list. `cableGroupsState`'s own initial value is read from
+  // storage synchronously (never a placeholder that then flashes every
+  // cable): the lazy `useState` initialiser runs before the first render,
+  // and the only case it cannot cover — nothing stored yet, needing the
+  // real `view` to pick a default type list — starts at the empty state,
+  // which draws exactly the same as that default (every group unticked)
+  // until the effect below replaces it.
+  const EMPTY_CABLE_GROUPS_STATE: StoredCableGroupsState = { groups: [], none: false, hiddenCableIds: [] };
+  const [cableGroupsDesignId, setCableGroupsDesignId] = useState(designId);
+  const [cableGroupsState, setCableGroupsStateRaw] = useState<StoredCableGroupsState>(
+    () => loadCableGroupsState(designId) ?? EMPTY_CABLE_GROUPS_STATE,
+  );
+  const [cableGroupsNeedsDefault, setCableGroupsNeedsDefault] = useState(() => loadCableGroupsState(designId) == null);
+
+  // Switching design without remounting this component: reset during
+  // render, the moment the prop itself changes, rather than one render
+  // late through an effect — the same "derived state" pattern React's own
+  // docs give for a prop-keyed reset.
+  if (designId !== cableGroupsDesignId) {
+    setCableGroupsDesignId(designId);
     const stored = loadCableGroupsState(designId);
-    if (stored) {
-      setCableGroupsStateRaw(stored);
-      return;
-    }
-    // Decision 1 — the removed `CablesViewControl`'s own choice carries over
-    // once per design: `'all'` needs no migration (it is the plain default).
-    const old = loadCableVisibility();
-    const initial = old === 'all' ? defaultCableGroupsState(displayView) : cableGroupsStateFromOldVisibility(old, displayView);
+    setCableGroupsStateRaw(stored ?? EMPTY_CABLE_GROUPS_STATE);
+    setCableGroupsNeedsDefault(stored == null);
+  }
+
+  useEffect(() => {
+    if (!cableGroupsNeedsDefault || doc == null) return;
+    const initial = migratedOrDefaultCableGroupsState(displayView);
     setCableGroupsStateRaw(initial);
     saveCableGroupsState(designId, initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `displayView` is read fresh at the one moment this runs (doc arriving, or designId changing); it is not meant to re-run on every later view change.
-  }, [doc, designId]);
+    setCableGroupsNeedsDefault(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `displayView` is read fresh at the one moment this runs (doc arriving, or nothing stored for this design); it is not meant to re-run on every later view change.
+  }, [doc, designId, cableGroupsNeedsDefault]);
+
+  // Two tabs open on the same design: another tab's own save fires a
+  // `storage` event in this one: take its state rather than keep drawing a
+  // filter this tab's own click never made.
+  useEffect(() => {
+    const key = cableGroupsStorageKey(designId);
+    function onStorage(event: StorageEvent): void {
+      if (event.key !== key) return;
+      const next = loadCableGroupsState(designId);
+      if (next) setCableGroupsStateRaw(next);
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [designId]);
 
   const setCableGroupsState = useCallback(
     (next: StoredCableGroupsState) => {
@@ -530,36 +555,60 @@ export function RacksPlace(props: RacksPlaceProps) {
     [designId],
   );
 
-  const { rows: resolvedCableGroupRows } = useMemo(
-    () => (doc ? resolveStoredGroups(doc, displayView, cableGroupsState) : { rows: [], droppedRefKeys: [] }),
-    [doc, displayView, cableGroupsState],
+  // A hidden id whose cable no longer exists anywhere in the design drops
+  // here, once; a stored group that stops resolving drops in
+  // `resolveStoredGroups` itself. Either dropping something is what makes
+  // `effectiveCableGroupsState` differ from the raw stored value below —
+  // the effect right after persists that drop, once, rather than on every
+  // render.
+  const existingCableIds = useMemo(() => new Set(displayView.cables.map((c) => c.id)), [displayView.cables]);
+  const prunedCableGroupsState = useMemo(
+    () => withHiddenCablesPruned(cableGroupsState, existingCableIds),
+    [cableGroupsState, existingCableIds],
   );
+  const { state: effectiveCableGroupsState, rows: resolvedCableGroupRows } = useMemo(
+    () => (doc ? resolveStoredGroups(doc, displayView, prunedCableGroupsState) : { state: prunedCableGroupsState, rows: [], droppedRefKeys: [] }),
+    [doc, displayView, prunedCableGroupsState],
+  );
+  useEffect(() => {
+    if (effectiveCableGroupsState !== cableGroupsState) {
+      setCableGroupsStateRaw(effectiveCableGroupsState);
+      saveCableGroupsState(designId, effectiveCableGroupsState);
+    }
+  }, [effectiveCableGroupsState, cableGroupsState, designId]);
+
   const tickedCableGroups = useMemo(
-    () =>
-      resolvedCableGroupRows
-        .filter((r) => r.stored.on)
-        .map((r) => ({ cableIds: r.resolved.cableIds, dashedCableIds: r.resolved.dashedCableIds })),
+    () => resolvedCableGroupRows.filter((r) => r.stored.on).map((r) => r.resolved),
     [resolvedCableGroupRows],
   );
-  const hiddenCableIdSet = useMemo(() => new Set(cableGroupsState.hiddenCableIds), [cableGroupsState.hiddenCableIds]);
+  const closetCableIds = useMemo(() => closetCableIdSet(displayView), [displayView]);
+  const hiddenCableIdSet = useMemo(() => new Set(effectiveCableGroupsState.hiddenCableIds), [effectiveCableGroupsState.hiddenCableIds]);
   const cableDraw = useMemo(
-    () => computeCableDraw(displayView.cables.map((c) => c.id), hiddenCableIdSet, cableGroupsState.none, tickedCableGroups),
-    [displayView.cables, hiddenCableIdSet, cableGroupsState.none, tickedCableGroups],
+    () => computeCableDraw([...closetCableIds], hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups),
+    [closetCableIds, hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups],
   );
-  const cablesGroupsSummary = isCableGroupsFiltered(cableGroupsState) ? `${cableDraw.drawnIds.size} of ${displayView.cables.length}` : null;
+  const cablesGroupsSummary = isCableGroupsFiltered(effectiveCableGroupsState)
+    ? `${cableDraw.drawnIds.size} of ${closetCableIds.size}`
+    : null;
+  const hiddenCablesInClosetCount = closetHiddenCableCount(displayView, effectiveCableGroupsState.hiddenCableIds);
 
   const handleToggleCableHidden = useCallback(
     (cableId: string) => {
       setCableGroupsState(
-        cableGroupsState.hiddenCableIds.includes(cableId) ? withCableShown(cableGroupsState, cableId) : withCableHidden(cableGroupsState, cableId),
+        effectiveCableGroupsState.hiddenCableIds.includes(cableId)
+          ? withCableShown(effectiveCableGroupsState, cableId)
+          : withCableHidden(effectiveCableGroupsState, cableId),
       );
     },
-    [cableGroupsState, setCableGroupsState],
+    [effectiveCableGroupsState, setCableGroupsState],
   );
-  const handleIsCableHidden = useCallback((cableId: string) => cableGroupsState.hiddenCableIds.includes(cableId), [cableGroupsState]);
+  const handleIsCableHidden = useCallback(
+    (cableId: string) => effectiveCableGroupsState.hiddenCableIds.includes(cableId),
+    [effectiveCableGroupsState],
+  );
   const handleShowAllHiddenCables = useCallback(
-    () => setCableGroupsState(withAllCablesShown(cableGroupsState)),
-    [cableGroupsState, setCableGroupsState],
+    () => setCableGroupsState(withAllCablesShown(effectiveCableGroupsState)),
+    [effectiveCableGroupsState, setCableGroupsState],
   );
 
   const cablesGroupsPopover =
@@ -567,10 +616,11 @@ export function RacksPlace(props: RacksPlaceProps) {
       <CableGroupsPopover
         doc={doc}
         view={displayView}
-        state={cableGroupsState}
+        state={effectiveCableGroupsState}
+        rows={resolvedCableGroupRows}
         onStateChange={setCableGroupsState}
         drawnCount={cableDraw.drawnIds.size}
-        totalCount={displayView.cables.length}
+        totalCount={closetCableIds.size}
         onShowAllHidden={handleShowAllHiddenCables}
       />
     ) : undefined;
@@ -1051,8 +1101,8 @@ export function RacksPlace(props: RacksPlaceProps) {
             onAddTag: canDraw ? tagsActions.onAddTag : undefined,
             onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
             onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
-            // GitHub issue #54 decision 6 — a view choice, offered to every
-            // reader regardless of `canDraw`.
+            // A view choice, offered to every reader regardless of
+            // `canDraw`.
             isCableHidden: handleIsCableHidden,
             onToggleCableHidden: handleToggleCableHidden,
           },
@@ -1117,7 +1167,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       viewOnly={!canDraw}
       cablesGroupsPopover={cablesGroupsPopover}
       cablesGroupsSummary={cablesGroupsSummary}
-      hiddenCablesCount={cableGroupsState.hiddenCableIds.length}
+      hiddenCablesCount={hiddenCablesInClosetCount}
       onShowAllHiddenCables={handleShowAllHiddenCables}
     >
       {doc == null ? (
@@ -1166,9 +1216,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
-          tickedCableGroups={tickedCableGroups}
-          cableGroupsNone={cableGroupsState.none}
-          hiddenCableIds={hiddenCableIdSet}
+          drawnCableIds={cableDraw.drawnIds}
+          dashedCableIds={cableDraw.dashedIds}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}
