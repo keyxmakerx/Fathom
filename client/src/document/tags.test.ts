@@ -200,6 +200,23 @@ describe('renameTag', () => {
     expect(() => renameTag(doc, deviceId, 'x', { now: NOW })).toThrow(TagRefusalError);
   });
 
+  it('a rename to the same name writes nothing — not an error, just no change', () => {
+    const { doc, deviceId } = deviceDoc();
+    const tagged = tagObject(doc, deviceId, 'cameras', { now: NOW });
+    const tagId = tagsOf(tagged, deviceId)[0].tagId;
+    const renamed = renameTag(tagged, tagId, 'cameras', { now: NOW + 1 });
+    expect(renamed).toBe(tagged); // the exact same Document, not a copy
+    expect(renamed.batches.length).toBe(tagged.batches.length);
+  });
+
+  it('a rename to the same name with surrounding whitespace also writes nothing (normalised first)', () => {
+    const { doc, deviceId } = deviceDoc();
+    const tagged = tagObject(doc, deviceId, 'cameras', { now: NOW });
+    const tagId = tagsOf(tagged, deviceId)[0].tagId;
+    const renamed = renameTag(tagged, tagId, '  cameras  ', { now: NOW + 1 });
+    expect(renamed).toBe(tagged);
+  });
+
   it('undo restores the old name', () => {
     const { doc, deviceId } = deviceDoc();
     const tagged = tagObject(doc, deviceId, 'cameras', { now: NOW });

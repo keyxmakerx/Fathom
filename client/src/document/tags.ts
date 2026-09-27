@@ -365,6 +365,10 @@ export function untagObject(doc: Document, objectId: string, tagId: string, opts
 export function renameTag(doc: Document, tagId: string, rawName: string, opts?: Actor): Document {
   const group = requireGroup(doc, tagId);
   const name = normalizeTagName(rawName);
+  // Not an error, just no change: clicking a chip's name and clicking away
+  // with nothing edited must write nothing -- the caller tells the two
+  // apart by comparing the returned `Document` to the one it passed in.
+  if (name === group.name) return doc;
   const key = foldTagName(name);
   if (key !== group.key) {
     const collision = tagIndex(doc).groups.get(key);

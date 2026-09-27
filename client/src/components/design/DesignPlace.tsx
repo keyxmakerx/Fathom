@@ -358,7 +358,11 @@ export function DesignPlace(props: DesignPlaceProps) {
       const current = session.doc;
       if (current == null) return { refused: 'No design is open.' };
       try {
-        session.applyDocChange(renameTag(current, tagId, name, accountId ? { actor: accountId } : undefined));
+        // Not an error, just no change (`renameTag`'s own doc): an unchanged
+        // name returns the SAME `Document`, and that is the caller's signal
+        // to save nothing rather than push a no-op batch to the queue.
+        const next = renameTag(current, tagId, name, accountId ? { actor: accountId } : undefined);
+        if (next !== current) session.applyDocChange(next);
       } catch (error) {
         return { refused: error instanceof Error ? error.message : 'That rename was refused.' };
       }

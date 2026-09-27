@@ -108,7 +108,9 @@ function renameTagHandler(doc: Document, applyDocChange: (next: Document) => voi
   if (!canDraw) return undefined;
   return (tagId: string, name: string): { refused: string } | void => {
     try {
-      applyDocChange(renameTag(doc, tagId, name, actorOpts()));
+      // Not an error, just no change -- `renameTag`'s own doc.
+      const next = renameTag(doc, tagId, name, actorOpts());
+      if (next !== doc) applyDocChange(next);
     } catch (e) {
       return { refused: e instanceof Error ? e.message : 'That rename was refused.' };
     }

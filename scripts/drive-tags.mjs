@@ -273,6 +273,16 @@ try {
   await page.screenshot({ path: SHOTS + 'tags-05-renamed.png' });
   console.log('    wrote ' + SHOTS + 'tags-05-renamed.png');
 
+  // Clicking a chip's own name, then clicking elsewhere with nothing typed,
+  // is not a rename — it must save nothing (round 2 item 4).
+  const saveCountBeforeNoOp = await page.evaluate(() => window.__saveCount__ ?? 0);
+  await page.locator('.drawing-editor__panel .tag-chip__name', { hasText: 'core-network' }).first().click();
+  await page.waitForSelector('.drawing-editor__panel input.tag-chip__rename', { timeout: 5_000 });
+  await page.locator('.drawing-editor__panel .drawing-editor__title').click();
+  await page.waitForTimeout(300);
+  const saveCountAfterNoOp = await page.evaluate(() => window.__saveCount__ ?? 0);
+  check('clicking a chip name then clicking away with no edit saves nothing', saveCountAfterNoOp === saveCountBeforeNoOp, `${saveCountBeforeNoOp} -> ${saveCountAfterNoOp}`);
+
   // -------------------------------------------------------------------------
   // 4 — untag: remove "rack-a" from the device.
   // -------------------------------------------------------------------------
