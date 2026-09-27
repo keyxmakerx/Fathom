@@ -32,7 +32,7 @@ import {
   edgesIn,
   edgesOut,
   findNode,
-  parseEdgeId,
+  isNodeOfKind,
   parseNodeId,
   readChassisFields,
   readDeviceFields,
@@ -359,10 +359,6 @@ function isLiveNode(n: GraphNode): boolean {
   return n.absentSince === undefined;
 }
 
-function isLiveEdge(e: GraphEdge): boolean {
-  return e.absentSince === undefined;
-}
-
 function catalogueMatch(catalogue: readonly CatalogueModel[], model: string): CatalogueModel | undefined {
   return catalogue.find((m) => m.model === model);
 }
@@ -407,7 +403,7 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
     // A one-ended cable (out: "0..2" — the far end may simply not exist yet).
     return { cableId, farPortId: null, farChassisId: null, outsideCloset: false };
   }
-  if (parseNodeId(far.to).kind === 'ExternalPeer') {
+  if (isNodeOfKind(far.to, 'ExternalPeer')) {
     return { cableId, farPortId: null, farChassisId: null, outsideCloset: true };
   }
   const farPortId = far.to;
@@ -422,10 +418,9 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
  * through, in either direction (`PassThrough` is symmetric — `schema/schema.yaml`'s
  * own doc), or `null` when this port passes nothing through. */
 function passThroughIdOf(doc: Document, portId: string): string | null {
-  const edge = doc.edges.find(
-    (e) => (e.from === portId || e.to === portId) && isLiveEdge(e) && parseEdgeId(e.id).kind === 'PassThrough',
-  );
-  return edge?.id ?? null;
+  const edges = [...edgesOut(doc, portId, 'PassThrough'), ...edgesIn(doc, portId, 'PassThrough')];
+  if (edges.length > 1) edges.sort((a, b) => doc.edges.indexOf(a) - doc.edges.indexOf(b));
+  return edges[0]?.id ?? null;
 }
 
 /** A `CataloguePort`'s own label: the silkscreen number, or the vendor's own
@@ -546,7 +541,7 @@ function portView(
 
 /** Every LIVE `FittedIn` this chassis has, whichever slot each is in. */
 function fittedSupplies(doc: Document, chassisId: string): GraphEdge[] {
-  return doc.edges.filter((e) => e.from === chassisId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FittedIn');
+  return edgesOut(doc, chassisId, 'FittedIn');
 }
 
 /** One `InletView` for a FIXED slot (`hotSwap: false`) — its `c14` inlet is
@@ -697,7 +692,7 @@ function placementOf(doc: Document, itemId: string): Placement {
     const f = readFixedToFields(fixedTo);
     const xMm = f.xMm ?? null;
     const yMm = f.yMm ?? null;
-    if (parseNodeId(fixedTo.to).kind === 'PassiveNode') {
+    if (isNodeOfKind(fixedTo.to, 'PassiveNode')) {
       return { kind: 'board', boardId: fixedTo.to, xMm, yMm };
     }
     return { kind: 'surface', surfaceId: fixedTo.to, xMm, yMm };
@@ -790,7 +785,7 @@ function occupantView(
   const slot = readSitsOnFields(sitsOnEdge).slot ?? 0;
   const hasPorts = edgesOut(doc, itemId, 'HasPort');
 
-  if (parseNodeId(itemId).kind === 'Chassis') {
+  if (isNodeOfKind(itemId, 'Chassis')) {
     const hasChassis = edgesIn(doc, itemId, 'HasChassis')[0];
     const deviceId = hasChassis?.from ?? '';
     const deviceNode = deviceId ? findNode(doc, deviceId) : undefined;
@@ -889,7 +884,7 @@ function fixtureView(
   let form: string | null;
   let ports: PortView[];
   let psuInlets: InletView[];
-  const kind: FixtureView['kind'] = parseNodeId(itemId).kind === 'Chassis' ? 'chassis' : 'passive';
+  const kind: FixtureView['kind'] = isNodeOfKind(itemId, 'Chassis') ? 'chassis' : 'passive';
 
   if (kind === 'chassis') {
     const hasChassis = edgesIn(doc, itemId, 'HasChassis')[0];
@@ -930,7 +925,7 @@ function fixtureView(
     psuInlets = [];
   }
 
-  const nestedEdges = doc.edges.filter((e) => e.to === itemId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FixedTo');
+  const nestedEdges = edgesIn(doc, itemId, 'FixedTo');
   const fixtures = nestedEdges
     .map((e) => {
       const f = readFixedToFields(e);
@@ -950,7 +945,7 @@ function surfaceView(
   const node = findNode(doc, surfaceId);
   if (!node || !isLiveNode(node)) return undefined;
   const fields = readSurfaceFields(node);
-  const fixedEdges = doc.edges.filter((e) => e.to === surfaceId && isLiveEdge(e) && parseEdgeId(e.id).kind === 'FixedTo');
+  const fixedEdges = edgesIn(doc, surfaceId, 'FixedTo');
   const fixtures = fixedEdges
     .map((e) => {
       const f = readFixedToFields(e);
@@ -1008,8 +1003,8 @@ function rackView(
   // `MountedIn` edges by the mounted node's own kind so a shelf is drawn as
   // a `ShelfView`, never also counted in `chassis` below.
   const mountedEdges = edgesIn(doc, rackId, 'MountedIn');
-  const chassisEdges = mountedEdges.filter((e) => parseNodeId(e.from).kind === 'Chassis');
-  const shelfEdges = mountedEdges.filter((e) => parseNodeId(e.from).kind === 'PassiveNode');
+  const chassisEdges = mountedEdges.filter((e) => isNodeOfKind(e.from, 'Chassis'));
+  const shelfEdges = mountedEdges.filter((e) => isNodeOfKind(e.from, 'PassiveNode'));
 
   const chassis = chassisEdges
     .map((e) => chassisView(doc, e.from, catalogue, closetRackIds))
@@ -1159,10 +1154,10 @@ function cableView(doc: Document, node: GraphNode): CableView {
  * doc on `HasCable`). */
 export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
   const premises = doc.nodes.find(
-    (n) => isLiveNode(n) && parseNodeId(n.id).kind === 'Premises',
+    (n) => isLiveNode(n) && isNodeOfKind(n.id, 'Premises'),
   );
   const cables = doc.nodes
-    .filter((n) => isLiveNode(n) && parseNodeId(n.id).kind === 'Cable')
+    .filter((n) => isLiveNode(n) && isNodeOfKind(n.id, 'Cable'))
     .map((n) => cableView(doc, n));
   if (!premises) {
     return { premisesId: '', racks: [], cables, rows: [], surfaces: [], unplaced: unplacedChassisViews(doc, catalogue, new Set()) };
@@ -1192,7 +1187,7 @@ function unplacedChassisViews(
 ): ChassisView[] {
   const out: ChassisView[] = [];
   for (const node of doc.nodes) {
-    if (!isLiveNode(node) || parseNodeId(node.id).kind !== 'Chassis') continue;
+    if (!isLiveNode(node) || !isNodeOfKind(node.id, 'Chassis')) continue;
     const placed =
       edgesOut(doc, node.id, 'MountedIn').length > 0 ||
       edgesOut(doc, node.id, 'SitsOn').length > 0 ||
