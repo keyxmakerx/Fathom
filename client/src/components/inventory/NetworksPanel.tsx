@@ -854,7 +854,11 @@ function VlanRowGroup(props: {
           <div className="networks-grid__tags">
             <TagChips
               key={row.key}
-              tags={tagsOfVlanRow(doc, row.vlanNodeIds).map((t) => ({ id: t.tagId, name: t.name }))}
+              tags={tagsOfVlanRow(doc, row.vlanNodeIds).map((t) => ({
+                id: t.tagId,
+                name: t.name,
+                coverage: t.carriedBy < t.total ? `${t.carriedBy} of ${t.total}` : undefined,
+              }))}
               suggestions={listTags(doc)}
               {...tagHandlers(
                 applyDocChange,

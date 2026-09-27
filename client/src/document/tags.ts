@@ -528,17 +528,28 @@ export function untagVlanRow(doc: Document, vlanNodeIds: readonly string[], tagI
   return withBatch(working, { id: newUlid(now), label: 'untag VLAN', ops });
 }
 
-/** The union of every member's tags, one chip per group. */
-export function tagsOfVlanRow(doc: Document, vlanNodeIds: readonly string[]): TagChip[] {
-  const seen = new Set<string>();
-  const out: TagChip[] = [];
+export interface VlanTagChip extends TagChip {
+  /** How many of the row's members carry this tag. Equal to `total` when
+   * every member does; a partial carry (one member tagged before the row
+   * existed) is a row still tagging the rest up to, not a refusal. */
+  carriedBy: number;
+  total: number;
+}
+
+/** The union of every member's tags, one chip per group, each carrying how
+ * many of the row's members hold it — the row's own chip reads "2 of 3"
+ * rather than plain when the group has not caught up on every member. */
+export function tagsOfVlanRow(doc: Document, vlanNodeIds: readonly string[]): VlanTagChip[] {
+  const idx = tagIndex(doc);
+  const total = vlanNodeIds.length;
+  const seen = new Map<string, VlanTagChip>();
   for (const id of vlanNodeIds) {
     for (const chip of tagsOf(doc, id)) {
       const key = foldTagName(chip.name);
       if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(chip);
+      const carriedBy = vlanNodeIds.filter((m) => idx.groupsOfObject.get(m)?.has(key) ?? false).length;
+      seen.set(key, { ...chip, carriedBy, total });
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

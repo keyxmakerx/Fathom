@@ -38,6 +38,9 @@ const REMOVE_STYLE: CSSProperties = {
 export interface TagChipItem {
   id: string;
   name: string;
+  /** Shown after the name, muted — a VLAN row's chip not every member
+   * carries reads "2 of 3" rather than as plain as one every member has. */
+  coverage?: string;
 }
 
 export interface TagSuggestion {
@@ -168,6 +171,7 @@ export function TagChips({ tags, suggestions = [], onAdd, onRemove, onRename }: 
               >
                 {t.name}
               </span>
+              {t.coverage ? <span className="tag-chip__coverage">{t.coverage}</span> : null}
               {onRemove ? (
                 <button type="button" style={REMOVE_STYLE} aria-label={`remove tag ${t.name}`} onClick={() => onRemove(t.id)}>
                   ×

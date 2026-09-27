@@ -448,6 +448,19 @@ describe('VLAN-row tagging (decision 6)', () => {
     }
   });
 
+  it('reports a partial carry as carriedBy < total, and a full carry as equal', () => {
+    const { doc, vlanNodeIds } = twoDeviceVlan();
+    const onlyFirst = tagObject(doc, vlanNodeIds[0], 'servers', { now: NOW });
+    const partial = tagsOfVlanRow(onlyFirst, vlanNodeIds)[0]!;
+    expect(partial.carriedBy).toBe(1);
+    expect(partial.total).toBe(2);
+
+    const caughtUp = tagVlanRow(onlyFirst, vlanNodeIds, 'servers', { now: NOW + 1 });
+    const full = tagsOfVlanRow(caughtUp, vlanNodeIds)[0]!;
+    expect(full.carriedBy).toBe(2);
+    expect(full.total).toBe(2);
+  });
+
   it('refuses tagging a row that already carries the tag on every member', () => {
     const { doc, vlanNodeIds } = twoDeviceVlan();
     const tagged = tagVlanRow(doc, vlanNodeIds, 'servers', { now: NOW });

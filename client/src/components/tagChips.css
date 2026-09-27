@@ -44,6 +44,12 @@
   cursor: text;
 }
 
+.tag-chip__coverage {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  flex-shrink: 0;
+}
+
 .tag-chip__rename {
   border: 1px solid var(--ink);
   background: var(--page);
