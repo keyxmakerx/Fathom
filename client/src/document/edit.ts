@@ -19,6 +19,7 @@ import {
   UnknownReferenceError,
   archiveField,
   assertHand,
+  edgesIn,
   findNode,
   identifier,
   replaceNode,
@@ -30,6 +31,7 @@ import {
   type Batch,
   type Document,
   type FieldEntry,
+  type GraphEdge,
   type Op,
 } from './model';
 import { newUlid } from './ulid';
@@ -248,6 +250,35 @@ export function setRackField(
 
   const { actor, now } = resolve(opts);
   const built = setFieldEntry(doc, now, actor, rackId, node.fields[wireKey], wireKey, encoded);
+  return commitField(built.doc, now, rackId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}
+
+/** The highest unit a `MountedIn` edge's occupant reaches; an unstated height counts as 1U. */
+function mountedTop(edge: GraphEdge): number {
+  const read = (key: string): number | undefined => {
+    const entry = edge.fields[key];
+    return entry && entry.presence === 'set' && typeof entry.value === 'number' ? entry.value : undefined;
+  };
+  return (read('MountedIn.position_u') ?? 1) + (read('MountedIn.height_u') ?? 1) - 1;
+}
+
+/**
+ * A rack's height in units (ADR-0060 decision 5). A height below the top of
+ * anything mounted in the rack is refused, so a resize never cuts a device off.
+ */
+export function setRackHeight(doc: Document, rackId: string, heightU: number, opts?: Actor): Document {
+  const node = findNode(doc, rackId);
+  if (!node) throw new UnknownReferenceError(rackId, 'Rack');
+  const wireKey = 'Rack.height_u';
+  if (!Number.isInteger(heightU) || heightU < 1 || heightU > 255) {
+    throw new FieldValueError(wireKey, String(heightU), 'must be a whole number from 1 to 255');
+  }
+  const top = Math.max(0, ...edgesIn(doc, rackId, 'MountedIn').map(mountedTop));
+  if (top > heightU) {
+    throw new FieldValueError(wireKey, String(heightU), `is too short: something is mounted up to U${top}`);
+  }
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, rackId, node.fields[wireKey], wireKey, uint(heightU, 8));
   return commitField(built.doc, now, rackId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }
 
