@@ -12,6 +12,7 @@ import { canDrawFor } from '../design/useDesignSession';
 import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
 import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
+import { newDesignTarget } from './newDesign';
 import './home.css';
 
 export interface HomeProps {
@@ -64,6 +65,9 @@ type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } 
  * invented content would be exactly the "plausible-looking figure" this
  * project's rules forbid, so they are left off rather than faked empty.
  */
+/** The busy marker while the home screen's own New design is making a Site. */
+const NEW_SITE_PENDING = 'new-site-pending';
+
 export function Home({
   address,
   onOpenRacks,
@@ -208,6 +212,31 @@ export function Home({
       });
   }
 
+  /**
+   * The home screen's own "New design" (ADR-0060 decision 6): into the first
+   * Site the person may draw in, or into a new Site named after the
+   * organisation when there is none, so nobody has to make a Site first.
+   */
+  function handleNewDesign(organisation: Organisation) {
+    if (scopes.status !== 'ready') return;
+    const target = newDesignTarget(scopes.value);
+    if (target.kind === 'scope') {
+      handleCreateDesign(organisation, target.scope);
+      return;
+    }
+    setNewDesignError(null);
+    setNewDesignBusyScopeId(NEW_SITE_PENDING);
+    createScope(organisation.organisationId, null, organisation.displayName)
+      .then((site) => {
+        setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, site] } : current));
+        handleCreateDesign(organisation, site);
+      })
+      .catch((error: unknown) => {
+        setNewDesignError(describeError(error));
+        setNewDesignBusyScopeId(null);
+      });
+  }
+
   function openScopeForm(parentId: string | null, parentLabel: string, child: string) {
     setScopeFormParent({ id: parentId, label: parentLabel, child });
     setScopeLabelInput('');
@@ -311,6 +340,16 @@ export function Home({
                 to hold one — and left to the server's own refusal,
                 `describeError`, when the account is not in fact a steward
                 of the organisation. */}
+            {selectedOrganisation && (
+              <button
+                type="button"
+                className="home__btn home__btn--small"
+                disabled={newDesignBusyScopeId !== null || scopes.status !== 'ready'}
+                onClick={() => handleNewDesign(selectedOrganisation)}
+              >
+                {newDesignBusyScopeId !== null ? 'Creating…' : 'New design'}
+              </button>
+            )}
             {selectedOrganisation && (
               <button
                 type="button"
