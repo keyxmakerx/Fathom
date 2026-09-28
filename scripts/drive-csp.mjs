@@ -355,8 +355,7 @@ async function main() {
   check('the first run signed in and landed on Home', (await tab.locator('.home').count()) === 1);
   await sample('Home, signed in');
 
-  // The operator console, behind the Site entry.
-  await tab.click('.shell-account'); // Site is a row in the account menu
+  // The operator console, behind the Admin tab.
   if ((await tab.locator('[data-testid="console-entry"]').count()) === 1) {
     await tab.click('[data-testid="console-entry"]');
     await tab.waitForSelector('.console__section', { timeout: 25000 });
@@ -367,7 +366,7 @@ async function main() {
     await tab.waitForSelector('.home', { timeout: 15000 });
     await sample('Home again, from the console');
   } else {
-    check('the Site entry was on Home to open', false, 'no console entry rendered');
+    check('the Admin tab was on Home to open', false, 'no console entry rendered');
   }
 
   // A design's rack view, if there is one to open. On a fresh install there

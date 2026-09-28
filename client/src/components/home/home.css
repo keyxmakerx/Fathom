@@ -244,3 +244,49 @@
   padding: var(--s1) var(--s2);
   font-size: var(--t-micro);
 }
+
+/* Designs · Organisation · Admin (ADR-0060 decision 7), drawn like the bar's
+   own place tabs. */
+.home-tabs {
+  display: flex;
+  gap: var(--s1);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.home-tabs__tab {
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: var(--rule-accent) solid transparent;
+  margin-bottom: calc(-1 * var(--rule-hair));
+  cursor: pointer;
+}
+
+.home-tabs__tab:hover {
+  color: var(--ink);
+}
+
+.home-tabs__tab--on {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--ink);
+}
+
+/* The Organisation tab's folders, indented by depth. */
+.home-folders {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-folders__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}

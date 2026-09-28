@@ -351,6 +351,20 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
     alongside it.
   - Not yet said: a duplicate made from the menu that finds no room lands unplaced without the
     notice the details panel shows, and Add a device on a full rack does nothing.
+- **Home tabs and the account menu** (ADR-0060 decision 7):
+  - Home has tabs: Designs, Organisation and Admin. Each shows only to someone who may use it,
+    and the row is hidden when Designs is the only tab.
+  - Organisation is for the organisation's admins. `GET /organisations` now carries the caller's
+    own role, `admin` or `member`, to decide this; the server still authorises every act. The tab
+    holds the folders (Sites, Buildings and Closets) and where to make more. Designs no longer
+    offers New site, New building or New closet.
+  - Admin is the operator console, renamed from Site. It is a Home tab where the console
+    answers; choosing it signs in to the console, and asks for a verification code there when
+    one is needed. The console shows the same tabs above it.
+  - The account menu holds only the person's own things: Your account, Signed-in browsers (the
+    same screen, opened at that section), the theme, and Sign out.
+  - Not built yet: people, invitations and roles on the Organisation tab, which need server
+    routes, and the one-form "Create an organisation for myself", which needs a security review.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;

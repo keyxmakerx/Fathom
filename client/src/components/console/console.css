@@ -202,3 +202,22 @@
   font-family: var(--mono, ui-monospace, monospace);
   font-size: var(--t-small);
 }
+
+/* Admin under Home's own tabs (ADR-0060 decision 7): the tabs, then the
+   console filling what is left. */
+.console-frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-frame > .console {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.console-tabs {
+  padding: var(--s2) var(--s6) 0;
+  background: var(--page);
+}

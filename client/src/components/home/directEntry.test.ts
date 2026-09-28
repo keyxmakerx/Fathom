@@ -4,8 +4,8 @@ import type { DesignSummary } from '../../api/designs';
 import type { Organisation } from '../../api/organisations';
 import { pickDirectEntry } from './directEntry';
 
-const ORG_A: Organisation = { organisationId: 'org-a', displayName: 'Northwind Logistics' };
-const ORG_B: Organisation = { organisationId: 'org-b', displayName: 'Acme Dental' };
+const ORG_A: Organisation = { organisationId: 'org-a', displayName: 'Northwind Logistics', role: 'member' };
+const ORG_B: Organisation = { organisationId: 'org-b', displayName: 'Acme Dental', role: 'member' };
 
 const DESIGN_1: DesignSummary = {
   designId: 'design-1',

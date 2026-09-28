@@ -9,13 +9,21 @@ function bytesOf(text: string): Uint8Array {
 describe('parseOrganisations', () => {
   it('parses a well-formed array', () => {
     const body = JSON.stringify([
-      { organisation_id: '01JQZ0000000000000000000AA', display_name: 'Northwind Logistics' },
-      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental' },
+      { organisation_id: '01JQZ0000000000000000000AA', display_name: 'Northwind Logistics', role: 'admin' },
+      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental', role: 'member' },
     ]);
     expect(parseOrganisations(bytesOf(body))).toEqual([
-      { organisationId: '01JQZ0000000000000000000AA', displayName: 'Northwind Logistics' },
-      { organisationId: '01JQZ0000000000000000000AB', displayName: 'Acme Dental' },
+      { organisationId: '01JQZ0000000000000000000AA', displayName: 'Northwind Logistics', role: 'admin' },
+      { organisationId: '01JQZ0000000000000000000AB', displayName: 'Acme Dental', role: 'member' },
     ]);
+  });
+
+  it('reads a missing or unknown role as member, so the Organisation tab fails closed', () => {
+    const body = JSON.stringify([
+      { organisation_id: '01JQZ0000000000000000000AA', display_name: 'Northwind Logistics' },
+      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental', role: 'owner' },
+    ]);
+    expect(parseOrganisations(bytesOf(body)).map((o) => o.role)).toEqual(['member', 'member']);
   });
 
   it('accepts the empty array — an account that belongs to nothing', () => {

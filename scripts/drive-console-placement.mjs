@@ -13,7 +13,7 @@
 //      key, the ten recovery codes behind the checkbox that gates Done, and
 //      the sign-in with the new authenticator. Then `/setup/state` says
 //      `done` (ADR-0056 decisions 1, 2, 4 and 5);
-//   1. the Site entry opens the console on the FIRST press, and the notices
+//   1. the Admin tab opens the console on the FIRST press, and the notices
 //      banner shows the one-operator fact off `GET /admin/notices`;
 //   2. the SMTP form round-trips a value through `POST /admin/settings`
 //      (sealed, with an assertion signed by the operator's enrolled key) and
@@ -23,7 +23,7 @@
 //      one-minute window; shows the countdown; and redirects the browser to
 //      the new host;
 //   4. decision 9's absence: an account signed in on a host the console does
-//      not answer on gets NO Site entry at all — absent, not hidden. (Before
+//      not answer on gets NO Admin tab at all — absent, not hidden. (Before
 //      ADR-0057 decision 2 this step signed in as the operator alone, key
 //      only, to show the sign-in ROUTE is not host-confined even though the
 //      console UI is; decision 2 makes that path unreachable from a cold
@@ -532,8 +532,7 @@ async function main() {
     stateAfter,
   );
 
-  // ---- step 1: the Site entry, and the console ----------------------------
-  await page.click('.shell-account'); // Site is a row in the account menu
+  // ---- step 1: the Admin tab, and the console ----------------------------
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 25000 });
@@ -796,7 +795,7 @@ async function main() {
   // more machinery than this step is for. What it drives instead, and what
   // decision 9 still promises: the account signs in on this host exactly as
   // it does anywhere (account sign-in is not console-confined), lands on
-  // Home, and the Site entry decision 9 calls *absent, not hidden* is not in
+  // Home, and the Admin tab decision 9 calls *absent, not hidden* is not in
   // the menu at all — nothing to click, not a control disabled or hidden by
   // CSS.
   await arriveAtTheDoor(page, OLD_URL);
@@ -809,7 +808,7 @@ async function main() {
   await page.click('.shell-account');
   await page.waitForTimeout(300);
   check(
-    'the Site entry is absent, not merely hidden, once this host is not the console (decision 9)',
+    'the Admin tab is absent, not merely hidden, once this host is not the console (decision 9)',
     (await page.locator('[data-testid="console-entry"]').count()) === 0,
   );
   check(
@@ -854,7 +853,6 @@ async function main() {
     backDoor.twoStep,
     `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
-  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 20000 });
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });

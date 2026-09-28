@@ -143,7 +143,7 @@ pub enum Role {
 }
 
 impl Role {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
             Self::Member => "member",
@@ -846,10 +846,16 @@ pub async fn list_members(
 /// exists for, and there is no single tenant to pin before the caller knows
 /// which organisations it has. One copy of the SQL; [`list_organisations_for_account`]
 /// is this function plus the transaction around it.
+///
+/// Each organisation comes with `account`'s own [`Role`] in it, so the home
+/// screen can offer its Organisation tab only to the people who may
+/// administer it (ADR-0060 decision 7). It is a hint for what to show, not an
+/// authorisation: every act on the organisation is still authorised on its
+/// own.
 pub(crate) async fn list_organisations_for_account_in(
     tx: &Transaction<'_>,
     account: AccountId,
-) -> Result<Vec<Organisation>, RepoError> {
+) -> Result<Vec<(Organisation, Role)>, RepoError> {
     tx.execute(
         "SELECT set_config('app.account_id', $1, true)",
         &[&account.to_string()],
@@ -858,7 +864,7 @@ pub(crate) async fn list_organisations_for_account_in(
 
     let rows = tx
         .query(
-            "SELECT o.id, o.display_name FROM organisations o \
+            "SELECT o.id, o.display_name, m.role FROM organisations o \
              JOIN memberships m ON m.organisation_id = o.id \
              WHERE m.account_id = $1 \
              ORDER BY o.id",
@@ -869,12 +875,16 @@ pub(crate) async fn list_organisations_for_account_in(
     rows.iter()
         .map(|row| {
             let id: String = row.get(0);
-            Ok(Organisation {
-                id: id
-                    .parse()
-                    .map_err(|_| RepoError::Corrupt("organisation id"))?,
-                display_name: row.get(1),
-            })
+            let role: String = row.get(2);
+            Ok((
+                Organisation {
+                    id: id
+                        .parse()
+                        .map_err(|_| RepoError::Corrupt("organisation id"))?,
+                    display_name: row.get(1),
+                },
+                Role::parse(&role).ok_or(RepoError::Corrupt("membership role"))?,
+            ))
         })
         .collect()
 }
@@ -891,7 +901,7 @@ pub async fn list_organisations_for_account(
     let tx = client.transaction().await?;
     let organisations = list_organisations_for_account_in(&tx, account).await?;
     tx.commit().await?;
-    Ok(organisations)
+    Ok(organisations.into_iter().map(|(o, _)| o).collect())
 }
 
 // ---------------------------------------------------------------------------
