@@ -1046,7 +1046,7 @@ function DrawingInner({
         triggerShake(rackNodeId(rack.id));
         return;
       }
-      onPlace(rack.id, { vendor: payload.vendor, model: payload.model }, positionU);
+      onPlace(rack.id, { vendor: payload.vendor, model: payload.model, role: payload.role }, positionU);
     },
     [rf, view.racks, rackPositions, onPlace, triggerShake, canDraw],
   );

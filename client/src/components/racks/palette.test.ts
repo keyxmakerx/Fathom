@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../../api/catalogue';
+import { isDeviceRole } from '../../document/edit';
 import {
   BOARD_PALETTE_ITEM,
+  COMMON_PALETTE_ITEMS,
   SKETCH_DEVICE_PALETTE_ITEM,
   isBoardPaletteItem,
   isSketchDevicePaletteItem,
@@ -59,13 +61,25 @@ describe('paletteFromCatalogue', () => {
 // This session's brief item 2 — the palette's own two rows beside the
 // catalogue's models.
 describe('paletteRows', () => {
-  it('carries the catalogue rows, then the sketch-device row, then the board row', () => {
+  it('lists the common devices first, then any device, the backboard, and the catalogue', () => {
     const rows = paletteRows([MODEL]);
-    expect(rows).toEqual([...paletteFromCatalogue([MODEL]), SKETCH_DEVICE_PALETTE_ITEM, BOARD_PALETTE_ITEM]);
+    expect(rows).toEqual([
+      ...COMMON_PALETTE_ITEMS,
+      { ...SKETCH_DEVICE_PALETTE_ITEM, group: 'Common' },
+      { ...BOARD_PALETTE_ITEM, group: 'On a wall' },
+      ...paletteFromCatalogue([MODEL]).map((item) => ({ ...item, group: 'Exact models' })),
+    ]);
   });
 
-  it('carries the two sketch rows even for an empty catalogue', () => {
-    expect(paletteRows([])).toEqual([SKETCH_DEVICE_PALETTE_ITEM, BOARD_PALETTE_ITEM]);
+  it('carries the built-in rows even for an empty catalogue', () => {
+    expect(paletteRows([]).map((item) => item.label)).toEqual(['Router', 'Switch', 'Firewall', 'Server', 'Access point', 'Any device', 'Backboard']);
+  });
+
+  it('gives each common device a role the schema knows, and makes it a sketch device', () => {
+    for (const item of COMMON_PALETTE_ITEMS) {
+      expect(isDeviceRole(item.role ?? '')).toBe(true);
+      expect(isSketchDevicePaletteItem(item)).toBe(true);
+    }
   });
 });
 

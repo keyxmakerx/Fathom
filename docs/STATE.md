@@ -336,6 +336,11 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   - "+ add a surface" reads "+ Add a wall, floor or desk".
   - An empty design shows a note saying what to do.
   - The zoom, account and trail controls name themselves on hover.
+- **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
+  Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
+  row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
+  common device arrives named (router-1) with its role set, dragged or clicked. Clicking Backboard
+  puts one on the first wall, floor or desk.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;

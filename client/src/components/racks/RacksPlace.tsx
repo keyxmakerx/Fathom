@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { captureOf } from '../../document/capture';
 import { connectPorts, disconnect, type Sheath } from '../../document/cables';
-import { SURFACE_FORMS, createSketchDevice, moveChassis, movePlacement, placeChassis, removeChassis } from '../../document/commands';
+import { SURFACE_FORMS, createBoard, createSketchDevice, moveChassis, movePlacement, placeChassis, removeChassis } from '../../document/commands';
+import { isDeviceRole, setDeviceField } from '../../document/edit';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine } from '../../engine/engine';
@@ -15,7 +16,9 @@ import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { ensureRackToPlaceInto } from './emptyDesign';
+import type { PaletteItem } from '../drawing/contract';
 import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
+import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
@@ -459,7 +462,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, [selection, realView, onActiveRackChange]);
 
   const handlePlace = useCallback(
-    (rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number) => {
+    (rackId: string, catalogueRef: { vendor: string; model: string; role?: string }, positionU: number) => {
       if (doc == null) return;
       // ADR-0053 §3, same stamp `useDesignSession.ts`'s `handleEdit` gives
       // every field write — every command dispatched from here (creating a
@@ -490,12 +493,18 @@ export function RacksPlace(props: RacksPlaceProps) {
           // `ensureRackToPlaceInto` finds a fresh `Rack`: diffing
           // `doc.nodes` against the ids that existed before the call.
           const beforeIds = new Set(working.nodes.map((n) => n.id));
-          const withDevice = createSketchDevice(working, opts ?? {});
+          // A common device (ADR-0060 decision 4) arrives named, such as router-1, with its role set.
+          const role = catalogueRef.role !== undefined && isDeviceRole(catalogueRef.role) ? catalogueRef.role : null;
+          const withDevice = createSketchDevice(
+            working,
+            role !== null ? { ...(opts ?? {}), hostname: nextHostname(hostnamesOf(working), role) } : (opts ?? {}),
+          );
           const chassisNode = withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Chassis');
           if (!chassisNode) return;
-          applyDocChange(
-            movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts),
-          );
+          let placed = movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts);
+          const deviceNode = role !== null ? withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Device') : undefined;
+          if (role !== null && deviceNode) placed = setDeviceField(placed, deviceNode.id, 'role', role, opts);
+          applyDocChange(placed);
         } catch {
           // As below: `Drawing` checked this drop against a view that
           // turned out to be stale. Leave the document as it was.
@@ -535,6 +544,32 @@ export function RacksPlace(props: RacksPlaceProps) {
       }
     },
     [doc, catalogue, realView.premisesId, applyDocChange, accountId],
+  );
+
+  // ADR-0060 decision 4: a click in the equipment list adds the item where there
+  // is room, the rack in use first; a backboard goes on the first wall.
+  const handlePick = useCallback(
+    (item: PaletteItem) => {
+      if (doc == null) return;
+      if (isBoardPaletteItem(item)) {
+        const surface = realView.surfaces[0];
+        if (!surface) return;
+        try {
+          applyDocChange(createBoard(doc, surface.id, { ...(actorOpts(accountId) ?? {}), label: 'Backboard' }));
+        } catch {
+          // As `handlePlace`: a refusal leaves the document as it was.
+        }
+        return;
+      }
+      for (const rack of racksInPickOrder(displayView.racks, selection)) {
+        const positionU = highestFreeU(rack, item.rackUnits);
+        if (positionU !== null) {
+          handlePlace(rack.id, item, positionU);
+          return;
+        }
+      }
+    },
+    [doc, realView.surfaces, displayView.racks, selection, handlePlace, applyDocChange, accountId],
   );
 
   const handleMove = useCallback(
@@ -664,7 +699,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           models; `AddShelfControl`'s own model dropdown (inside `editor`
           above) keeps using plain `paletteFromCatalogue` so a shelf's
           optional model never offers either as if it were a real one. */}
-      <Palette palette={paletteRows(catalogue)} />
+      <Palette palette={paletteRows(catalogue)} onPick={handlePick} />
     </>
   ) : null;
 

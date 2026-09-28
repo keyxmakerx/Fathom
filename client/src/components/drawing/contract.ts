@@ -69,7 +69,7 @@ export type { NoteHow, NoteView } from '../../document/notes';
 export type { TagChip, TagSummary } from '../../document/tags';
 
 export interface DrawingActions {
-  onPlace(rackId: string, catalogueRef: { vendor: string; model: string }, positionU: number): void;
+  onPlace(rackId: string, catalogueRef: { vendor: string; model: string; role?: string }, positionU: number): void;
   onMove(chassisId: string, rackId: string, positionU: number): void;
   onSelect(selection: Selection | null): void;
   /** UI-SPEC "Drag-to-connect": raised only on a drop the picker actually
@@ -325,4 +325,8 @@ export interface PaletteItem {
   summary: string;
   /** Shown instead of `model` when set: the built-in items' plain names. */
   label?: string;
+  /** A common device's role (`Device.role`), set when it is placed. */
+  role?: string;
+  /** The heading this item sits under in the equipment list. */
+  group?: string;
 }

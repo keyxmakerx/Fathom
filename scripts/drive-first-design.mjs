@@ -600,7 +600,7 @@ async function openTheTrail(page) {
  * attach. No mouse-only Playwright drag reaches these, because the payload
  * this app reads travels in `dataTransfer`, not in a pointer path. */
 async function dragPaletteItemOntoRack(page, itemIndex = 0, slot = 0) {
-  const item = page.locator('.drawing-palette__item').nth(itemIndex);
+  const item = page.locator('.drawing-palette__item--model').nth(itemIndex);
   await item.waitFor({ state: 'visible', timeout: 15000 });
   const rack = page.locator('.drawing-rack__frame').first();
   await rack.waitFor({ state: 'visible', timeout: 15000 });
