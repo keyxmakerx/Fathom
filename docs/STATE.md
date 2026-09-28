@@ -321,6 +321,10 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   shows React Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's
   licence is off deny.toml's list (build tools may also be MPL-2.0), or when the About list and the
   lockfile disagree; `--write` regenerates the list.
+- **Rack height and surface placement** (ADR-0060 decisions 5 and 11). A rack's details panel offers
+  42U, 24U and 12U or a typed height, and refuses one below anything mounted in it, naming it.
+  Moving a device onto a wall, floor, desk or board no longer asks for a position in millimetres;
+  the surface lays it out. Dragging onto a surface comes with free boxes on the canvas (step 7).
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;

@@ -46,7 +46,7 @@ import {
   removeSketchPort,
 } from '../../document/commands';
 import { disconnect, setCableField } from '../../document/cables';
-import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from '../../document/edit';
+import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import {
@@ -277,6 +277,8 @@ export function useDesignSession(organisationId: string, designId: string, capab
           } else {
             next = setRackField(doc, change.id, 'row', change.value, opts);
           }
+        } else if (change.kind === 'rack-height') {
+          next = setRackHeight(doc, change.id, change.heightU, opts);
         } else if (change.kind === 'supply') {
           next = setSupplyField(doc, change.id, change.field, change.value, opts);
         } else if (change.kind === 'supply-remove') {

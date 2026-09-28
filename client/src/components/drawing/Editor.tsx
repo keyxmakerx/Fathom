@@ -20,7 +20,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 // session's brief item 1) can walk a board's nested fixtures and build the
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
-import type { FixtureView, Placement } from '../../document/view';
+import type { FixtureView, Placement, RackView } from '../../document/view';
 import { TagChips } from '../TagChips';
 import {
   ABSENT,
@@ -681,10 +681,102 @@ interface PlacedOnControlProps {
   actions: EditorActions;
 }
 
+/** The first sizes offered for a rack (ADR-0060 decision 5); any other height is typed. */
+const RACK_SIZES: readonly number[] = [42, 24, 12];
+
+/** Pure: why `rack` can't be `heightU` tall, naming the highest thing in the way, or null. */
+export function rackHeightBlocker(rack: Pick<RackView, 'chassis' | 'shelves'>, heightU: number): string | null {
+  let worst: { name: string; top: number } | null = null;
+  const consider = (name: string, positionU: number, unitHeight: number) => {
+    const top = positionU + unitHeight - 1;
+    if (top > heightU && (worst === null || top > worst.top)) worst = { name, top };
+  };
+  for (const c of rack.chassis) consider(c.hostname || c.model || 'a device', c.positionU, c.heightU);
+  for (const s of rack.shelves) consider(s.label || 'a shelf', s.positionU, s.heightU);
+  const found = worst as { name: string; top: number } | null;
+  return found ? `It can't go below ${found.top}U, because ${found.name} reaches U${found.top}.` : null;
+}
+
+/** A rack's height (ADR-0060 decision 5): three common sizes, or a typed one. A reader sees the height only. */
+function RackHeightControl({ rack, actions }: { rack: RackView; actions: EditorActions }) {
+  const [custom, setCustom] = useState('');
+  const [refusal, setRefusal] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCustom('');
+    setRefusal(null);
+  }, [rack.id]);
+
+  const onEdit = actions.onEdit;
+  if (!onEdit) return <Field label="Height" value={`${rack.heightU}U`} />;
+  const doEdit: (change: EditorChange) => { refused: string } | void = onEdit;
+
+  function choose(heightU: number) {
+    if (heightU === rack.heightU) return;
+    const blocker = rackHeightBlocker(rack, heightU);
+    if (blocker !== null) {
+      setRefusal(blocker);
+      return;
+    }
+    const result = doEdit({ kind: 'rack-height', id: rack.id, heightU });
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    setRefusal(null);
+    setCustom('');
+  }
+
+  function chooseCustom() {
+    const n = Number(custom);
+    if (custom.trim() === '' || !Number.isInteger(n) || n < 1 || n > 255) {
+      setRefusal('Type a whole number of units, 1 to 255.');
+      return;
+    }
+    choose(n);
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Height</div>
+      <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
+        {RACK_SIZES.map((u) => (
+          <button
+            key={u}
+            type="button"
+            style={u === rack.heightU ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE}
+            disabled={u === rack.heightU}
+            onClick={() => choose(u)}
+          >
+            {u}U
+          </button>
+        ))}
+      </div>
+      {RACK_SIZES.includes(rack.heightU) ? null : <Field label="Now" value={`${rack.heightU}U`} />}
+      <div>
+        <input
+          aria-label="Custom height in units"
+          placeholder="custom U"
+          size={8}
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') chooseCustom();
+          }}
+        />
+        <button type="button" onClick={chooseCustom}>
+          set
+        </button>
+      </div>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
 /** ADR-0051 §1 — "PLACED ON" as three choices,
  * the current one marked; choosing another asks for what that place needs
- * (a rack and a unit; a shelf and a slot; a surface or board and optional
- * millimetres, per `design/places/renders/Shelf.png`'s own editor) and
+ * (a rack and a unit; a shelf and a slot; a surface or board, with no
+ * position typed in: ADR-0060 decision 11) and
  * raises `moveToRackChange`/`moveToShelfChange`/`moveToSurfaceChange`
  * through `actions.onEdit`. A refusal (an occupied slot, an unknown target,
  * a range that does not fit) shows beside the control exactly as
@@ -697,8 +789,6 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
   const [shelfId, setShelfId] = useState('');
   const [slot, setSlot] = useState('0');
   const [surfaceKey, setSurfaceKey] = useState('');
-  const [xMm, setXMm] = useState('');
-  const [yMm, setYMm] = useState('');
 
   // The authoritative placement moved under us (a move applied elsewhere,
   // or this is a fresh selection) — the same reset `EditableValue`'s own
@@ -721,11 +811,8 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
         {placement.kind === 'none' ? <Field label="Placed" value={ABSENT} /> : null}
         {placement.kind === 'rack' ? <Field label="Unit" value={`U${placement.positionU}`} /> : null}
         {placement.kind === 'shelf' ? <Field label="Slot" value={String(placement.slot)} /> : null}
-        {placement.kind === 'surface' || placement.kind === 'board' ? (
-          <Field
-            label="Position"
-            value={placement.xMm != null && placement.yMm != null ? `${placement.xMm}mm, ${placement.yMm}mm` : ABSENT}
-          />
+        {(placement.kind === 'surface' || placement.kind === 'board') && placement.xMm != null && placement.yMm != null ? (
+          <Field label="Position" value={`${placement.xMm}mm, ${placement.yMm}mm`} />
         ) : null}
       </div>
     );
@@ -754,8 +841,6 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
       const currentId = placement.kind === 'surface' ? placement.surfaceId : placement.kind === 'board' ? placement.boardId : undefined;
       const current = surfaces.find((s) => s.id === currentId);
       setSurfaceKey(current ? `${current.kind}:${current.id}` : (surfaces[0] ? `${surfaces[0].kind}:${surfaces[0].id}` : ''));
-      setXMm(placement.kind === 'surface' || placement.kind === 'board' ? (placement.xMm != null ? String(placement.xMm) : '') : '');
-      setYMm(placement.kind === 'surface' || placement.kind === 'board' ? (placement.yMm != null ? String(placement.yMm) : '') : '');
     }
   }
 
@@ -806,21 +891,12 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
     const sep = surfaceKey.indexOf(':');
     const kind = surfaceKey.slice(0, sep) as 'surface' | 'board';
     const id = surfaceKey.slice(sep + 1);
-    const x = xMm.trim().length > 0 ? Number(xMm) : null;
-    const y = yMm.trim().length > 0 ? Number(yMm) : null;
-    // `FixedTo.x_mm`/`.y_mm` are schema `u32` (`document/commands.ts`'s
-    // `movePlacement`: `uint(placement.xMm, 32)`) — a non-integer or a
-    // negative value reaches `uint` and throws a bare `RangeError` there,
-    // which used to close this form as if the move had succeeded
-    // (`refusalFor` did not name it). Caught here instead, the same "whole
-    // number, 0 or more" shape `commitRack`'s unit and `commitShelf`'s slot
-    // already check.
-    const UINT32_MAX = 2 ** 32 - 1;
-    const inRange = (n: number) => Number.isInteger(n) && n >= 0 && n <= UINT32_MAX;
-    if ((x != null && !inRange(x)) || (y != null && !inRange(y))) {
-      setRefusal(`position must be a whole number, 0 to ${UINT32_MAX}, or left blank`);
-      return;
-    }
+    // No position is asked for (ADR-0060 decision 11): an unpositioned fixture
+    // is laid out by the surface. Staying on the same surface keeps any position it had.
+    const same =
+      (placement.kind === 'surface' && placement.surfaceId === id) || (placement.kind === 'board' && placement.boardId === id);
+    const x = same && (placement.kind === 'surface' || placement.kind === 'board') ? placement.xMm : null;
+    const y = same && (placement.kind === 'surface' || placement.kind === 'board') ? placement.yMm : null;
     commit(moveToSurfaceChange(itemId, { id, kind }, x, y));
   }
 
@@ -848,11 +924,8 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
       {placement.kind === 'none' ? <Field label="Placed" value={ABSENT} /> : null}
       {placement.kind === 'rack' ? <Field label="Unit" value={`U${placement.positionU}`} /> : null}
       {placement.kind === 'shelf' ? <Field label="Slot" value={String(placement.slot)} /> : null}
-      {placement.kind === 'surface' || placement.kind === 'board' ? (
-        <Field
-          label="Position"
-          value={placement.xMm != null && placement.yMm != null ? `${placement.xMm}mm, ${placement.yMm}mm` : ABSENT}
-        />
+      {(placement.kind === 'surface' || placement.kind === 'board') && placement.xMm != null && placement.yMm != null ? (
+        <Field label="Position" value={`${placement.xMm}mm, ${placement.yMm}mm`} />
       ) : null}
 
       {asking === 'rack' ? (
@@ -902,8 +975,6 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
               </option>
             ))}
           </select>
-          <input placeholder="x mm (optional)" value={xMm} onChange={(e) => setXMm(e.target.value)} />
-          <input placeholder="y mm (optional)" value={yMm} onChange={(e) => setYMm(e.target.value)} />
           <button type="button" onClick={commitSurface}>
             move
           </button>
@@ -1373,7 +1444,7 @@ export function EditorFor(
     return (
       <div className="drawing-editor__panel">
         <div className="drawing-editor__title">{rack.label}</div>
-        <Field label="Height" value={`${rack.heightU}U`} />
+        <RackHeightControl rack={rack} actions={actions} />
         <Field label="Numbering" value={rack.unitNumbering} />
         <Field label="Used" value={`${usedU} of ${rack.heightU}U`} />
         <Field label="Devices" value={String(rack.chassis.length)} />

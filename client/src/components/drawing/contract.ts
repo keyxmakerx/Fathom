@@ -117,6 +117,8 @@ export type EditorChange =
   | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
   | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
+  /** ADR-0060 decision 5: a rack's height in units, refused below anything mounted in it. */
+  | { kind: 'rack-height'; id: string; heightU: number }
   /** ADR-0051 §1 — a shelf's own editor commits its name through
    * `document/edit.ts`'s `setPassiveNodeField` (`'shelf'` names the caller's
    * own intent; the write-side function takes any `PassiveNode`). */
