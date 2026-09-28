@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
 import { createDesign, fetchDesigns, sortDesignsByRecency, type DesignSummary } from '../../api/designs';
@@ -12,6 +12,8 @@ import { canDrawFor } from '../design/useDesignSession';
 import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
 import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
+import { HomeTabs } from './HomeTabs';
+import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import './home.css';
 
@@ -42,6 +44,16 @@ export interface HomeProps {
   notice?: string | null;
   /** Opens the claim screen for a token received from someone else. */
   onClaimOrganisation?: () => void;
+  /** The tab to open on (ADR-0060 decision 7). The caller remembers the
+   * last one chosen, so coming back from Admin lands where the person went. */
+  initialTab?: HomeTab;
+  onTabChange?: (tab: HomeTab) => void;
+  /** Which tabs are shown, so the Admin view can draw the same row. */
+  onTabsChange?: (tabs: HomeTab[]) => void;
+  /** The Admin tab, present only where this browser may open the operator
+   * console. Choosing the tab calls `onOpen`, which starts the operator
+   * sign-in; `panel` is what the tab shows meanwhile. */
+  admin?: { onOpen: () => void; panel: ReactNode };
 }
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
@@ -75,6 +87,10 @@ export function Home({
   onDirectEntry,
   notice,
   onClaimOrganisation,
+  initialTab,
+  onTabChange,
+  onTabsChange,
+  admin,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -82,6 +98,7 @@ export function Home({
   const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
   const [landed, setLanded] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [tab, setTab] = useState<HomeTab>(initialTab ?? 'designs');
 
   // "New design" (ADR-0054 §2, draw creates a design): which scope's button
   // is mid-request, and the last refusal, if any. Never more than one
@@ -179,6 +196,24 @@ export function Home({
     }
   }, [organisations, designs, landed, onDirectEntry]);
 
+  // ADR-0060 decision 7: each tab only for someone who may use it. A tab that
+  // goes (another organisation chosen, Admin refused) falls back to Designs.
+  const organisationAdmin =
+    organisations.status === 'ready' &&
+    organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin');
+  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined });
+  const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
+  const tabsKey = tabs.join(' ');
+  useEffect(() => {
+    onTabsChange?.(tabsKey.split(' ') as HomeTab[]);
+  }, [tabsKey, onTabsChange]);
+
+  function selectTab(next: HomeTab) {
+    setTab(next);
+    onTabChange?.(next);
+    if (next === 'admin') admin?.onOpen();
+  }
+
   if (landed) {
     return (
       <div className="home home--landing">
@@ -261,7 +296,7 @@ export function Home({
     }
     const label = scopeLabelInput.trim();
     if (label.length === 0) {
-      setScopeFormError('A scope needs a label.');
+      setScopeFormError('A folder needs a name.');
       return;
     }
     setScopeFormBusy(true);
@@ -329,17 +364,36 @@ export function Home({
           </p>
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
+        <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ admin: 'console-entry' }} />
 
+        {shownTab === 'organisation' && selectedOrganisation && (
+          <OrganisationTab
+            organisation={selectedOrganisation}
+            scopes={scopes}
+            onCreateScope={openScopeForm}
+            scopeForm={
+              scopeFormParent && (
+                <ScopeForm
+                  parentLabel={scopeFormParent.label}
+                  child={scopeFormParent.child}
+                  value={scopeLabelInput}
+                  onChange={setScopeLabelInput}
+                  onSubmit={submitScopeForm}
+                  onCancel={closeScopeForm}
+                  busy={scopeFormBusy}
+                  error={scopeFormError}
+                />
+              )
+            }
+          />
+        )}
+
+        {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
+
+        {shownTab === 'designs' && (
         <section className="home__section">
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>
-            {/* ADR-0054 §3, "or of the organisation": the one scope-creation
-                action that names no existing scope as its parent. Shown
-                whenever an organisation is open — this screen has no
-                capability to check it against, since there is no scope yet
-                to hold one — and left to the server's own refusal,
-                `describeError`, when the account is not in fact a steward
-                of the organisation. */}
             {selectedOrganisation && (
               <button
                 type="button"
@@ -348,15 +402,6 @@ export function Home({
                 onClick={() => handleNewDesign(selectedOrganisation)}
               >
                 {newDesignBusyScopeId !== null ? 'Creating…' : 'New design'}
-              </button>
-            )}
-            {selectedOrganisation && (
-              <button
-                type="button"
-                className="home__btn home__btn--small"
-                onClick={() => openScopeForm(null, selectedOrganisation.displayName, 'site')}
-              >
-                New site
               </button>
             )}
           </div>
@@ -370,19 +415,6 @@ export function Home({
           )}
           {newDesignError && <p className="home__error">{newDesignError}</p>}
 
-          {scopeFormParent && (
-            <ScopeForm
-              parentLabel={scopeFormParent.label}
-              child={scopeFormParent.child}
-              value={scopeLabelInput}
-              onChange={setScopeLabelInput}
-              onSubmit={submitScopeForm}
-              onCancel={closeScopeForm}
-              busy={scopeFormBusy}
-              error={scopeFormError}
-            />
-          )}
-
           {designs.status === 'ready' && scopes.status === 'ready' && selectedOrganisation && (
             <HomeDesigns
               designs={sortDesignsByRecency(designs.value)}
@@ -391,11 +423,11 @@ export function Home({
               onOpenRacks={onOpenRacks}
               onOpenInventory={onOpenInventory}
               onCreateDesign={handleCreateDesign}
-              onCreateScope={openScopeForm}
               busyScopeId={newDesignBusyScopeId}
             />
           )}
         </section>
+        )}
       </main>
       )}
 
@@ -421,8 +453,6 @@ interface HomeDesignsProps {
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
   /** ADR-0054 §2 — creates a design in `scope` and opens it. */
   onCreateDesign: (organisation: Organisation, scope: Scope) => void;
-  /** ADR-0054 §3 — opens the new-scope form with `scope` as the parent. */
-  onCreateScope: (parentId: string, parentLabel: string, child: string) => void;
   /** The scope whose "New design" button is mid-request, or `null`. */
   busyScopeId: string | null;
 }
@@ -443,7 +473,6 @@ function HomeDesigns({
   onOpenRacks,
   onOpenInventory,
   onCreateDesign,
-  onCreateScope,
   busyScopeId,
 }: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
@@ -458,7 +487,6 @@ function HomeDesigns({
             designCount={scopeDesigns.length}
             busy={busyScopeId === scope.scopeId}
             onCreateDesign={() => onCreateDesign(organisation, scope)}
-            onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName, CHILD_LEVEL[scope.kind] ?? '')}
           />
           <ul className="home__design-list">
             {scopeDesigns.map((design) => (
@@ -510,7 +538,6 @@ function HomeDesigns({
                 designCount={0}
                 busy={busyScopeId === scope.scopeId}
                 onCreateDesign={() => onCreateDesign(organisation, scope)}
-                onCreateScope={() => onCreateScope(scope.scopeId, scope.displayName, CHILD_LEVEL[scope.kind] ?? '')}
                 bare
               />
             </div>
@@ -526,7 +553,6 @@ interface ScopeHeadingProps {
   designCount: number;
   busy: boolean;
   onCreateDesign: () => void;
-  onCreateScope: () => void;
   /** `true` for a "Start a design" row, which is not inside its own
    * `.home__scope-heading` wrapper (its caller already provides one) —
    * avoids nesting that class inside itself. */
@@ -534,13 +560,13 @@ interface ScopeHeadingProps {
 }
 
 /**
- * One scope's name, kind and design count, plus the two actions this task's
- * brief adds: "New design" when `canDrawFor(scope.capability)` (ADR-0054
- * §2), "New scope" when `canStewardFor(scope.capability)` (ADR-0054 §3).
- * Shared between a scope that already has designs and one offered under
- * "Start a design in…" so the two lists behave identically.
+ * One scope's name, kind and design count, plus "New design" when
+ * `canDrawFor(scope.capability)` (ADR-0054 §2). Making a scope beneath it is
+ * the Organisation tab's (ADR-0060 decision 7). Shared between a scope that
+ * already has designs and one offered under "Start a design in…" so the two
+ * lists behave identically.
  */
-function ScopeHeading({ scope, designCount, busy, onCreateDesign, onCreateScope, bare }: ScopeHeadingProps) {
+function ScopeHeading({ scope, designCount, busy, onCreateDesign, bare }: ScopeHeadingProps) {
   const body = (
     <>
       <span className="home__scope-name">{scope.displayName}</span>
@@ -554,15 +580,75 @@ function ScopeHeading({ scope, designCount, busy, onCreateDesign, onCreateScope,
             {busy ? 'Creating…' : 'New design'}
           </button>
         )}
-        {canStewardFor(scope.capability) && CHILD_LEVEL[scope.kind] && (
-          <button type="button" className="home__btn home__btn--small" onClick={onCreateScope}>
-            New {CHILD_LEVEL[scope.kind]}
-          </button>
-        )}
       </span>
     </>
   );
   return bare ? body : <div className="home__scope-heading">{body}</div>;
+}
+
+interface OrganisationTabProps {
+  organisation: Organisation;
+  scopes: Loadable<Scope[]>;
+  /** ADR-0054 §3 — opens the new-scope form under `parentId`, or at the top
+   * of the organisation when it is `null`. */
+  onCreateScope: (parentId: string | null, parentLabel: string, child: string) => void;
+  /** The open new-scope form, if any. */
+  scopeForm: ReactNode;
+}
+
+/**
+ * The Organisation tab (ADR-0060 decision 7), for the organisation's admins:
+ * its folders — Sites, Buildings and Closets — and where to make more. None
+ * is needed to start a design. People, invitations and roles join this tab
+ * once the server has routes for them.
+ */
+function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm }: OrganisationTabProps) {
+  return (
+    <section className="home__section">
+      <div className="home__section-head">
+        <div className="home__label">Folders</div>
+        <button
+          type="button"
+          className="home__btn home__btn--small"
+          onClick={() => onCreateScope(null, organisation.displayName, 'site')}
+        >
+          New site
+        </button>
+      </div>
+      <p className="home__muted">Sites, Buildings and Closets sort designs. None is needed to start one.</p>
+      {scopeForm}
+      {scopes.status === 'loading' && <p className="home__muted">Loading…</p>}
+      {scopes.status === 'error' && <p className="home__error">{scopes.message}</p>}
+      {scopes.status === 'ready' && scopes.value.length === 0 && <p className="home__muted">No folders yet.</p>}
+      {scopes.status === 'ready' && scopes.value.length > 0 && (
+        <ul className="home-folders">
+          {scopes.value.map((scope) => {
+            const child = CHILD_LEVEL[scope.kind];
+            return (
+              <li
+                key={scope.scopeId}
+                className="home-folders__row"
+                style={{ paddingLeft: `calc(${Math.max(0, scope.depth - 1)} * var(--s4))` }}
+              >
+                <span className="home__scope-name">{scope.displayName}</span>
+                <span className="home__scope-kind">{LEVEL[scope.kind] ?? scope.kind}</span>
+                {canStewardFor(scope.capability) && child && (
+                  <button
+                    type="button"
+                    className="home__btn home__btn--small"
+                    onClick={() => onCreateScope(scope.scopeId, scope.displayName, child)}
+                  >
+                    New {child}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="home__muted">People, invitations and roles will be here once the server can do them.</p>
+    </section>
+  );
 }
 
 interface ScopeFormProps {

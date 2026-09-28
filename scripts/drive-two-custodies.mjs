@@ -574,9 +574,8 @@ async function main() {
     stateAfter,
   );
 
-  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 15000 });
-  check('Home, with the Site entry on a console host', true);
+  check('Home, with the Admin tab on a console host', true);
 
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 25000 });
@@ -771,7 +770,6 @@ async function main() {
     backDoor.twoStep,
     `one field, two kinds of code — POST /session: ${backDoor.statuses.join(' then ')}`,
   );
-  await page.click('.shell-account'); // Site is a row in the account menu
   await page.waitForSelector('[data-testid="console-entry"]', { timeout: 25000 });
   await page.click('[data-testid="console-entry"]');
   await Promise.race([

@@ -22,7 +22,7 @@ import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
 import { Reset, tokenFromLocation } from './components/Reset';
-import { Home } from './components/home';
+import { Home, HomeTabs, type HomeTab } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place } from './components/Shell';
@@ -82,34 +82,10 @@ type OperatorSignInPending =
   | { kind: 'existing'; challenge: SignInChallenge }
   | { kind: 'bootstrap'; accountSession: ActiveSession; bootstrap: OperatorBootstrapChallenge };
 
-/** The "Site" row, pulled out as a separate component so this press can
- * decide for itself, via `usePopoverClose`, whether the popover closes. */
-function SiteEntryRow({
-  enteringConsole,
-  onEnter,
-}: {
-  enteringConsole: boolean;
-  onEnter: (close: () => void) => void;
-}) {
-  const close = usePopoverClose();
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      className="shell-popover__row"
-      data-testid="console-entry"
-      disabled={enteringConsole}
-      onClick={() => onEnter(close)}
-    >
-      {enteringConsole ? 'Opening Site…' : 'Site'}
-    </button>
-  );
-}
-
-/** ADR-0057 decision 2's step-up code prompt, rendered inside the same
- * popover the "Site" row sits in — its `usePopoverClose` so a wrong code
- * can keep the menu open and a right one can close it. */
-function SiteCodePromptForm({
+/** ADR-0057 decision 2's step-up code prompt, drawn in Home's Admin tab
+ * (ADR-0060 decision 7). Outside a popover `usePopoverClose` closes nothing,
+ * so it stays put for a retry after a wrong code. */
+function AdminCodePromptForm({
   enteringConsole,
   operatorCode,
   onCodeChange,
@@ -231,8 +207,16 @@ export default function App() {
   // pull the person back to the start of the flow they have just completed.
   const [firstRunDone, setFirstRunDone] = useState(false);
 
-  // ADR-0055 client (a): the account's own credential screen is open.
+  // ADR-0055 client (a): the account's own credential screen is open, and
+  // the account menu's "Signed-in browsers" opens it at that section.
   const [accountOpen, setAccountOpen] = useState(false);
+  const [accountFocus, setAccountFocus] = useState<'browsers' | undefined>(undefined);
+
+  // Home's tab (ADR-0060 decision 7), kept here so leaving Admin by a tab
+  // lands on that tab, and the tabs Home last showed, so Admin draws the
+  // same row.
+  const [homeTab, setHomeTab] = useState<HomeTab>('designs');
+  const [homeTabList, setHomeTabList] = useState<HomeTab[]>(['designs']);
 
   // The organisation claim screen (ADR-0057 decision 5). `token`/`noticeAddress`
   // set: handed over from "Claim it now"; absent: Home's own "Claim an organisation".
@@ -243,6 +227,7 @@ export default function App() {
   const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
   useEffect(() => {
     setView({ kind: 'home' });
+    setHomeTab('designs');
     setAccountOpen(false);
     setClaiming(null);
   }, [accountSessionId]);
@@ -652,7 +637,16 @@ export default function App() {
   // code to manage and `docs/UI-SPEC.md` has no place for them yet, so the
   // way in is a text button above Home rather than a new region.
   if (accountOpen && session.kind === 'steward') {
-    return <Account address={session.address} onClose={() => setAccountOpen(false)} />;
+    return (
+      <Account
+        address={session.address}
+        focus={accountFocus}
+        onClose={() => {
+          setAccountOpen(false);
+          setAccountFocus(undefined);
+        }}
+      />
+    );
   }
 
   // The organisation claim screen (ADR-0057 decision 5). Needs a steward
@@ -690,10 +684,12 @@ export default function App() {
   };
 
   // The account menu's own rows (ADR-0047 §3): each present only when it
-  // acts. Site is offered only on a host the console answers on, and goes
-  // once the server has said this account holds no operator custody.
+  // acts, and only the person's own things (ADR-0060 decision 7). Admin is a
+  // Home tab, offered only on a host the console answers on, and gone once
+  // the server has said this account holds no operator custody.
   const accountSessionOpen = accountSessionId !== null;
-  const backToHome = () => {
+  const backToHome = (tab: HomeTab = 'designs') => {
+    setHomeTab(tab);
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
   };
@@ -708,38 +704,52 @@ export default function App() {
     session.kind === 'operator' ? (
       <>
         {accountSessionOpen && (
-          <PopoverRow testId="console-home" onSelect={backToHome}>
+          <PopoverRow testId="console-home" onSelect={() => backToHome()}>
             Home
           </PopoverRow>
         )}
-        <PopoverRow current>Site</PopoverRow>
+        <PopoverRow current>Admin</PopoverRow>
       </>
     ) : (
       <>
-        <PopoverRow onSelect={() => setAccountOpen(true)}>Password and authenticator</PopoverRow>
-        {consoleHost && !custodyRefused && operatorCodePending && (
-          // ADR-0057 decision 2: a live account session endorses Site, and
-          // one whose own second-factor proof has gone stale needs a
-          // current code beside it — asked right here, in the same place
-          // Site is entered, rather than on a screen of its own. Not a
-          // `PopoverRow`: it decides for itself, via `usePopoverClose`,
-          // whether a submit closes the popover, since a wrong code must
-          // not close it mid-retry.
-          <SiteCodePromptForm
-            enteringConsole={enteringConsole}
-            operatorCode={operatorCode}
-            onCodeChange={setOperatorCode}
-            onSubmit={(event, close) => void submitOperatorCode(event, close)}
-          />
-        )}
-        {consoleHost && !custodyRefused && !operatorCodePending && (
-          // Not a `PopoverRow`: this press sometimes ends in the form
-          // above, rendered in this same popover, so it closes it via
-          // `usePopoverClose`.
-          <SiteEntryRow enteringConsole={enteringConsole} onEnter={(close) => void enterConsole(close)} />
-        )}
+        <PopoverRow onSelect={() => setAccountOpen(true)}>Your account</PopoverRow>
+        <PopoverRow
+          onSelect={() => {
+            setAccountFocus('browsers');
+            setAccountOpen(true);
+          }}
+        >
+          Signed-in browsers
+        </PopoverRow>
+        {/* The bar adds the theme and Sign out beneath these. */}
       </>
     );
+
+  // Home's Admin tab (ADR-0060 decision 7): choosing it starts the operator
+  // sign-in at once; this is what the tab shows meanwhile. ADR-0057 decision
+  // 2: a live account session endorses Admin, and one whose own
+  // second-factor proof has gone stale needs a current code beside it.
+  const admin =
+    consoleHost && !custodyRefused
+      ? {
+          onOpen: () => void enterConsole(() => {}),
+          panel: operatorCodePending ? (
+            <AdminCodePromptForm
+              enteringConsole={enteringConsole}
+              operatorCode={operatorCode}
+              onCodeChange={setOperatorCode}
+              onSubmit={(event, close) => void submitOperatorCode(event, close)}
+            />
+          ) : (
+            <>
+              <p className="home__muted">The server's own console: accounts, organisations, operators and settings.</p>
+              <button type="button" className="home__btn" disabled={enteringConsole} onClick={() => void enterConsole(() => {})}>
+                {enteringConsole ? 'Opening Admin…' : 'Open Admin'}
+              </button>
+            </>
+          ),
+        }
+      : undefined;
 
   // Everything the two views share. `canUndo`/`canRedo`/`onUndo`/`onRedo`
   // are a stub HERE — always present, always disabled — because Home has no
@@ -772,14 +782,28 @@ export default function App() {
       <Shell
         {...common}
         place={null}
-        path={[{ label: 'Site' }]}
+        path={[{ label: 'Admin' }]}
         tree={null}
         onPlaceChange={() => {}}
         // ADR-0055 decision 1: the account session did not end when this one
         // began, so Home is a change of plane, not a sign-in.
-        onHome={accountSessionOpen ? backToHome : undefined}
+        onHome={accountSessionOpen ? () => backToHome() : undefined}
       >
-        <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
+        <div className="console-frame">
+          {accountSessionOpen && (
+            // The same Home tabs, Admin current (ADR-0060 decision 7).
+            <div className="console-tabs">
+              <HomeTabs
+                tabs={homeTabList.includes('admin') ? homeTabList : [...homeTabList, 'admin']}
+                current="admin"
+                onSelect={(tab) => {
+                  if (tab !== 'admin') backToHome(tab);
+                }}
+              />
+            </div>
+          )}
+          <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
+        </div>
       </Shell>
     );
   }
@@ -803,6 +827,10 @@ export default function App() {
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal}
           onClaimOrganisation={() => setClaiming({})}
+          initialTab={homeTab}
+          onTabChange={setHomeTab}
+          onTabsChange={setHomeTabList}
+          admin={admin}
         />
       </Shell>
     );

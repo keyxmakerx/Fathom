@@ -36,6 +36,9 @@ export interface AccountProps {
    * `'app-code'` purpose, where there is nowhere else to go until the second
    * factor is enrolled. */
   onClose?: () => void;
+  /** Opens scrolled to one section: the account menu's "Signed-in browsers"
+   * (ADR-0060 decision 7). */
+  focus?: 'browsers';
 }
 
 /**
@@ -54,7 +57,11 @@ export interface AccountProps {
  * once, on open, so the authenticator section knows whether it is a first
  * enrolment or a replacement that needs re-authenticating.
  */
-export function Account({ address, purpose = 'settings', onDone, onClose }: AccountProps) {
+export function Account({ address, purpose = 'settings', onDone, onClose, focus }: AccountProps) {
+  useEffect(() => {
+    if (focus === 'browsers') document.getElementById('account-browsers')?.scrollIntoView();
+  }, [focus]);
+
   // `null` while unknown; the authenticator section defaults to "first
   // enrolment" until this answers, which is the state a fresh session with
   // no authenticator would leave it in anyway.
@@ -275,7 +282,9 @@ export function SignedInBrowsers() {
 
   return (
     <div className="signin__section">
-      <h2 className="signin__heading">Signed-in browsers</h2>
+      <h2 className="signin__heading" id="account-browsers">
+        Signed-in browsers
+      </h2>
       {loadError && (
         <div className="signin__refusal" role="alert">
           {loadError}

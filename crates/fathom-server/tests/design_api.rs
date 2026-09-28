@@ -1717,6 +1717,19 @@ async fn an_account_sees_exactly_the_organisations_it_belongs_to_and_none_it_doe
         2,
         "and exactly those two, no more: {text}"
     );
+    // ADR-0060 decision 7: each row carries the account's own role, so Home
+    // offers the Organisation tab only where the account may administer. It
+    // founded B and was added to A as a member.
+    assert!(
+        text.contains(&format!(
+            "\"organisation_id\":\"{}\",\"role\":\"admin\"",
+            estate_b.organisation
+        )) && text.contains(&format!(
+            "\"organisation_id\":\"{}\",\"role\":\"member\"",
+            estate_a.organisation
+        )),
+        "admin of the organisation it founded, member of the one it joined: {text}"
+    );
 
     // The assertion that matters: the account that belongs ONLY to A must
     // never see B, even though B exists and this same database just proved

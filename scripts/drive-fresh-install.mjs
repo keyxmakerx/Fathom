@@ -280,7 +280,6 @@ async function runDrive(tab) {
   // -------------------------------------------------------------------
   // 3. Site: create an organisation.
   // -------------------------------------------------------------------
-  await tab.click('.shell-account'); // Site is a row in the account menu
   await tab.waitForSelector('[data-testid="console-entry"]', { timeout: 10000 });
   await tab.click('[data-testid="console-entry"]');
   await tab.waitForSelector('.console__section', { timeout: 25000 });
@@ -350,12 +349,16 @@ async function runDrive(tab) {
   // -------------------------------------------------------------------
   // 7. New site.
   // -------------------------------------------------------------------
+  // ADR-0060 decision 7: folders are the Organisation tab's, and the person
+  // who claimed the organisation is its admin.
   const siteName = 'Weekend HQ';
+  await tab.getByRole('tab', { name: 'Organisation' }).click();
   await tab.getByRole('button', { name: 'New site' }).click();
   await tab.locator('#home-new-scope-label').fill(siteName);
   await tab.getByRole('button', { name: 'Create', exact: true }).click();
   await tab.getByText(siteName).waitFor({ timeout: 10000 });
-  check('7. New site: the new site appears on Home', (await tab.getByText(siteName).count()) >= 1);
+  check('7. New site: the new site appears on the Organisation tab', (await tab.getByText(siteName).count()) >= 1);
+  await tab.getByRole('tab', { name: 'Designs' }).click();
 
   // -------------------------------------------------------------------
   // 8. New design.

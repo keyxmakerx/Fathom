@@ -204,7 +204,7 @@ async function signInThroughTheDoor(page, { address, password, code }) {
  * browsers" lives. */
 async function openAccountScreen(page) {
   await page.click('[aria-label="Account menu"]');
-  await page.click('text=Password and authenticator');
+  await page.click('text=Your account');
   await page.waitForSelector('.account__sessions, .signin__heading:has-text("Signed-in browsers")', {
     timeout: 20000,
   });
@@ -347,7 +347,7 @@ async function main() {
 
   // ---- 5. browser B's next authenticated action lands it at the door -----
   await pageB.click('[aria-label="Account menu"]');
-  await pageB.click('text=Password and authenticator');
+  await pageB.click('text=Your account');
   await pageB.waitForSelector('#signin-password', { timeout: 20000 });
   const notice = ((await pageB.locator('.signin__notice').textContent()) ?? '').trim();
   check(

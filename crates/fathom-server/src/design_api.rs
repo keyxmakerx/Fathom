@@ -757,7 +757,7 @@ fn parse_scope(text: &str) -> Result<ScopeId, SessionError> {
 // ---------------------------------------------------------------------------
 
 /// `GET /organisations` — every organisation the signed-in account belongs
-/// to. The client's Home screen needs this before it can name a tenant in
+/// to, each with the account's own role in it (`admin` or `member`). The client's Home screen needs this before it can name a tenant in
 /// any of the routes below it, so it lives here rather than in `api.rs`:
 /// this module already owns the [`Signed`] extractor for non-admin session
 /// routes (see the module doc's "its own state" section), and that is the
@@ -805,10 +805,11 @@ async fn list_organisations_handler(
 
     let out = organisations
         .into_iter()
-        .map(|o| {
+        .map(|(o, role)| {
             let mut map = BTreeMap::new();
             map.insert("organisation_id".to_string(), Json::Str(o.id.to_string()));
             map.insert("display_name".to_string(), Json::Str(o.display_name));
+            map.insert("role".to_string(), Json::Str(role.as_str().to_string()));
             Json::Obj(map)
         })
         .collect();

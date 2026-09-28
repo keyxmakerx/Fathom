@@ -664,16 +664,33 @@ async function runProof(browser, seed) {
   // unmodified "New site" → "Create" form is driven directly here instead.
   // (The owner's naming, 2026-09-23: the top scope level reads "Site" in
   // the interface, not "New scope".)
+  // ADR-0060 decision 7: folders are the Organisation tab's, shown to the
+  // organisation's admins; this steward founded it.
+  await one.getByRole('tab', { name: 'Organisation' }).click();
   await one.getByRole('button', { name: 'New site' }).click();
   await one.locator('#home-new-scope-label').fill('Session 7 network');
   await one.getByRole('button', { name: 'Create', exact: true }).click();
   await one.getByText('Session 7 network').waitFor({ timeout: 10000 });
-  check('browser one (steward): the new scope appears on Home (created via the real "New site" form)', await one.getByText('Session 7 network').isVisible());
+  check('browser one (steward): the new scope appears on the Organisation tab (created via the real "New site" form)', await one.getByText('Session 7 network').isVisible());
+  await one.screenshot({ path: `${SHOTS}s7-organisation.png` });
 
+  // The account menu holds only the person's own things (ADR-0060 decision 7).
+  await one.click('.shell-account');
+  const menuRows = await one.locator('.shell-popover [role="menuitem"], .shell-popover button').allTextContents();
+  check(
+    'browser one (steward): the account menu offers Your account, Signed-in browsers, Theme and Sign out, and no Site',
+    ['Your account', 'Signed-in browsers', 'Theme', 'Sign out'].every((row) => menuRows.some((text) => text.includes(row)))
+      && !menuRows.some((text) => text.trim() === 'Site'),
+    JSON.stringify(menuRows),
+  );
+  await one.screenshot({ path: `${SHOTS}s7-account-menu.png` });
+  await one.keyboard.press('Escape');
+
+  await one.getByRole('tab', { name: 'Designs' }).click();
   await one.screenshot({ path: `${SHOTS}s7-home.png` });
   check(
-    'screenshot s7-home.png: Home shows New site and New design',
-    (await one.getByRole('button', { name: 'New site' }).count()) > 0
+    'screenshot s7-home.png: Home shows the Organisation tab and New design',
+    (await one.getByRole('tab', { name: 'Organisation' }).count()) === 1
       && (await one.getByRole('button', { name: 'New design' }).count()) > 0,
   );
 

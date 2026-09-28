@@ -2,7 +2,7 @@
 // parallel with this slice, so it cannot be exercised against a live server
 // here — its contract is fixed ahead of that landing (per the brief that
 // commissioned this file): a JSON array, each element
-// `{"organisation_id": string, "display_name": string}`, ordered by id,
+// `{"organisation_id": string, "display_name": string, "role": string}`, ordered by id,
 // `[]` when the account belongs to nothing. `design_api.rs`'s module doc
 // gives the reasoning shared by every structured route in this server —
 // canonical JSON, `fathom_canon::Json` — so this parser reads plain
@@ -13,6 +13,12 @@ import { signedFetch } from './signedFetch';
 export interface Organisation {
   organisationId: string;
   displayName: string;
+  /** The signed-in account's own role in it (ADR-0060 decision 7): an admin
+   * may administer it, and Home shows them its Organisation tab. Any value
+   * but `admin`, one this client does not know included, reads as `member`:
+   * the tab is a hint of what the server allows, so failing closed only
+   * hides it. */
+  role: 'admin' | 'member';
 }
 
 /**
@@ -45,7 +51,11 @@ export function parseOrganisations(bytes: Uint8Array): Organisation[] {
     if (typeof record.display_name !== 'string') {
       throw new Error(`malformed /organisations response: entry ${index} has no display_name`);
     }
-    return { organisationId: record.organisation_id, displayName: record.display_name };
+    return {
+      organisationId: record.organisation_id,
+      displayName: record.display_name,
+      role: record.role === 'admin' ? 'admin' : 'member',
+    };
   });
 }
 

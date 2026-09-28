@@ -181,7 +181,7 @@ process's own clock:
 | Plane | Idle | Absolute |
 |---|---|---|
 | Account | 1 hour | 12 hours |
-| Operator (Site) | 15 minutes | 12 hours |
+| Operator (Admin) | 15 minutes | 12 hours |
 
 An idle session's row is deleted the moment a request is checked against it — not on a timer — and
 that deletion is not a recorded sign-out, the same way an expired one is not. NIST SP 800-63B-4
@@ -194,8 +194,8 @@ reasoning behind a number like this be written down; this is that writing.
 
 **A reload keeps the account session, never the operator one.** Decision 4's non-extractable
 session keypair survives a reload in `fathom-tab-sessions`, IndexedDB, one record per browser tab;
-decision 6 keeps the operator (Site) session out of that database entirely; a reload of a tab that
-was in Site always asks for a fresh verification code, however fresh the account session's own
+decision 6 keeps the operator (Admin) session out of that database entirely; a reload of a tab that
+was in Admin always asks for a fresh verification code, however fresh the account session's own
 proof still is. The fifteen-minute grace decision 2 gives that proof is itself gated on a token this
 tab holds only in memory — never written anywhere — so a copied browser profile, which carries
 everything IndexedDB does, still cannot skip the code. Restoring tabs after a browser restart is
