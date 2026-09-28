@@ -1303,3 +1303,22 @@
   z-index: var(--z-modal);
   overflow: auto;
 }
+
+/* The note over an empty design (ADR-0060 decision 4): low on the canvas, clear of
+   the stand-in rack, and never in the way of a drop. */
+.drawing-empty-hint {
+  position: absolute;
+  bottom: var(--s5);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 34em;
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--muted);
+  font-size: var(--t-small);
+  text-align: center;
+  pointer-events: none;
+  z-index: 5;
+}

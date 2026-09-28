@@ -20,6 +20,7 @@ export function TrailPane({ open, onOpenChange, children }: TrailPaneProps) {
         type="button"
         className="shell-strip shell-strip--trail"
         aria-label={open ? 'Close the trail' : 'Open the trail'}
+        title={open ? 'Close the trail' : 'Open the trail'}
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
       >

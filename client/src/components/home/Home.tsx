@@ -630,7 +630,7 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory }: Desig
       </span>
       <span className="home__design-actions">
         <button type="button" className="home__btn" onClick={() => onOpenRacks(organisation, design)}>
-          Racks
+          Canvas
         </button>
         <button type="button" className="home__btn" onClick={() => onOpenInventory(organisation, design)}>
           Inventory

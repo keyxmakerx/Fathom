@@ -35,12 +35,12 @@ const BASE: BarProps = {
 describe('Bar — what is present where', () => {
   it('with a design open: the place tabs act, and Undo, Redo and zoom are there', () => {
     const markup = renderToStaticMarkup(createElement(Bar, BASE));
-    expect(markup).toContain('<button type="button" class="shell-bar__tab shell-bar__tab--on">Racks</button>');
+    expect(markup).toContain('<button type="button" class="shell-bar__tab shell-bar__tab--on">Canvas</button>');
     expect(markup).toContain('Undo');
     expect(markup).toContain('aria-label="Zoom in"');
   });
 
-  it('shows only the lenses that change the place: Racks Cables and Routing; Inventory also Power and Owner', () => {
+  it('shows only the lenses that change the place: Canvas Cables and Routing; Inventory also Power and Owner', () => {
     const racks = renderToStaticMarkup(createElement(Bar, BASE));
     expect(racks).toContain('>Routing<');
     expect(racks).not.toContain('>Links<');
@@ -64,7 +64,7 @@ describe('Bar — what is present where', () => {
 
   it('with nothing open (Home, Site): the place names are not controls, and Undo, Redo and zoom are absent', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null }));
-    expect(markup).toContain('<span class="shell-bar__tab">Racks</span>');
+    expect(markup).toContain('<span class="shell-bar__tab">Canvas</span>');
     expect(markup).not.toContain('Undo');
     expect(markup).not.toContain('aria-label="Zoom in"');
   });
