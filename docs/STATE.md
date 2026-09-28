@@ -316,6 +316,11 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   3" on a chip not every member carries. Quick search finds devices, racks and ports by tag. The
   Inventory column and filter, tags in the cable filter (#54), and search over cables, VLANs and
   containers are not built.
+- **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
+  lists every library the web app ships, with its licence and copyright line. The canvas no longer
+  shows React Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's
+  licence is off deny.toml's list (build tools may also be MPL-2.0), or when the About list and the
+  lockfile disagree; `--write` regenerates the list.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;

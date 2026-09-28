@@ -116,6 +116,11 @@ jobs:
       - name: No user-facing surface claims what ADR-0040 §6 forbids
         run: ./scripts/forbidden-claims.sh
 
+      # ADR-0060 decision 12: every client package is under a licence on deny.toml's list
+      # (build tools may also be MPL-2.0), and the About page lists what the lockfile ships.
+      - name: Licences — every client package is free to use
+        run: node scripts/licences-npm.mjs
+
       # The gates' own tests. A gate nobody has watched fail is not known to work,
       # so each of these drives its gate over fixtures and asserts it FAILS on the
       # bad case — including the August 2026 shape, proc-macro1 beside proc-macro2.
@@ -126,6 +131,7 @@ jobs:
           ./scripts/tests/lockfile-lookalikes-test.sh
           ./scripts/tests/crate-cooldown-test.sh
           ./scripts/tests/forbidden-claims-test.sh
+          ./scripts/tests/licences-npm-test.sh
 
       # ---- Layers 2 and 3, still before anything compiles. ----
 

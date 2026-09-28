@@ -7,6 +7,7 @@ import { fetchOrganisations, type Organisation } from '../../api/organisations';
 import { createScope, fetchScopes, type Scope } from '../../api/scopes';
 import { emptyDocument } from '../../document/model';
 import { writePlain } from '../../document/plain';
+import { About } from '../about/About';
 import { canDrawFor } from '../design/useDesignSession';
 import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
@@ -76,6 +77,7 @@ export function Home({
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
   const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
   const [landed, setLanded] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // "New design" (ADR-0054 §2, draw creates a design): which scope's button
   // is mid-request, and the last refusal, if any. Never more than one
@@ -286,6 +288,11 @@ export function Home({
         )}
       </aside>
 
+      {aboutOpen ? (
+        <main className="home__centre">
+          <About onBack={() => setAboutOpen(false)} />
+        </main>
+      ) : (
       <main className="home__centre">
         {notice && (
           <p className="home__error" role="alert">
@@ -351,12 +358,16 @@ export function Home({
           )}
         </section>
       </main>
+      )}
 
       <aside className="home__panel">
         <div className="home__label">You</div>
         <div className="home__you-address m">{address}</div>
         <button type="button" className="home__btn" onClick={() => void signOut()}>
           Sign out
+        </button>
+        <button type="button" className="about-link" onClick={() => setAboutOpen(true)}>
+          About Fathom
         </button>
       </aside>
     </div>

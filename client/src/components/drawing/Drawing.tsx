@@ -85,6 +85,9 @@ const NODE_TYPES = {
 };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
 
+// React Flow's corner credit link is hidden; the About page credits the library (ADR-0060).
+const PRO_OPTIONS = { hideAttribution: true };
+
 /** ADR-0050 §2: "a rack with no row is its own row." `view.rows` is the
  * document builder's own logic (`document/view.ts`'s session note) and may
  * not be populated yet; this falls back to grouping `view.racks` by each
@@ -1230,6 +1233,7 @@ function DrawingInner({
         onMoveEnd={handleMoveEnd}
         onNodeClick={handleNodeClick}
         onPaneClick={() => onSelect(null)}
+        proOptions={PRO_OPTIONS}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         minZoom={MIN_ZOOM}

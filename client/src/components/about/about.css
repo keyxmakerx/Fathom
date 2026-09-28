@@ -1,0 +1,62 @@
+/* The About page: plain CSS on design/tokens.css's variables. */
+
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  max-width: 880px;
+}
+
+.about__title {
+  font-size: var(--t-title);
+  font-weight: 700;
+}
+
+.about__lede {
+  color: var(--muted);
+  max-width: 64ch;
+}
+
+.about__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.about__table th {
+  text-align: left;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.about__table td {
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  vertical-align: top;
+}
+
+.about__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.about__muted {
+  color: var(--muted);
+}
+
+/* The quiet link that opens this page from the home screen's "You" panel. */
+.about-link {
+  align-self: flex-start;
+  padding: 0;
+  margin-top: var(--s2);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--t-small);
+  text-decoration: underline;
+  cursor: pointer;
+}
