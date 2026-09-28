@@ -2,8 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { captureOf } from '../../document/capture';
 import { connectPorts, disconnect, type Sheath } from '../../document/cables';
-import { SURFACE_FORMS, createBoard, createSketchDevice, moveChassis, movePlacement, placeChassis, removeChassis } from '../../document/commands';
-import { isDeviceRole, setDeviceField } from '../../document/edit';
+import {
+  SURFACE_FORMS,
+  createBoard,
+  createSketchDevice,
+  createSurface,
+  isSurfaceForm,
+  moveChassis,
+  movePlacement,
+  placeChassis,
+  removeChassis,
+} from '../../document/commands';
+import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine } from '../../engine/engine';
@@ -15,9 +25,9 @@ import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
-import { ensureRackToPlaceInto } from './emptyDesign';
+import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
-import { isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
+import { SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
 
@@ -66,7 +76,7 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
 
 /** What an empty design says (ADR-0060 decision 4). */
 const EMPTY_HINT =
-  'An empty design. Open Equipment on the left and drag a device onto the rack, or add a wall, floor or desk from the same list.';
+  'An empty design. Open Equipment on the left and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
 
 /**
  * ADR-0051 §1 — "+ add a surface". There is no
@@ -74,27 +84,14 @@ const EMPTY_HINT =
  * yet) and no separate page header for the Racks place
  * (`shell/types.ts`'s `ShellProps` has no header slot); the rail — this
  * place's one persistent control surface, today just `Palette` — is the
- * nearest thing that exists, so this sits above it. Disabled until a
- * premises exists: `createSurface` needs a real `premisesId`
- * (`document/commands.ts`'s own doc), and there is no standalone "make a
- * premises" command to reach for the way `handlePlace`'s
- * `ensureRackToPlaceInto` mints one alongside a rack.
+ * nearest thing that exists, so this sits above it. A design with no
+ * premises yet gets one alongside the surface (`handleAddSurface`).
  */
-function AddSurfaceControl({
-  premisesId,
-  onAdd,
-}: {
-  premisesId: string;
-  onAdd: (label: string, form: string) => { refused: string } | void;
-}) {
+function AddSurfaceControl({ onAdd }: { onAdd: (label: string, form: string) => { refused: string } | void }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
   const [form, setForm] = useState<string>(SURFACE_FORMS[0]);
   const [refusal, setRefusal] = useState<string | null>(null);
-
-  if (premisesId === '') {
-    return null;
-  }
 
   if (!open) {
     return (
@@ -634,6 +631,57 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange, accountId],
   );
 
+  // A wall, floor or desk. A brand-new design has no premises yet, so one is
+  // made alongside the surface, the way `handlePlace` makes one for a rack.
+  const handleAddSurface = useCallback(
+    (label: string, form: string): { refused: string } | void => {
+      if (doc == null) return;
+      if (realView.premisesId !== '') return handleEdit({ kind: 'create-surface', premisesId: realView.premisesId, label, form });
+      try {
+        // As `handleEdit`'s own 'create-surface' branch.
+        if (!isSurfaceForm(form)) throw new FieldValueError('Surface.form', form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
+        const opts = actorOpts(accountId);
+        const created = createPremises(doc, opts);
+        applyDocChange(createSurface(created.doc, created.premisesId, { ...(opts ?? {}), label, form }));
+      } catch (e) {
+        return refusalFor(e);
+      }
+    },
+    [doc, realView.premisesId, handleEdit, applyDocChange, accountId],
+  );
+
+  // The right-click menu's actions (ADR-0060 decision 4).
+  const handleAddRack = useCallback(
+    (heightU: number) => {
+      if (doc == null) return;
+      const label = nextName(realView.racks.map((r) => r.label), 'Rack');
+      try {
+        const premisesId = realView.premisesId === '' ? null : realView.premisesId;
+        applyDocChange(addRack(doc, premisesId, { ...(actorOpts(accountId) ?? {}), label, heightU }).doc);
+      } catch {
+        // As `handlePlace`: a refusal leaves the document as it was.
+      }
+    },
+    [doc, realView.premisesId, realView.racks, applyDocChange, accountId],
+  );
+  const handleAddWall = useCallback(() => {
+    handleAddSurface(nextName(realView.surfaces.map((s) => s.label), 'Wall'), 'wall');
+  }, [realView.surfaces, handleAddSurface]);
+  const handleAddDevice = useCallback(
+    (rackId: string) => {
+      const rack = displayView.racks.find((r) => r.id === rackId);
+      const positionU = rack ? highestFreeU(rack, SKETCH_DEVICE_PALETTE_ITEM.rackUnits) : null;
+      if (positionU !== null) handlePlace(rackId, SKETCH_DEVICE_PALETTE_ITEM, positionU);
+    },
+    [displayView.racks, handlePlace],
+  );
+  const handleDuplicateDevice = useCallback(
+    (chassisId: string) => {
+      handleEdit({ kind: 'duplicate-device', chassisId });
+    },
+    [handleEdit],
+  );
+
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession`, so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
@@ -690,10 +738,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // that could never write.
   const rail = canDraw ? (
     <>
-      <AddSurfaceControl
-        premisesId={realView.premisesId}
-        onAdd={(label, form) => handleEdit({ kind: 'create-surface', premisesId: realView.premisesId, label, form })}
-      />
+      <AddSurfaceControl onAdd={handleAddSurface} />
       {/* ADR-0051 §1/§2 — `paletteRows` adds
           the sketch-device and board rows beside the catalogue's own
           models; `AddShelfControl`'s own model dropdown (inside `editor`
@@ -719,6 +764,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
           onRemoveDevice={handleRemoveDevice}
+          onDuplicateDevice={canDraw ? handleDuplicateDevice : undefined}
+          onAddDevice={canDraw ? handleAddDevice : undefined}
+          onAddRack={canDraw ? handleAddRack : undefined}
+          onAddWall={canDraw ? handleAddWall : undefined}
           onSelect={setSelection}
           canDraw={canDraw}
           renderConfigDrawer={renderConfigDrawer}
