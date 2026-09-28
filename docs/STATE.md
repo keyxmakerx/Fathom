@@ -325,6 +325,9 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   42U, 24U and 12U or a typed height, and refuses one below anything mounted in it, naming it.
   Moving a device onto a wall, floor, desk or board no longer asks for a position in millimetres;
   the surface lays it out. Dragging onto a surface comes with free boxes on the canvas (step 7).
+- **New design without a Site** (ADR-0060 decision 6). The home screen's own "New design" puts the
+  design in the first Site the person may draw in, else a Building or Closet they may draw in, else a
+  new Site named after the organisation. Design names are not built yet.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;
