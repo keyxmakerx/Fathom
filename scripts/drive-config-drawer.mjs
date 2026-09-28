@@ -251,7 +251,7 @@ try {
   // "Exactly one place to go" (ADR-0046 §3) lands the browser directly on
   // Racks — no Home click, no sign-in door, since the harness installs the
   // session and the one organisation/design pair directly.
-  await page.click('button[aria-label="Open the rail"]');
+  await page.click('button[aria-label="Open the equipment list"]');
   await page.waitForSelector('.drawing-palette__item', { timeout: 15_000 });
   await page.waitForSelector('[data-id="rack:pending-rack"]', { timeout: 15_000 });
 
@@ -266,7 +266,7 @@ try {
   // outside a real pointer.
   const dropped = await page.evaluate(() => {
     const items = Array.from(document.querySelectorAll('.drawing-palette__item'));
-    const src = items.find((el) => el.textContent?.includes('sketch-device'));
+    const src = items.find((el) => el.textContent?.includes('Any device'));
     const tgt = document.querySelector('[data-id="rack:pending-rack"]');
     if (!src || !tgt) return false;
     const rect = tgt.getBoundingClientRect();

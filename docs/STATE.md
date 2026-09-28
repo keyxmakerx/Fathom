@@ -328,6 +328,14 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
 - **New design without a Site** (ADR-0060 decision 6). The home screen's own "New design" puts the
   design in the first Site the person may draw in, else a Building or Closet they may draw in, else a
   new Site named after the organisation. Design names are not built yet.
+- **Plainer canvas words** (ADR-0060 decisions 1 and 4):
+  - The Racks place is called Canvas.
+  - The left strip is one button reading "Equipment" that opens the equipment list; the three marks
+    that did nothing are gone.
+  - The list names its built-in items "Any device" and "Backboard" instead of their model ids.
+  - "+ add a surface" reads "+ Add a wall, floor or desk".
+  - An empty design shows a note saying what to do.
+  - The zoom, account and trail controls name themselves on hover.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;

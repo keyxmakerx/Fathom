@@ -238,6 +238,8 @@ export interface DrawingProps extends DrawingActions {
    * "reuse what is already there" reading `litCableId` above gives the
    * rail hexagon's own hover. `null`/absent lights nothing. */
   litPortLabel?: string | null;
+  /** Shown over an empty design, saying what to do next (ADR-0060 decision 4). */
+  emptyHint?: string | null;
 }
 
 type AnyRackNode = RackNodeType;
@@ -306,6 +308,7 @@ function DrawingInner({
   renderConfigDrawer,
   renderInsideStop,
   litPortLabel,
+  emptyHint,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -1273,6 +1276,11 @@ function DrawingInner({
           — never part of the React Flow pane, so it survives a pan or zoom
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
+      {emptyHint ? (
+        <p className="drawing-empty-hint" role="note">
+          {emptyHint}
+        </p>
+      ) : null}
       {pendingConnect && (
         <ColourPicker
           kind={pendingConnect.kind}

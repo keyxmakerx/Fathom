@@ -626,7 +626,7 @@ async function dragPaletteItemOntoRack(page, itemIndex = 0, slot = 0) {
 }
 
 async function openTheRail(page) {
-  const handle = page.getByRole('button', { name: 'Open the rail' });
+  const handle = page.getByRole('button', { name: 'Open the equipment list' });
   if (await handle.count() > 0) {
     await handle.click();
   }

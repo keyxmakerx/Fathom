@@ -35,7 +35,7 @@ export function Palette({ palette }: PaletteProps) {
         >
           <div className="drawing-palette__item-head">
             <span className="drawing-palette__vendor">{item.vendor}</span>
-            <span className="drawing-palette__model">{item.model}</span>
+            <span className="drawing-palette__model">{item.label ?? item.model}</span>
             <span className="drawing-palette__units">{item.rackUnits}U</span>
           </div>
           <div className="drawing-palette__summary">{item.summary}</div>

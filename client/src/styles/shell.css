@@ -499,8 +499,26 @@ button.shell-search {
   color: var(--ink);
 }
 
-.shell-strip__mark {
+/* The equipment list's strip: the whole strip is the button, like the trail's. */
+.shell-strip--rail {
+  margin: 0;
+  padding: 6px 0 0;
+  border: none;
+  border-right: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-strip--rail:hover,
+.shell-strip--rail:hover .shell-strip__handle {
   color: var(--ink);
+}
+
+.shell-strip--rail:focus-visible {
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: -2px;
 }
 
 .shell-rail {

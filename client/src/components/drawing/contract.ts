@@ -323,4 +323,6 @@ export interface PaletteItem {
   model: string;
   rackUnits: number;
   summary: string;
+  /** Shown instead of `model` when set: the built-in items' plain names. */
+  label?: string;
 }

@@ -135,7 +135,7 @@ try {
   await page.goto(`${BASE}/drive.html`);
   // The harness installs the session directly (ADR-0046 §3: "exactly one
   // place to go") — no Home click, no sign-in door.
-  await page.click('button[aria-label="Open the rail"]');
+  await page.click('button[aria-label="Open the equipment list"]');
   await page.waitForSelector('.drawing-palette__item', { timeout: 15_000 });
   await page.waitForSelector('[data-id="rack:pending-rack"]', { timeout: 15_000 });
 
@@ -144,7 +144,7 @@ try {
   // copy lands right next to it, both in view for cabling below.
   const dropped = await page.evaluate(() => {
     const items = Array.from(document.querySelectorAll('.drawing-palette__item'));
-    const src = items.find((el) => el.textContent?.includes('sketch-device'));
+    const src = items.find((el) => el.textContent?.includes('Any device'));
     const tgt = document.querySelector('[data-id="rack:pending-rack"]');
     if (!src || !tgt) return false;
     const rect = tgt.getBoundingClientRect();

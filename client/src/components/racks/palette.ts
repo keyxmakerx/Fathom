@@ -52,6 +52,7 @@ export const SKETCH_DEVICE_PALETTE_ITEM: PaletteItem = {
   model: SKETCH_DEVICE_MODEL,
   rackUnits: 1,
   summary: 'No catalogue entry — name it, then type its ports',
+  label: 'Any device',
 };
 
 export const BOARD_PALETTE_ITEM: PaletteItem = {
@@ -59,6 +60,7 @@ export const BOARD_PALETTE_ITEM: PaletteItem = {
   model: BOARD_MODEL,
   rackUnits: 1,
   summary: 'Plywood fixed to a wall, floor, desk or ceiling — other things fix to it',
+  label: 'Backboard',
 };
 
 export function isSketchDevicePaletteItem(item: Pick<PaletteItem, 'vendor' | 'model'>): boolean {

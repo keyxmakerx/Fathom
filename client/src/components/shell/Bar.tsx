@@ -155,7 +155,7 @@ export function Bar({
         <div className="shell-bar__tabs">
           {place === null ? (
             <>
-              <span className="shell-bar__tab">Racks</span>
+              <span className="shell-bar__tab">Canvas</span>
               <span className="shell-bar__tab">Inventory</span>
             </>
           ) : (
@@ -165,7 +165,7 @@ export function Bar({
                 className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
                 onClick={() => onPlaceChange('racks')}
               >
-                Racks
+                Canvas
               </button>
               <button
                 type="button"
@@ -298,17 +298,17 @@ export function Bar({
         {place === 'racks' && (
           <>
             <div className="shell-bar__zoom">
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" onClick={onZoomOut}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title="Zoom out" onClick={onZoomOut}>
                 &minus;
               </button>
               {onZoomFit ? (
-                <button type="button" className="shell-zoom-value" aria-label="Fit to view" onClick={onZoomFit}>
+                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title="Fit to view" onClick={onZoomFit}>
                   {zoom}%
                 </button>
               ) : (
                 <span className="shell-zoom-value">{zoom}%</span>
               )}
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" onClick={onZoomIn}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title="Zoom in" onClick={onZoomIn}>
                 +
               </button>
             </div>
@@ -325,6 +325,7 @@ export function Bar({
                 triggerRef.current = node;
               }}
               aria-label="Account menu"
+              title="Account menu"
               aria-haspopup={triggerProps['aria-haspopup']}
               aria-expanded={triggerProps['aria-expanded']}
               aria-controls={triggerProps['aria-controls']}

@@ -61,6 +61,10 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
   bay: null,
 };
 
+/** What an empty design says (ADR-0060 decision 4). */
+const EMPTY_HINT =
+  'An empty design. Open Equipment on the left and drag a device onto the rack, or add a wall, floor or desk from the same list.';
+
 /**
  * ADR-0051 §1 — "+ add a surface". There is no
  * premises editor (`EditorFor`'s own `Selection` has no `'premises'` kind
@@ -92,7 +96,7 @@ function AddSurfaceControl({
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}>
-        + add a surface
+        + Add a wall, floor or desk
       </button>
     );
   }
@@ -685,6 +689,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
+          emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 ? EMPTY_HINT : null}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}
