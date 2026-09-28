@@ -78,5 +78,28 @@ export function isBoardPaletteItem(item: Pick<PaletteItem, 'vendor' | 'model'>):
  * `paletteFromCatalogue` alone, so a shelf's own optional model never
  * offers "sketch-device" or "board" as if either were one). */
 export function paletteRows(catalogue: readonly CatalogueModel[]): PaletteItem[] {
-  return [...paletteFromCatalogue(catalogue), SKETCH_DEVICE_PALETTE_ITEM, BOARD_PALETTE_ITEM];
+  return [
+    ...COMMON_PALETTE_ITEMS,
+    { ...SKETCH_DEVICE_PALETTE_ITEM, group: 'Common' },
+    { ...BOARD_PALETTE_ITEM, group: 'On a wall' },
+    ...paletteFromCatalogue(catalogue).map((item) => ({ ...item, group: 'Exact models' })),
+  ];
 }
+
+/** Common devices, listed first (ADR-0060 decision 4): a sketch device placed
+ * with its role set and a name to change, such as router-1. */
+export const COMMON_PALETTE_ITEMS: readonly PaletteItem[] = [
+  ['Router', 'router'],
+  ['Switch', 'switch'],
+  ['Firewall', 'firewall'],
+  ['Server', 'server'],
+  ['Access point', 'access_point'],
+].map(([label, role]) => ({
+  vendor: SKETCH_DEVICE_PALETTE_ITEM.vendor,
+  model: SKETCH_DEVICE_MODEL,
+  rackUnits: 1,
+  summary: 'Named for you; choose its model or type its ports later',
+  label,
+  role,
+  group: 'Common',
+}));

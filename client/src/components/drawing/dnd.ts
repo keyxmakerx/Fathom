@@ -8,10 +8,13 @@ export interface PaletteDragPayload {
   vendor: string;
   model: string;
   rackUnits: number;
+  /** A common device's role, carried so a dragged "Router" lands as one. */
+  role?: string;
 }
 
 export function encodePaletteDrag(item: PaletteItem): string {
   const payload: PaletteDragPayload = { vendor: item.vendor, model: item.model, rackUnits: item.rackUnits };
+  if (item.role !== undefined) payload.role = item.role;
   return JSON.stringify(payload);
 }
 
@@ -28,7 +31,8 @@ export function decodePaletteDrag(raw: string): PaletteDragPayload | null {
       typeof (parsed as PaletteDragPayload).model === 'string' &&
       typeof (parsed as PaletteDragPayload).rackUnits === 'number'
     ) {
-      return parsed as PaletteDragPayload;
+      const { vendor, model, rackUnits, role } = parsed as PaletteDragPayload;
+      return typeof role === 'string' ? { vendor, model, rackUnits, role } : { vendor, model, rackUnits };
     }
     return null;
   } catch {

@@ -314,6 +314,24 @@ try {
   await page.screenshot({ path: SHOTS + 'H-06-undo.png' });
   console.log('    wrote ' + SHOTS + 'H-06-undo.png');
 
+  // ADR-0060 decision 4: the equipment list's search narrows it, and a click
+  // adds a common device where there is room, named and with its role set.
+  if (!(await page.locator('.drawing-palette__search').isVisible())) {
+    await page.click('button[aria-label="Open the equipment list"]');
+  }
+  const chassisBeforeClick = await page.locator('.react-flow__node-chassis').count();
+  await page.getByRole('searchbox', { name: 'Search equipment' }).fill('router');
+  const shownRows = await page.locator('.drawing-palette__item').allTextContents();
+  check(
+    'searching "router" keeps the Router row and drops the others',
+    shownRows.some((row) => row.includes('Router')) && !shownRows.some((row) => row.includes('Any device')),
+    JSON.stringify(shownRows),
+  );
+  await page.locator('.drawing-palette__item', { hasText: 'Router' }).click();
+  await page.waitForTimeout(400);
+  check('clicking Router adds one device to the rack', (await page.locator('.react-flow__node-chassis').count()) === chassisBeforeClick + 1);
+  check('the new device is named router-1', (await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).count()) === 1);
+
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
   await browser.close();

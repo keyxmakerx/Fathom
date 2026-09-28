@@ -667,6 +667,39 @@
   cursor: grabbing;
 }
 
+.drawing-palette__item:hover,
+.drawing-palette__item:focus-visible {
+  background: var(--surface);
+}
+
+.drawing-palette__item:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: -1px;
+}
+
+/* The equipment list's search box and headings (ADR-0060 decision 4). */
+.drawing-palette__search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: var(--s2) 0;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--hairline);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+}
+
+.drawing-palette__group {
+  padding: var(--s3) var(--s3) var(--s1);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+}
+
 .drawing-palette__item-head {
   display: flex;
   align-items: baseline;
