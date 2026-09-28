@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CatalogueModel } from '../../api/catalogue';
 import { placeChassis } from '../../document/commands';
 import { edgesOut, emptyDocument, findNode, readChassisFields, readPremisesFields, readRackFields } from '../../document/model';
-import { createPremises, ensureRackToPlaceInto } from './emptyDesign';
+import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 
 const NOW = 1_700_000_000_000;
 
@@ -80,5 +80,31 @@ describe('ensureRackToPlaceInto — the "first placement creates the premises an
     const before = JSON.stringify(doc);
     ensureRackToPlaceInto(doc, null, { now: NOW });
     expect(JSON.stringify(doc)).toBe(before);
+  });
+});
+
+describe('addRack — the right-click menu\'s "Add a 24U rack"', () => {
+  it('mints a Premises first when the document has none, then a rack of the chosen size and name', () => {
+    const { doc, premisesId, rackId } = addRack(emptyDocument(), null, { label: 'Rack 1', heightU: 24, now: NOW });
+    expect(findNode(doc, premisesId)).toBeDefined();
+    const rack = readRackFields(findNode(doc, rackId)!);
+    expect(rack.label).toBe('Rack 1');
+    expect(rack.heightU).toBe(24);
+  });
+
+  it('adds a second rack beside the first under the same Premises', () => {
+    const first = addRack(emptyDocument(), null, { label: 'Rack 1', heightU: 42, now: NOW });
+    const second = addRack(first.doc, first.premisesId, { label: 'Rack 2', heightU: 12, now: NOW + 1 });
+    expect(second.premisesId).toBe(first.premisesId);
+    expect(second.rackId).not.toBe(first.rackId);
+    expect(readRackFields(findNode(second.doc, second.rackId)!).heightU).toBe(12);
+  });
+});
+
+describe('nextName', () => {
+  it('counts from 1 and skips names in use', () => {
+    expect(nextName([], 'Rack')).toBe('Rack 1');
+    expect(nextName(['Rack 1', 'Rack 3'], 'Rack')).toBe('Rack 2');
+    expect(nextName(['Wall 1'], 'Wall')).toBe('Wall 2');
   });
 });

@@ -81,16 +81,27 @@ export interface EnsuredRack {
  * labelled yet — the same spirit as `DEFAULT_PREMISES_LABEL`. */
 const DEFAULT_RACK_OPTIONS = { label: 'Rack 1', heightU: 42, unitNumbering: 'ascending' as const };
 
+/** Pure: the first free name like "Rack 2", counting from 1, so a new rack or
+ * wall never repeats a name already on the canvas. */
+export function nextName(taken: Iterable<string>, prefix: string): string {
+  const names = new Set(taken);
+  let n = 1;
+  while (names.has(`${prefix} ${n}`)) n += 1;
+  return `${prefix} ${n}`;
+}
+
 /**
- * A Rack to place the first thing into, minting whatever this document is
- * missing to hold it: a `Premises` if `premisesId` is `null` (this
+ * A new Rack, minting a `Premises` first if `premisesId` is `null` (this
  * document has none yet — `document/view.ts`'s `viewOf` returning
- * `premisesId: ''`), then always a fresh `Rack` under it via
- * `document/commands.ts`'s own `createRack`. The new rack's id is read
- * back from the node `createRack` actually added, not guessed from ulid
- * ordering.
+ * `premisesId: ''`), via `document/commands.ts`'s own `createRack`. The new
+ * rack's id is read back from the node `createRack` actually added, not
+ * guessed from ulid ordering.
  */
-export function ensureRackToPlaceInto(doc: Document, premisesId: string | null, opts?: Actor): EnsuredRack {
+export function addRack(
+  doc: Document,
+  premisesId: string | null,
+  opts: Actor & { label: string; heightU: number },
+): EnsuredRack {
   let working = doc;
   let resolvedPremisesId = premisesId;
   if (resolvedPremisesId === null) {
@@ -100,11 +111,17 @@ export function ensureRackToPlaceInto(doc: Document, premisesId: string | null, 
   }
 
   const beforeIds = new Set(working.nodes.map((n) => n.id));
-  const withRack = createRack(working, resolvedPremisesId, { ...DEFAULT_RACK_OPTIONS, ...opts });
+  const withRack = createRack(working, resolvedPremisesId, { unitNumbering: 'ascending', ...opts });
   const newRack = withRack.nodes.find((n) => !beforeIds.has(n.id));
   if (!newRack) {
     throw new Error('createRack did not add a node');
   }
 
   return { doc: withRack, premisesId: resolvedPremisesId, rackId: newRack.id };
+}
+
+/** A Rack to place the first thing into: `addRack` with the default size
+ * and name. */
+export function ensureRackToPlaceInto(doc: Document, premisesId: string | null, opts?: Actor): EnsuredRack {
+  return addRack(doc, premisesId, { ...DEFAULT_RACK_OPTIONS, ...opts });
 }

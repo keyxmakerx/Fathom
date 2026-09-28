@@ -332,6 +332,54 @@ try {
   check('clicking Router adds one device to the rack', (await page.locator('.react-flow__node-chassis').count()) === chassisBeforeClick + 1);
   check('the new device is named router-1', (await page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).count()) === 1);
 
+  // ADR-0060 decision 4: a right-click opens Fathom's own menu, not the
+  // browser's. Points are found on screen, not guessed: the first spot where
+  // the empty canvas itself is under the pointer, and the middle of a device
+  // nothing covers.
+  const panePoint = await page.evaluate(() => {
+    const pane = document.querySelector('.react-flow__pane');
+    const r = pane.getBoundingClientRect();
+    for (let fy = 0.9; fy >= 0.1; fy -= 0.1) {
+      for (let fx = 0.1; fx <= 0.9; fx += 0.1) {
+        const x = r.left + r.width * fx;
+        const y = r.top + r.height * fy;
+        if (document.elementFromPoint(x, y) === pane) return { x, y };
+      }
+    }
+    return null;
+  });
+  check('found a spot of empty canvas to right-click', panePoint != null);
+  const racksBeforeMenu = await page.locator('.react-flow__node-rack').count();
+  await page.mouse.click(panePoint.x, panePoint.y, { button: 'right' });
+  const menu = page.getByRole('menu');
+  check('right-clicking the empty canvas opens the menu', await menu.isVisible());
+  await page.keyboard.press('Escape');
+  check('Escape closes the menu', (await menu.count()) === 0);
+  await page.mouse.click(panePoint.x, panePoint.y, { button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Add a 24U rack' }).click();
+  await page.waitForTimeout(400);
+  check('"Add a 24U rack" adds a rack', (await page.locator('.react-flow__node-rack').count()) === racksBeforeMenu + 1);
+
+  const devicePoint = await page.evaluate(() => {
+    const pane = document.querySelector('.react-flow__pane').getBoundingClientRect();
+    for (const el of document.querySelectorAll('.react-flow__node-chassis')) {
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      if (x < pane.left || x > pane.right || y < pane.top || y > pane.bottom) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (hit && el.contains(hit)) return { x, y };
+    }
+    return null;
+  });
+  check('found a device on screen to right-click', devicePoint != null);
+  const chassisBeforeDuplicate = await page.locator('.react-flow__node-chassis').count();
+  await page.mouse.click(devicePoint.x, devicePoint.y, { button: 'right' });
+  await page.screenshot({ path: SHOTS + 'H-07-menu.png' });
+  await menu.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await page.waitForTimeout(400);
+  check('"Duplicate" on a device adds a copy', (await page.locator('.react-flow__node-chassis').count()) === chassisBeforeDuplicate + 1);
+
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
   await browser.close();

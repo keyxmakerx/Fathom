@@ -1355,3 +1355,38 @@
   pointer-events: none;
   z-index: 5;
 }
+
+/* The right-click menu (ADR-0060 decision 4): a flat hairline box at the pointer. */
+.drawing-context-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s1) 0;
+  border: 1px solid var(--ink);
+  background: var(--page);
+}
+
+.drawing-context-menu__item {
+  padding: var(--s1) var(--s3);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawing-context-menu__item:hover,
+.drawing-context-menu__item:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.drawing-context-menu__item--danger {
+  margin-top: var(--s1);
+  border-top: 1px solid var(--hairline);
+  color: var(--danger);
+}

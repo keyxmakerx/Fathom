@@ -90,6 +90,14 @@ export interface DrawingActions {
    * undo is the caller's job. Optional, same reading as `onConnect`/
    * `onDisconnect`. */
   onRemoveDevice?(chassisId: string): void;
+  /** The right-click menu's actions (ADR-0060 decision 4). Each is optional,
+   * and an absent one leaves its item out of the menu, so a reader's menu
+   * offers only Details. */
+  onDuplicateDevice?(chassisId: string): void;
+  /** Adds a sketch device at the highest free unit of `rackId`. */
+  onAddDevice?(rackId: string): void;
+  onAddRack?(heightU: number): void;
+  onAddWall?(): void;
   /** ADR-0053 §1/§3 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete

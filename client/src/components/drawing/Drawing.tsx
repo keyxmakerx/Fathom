@@ -8,6 +8,7 @@ import {
   useReactFlow,
   type ConnectionLineComponentProps,
   type Edge,
+  type EdgeMouseHandler,
   type FinalConnectionState,
   type IsValidConnection,
   type NodeMouseHandler,
@@ -47,6 +48,8 @@ import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type Chassis
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
+import { ContextMenu } from './ContextMenu';
+import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
 import { portSheathEqual } from './nodeEquality';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeType } from './RackNode';
@@ -302,6 +305,10 @@ function DrawingInner({
   onConnect,
   onDisconnect,
   onRemoveDevice,
+  onDuplicateDevice,
+  onAddDevice,
+  onAddRack,
+  onAddWall,
   onUndo,
   onRedo,
   canDraw,
@@ -347,6 +354,41 @@ function DrawingInner({
   // it into the page coordinates the colour picker's `position: fixed`
   // overlay actually needs.
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ADR-0060 decision 4: a right-click opens Fathom's own menu, not the
+  // browser's. The items are built at render from the current actions, so a
+  // choice never acts through a handler the menu opened over. A reader gets
+  // only Details, the same `canDraw` gate the delete key has.
+  const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
+  const menuActions: MenuActions = canDraw
+    ? { onSelect, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall }
+    : { onSelect };
+  const menuActionsRef = useRef(menuActions);
+  useLayoutEffect(() => {
+    menuActionsRef.current = menuActions;
+  });
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const openMenu = useCallback((event: { clientX: number; clientY: number; preventDefault(): void }, target: MenuTarget) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    // Nothing to offer (a reader on the empty canvas): the browser's own menu.
+    if (!rect || menuItemsFor(target, menuActionsRef.current).length === 0) return;
+    event.preventDefault();
+    setMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top, target });
+  }, []);
+  // A wall, shelf, tray or row label has no menu of its own yet; it offers
+  // what the empty canvas does.
+  const handleNodeContextMenu: NodeMouseHandler = useCallback(
+    (event, node) => openMenu(event, parseNodeId(node.id) ?? { kind: 'pane' }),
+    [openMenu],
+  );
+  const handleEdgeContextMenu: EdgeMouseHandler = useCallback(
+    (event, edge) => openMenu(event, edge.type === 'cable' ? { kind: 'cable', id: edge.id } : { kind: 'pane' }),
+    [openMenu],
+  );
+  const handlePaneContextMenu = useCallback(
+    (event: { clientX: number; clientY: number; preventDefault(): void }) => openMenu(event, { kind: 'pane' }),
+    [openMenu],
+  );
 
   // Drag-to-connect (UI-SPEC "Cables", "Drag-to-connect") and cable
   // selection/hover (UI-SPEC "Selection").
@@ -581,7 +623,10 @@ function DrawingInner({
   // programmatic `setCenter`, `fitView` or auto-pan has none.
   const personMovingRef = useRef(false);
   const handleMoveStart: OnMove = useCallback((event) => {
-    if (event != null) personMovingRef.current = true;
+    if (event != null) {
+      personMovingRef.current = true;
+      setMenu(null);
+    }
   }, []);
   const handleMove: OnMove = useCallback((_event, vp) => followCamera(vp), [followCamera]);
   const handleMoveEnd: OnMove = useCallback(
@@ -1236,6 +1281,9 @@ function DrawingInner({
         onMoveEnd={handleMoveEnd}
         onNodeClick={handleNodeClick}
         onPaneClick={() => onSelect(null)}
+        onNodeContextMenu={handleNodeContextMenu}
+        onEdgeContextMenu={handleEdgeContextMenu}
+        onPaneContextMenu={handlePaneContextMenu}
         proOptions={PRO_OPTIONS}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
@@ -1280,6 +1328,15 @@ function DrawingInner({
         <p className="drawing-empty-hint" role="note">
           {emptyHint}
         </p>
+      ) : null}
+      {menu ? (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          items={menuItemsFor(menu.target, menuActions)}
+          onClose={closeMenu}
+        />
       ) : null}
       {pendingConnect && (
         <ColourPicker

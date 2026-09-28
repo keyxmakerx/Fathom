@@ -341,6 +341,16 @@ Built at `client/` in React, Vite and React Flow; typecheck, tests and build gre
   row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
   common device arrives named (router-1) with its role set, dragged or clicked. Clicking Backboard
   puts one on the first wall, floor or desk.
+- **Right-click menus** (ADR-0060 decision 4) replace the browser's on the canvas:
+  - A device offers Details, Duplicate and Remove.
+  - A rack offers Details and Add a device.
+  - A cable offers Details and Disconnect.
+  - The empty canvas offers a 42U, 24U or 12U rack and a wall, named Rack 2, Wall 1 and so on.
+  - A reader gets Details only.
+  - Adding a wall, floor or desk no longer waits for a rack; the design's premises is made
+    alongside it.
+  - Not yet said: a duplicate made from the menu that finds no room lands unplaced without the
+    notice the details panel shows, and Add a device on a full rack does nothing.
 
 **Carried:** the dependency-vulnerability gate needs a machine with egress to the advisory
 database (`scripts/osv-gate.sh`), and the v0.1 tag waits on that run;
