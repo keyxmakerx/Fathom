@@ -39,11 +39,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.12 move is additive, so a payload declared at an older
+// Every 0.10-to-0.13 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -64,20 +64,28 @@ const EDGE_KINDS_SINCE_0_11: ReadonlySet<EdgeKind> = new Set([
 const NODE_KINDS_SINCE_0_12: ReadonlySet<NodeKind> = new Set(['Tag']);
 const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedWith']);
 
+// Kinds 0.13 (ADR-0060 step 7) added; same reasoning, for 0.10 to 0.12.
+const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
+const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
+
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
-  if (declared !== '0.10' && declared !== '0.11') return;
+  if (!ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) return;
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
-    const tooNew = NODE_KINDS_SINCE_0_12.has(kind) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
+    const tooNew =
+      NODE_KINDS_SINCE_0_13.has(kind) ||
+      (declared !== '0.12' && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
-    const tooNew = EDGE_KINDS_SINCE_0_12.has(kind) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
+    const tooNew =
+      EDGE_KINDS_SINCE_0_13.has(kind) ||
+      (declared !== '0.12' && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
