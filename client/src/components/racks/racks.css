@@ -16,6 +16,20 @@
   font-size: var(--t-small);
 }
 
+/* A transient note over the canvas for a right-click action that found no room. */
+.racks-place__notice {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s4);
+  transform: translateX(-50%);
+  z-index: 5;
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
 /* ADR-0054 §1's refusal wash "offers reload" — the control that sentence
    names. */
 .racks-place__refusal-reload {

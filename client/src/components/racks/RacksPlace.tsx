@@ -182,6 +182,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
  * session's one `SaveQueue`, so a save already running is never joined by a
  * second one for the same design.
  */
+const NO_ROOM_ADD = 'No room in this rack for another device.';
+
 export function RacksPlace(props: RacksPlaceProps) {
   const {
     session,
@@ -198,6 +200,14 @@ export function RacksPlace(props: RacksPlaceProps) {
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
+  // A short-lived note over the canvas for a menu action that did nothing
+  // visible (no room for a device). Clears itself.
+  const [canvasNotice, setCanvasNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (canvasNotice == null) return;
+    const t = setTimeout(() => setCanvasNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [canvasNotice]);
 
   // "Show on rack" (`InventoryPlace.tsx`): a caller landing here with
   // something already chosen selects it and asks
@@ -672,12 +682,16 @@ export function RacksPlace(props: RacksPlaceProps) {
       const rack = displayView.racks.find((r) => r.id === rackId);
       const positionU = rack ? highestFreeU(rack, SKETCH_DEVICE_PALETTE_ITEM.rackUnits) : null;
       if (positionU !== null) handlePlace(rackId, SKETCH_DEVICE_PALETTE_ITEM, positionU);
+      else if (rack) setCanvasNotice(NO_ROOM_ADD);
     },
     [displayView.racks, handlePlace],
   );
   const handleDuplicateDevice = useCallback(
     (chassisId: string) => {
-      handleEdit({ kind: 'duplicate-device', chassisId });
+      const result = handleEdit({ kind: 'duplicate-device', chassisId });
+      // The copy was made but could not be placed; the details panel shows the
+      // same sentence, but a right-click may have no panel open.
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
     },
     [handleEdit],
   );
@@ -780,6 +794,11 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRedo={shellProps.onRedo}
         />
       )}
+      {canvasNotice != null ? (
+        <div className="racks-place__notice" role="status" data-testid="canvas-notice">
+          {canvasNotice}
+        </div>
+      ) : null}
     </Shell>
   );
 }
