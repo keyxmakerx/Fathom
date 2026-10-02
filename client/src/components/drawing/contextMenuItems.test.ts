@@ -13,6 +13,10 @@ function actions(): Required<MenuActions> {
     onAddDevice: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
+    onAddBoxHere: vi.fn(),
+    onAddLabelHere: vi.fn(),
+    onDuplicateFree: vi.fn(),
+    onRemoveFree: vi.fn(),
   };
 }
 

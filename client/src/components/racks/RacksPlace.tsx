@@ -14,6 +14,8 @@ import {
   placeChassis,
   removeChassis,
 } from '../../document/commands';
+import { nextFreeSpot } from '../drawing/freeLayout';
+import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
@@ -26,6 +28,7 @@ import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
+import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
@@ -432,7 +435,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // dropped onto it, never on load.
   const displayView = useMemo<ClosetView>(
     () =>
-      realView.racks.length > 0
+      realView.racks.length > 0 || realView.free.length > 0 || realView.labels.length > 0
         ? realView
         : {
             premisesId: realView.premisesId,
@@ -572,6 +575,30 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, catalogue, realView.premisesId, applyDocChange, accountId],
   );
 
+  // ADR-0060 step 7: free boxes, lines and areas. Each is one undo step; a refusal leaves the document as it was.
+  const freeWrite = useCallback(
+    <T,>(make: (d: Document, opts: { actor: string } | undefined) => { doc: Document; out: T }): T | undefined => {
+      if (doc == null) return undefined;
+      try {
+        const r = make(doc, actorOpts(accountId));
+        applyDocChange(r.doc);
+        return r.out;
+      } catch (e) {
+        const refusal = refusalFor(e);
+        if (refusal != null) setCanvasNotice(refusal.refused);
+        return undefined;
+      }
+    },
+    [doc, accountId, applyDocChange],
+  );
+  const handleAddFreeBox = useCallback(
+    (role: string | null, x: number, y: number, fromBoxId?: string) =>
+      freeWrite((d, o) => {
+        const r = addFreeBoxDoc(d, role, x, y, fromBoxId, o);
+        return { doc: r.doc, out: r.chassisId };
+      }),
+    [freeWrite],
+  );
   // ADR-0060 decision 4: a click in the equipment list adds the item where there
   // is room, the rack in use first; a backboard goes on the first wall.
   const handlePick = useCallback(
@@ -587,6 +614,13 @@ export function RacksPlace(props: RacksPlaceProps) {
         }
         return;
       }
+      if (displayView.racks.length === 0) {
+        // Only free boxes so far: the pick lands on the next open spot of the canvas.
+        const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
+        const at = nextFreeSpot(taken);
+        handleAddFreeBox(item.role ?? null, at.x, at.y);
+        return;
+      }
       for (const rack of racksInPickOrder(displayView.racks, selection)) {
         const positionU = highestFreeU(rack, item.rackUnits);
         if (positionU !== null) {
@@ -595,7 +629,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         }
       }
     },
-    [doc, realView.surfaces, displayView.racks, selection, handlePlace, applyDocChange, accountId],
+    [doc, realView.surfaces, realView.free, realView.labels, displayView.racks, selection, handlePlace, handleAddFreeBox, applyDocChange, accountId],
   );
 
   const handleMove = useCallback(
@@ -715,6 +749,38 @@ export function RacksPlace(props: RacksPlaceProps) {
     [handleEdit],
   );
 
+  const handleAddDeviceAt = useCallback(
+    (rackId: string, positionU: number, role: string | null) => handlePlace(rackId, role !== null ? { ...SKETCH_DEVICE_PALETTE_ITEM, role } : SKETCH_DEVICE_PALETTE_ITEM, positionU),
+    [handlePlace],
+  );
+  const handleMoveFree = useCallback((moves: readonly { id: string; x: number; y: number }[]) => void freeWrite((d, o) => ({ doc: moveFree(d, moves, o), out: null })), [freeWrite]);
+  const handleConnectBoxes = useCallback((a: string, b: string) => void freeWrite((d, o) => ({ doc: createLine(d, a, b, o).doc, out: null })), [freeWrite]);
+  const handleAddLabel = useCallback(
+    (form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number) =>
+      freeWrite((d, o) => {
+        const r = createLabel(d, { ...o, text, form, x, y, ...(w !== undefined ? { w } : {}), ...(h !== undefined ? { h } : {}) });
+        return { doc: r.doc, out: r.id };
+      }),
+    [freeWrite],
+  );
+  const handleSetLabel = useCallback((id: string, patch: { text?: string; w?: number; h?: number }) => void freeWrite((d, o) => ({ doc: setLabel(d, id, patch, o), out: null })), [freeWrite]);
+  const handleRemoveFree = useCallback((ids: readonly string[]) => void freeWrite((d, o) => ({ doc: removeFree(d, ids, o), out: null })), [freeWrite]);
+  const handleDuplicateFree = useCallback(
+    (ids: readonly string[], dx: number, dy: number) =>
+      freeWrite((d, o) => {
+        const r = duplicateFreeDoc(d, realView, ids, dx, dy, o);
+        return { doc: r.doc, out: r.ids };
+      }),
+    [freeWrite, realView],
+  );
+  const handleResizeShelf = useCallback(
+    (shelfId: string, change: { heightU?: number; slots?: number }) => {
+      const result = handleEdit({ kind: 'shelf-size', id: shelfId, ...change });
+      if (result != null && 'refused' in result) return result;
+    },
+    [handleEdit],
+  );
+
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession`, so the exact same
   // function `InventoryPlace`'s own `EditorFor` call raises through runs
@@ -801,13 +867,22 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddDevice={canDraw ? handleAddDevice : undefined}
           onAddRack={canDraw ? handleAddRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
+          onAddFreeBox={canDraw ? handleAddFreeBox : undefined}
+          onAddDeviceAt={canDraw ? handleAddDeviceAt : undefined}
+          onMoveFree={canDraw ? handleMoveFree : undefined}
+          onConnectBoxes={canDraw ? handleConnectBoxes : undefined}
+          onAddLabel={canDraw ? handleAddLabel : undefined}
+          onSetLabel={canDraw ? handleSetLabel : undefined}
+          onRemoveFree={canDraw ? handleRemoveFree : undefined}
+          onDuplicateFree={canDraw ? handleDuplicateFree : undefined}
+          onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           canDraw={canDraw}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
-          emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 ? EMPTY_HINT : null}
+          emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}

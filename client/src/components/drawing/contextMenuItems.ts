@@ -5,7 +5,13 @@ export type MenuTarget =
   | { kind: 'chassis'; id: string }
   | { kind: 'rack'; id: string }
   | { kind: 'cable'; id: string }
-  | { kind: 'pane' };
+  | { kind: 'free'; id: string }
+  | { kind: 'label'; id: string }
+  | { kind: 'line'; id: string }
+  /** `at` is where the click landed, in pane pixels and flow units. */
+  | { kind: 'pane'; at?: { screen: Point; flow: Point } };
+
+type Point = { x: number; y: number };
 
 export interface MenuItem {
   label: string;
@@ -28,6 +34,10 @@ export interface MenuActions {
   onAddDevice?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
+  onAddBoxHere?(at: { screen: Point; flow: Point }): void;
+  onAddLabelHere?(form: 'text' | 'area', flow: Point): void;
+  onDuplicateFree?(ids: string[]): void;
+  onRemoveFree?(ids: string[]): void;
 }
 
 /** The rack sizes the empty canvas's menu offers (ADR-0060 decision 5). */
@@ -58,7 +68,28 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onDisconnect) items.push({ label: 'Disconnect', onSelect: () => actions.onDisconnect?.(id), danger: true });
       break;
     }
+    case 'free':
+    case 'label': {
+      const { id } = target;
+      const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
+      items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
+      if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
+      if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
+      break;
+    }
+    case 'line': {
+      const { id } = target;
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'line', id }) });
+      if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
+      break;
+    }
     case 'pane': {
+      const at = target.at;
+      if (at && actions.onAddBoxHere) items.push({ label: 'Add a box here', onSelect: () => actions.onAddBoxHere?.(at) });
+      if (at && actions.onAddLabelHere) {
+        items.push({ label: 'Add a label here', onSelect: () => actions.onAddLabelHere?.('text', at.flow) });
+        items.push({ label: 'Add an area here', onSelect: () => actions.onAddLabelHere?.('area', at.flow) });
+      }
       if (actions.onAddRack) {
         for (const u of RACK_SIZES) items.push({ label: `Add a ${u}U rack`, onSelect: () => actions.onAddRack?.(u) });
       }

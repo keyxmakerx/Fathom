@@ -249,6 +249,8 @@ export interface ShelfView {
   label: string;
   positionU: number;
   heightU: number;
+  /** `PassiveNode.slots`, or `null` when nobody set it. */
+  slots?: number | null;
   /** Sorted by `slot` ascending — left to right, the same order the shelf's
    * own render reads them (`design/places/renders/Shelf.png`). */
   occupants: OccupantView[];
@@ -902,6 +904,7 @@ function shelfView(
     label: passiveFields.label ?? '',
     positionU: mountedFields.positionU ?? 1,
     heightU,
+    slots: passiveFields.slots ?? null,
     occupants,
   };
 }

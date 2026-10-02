@@ -779,6 +779,7 @@ export interface PassiveNodeFields {
   form?: string;
   model?: string;
   serial?: string;
+  slots?: number;
 }
 
 export function readPassiveNodeFields(node: GraphNode): PassiveNodeFields {
@@ -787,6 +788,7 @@ export function readPassiveNodeFields(node: GraphNode): PassiveNodeFields {
     form: asString(fieldValue(node.fields, 'PassiveNode.form')),
     model: asString(fieldValue(node.fields, 'PassiveNode.model')),
     serial: asString(fieldValue(node.fields, 'PassiveNode.serial')),
+    slots: asNumber(fieldValue(node.fields, 'PassiveNode.slots')),
   };
 }
 

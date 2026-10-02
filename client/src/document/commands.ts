@@ -28,6 +28,7 @@ import {
   readPhysicalPortFields,
   readSitsOnFields,
   replaceEdge,
+  replaceNode,
   requireFieldName,
   text,
   token,
@@ -828,6 +829,114 @@ export function createShelf(doc: Document, rackId: string, opts: CreateShelfOpti
 
   const batch: Batch = { id: newUlid(now), label: 'create shelf', ops };
   return withBatch(working, batch);
+}
+
+// ---------------------------------------------------------------------------
+
+/** Refused: a shelf resize that would cut off or collide with something. `message` names it. */
+export class ShelfResizeError extends Error {
+  readonly shelfId: string;
+  constructor(shelfId: string, message: string) {
+    super(message);
+    this.name = 'ShelfResizeError';
+    this.shelfId = shelfId;
+  }
+}
+
+function nameOfMounted(doc: Document, itemId: string): string {
+  const node = findNode(doc, itemId);
+  if (!node) return itemId;
+  if (parseNodeId(itemId).kind === 'PassiveNode') return readPassiveNodeFields(node).label ?? 'a shelf';
+  const device = edgesIn(doc, itemId, 'HasChassis')[0];
+  const hostname = device ? findNode(doc, device.from)?.fields['Device.hostname'] : undefined;
+  return typeof hostname?.value === 'string' ? hostname.value : 'an unnamed device';
+}
+
+export interface ResizeShelfOptions extends Actor {
+  /** Catalogue models, so a device's height on the shelf is known. */
+  catalogue?: readonly CatalogueModel[];
+}
+
+/**
+ * A shelf's height in units and its slot count (ADR-0060 step 7). Growing keeps the top edge
+ * and takes the units below; it is refused when something sits there, naming it. Shrinking is
+ * refused below the tallest thing on the shelf, and the slots below the highest slot taken.
+ * One undo step.
+ */
+export function resizeShelf(
+  doc: Document,
+  shelfId: string,
+  change: { heightU?: number; slots?: number },
+  opts?: ResizeShelfOptions,
+): Document {
+  const shelf = requireShelf(doc, shelfId);
+  const mounted = edgesOut(doc, shelfId, 'MountedIn')[0];
+  if (!mounted) throw new UnknownReferenceError(shelfId, 'a mounted shelf');
+  const label = readPassiveNodeFields(shelf).label ?? 'this shelf';
+  const { actor, now } = resolve(opts);
+  let working = doc;
+  const ops: Op[] = [];
+
+  const sitters = edgesIn(doc, shelfId, 'SitsOn').filter((e) => {
+    const n = findNode(doc, e.from);
+    return n !== undefined && n.absentSince === undefined;
+  });
+
+  if (change.slots !== undefined) {
+    const slots = change.slots;
+    if (!Number.isInteger(slots) || slots < 1 || slots > 32) {
+      throw new ShelfResizeError(shelfId, `${label} takes 1 to 32 slots`);
+    }
+    const taken = sitters.map((e) => ({ id: e.from, slot: readSitsOnFields(e).slot ?? 0 }));
+    const highest = taken.reduce((a, b) => (b.slot > a.slot ? b : a), { id: '', slot: 0 });
+    if (highest.slot > slots) {
+      throw new ShelfResizeError(shelfId, `${nameOfMounted(doc, highest.id)} sits in slot ${highest.slot}, so ${label} keeps at least ${highest.slot} slots`);
+    }
+    const built = setField(working, now, actor, shelfId, shelf.fields['PassiveNode.slots'], 'PassiveNode.slots', uint(slots, 8));
+    working = replaceNode(built.doc, shelfId, (n) => ({ ...n, fields: { ...n.fields, 'PassiveNode.slots': built.entry } }));
+    ops.push(built.op);
+  }
+
+  if (change.heightU !== undefined) {
+    const rackId = mounted.to;
+    const rackHeight = rackHeightU(doc, rackId);
+    const oldHeight = readNumber(mounted.fields['MountedIn.height_u']) ?? 1;
+    const oldPosition = readNumber(mounted.fields['MountedIn.position_u']) ?? 1;
+    const top = oldPosition + oldHeight - 1;
+    const heightU = change.heightU;
+    if (!Number.isInteger(heightU) || heightU < 1) throw new ShelfResizeError(shelfId, `${label} is at least 1U`);
+    const position = top - heightU + 1;
+    if (position < 1) throw new ShelfResizeError(shelfId, `${label} cannot grow past U1, the bottom of the rack`);
+    if (heightU < oldHeight) {
+      for (const e of sitters) {
+        const occupant = findNode(doc, e.from);
+        const model = occupant?.fields['Chassis.model']?.value;
+        const needs = typeof model === 'string' ? (opts?.catalogue?.find((m) => m.model === model)?.rackUnits ?? 1) : 1;
+        if (needs > heightU) {
+          throw new ShelfResizeError(shelfId, `${nameOfMounted(doc, e.from)} needs ${needs}U, so ${label} keeps at least ${needs}U`);
+        }
+      }
+    }
+    for (const edge of edgesIn(doc, rackId, 'MountedIn')) {
+      if (edge.id === mounted.id) continue;
+      const lo = readNumber(edge.fields['MountedIn.position_u']) ?? 1;
+      const hi = lo + (readNumber(edge.fields['MountedIn.height_u']) ?? 1) - 1;
+      if (position <= hi && lo <= top) {
+        throw new ShelfResizeError(shelfId, `${nameOfMounted(doc, edge.from)} is in U${lo}${hi > lo ? `-${hi}` : ''}, in the way of ${label}`);
+      }
+    }
+    if (top > rackHeight) throw new RackRangeError(rackId, position, heightU, rackHeight);
+    const p = setField(working, now, actor, mounted.id, mounted.fields['MountedIn.position_u'], 'MountedIn.position_u', uint(position, 8));
+    const h = setField(p.doc, now, actor, mounted.id, mounted.fields['MountedIn.height_u'], 'MountedIn.height_u', uint(heightU, 8));
+    working = replaceEdge(h.doc, mounted.id, (e) => ({
+      ...e,
+      fields: { ...e.fields, 'MountedIn.position_u': p.entry, 'MountedIn.height_u': h.entry },
+    }));
+    ops.push(p.op, h.op);
+  }
+
+  if (ops.length === 0) return doc;
+  return withBatch(working, { id: newUlid(now), label: 'resize shelf', ops });
 }
 
 // ---------------------------------------------------------------------------

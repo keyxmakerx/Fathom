@@ -1,0 +1,113 @@
+/* Free boxes, lines, labels and areas (ADR-0060 step 7). Tokens only; square corners, no shadow. */
+
+.free-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  box-sizing: border-box;
+  cursor: grab;
+}
+.free-box--selected { outline: var(--focus-width) solid var(--focus-colour); outline-offset: 2px; }
+.free-box__name { font-family: var(--mono); font-size: var(--t-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.free-box__code { font-size: var(--t-micro); letter-spacing: var(--track-label); color: var(--muted); }
+.free-handle { opacity: 0; pointer-events: none; width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; }
+
+/* The hollow square: same shape as a free port. */
+.free-square {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  cursor: crosshair;
+  box-sizing: border-box;
+}
+.free-square:hover, .free-square:focus-visible { background: var(--ink); outline: none; }
+.free-square--t { top: -5px; left: calc(50% - 5px); }
+.free-square--b { bottom: -5px; left: calc(50% - 5px); }
+.free-square--l { left: -5px; top: calc(50% - 5px); }
+.free-square--r { right: -5px; top: calc(50% - 5px); }
+.free-square--grip { right: -5px; bottom: -5px; cursor: nwse-resize; }
+
+.free-label {
+  padding: 2px var(--s1);
+  font-size: var(--t-small);
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: grab;
+}
+.free-label--selected { outline: var(--focus-width) solid var(--focus-colour); outline-offset: 1px; }
+.free-label__input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: 0 var(--s1);
+  min-width: 4ch;
+}
+
+.free-area {
+  position: relative;
+  box-sizing: border-box;
+  border: 1px solid var(--muted);
+  border-style: var(--rule-style-pending);
+  background: transparent;
+  cursor: grab;
+}
+.free-area--selected { border-color: var(--ink); outline: var(--focus-width) solid var(--focus-colour); outline-offset: 2px; }
+.free-area__title {
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.free-line__ink { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.free-line__hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.free-line--selected .free-line__ink { stroke-width: 2.5; }
+.free-line__label { font-size: var(--t-micro); fill: var(--ink); paint-order: stroke; stroke: var(--page); stroke-width: 4px; }
+.free-line__proposed { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+
+.free-guide { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 1 3; }
+.free-ghost { fill: none; stroke: var(--ink); stroke-width: 1; stroke-dasharray: 6 4; }
+
+.free-wordmenu {
+  position: absolute;
+  z-index: 15;
+  display: flex;
+  border: 1px solid var(--ink);
+  background: var(--page);
+}
+.free-wordmenu__item {
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.free-wordmenu__item + .free-wordmenu__item { border-left: 1px solid var(--hairline); }
+.free-wordmenu__item:hover, .free-wordmenu__item:focus-visible { background: var(--surface); outline: none; }
+
+.free-marquee { position: absolute; z-index: 10; pointer-events: none; border: 1px solid var(--ink); border-style: var(--rule-style-pending); background: transparent; }
+
+.drawing-context-menu__title {
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+}
