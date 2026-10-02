@@ -1432,7 +1432,7 @@
   stroke: var(--ink);
   stroke-width: 1;
   stroke-dasharray: 2 3;
-  animation: drawing-leader-march 1.6s linear infinite, drawing-leader-draw 220ms ease-out both;
+  animation: drawing-leader-draw 220ms ease-out both;
 }
 .drawing-callout__dot {
   fill: var(--ink);
@@ -1471,11 +1471,6 @@
   background: var(--page);
   color: var(--ink);
   cursor: pointer;
-}
-@keyframes drawing-leader-march {
-  to {
-    stroke-dashoffset: -5;
-  }
 }
 @keyframes drawing-leader-draw {
   from {
