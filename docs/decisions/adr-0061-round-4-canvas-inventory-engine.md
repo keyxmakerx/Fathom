@@ -47,3 +47,29 @@ and ADR-0046's two places. Nothing below is built yet.
 - **Maintenance:** its colour must not be the warning amber; needs an interactive example covering
   address, routing, cable, rack and building moves.
 - **Shelves:** drag the edges, with numbers in the panel too, but the look needs refining.
+
+## Round 5, answered 2026-10-02
+
+Approved:
+
+- **Cables:** all four styles. New designs start Dressed. The style is saved in the design and set
+  for the design, then a rack, then a cable, so everyone sees the same drawing.
+- **Step 7:** a selected box shows small hollow squares on its edges, the same shape as a free
+  port. Drag one to draw a line; click one to add a dashed "new" box and pick its kind. A flat word
+  menu sits over the selection (Align, Spread, Group). Guides are dotted ink. Free dragging stays
+  everywhere. On a rack, the squares sit on the free unit above and below the selected device;
+  that look goes to round 6.
+- **Shelves:** two small square grips (bottom for height, right for slots) add dashed units while
+  dragging. The same numbers sit in the panel.
+- **Inventory:** list and page side by side; the page is the canvas details panel's editor
+  (ADR-0046). Amended by the owner's note: the list is a table with columns you choose, edited in
+  place and built for hundreds of rows and fast keying. Fields are defined once per kind for the
+  organisation; any member may add a field, shared with everyone unless they mark it private.
+  Private fields need a security review before they are built.
+
+Sent back for round 6:
+
+- **Maintenance:** both views, the drawing and a list to read the plan over (print-like, not only
+  for printing). Plan, Do and Record are still hard to tell apart; some colour is needed, not the
+  warning amber.
+- **Step 7 on a rack:** what the edge squares look like on a racked device.
