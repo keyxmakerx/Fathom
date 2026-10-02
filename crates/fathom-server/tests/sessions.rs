@@ -5519,7 +5519,10 @@ async fn a_missing_wrong_or_replayed_code_is_refused_and_spends_the_account_budg
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
-    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    // A window long enough that no run straddles a turn-over: the first
+    // attempt of a new window sweeps the closed window's rows, so a count
+    // read across one comes out short (main, 2026-09-28: 1 where 3 were made).
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = CredentialStore::new(
         pool.clone(),
         Arc::clone(&ring),
@@ -5811,7 +5814,10 @@ async fn an_admin_ending_route_requires_the_admins_own_current_code() {
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
     let member = a_member_with(&pool, &ring, &estate, "d8-admin-needs-code", None).await;
-    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    // A window long enough that no run straddles a turn-over: the first
+    // attempt of a new window sweeps the closed window's rows, so a count
+    // read across one comes out short (main, 2026-09-28: 1 where 3 were made).
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = CredentialStore::new(
         pool.clone(),
         Arc::clone(&ring),
