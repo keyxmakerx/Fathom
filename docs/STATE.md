@@ -247,8 +247,6 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   - A reader gets Details only.
   - Adding a wall, floor or desk no longer waits for a rack; the design's premises is made
     alongside it.
-  - Not yet said: a duplicate made from the menu that finds no room lands unplaced without the
-    notice the details panel shows, and Add a device on a full rack does nothing.
 - **Home tabs and the account menu** (ADR-0060 decision 7):
   - Home has tabs: Designs, Organisation and Admin. Each shows only to someone who may use it,
     and the row is hidden when Designs is the only tab.
