@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS field_definitions (
 ALTER TABLE field_definitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE field_definitions FORCE ROW LEVEL SECURITY;
 
+-- The app role never deletes, and may change only what a rename or archive changes.
+REVOKE DELETE, UPDATE ON field_definitions FROM fathom_app;
+GRANT UPDATE (ciphertext, nonce, key_epoch, version, archived) ON field_definitions TO fathom_app;
+
 CREATE POLICY field_definitions_readable ON field_definitions
     FOR SELECT USING (organisation_id = current_setting('app.tenant_id', true));
 CREATE POLICY field_definitions_insertable ON field_definitions

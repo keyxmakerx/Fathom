@@ -29,5 +29,5 @@
 - **Private fields.** A private layer cannot live in the shared payload (ADR-0053 §7), so the
   server would have to enforce it from a separate store. That needs its own design and a security
   review; only shared fields ship. The UI does not offer "private to you".
-- **Unique field names.** The server does not compare names (they are sealed); the client may.
+- **Unique field names.** The server does not enforce unique names; the client may.
 - Config paste (step 8) and Docs tab content.

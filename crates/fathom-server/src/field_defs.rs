@@ -69,12 +69,20 @@ fn bad(why: &'static str) -> DesignError {
 /// which could make a name display as something else.
 fn is_unsafe_char(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
-            | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
+        || matches!(c, '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{0600}'..='\u{0605}'
+            | '\u{115F}' | '\u{1160}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{3164}'
+            | '\u{E000}'..='\u{F8FF}' | '\u{FE00}'..='\u{FE0F}' | '\u{FEFF}'
+            | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}' | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}' | '\u{F0000}'..='\u{10FFFF}')
 }
 
 fn clean_text(raw: &str, max: usize, what: &'static str) -> Result<String, DesignError> {
-    let t = raw.trim();
+    if raw.chars().any(is_unsafe_char) {
+        return Err(bad(what));
+    }
+    let t = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = t.as_str();
     if t.is_empty() || t.chars().count() > max || t.chars().any(is_unsafe_char) {
         return Err(bad(what));
     }
@@ -106,12 +114,13 @@ pub fn clean_choices(raw: &[String]) -> Result<Vec<String>, DesignError> {
     Ok(out)
 }
 
-fn aad(tenant: &str, id: &str, kind: &str, epoch: i32) -> Vec<u8> {
+fn aad(tenant: &str, id: &str, kind: &str, created_by: &str, epoch: i32) -> Vec<u8> {
     let mut a = Vec::new();
     crypto::lp(&mut a, AAD_FIELD_DEF);
     crypto::lp(&mut a, tenant.as_bytes());
     crypto::lp(&mut a, id.as_bytes());
     crypto::lp(&mut a, kind.as_bytes());
+    crypto::lp(&mut a, created_by.as_bytes());
     crypto::u32_le(&mut a, epoch as u32);
     a
 }
@@ -122,11 +131,13 @@ struct Sealed {
     epoch: i32,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn seal_body(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     id: &str,
     kind: &str,
+    created_by: &str,
     name: &str,
     ty: &str,
     choices: &[String],
@@ -142,7 +153,12 @@ async fn seal_body(
     let tenant = auth.ctx.tenant().to_string();
     let key = keys::org_content_key(tx, auth.ctx, auth.tenant_key).await?;
     let nonce = crypto::random_nonce()?;
-    let ciphertext = crypto::seal(&key.key, &nonce, &plain, &aad(&tenant, id, kind, key.epoch))?;
+    let ciphertext = crypto::seal(
+        &key.key,
+        &nonce,
+        &plain,
+        &aad(&tenant, id, kind, created_by, key.epoch),
+    )?;
     keys::count_write_under_org_content_key(tx, &tenant, key.epoch).await?;
     Ok(Sealed {
         ciphertext,
@@ -183,7 +199,7 @@ impl Opener<'_> {
             &self.keys[&epoch],
             &nonce,
             &row.get::<_, Vec<u8>>(5),
-            &aad(&tenant, &id, &kind, epoch),
+            &aad(&tenant, &id, &kind, &row.get::<_, String>(3), epoch),
         )
         .map_err(|_| DesignError::Refused)?;
         let corrupt = || DesignError::Corrupt("field definition");
@@ -263,6 +279,11 @@ pub async fn create(
     }
 
     let tenant = auth.ctx.tenant().to_string();
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        &[&format!("field_definitions:{tenant}")],
+    )
+    .await?;
     let count: i64 = tx
         .query_one(
             "SELECT count(*) FROM field_definitions WHERE organisation_id = $1",
@@ -277,7 +298,17 @@ pub async fn create(
     }
 
     let id = crate::ids::new_ulid().to_string();
-    let sealed = seal_body(tx, auth, &id, kind, &name, ty, &choices).await?;
+    let sealed = seal_body(
+        tx,
+        auth,
+        &id,
+        kind,
+        &auth.ctx.actor().to_string(),
+        &name,
+        ty,
+        &choices,
+    )
+    .await?;
     let actor = auth.ctx.actor().to_string();
     tx.execute(
         "INSERT INTO field_definitions \
@@ -375,19 +406,34 @@ pub async fn update(
         }
         def.choices = c;
     }
-    let sealed = seal_body(tx, auth, id, &def.kind, &def.name, &def.ty, &def.choices).await?;
-    tx.execute(
-        "UPDATE field_definitions SET ciphertext = $3, nonce = $4, key_epoch = $5, \
-         version = version + 1 WHERE organisation_id = $1 AND id = $2",
-        &[
-            &auth.ctx.tenant().to_string(),
-            &id,
-            &sealed.ciphertext,
-            &sealed.nonce,
-            &sealed.epoch,
-        ],
+    let sealed = seal_body(
+        tx,
+        auth,
+        id,
+        &def.kind,
+        &def.created_by,
+        &def.name,
+        &def.ty,
+        &def.choices,
     )
     .await?;
+    let changed = tx
+        .execute(
+            "UPDATE field_definitions SET ciphertext = $3, nonce = $4, key_epoch = $5, \
+         version = version + 1 WHERE organisation_id = $1 AND id = $2 AND version = $6",
+            &[
+                &auth.ctx.tenant().to_string(),
+                &id,
+                &sealed.ciphertext,
+                &sealed.nonce,
+                &sealed.epoch,
+                &def.version,
+            ],
+        )
+        .await?;
+    if changed != 1 {
+        return Err(DesignError::Refused);
+    }
     def.version += 1;
     Ok(def)
 }
@@ -409,12 +455,16 @@ pub async fn archive(
     if def.archived {
         return Err(bad("that field is already archived"));
     }
-    tx.execute(
-        "UPDATE field_definitions SET archived = true, version = version + 1 \
-         WHERE organisation_id = $1 AND id = $2",
-        &[&auth.ctx.tenant().to_string(), &id],
-    )
-    .await?;
+    let changed = tx
+        .execute(
+            "UPDATE field_definitions SET archived = true, version = version + 1 \
+         WHERE organisation_id = $1 AND id = $2 AND version = $3",
+            &[&auth.ctx.tenant().to_string(), &id, &def.version],
+        )
+        .await?;
+    if changed != 1 {
+        return Err(DesignError::Refused);
+    }
     def.archived = true;
     def.version += 1;
     Ok(def)
