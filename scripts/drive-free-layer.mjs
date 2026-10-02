@@ -228,6 +228,7 @@ try {
     await page.mouse.down();
     await page.mouse.move(b.x + 5, b.y + 5 + 40, { steps: 6 });
     check('dragging the bottom grip shows the new unit dashed', (await page.locator('.drawing-shelf__proposed').count()) === 1);
+    check('rail numbers light while dragging a grip', (await page.locator('.drawing-rack__u-number--lit').count()) >= 1);
     await shot(page, 'FL-08-shelf-grow');
     await page.keyboard.press('Escape');
     await page.mouse.up();

@@ -30,7 +30,7 @@ import { faceplateLayoutFor, plateItems } from './faceplate';
 import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
-import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
+import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
   MAX_ZOOM,
@@ -1256,13 +1256,36 @@ function DrawingInner({
       if (!event.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
+      // Light the unit the item would land in (the size is only known from the drag start).
+      const heightU = getDraggedUnits();
+      const rack =
+        heightU == null
+          ? null
+          : rackAtPoint<RackView>(view.racks, rackPositions, rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }), RACK_NODE_WIDTH);
+      if (heightU == null || rack == null) {
+        setDropPreview((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+        return;
+      }
+      const y = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }).y;
+      const positionU = snapDropToU(rack.heightU, y - rackPositions[rack.id].y - RACK_HEADER_PX, heightU);
+      const next = { fromU: positionU, toU: positionU + heightU - 1, valid: !overlapsRack(rack, { positionU, heightU }) };
+      setDropPreview((prev) => {
+        const cur = prev[rack.id];
+        return cur && cur.fromU === next.fromU && cur.toU === next.toU && cur.valid === next.valid ? prev : { [rack.id]: next };
+      });
     },
-    [canDraw],
+    [canDraw, rf, view.racks, rackPositions],
   );
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDropPreview((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, []);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
       if (!canDraw) return; // ADR-0052 §5: no placement for a reader, even if a drop event somehow reaches here
+      setDropPreview({});
       const raw = event.dataTransfer.getData(PALETTE_DRAG_MIME);
       if (!raw) return;
       event.preventDefault();
@@ -1471,6 +1494,7 @@ function DrawingInner({
       data-zoom-band={zoomBand}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       {...free.containerProps}
     >
       <ReactFlow
