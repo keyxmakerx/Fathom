@@ -1,0 +1,24 @@
+id: phy.link.speed-mismatch
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "The two ends of a link are set to different speeds"
+why: >
+  When both ends of a link have a fixed speed and the speeds differ, the link will not come up, or comes up at neither end's setting. Set both ends to the same speed, or leave both to negotiate.
+fix: >
+  Set both interfaces to the same speed, or clear the fixed speed on one so the ends can negotiate.
+concept: check.phy.link-speed
+acceptable_when: >
+  A transceiver pair that is meant to negotiate down and Fathom has the faster setting as a ceiling. Clear the speed field.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "Cisco", doc: "Configuring and Troubleshooting Ethernet 10/100/1000Mb Half/Full Duplex Auto-Negotiation (document 10561)", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    ifaces: { via: [Terminates, { role: Occupies, reverse: true }], card: many }
+condition: >
+  ifaces.exists(a, ifaces.exists(b, has(a.speed) && has(b.speed) && a.speed != b.speed))
+involves: [ifaces]

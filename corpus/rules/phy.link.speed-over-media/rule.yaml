@@ -1,0 +1,24 @@
+id: phy.link.speed-over-media
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "A 10 Gbit/s or faster link is on a Cat5e lead"
+why: >
+  10GBASE-T is specified for Category 6A cabling (Category 6 over short runs). A Cat5e lead is rated for 1 Gbit/s, so a link set to 10 Gbit/s or more over it will not come up reliably.
+fix: >
+  Use a Category 6A lead for 10 Gbit/s over copper, or lower the interface speed to 1 Gbit/s.
+concept: check.phy.link-speed
+acceptable_when: >
+  A run short enough that Cat5e happens to carry it. Even so it is outside the specification.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "IEEE 802.3 Working Group", doc: "IEEE 802.3an-2006, 10GBASE-T (now Clause 55 of IEEE 802.3), cabling requirement", url: "https://www.cablinginstall.com/home/article/16467043/performance-is-everything-the-standards-for-10gbaset", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    ifaces: { via: [Terminates, { role: Occupies, reverse: true }], card: many }
+condition: >
+  has(media) && enum_is(media, "cat5e") && ifaces.exists(i, has(i.speed) && i.speed >= 10000000000)
+involves: [ifaces]

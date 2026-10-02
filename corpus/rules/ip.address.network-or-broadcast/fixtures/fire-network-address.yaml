@@ -1,0 +1,17 @@
+# 192.168.1.0/24 on an interface.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-rtr-01, platform: junos-ex, role: router } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p1, kind: PhysicalPort, set: { label: "ge-0/0/1", connector: rj45, service: ethernet } }
+  - { id: i1, kind: Interface, set: { name: ge-0/0/1, form: ethernet } }
+  - { id: u1, kind: LogicalUnit, set: { index: 0 } }
+  - { id: a1, kind: Address, set: { value: 192.168.1.0/24, family: inet } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+  - { kind: HasPort, from: d1_ch, to: p1 }
+  - { kind: HasInterface, from: d1, to: i1 }
+  - { kind: Occupies, from: i1, to: p1 }
+  - { kind: HasUnit, from: i1, to: u1 }
+  - { kind: HasAddress, from: u1, to: a1 }
+anchor: a1
+involves: []

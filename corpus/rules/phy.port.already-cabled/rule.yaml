@@ -1,0 +1,24 @@
+id: phy.port.already-cabled
+rule_version: 1.0.0
+status: active
+severity: refuse
+category: correctness
+title: "A port has more than one cable on it"
+why: >
+  A port takes one cable. Two cables on the same port cannot both carry its traffic. Only a breakout port, where each cable is a numbered lane, takes several.
+fix: >
+  Move one of the cables to a free port, or record the lanes if this port is a breakout.
+concept: check.phy.one-cable-per-port
+acceptable_when: >
+  A breakout port. Give each cable its lane and the check stops.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources_note: >
+  Definitional: a port has one connector. Breakout lanes are modelled as Terminates.lane (schema/schema.yaml, edge Terminates).
+applies_to:
+  kind: PhysicalPort
+  with:
+    cables: { via: [{ role: Terminates, reverse: true, without: [lane] }], card: many }
+condition: >
+  count(cables) > 1
+involves: [cables]

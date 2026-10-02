@@ -1,0 +1,21 @@
+id: ip.address.network-or-broadcast
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "An address is the network or broadcast address of its own subnet"
+why: >
+  The first address of an IPv4 subnet names the network and the last is the broadcast. Assigned to an interface, either is dropped or answered as a broadcast. A /31 or /32 has neither.
+fix: >
+  Use a host address in the subnet, or shorten the prefix so this address is a host.
+concept: check.ip.host-address
+acceptable_when: >
+  A /31 point-to-point link (RFC 3021) or a /32 loopback. Fathom does not check those.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "IETF", doc: "RFC 3021, Using 31-Bit Prefixes on IPv4 Point-to-Point Links (December 2000)", url: "https://www.rfc-editor.org/rfc/rfc3021", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Address
+condition: >
+  is_network_address(value) || is_broadcast_address(value)

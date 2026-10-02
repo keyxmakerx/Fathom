@@ -1,0 +1,24 @@
+id: topo.switch.single-cable
+rule_version: 1.0.0
+status: active
+severity: idea
+category: operability
+title: "A switch has one cable and no second path"
+why: >
+  A switch with one cable has a single link to the rest of the network. If that cable, or the port at its far end, fails, everything behind the switch is cut off.
+fix: >
+  Add a second link to another switch, or record why one is enough.
+concept: check.topo.redundant-paths
+acceptable_when: >
+  A leaf switch where an outage of one link is acceptable.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources_note: >
+  A design heuristic, not a standard: no single source states it, and this rule claims nothing beyond the arithmetic of one link.
+applies_to:
+  kind: Device
+  with:
+    cables: { via: [HasChassis, HasPort, ~Terminates], card: many }
+condition: >
+  enum_is(role, "switch") && count(cables) == 1
+involves: [cables]

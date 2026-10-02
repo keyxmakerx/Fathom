@@ -1,0 +1,24 @@
+id: phy.cable.copper-in-cage
+rule_version: 1.0.0
+status: active
+severity: refuse
+category: correctness
+title: "A copper lead is plugged into an SFP or QSFP cage with no module"
+why: >
+  An SFP, SFP+, SFP28, QSFP or QSFP28 cage has no copper jack. It takes a pluggable module: an optic, a copper module or a direct-attach cable. A twisted-pair lead (Cat5e, Cat6, Cat6a) in a cage with nothing fitted has nothing to connect to.
+fix: >
+  Fit a module in the cage that suits the lead (a copper SFP for twisted pair), or swap the lead for a direct-attach cable or fibre.
+concept: check.phy.cage-media
+acceptable_when: >
+  When the cage holds a copper module Fathom has not been told about. Record that a module is fitted and the check stops.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "Cisco", doc: "Cisco SFP and SFP+ Transceiver Module Installation Notes", url: "https://www.cisco.com/en/US/docs/interfaces_modules/transceiver_modules/installation/note/78_15160.html", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    ports: { via: [{ role: Terminates, kind: PhysicalPort }], card: many }
+condition: >
+  has(media) && media in ["cat5e", "cat6", "cat6a"] && ports.exists(p, p.connector in ["sfp", "sfp_plus", "sfp28", "qsfp", "qsfp28"] && !has(p.transceiver))
+involves: [ports]
