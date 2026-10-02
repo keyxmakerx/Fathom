@@ -9,7 +9,7 @@ import { createSketchDevice } from '../../document/commands';
 import type { CatalogueModel } from '../../api/catalogue';
 import { SHEATH_VALUES, OWNERSHIP_VALUES } from '../../document/cables';
 import { DEVICE_ROLES } from '../../document/edit';
-import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldFor, type FieldSet, type FieldType } from '../../document/fields';
+import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldFor, type FieldSet, type FieldType } from '../../document/fields';
 import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, type Document } from '../../document/model';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import type { SubnetRow } from '../../document/networks-derive';
@@ -144,19 +144,20 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
 }
 
 /** Every column the kind can show: core, tags, then one per custom field. */
-export function allColumns(kind: Kind, doc: Document | null): Column[] {
+export function allColumns(kind: Kind, defs: readonly FieldDefView[]): Column[] {
   const cols: Column[] = [...CORE_COLUMNS[kind]];
   if (kind === 'addresses' || kind === 'networks') return cols;
   cols.push(TAGS_COLUMN);
   const fieldFor = FIELD_FOR_KIND[kind];
-  if (doc && fieldFor) {
-    for (const def of listFieldDefs(doc, fieldFor)) {
+  if (fieldFor) {
+    for (const def of listFieldDefs(defs, fieldFor)) {
       cols.push({
         key: `field:${def.id}`,
         label: def.name,
         width: def.type === 'text' ? 140 : 100,
         editable: true,
-        type: def.type,
+        type: def.type === 'choice' ? 'select' : def.type,
+        options: def.type === 'choice' ? def.choices : undefined,
         defId: def.id,
       });
     }
@@ -169,14 +170,14 @@ export { FIELD_TYPE_LABEL };
 // ---------------------------------------------------------------------------
 // Rows
 
-function withExtras(doc: Document, kind: Kind, ownerId: string | null, cells: Record<string, string>): { cells: Record<string, string>; tags: string[] } {
+function withExtras(doc: Document, kind: Kind, ownerId: string | null, cells: Record<string, string>, defs: readonly FieldDefView[]): { cells: Record<string, string>; tags: string[] } {
   const tags: string[] = [];
   if (ownerId) {
     for (const t of tagsOf(doc, ownerId)) tags.push(t.name);
     const fieldFor = FIELD_FOR_KIND[kind];
     if (fieldFor) {
-      for (const f of fieldsOf(doc, ownerId)) {
-        cells[`field:${f.def.id}`] = f.value ?? '';
+      for (const f of fieldsOf(doc, ownerId, defs)) {
+        if (!f.removed) cells[`field:${f.def.id}`] = f.value ?? '';
       }
     }
   }
@@ -203,7 +204,7 @@ function deviceInfo(doc: Document, chassisId: string): { deviceId: string; hostn
   };
 }
 
-export function deviceRows(doc: Document, view: ClosetView): InvRow[] {
+export function deviceRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = []): InvRow[] {
   const out: InvRow[] = [];
   for (const group of groupDeviceRows(view, doc)) {
     for (const r of group.rows as DeviceRow[]) {
@@ -223,7 +224,7 @@ export function deviceRows(doc: Document, view: ClosetView): InvRow[] {
         cables: r.cablesByKind === ABSENT ? '' : r.cablesByKind,
         lastChange: r.lastChangeMs != null ? formatLastChange(r.lastChangeMs) : '',
       };
-      const { tags } = withExtras(doc, 'devices', ownerId, cells);
+      const { tags } = withExtras(doc, 'devices', ownerId, cells, defs);
       out.push({
         key: `${r.selection.kind}:${chassisId}`,
         selection: r.selection,
@@ -239,7 +240,7 @@ export function deviceRows(doc: Document, view: ClosetView): InvRow[] {
   return out;
 }
 
-export function rackRows(doc: Document, view: ClosetView): InvRow[] {
+export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = []): InvRow[] {
   return view.racks.map((rack) => {
     const used = rack.chassis.reduce((n, c) => n + c.heightU, 0) + rack.shelves.reduce((n, s) => n + s.heightU, 0);
     const free = rack.freeRuns.reduce((n, r) => n + (r.toU - r.fromU + 1), 0);
@@ -252,7 +253,7 @@ export function rackRows(doc: Document, view: ClosetView): InvRow[] {
       devices: String(rack.chassis.length),
       free: `${free}U`,
     };
-    const { tags } = withExtras(doc, 'racks', rack.id, cells);
+    const { tags } = withExtras(doc, 'racks', rack.id, cells, defs);
     return {
       key: `rack:${rack.id}`,
       selection: { kind: 'rack', id: rack.id },
@@ -265,7 +266,7 @@ export function rackRows(doc: Document, view: ClosetView): InvRow[] {
   });
 }
 
-export function cableRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string): InvRow[] {
+export function cableRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
   return view.cables.map((cable) => {
     const cells: Record<string, string> = {
       name: cable.label ?? '',
@@ -277,7 +278,7 @@ export function cableRows(doc: Document, view: ClosetView, endText: (end: CableE
       endA: cable.ends[0] ? endText(cable.ends[0]) : '',
       endB: cable.ends[1] ? endText(cable.ends[1]) : '',
     };
-    const { tags } = withExtras(doc, 'cables', cable.id, cells);
+    const { tags } = withExtras(doc, 'cables', cable.id, cells, defs);
     return {
       key: `cable:${cable.id}`,
       selection: { kind: 'cable', id: cable.id },
@@ -290,7 +291,7 @@ export function cableRows(doc: Document, view: ClosetView, endText: (end: CableE
   });
 }
 
-export function interfaceRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string): InvRow[] {
+export function interfaceRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
   const out: InvRow[] = [];
   const cableById = new Map(view.cables.map((c) => [c.id, c]));
   const push = (port: ClosetView['racks'][number]['chassis'][number]['ports'][number], device: string) => {
@@ -309,7 +310,7 @@ export function interfaceRows(doc: Document, view: ClosetView, endText: (end: Ca
       uplink: port.uplink ? 'yes' : 'no',
       cable: cableTo,
     };
-    const { tags } = withExtras(doc, 'interfaces', port.id, cells);
+    const { tags } = withExtras(doc, 'interfaces', port.id, cells, defs);
     out.push({
       key: `port:${port.id}`,
       selection: { kind: 'port', id: port.id },
@@ -364,6 +365,7 @@ export class CellRefusal extends Error {}
 export interface EditContext {
   catalogue: readonly CatalogueModel[];
   actor?: string;
+  defs: readonly FieldDefView[];
 }
 
 export interface CellEdit {
@@ -461,7 +463,7 @@ export function applyCellEdits(
     const good: FieldSet[] = [];
     for (const s of fieldSets) {
       try {
-        setFieldValues(working, [s], opts);
+        setFieldValues(working, [s], ctx.defs, opts);
         good.push(s);
       } catch (e) {
         const edit = edits.find((x) => x.row.ownerId === s.ownerId && x.col.defId === s.defId);
@@ -469,7 +471,7 @@ export function applyCellEdits(
         changed -= 1;
       }
     }
-    if (good.length > 0) working = setFieldValues(working, good, opts);
+    if (good.length > 0) working = setFieldValues(working, good, ctx.defs, opts);
   }
   return { doc: working, refused, changed };
 }

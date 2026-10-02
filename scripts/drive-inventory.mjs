@@ -186,7 +186,7 @@ try {
   await shot('inventory-03-field.png');
 
   // 7 — tabs on the page.
-  for (const tab of ['Interfaces', 'Cables', 'Docs', 'Notes', 'History']) {
+  for (const tab of ['Ports', 'Notes', 'History']) {
     await page.getByRole('tab', { name: new RegExp('^' + tab) }).click();
   }
   check('the History tab lists the changes made', (await page.locator('.inv-page__body').innerText()).length > 0);

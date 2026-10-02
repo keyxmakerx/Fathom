@@ -359,24 +359,18 @@ mod body {
         /// leaves for L1 -- so a payload holding two same-named tags still opens, and readers
         /// treat them as one (decision 5, "what it gives up").
         Tag,
-        /// A custom field's definition, hung off the workspace root through HasFieldDef as Tag is.
-        /// `emits: false` and `layer: physical` keep a parsed configuration from creating one. It
-        /// joins Placeable because every kind but LayoutPin does; the client draws no box for it.
-        /// A definition names the field, the kind of thing it applies to and the type of its value.
-        FieldDef,
         /// One value of a custom field on one object, owned through the Fieldable class by
-        /// HasFieldValue and pointing at its definition through ValueOf. The value is stored as
-        /// text whatever the definition's value_type; the editor parses and formats it.
-        ///
-        /// IDENTITY IS WEAK, Note's WAY: the owner and value do not distinguish two values of
-        /// different fields, and ValueOf is what ties a value to its definition.
+        /// HasFieldValue. The field's definition (name, type, choices) is NOT in the graph: it is
+        /// an organisation-wide server record (ADR-0062), and `definition` is that record's id.
+        /// `emits: false` and `layer: physical` keep a parsed configuration from creating one. The
+        /// value is stored as text whatever the definition's type; the editor parses and formats it.
         FieldValue,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 61;
+        pub const COUNT: usize = 60;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 61] = [
+        pub const ALL: [NodeKind; 60] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -436,7 +430,6 @@ mod body {
             NodeKind::Container,
             NodeKind::PublishedPort,
             NodeKind::Tag,
-            NodeKind::FieldDef,
             NodeKind::FieldValue,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
@@ -503,7 +496,6 @@ mod body {
                 NodeKind::Container => "Container",
                 NodeKind::PublishedPort => "PublishedPort",
                 NodeKind::Tag => "Tag",
-                NodeKind::FieldDef => "FieldDef",
                 NodeKind::FieldValue => "FieldValue",
             }
         }
@@ -568,7 +560,6 @@ mod body {
                 "Container" => Some(NodeKind::Container),
                 "PublishedPort" => Some(NodeKind::PublishedPort),
                 "Tag" => Some(NodeKind::Tag),
-                "FieldDef" => Some(NodeKind::FieldDef),
                 "FieldValue" => Some(NodeKind::FieldValue),
                 _ => None,
             }
@@ -639,8 +630,7 @@ mod body {
                 NodeKind::Container => &[&["owner(Device)", "name"]],
                 NodeKind::PublishedPort => &[&["owner(Container)", "protocol", "container_port", "host_address", "host_port"]],
                 NodeKind::Tag => &[&["name"]],
-                NodeKind::FieldDef => &[&["name", "applies_to"]],
-                NodeKind::FieldValue => &[&["owner(Fieldable)", "value"]],
+                NodeKind::FieldValue => &[&["owner(Fieldable)", "definition"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -705,7 +695,6 @@ mod body {
                 NodeKind::Container => Layer::Config,
                 NodeKind::PublishedPort => Layer::Config,
                 NodeKind::Tag => Layer::Physical,
-                NodeKind::FieldDef => Layer::Physical,
                 NodeKind::FieldValue => Layer::Physical,
             }
         }
@@ -772,7 +761,6 @@ mod body {
                 NodeKind::Container => false,
                 NodeKind::PublishedPort => false,
                 NodeKind::Tag => false,
-                NodeKind::FieldDef => false,
                 NodeKind::FieldValue => false,
             }
         }
@@ -840,8 +828,7 @@ mod body {
                 NodeKind::Container => &[crate::bag::FieldKey(337)],
                 NodeKind::PublishedPort => &[crate::bag::FieldKey(338), crate::bag::FieldKey(339), crate::bag::FieldKey(340), crate::bag::FieldKey(341)],
                 NodeKind::Tag => &[crate::bag::FieldKey(343)],
-                NodeKind::FieldDef => &[crate::bag::FieldKey(344), crate::bag::FieldKey(345), crate::bag::FieldKey(346)],
-                NodeKind::FieldValue => &[crate::bag::FieldKey(347)],
+                NodeKind::FieldValue => &[crate::bag::FieldKey(345), crate::bag::FieldKey(344)],
             }
         }
     }
@@ -1183,19 +1170,14 @@ mod body {
         /// objects, AttachedTo's own shape: both ends "0..n". A REFERENCE EDGE because Tag already
         /// has a containment parent (root, via HasTag).
         TaggedWith,
-        /// One field-definition list per design, hung off the root exactly as HasTag hangs Tag.
-        HasFieldDef,
         /// A value hangs off whichever Fieldable object it is on, HasNote's own shape.
         HasFieldValue,
-        /// A value points at the definition it fills. A REFERENCE EDGE because FieldValue already
-        /// has a containment parent (its Fieldable owner, via HasFieldValue).
-        ValueOf,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 103;
+        pub const COUNT: usize = 101;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 103] = [
+        pub const ALL: [EdgeKind; 101] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1296,9 +1278,7 @@ mod body {
             EdgeKind::ParentUnit,
             EdgeKind::HasTag,
             EdgeKind::TaggedWith,
-            EdgeKind::HasFieldDef,
             EdgeKind::HasFieldValue,
-            EdgeKind::ValueOf,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1405,9 +1385,7 @@ mod body {
                 EdgeKind::ParentUnit => "ParentUnit",
                 EdgeKind::HasTag => "HasTag",
                 EdgeKind::TaggedWith => "TaggedWith",
-                EdgeKind::HasFieldDef => "HasFieldDef",
                 EdgeKind::HasFieldValue => "HasFieldValue",
-                EdgeKind::ValueOf => "ValueOf",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1512,9 +1490,7 @@ mod body {
                 "ParentUnit" => Some(EdgeKind::ParentUnit),
                 "HasTag" => Some(EdgeKind::HasTag),
                 "TaggedWith" => Some(EdgeKind::TaggedWith),
-                "HasFieldDef" => Some(EdgeKind::HasFieldDef),
                 "HasFieldValue" => Some(EdgeKind::HasFieldValue),
-                "ValueOf" => Some(EdgeKind::ValueOf),
                 _ => None,
             }
         }
@@ -1621,9 +1597,7 @@ mod body {
                 EdgeKind::ParentUnit => EdgeClass::Reference,
                 EdgeKind::HasTag => EdgeClass::Containment,
                 EdgeKind::TaggedWith => EdgeClass::Reference,
-                EdgeKind::HasFieldDef => EdgeClass::Containment,
                 EdgeKind::HasFieldValue => EdgeClass::Containment,
-                EdgeKind::ValueOf => EdgeClass::Reference,
             }
         }
     }
@@ -1801,7 +1775,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::FieldDef, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1820,9 +1794,7 @@ mod body {
                 EdgeKind::ParentUnit => &[NodeKind::ContainerNetwork],
                 EdgeKind::HasTag => &[],
                 EdgeKind::TaggedWith => &[NodeKind::Device, NodeKind::PassiveNode, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack, NodeKind::Premises, NodeKind::Vlan, NodeKind::ContainerNetwork, NodeKind::Container],
-                EdgeKind::HasFieldDef => &[],
                 EdgeKind::HasFieldValue => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack, NodeKind::Vlan, NodeKind::ContainerNetwork],
-                EdgeKind::ValueOf => &[NodeKind::FieldValue],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1928,9 +1900,7 @@ mod body {
                 EdgeKind::ParentUnit => &[NodeKind::LogicalUnit],
                 EdgeKind::HasTag => &[NodeKind::Tag],
                 EdgeKind::TaggedWith => &[NodeKind::Tag],
-                EdgeKind::HasFieldDef => &[NodeKind::FieldDef],
                 EdgeKind::HasFieldValue => &[NodeKind::FieldValue],
-                EdgeKind::ValueOf => &[NodeKind::FieldDef],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2036,9 +2006,7 @@ mod body {
                 EdgeKind::ParentUnit => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasTag => EdgeCardBound { min: 0, max: None },
                 EdgeKind::TaggedWith => EdgeCardBound { min: 0, max: None },
-                EdgeKind::HasFieldDef => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasFieldValue => EdgeCardBound { min: 0, max: None },
-                EdgeKind::ValueOf => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2144,9 +2112,7 @@ mod body {
                 EdgeKind::ParentUnit => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasTag => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::TaggedWith => EdgeCardBound { min: 0, max: None },
-                EdgeKind::HasFieldDef => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasFieldValue => EdgeCardBound { min: 1, max: Some(1) },
-                EdgeKind::ValueOf => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2253,9 +2219,7 @@ mod body {
                 EdgeKind::ParentUnit => false,
                 EdgeKind::HasTag => false,
                 EdgeKind::TaggedWith => false,
-                EdgeKind::HasFieldDef => false,
                 EdgeKind::HasFieldValue => false,
-                EdgeKind::ValueOf => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2361,9 +2325,7 @@ mod body {
                 EdgeKind::ParentUnit => false,
                 EdgeKind::HasTag => true,
                 EdgeKind::TaggedWith => false,
-                EdgeKind::HasFieldDef => true,
                 EdgeKind::HasFieldValue => false,
-                EdgeKind::ValueOf => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2469,9 +2431,7 @@ mod body {
                 EdgeKind::ParentUnit => &[],
                 EdgeKind::HasTag => &[],
                 EdgeKind::TaggedWith => &[],
-                EdgeKind::HasFieldDef => &[],
                 EdgeKind::HasFieldValue => &[],
-                EdgeKind::ValueOf => &[],
             }
         }
     }
@@ -4552,96 +4512,6 @@ mod body {
         }
     }
 
-    /// Inline enum on `FieldDef.applies_to` (62 §7 rule 4; codegen-named).
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum FieldDefAppliesTo {
-        Device,
-        Rack,
-        Cable,
-        Port,
-        Network,
-        /// The generated unknown arm (62 §7 rule 2) — carries the
-        /// unrecognised token verbatim; what makes a new variant a minor
-        /// bump an old client survives (62 §16.2).
-        Unknown(String),
-    }
-
-    impl FieldDefAppliesTo {
-        /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 5] = [
-            "device",
-            "rack",
-            "cable",
-            "port",
-            "network",
-        ];
-        /// Neutral token → variant; anything undeclared lands in `Unknown`.
-        pub fn from_token(token: &str) -> FieldDefAppliesTo {
-            match token {
-                "device" => FieldDefAppliesTo::Device,
-                "rack" => FieldDefAppliesTo::Rack,
-                "cable" => FieldDefAppliesTo::Cable,
-                "port" => FieldDefAppliesTo::Port,
-                "network" => FieldDefAppliesTo::Network,
-                other => FieldDefAppliesTo::Unknown(other.to_owned()),
-            }
-        }
-        /// The neutral token (the carried one for `Unknown`).
-        pub fn token(&self) -> &str {
-            match self {
-                FieldDefAppliesTo::Device => "device",
-                FieldDefAppliesTo::Rack => "rack",
-                FieldDefAppliesTo::Cable => "cable",
-                FieldDefAppliesTo::Port => "port",
-                FieldDefAppliesTo::Network => "network",
-                FieldDefAppliesTo::Unknown(t) => t,
-            }
-        }
-    }
-
-    /// Inline enum on `FieldDef.value_type` (62 §7 rule 4; codegen-named).
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum FieldDefValueType {
-        Text,
-        Number,
-        YesNo,
-        Date,
-        /// The generated unknown arm (62 §7 rule 2) — carries the
-        /// unrecognised token verbatim; what makes a new variant a minor
-        /// bump an old client survives (62 §16.2).
-        Unknown(String),
-    }
-
-    impl FieldDefValueType {
-        /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 4] = [
-            "text",
-            "number",
-            "yes_no",
-            "date",
-        ];
-        /// Neutral token → variant; anything undeclared lands in `Unknown`.
-        pub fn from_token(token: &str) -> FieldDefValueType {
-            match token {
-                "text" => FieldDefValueType::Text,
-                "number" => FieldDefValueType::Number,
-                "yes_no" => FieldDefValueType::YesNo,
-                "date" => FieldDefValueType::Date,
-                other => FieldDefValueType::Unknown(other.to_owned()),
-            }
-        }
-        /// The neutral token (the carried one for `Unknown`).
-        pub fn token(&self) -> &str {
-            match self {
-                FieldDefValueType::Text => "text",
-                FieldDefValueType::Number => "number",
-                FieldDefValueType::YesNo => "yes_no",
-                FieldDefValueType::Date => "date",
-                FieldDefValueType::Unknown(t) => t,
-            }
-        }
-    }
-
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -5392,30 +5262,6 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(ContainerNetworkDriver::from_token(t)),
-                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
-            }
-        }
-    }
-
-    impl crate::canon::CanonicalValue for FieldDefAppliesTo {
-        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
-            Ok(fathom_canon::Json::Str(self.token().to_owned()))
-        }
-        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
-            match j {
-                fathom_canon::Json::Str(t) => Ok(FieldDefAppliesTo::from_token(t)),
-                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
-            }
-        }
-    }
-
-    impl crate::canon::CanonicalValue for FieldDefValueType {
-        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
-            Ok(fathom_canon::Json::Str(self.token().to_owned()))
-        }
-        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
-            match j {
-                fathom_canon::Json::Str(t) => Ok(FieldDefValueType::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -8165,52 +8011,18 @@ mod body {
         }
     }
 
-    /// Fields of kind `FieldDef`, declaration order, keyed by the wire registry.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum FieldDefField {
-        Name,
-        AppliesTo,
-        ValueType,
-    }
-
-    impl FieldDefField {
-        pub const COUNT: usize = 3;
-        /// Every field, declaration order.
-        pub const ALL: [FieldDefField; 3] = [
-            FieldDefField::Name,
-            FieldDefField::AppliesTo,
-            FieldDefField::ValueType,
-        ];
-        /// Dense index, declaration order — the `EnumMap` key.
-        pub const fn index(self) -> usize { self as usize }
-        /// The declared field name.
-        pub const fn name(self) -> &'static str {
-            match self {
-                FieldDefField::Name => "name",
-                FieldDefField::AppliesTo => "applies_to",
-                FieldDefField::ValueType => "value_type",
-            }
-        }
-        /// The stable wire key (`schema/field-keys.yaml`).
-        pub const fn key(self) -> crate::bag::FieldKey {
-            match self {
-                FieldDefField::Name => crate::bag::FieldKey(344),
-                FieldDefField::AppliesTo => crate::bag::FieldKey(345),
-                FieldDefField::ValueType => crate::bag::FieldKey(346),
-            }
-        }
-    }
-
     /// Fields of kind `FieldValue`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum FieldValueField {
+        Definition,
         Value,
     }
 
     impl FieldValueField {
-        pub const COUNT: usize = 1;
+        pub const COUNT: usize = 2;
         /// Every field, declaration order.
-        pub const ALL: [FieldValueField; 1] = [
+        pub const ALL: [FieldValueField; 2] = [
+            FieldValueField::Definition,
             FieldValueField::Value,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
@@ -8218,13 +8030,15 @@ mod body {
         /// The declared field name.
         pub const fn name(self) -> &'static str {
             match self {
+                FieldValueField::Definition => "definition",
                 FieldValueField::Value => "value",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
         pub const fn key(self) -> crate::bag::FieldKey {
             match self {
-                FieldValueField::Value => crate::bag::FieldKey(347),
+                FieldValueField::Definition => crate::bag::FieldKey(345),
+                FieldValueField::Value => crate::bag::FieldKey(344),
             }
         }
     }
@@ -8720,7 +8534,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 347] = [
+    pub const FIELD_KEYS: [(&str, u32); 345] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9064,10 +8878,8 @@ mod body {
         ("PublishedPort.host_address", 341),
         ("AttachedTo.address", 342),
         ("Tag.name", 343),
-        ("FieldDef.name", 344),
-        ("FieldDef.applies_to", 345),
-        ("FieldDef.value_type", 346),
-        ("FieldValue.value", 347),
+        ("FieldValue.value", 344),
+        ("FieldValue.definition", 345),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
@@ -9076,7 +8888,7 @@ mod body {
     pub const FIELD_REQUIRED_BITS: [u8; 44] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0x0f,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0x03,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

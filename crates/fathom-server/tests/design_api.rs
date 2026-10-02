@@ -1634,6 +1634,597 @@ async fn a_signed_in_caller_reads_the_catalogue_list_and_one_models_full_detail(
 }
 
 // ---------------------------------------------------------------------------
+// Custom-field definitions (ADR-0062)
+// ---------------------------------------------------------------------------
+
+/// A member of the organisation with a key enrolled and the given role.
+async fn a_member_as(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    name: &str,
+    role: repo::Role,
+) -> Person {
+    let person = an_account(pool, name).await;
+    repo::add_member(
+        pool,
+        estate.organisation,
+        estate.steward.account,
+        person.account,
+        role,
+    )
+    .await
+    .expect("membership");
+    enrol(pool, ring, estate.organisation, &person).await;
+    person
+}
+
+type Obj = std::collections::BTreeMap<String, fathom_canon::Json>;
+
+fn canon(fields: Vec<(&str, fathom_canon::Json)>) -> Vec<u8> {
+    fathom_canon::Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+    .to_canonical_bytes()
+}
+
+fn jstr(s: &str) -> fathom_canon::Json {
+    fathom_canon::Json::Str(s.to_string())
+}
+
+fn jarr(items: &[&str]) -> fathom_canon::Json {
+    fathom_canon::Json::Arr(items.iter().map(|s| jstr(s)).collect())
+}
+
+fn create_body(kind: &str, name: &str, ty: &str, choices: &[&str]) -> Vec<u8> {
+    canon(vec![
+        ("kind", jstr(kind)),
+        ("name", jstr(name)),
+        ("type", jstr(ty)),
+        ("choices", jarr(choices)),
+    ])
+}
+
+fn if_version(v: i64) -> (&'static str, fathom_canon::Json) {
+    ("ifVersion", fathom_canon::Json::Int(v))
+}
+
+fn parsed(body: &[u8]) -> Obj {
+    match fathom_canon::Json::parse_canonical(body) {
+        Ok(fathom_canon::Json::Obj(m)) => m,
+        other => panic!(
+            "not a JSON object: {other:?} {}",
+            String::from_utf8_lossy(body)
+        ),
+    }
+}
+
+fn text_of(m: &Obj, key: &str) -> String {
+    match &m[key] {
+        fathom_canon::Json::Str(s) => s.clone(),
+        other => panic!("{key} is not a string: {other:?}"),
+    }
+}
+
+fn int_of(m: &Obj, key: &str) -> i64 {
+    match &m[key] {
+        fathom_canon::Json::Int(i) => *i,
+        other => panic!("{key} is not an integer: {other:?}"),
+    }
+}
+
+fn list_of(body: &[u8]) -> Vec<Obj> {
+    match fathom_canon::Json::parse_canonical(body) {
+        Ok(fathom_canon::Json::Arr(items)) => items
+            .into_iter()
+            .map(|j| match j {
+                fathom_canon::Json::Obj(m) => m,
+                other => panic!("not an object: {other:?}"),
+            })
+            .collect(),
+        other => panic!("not a JSON array: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_member_creates_renames_and_archives_a_field_and_every_member_sees_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_as(&pool, &ring, &estate, "member", repo::Role::Member).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let (status, body) = call(
+        addr,
+        &member,
+        "POST",
+        &base,
+        &create_body("device", "Owner", "text", &[]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let made = parsed(&body);
+    let id = text_of(&made, "id");
+    assert_eq!(text_of(&made, "kind"), "device");
+    assert_eq!(text_of(&made, "name"), "Owner");
+    assert_eq!(text_of(&made, "type"), "text");
+    assert_eq!(int_of(&made, "version"), 1);
+    assert_eq!(text_of(&made, "createdBy"), member.account.to_string());
+    assert_eq!(made["archived"], fathom_canon::Json::Bool(false));
+
+    let (status, body) = call(
+        addr,
+        &member,
+        "POST",
+        &base,
+        &create_body("rack", "Zone", "choice", &["A", "B"]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let zone = text_of(&parsed(&body), "id");
+
+    // The creator renames: version moves on, the type does not.
+    let one = format!("{base}/{id}");
+    let (status, body) = call(
+        addr,
+        &member,
+        "PATCH",
+        &one,
+        &canon(vec![("name", jstr("Responsible")), if_version(1)]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let renamed = parsed(&body);
+    assert_eq!(text_of(&renamed, "name"), "Responsible");
+    assert_eq!(int_of(&renamed, "version"), 2);
+
+    // Choices change on a choice field.
+    let zone_path = format!("{base}/{zone}");
+    let (status, body) = call(
+        addr,
+        &member,
+        "PATCH",
+        &zone_path,
+        &canon(vec![("choices", jarr(&["A", "B", "C"])), if_version(1)]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(parsed(&body)["choices"], jarr(&["A", "B", "C"]));
+
+    // Archive replaces delete: still listed, flagged.
+    let (status, body) = call(
+        addr,
+        &member,
+        "POST",
+        &format!("{one}/archive"),
+        &canon(vec![if_version(2)]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let archived = parsed(&body);
+    assert_eq!(archived["archived"], fathom_canon::Json::Bool(true));
+    assert_eq!(int_of(&archived, "version"), 3);
+
+    // Another member reads both, archived flag included.
+    let reader = a_member_as(&pool, &ring, &estate, "reader", repo::Role::Member).await;
+    let (status, body) = call(addr, &reader, "GET", &base, b"").await;
+    assert_eq!(status, "200");
+    let all = list_of(&body);
+    assert_eq!(all.len(), 2);
+    let by_id = |want: &str| all.iter().find(|m| text_of(m, "id") == want).unwrap();
+    assert_eq!(by_id(&id)["archived"], fathom_canon::Json::Bool(true));
+    assert_eq!(text_of(by_id(&id), "name"), "Responsible");
+    assert_eq!(by_id(&zone)["archived"], fathom_canon::Json::Bool(false));
+    assert_eq!(by_id(&zone)["choices"], jarr(&["A", "B", "C"]));
+
+    // An archived field takes no further edit.
+    let (status, _) = call(
+        addr,
+        &member,
+        "PATCH",
+        &one,
+        &canon(vec![("name", jstr("Again")), if_version(3)]),
+    )
+    .await;
+    assert_eq!(status, "400");
+}
+
+#[tokio::test]
+async fn a_stale_version_is_a_conflict_and_changes_nothing() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("port", "VLAN", "text", &[]),
+    )
+    .await;
+    let one = format!("{base}/{}", text_of(&parsed(&body), "id"));
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "PATCH",
+        &one,
+        &canon(vec![("name", jstr("VLAN id")), if_version(1)]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "PATCH",
+        &one,
+        &canon(vec![("name", jstr("Stale")), if_version(1)]),
+    )
+    .await;
+    assert_eq!(status, "409");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{one}/archive"),
+        &canon(vec![if_version(1)]),
+    )
+    .await;
+    assert_eq!(status, "409");
+
+    let (_, body) = call(addr, &estate.steward, "GET", &base, b"").await;
+    let all = list_of(&body);
+    assert_eq!(text_of(&all[0], "name"), "VLAN id");
+    assert_eq!(all[0]["archived"], fathom_canon::Json::Bool(false));
+    assert_eq!(int_of(&all[0], "version"), 2);
+}
+
+#[tokio::test]
+async fn only_the_creator_or_an_admin_may_change_a_field_and_a_stranger_cannot_tell_if_it_exists() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let creator = a_member_as(&pool, &ring, &estate, "creator", repo::Role::Member).await;
+    let other = a_member_as(&pool, &ring, &estate, "other", repo::Role::Member).await;
+    let admin = a_member_as(&pool, &ring, &estate, "admin", repo::Role::Admin).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let (_, body) = call(
+        addr,
+        &creator,
+        "POST",
+        &base,
+        &create_body("cable", "Label", "text", &[]),
+    )
+    .await;
+    let real = format!("{base}/{}", text_of(&parsed(&body), "id"));
+    let ghost = format!("{base}/{}", fathom_server::ids::new_ulid());
+    let rename = canon(vec![("name", jstr("Mine")), if_version(1)]);
+    let archive = canon(vec![if_version(1)]);
+
+    // A non-creator member is refused, and the refusal for a real field is the
+    // same, byte for byte, as for one that was never created.
+    let refused_real = call(addr, &other, "PATCH", &real, &rename).await;
+    let refused_ghost = call(addr, &other, "PATCH", &ghost, &rename).await;
+    assert_eq!(refused_real.0, "403");
+    assert_eq!(refused_real, refused_ghost);
+    let refused_real = call(addr, &other, "POST", &format!("{real}/archive"), &archive).await;
+    let refused_ghost = call(addr, &other, "POST", &format!("{ghost}/archive"), &archive).await;
+    assert_eq!(refused_real.0, "403");
+    assert_eq!(refused_real, refused_ghost);
+
+    // An admin who did not create it may; for a missing one an admin is told 404.
+    let (status, _) = call(addr, &admin, "PATCH", &real, &rename).await;
+    assert_eq!(status, "200");
+    let (status, _) = call(addr, &admin, "PATCH", &ghost, &rename).await;
+    assert_eq!(status, "404");
+    let (status, _) = call(
+        addr,
+        &creator,
+        "POST",
+        &format!("{real}/archive"),
+        &canon(vec![if_version(2)]),
+    )
+    .await;
+    assert_eq!(status, "200");
+}
+
+#[tokio::test]
+async fn another_organisation_cannot_see_or_learn_that_a_field_exists() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let outsider = bootstrap(&pool, &ring).await;
+    let outsider_member =
+        a_member_as(&pool, &ring, &outsider, "out-member", repo::Role::Member).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+    let theirs = format!("/organisations/{}/field-definitions", outsider.organisation);
+
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("device", "Secret", "text", &[]),
+    )
+    .await;
+    let id = text_of(&parsed(&body), "id");
+    let rename = canon(vec![("name", jstr("Mine")), if_version(1)]);
+
+    // Through our organisation: not a member, refused outright.
+    let (status, _) = call(addr, &outsider.steward, "GET", &base, b"").await;
+    assert_eq!(status, "403");
+    let (status, _) = call(
+        addr,
+        &outsider.steward,
+        "POST",
+        &base,
+        &create_body("device", "x", "text", &[]),
+    )
+    .await;
+    assert_eq!(status, "403");
+    let (status, _) = call(
+        addr,
+        &outsider.steward,
+        "PATCH",
+        &format!("{base}/{id}"),
+        &rename,
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // Through their own: the list is empty and our id answers as a missing one.
+    let (_, body) = call(addr, &outsider.steward, "GET", &theirs, b"").await;
+    assert!(list_of(&body).is_empty());
+    let (status, _) = call(
+        addr,
+        &outsider.steward,
+        "PATCH",
+        &format!("{theirs}/{id}"),
+        &rename,
+    )
+    .await;
+    assert_eq!(status, "404");
+    let ours = call(
+        addr,
+        &outsider_member,
+        "PATCH",
+        &format!("{theirs}/{id}"),
+        &rename,
+    )
+    .await;
+    let ghost = call(
+        addr,
+        &outsider_member,
+        "PATCH",
+        &format!("{theirs}/{}", fathom_server::ids::new_ulid()),
+        &rename,
+    )
+    .await;
+    assert_eq!(ours.0, "403");
+    assert_eq!(ours, ghost);
+
+    // And the field is untouched.
+    let (_, body) = call(addr, &estate.steward, "GET", &base, b"").await;
+    assert_eq!(text_of(&list_of(&body)[0], "name"), "Secret");
+}
+
+#[tokio::test]
+async fn field_names_choices_kinds_and_types_are_checked() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let long_name = "x".repeat(101);
+    let many: Vec<String> = (0..101).map(|i| format!("c{i}")).collect();
+    let many_refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    let long_choice = "y".repeat(101);
+    for (what, body) in [
+        ("empty name", create_body("device", "  ", "text", &[])),
+        ("long name", create_body("device", &long_name, "text", &[])),
+        (
+            "control char",
+            create_body("device", "a\u{7}b", "text", &[]),
+        ),
+        (
+            "bidi override",
+            create_body("device", "a\u{202E}b", "text", &[]),
+        ),
+        (
+            "zero width",
+            create_body("device", "a\u{200B}b", "text", &[]),
+        ),
+        (
+            "line separator",
+            create_body("device", "a\u{2028}b", "text", &[]),
+        ),
+        ("bad kind", create_body("scope", "Ok", "text", &[])),
+        ("bad type", create_body("device", "Ok", "boolean", &[])),
+        (
+            "choice with none",
+            create_body("device", "Ok", "choice", &[]),
+        ),
+        (
+            "text with choices",
+            create_body("device", "Ok", "text", &["a"]),
+        ),
+        (
+            "duplicate choices",
+            create_body("device", "Ok", "choice", &["a", "a"]),
+        ),
+        (
+            "empty choice",
+            create_body("device", "Ok", "choice", &["a", " "]),
+        ),
+        (
+            "long choice",
+            create_body("device", "Ok", "choice", &[&long_choice]),
+        ),
+        (
+            "too many choices",
+            create_body("device", "Ok", "choice", &many_refs),
+        ),
+        (
+            "bidi choice",
+            create_body("device", "Ok", "choice", &["a\u{202E}"]),
+        ),
+        (
+            "unknown key",
+            canon(vec![
+                ("kind", jstr("device")),
+                ("name", jstr("Ok")),
+                ("type", jstr("text")),
+                ("extra", jstr("x")),
+            ]),
+        ),
+        ("not canonical", b"{ \"kind\": \"device\" }".to_vec()),
+    ] {
+        let (status, _) = call(addr, &estate.steward, "POST", &base, &body).await;
+        assert_eq!(status, "400", "{what}");
+    }
+
+    // Boundaries pass: 100 characters, and 100 choices of 100 characters.
+    let name100 = "n".repeat(100);
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("network", &name100, "text", &[]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let hundred: Vec<String> = (0..100)
+        .map(|i| format!("{i:03}{}", "z".repeat(97)))
+        .collect();
+    let hundred_refs: Vec<&str> = hundred.iter().map(String::as_str).collect();
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("network", "Many", "choice", &hundred_refs),
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    // The same rules bind a rename and new choices.
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("device", "Fine", "choice", &["a"]),
+    )
+    .await;
+    let one = format!("{base}/{}", text_of(&parsed(&body), "id"));
+    for (what, body) in [
+        (
+            "rename bidi",
+            canon(vec![("name", jstr("a\u{202E}b")), if_version(1)]),
+        ),
+        (
+            "rename long",
+            canon(vec![("name", jstr(&long_name)), if_version(1)]),
+        ),
+        (
+            "empty choices on choice",
+            canon(vec![("choices", jarr(&[])), if_version(1)]),
+        ),
+        (
+            "duplicate choices",
+            canon(vec![("choices", jarr(&["a", "a"])), if_version(1)]),
+        ),
+        ("nothing to change", canon(vec![if_version(1)])),
+        ("no ifVersion", canon(vec![("name", jstr("x"))])),
+    ] {
+        let (status, _) = call(addr, &estate.steward, "PATCH", &one, &body).await;
+        assert_eq!(status, "400", "{what}");
+    }
+}
+
+#[tokio::test]
+async fn a_field_definition_is_never_stored_in_the_clear_and_is_bound_to_its_row() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let name = "Maintenance contract reference";
+    let option = "Gold-support-tier";
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("device", name, "choice", &[option, "Basic"]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let id = text_of(&parsed(&body), "id");
+
+    // Sealed at rest: no column of the row, however rendered, holds the words.
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT t::text, ciphertext, nonce FROM field_definitions t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap();
+    let rendered: String = rows[0].get(0);
+    let ciphertext: Vec<u8> = rows[0].get(1);
+    let nonce: Vec<u8> = rows[0].get(2);
+    for needle in [name, option, "choice"] {
+        assert!(!rendered.contains(needle), "{needle} in {rendered}");
+        assert!(
+            !ciphertext
+                .windows(needle.len())
+                .any(|w| w == needle.as_bytes()),
+            "{needle} in the ciphertext"
+        );
+    }
+
+    // Moving the sealed bytes onto another row is refused, not shown.
+    let (_, other) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &base,
+        &create_body("device", "Other", "text", &[]),
+    )
+    .await;
+    let other_id = text_of(&parsed(&other), "id");
+    client
+        .execute(
+            "UPDATE field_definitions SET ciphertext = $1, nonce = $2 WHERE id = $3",
+            &[&ciphertext, &nonce, &other_id],
+        )
+        .await
+        .unwrap();
+    let (status, _) = call(addr, &estate.steward, "GET", &base, b"").await;
+    assert_eq!(status, "500");
+}
+
+// ---------------------------------------------------------------------------
 // GET /organisations — which tenants the signed-in account belongs to
 // ---------------------------------------------------------------------------
 

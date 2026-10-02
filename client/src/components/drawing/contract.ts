@@ -290,10 +290,10 @@ export interface EditorActions {
   fieldsOf?(ownerId: string): FieldRow[];
   /** Sets one value; blank clears it. Optional, `onEdit`'s own reading. */
   onSetField?(ownerId: string, defId: string, raw: string): { refused: string } | void;
-  /** Defines a new field for `ownerId`'s kind (every thing of that kind gets it). */
-  onAddFieldDef?(ownerId: string, name: string, type: FieldType): { refused: string } | void;
-  /** Removes a field's definition and every value of it. */
-  onRemoveFieldDef?(defId: string): { refused: string } | void;
+  /** Defines a new field for `ownerId`'s kind, organisation-wide. */
+  onAddFieldDef?(ownerId: string, name: string, type: FieldType, choices?: readonly string[]): Promise<{ refused: string } | void>;
+  /** Removes a field for the whole organisation; values already set stay, shown as removed. */
+  onRemoveFieldDef?(defId: string): Promise<{ refused: string } | void>;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only

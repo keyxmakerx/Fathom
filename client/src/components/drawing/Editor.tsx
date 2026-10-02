@@ -1370,6 +1370,7 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<FieldType>('text');
+  const [choicesText, setChoicesText] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   if (!actions.fieldsOf) return null;
@@ -1377,13 +1378,14 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
   if (rows == null) return null;
   const writable = actions.onSetField != null;
 
-  const submit = () => {
-    const result = actions.onAddFieldDef?.(ownerId, name, type);
+  const submit = async () => {
+    const result = await actions.onAddFieldDef?.(ownerId, name, type, type === 'choice' ? choicesText.split(',').map((c) => c.trim()).filter(Boolean) : undefined);
     if (result && 'refused' in result) {
       setRefusal(result.refused);
       return;
     }
     setName('');
+    setChoicesText('');
     setRefusal(null);
     setAdding(false);
   };
@@ -1392,15 +1394,23 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
     <>
       <div className="drawing-editor__group">Your fields</div>
       {rows.length === 0 ? <div style={TYPED_NOTE_STYLE}>No fields yet.</div> : null}
-      {rows.map(({ def, value }) => (
-        <div key={def.id} className="drawing-editor__field">
+      {rows.map(({ def, value, removed }) => (
+        <div key={def.id} className="drawing-editor__field" style={removed ? { color: 'var(--muted)' } : undefined}>
           <div className="drawing-editor__field-label">
             {def.name}
-            {actions.onRemoveFieldDef ? (
+            {removed ? ' (removed field)' : null}
+            {actions.onRemoveFieldDef && !removed ? (
               removing === def.id ? (
                 <span style={{ marginLeft: 'var(--s2)' }}>
-                  Remove for everyone?{' '}
-                  <button type="button" onClick={() => actions.onRemoveFieldDef!(def.id)}>
+                  Remove for the organisation?{' '}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const r = await actions.onRemoveFieldDef!(def.id);
+                      setRemoving(null);
+                      if (r && 'refused' in r) setRefusal(r.refused);
+                    }}
+                  >
                     Remove
                   </button>{' '}
                   <button type="button" onClick={() => setRemoving(null)}>
@@ -1422,9 +1432,9 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
           <EditableValue
             value={value ?? ''}
             placeholder={def.type === 'date' ? 'YYYY-MM-DD' : ABSENT}
-            editorKind={def.type === 'yes_no' ? 'select' : 'text'}
-            options={def.type === 'yes_no' ? ['yes', 'no'] : undefined}
-            onCommit={writable ? (raw) => actions.onSetField!(ownerId, def.id, raw ?? '') : undefined}
+            editorKind={def.type === 'choice' ? 'select' : 'text'}
+            options={def.type === 'choice' ? def.choices : undefined}
+            onCommit={writable && !removed ? (raw) => actions.onSetField!(ownerId, def.id, raw ?? '') : undefined}
           />
         </div>
       ))}
@@ -1439,7 +1449,7 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
                 placeholder="Warranty ends"
                 onChange={(e) => setName(e.currentTarget.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') submit();
+                  if (e.key === 'Enter') void submit();
                   if (e.key === 'Escape') setAdding(false);
                 }}
               />
@@ -1450,11 +1460,14 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
                   </option>
                 ))}
               </select>
-              <button type="button" onClick={submit}>
+              {type === 'choice' ? (
+                <input aria-label="Choices" value={choicesText} placeholder="Choices, comma separated" onChange={(e) => setChoicesText(e.currentTarget.value)} />
+              ) : null}
+              <button type="button" onClick={() => void submit()}>
                 Add field
               </button>
             </div>
-            <div style={TYPED_NOTE_STYLE}>Every one of this kind gets the field, and everyone who opens the design sees it.</div>
+            <div style={TYPED_NOTE_STYLE}>Every one of this kind gets the field, in every design of the organisation.</div>
             {refusal ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
           </div>
         ) : (

@@ -441,7 +441,7 @@ describe('readPlain refusals', () => {
     const doc = readPlain(bytesOf(PINNED));
     const withDef: Document = {
       ...doc,
-      nodes: [...doc.nodes, { id: formatNodeId('FieldDef', newUlid()), existence: newUlid(), fields: {} }],
+      nodes: [...doc.nodes, { id: formatNodeId('FieldValue', newUlid()), existence: newUlid(), fields: {} }],
     };
     const at013 = new TextDecoder().decode(writePlain(withDef));
     // The same payload under the current header round-trips.
@@ -455,7 +455,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'kind-not-in-declared-version',
         declaredVersion: '0.12',
-        elementKind: 'FieldDef',
+        elementKind: 'FieldValue',
       });
     }
   });

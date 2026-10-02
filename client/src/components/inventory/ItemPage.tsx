@@ -4,13 +4,13 @@
 import { useState, type ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
-import { ABSENT, type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
+import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
 import { EditorFor, NotesSection } from '../drawing/Editor';
-import { cableEndText } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
 import { historyOf } from './kinds';
+import { PortsList } from './PortsList';
 
-type TabKey = 'overview' | 'interfaces' | 'cables' | 'docs' | 'notes' | 'history';
+type TabKey = 'overview' | 'ports' | 'notes' | 'history';
 
 export interface ItemPageProps {
   doc: Document;
@@ -40,13 +40,11 @@ export function ItemPage(props: ItemPageProps) {
   const [tab, setTab] = useState<TabKey>('overview');
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
   const ports = isDevice ? portsOf(view, selection) : [];
-  const cabled = ports.filter((p) => p.cable != null);
   const notes = ownerId && actions.notesOf ? actions.notesOf(ownerId).length : 0;
 
   const tabs: Array<{ key: TabKey; label: string; count?: number }> = [
     { key: 'overview', label: 'Overview' },
-    ...(isDevice ? [{ key: 'interfaces' as const, label: 'Interfaces', count: ports.length }, { key: 'cables' as const, label: 'Cables', count: cabled.length }] : []),
-    { key: 'docs', label: 'Docs' },
+    ...(isDevice ? [{ key: 'ports' as const, label: 'Ports', count: ports.length }] : []),
     { key: 'notes', label: 'Notes', count: notes },
     { key: 'history', label: 'History' },
   ];
@@ -54,43 +52,18 @@ export function ItemPage(props: ItemPageProps) {
 
   let body: ReactNode = null;
   if (active === 'overview') {
-    body = <div className="inv-page__overview">{EditorFor(selection, view, actions, palette)}</div>;
-  } else if (active === 'interfaces') {
     body = (
-      <ul className="inv-page__list">
-        {ports.length === 0 ? <li className="inv-page__muted">No interfaces. Add them in Overview.</li> : null}
-        {ports.map((p) => (
-          <li key={p.id}>
-            <button type="button" onClick={() => actions.onSelect?.({ kind: 'port', id: p.id })}>
-              {p.label || ABSENT}
-            </button>
-            <span className="inv-page__muted">
-              {p.connector} · {p.face}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <div className="inv-page__overview">
+        {EditorFor(selection, view, actions, palette)}
+        {notes > 0 ? (
+          <button type="button" className="inv-page__link" onClick={() => setTab('notes')}>
+            {notes} {notes === 1 ? 'note' : 'notes'}
+          </button>
+        ) : null}
+      </div>
     );
-  } else if (active === 'cables') {
-    body = (
-      <ul className="inv-page__list">
-        {cabled.length === 0 ? <li className="inv-page__muted">Nothing cabled yet.</li> : null}
-        {cabled.map((p) => {
-          const cable = view.cables.find((c) => c.id === p.cable!.cableId);
-          const far = cable?.ends.find((e) => !('portId' in e) || e.portId !== p.id);
-          return (
-            <li key={p.id}>
-              <button type="button" onClick={() => cable && actions.onSelect?.({ kind: 'cable', id: cable.id })}>
-                {p.label || ABSENT}
-              </button>
-              <span className="inv-page__muted">to {far ? cableEndText(view, far) : ABSENT}</span>
-            </li>
-          );
-        })}
-      </ul>
-    );
-  } else if (active === 'docs') {
-    body = <p className="inv-page__muted">No documents yet.</p>;
+  } else if (active === 'ports') {
+    body = <PortsList view={view} ports={ports} actions={actions} />;
   } else if (active === 'notes') {
     body = ownerId ? (
       <div className="drawing-editor__panel">

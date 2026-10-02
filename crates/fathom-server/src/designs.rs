@@ -133,6 +133,14 @@ pub enum DesignError {
     /// No such scope in this tenant to hang the design on. A scope id from
     /// another organisation reads the same way, which is the right answer.
     NoSuchScope,
+    /// A custom-field definition (ADR-0062) that fails the name, type or choice rules.
+    InvalidFieldDefinition(&'static str),
+    /// No such field definition in this organisation.
+    NoSuchFieldDefinition,
+    /// A field definition changed since the caller read it.
+    FieldDefinitionConflict {
+        current: i64,
+    },
     /// Larger than [`MAX_PAYLOAD_BYTES`].
     PayloadTooLarge {
         bytes: usize,
@@ -219,6 +227,11 @@ impl fmt::Display for DesignError {
             Self::NoSuchDesign => f.write_str("no such design in this organisation"),
             Self::NoSuchVersion => f.write_str("no such version of this design"),
             Self::NoSuchScope => f.write_str("no such scope in this organisation"),
+            Self::InvalidFieldDefinition(why) => f.write_str(why),
+            Self::NoSuchFieldDefinition => f.write_str("no such field definition"),
+            Self::FieldDefinitionConflict { current } => {
+                write!(f, "that field is now at version {current}")
+            }
             Self::PayloadTooLarge { bytes } => write!(
                 f,
                 "that payload is {bytes} bytes; one design version may be at most \

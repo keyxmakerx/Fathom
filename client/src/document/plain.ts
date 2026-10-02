@@ -64,11 +64,11 @@ const EDGE_KINDS_SINCE_0_11: ReadonlySet<EdgeKind> = new Set([
 const NODE_KINDS_SINCE_0_12: ReadonlySet<NodeKind> = new Set(['Tag']);
 const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedWith']);
 
-// Kinds 0.13 (custom fields) added. A payload declared at 0.10, 0.11 or 0.12
+// Kinds 0.13 (custom-field values) added. A payload declared at 0.10, 0.11 or 0.12
 // cannot legitimately hold one, `NODE_KINDS_SINCE_0_11`'s own reasoning. Mirrors
 // `fathom_workspace::{NODE_KINDS_SINCE_0_13, EDGE_KINDS_SINCE_0_13}`.
-const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['FieldDef', 'FieldValue']);
-const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasFieldDef', 'HasFieldValue', 'ValueOf']);
+const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['FieldValue']);
+const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate

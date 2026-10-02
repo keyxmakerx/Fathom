@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
-import { addFieldDef, fieldForOwner, fieldsOf as fieldsOfDoc, removeFieldDef, setFieldValue, type FieldType } from '../../document/fields';
+import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
+import { useFieldDefinitions } from './useFieldDefinitions';
 import type { Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
@@ -373,7 +374,15 @@ export function DesignPlace(props: DesignPlaceProps) {
   );
 
   // ADR-0062 — custom fields, shared with everyone who opens the design.
-  const fieldsOfCallback = useCallback((ownerId: string) => (session.doc ? fieldsOfDoc(session.doc, ownerId) : []), [session.doc]);
+  const fieldDefs = useFieldDefinitions(organisationId);
+  const { refresh: refreshFieldDefs } = fieldDefs;
+  useEffect(() => {
+    if (props.place === 'inventory') void refreshFieldDefs();
+  }, [props.place, refreshFieldDefs]);
+  const fieldsOfCallback = useCallback(
+    (ownerId: string) => (session.doc ? fieldsOfDoc(session.doc, ownerId, fieldDefs.defs) : []),
+    [session.doc, fieldDefs.defs],
+  );
   const fieldsWrite = useCallback(
     (write: (current: Document, opts: { actor: string } | undefined) => Document, fallback: string): { refused: string } | void => {
       const current = session.doc;
@@ -390,14 +399,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   const fieldsActions = {
     fieldsOf: fieldsOfCallback,
     onSetField: (ownerId: string, defId: string, raw: string) =>
-      fieldsWrite((d, o) => setFieldValue(d, ownerId, defId, raw, o), 'That value was refused.'),
-    onAddFieldDef: (ownerId: string, name: string, type: FieldType) =>
-      fieldsWrite((d, o) => {
-        const appliesTo = fieldForOwner(ownerId);
-        if (appliesTo === undefined) throw new Error('This kind of thing takes no fields.');
-        return addFieldDef(d, { name, appliesTo, type }, o).doc;
-      }, 'That field was refused.'),
-    onRemoveFieldDef: (defId: string) => fieldsWrite((d, o) => removeFieldDef(d, defId, o), 'That removal was refused.'),
+      fieldsWrite((d, o) => setFieldValue(d, ownerId, defId, raw, fieldDefs.defs, o), 'That value was refused.'),
+    onAddFieldDef: async (ownerId: string, name: string, type: FieldType, choices?: readonly string[]) => {
+      const kind = fieldForOwner(ownerId);
+      if (kind === undefined) return { refused: 'This kind of thing takes no fields.' };
+      return fieldDefs.create(kind, name, type, choices);
+    },
+    onRemoveFieldDef: (defId: string) => fieldDefs.archive(defId),
   };
   const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
 
@@ -501,6 +509,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         notesActions={notesActions}
         tagsActions={tagsActions}
         fieldsActions={fieldsActions}
+        fieldDefs={fieldDefs.defs}
         redact={redact}
         accountId={accountId}
       />

@@ -20,6 +20,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  COST_CENTRE,
   seedInventoryScene,
   seedManyDevicesScene,
   seedNetworksScene,
@@ -161,6 +162,8 @@ async function main() {
     return saved.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostname)?.positionU ?? null;
   };
 
+  const fieldDefs: Array<Record<string, unknown> & { id: string; version: number; archived: boolean }> =
+    scene === 'inventory' ? [{ id: COST_CENTRE.id, kind: 'device', name: 'Cost centre', type: 'text', choices: [], version: 1, createdBy: ME, archived: false }] : [];
   window.__requests__ = [];
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -239,6 +242,22 @@ async function main() {
         }
       }
       return new Response(`${version}\n`, { status: 200 });
+    }
+    if (p === `${org}/field-definitions` || p.startsWith(`${org}/field-definitions/`)) {
+      const rest = p.slice(`${org}/field-definitions`.length).split('/').filter(Boolean);
+      const sent = requestBody.length > 0 ? JSON.parse(new TextDecoder().decode(requestBody)) : {};
+      if (method === 'GET') return json({ definitions: fieldDefs });
+      if (method === 'POST' && rest.length === 0) {
+        const made = { id: `01ARZ3NDEKTSV4RRFFQ69G5F${String(fieldDefs.length + 10)}`, kind: sent.kind, name: sent.name, type: sent.type, choices: sent.choices ?? [], version: 1, createdBy: ME, archived: false };
+        fieldDefs.push(made);
+        return json(made);
+      }
+      const hit = fieldDefs.find((d) => d.id === rest[0]);
+      if (!hit) return new Response('no such field\n', { status: 404 });
+      if (rest[1] === 'archive') hit.archived = true;
+      else Object.assign(hit, { name: sent.name ?? hit.name, choices: sent.choices ?? hit.choices });
+      hit.version += 1;
+      return json(hit);
     }
     if (method === 'GET' && p === '/catalogue/models') {
       return json(cat.list);

@@ -66,7 +66,6 @@ export type NodeKind =
   | "Container"
   | "PublishedPort"
   | "Tag"
-  | "FieldDef"
   | "FieldValue";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
@@ -128,7 +127,6 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Container",
   "PublishedPort",
   "Tag",
-  "FieldDef",
   "FieldValue",
 ];
 
@@ -234,9 +232,7 @@ export type EdgeKind =
   | "ParentUnit"
   | "HasTag"
   | "TaggedWith"
-  | "HasFieldDef"
-  | "HasFieldValue"
-  | "ValueOf";
+  | "HasFieldValue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -338,9 +334,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "ParentUnit",
   "HasTag",
   "TaggedWith",
-  "HasFieldDef",
   "HasFieldValue",
-  "ValueOf",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -483,8 +477,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Container: ["name"],
   PublishedPort: ["protocol", "container_port", "host_port", "host_address"],
   Tag: ["name"],
-  FieldDef: ["name", "applies_to", "value_type"],
-  FieldValue: ["value"],
+  FieldValue: ["definition", "value"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -832,8 +825,6 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PublishedPort.host_address": 341,
   "AttachedTo.address": 342,
   "Tag.name": 343,
-  "FieldDef.name": 344,
-  "FieldDef.applies_to": 345,
-  "FieldDef.value_type": 346,
-  "FieldValue.value": 347,
+  "FieldValue.value": 344,
+  "FieldValue.definition": 345,
 };

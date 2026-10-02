@@ -87,18 +87,14 @@ const NODE_KINDS_SINCE_0_12: &[NodeKind] = &[NodeKind::Tag];
 /// [`NODE_KINDS_SINCE_0_12`].
 const EDGE_KINDS_SINCE_0_12: &[EdgeKind] = &[EdgeKind::HasTag, EdgeKind::TaggedWith];
 
-/// Node kinds `0.13` (custom fields) added. A payload declared at `0.10`,
+/// Node kinds `0.13` (custom-field values) added. A payload declared at `0.10`,
 /// `0.11` or `0.12` cannot legitimately hold one, [`NODE_KINDS_SINCE_0_11`]'s
 /// own reasoning.
-const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::FieldDef, NodeKind::FieldValue];
+const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::FieldValue];
 
-/// Edge kinds `0.13` (custom fields) added. Same reasoning as
+/// Edge kinds `0.13` (custom-field values) added. Same reasoning as
 /// [`NODE_KINDS_SINCE_0_13`].
-const EDGE_KINDS_SINCE_0_13: &[EdgeKind] = &[
-    EdgeKind::HasFieldDef,
-    EdgeKind::HasFieldValue,
-    EdgeKind::ValueOf,
-];
+const EDGE_KINDS_SINCE_0_13: &[EdgeKind] = &[EdgeKind::HasFieldValue];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second

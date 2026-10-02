@@ -222,14 +222,15 @@ schema:
                     # moved for anything that already had one. Whole change = MINOR. Decision 9
                     # holds regardless: the client and server read 0.11 payloads and write 0.12.
                     #
-                    # 0.13 is custom fields (2026-10-02), all additive. Two new node kinds,
-                    # FieldDef (name, applies_to, value_type; keys 344-346) and FieldValue (value,
-                    # key 347), both joining Placeable as Tag does. One new class, Fieldable.
-                    # Notable widens to Cable, Vlan and ContainerNetwork. Three new edge kinds,
-                    # HasFieldDef (containment, HasTag's shape), HasFieldValue (containment,
-                    # HasNote's shape) and ValueOf (reference, FieldValue to FieldDef) (62 §16.2:
-                    # each is minor). Nothing removed, retyped or reordered. Whole change =
-                    # MINOR: the client and server read 0.10, 0.11 and 0.12 payloads and write 0.13.
+                    # 0.13 is custom-field values (2026-10-02), all additive. One new node
+                    # kind, FieldValue (value, definition; keys 344-345), joining Placeable as
+                    # Tag does. One new class, Fieldable. Notable widens to Cable, Vlan and
+                    # ContainerNetwork. One new edge kind, HasFieldValue (containment, HasNote's
+                    # shape) (62 §16.2: each is minor). The DEFINITIONS are not in the graph:
+                    # they are an organisation-wide server store (ADR-0062), and a value names
+                    # its definition by id in `definition`. Nothing removed, retyped or
+                    # reordered. Whole change = MINOR: the client and server read 0.10, 0.11
+                    # and 0.12 payloads and write 0.13.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -445,8 +446,7 @@ classes:
       # (shipped_tree.rs's own drift test) -- the client does not draw one; the diagram
       # simply has no tag box, the same as it has no Tenant or ServiceType box today.
       - Tag
-      # Custom fields (0.13): joins Placeable as Tag does; the client draws no box for either.
-      - FieldDef
+      # Custom-field values (0.13): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
@@ -1827,37 +1827,22 @@ kinds:
     identity:
       - [ name ]
 
-  # Custom fields (0.13, 2026-10-02). Appended at the tail because order is wire identity
+  # Custom-field values (0.13, 2026-10-02). Appended at the tail because order is wire identity
   # (62 §13) -- Tag's own precedent.
-  - kind: FieldDef
-    layer: physical
-    emits: false
-    doc: |
-      A custom field's definition, hung off the workspace root through HasFieldDef as Tag is.
-      `emits: false` and `layer: physical` keep a parsed configuration from creating one. It
-      joins Placeable because every kind but LayoutPin does; the client draws no box for it.
-      A definition names the field, the kind of thing it applies to and the type of its value.
-    fields:
-      - { name: name, type: Text, card: "1", emit: "—", doc: "The field's name, shown as its label." }
-      - { name: applies_to, type: "enum { device, rack, cable, port, network }", card: "1", emit: "—", doc: "The kind of inventory thing this field is offered on." }
-      - { name: value_type, type: "enum { text, number, yes_no, date }", card: "1", emit: "—", doc: "How the field's values are entered and shown." }
-    identity:
-      - [ name, applies_to ]
-
   - kind: FieldValue
     layer: physical
     emits: false
     doc: |
       One value of a custom field on one object, owned through the Fieldable class by
-      HasFieldValue and pointing at its definition through ValueOf. The value is stored as
-      text whatever the definition's value_type; the editor parses and formats it.
-
-      IDENTITY IS WEAK, Note's WAY: the owner and value do not distinguish two values of
-      different fields, and ValueOf is what ties a value to its definition.
+      HasFieldValue. The field's definition (name, type, choices) is NOT in the graph: it is
+      an organisation-wide server record (ADR-0062), and `definition` is that record's id.
+      `emits: false` and `layer: physical` keep a parsed configuration from creating one. The
+      value is stored as text whatever the definition's type; the editor parses and formats it.
     fields:
+      - { name: definition, type: Text, card: "1", emit: "—", doc: "The organisation's field-definition id this value fills." }
       - { name: value, type: Text, card: "1", emit: "—", doc: "The value as text." }
     identity:
-      - [ owner(Fieldable), value ]   # weak by design -- see doc.
+      - [ owner(Fieldable), definition ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -3246,19 +3231,8 @@ edges:
       objects, AttachedTo's own shape: both ends "0..n". A REFERENCE EDGE because Tag already
       has a containment parent (root, via HasTag).
 
-  # Custom fields (0.13, 2026-10-02). Appended at the tail because order is wire identity
+  # Custom-field values (0.13, 2026-10-02). Appended at the tail because order is wire identity
   # (62 §13) -- TaggedWith's own precedent.
-  - edge: HasFieldDef
-    class: containment
-    from: [root]
-    to: [FieldDef]
-    out: "0..n"
-    in: "1"
-    reverse_index: true
-    symmetric: false
-    fields: []
-    emit_dict: null
-    doc: One field-definition list per design, hung off the root exactly as HasTag hangs Tag.
   - edge: HasFieldValue
     class: containment
     from: [Fieldable]
@@ -3270,19 +3244,6 @@ edges:
     fields: []
     emit_dict: null
     doc: A value hangs off whichever Fieldable object it is on, HasNote's own shape.
-  - edge: ValueOf
-    class: reference
-    from: [FieldValue]
-    to: [FieldDef]
-    out: "1"
-    in: "0..n"
-    reverse_index: true
-    symmetric: false
-    fields: []
-    emit_dict: null
-    doc: |
-      A value points at the definition it fills. A REFERENCE EDGE because FieldValue already
-      has a containment parent (its Fieldable owner, via HasFieldValue).
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

@@ -39,9 +39,9 @@ use std::collections::BTreeSet;
 /// `Container`/`PublishedPort` kinds, their fields, and the `HasContainerNetwork`/
 /// `HasContainer`/`HasPublishedPort`/`AttachedTo`/`ParentUnit` edges, 0.12
 /// ADR-0059's `Tag` kind, its `name` field, the `Taggable` class and the
-/// `HasTag`/`TaggedWith` edges, 0.13 custom fields' `FieldDef`/`FieldValue` kinds,
-/// their fields, the `Fieldable` class and the `HasFieldDef`/`HasFieldValue`/`ValueOf`
-/// edges) move only this line
+/// `HasTag`/`TaggedWith` edges, 0.13 custom fields' `FieldValue` kind,
+/// its fields, the `Fieldable` class and the `HasFieldValue`
+/// edge) move only this line
 /// again. The payload below is
 /// byte-identical across every bump, which is the useful thing this vector
 /// proves — adding a kind and two edges changes the header and nothing else,
@@ -592,24 +592,24 @@ fn a_0_12_vector_opens_and_writes_0_13() {
     );
 }
 
-/// Custom fields (0.13): a 0.12 header cannot hold a `FieldDef`, its editor
+/// Custom fields (0.13): a 0.12 header cannot hold a `FieldValue`, its editor
 /// never had one; the same payload under 0.13 round-trips.
 #[test]
 fn a_0_12_payload_holding_a_0_13_kind_is_refused() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
     let mut g = Graph::new();
     g.begin_batch(BatchId(ulid(0)), "build").expect("open");
-    g.insert_node(NodeKind::FieldDef, ulid(1), prov(1))
+    g.insert_node(NodeKind::FieldValue, ulid(1), prov(1))
         .expect("field def");
     g.end_batch().expect("close");
     let at_0_13 = write_plain(&g).expect("writes");
     let text = String::from_utf8(at_0_13).expect("UTF-8");
     assert!(text.contains(&format!("schema {SCHEMA_VERSION}")));
-    let again = read_plain(text.as_bytes()).expect("a 0.13 payload holding a FieldDef opens");
+    let again = read_plain(text.as_bytes()).expect("a 0.13 payload holding a FieldValue opens");
     assert_eq!(
         String::from_utf8(write_plain(&again).expect("writes")).expect("UTF-8"),
         text,
-        "a 0.13 FieldDef round-trips"
+        "a 0.13 FieldValue round-trips"
     );
     let at_0_12 = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.12", 1);
     assert_ne!(at_0_12, text, "the substitution must have landed");
@@ -619,7 +619,7 @@ fn a_0_12_payload_holding_a_0_13_kind_is_refused() {
             element_kind,
         }) => {
             assert_eq!(declared_version, "0.12");
-            assert_eq!(element_kind, "FieldDef");
+            assert_eq!(element_kind, "FieldValue");
         }
         other => panic!("a 0.13-only kind under a 0.12 header must refuse: {other:?}"),
     }

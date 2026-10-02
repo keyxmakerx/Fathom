@@ -1739,30 +1739,17 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(343))
         }
     }
-    /// Typed reads for `FieldDef` fields.
-    pub mod field_def {
-        /// `FieldDef.name` — `Text`, card `1`, emit `—`.
-        /// The field's name, shown as its label.
-        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(344))
-        }
-        /// `FieldDef.applies_to` — `enum { device, rack, cable, port, network }`, card `1`, emit `—`.
-        /// The kind of inventory thing this field is offered on.
-        pub fn applies_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::FieldDefAppliesTo, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(345))
-        }
-        /// `FieldDef.value_type` — `enum { text, number, yes_no, date }`, card `1`, emit `—`.
-        /// How the field's values are entered and shown.
-        pub fn value_type<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::FieldDefValueType, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(346))
-        }
-    }
     /// Typed reads for `FieldValue` fields.
     pub mod field_value {
+        /// `FieldValue.definition` — `Text`, card `1`, emit `—`.
+        /// The organisation's field-definition id this value fills.
+        pub fn definition<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(345))
+        }
         /// `FieldValue.value` — `Text`, card `1`, emit `—`.
         /// The value as text.
         pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(347))
+            crate::bag::typed(bag, crate::bag::FieldKey(344))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -2115,9 +2102,7 @@ mod body {
             342 => Some((core::any::TypeId::of::<Vec<crate::scalar::InterfaceAddress>>(), "Vec<crate::scalar::InterfaceAddress>")),
             343 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             344 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            345 => Some((core::any::TypeId::of::<crate::generated::ir_types::FieldDefAppliesTo>(), "crate::generated::ir_types::FieldDefAppliesTo")),
-            346 => Some((core::any::TypeId::of::<crate::generated::ir_types::FieldDefValueType>(), "crate::generated::ir_types::FieldDefValueType")),
-            347 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            345 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2470,9 +2455,7 @@ mod body {
             342 => crate::canon::slot_to::<Vec<crate::scalar::InterfaceAddress>>(342, "Vec<crate::scalar::InterfaceAddress>", value),
             343 => crate::canon::slot_to::<crate::scalar::Text>(343, "crate::scalar::Text", value),
             344 => crate::canon::slot_to::<crate::scalar::Text>(344, "crate::scalar::Text", value),
-            345 => crate::canon::slot_to::<crate::generated::ir_types::FieldDefAppliesTo>(345, "crate::generated::ir_types::FieldDefAppliesTo", value),
-            346 => crate::canon::slot_to::<crate::generated::ir_types::FieldDefValueType>(346, "crate::generated::ir_types::FieldDefValueType", value),
-            347 => crate::canon::slot_to::<crate::scalar::Text>(347, "crate::scalar::Text", value),
+            345 => crate::canon::slot_to::<crate::scalar::Text>(345, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2823,9 +2806,7 @@ mod body {
             342 => crate::canon::slot_from::<Vec<crate::scalar::InterfaceAddress>>(j),
             343 => crate::canon::slot_from::<crate::scalar::Text>(j),
             344 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            345 => crate::canon::slot_from::<crate::generated::ir_types::FieldDefAppliesTo>(j),
-            346 => crate::canon::slot_from::<crate::generated::ir_types::FieldDefValueType>(j),
-            347 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            345 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

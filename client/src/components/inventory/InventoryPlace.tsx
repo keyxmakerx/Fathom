@@ -11,6 +11,7 @@ import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
 import { DataTable, type Sort } from './DataTable';
 import { ItemPage } from './ItemPage';
+import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type Filter } from './ListToolbar';
 import { NetworksPanel } from './NetworksPanel';
 import { PasteDialog } from './PasteDialog';
@@ -43,6 +44,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   notesActions: NotesActions;
   tagsActions: TagsActions;
   fieldsActions: FieldsActions;
+  /** The organisation's field definitions (ADR-0062). */
+  fieldDefs: readonly FieldDefView[];
   /** Runs pasted text through the redaction gate (CLAUDE.md rule 4). */
   redact: (text: string) => Promise<string>;
   accountId: string | null;
@@ -84,7 +87,7 @@ function matches(row: InvRow, filter: Filter): boolean {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, redact, accountId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
@@ -131,12 +134,12 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const rowsByKind = useMemo(() => {
     if (!doc) return { devices: [], racks: [], cables: [], interfaces: [] } as Record<string, InvRow[]>;
     return {
-      devices: deviceRows(doc, view),
-      racks: rackRows(doc, view),
-      cables: cableRows(doc, view, endText),
-      interfaces: interfaceRows(doc, view, endText),
+      devices: deviceRows(doc, view, fieldDefs),
+      racks: rackRows(doc, view, fieldDefs),
+      cables: cableRows(doc, view, endText, fieldDefs),
+      interfaces: interfaceRows(doc, view, endText, fieldDefs),
     } as Record<string, InvRow[]>;
-  }, [doc, view, endText]);
+  }, [doc, view, endText, fieldDefs]);
 
   const baseRows = useMemo<InvRow[]>(() => {
     if (!doc) return [];
@@ -156,7 +159,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
   };
 
-  const columnsAll = useMemo(() => allColumns(kind, doc), [kind, doc]);
+  const columnsAll = useMemo(() => allColumns(kind, fieldDefs), [kind, fieldDefs]);
   const columns = useMemo<Column[]>(() => {
     const keys = prefs ?? loadColumnPrefs(kind) ?? defaultColumnKeys(kind, lens);
     const byKey = new Map(columnsAll.map((c) => [c.key, c]));
@@ -187,7 +190,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
   const pageSelection = override ?? openRow?.selection ?? null;
 
-  const ctx = useMemo(() => ({ catalogue, actor: getSession()?.accountId }), [catalogue]);
+  const ctx = useMemo(() => ({ catalogue, actor: getSession()?.accountId, defs: fieldDefs }), [catalogue, fieldDefs]);
 
   const commitEdits = (edits: CellEdit[]): string | void => {
     if (!doc) return;

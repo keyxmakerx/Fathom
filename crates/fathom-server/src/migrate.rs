@@ -192,6 +192,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0029_signed_in_browsers.sql",
         sql: include_str!("../migrations/0029_signed_in_browsers.sql"),
     },
+    // ADR-0062: organisation-wide custom-field definitions.
+    Migration {
+        version: 31,
+        name: "0031_field_definitions.sql",
+        sql: include_str!("../migrations/0031_field_definitions.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

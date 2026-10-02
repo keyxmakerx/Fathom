@@ -391,8 +391,8 @@ function CellEditor(props: {
     if (col.type === 'text' || col.type === 'number' || col.type === 'tags') ref.current?.setSelectionRange?.(draft.length, draft.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- focus once, when the editor opens.
   }, []);
-  if (col.type === 'select' || col.type === 'yes_no') {
-    const options = col.type === 'yes_no' ? ['yes', 'no'] : (col.options ?? []);
+  if (col.type === 'select') {
+    const options = col.options ?? [];
     return (
       <select
         ref={ref}
