@@ -33,7 +33,7 @@ export function WordMenu({ x, y, count, onAlign, onSpread, onGroup, onLabel }: W
   };
   return (
     <>
-    <div className="free-wordmenu nodrag nopan" style={{ left: x, top: Math.max(4, y - 38) }} role="toolbar" aria-label="Arrange the selection">
+    <div className="free-wordmenu nodrag nopan" style={{ left: x, top: Math.max(4, y - 38), transform: 'translateX(-50%)' }} role="toolbar" aria-label="Arrange the selection">
       {count >= 2 && (
         <button type="button" className="free-wordmenu__item" onClick={(e) => setOpen({ which: 'align', ...parent(e) })}>
           Align

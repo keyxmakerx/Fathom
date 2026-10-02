@@ -1,5 +1,5 @@
 // A selected shelf's two resize grips (ADR-0060 step 7): the bottom one for height, the right
-// one for slots. A drag shows the new units dashed and lights the rack's rail numbers; the
+// one for slots. A drag shows the new units dashed and lights its units in the rack; the
 // engine's own refusal names what is in the way. Let go to keep, Esc to cancel.
 
 import { useState } from 'react';
@@ -79,7 +79,9 @@ export function ShelfGrips({ shelf, rackId, slotsNow, onResize, onSlotsPreview }
         <div
           className="drawing-shelf__proposed"
           style={dh > 0 ? { top: shelf.heightU * U_PX, height: dh * U_PX } : { top: (shelf.heightU + dh) * U_PX, height: -dh * U_PX }}
-        />
+        >
+          <span className="drawing-shelf__proposed-label">{dh > 0 ? `+${dh}U` : `${dh}U`}</span>
+        </div>
       )}
       {caption && <div className={caption.refused ? 'drawing-shelf__caption drawing-shelf__caption--refused' : 'drawing-shelf__caption'}>{caption.text}</div>}
       <button type="button" className="free-square drawing-shelf__grip drawing-shelf__grip--h nodrag nopan" aria-label="Resize the shelf's height" onPointerDown={heightGrip} />

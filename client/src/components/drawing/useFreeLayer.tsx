@@ -685,14 +685,14 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
 
   const portal = (
     <ViewportPortal>
-      <FreeGuides guides={guides} ghostLine={ghostLine} pending={pending && !pending.rack ? { ...pending.flow, w: BOX_W, h: BOX_H } : null} />
+      <FreeGuides guides={guides} ghostLine={ghostLine} pending={pending && !pending.rack ? { ...pending.flow, w: BOX_W, h: BOX_H } : null} pendingFrom={pending?.fromBoxId ? rectOf(freeNodeId(pending.fromBoxId)) : null} />
     </ViewportPortal>
   );
 
   const overlay = (
     <>
       {bounds ? (
-        <Anchored rf={rf} containerRef={containerRef} at={{ x: bounds.x, y: bounds.y }}>
+        <Anchored rf={rf} containerRef={containerRef} at={{ x: bounds.x + bounds.w / 2, y: bounds.y }}>
           {(screen) => (
             <WordMenu
               x={screen.x}
@@ -710,9 +710,8 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       {pending ? (
         <ContextMenu
           key={`${pending.screen.x},${pending.screen.y}`}
-          x={pending.screen.x + 12}
+          x={pending.screen.x + (pending.rack ? 12 : (BOX_W / 2) * rf.getZoom() + 8)}
           y={pending.screen.y}
-          title="New box"
           onClose={() => setPending(null)}
           items={[...BOX_KINDS]
             .sort((a, b) => (a.role === lastKind ? -1 : b.role === lastKind ? 1 : 0))
@@ -765,14 +764,27 @@ function Anchored({
 }
 
 /** Dotted guides, the line being drawn and the ghost of a box about to be added, in flow space. */
-function FreeGuides({ guides, ghostLine, pending }: { guides: Guides | null; ghostLine: { from: Point; to: Point } | null; pending: Rect | null }) {
+function FreeGuides({ guides, ghostLine, pending, pendingFrom }: { guides: Guides | null; ghostLine: { from: Point; to: Point } | null; pending: Rect | null; pendingFrom: Rect | null }) {
   if (!guides && !ghostLine && !pending) return null;
   return (
     <svg className="free-overlay" width="1" height="1" style={{ overflow: 'visible', position: 'absolute', pointerEvents: 'none' }}>
       {guides?.v.map((l, i) => <line key={`v${i}`} x1={l.x} x2={l.x} y1={l.y1 - 8} y2={l.y2 + 8} className="free-guide" />)}
       {guides?.h.map((l, i) => <line key={`h${i}`} y1={l.y} y2={l.y} x1={l.x1 - 8} x2={l.x2 + 8} className="free-guide" />)}
       {ghostLine ? <line x1={ghostLine.from.x} y1={ghostLine.from.y} x2={ghostLine.to.x} y2={ghostLine.to.y} className="free-line__proposed" /> : null}
+      {pending && pendingFrom
+        ? (() => {
+            const s = lineSides(pendingFrom, pending);
+            const a = sidePoint(pendingFrom, s.a);
+            const b = sidePoint(pending, s.b);
+            return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="free-line__proposed" />;
+          })()
+        : null}
       {pending ? <rect x={pending.x} y={pending.y} width={pending.w} height={pending.h} className="free-ghost" /> : null}
+      {pending ? (
+        <text x={pending.x + 8} y={pending.y + pending.h / 2} dominantBaseline="central" className="free-ghost__label">
+          NEW · pick a kind
+        </text>
+      ) : null}
     </svg>
   );
 }
