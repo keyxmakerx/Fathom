@@ -956,7 +956,7 @@ function DrawingInner({
     if (found?.isPsuInlet && powerLeadHandle(elevationFor(found.rack.id), cameraStop) !== 'inlet') return null;
     const items = plateItems(data.ports, data.inlets, data.elevation);
     const box = faceplateLayoutFor(items, data.chassis.heightU, data.chassis.hostname || UNNAMED_HOSTNAME).byId.get(end.portId);
-    return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h };
+    return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h, row: box.row };
   }
   type RealEnd = { portId: string; chassisId: string; rackId: string | null };
   const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
@@ -976,7 +976,7 @@ function DrawingInner({
         items.push({ key: `${cable.id}:${i}`, x: lead.x, y: lead.y, dir: lead.dir, text: portLabel(real[i]!.portId) }),
       );
     }
-    const placed = placeLabels(items, 9 / (zoomBand / 100));
+    const placed = placeLabels(items, 10 / (zoomBand / 100));
     for (const item of items) {
       const at = placed.get(item.key);
       if (at != null) endLabels.set(item.key, { text: item.text, ...at });

@@ -10,6 +10,8 @@ export interface PortPoint {
   y: number;
   w: number;
   h: number;
+  /** 0 top row, 1 bottom row; absent or -1 when the port has no row. */
+  row?: number;
 }
 
 export interface Lead {
@@ -24,8 +26,9 @@ export interface Leads {
   b: Lead;
 }
 
-/** Each end leaves from the edge of its port that faces the other end. A
- * missing box (a tray, a shelf, an inlet) keeps the point React Flow gave. */
+/** A port in a top row leaves upward and one in a bottom row downward, so a
+ * cable never crosses the row beside it; a lone port leaves toward the other
+ * end. A missing box (a tray, a shelf, an inlet) keeps the point React Flow gave. */
 export function leadsFor(
   a: PortPoint | null,
   b: PortPoint | null,
@@ -36,8 +39,9 @@ export function leadsFor(
   const by = b != null ? b.y + b.h / 2 : fallbackB.y;
   const down = by - ay > 1;
   const up = ay - by > 1;
-  const da: 1 | -1 = up ? -1 : 1;
-  const db: 1 | -1 = down ? -1 : up ? 1 : 1;
+  const byRow = (box: PortPoint | null): 1 | -1 | null => (box?.row === 0 ? -1 : box?.row === 1 ? 1 : null);
+  const da: 1 | -1 = byRow(a) ?? (up ? -1 : 1);
+  const db: 1 | -1 = byRow(b) ?? (down ? -1 : 1);
   const point = (box: PortPoint | null, fb: { x: number; y: number }, dir: 1 | -1): Lead =>
     box != null ? { x: box.x + box.w / 2, y: dir === 1 ? box.y + box.h : box.y, dir } : { x: fb.x, y: fb.y, dir };
   return { a: point(a, fallbackA, da), b: point(b, fallbackB, db) };

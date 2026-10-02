@@ -1,8 +1,10 @@
 import { useViewport } from '@xyflow/react';
 
-import { ABSENT, UNNAMED_HOSTNAME, type ChassisView } from './contract';
+import { UNNAMED_HOSTNAME, type ChassisView } from './contract';
 
 const CARD_W = 210;
+/** Gap beside the rack: wide enough on the left to clear a rail name tab. */
+const TAB_CLEAR_FLOW = 104;
 
 /** A device's callout: a card that draws itself out to the side, joined to
  * the plate by an animated dotted line in the leader colour. Screen-sized, so
@@ -27,11 +29,12 @@ export function Callout({
   onDetails: () => void;
 }) {
   const { x, y, zoom } = useViewport();
+  const tabClear = 28 + TAB_CLEAR_FLOW * zoom;
   const rightX = rack.right * zoom + x + 28;
-  const leftSide = rightX + CARD_W > paneWidth && rack.left * zoom + x - 28 - CARD_W >= 0;
+  const leftSide = rightX + CARD_W > paneWidth;
   const ax = (leftSide ? plate.left : plate.right) * zoom + x;
   const ay = plate.y * zoom + y;
-  const cx = leftSide ? rack.left * zoom + x - 28 : rightX;
+  const cx = leftSide ? Math.max(CARD_W + 8, rack.left * zoom + x - tabClear) : rightX;
   const cabled = chassis.ports.filter((p) => p.cable != null).length;
   const topU = chassis.positionU + chassis.heightU - 1;
   const where = rackLabel != null ? `${rackLabel} · ${chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`}` : null;
@@ -45,7 +48,7 @@ export function Callout({
       <div className={leftSide ? 'drawing-callout drawing-callout--left' : 'drawing-callout'} role="dialog" aria-label={`${chassis.hostname || UNNAMED_HOSTNAME} summary`} style={{ left: cx, top: ay }}>
         <div className="drawing-callout__name">{chassis.hostname || UNNAMED_HOSTNAME}</div>
         {facts !== '' && <div className="drawing-callout__muted">{facts}</div>}
-        <div>{chassis.managementAddress ?? ABSENT}</div>
+        {chassis.managementAddress != null && <div>{chassis.managementAddress}</div>}
         <div>
           {cabled} of {chassis.ports.length} ports cabled
         </div>

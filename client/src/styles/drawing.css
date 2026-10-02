@@ -1436,7 +1436,7 @@
   flex-direction: column;
   gap: 3px;
   padding: var(--s3);
-  border: 1px solid var(--leader);
+  border: 1px solid var(--ink);
   background: var(--page);
   color: var(--ink);
   font-size: var(--t-body);
@@ -1494,7 +1494,7 @@
 .drawing-cable__end-label {
   position: absolute;
   padding: 0 1px;
-  font-size: calc(9px / var(--zoom, 1));
+  font-size: calc(var(--t-micro) / var(--zoom, 1));
   line-height: 1;
   font-weight: 700;
   color: var(--ink);
