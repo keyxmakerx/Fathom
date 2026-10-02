@@ -13,6 +13,7 @@ import {
   movePlacement,
   placeChassis,
   removeChassis,
+  resizeShelf,
 } from '../../document/commands';
 import { nextFreeSpot } from '../drawing/freeLayout';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
@@ -774,11 +775,21 @@ export function RacksPlace(props: RacksPlaceProps) {
     [freeWrite, realView],
   );
   const handleResizeShelf = useCallback(
-    (shelfId: string, change: { heightU?: number; slots?: number }) => {
-      const result = handleEdit({ kind: 'shelf-size', id: shelfId, ...change });
-      if (result != null && 'refused' in result) return result;
+    (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => {
+      if (!preview) {
+        const result = handleEdit({ kind: 'shelf-size', id: shelfId, ...change });
+        if (result != null && 'refused' in result) return result;
+        return;
+      }
+      // The same command the drop will run, run on a copy: the grips name what is in the way live.
+      if (doc == null) return;
+      try {
+        resizeShelf(doc, shelfId, change, { catalogue, ...(actorOpts(accountId) ?? {}) });
+      } catch (e) {
+        return refusalFor(e) ?? undefined;
+      }
     },
-    [handleEdit],
+    [handleEdit, doc, catalogue, accountId],
   );
 
   // `handleEdit` (ADR-0046 §2's one editor) now lives in

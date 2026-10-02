@@ -53,6 +53,7 @@ import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEd
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
+import { RackSquares } from './RackSquares';
 import { parseFreeNodeId } from './freeLayout';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
@@ -321,6 +322,7 @@ function DrawingInner({
   onAddDevice,
   onAddRack,
   onAddWall,
+  onResizeShelf,
   onAddFreeBox,
   onAddDeviceAt,
   onMoveFree,
@@ -895,6 +897,7 @@ function DrawingInner({
       onFlipRow,
       onFlipRack,
       onSelectShelf,
+      onResizeShelf,
       onOpenShelfOccupant,
       onHoverInlet: handleHoverCable,
       surfacesLayout,
@@ -1489,6 +1492,16 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
         {free.portal}
+        <RackSquares
+          racks={view.racks}
+          rackPositions={rackPositions}
+          chassisId={selected?.kind === 'chassis' ? selected.id : null}
+          canDraw={canDraw && onAddDeviceAt != null}
+          onOpen={(at, flow, rackId, positionU) => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            free.openAdd({ x: at.clientX - (rect?.left ?? 0), y: at.clientY - (rect?.top ?? 0) }, flow, { rackId, positionU });
+          }}
+        />
       </ReactFlow>
       {free.overlay}
       {/* This session's brief item 1 — "a cables view control: a small

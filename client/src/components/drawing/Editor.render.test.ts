@@ -428,7 +428,8 @@ describe('EditorFor', () => {
     expect(markup).toContain('shelf-a01');
     expect(markup).toContain('A-01');
     expect(markup).toContain('U20');
-    expect(markup).toContain('2U');
+    expect(markup).toContain('Height (U)');
+    expect(markup).toContain('Slots');
     expect(markup).toContain('Occupants');
     expect(markup).toContain('nuc-01');
   });
@@ -632,5 +633,31 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
       label: 'West wall',
       form: 'wall',
     });
+  });
+
+  it('renders an area with its words and size, a text label without a size, and a line with what it joins', () => {
+    const view: ClosetView = {
+      ...VIEW,
+      free: [
+        { id: 'chassis:a', hostname: 'router-1', role: 'router', x: 0, y: 0, portCount: 0 },
+        { id: 'chassis:b', hostname: 'switch-1', role: 'switch', x: 200, y: 0, portCount: 0 },
+      ],
+      labels: [
+        { id: 'label:1', text: 'Office', form: 'area', x: 0, y: 0, w: 240, h: 160 },
+        { id: 'label:2', text: 'Uplink', form: 'text', x: 0, y: 0, w: 240, h: 160 },
+      ],
+      lines: [{ id: 'line:1', aId: 'chassis:a', bId: 'chassis:b', label: 'trunk' }],
+    };
+    const area = renderToStaticMarkup(EditorFor({ kind: 'label', id: 'label:1' }, view, NOOP_ACTIONS) as never);
+    expect(area).toContain('Office');
+    expect(area).toContain('Width');
+    expect(area).toContain('Remove area');
+    const text = renderToStaticMarkup(EditorFor({ kind: 'label', id: 'label:2' }, view, NOOP_ACTIONS) as never);
+    expect(text).toContain('Uplink');
+    expect(text).not.toContain('Width');
+    const line = renderToStaticMarkup(EditorFor({ kind: 'line', id: 'line:1' }, view, NOOP_ACTIONS) as never);
+    expect(line).toContain('router-1 and switch-1');
+    expect(line).toContain('trunk');
+    expect(line).toContain('Remove line');
   });
 });

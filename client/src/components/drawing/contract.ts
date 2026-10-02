@@ -126,7 +126,7 @@ export interface DrawingActions {
   /** Copies the named boxes, labels and areas, and the lines between them, offset by (dx, dy). Returns the copies' ids. */
   onDuplicateFree?(ids: readonly string[], dx: number, dy: number): string[] | void;
   /** A shelf resized by its grips; refused with a message that names what is in the way. */
-  onResizeShelf?(shelfId: string, change: { heightU?: number; slots?: number }): { refused: string } | void;
+  onResizeShelf?(shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean): { refused: string } | void;
 }
 
 /** The one editor's own field set (ADR-0046 §2). `value: null` is a cleared

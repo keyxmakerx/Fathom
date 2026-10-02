@@ -81,6 +81,13 @@ export function createLiveStore(initial: LiveState = INITIAL_LIVE_STATE): LiveSt
 const LiveStoreContext = createContext<LiveStore | null>(null);
 export const LiveStoreProvider = LiveStoreContext.Provider;
 
+/** The store itself, for a handle that writes to it (a shelf's resize grip lights the rail). */
+export function useLiveStore(): LiveStore {
+  const store = useContext(LiveStoreContext);
+  if (store == null) throw new Error('useLiveStore: no LiveStoreProvider above this node');
+  return store;
+}
+
 /** Re-renders the calling node when its selector's answer changes by
  * `Object.is`; throws outside a `LiveStoreProvider`, which is a wiring mistake. */
 export function useLive<T>(selector: (state: LiveState) => T): T {

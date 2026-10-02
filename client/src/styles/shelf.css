@@ -354,3 +354,28 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* Resize grips (ADR-0060 step 7). The square itself is `.free-square`. */
+.drawing-shelf__grip--h { left: calc(50% - 5px); bottom: -5px; right: auto; cursor: ns-resize; }
+.drawing-shelf__grip--w { right: -5px; top: calc(50% - 5px); bottom: auto; cursor: ew-resize; }
+.drawing-shelf__proposed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  border: 1px var(--rule-style-proposed) var(--ink);
+  background: transparent;
+  pointer-events: none;
+}
+.drawing-shelf__caption {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  white-space: nowrap;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  pointer-events: none;
+}
+.drawing-shelf__caption--refused { color: var(--ink); text-decoration: underline; }
