@@ -260,7 +260,8 @@ jobs:
         env:
           DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
           FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
-        run: cargo test --workspace --locked
+        # Test binaries run side by side (about 20 minutes one after another).
+        run: ./scripts/ci/parallel-tests.sh
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check
 

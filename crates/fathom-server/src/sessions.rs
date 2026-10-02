@@ -2479,6 +2479,7 @@ impl SessionStore {
             // A row just minted is zero seconds idle; the real value matters only
             // on a row `read_session` reads back.
             idle_seconds: 0,
+            stored_row_mac: Vec::new(),
         };
         let mac = self
             .row_mac(tx, &row)
@@ -3770,11 +3771,7 @@ impl SessionStore {
         row: &SessionRow,
     ) -> Result<(), SessionError> {
         let recomputed = self.row_mac(tx, row).await?;
-        let stored: Vec<u8> = tx
-            .query_one("SELECT row_mac FROM sessions WHERE id = $1", &[&row.id])
-            .await?
-            .get(0);
-        if stored != recomputed {
+        if row.stored_row_mac != recomputed {
             return Err(SessionError::Unverifiable("session row MAC"));
         }
         Ok(())
@@ -3877,6 +3874,9 @@ struct SessionRow {
     /// check never compares this server's clock to the database's. **Not part of
     /// the MAC**, as `last_seen_at` is not: it changes on every verified request.
     idle_seconds: i64,
+    /// The stored `row_mac`, read in the same `SELECT` as the fields it covers.
+    /// A second read could find the row deleted by a concurrent request.
+    stored_row_mac: Vec<u8>,
 }
 
 impl SessionRow {
@@ -4332,7 +4332,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter, \
                     EXTRACT(EPOCH FROM totp_verified_at)::bigint, grace_token_hash, \
                     bound_address_class, browser_label, \
-                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint \
+                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint, row_mac \
                FROM sessions WHERE id = $1",
             &[&id],
         )
@@ -4373,6 +4373,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
         bound_address_class: row.get(17),
         browser_label: row.get(18),
         idle_seconds: row.get(19),
+        stored_row_mac: row.get(20),
     }))
 }
 
