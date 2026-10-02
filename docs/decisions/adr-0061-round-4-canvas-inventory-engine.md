@@ -73,3 +73,26 @@ Sent back for round 6:
   for printing). Plan, Do and Record are still hard to tell apart; some colour is needed, not the
   warning amber.
 - **Step 7 on a rack:** what the edge squares look like on a racked device.
+
+## Round 7, answered 2026-10-02 (after a product review)
+
+Reverses parts of round 5:
+
+- **One look switch replaces cable and diagram styles** (and ADR-0060 step 9's three styles). Each
+  person picks Rack (faceplates, dressed cables) or Diagram (boxes, square-cornered lines); the
+  design sets the starting choice. A cable whose far end is off screen or far away ends in a stub
+  with a far-end tag, automatically. Hanging, Stub as a style, and rack and cable overrides are
+  dropped. Zoom never switches style: closer in, the same faceplate draws cleaner and fuller.
+- **Handles** are small ink circles, never the free-port square. They belong to free boxes
+  (equipment with no model); modelled devices draw cables from their ports. Adding into a rack is
+  right-click Add here or a drag from the side panel's list. Shelf grips stay squares.
+- **Maintenance:** viewing a plan draws it in one colour (indigo, dashed). Starting it switches
+  to the Do colour (teal) and a checklist that runs in order: the next step opens when the
+  current one is marked done or went differently. Record returns to ink. Both the drawing and the
+  list view; the list works on a phone. Only people who open the plan see its marks.
+- **Docs** replace the third place (§8): docs attach to a thing, a model (every unit of it), the
+  design, or a maintenance plan (a method of procedure), and design-wide docs are a Docs kind in
+  Inventory. A trouble issue kind may follow. Uploaded files wait for the security decision.
+- **Beta keeps the full order** (§1); nothing moves after it.
+
+Still open: private custom fields (#93 builds shared fields only).
