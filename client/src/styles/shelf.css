@@ -376,6 +376,8 @@
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--muted);
+  background: var(--page);
+  padding: 0 var(--s1);
   pointer-events: none;
 }
 .drawing-shelf__caption--refused { color: var(--ink); text-decoration: underline; }

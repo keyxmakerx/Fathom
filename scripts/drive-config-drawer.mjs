@@ -284,7 +284,7 @@ try {
   check('one chassis placed', (await page.locator('.react-flow__node-chassis').count()) === 1);
 
   // Select it.
-  await page.click('.react-flow__node-chassis');
+  await page.click('.react-flow__node-chassis', { position: { x: 2, y: 2 } });
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
   // A sketch device has no faceplate ports until typed by hand (UI-SPEC

@@ -42,6 +42,7 @@ export function Callout({
   return (
     <>
       <svg className="drawing-callout__leader" aria-hidden="true">
+        <path d={`M ${ax} ${ay} L ${cx} ${ay}`} className="drawing-callout__casing" />
         <path d={`M ${ax} ${ay} L ${cx} ${ay}`} className="drawing-callout__line" />
         <circle cx={ax} cy={ay} r={2.5} className="drawing-callout__dot" />
       </svg>

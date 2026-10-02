@@ -226,7 +226,16 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
 - **Rack height and surface placement** (ADR-0060 decisions 5 and 11). A rack's details panel offers
   42U, 24U and 12U or a typed height, and refuses one below anything mounted in it, naming it. Moving a
   device onto a wall, floor, desk or board no longer asks for millimetres; the surface lays it out.
-  Dragging onto a surface comes with free boxes on the canvas (step 7).
+  Dragging onto a surface comes with free boxes on the canvas (step 7, below).
+- **Free boxes, lines and areas** (ADR-0060 step 7, schema 0.13: `Label`, `Line`, `PassiveNode.slots`).
+  Boxes sit on the canvas beside racks and walls. A selected box shows hollow edge squares: drag one to
+  draw a line, click one to add a dashed new box. Marquee select (drag empty canvas; pan with middle or
+  right button, or Space), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
+  bigger), and a flat Align / Spread / Group / Label menu over the selection. Text labels and areas
+  carry what sits inside them. Squares on the free unit above and below a selected racked device add a
+  device there (`RackSquares.tsx`). A selected shelf has two grips, height and slots, that refuse by
+  naming what is in the way; the details panel has both as numbers. Not built: cable styles, line
+  routing, copying a box's typed ports (a copy gets its role's usual ports).
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
   named after the organisation. Design names are not built.

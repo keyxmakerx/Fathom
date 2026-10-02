@@ -187,8 +187,8 @@ try {
     await page.waitForTimeout(400);
     check('one undo takes the whole duplicate back', (await boxes(page).count()) === 3);
 
-    await page.mouse.click(1100, 120);
-    await page.mouse.click(1100, 120, { button: 'right' });
+    await page.mouse.click(700, 120);
+    await page.mouse.click(700, 120, { button: 'right' });
     await page.locator('.drawing-context-menu__item', { hasText: 'Add an area here' }).click();
     await page.waitForTimeout(300);
     check('an area is added', (await page.locator('.free-area').count()) === 1);

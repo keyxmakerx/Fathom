@@ -213,6 +213,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
+  const [calloutId, setCalloutId] = useState<string | null>(null);
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -799,7 +801,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0047: the editor is absent, not empty, when nothing is selected —
   // an empty fragment here would still mount the surface and take its width.
   const selectedPanel =
-    doc != null
+    doc != null && !(selection?.kind === 'chassis' && selection.id === calloutId)
       ? EditorFor(
           selection,
           displayView,
@@ -888,6 +890,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onDuplicateFree={canDraw ? handleDuplicateFree : undefined}
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
+          onCalloutChange={setCalloutId}
           canDraw={canDraw}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}

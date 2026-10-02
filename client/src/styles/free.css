@@ -29,7 +29,8 @@
   cursor: crosshair;
   box-sizing: border-box;
 }
-.free-square:hover, .free-square:focus-visible { background: var(--ink); outline: none; }
+.free-square:hover { background: var(--ink); }
+.free-square:focus-visible { outline: var(--focus-width) solid var(--focus-colour); }
 .free-square--t { top: -5px; left: calc(50% - 5px); }
 .free-square--b { bottom: -5px; left: calc(50% - 5px); }
 .free-square--l { left: -5px; top: calc(50% - 5px); }
