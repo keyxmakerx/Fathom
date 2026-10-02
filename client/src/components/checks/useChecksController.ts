@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Document } from '../../document/model';
 import type { CheckFinding, ChecksResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
-import { buildBadgeMap, buildCanon, findingKey, involvedKeys, totalCount } from './checksModel';
+import { buildBadgeMap, buildCanon, findingKey, firstRefusal, involvedKeys, totalCount } from './checksModel';
 import { createChecksStore, type ChecksApi } from './checksStore';
 
 /** Quiet time after the last document change before the standing checks run. */
@@ -136,21 +136,15 @@ export function useChecksController({ doc, boot, mirrorNow }: Inputs): ChecksCon
   }, [doc, store]);
 
   const guardCable = useCallback<ChecksApi['guardCable']>((from, to, medias) => {
+    let mirror: Mirror | null = null;
     try {
-      const mirror = latest.current.mirrorNow();
-      if (mirror == null) return false;
-      for (const media of medias) {
-        const hit = mirror.checkCable({ port: from }, { port: to }, media).find((r) => r.severity === 'refuse');
-        if (hit != null) {
-          setRefusal({ finding: hit, x: pointer.current.x, y: pointer.current.y });
-          return true;
-        }
-      }
+      mirror = latest.current.mirrorNow();
     } catch {
-      // The checks never block a drawing: a failure here is a pass.
+      // Not loadable now: go ahead.
     }
-    setRefusal(null);
-    return false;
+    const hit = firstRefusal(mirror, from, to, medias);
+    setRefusal(hit == null ? null : { finding: hit, x: pointer.current.x, y: pointer.current.y });
+    return hit != null;
   }, []);
 
   const clearShow = useCallback(() => {

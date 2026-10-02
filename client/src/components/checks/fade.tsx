@@ -40,14 +40,16 @@ export function ChecksCanvasBridge() {
   useEffect(() => {
     if (api == null || show == null) return undefined;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') api.clearShow();
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      api.clearShow();
     };
     const pane = flow.getState().domNode?.querySelector('.react-flow__pane');
     const onPane = () => api.clearShow();
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     pane?.addEventListener('click', onPane);
     return () => {
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       pane?.removeEventListener('click', onPane);
     };
   }, [api, show, flow]);

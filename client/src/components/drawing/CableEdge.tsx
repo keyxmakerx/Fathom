@@ -1,7 +1,7 @@
-import { CableCheckBadge } from '../checks/CheckBadge';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
 
+import { CableCheckBadge } from '../checks/CheckBadge';
 import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cableEnds';
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';

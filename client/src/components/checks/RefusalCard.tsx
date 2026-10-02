@@ -21,11 +21,14 @@ export function RefusalCard({
   onDismiss: () => void;
 }) {
   useEffect(() => {
+    // Capture, and stop: the Esc that closes the card must not also leave the open device.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onDismiss();
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onDismiss();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [onDismiss]);
   const left = Math.max(8, Math.min(x + 12, (typeof window === 'undefined' ? 1024 : window.innerWidth) - WIDTH - 8));
   const top = Math.max(8, Math.min(y + 12, (typeof window === 'undefined' ? 768 : window.innerHeight) - 200));

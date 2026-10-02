@@ -2,13 +2,15 @@
 
 .checks-panel {
   position: absolute;
-  top: var(--s2);
+  /* Below the cables control, which sits at the top-left and can reach this far on a narrow canvas. */
+  top: calc(var(--s2) * 6);
   right: var(--s2);
-  z-index: var(--z-egress);
+  /* Above the open-device view (--z-modal + 1), which covers the canvas. */
+  z-index: calc(var(--z-modal) + 2);
   display: flex;
   flex-direction: column;
   width: min(264px, 60%);
-  max-height: calc(100% - 2 * var(--s2));
+  max-height: calc(100% - 7 * var(--s2));
   background: var(--page);
   color: var(--ink);
   border: var(--rule-hair) solid var(--ink);
@@ -145,7 +147,7 @@
 /* The card a refused gesture raises, at the pointer. */
 .checks-refusal {
   position: fixed;
-  z-index: var(--z-modal);
+  z-index: calc(var(--z-modal) + 3);
   box-sizing: border-box;
   padding: var(--s3);
   background: var(--page);

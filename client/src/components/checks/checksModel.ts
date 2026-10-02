@@ -1,7 +1,7 @@
 // Pure helpers for the Checks surface (ADR-0061 §5): words, counts, the element -> device map, badges.
-import type { CheckFinding, CheckSeverity, ChecksResult } from '../../engine/engine';
 import { compatible } from '../../document/compat';
 import type { Document } from '../../document/model';
+import type { CheckFinding, CheckSeverity, ChecksResult } from '../../engine/engine';
 import type { ClosetView } from '../drawing/contract';
 import { locatePort } from '../drawing/lookup';
 
@@ -163,4 +163,22 @@ export function clampOffset(parent: Rect, docked: Rect, want: { x: number; y: nu
     x: Math.round(Math.min(Math.max(want.x, Math.min(minX, maxX)), Math.max(minX, maxX))),
     y: Math.round(Math.min(Math.max(want.y, Math.min(minY, maxY)), Math.max(minY, maxY))),
   };
+}
+
+interface GestureChecker {
+  checkCable(near: { port: string }, far: { port: string }, media: string): CheckFinding[];
+}
+
+/** The first refusal a cable would cause, or null: no mirror, no refusal, or the checks failing all mean go ahead. */
+export function firstRefusal(mirror: GestureChecker | null, from: string, to: string, medias: readonly string[]): CheckFinding | null {
+  if (mirror == null) return null;
+  try {
+    for (const media of medias) {
+      const hit = mirror.checkCable({ port: from }, { port: to }, media).find((r) => r.severity === 'refuse');
+      if (hit != null) return hit;
+    }
+  } catch {
+    // The checks never block a drawing.
+  }
+  return null;
 }

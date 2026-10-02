@@ -1,8 +1,8 @@
-import { CheckBadge } from '../checks/CheckBadge';
 import { useMemo, type MouseEvent } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { PORT_GLYPHS } from '../ports';
+import { CheckBadge } from '../checks/CheckBadge';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
 import { connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
