@@ -12,9 +12,15 @@ import {
   buildBadgeMap,
   buildCanon,
   clampOffset,
+  defaultOpen,
+  escTarget,
   findingKey,
   firstRefusal,
   guardMayReload,
+  isTypingTarget,
+  placeCard,
+  showPadding,
+  sourceView,
   standingDelay,
   matchShown,
   panelNotes,
@@ -59,7 +65,10 @@ function controller(over: Partial<ChecksController> = {}): ChecksController {
     setOpen: () => {},
     prefs: { x: 0, y: 0, open: null },
     setOffset: () => {},
+    canvasWidth: 1200,
+    setCanvasWidth: () => {},
     why: null,
+    whyToken: 0,
     openWhy: () => {},
     closeWhy: () => {},
     showKey: null,
@@ -106,14 +115,20 @@ describe('the element -> device map and the badge counts', () => {
     expect(canon('device:D2')).toBe('device:D2');
   });
   it('counts a finding once per device, ports included, and once per cable', () => {
-    const f1 = finding({ elements: [{ id: 'physical-port:P1', name: '' }, { id: 'physical-port:P2', name: '' }, { id: 'cable:C1', name: '' }] });
-    const f2 = finding({ rule: 'other', elements: [{ id: 'device:D1', name: '' }] });
-    const f3 = finding({ rule: 'minted', elements: [{ id: '', name: 'new port' }, { id: 'device:D2', name: '' }] });
+    const f1 = finding({ severity: 'warn', elements: [{ id: 'physical-port:P1', name: '' }, { id: 'physical-port:P2', name: '' }, { id: 'cable:C1', name: '' }] });
+    const f2 = finding({ rule: 'other', severity: 'refuse', elements: [{ id: 'device:D1', name: '' }] });
+    const f3 = finding({ rule: 'minted', severity: 'warn', elements: [{ id: '', name: 'new port' }, { id: 'device:D2', name: '' }] });
     const map = buildBadgeMap([f1, f2, f3], canon);
     expect(map.get('device:D1')).toBe(2);
     expect(map.get('cable:C1')).toBe(1);
     expect(map.get('device:D2')).toBe(1);
     expect(map.has('')).toBe(false);
+  });
+  it('badges refusals and warnings only, never ideas', () => {
+    const idea = finding({ severity: 'idea', elements: [{ id: 'device:D1', name: '' }, { id: 'cable:C1', name: '' }] });
+    expect(buildBadgeMap([idea], canon).size).toBe(0);
+    const warn = finding({ severity: 'warn', elements: [{ id: 'device:D1', name: '' }] });
+    expect(buildBadgeMap([idea, warn], canon).get('device:D1')).toBe(1);
   });
   it('a removed edge no longer links a port to its device', () => {
     const gone = { ...doc, edges: doc.edges.map((e) => (e.id === 'has-port:E2' ? { ...e, absentSince: 1 } : e)) };
@@ -219,14 +234,32 @@ describe('the Why card', () => {
   it('shows why, the fix and the source, but not the concept id', () => {
     const out = html(
       finding({
-        source: { title: 'Cisco, SFP installation notes', url: 'https://example.test/doc', note: 'Located by web search; could not be opened, so it has not been read against the page.' },
+        source: {
+          title: 'Cisco, SFP installation notes',
+          url: 'https://example.test/doc',
+          note: 'Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim has not been read against it.',
+        },
       }),
     );
     expect(out).toContain('Only one cable is recorded');
     expect(out).toContain('Fix:');
     expect(out).toContain('href="https://example.test/doc"');
-    expect(out).toContain('has not been read against the page');
+    expect(out).toContain('Source not yet checked by a person.');
+    expect(out).toContain('Cisco, SFP installation notes');
+    expect(out).not.toMatch(/web search|outbound fetch|could not be opened/);
     expect(out).not.toContain('check.topo.redundant-paths');
+  });
+  it('a cited source without a note is the title and link only', () => {
+    const out = html(finding({ source: { title: 'IETF, RFC 1122', url: 'https://example.test/rfc', note: '' } }));
+    expect(out).not.toContain('not yet checked');
+    expect(out).toContain('IETF, RFC 1122');
+  });
+  it('sourceView: a plain one-sentence note is shown as it is', () => {
+    expect(sourceView(finding({ source: { title: '', url: '', note: 'Definitional: a port has one connector.' } }))).toMatchObject({
+      label: 'Basis',
+      unchecked: false,
+      note: 'Definitional: a port has one connector.',
+    });
   });
   it('a definitional rule prints its sentence as the basis, with no link', () => {
     const out = html(finding());
@@ -289,12 +322,25 @@ describe('badges', () => {
 });
 
 describe('panel position', () => {
-  it('stays inside its parent, header reachable', () => {
-    const parent = { left: 0, top: 0, width: 800, height: 600 };
-    const docked = { left: 530, top: 8, width: 262, height: 300 };
+  const parent = { left: 0, top: 0, width: 800, height: 600 };
+  // The panel docked at the top right: 8 px from each edge, 262 wide, 300 tall.
+  const docked = { left: 530, top: 8, width: 262, height: 300 };
+  it('stays wholly inside its parent however far it is dragged', () => {
     expect(clampOffset(parent, docked, { x: 500, y: -500 })).toEqual({ x: 8, y: -8 });
-    expect(clampOffset(parent, docked, { x: -9999, y: 9999 })).toEqual({ x: -530, y: 556 });
+    expect(clampOffset(parent, docked, { x: -9999, y: 9999 })).toEqual({ x: -530, y: 292 });
+    expect(clampOffset(parent, docked, { x: 9999, y: 9999 })).toEqual({ x: 8, y: 292 });
+    expect(clampOffset(parent, docked, { x: -9999, y: -9999 })).toEqual({ x: -530, y: -8 });
     expect(clampOffset(parent, docked, { x: -10, y: 10 })).toEqual({ x: -10, y: 10 });
+  });
+  it('is measured from the docked rect, so a saved offset from a wider canvas is pulled back in', () => {
+    const narrow = { left: 0, top: 0, width: 412, height: 500 };
+    const dockedNarrow = { left: 142, top: 8, width: 262, height: 300 };
+    expect(clampOffset(narrow, dockedNarrow, { x: -600, y: 0 }).x).toBe(-142);
+    expect(clampOffset(narrow, dockedNarrow, { x: 600, y: 0 }).x).toBe(8);
+  });
+  it('pins a panel bigger than the room to the top left instead of throwing it off', () => {
+    const small = { left: 0, top: 0, width: 200, height: 200 };
+    expect(clampOffset(small, { left: 0, top: 8, width: 262, height: 300 }, { x: 50, y: 50 })).toEqual({ x: 0, y: -8 });
   });
   it('is remembered, and a broken store never throws', () => {
     const mem = new Map<string, string>();
@@ -335,5 +381,103 @@ describe('how long the standing checks wait, and when the guard may reload', () 
     expect(guardMayReload(800)).toBe(true);
     expect(guardMayReload(801)).toBe(false);
     expect(guardMayReload(2500)).toBe(false);
+  });
+});
+
+describe('the panel starts folded on a narrow canvas, and for ideas alone', () => {
+  it('opens by default only for a refusal or a warning on a canvas 720 px or wider', () => {
+    expect(defaultOpen(result({ warn: 1 }), 1200)).toBe(true);
+    expect(defaultOpen(result({ refuse: 1 }), 720)).toBe(true);
+    expect(defaultOpen(result({ warn: 1 }), 719)).toBe(false);
+    expect(defaultOpen(result({ warn: 1 }), 412)).toBe(false);
+    expect(defaultOpen(result({ idea: 4 }), 1600)).toBe(false);
+    expect(defaultOpen(result(), 1600)).toBe(false);
+    expect(defaultOpen(null, 1600)).toBe(false);
+    expect(defaultOpen(result({ warn: 1 }), null)).toBe(false);
+  });
+});
+
+describe('where the cards and the camera go', () => {
+  const vp = { width: 1000, height: 700 };
+  it('the refusal card sits beside the pointer, and flips to stay inside on the right and the bottom', () => {
+    const size = { width: 320, height: 180 };
+    expect(placeCard({ x: 100, y: 100 }, size, vp)).toEqual({ left: 112, top: 112 });
+    expect(placeCard({ x: 900, y: 100 }, size, vp)).toEqual({ left: 568, top: 112 });
+    expect(placeCard({ x: 100, y: 650 }, size, vp)).toEqual({ left: 112, top: 458 });
+    expect(placeCard({ x: 990, y: 695 }, size, vp)).toEqual({ left: 658, top: 503 });
+  });
+  it('uses the measured size, not an assumed one', () => {
+    expect(placeCard({ x: 100, y: 600 }, { width: 320, height: 60 }, vp).top).toBe(612);
+    expect(placeCard({ x: 100, y: 600 }, { width: 320, height: 300 }, vp).top).toBe(288);
+  });
+  it('never leaves the margin, even for a card bigger than the window', () => {
+    expect(placeCard({ x: 5, y: 5 }, { width: 2000, height: 2000 }, vp)).toEqual({ left: 8, top: 8 });
+  });
+  it('Show pads the right by the docked panel, and is as before without one', () => {
+    expect(showPadding(0, 1000, 700)).toBe(0.5);
+    const p = showPadding(280, 1000, 700);
+    expect(p).toEqual({ top: '116px', bottom: '116px', left: '166px', right: '446px' });
+  });
+});
+
+describe('Esc', () => {
+  it('closes one thing: the refusal card, then Show, then the Why card', () => {
+    expect(escTarget({ refusal: true, show: true, why: true })).toBe('refusal');
+    expect(escTarget({ refusal: false, show: true, why: true })).toBe('show');
+    expect(escTarget({ refusal: false, show: false, why: true })).toBe('why');
+    expect(escTarget({ refusal: false, show: false, why: false })).toBeNull();
+  });
+  it('leaves Esc to a field the user is typing in', () => {
+    expect(isTypingTarget({ tagName: 'INPUT' })).toBe(true);
+    expect(isTypingTarget({ tagName: 'textarea' })).toBe(true);
+    expect(isTypingTarget({ tagName: 'SELECT' })).toBe(true);
+    expect(isTypingTarget({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(isTypingTarget({ tagName: 'BUTTON' })).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+});
+
+describe('rows, Show and the layers', () => {
+  const render = (c: ChecksController, canShow = true) => renderToStaticMarkup(createElement(ChecksPanel, { controller: c, canShow }));
+  const warn = finding({ severity: 'warn', title: 'fw-01 has one power supply fed.', elements: [{ id: 'device:D1', name: 'fw-01' }] });
+  it('leads a row with the name, then the severity, then the sentence', () => {
+    const html = render(controller({ result: result({ warn: 1, findings: [warn] }) }));
+    const name = html.indexOf('checks-row__name');
+    expect(name).toBeGreaterThan(-1);
+    expect(name).toBeLessThan(html.indexOf('checks-row__sev'));
+    expect(html.indexOf('checks-row__sev')).toBeLessThan(html.indexOf('checks-row__title'));
+  });
+  it('hides Show while the open-device view covers the canvas, and keeps Why?', () => {
+    const html = render(controller({ result: result({ warn: 1, findings: [warn] }) }), false);
+    expect(html).not.toContain('>Show<');
+    expect(html).toContain('Why?');
+  });
+  it('the name is ink at body size, not muted mono', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const css = readFileSync(fileURLToPath(new URL('./checks.css', import.meta.url)), 'utf8');
+    const rule = css.slice(css.indexOf('.checks-row__name {'), css.indexOf('}', css.indexOf('.checks-row__name {')));
+    expect(rule).toContain('var(--ink)');
+    expect(rule).toContain('var(--t-body)');
+    expect(rule).not.toMatch(/mono|muted|micro/);
+  });
+  it('the panel sits below the paste card and the open device is below the panel', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const z = (rel: string, sel: string): number => {
+      const css = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+      const block = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+      return Number(/--z-modal\) \+ (\d+)/.exec(block)?.[1]);
+    };
+    const panel = z('./checks.css', '.checks-panel {');
+    expect(panel).toBeLessThan(z('../paste/paste.css', '.paste-card {'));
+    expect(panel).toBeGreaterThanOrEqual(z('../jot/jot.css', '.jot {'));
+  });
+  it('the refusal card is a live region, not a modal', () => {
+    const html = renderToStaticMarkup(
+      createElement(RefusalCard, { finding: finding({ severity: 'refuse' }), x: 10, y: 10, onWhy: () => {}, onDismiss: () => {} }),
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain('aria-modal');
   });
 });

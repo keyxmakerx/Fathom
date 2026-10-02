@@ -5,7 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Document } from '../../document/model';
 import type { CheckFinding, ChecksResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
-import { buildBadgeMap, buildCanon, findingKey, firstRefusal, guardMayReload, involvedKeys, standingDelay, totalCount } from './checksModel';
+import {
+  buildBadgeMap,
+  buildCanon,
+  defaultOpen,
+  escTarget,
+  findingKey,
+  firstRefusal,
+  guardMayReload,
+  involvedKeys,
+  isTypingTarget,
+  standingDelay,
+} from './checksModel';
 import { createChecksStore, type ChecksApi } from './checksStore';
 
 const STORAGE_KEY = 'fathom.checks.panel';
@@ -14,7 +25,7 @@ export interface PanelPrefs {
   /** Offset from the docked corner, px. */
   x: number;
   y: number;
-  /** null = follow the findings: open when there are any. */
+  /** null = the user has not chosen: open for refusals and warnings on a wide canvas. */
   open: boolean | null;
 }
 
@@ -58,8 +69,14 @@ export interface ChecksController {
   setOpen(open: boolean): void;
   prefs: PanelPrefs;
   setOffset(x: number, y: number): void;
+  /** Width of the canvas area the panel sits on, px; null until measured. */
+  canvasWidth: number | null;
+  setCanvasWidth(w: number): void;
   why: CheckFinding | null;
-  openWhy(f: CheckFinding): void;
+  /** Bumps on every Why? click, so the card scrolls into view and takes focus again. */
+  whyToken: number;
+  /** `trigger` is the button that asked: Esc or Close returns focus to it. */
+  openWhy(f: CheckFinding, trigger?: HTMLElement | null): void;
   closeWhy(): void;
   showKey: string | null;
   toggleShow(f: CheckFinding): void;
@@ -85,6 +102,9 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
   const [why, setWhy] = useState<CheckFinding | null>(null);
   const [showKey, setShowKey] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<RefusalState | null>(null);
+  const [canvasWidth, setCanvasWidth] = useState<number | null>(null);
+  const [whyToken, setWhyToken] = useState(0);
+  const whyTrigger = useRef<HTMLElement | null>(null);
   const latest = useRef({ boot, mirrorNow, loadCostMs });
   latest.current = { boot, mirrorNow, loadCostMs };
   const pointer = useRef({ x: 0, y: 0 });
@@ -226,7 +246,39 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
     });
   }, []);
 
-  const open = prefs.open ?? (result != null && totalCount(result) > 0);
+  const open = prefs.open ?? defaultOpen(result, canvasWidth);
+
+  // A Show belongs to the open panel: folding it ends the Show.
+  useEffect(() => {
+    if (!open && showKey != null) clearShow();
+  }, [open, showKey, clearShow]);
+
+  const closeWhy = useCallback(() => {
+    setWhy(null);
+    const back = whyTrigger.current;
+    whyTrigger.current = null;
+    if (back?.isConnected) back.focus();
+  }, []);
+  const dismissRefusal = useCallback(() => setRefusal(null), []);
+
+  // Esc closes the topmost of: the refusal card, a running Show, the Why card. Not while typing or while a
+  // dialog (the paste card, the colour picker) is up: that Esc is theirs. Nothing is stopped; what it closes is
+  // marked handled with preventDefault, which the canvas's own Esc checks.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (isTypingTarget(e.target as HTMLElement | null) || isTypingTarget(document.activeElement)) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]') != null) return;
+      const which = escTarget({ refusal: refusal != null, show: showKey != null, why: why != null });
+      if (which == null) return;
+      e.preventDefault();
+      if (which === 'refusal') dismissRefusal();
+      else if (which === 'show') clearShow();
+      else closeWhy();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [refusal, showKey, why, clearShow, closeWhy, dismissRefusal]);
 
   return {
     api,
@@ -236,16 +288,20 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
     setOpen: (o) => update({ open: o }),
     prefs,
     setOffset: (x, y) => update({ x, y }),
+    canvasWidth,
+    setCanvasWidth,
     why,
-    openWhy: (f) => {
+    whyToken,
+    openWhy: (f, trigger) => {
+      whyTrigger.current = trigger ?? null;
       setWhy(f);
+      setWhyToken((n) => n + 1);
       if (!open) update({ open: true });
     },
-    closeWhy: () => setWhy(null),
+    closeWhy,
     showKey,
     toggleShow,
     refusal,
-    dismissRefusal: () => setRefusal(null),
+    dismissRefusal,
   };
 }
-

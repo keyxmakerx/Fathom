@@ -33,6 +33,8 @@ function countRender(): void {
 export const INLET_ANCHOR_HANDLE_ID = '__inlet-anchor__';
 
 export interface ChassisNodeData extends Record<string, unknown> {
+  /** Set by Checks' Show on a plate it fades. */
+  checksFaded?: boolean;
   chassis: ChassisView;
   /** This elevation's own faceplate ports (`elevation.ts`'s `faceplateItem`
    * — ADR-0050 §1) — never `chassis.ports` directly, which now carries both
@@ -99,6 +101,7 @@ function PlatePort({
   litCableId,
   tip,
   onSelectPort,
+  faded,
 }: {
   box: PortBox;
   port: PortView;
@@ -110,6 +113,7 @@ function PlatePort({
   litCableId: string | null;
   tip: string;
   onSelectPort: (portId: string) => void;
+  faded: boolean;
 }) {
   const cable = port.cable ?? null;
   const cabled = cable != null;
@@ -117,7 +121,8 @@ function PlatePort({
   const isLive = isOrigin || (liveDrag != null && liveDrag.livePortIds.has(port.id));
   const dimmed = (liveDrag != null && !isLive) || (inlet != null && litCableId != null && cable?.cableId !== litCableId);
   const style: Record<string, string | number> = { left: box.x, top: box.y, width: box.w, height: box.h };
-  if (dimmed) style.opacity = 'var(--phantom)';
+  // A plate Checks' Show has faded is not dimmed again here.
+  if (dimmed && !faded) style.opacity = 'var(--phantom)';
   const sheath = cabled ? portSheath.get(port.id) : undefined;
   if (sheath != null) style['--port-sheath'] = SHEATH_VAR[sheath];
   const handle = (
@@ -268,6 +273,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
                     litCableId={litCableId}
                     tip={glyphs ? portTip(port, layout, inlet) : ''}
                     onSelectPort={onSelectPort}
+                    faded={data.checksFaded === true}
                   />
                 );
               })}

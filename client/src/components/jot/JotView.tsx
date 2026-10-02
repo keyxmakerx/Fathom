@@ -104,6 +104,7 @@ export function JotView(props: JotViewProps): JSX.Element {
     const onKey = (e: KeyboardEvent) => {
       if (paused || focusInField()) return;
       if (e.key === 'Escape') {
+        if (e.defaultPrevented) return; // Checks took this one
         if (inside) setInside(false);
         else onBack();
         e.preventDefault();

@@ -1092,7 +1092,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
-      {doc != null ? <ChecksSurface controller={checks} /> : null}
+      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       </ChecksContext.Provider>
     </Shell>
   );

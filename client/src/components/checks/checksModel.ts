@@ -25,6 +25,15 @@ export function summaryText(r: Pick<ChecksResult, 'refuse' | 'warn' | 'idea'>): 
 
 export const totalCount = (r: Pick<ChecksResult, 'refuse' | 'warn' | 'idea'>): number => r.refuse + r.warn + r.idea;
 
+/** A canvas narrower than this starts with the panel folded to the bar chip. */
+export const NARROW_CANVAS_PX = 720;
+
+/** Whether the panel is open when the user has not chosen: only for refusals and warnings, and only on a canvas
+ * wide enough to spare the room. Ideas alone never open it. */
+export function defaultOpen(r: Pick<ChecksResult, 'refuse' | 'warn'> | null, canvasWidth: number | null): boolean {
+  return r != null && r.refuse + r.warn > 0 && canvasWidth != null && canvasWidth >= NARROW_CANVAS_PX;
+}
+
 /** The lines the panel prints under the summary, in the order it prints them. */
 export function panelNotes(r: ChecksResult): string[] {
   const notes: string[] = [];
@@ -44,6 +53,17 @@ export function anchorName(f: CheckFinding): string {
 
 /** `source` as text for the Why card: a title and a link only when there is one. */
 export const hasSourceLink = (f: CheckFinding): boolean => /^https?:\/\//.test(f.source.url);
+
+export const UNCHECKED_SOURCE = 'Source not yet checked by a person.';
+
+/** What the Why card prints about a rule's source. A cited source carries the author's working note, which is
+ * never shown: the card says it has not been checked by a person. A rule with no cited source has one plain
+ * sentence, shown as is. */
+export function sourceView(f: CheckFinding): { label: 'Source' | 'Basis'; unchecked: boolean; title: string; linked: boolean; note: string } {
+  const { title, note } = f.source;
+  if (title === '') return { label: 'Basis', unchecked: false, title: '', linked: false, note };
+  return { label: 'Source', unchecked: note !== '', title, linked: hasSourceLink(f), note: '' };
+}
 
 /** Maps any element id to the device that owns it (a port to its chassis to its device); others to themselves. */
 export type Canon = (id: string) => string;
@@ -74,10 +94,14 @@ export function involvedKeys(f: CheckFinding, canon: Canon): Set<string> {
   return keys;
 }
 
-/** element -> number of findings that touch it. One pass per result; a port counts toward its device. */
+/** element -> number of refusals and warnings that touch it (ideas are listed in the panel, never badged). One
+ * pass per result; a port counts toward its device. */
 export function buildBadgeMap(findings: readonly CheckFinding[], canon: Canon): ReadonlyMap<string, number> {
   const counts = new Map<string, number>();
-  for (const f of findings) for (const k of involvedKeys(f, canon)) counts.set(k, (counts.get(k) ?? 0) + 1);
+  for (const f of findings) {
+    if (f.severity === 'idea') continue;
+    for (const k of involvedKeys(f, canon)) counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
   return counts;
 }
 
@@ -153,16 +177,60 @@ export interface Rect {
   height: number;
 }
 
-/** Keeps a dragged panel inside its parent, its header always reachable. `docked` is the panel's rect at offset 0. */
-export function clampOffset(parent: Rect, docked: Rect, want: { x: number; y: number }, headerPx = 36): { x: number; y: number } {
-  const minX = parent.left - docked.left;
-  const maxX = parent.left + parent.width - docked.width - docked.left;
-  const minY = parent.top - docked.top;
-  const maxY = parent.top + parent.height - headerPx - docked.top;
-  return {
-    x: Math.round(Math.min(Math.max(want.x, Math.min(minX, maxX)), Math.max(minX, maxX))),
-    y: Math.round(Math.min(Math.max(want.y, Math.min(minY, maxY)), Math.max(minY, maxY))),
+/** Keeps a dragged panel inside its parent. `docked` is the panel's rect with no offset applied (not the live,
+ * transformed one), in the parent's coordinates. A panel taller or wider than the room is pinned to the top-left. */
+export function clampOffset(parent: Rect, docked: Rect, want: { x: number; y: number }): { x: number; y: number } {
+  const axis = (v: number, pStart: number, pSize: number, dStart: number, dSize: number): number => {
+    const lo = pStart - dStart;
+    const hi = Math.max(lo, pStart + pSize - dSize - dStart);
+    return Math.round(Math.min(Math.max(v, lo), hi));
   };
+  return {
+    x: axis(want.x, parent.left, parent.width, docked.left, docked.width),
+    y: axis(want.y, parent.top, parent.height, docked.top, docked.height),
+  };
+}
+
+/** Where the refusal card goes: beside the pointer, flipped to its other side where it would leave the viewport,
+ * and never past the margin. `size` is the card's measured size. */
+export function placeCard(
+  at: { x: number; y: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 12,
+  margin = 8,
+): { left: number; top: number } {
+  const axis = (p: number, len: number, room: number): number => {
+    let v = p + gap;
+    if (v + len > room - margin) v = p - gap - len;
+    return Math.round(Math.max(margin, Math.min(v, room - margin - len)));
+  };
+  return { left: axis(at.x, size.width, viewport.width), top: axis(at.y, size.height, viewport.height) };
+}
+
+/** The padding for Show's camera move: the 50% it always had, plus the room the docked panel takes on the right.
+ * `inset` is that room in px (0 when the panel is folded or has been moved off its dock). */
+type Px = `${number}px`;
+export function showPadding(inset: number, width: number, height: number): number | { top: Px; right: Px; bottom: Px; left: Px } {
+  if (!(inset > 0)) return 0.5;
+  const base = (len: number): number => Math.floor((len - len / 1.5) * 0.5);
+  const px = (n: number): Px => `${n}px`;
+  return { top: px(base(height)), bottom: px(base(height)), left: px(base(width)), right: px(base(width) + Math.round(inset)) };
+}
+
+/** What one Esc closes: the topmost of the refusal card, a running Show, the Why card. */
+export function escTarget(open: { refusal: boolean; show: boolean; why: boolean }): 'refusal' | 'show' | 'why' | null {
+  if (open.refusal) return 'refusal';
+  if (open.show) return 'show';
+  if (open.why) return 'why';
+  return null;
+}
+
+/** An element Esc belongs to (typing, a select), not to Checks. */
+export function isTypingTarget(el: { tagName?: string; isContentEditable?: boolean } | null | undefined): boolean {
+  if (el == null) return false;
+  const tag = (el.tagName ?? '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
 /** Quiet time after the last document change before the standing checks run, at the least. */

@@ -1408,7 +1408,7 @@ function DrawingInner({
 
     function onKeyDown(event: KeyboardEvent) {
       if (free.onKeyDown(event)) return;
-      if (event.key === 'Escape' && !focusIsInAField()) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !focusIsInAField()) {
         if (openedRef.current != null) setOpened(null);
         else if (selected != null || calloutRef.current != null) onSelect(null);
         return;

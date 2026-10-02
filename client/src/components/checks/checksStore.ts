@@ -17,6 +17,8 @@ export interface ChecksState {
   badges: ReadonlyMap<string, number>;
   canon: Canon;
   show: ShowState | null;
+  /** Px the open, docked panel takes on the canvas's right edge; 0 when it is folded or has been moved. */
+  panelInset: number;
 }
 
 export interface ChecksStore {
@@ -26,7 +28,7 @@ export interface ChecksStore {
 }
 
 export function createChecksStore(): ChecksStore {
-  let state: ChecksState = { badges: new Map(), canon: (id) => id, show: null };
+  let state: ChecksState = { badges: new Map(), canon: (id) => id, show: null, panelInset: 0 };
   const listeners = new Set<() => void>();
   return {
     get: () => state,

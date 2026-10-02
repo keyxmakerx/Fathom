@@ -9,6 +9,8 @@ import { useLive } from './liveStore';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 
 export interface CableEdgeData extends Record<string, unknown> {
+  /** Set by Checks' Show on an edge it fades. */
+  checksFaded?: boolean;
   cable: CableView;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
@@ -57,7 +59,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
   const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels } = data;
-  const dimmed = litCableId != null && !lit;
+  // Checks' Show fades the whole edge already: do not dim it a second time.
+  const dimmed = data.checksFaded !== true && litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
   const colour = SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
