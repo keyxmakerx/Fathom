@@ -5,7 +5,7 @@ severity: warn
 category: correctness
 title: "The two ends of a link are in different subnets"
 why: >
-  Two directly connected interfaces reach each other only if they are in the same subnet. With different subnets each end treats the other as remote and sends to its gateway instead, so the link carries nothing between them.
+  The two ends of one cable do not agree on the link's subnet. Each end may send the other's traffic to a gateway, and protocols that need a shared subnet, such as OSPF adjacency, will not form.
 fix: >
   Put both ends in one subnet, or fix the prefix length on the end that is wrong.
 concept: check.ip.link-addressing

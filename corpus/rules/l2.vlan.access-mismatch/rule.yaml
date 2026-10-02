@@ -5,16 +5,16 @@ severity: warn
 category: correctness
 title: "The two ends of a link are access ports in different VLANs"
 why: >
-  A cable between two access ports joins their VLANs into one broadcast domain. Hosts in each VLAN see the other's traffic, and spanning tree and neighbour discovery often flag it.
+  A cable between two access ports joins their VLANs into one broadcast domain. Hosts in each VLAN see the other's traffic, and the VLAN numbers no longer mean the same thing at both ends.
 fix: >
   Put both ports in the same VLAN, or make the link a trunk that carries both.
 concept: check.l2.vlan-ports
 acceptable_when: >
-  Rarely: a deliberate bridge between two VLANs, which a router or firewall should do instead.
+  A deliberate join where VLAN numbers differ on each switch, such as across an administrative boundary or a provider handoff.
 reviewed_by: "pending: Key Maker"
 reviewed_on: 2026-10-02
 sources:
-  - { publisher: "Cisco Press", doc: "CCENT/CCNA ICND1 100-101 Official Cert Guide, 'Check the Allowed VLAN List on Both Ends of a Trunk'", url: "https://www.oreilly.com/library/view/ccentccna-icnd1-100-101/9780133367867/ch10lev3sec14.html", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+  - { publisher: "Cisco Press", doc: "CCENT/CCNA ICND1 100-101 Official Cert Guide, the VLAN trunking chapter (it covers trunks; the access-port case follows from the same VLAN-per-broadcast-domain rule)", url: "https://www.oreilly.com/library/view/ccentccna-icnd1-100-101/9780133367867/ch10lev3sec14.html", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
 applies_to:
   kind: Cable
   with:

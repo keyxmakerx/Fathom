@@ -3,11 +3,11 @@ rule_version: 1.0.0
 status: active
 severity: idea
 category: operability
-title: "A device with two power supplies has only one fed"
+title: "A chassis has two power inlets and only one is cabled"
 why: >
-  Two power supplies protect the device only when both are connected. With one fed, the second adds nothing and the device still stops when that one feed fails.
+  Two power inlets protect the device only when both are connected. With one cabled, the device still stops when that feed fails.
 fix: >
-  Connect the second supply, ideally to a different power circuit.
+  Connect the second supply to a different power circuit, or record the feed if it is already connected.
 concept: check.power.redundancy
 acceptable_when: >
   A second supply fitted as a cold spare.

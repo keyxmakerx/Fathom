@@ -5,12 +5,12 @@ severity: warn
 category: correctness
 title: "The two ends of a link are set to different speeds"
 why: >
-  When both ends of a link have a fixed speed and the speeds differ, the link will not come up, or comes up at neither end's setting. Set both ends to the same speed, or leave both to negotiate.
+  When both ends of a link have a fixed speed and the speeds differ, the link will usually not come up. Auto-negotiation only works when both ends negotiate.
 fix: >
   Set both interfaces to the same speed, or clear the fixed speed on one so the ends can negotiate.
 concept: check.phy.link-speed
 acceptable_when: >
-  A transceiver pair that is meant to negotiate down and Fathom has the faster setting as a ceiling. Clear the speed field.
+  A speed field used as a ceiling for negotiation rather than a forced setting. Clear it and the check stops.
 reviewed_by: "pending: Key Maker"
 reviewed_on: 2026-10-02
 sources:

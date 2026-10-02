@@ -1,9 +1,9 @@
 # A Cat6 lead from an RJ45 port on a Juniper EX to an SFP+ cage on a Catalyst 3850-24XS with the cage known empty.
 nodes:
-  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: junos-ex, role: switch } }
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: ios-xe, role: switch } }
   - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
   - { id: p1, kind: PhysicalPort, set: { label: "Te1/0/1", connector: sfp_plus, service: ethernet, speed_max: 10000000000 }, absent: [transceiver] }
-  - { id: d2, kind: Device, set: { hostname: dist-sw-02, platform: junos-ex, role: switch } }
+  - { id: d2, kind: Device, set: { hostname: dist-sw-02, platform: ios-xe, role: switch } }
   - { id: d2_ch, kind: Chassis, set: { member_index: 0 } }
   - { id: p2, kind: PhysicalPort, set: { label: "ge-0/0/1", connector: rj45, service: ethernet, speed_max: 1000000000 } }
   - { id: c1, kind: Cable, set: { media: cat6 } }
