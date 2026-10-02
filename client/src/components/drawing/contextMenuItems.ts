@@ -34,6 +34,7 @@ export interface MenuActions {
   onAddDevice?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
+  onPasteConfig?(): void;
   onAddBoxHere?(at: { screen: Point; flow: Point }): void;
   onAddLabelHere?(form: 'text' | 'area', flow: Point): void;
   onDuplicateFree?(ids: string[]): void;
@@ -72,6 +73,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
     case 'label': {
       const { id } = target;
       const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
+      if (target.kind === 'free' && actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
       if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
       if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
@@ -94,6 +96,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
         for (const u of RACK_SIZES) items.push({ label: `Add a ${u}U rack`, onSelect: () => actions.onAddRack?.(u) });
       }
       if (actions.onAddWall) items.push({ label: 'Add a wall', onSelect: () => actions.onAddWall?.() });
+      if (actions.onPasteConfig) items.push({ label: 'Paste config', onSelect: () => actions.onPasteConfig?.() });
       break;
     }
   }

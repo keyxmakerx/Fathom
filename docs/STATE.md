@@ -235,6 +235,14 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   device there (`RackSquares.tsx`). A selected shelf has two grips, height and slots, that refuse by
   naming what is in the way; the details panel has both as numbers. Not built: cable styles, line
   routing, copying a box's typed ports (a copy gets its role's usual ports).
+- **Open a device, and paste a config anywhere** (ADR-0060 step 8, ADR-0061 §7). Right-click → Open or a
+  double-click goes into a device ("jot mode", `components/jot/`): drawn large with its ports, equipment
+  dragged or clicked in from the list beside it (free boxes, on the canvas where the device is), cables
+  dragged port to port, Config and Inside buttons, Esc or the bar's path back out. Ctrl+V with text, or
+  right-click → Paste config, runs the text through the wasm gate (`components/paste/`) and shows a card:
+  hostname, platform, interfaces, what the gate destroyed by kind (never values), and attach to the
+  same-named device or add a new one. Nothing is stored until the choice. Not built: replacing a device's
+  capture, an import page; a cable to a free box is not drawn on the full canvas (the look switch's stubs).
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
   named after the organisation. Design names are not built.

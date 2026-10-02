@@ -13,6 +13,7 @@ function actions(): Required<MenuActions> {
     onAddDevice: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
+    onPasteConfig: vi.fn(),
     onAddBoxHere: vi.fn(),
     onAddLabelHere: vi.fn(),
     onDuplicateFree: vi.fn(),
@@ -53,9 +54,19 @@ describe('menuItemsFor', () => {
   it('offers the empty canvas three rack sizes and a wall', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'pane' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Add a 42U rack', 'Add a 24U rack', 'Add a 12U rack', 'Add a wall']);
+    expect(items.map((i) => i.label)).toEqual(['Add a 42U rack', 'Add a 24U rack', 'Add a 12U rack', 'Add a wall', 'Paste config']);
     items[1].onSelect();
     expect(a.onAddRack).toHaveBeenCalledWith(24);
+    items[4].onSelect();
+    expect(a.onPasteConfig).toHaveBeenCalled();
+  });
+
+  it('lets a free box be opened like a racked device', () => {
+    const a = actions();
+    const items = menuItemsFor({ kind: 'free', id: 'f1' }, a);
+    expect(items[0].label).toBe('Open');
+    items[0].onSelect();
+    expect(a.onOpen).toHaveBeenCalledWith('f1');
   });
 
   it('gives a reader only Details, and nothing on the empty canvas', () => {

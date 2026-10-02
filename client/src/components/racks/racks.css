@@ -22,7 +22,7 @@
   left: 50%;
   bottom: var(--s4);
   transform: translateX(-50%);
-  z-index: 5;
+  z-index: calc(var(--z-modal) + 3);
   border: var(--rule-hair) solid var(--danger);
   background: var(--danger-wash);
   color: var(--danger);
