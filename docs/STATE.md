@@ -228,13 +228,12 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   device onto a wall, floor, desk or board no longer asks for millimetres; the surface lays it out.
   Dragging onto a surface comes with free boxes on the canvas (step 7, below).
 - **Free boxes, lines and areas** (ADR-0060 step 7, schema 0.13: `Label`, `Line`, `PassiveNode.slots`).
-  Boxes sit on the canvas beside racks and walls. A selected box shows hollow edge squares: drag one to
-  draw a line, click one to add a dashed new box. Marquee select (drag empty canvas; pan with the wheel, a trackpad, middle button or Space+drag; one finger pans on touch, the touch marquee (long press) is not built), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
+  Boxes sit on the canvas beside racks and walls. A selected free box (equipment with no model) shows small ink circles on its edges: drag one to
+  draw a line, click one to add a dashed new free box. Modelled devices have none. Marquee select (drag empty canvas; pan with the wheel, a trackpad, middle button or Space+drag; one finger pans on touch, the touch marquee (long press) is not built), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
   bigger), and a flat Align / Spread / Group / Label menu over the selection. Text labels and areas
-  carry what sits inside them. Squares on the free unit above and below a selected racked device add a
-  device there (`RackSquares.tsx`). A selected shelf has two grips, height and slots, that refuse by
+  carry what sits inside them. Right-click a free unit of a rack for "Add here". A selected shelf has two grips, height and slots, that refuse by
   naming what is in the way; the details panel has both as numbers. Not built: cable styles, line
-  routing, copying a box's typed ports (a copy gets its role's usual ports).
+  routing, a highlighted drop unit while dragging, copying a box's typed ports (a copy gets its role's usual ports).
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
   named after the organisation. Design names are not built.

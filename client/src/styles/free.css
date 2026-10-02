@@ -18,12 +18,12 @@
 .free-box__code { font-size: var(--t-micro); letter-spacing: var(--track-label); color: var(--muted); }
 .free-handle { opacity: 0; pointer-events: none; width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; }
 
-/* The edge handle: one rule for every box edge, area grip, rack square and shelf grip. To turn it
-   into a small ink circle, change these three values and nothing else. */
+/* The edge handle (round 7): a small filled ink circle on a free box's edge. One rule; size, radius
+   and fill are the three values to change. Grips on a frame (area, shelf) stay small squares. */
 .free-square {
-  --handle-size: 10px;
-  --handle-radius: 0;
-  --handle-fill: var(--page);
+  --handle-size: 8px;
+  --handle-radius: 50%;
+  --handle-fill: var(--ink);
   position: absolute;
   width: var(--handle-size);
   height: var(--handle-size);
@@ -34,12 +34,14 @@
   cursor: crosshair;
   box-sizing: border-box;
 }
-.free-square:hover { --handle-fill: var(--ink); }
+.free-square:hover { --handle-fill: var(--muted); }
+.free-square--grip, .drawing-shelf__grip { --handle-size: 10px; --handle-radius: 0; --handle-fill: var(--page); }
+.free-square--grip:hover, .drawing-shelf__grip:hover { --handle-fill: var(--ink); }
 .free-square:focus-visible { outline: var(--focus-width) solid var(--focus-colour); }
-.free-square--t { top: -8px; left: calc(50% - var(--handle-size) / 2); }
-.free-square--b { bottom: -8px; left: calc(50% - var(--handle-size) / 2); }
-.free-square--l { left: -8px; top: calc(50% - var(--handle-size) / 2); }
-.free-square--r { right: -8px; top: calc(50% - var(--handle-size) / 2); }
+.free-square--t { top: calc(var(--handle-size) / -2); left: calc(50% - var(--handle-size) / 2); }
+.free-square--b { bottom: calc(var(--handle-size) / -2); left: calc(50% - var(--handle-size) / 2); }
+.free-square--l { left: calc(var(--handle-size) / -2); top: calc(50% - var(--handle-size) / 2); }
+.free-square--r { right: calc(var(--handle-size) / -2); top: calc(50% - var(--handle-size) / 2); }
 .free-square--grip { right: -5px; bottom: -5px; cursor: nwse-resize; }
 
 .free-label {

@@ -197,20 +197,20 @@ try {
     await context.close();
   }
 
-  // Part 2: squares on a rack.
+  // Part 2: right-click "Add here" on a free unit of a rack.
   {
     const { context, page, pageErrors } = await open('canvas');
     const before = await page.locator('.react-flow__node-chassis').count();
-    await page.locator('.react-flow__node-chassis').first().click();
-    await page.waitForTimeout(300);
-    const n = await page.locator('.rack-square').count();
-    check('a selected racked device shows squares on its free units', n >= 1, String(n));
-    await shot(page, 'FL-07-rack-squares');
-    await page.locator('.rack-square').first().click();
-    await page.waitForTimeout(200);
+    const rack = await page.locator('.react-flow__node-rack').first().boundingBox();
+    await page.mouse.click(rack.x + rack.width / 2, rack.y + rack.height * 0.12, { button: 'right' });
+    const item = page.locator('.drawing-context-menu__item', { hasText: /Add here/ });
+    check('right-click on a free unit offers "Add here"', (await item.count()) === 1);
+    await shot(page, 'FL-07-add-here');
+    await item.click();
     await pickKind(page, 'Switch');
-    check('clicking a rack square adds a device', (await page.locator('.react-flow__node-chassis').count()) === before + 1);
-    check('no uncaught page errors (rack squares)', pageErrors.length === 0, pageErrors.join(' | '));
+    check('Add here puts a device in that unit', (await page.locator('.react-flow__node-chassis').count()) === before + 1);
+    check('a modelled device has no edge handles', (await page.locator('.react-flow__node-chassis .free-square').count()) === 0);
+    check('no uncaught page errors (add here)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 
