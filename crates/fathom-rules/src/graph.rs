@@ -193,6 +193,20 @@ fn read_value(bag: &dyn FieldBag, key: FieldKey) -> Option<Scalar> {
     })
 }
 
+struct OneSlot(FieldKey, Box<dyn Any>);
+
+impl FieldBag for OneSlot {
+    fn field(&self, key: FieldKey) -> Option<&dyn Any> {
+        (key == self.0).then_some(&*self.1)
+    }
+}
+
+/// A value about to be written, as a rule would read it: the gesture dry run's
+/// field override. `Unset` when the value has no reading a rule can use.
+pub fn field_from_boxed(key: FieldKey, value: Box<dyn Any>) -> Field {
+    read_value(&OneSlot(key, value), key).map_or(Field::Unset, Field::Set)
+}
+
 /// The schema as `fathom-ir` generated it.
 pub struct IrSchema;
 

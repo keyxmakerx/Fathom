@@ -520,6 +520,7 @@ dependencies = [
  "fathom-inventory",
  "fathom-ir",
  "fathom-layout",
+ "fathom-rules",
  "fathom-wasm",
  "fathom-weld",
  "fathom-workspace",

@@ -134,12 +134,14 @@ impl<W: World> World for Overlay<'_, W> {
     }
 }
 
+pub type Refused<N> = Vec<Finding<Ov<N>>>;
+
 /// The refuse-severity findings the proposal would create: present with it, absent without.
 pub fn refusals<W: World>(
     pack: &Pack,
     base: &W,
     p: &Proposal<W::Node>,
-) -> (Vec<Finding<Ov<W::Node>>>, Vec<Diag>) {
+) -> (Refused<W::Node>, Vec<Diag>) {
     let empty = Proposal::default();
     let (before, after) = (Overlay { base, p: &empty }, Overlay { base, p });
     // Only a rule that reads something the proposal touches can be changed by it.

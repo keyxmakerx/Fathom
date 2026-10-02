@@ -168,7 +168,7 @@ pub fn run<W: World>(
                 let l = pop!();
                 let v = pop!();
                 let r = match l {
-                    Val::List(items) => items.iter().any(|x| *x == v) && v != Val::Null,
+                    Val::List(items) => items.contains(&v) && v != Val::Null,
                     _ => false,
                 };
                 push!(Val::Bool(r));

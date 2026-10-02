@@ -138,6 +138,14 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_REDACT_TEXT",
             code: m::OP_REDACT_TEXT,
         },
+        Entry {
+            name: "OP_CHECKS",
+            code: m::OP_CHECKS,
+        },
+        Entry {
+            name: "OP_CHECK_GESTURE",
+            code: m::OP_CHECK_GESTURE,
+        },
     ]
 }
 
@@ -553,6 +561,18 @@ fn faces() -> Vec<FaceEntry> {
                 "",
                 "",
                 "",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_CHECK_HEAD",
+            code: p::FACE_CHECK_HEAD as u32,
+            columns: &["refuse", "warn", "idea", "rules", "load_failed", "", "", ""],
+        },
+        FaceEntry {
+            name: "FACE_CHECK",
+            code: p::FACE_CHECK as u32,
+            columns: &[
+                "rule", "severity", "title", "fix", "why", "concept", "source", "elements",
             ],
         },
     ]
