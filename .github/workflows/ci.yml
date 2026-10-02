@@ -197,6 +197,21 @@ jobs:
 
       # ---- The verification floor (78 §6). Everything below this line compiles. ----
 
+      # The build cache, added 2026-10-02: without it every run compiled the
+      # whole workspace from nothing. GitHub's own action, pinned to the
+      # commit `git ls-remote` gave for v6.1.0 on 2026-10-02. It holds build
+      # output only (`target`); the crates themselves still come from the
+      # checksummed `cargo fetch --locked` above, after every dependency gate
+      # has run. Cargo's own fingerprints decide what is rebuilt; the key
+      # (lockfile and toolchain file) only decides when a new cache is saved.
+      - name: Cache the cargo build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy, warnings are errors

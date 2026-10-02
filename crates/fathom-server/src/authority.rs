@@ -1,54 +1,43 @@
 //! **The signed bytes.** Every message the authority layer signs, seals or
 //! fingerprints, and the ES256 signing and verification over them.
 //!
-//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §3.3 (the constructions), §3.4
-//! (the row seal, the live digest and the head seal), §6.1 (the organisation
-//! id), §15.1 (software keys) and §15.3 (ES256, `p256` + `ecdsa`).
+//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §3.3 (constructions), §3.4 (row
+//! seal, live digest, head seal), §6.1 (organisation id), §15.1 (software
+//! keys), §15.3 (ES256, `p256` + `ecdsa`).
 //! `docs/PHASE-2-STORAGE-DESIGN.md` §11.2 owns the length-prefixing rule and
-//! §12.2 owns the label table — **that table wins over this file**, and every
-//! label introduced here is listed in `LABELS` below so the two can be
-//! reconciled in one read.
+//! §12.2 owns the label table, **which wins over this file**. Every label
+//! introduced here is listed in `LABELS`.
 //!
 //! # This module holds no SQL
 //!
-//! `grants.rs` is the database side. The split is the one `chain.rs` and
-//! `chains.rs` already draw and for the same reason: a construction that can
-//! only be exercised through a transaction is a construction nobody
-//! cross-checks, and `tests/authority_vectors.rs` pins every value below
-//! against a second implementation written in plain Python from the design's
-//! own text.
+//! `grants.rs` is the database side. A construction that can only be exercised
+//! through a transaction is one nobody cross-checks, so
+//! `tests/authority_vectors.rs` pins every value below against a second
+//! implementation in plain Python written from the design's text.
 //!
-//! # The two corrections at the head of §3, and where each one lands
+//! # The two corrections at the head of §3
 //!
 //! **1. `second_bytes` must not bind `H(granter_sig)`.** ECDSA signatures are
-//! malleable two ways at once — the `(r, s)` / `(r, −s)` pair, and
-//! non-canonical DER encodings of the same values — so one authority can
-//! produce several byte-distinct `granter_sig` values over one `grant_bytes`,
-//! each yielding a different `second_bytes`. A seconding signature would then
-//! be bound to an *encoding* rather than to a fact. [`second_bytes`] binds
+//! malleable two ways: the `(r, s)` / `(r, −s)` pair, and non-canonical DER
+//! encodings. One authority could produce several byte-distinct `granter_sig`
+//! values over one `grant_bytes`, so a seconding would be bound to an
+//! *encoding* rather than to a fact. [`second_bytes`] binds
 //! `LP(H(grant_bytes)) ‖ LP(granter_key_fpr)` and never touches the signature.
 //!
-//! **2. The malleability itself is closed, not merely routed around.**
-//! [`verify_es256`] refuses a signature that is not exactly 64 bytes (so a DER
-//! blob is refused by length, and no second encoding of one signature exists)
-//! and refuses a high-`s` signature (so only one of the malleable pair is ever
-//! accepted). Neither is the crate's default: `NistP256::NORMALIZE_S` is
-//! `false`, and `ecdsa 0.17.0`'s `hazmat::verify_prehashed` only rejects a high
-//! `s` when that constant is true. Read from the crate's source on 2026-09-12
-//! rather than assumed, because it is the kind of default that is easy to
-//! believe backwards.
+//! **2. The malleability itself is closed.** [`verify_es256`] refuses a
+//! signature that is not exactly 64 bytes (so no DER form exists) and refuses a
+//! high-`s` signature (so only one of the malleable pair is accepted). Neither
+//! is the crate's default: `NistP256::NORMALIZE_S` is `false`, and `ecdsa
+//! 0.17.0`'s `hazmat::verify_prehashed` rejects a high `s` only when it is
+//! true. Read from the crate source, not assumed.
 //!
 //! # What this module is NOT
 //!
-//! **There is no WebAuthn here, and no challenge derivation.** §3.3's
-//! `grant_challenge` and `second_challenge` exist because a WebAuthn
-//! authenticator signs `authData ‖ SHA-256(clientDataJSON)` and needs the
-//! message compressed into a challenge first. §15.1 ships v1 on software keys,
-//! which sign the message itself, and §15.4's hand-written assertion
-//! verification is its own piece of work. Building the challenge functions now
-//! would put two unused labels in the table and a construction nothing
-//! exercises next to constructions that are load-bearing. They are listed in
-//! [`LABELS`] as reserved and nothing writes them.
+//! **No WebAuthn and no challenge derivation.** §3.3's `grant_challenge` and
+//! `second_challenge` exist only because a WebAuthn authenticator signs
+//! `authData ‖ SHA-256(clientDataJSON)`. §15.1 ships v1 on software keys, which
+//! sign the message itself; §15.4's assertion verification is separate work.
+//! They are listed in [`LABELS`] as reserved and nothing writes them.
 
 use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
@@ -62,13 +51,12 @@ use crate::crypto::{self, Key32};
 
 /// The algorithm id stored in `account_keys.alg` and `organisation_roots.root_alg`.
 ///
-/// **§3.2 calls both columns "COSE algorithm id" and this build does not fill
-/// them with one.** `www.iana.org` is refused by this session's proxy (403,
-/// 2026-09-12), so the COSE Algorithms registry could not be read, and
-/// CLAUDE.md rule 1 forbids writing a remembered number into a stored column.
-/// `1` is Fathom's own id for ES256 and `0011`'s `CHECK` admits nothing else.
-/// Whoever lands WebAuthn either establishes the COSE value and migrates the
-/// two columns, or keeps a Fathom id and maps at the boundary.
+/// **§3.2 calls both columns "COSE algorithm id"; this build does not fill them
+/// with one.** The COSE registry could not be read, and CLAUDE.md rule 1
+/// forbids writing a remembered number into a stored column. `1` is Fathom's
+/// own id for ES256 and `0011`'s `CHECK` admits nothing else. WebAuthn work
+/// must either establish the COSE value and migrate the columns, or map at the
+/// boundary.
 pub const ALG_ES256: i16 = 1;
 
 /// A fixed-size ECDSA signature: `r ‖ s`, 32 bytes each. **Never DER.**
@@ -84,14 +72,13 @@ const TAG_KEY_FPR: &[u8] = b"fathom/key/fpr/v1";
 const TAG_ORG_ID: &[u8] = b"fathom/org/id/v1";
 
 /// §3.3's four message tags, and two this file adds because §3.3 specifies no
-/// bytes for suspension at all (see [`suspend_bytes`]).
+/// bytes for suspension (see [`suspend_bytes`]).
 ///
-/// **`fathom/grant/v2`, and v1 was never shipped.** §3.3's v1 layout left
-/// `sole_steward_appointment` outside the signed bytes, so the one bit that
-/// decides whether a `steward` grant needs a second signature at all was a
-/// server-side field nobody attested. [`grant_bytes`] now carries it, and the
-/// tag is bumped rather than reused: a layout change under an unchanged tag is
-/// what makes a stored signature mean two things.
+/// **`fathom/grant/v2`; v1 was never shipped.** v1 left
+/// `sole_steward_appointment` unsigned, so the bit deciding whether a `steward`
+/// grant needs a second signature was unattested. The tag is bumped, not
+/// reused: a layout change under an unchanged tag makes a stored signature
+/// mean two things.
 const TAG_GRANT: &[u8] = b"fathom/grant/v2";
 const TAG_GRANT_SECOND: &[u8] = b"fathom/grant/second/v1";
 const TAG_GRANT_REVOKE: &[u8] = b"fathom/grant/revoke/v1";
@@ -110,31 +97,22 @@ const TAG_KEY_RETIRE: &[u8] = b"fathom/key/retire/v1";
 /// §3.4's row-seal subkey, and its three in-MAC tags.
 const KDF_ROW_LABEL: &[u8] = b"fathom/chain/kdf/row/v1";
 const TAG_ROW: &[u8] = b"fathom/row/v1";
-/// **v2, and v1 was never shipped.** §3.4's digest covered the live GRANTS
-/// only, which left every seconding, suspension and revocation outside the
-/// head: the head's digest did not move when a seconding appeared, so a
-/// seconding row inserted directly was covered by nothing at all. v2 covers
-/// the whole authority state. The version is bumped rather than reused
-/// because the label names a construction and the construction changed; two
-/// meanings under one name is what this file's own `LABELS` test exists to
-/// stop.
+/// **v2; v1 was never shipped.** v1's digest covered live GRANTS only, so a
+/// seconding, suspension or revocation row inserted directly was covered by
+/// nothing. v2 covers the whole authority state. Bumped, not reused: two
+/// meanings under one label is what the `LABELS` test exists to stop.
 const TAG_AUTHHEAD_LIVE: &[u8] = b"fathom/authhead/live/v2";
 const TAG_AUTHHEAD_SEAL: &[u8] = b"fathom/authhead/seal/v1";
 
 /// **Every label this module introduces, for `PHASE-2-STORAGE-DESIGN.md`
 /// §12.2's table, which owns them.**
 ///
-/// The design's own Disagreements section says it: §12.2 owns the derivation
-/// labels and a document that needs one it does not own raises it there rather
-/// than shipping a second specification. This constant is the raised list, in
-/// a form a test can read — `tests/authority_vectors.rs` asserts that each
-/// label appears in exactly the construction named beside it, so a label
-/// "tidied" in one place and not the other fails rather than silently changing
-/// what a stored signature means.
+/// `tests/authority_vectors.rs` asserts each label appears in exactly the
+/// construction named beside it, so a label changed in one place fails rather
+/// than silently changing what a stored signature means.
 ///
 /// The two reserved rows are §3.3's WebAuthn challenge derivations. **Nothing
-/// writes them**, exactly as §12.2 already records `fathom/chain/key/read/v1`
-/// as reserved and unwritten.
+/// writes them**, as §12.2 already records for `fathom/chain/key/read/v1`.
 pub const LABELS: &[(&str, &str)] = &[
     (
         "fathom/key/fpr/v1",
@@ -220,12 +198,10 @@ pub const LABELS: &[(&str, &str)] = &[
 /// fpr = H(LP("fathom/key/fpr/v1") ‖ LP(public_key))
 /// ```
 ///
-/// **§3.2 writes the tag without a length prefix** (`H("fathom/key/fpr/v1" ||
-/// LP(public_key))`). It is prefixed here, because storage §11.2's rule is
-/// *"length-prefix every variable-length field"* and `chain.rs` already
-/// prefixes the tag in every construction in this product. Two spellings of
-/// the same rule inside one codebase is how a seal stops verifying the day
-/// someone unifies them; the deviation is reported rather than taken quietly.
+/// **§3.2 writes the tag without a length prefix.** It is prefixed here:
+/// storage §11.2 says *"length-prefix every variable-length field"* and
+/// `chain.rs` prefixes the tag in every construction. Two spellings of one rule
+/// is how a seal stops verifying when someone unifies them.
 pub fn key_fingerprint(public_key: &[u8]) -> [u8; 32] {
     let mut msg = Vec::with_capacity(64 + public_key.len());
     crypto::lp(&mut msg, TAG_KEY_FPR);
@@ -239,27 +215,20 @@ pub fn key_fingerprint(public_key: &[u8]) -> [u8; 32] {
 /// organisation_id = b32(H(LP("fathom/org/id/v1") ‖ LP(root_pubkey) ‖ LP(id_salt)))
 /// ```
 ///
-/// **This is what makes a second genesis unconstructible rather than merely
-/// detected** (§6.1): a re-minted genesis under a different root key yields a
-/// *different organisation id* and matches no existing row.
+/// **This makes a second genesis unconstructible rather than merely detected**
+/// (§6.1): a genesis re-minted under a different root key yields a *different
+/// organisation id* and matches no existing row.
 ///
-/// # One deviation from §6.1, and it is forced by this repository's ids
+/// # One deviation from §6.1
 ///
-/// §6.1 writes `b32(H(...))[0..26]` — the first 26 Crockford characters of the
-/// digest. 26 characters carry 130 bits, and every id in this product is a
-/// `fathom_id::Ulid`: 128 bits, rendered in 26 characters, whose **first
-/// character may not exceed `7`** or the value does not fit. Truncating a
-/// base32 rendering of a hash would therefore produce something `Ulid::decode`
-/// refuses roughly three times in four, and `organisations.id` is a 26-
-/// character column every other table joins on. So the first **128 bits** of
-/// the digest are taken and encoded with the same alphabet the rest of the
-/// product uses. The property §6.1 needs — the id is a function of the root
-/// key and the salt, recomputable at every authorisation — is untouched.
+/// §6.1 writes `b32(H(...))[0..26]`. 26 Crockford characters carry 130 bits,
+/// but every id here is a `fathom_id::Ulid`: 128 bits, whose **first character
+/// may not exceed `7`**. Truncating a base32 hash would fail `Ulid::decode`
+/// about three times in four. So the first **128 bits** of the digest are
+/// encoded with the product's alphabet. What §6.1 needs, an id recomputable
+/// from root key and salt at every authorisation, is intact.
 ///
-/// The ULID field split (48-bit timestamp, 80-bit random) is **meaningless**
-/// for a derived id, and that is fine: invariant 7 says ids are opaque. What
-/// it means in practice is that a derived organisation id does not sort by
-/// creation time. Nothing in this product relies on that for organisations.
+/// A derived id does not sort by creation time (invariant 7: ids are opaque).
 pub fn derive_organisation_id(root_pubkey: &[u8], id_salt: &[u8]) -> String {
     let mut msg = Vec::with_capacity(128);
     crypto::lp(&mut msg, TAG_ORG_ID);
@@ -302,11 +271,9 @@ impl Capability {
         }
     }
 
-    /// Whether holding this capability implies holding `other`.
-    ///
-    /// `steward` implies `draw` implies `read`. Stated once, here, rather than
-    /// as a comparison at each call site — §3.1's table is an ordering and an
-    /// `==` against it is the bug that grants a steward no read.
+    /// Whether holding this capability implies holding `other`: `steward` implies
+    /// `draw` implies `read`. Stated once, here, because §3.1's table is an
+    /// ordering and an `==` against it would grant a steward no read.
     pub fn covers(self, other: Self) -> bool {
         self >= other
     }
@@ -319,11 +286,10 @@ impl Capability {
 /// Everything `grant_bytes` covers (§3.3).
 ///
 /// **`subject_key_fpr` and `granter_key_fpr` are both inside the signed
-/// bytes**, and §3.3 gives the reason for each: without the first, an
-/// administrator swaps the subject's public key for one they hold and replays
-/// a year-old legitimate grant; without the second, a granter's key rotation
-/// leaves no statement of which key should have verified the grants they
-/// signed.
+/// bytes** (§3.3). Without the first, an administrator could swap the
+/// subject's public key for one they hold and replay an old legitimate grant.
+/// Without the second, a granter's key rotation leaves no record of which key
+/// should have verified their grants.
 pub struct GrantFacts<'a> {
     pub organisation: &'a str,
     /// The fingerprint of the organisation ROOT key — so a grant is bound to
@@ -334,26 +300,22 @@ pub struct GrantFacts<'a> {
     pub subject_key_fpr: &'a [u8; 32],
     pub capability: Capability,
     /// `None` for a grant signed by the organisation root key: §3.3's
-    /// `LP(granter_id_or_empty)`, which is the empty string in that case and
-    /// still length-prefixed, so "no granter" and a granter whose id is empty
-    /// are the same impossible thing rather than two encodings.
+    /// `LP(granter_id_or_empty)`, still length-prefixed, so "no granter" has
+    /// exactly one encoding.
     pub granter: Option<&'a str>,
     pub granter_key_fpr: &'a [u8; 32],
     pub effective_from_unix: i64,
     /// `0` means "does not expire" — §3.3's `u64(expires_at_unix_or_0)`. A
     /// `steward` grant may not use it (`0011` has the `CHECK`).
     pub expires_at_unix: i64,
-    /// §3.5's sole-steward path: this grant needed no seconding, and paid for
-    /// that with the 24-hour delay in `effective_from`.
+    /// §3.5's sole-steward path: this grant needed no seconding, and paid for that
+    /// with the 24-hour delay in `effective_from`.
     ///
-    /// **It is in the signed bytes, and it is the field that most needed to
-    /// be.** A `steward` grant with this bit set is live without a second
-    /// signature; with it clear it is inert until one arrives. Left outside
-    /// the signature, the bit was a server-side field that nobody attested —
-    /// and a granter who signed an honest proposal could set it on the way
-    /// back and mint a steward with no seconding and no delay. Now both
-    /// parties' signatures cover it: the granter's over `grant_bytes`, the
-    /// seconder's over `LP(H(grant_bytes))`.
+    /// **It is in the signed bytes.** Set, a `steward` grant is live without a
+    /// second signature; clear, it is inert until one arrives. Unsigned, a granter
+    /// could set it after signing an honest proposal and mint a steward with no
+    /// seconding and no delay. Both signatures now cover it: the granter's over
+    /// `grant_bytes`, the seconder's over `LP(H(grant_bytes))`.
     pub sole_steward_appointment: bool,
     pub auth_epoch: i32,
 }
@@ -371,12 +333,10 @@ pub struct GrantFacts<'a> {
 ///             ‖ u32(auth_epoch)
 /// ```
 ///
-/// **v2 adds `u32(sole_steward_appointment)` and nothing else.** It sits with
-/// the other server-chosen values, between the two times it qualifies and the
-/// epoch — the delay in `effective_from` is only meaningful beside the flag
-/// that explains it. It is a fixed-width `u32` of `0` or `1` rather than a
-/// byte, because every other fixed-width field in this construction is one and
-/// a lone byte is the kind of thing a second implementation gets wrong.
+/// **v2 adds `u32(sole_steward_appointment)` and nothing else.** It sits beside
+/// the two times it qualifies. It is a fixed-width `u32` of `0` or `1`, like
+/// every other fixed-width field here; a lone byte is easy for a second
+/// implementation to get wrong.
 pub fn grant_bytes(facts: &GrantFacts<'_>) -> Vec<u8> {
     let mut msg = Vec::with_capacity(256);
     crypto::lp(&mut msg, TAG_GRANT);
@@ -402,12 +362,10 @@ pub fn grant_bytes(facts: &GrantFacts<'_>) -> Vec<u8> {
 ///              ‖ LP(H(grant_bytes)) ‖ LP(granter_key_fpr)
 /// ```
 ///
-/// The superseded line bound `LP(H(granter_sig))`. A seconder would then have
-/// been signing *an encoding of* the granter's signature, of which several
-/// exist over one grant, so a seconding could be made not to match a
-/// re-encoded — but entirely genuine — granter signature. The granter is
-/// already pinned by fingerprint, so binding the fingerprint costs nothing and
-/// binds the fact.
+/// The superseded line bound `LP(H(granter_sig))`, so a seconder signed *an
+/// encoding of* the granter's signature, of which several exist over one
+/// grant. The granter is already pinned by fingerprint, so binding the
+/// fingerprint binds the fact.
 pub fn second_bytes(grant_bytes: &[u8], granter_key_fpr: &[u8; 32]) -> Vec<u8> {
     let grant_hash: [u8; 32] = Sha256::digest(grant_bytes).into();
     let mut msg = Vec::with_capacity(128);
@@ -447,16 +405,14 @@ pub fn revoke_bytes(
 /// unsuspend_bytes = LP("fathom/grant/unsuspend/v1") ‖ … the same fields
 /// ```
 ///
-/// **§3 specifies no bytes for either.** It names the acts (§1.1's suspend
-/// verb, §3.5's *"revoke or suspend anything — 1 steward"*) and the sealed
-/// entries (§7.2's `grant_suspended|unsuspended`) and stops. These follow
-/// `revoke_bytes` because the act is the same shape: a statement about one
-/// existing grant at one time.
+/// **§3 specifies no bytes for either.** It names the acts (§1.1, §3.5) and the
+/// sealed entries (§7.2's `grant_suspended|unsuspended`) and stops. These
+/// follow `revoke_bytes`: a statement about one existing grant at one time.
 ///
-/// **The two directions have different tags rather than one tag and an action
-/// field.** A suspension and its lifting are opposite acts, and a domain tag
-/// is the product's own mechanism for keeping two messages from being read as
-/// each other — the same reasoning `chain.rs` uses for three chain levels.
+/// **The two directions have different tags, not one tag and an action
+/// field.** They are opposite acts, and a domain tag is how the product keeps
+/// two messages from being read as each other (as `chain.rs` does for chain
+/// levels).
 pub fn suspend_bytes(
     organisation: &str,
     grant_id: &str,
@@ -512,10 +468,10 @@ fn suspension_message(
 ///                  ‖ LP(old_key_fpr) ‖ LP(new_key_fpr) ‖ u64(at_unix)
 /// ```
 ///
-/// §8.4 requires the signature (`account_keys.succession_sig`) and does not say
-/// what it covers. Both fingerprints are in it, in order, so the statement is
-/// *"this key, which you already trust, says that key is its successor"* and
-/// not a signature that could be replayed to make some third key a successor.
+/// §8.4 requires the signature (`account_keys.succession_sig`) but not what it
+/// covers. Both fingerprints are in it, in order: *"this trusted key says that
+/// key is its successor"*, not a signature replayable to make a third key a
+/// successor.
 pub fn succession_bytes(
     account: &str,
     old_key_fpr: &[u8; 32],
@@ -538,16 +494,14 @@ pub fn succession_bytes(
 ///              ‖ LP(key_fpr) ‖ LP(signer_key_fpr) ‖ u64(at_unix)
 /// ```
 ///
-/// `0011` put `account_key_retired` in the entry-type `CHECK` and **nothing
-/// wrote it** — a name in a constraint pretending to be a control, which is
-/// the thing §3.2's own header warns against. This is the act that writes it.
+/// `0011` put `account_key_retired` in the entry-type `CHECK` and nothing wrote
+/// it; this act does.
 ///
 /// **`signer_key_fpr` is in the bytes because the signer is not always the
-/// subject.** §8.4 lets the key's own holder retire it, and a steward must be
-/// able to retire a key whose holder has gone — so without naming the signing
-/// key, one retirement signature would be replayable as a statement by
-/// whoever the verifier happened to resolve. The same argument §3.3 makes for
-/// `granter_key_fpr` on a grant.
+/// subject.** §8.4 lets the key's holder retire it, and a steward must be able
+/// to retire a key whose holder has gone. Without naming the signer, one
+/// retirement signature would be replayable as a statement by whichever key
+/// the verifier resolved (the argument §3.3 makes for `granter_key_fpr`).
 pub fn retire_bytes(
     account: &str,
     key_fpr: &[u8; 32],
@@ -569,28 +523,25 @@ pub fn retire_bytes(
 
 /// `K_row = HKDF-Expand(chain key, "fathom/chain/kdf/row/v1", 32)`.
 ///
-/// A third subkey beside `chain::Subkeys`' `K_seal` and `K_content`, derived
-/// from the same chain key and domain-separated from both. §3.4 names it;
-/// §12.2's table does not have it yet, which is why it is in [`LABELS`].
+/// A third subkey beside `chain::Subkeys`' `K_seal` and `K_content`, from the
+/// same chain key and domain-separated from both. §3.4 names it; §12.2's table
+/// does not yet, hence [`LABELS`].
 ///
-/// # Two inputs, one label — deliberate, and here is why
+/// # Two inputs, one label
 ///
-/// §3.4 derives this from *the organisation chain key*, and for every
-/// organisation-scoped authority row that is right. **`account_keys` is not
-/// organisation-scoped.** The keyring is keyed on an ACCOUNT, and an account
-/// may be a member of two organisations; sealing its keyring row under one
-/// organisation's row key made it unverifiable in the other, which surfaced
-/// as `Unverifiable` — an integrity alarm — rather than as a permission
-/// error. So `account_keys` rows are sealed under
-/// `K_row_site = HKDF-Expand(site chain key, "fathom/chain/kdf/row/v1", 32)`,
-/// and verified under it everywhere.
+/// §3.4 derives this from *the organisation chain key*, right for every
+/// organisation-scoped authority row. **`account_keys` is not
+/// organisation-scoped**: an account may belong to two organisations, and a
+/// keyring row sealed under one organisation's row key was unverifiable in the
+/// other, surfacing as `Unverifiable` (an integrity alarm) rather than a
+/// permission error. So `account_keys` rows are sealed and verified under
+/// `K_row_site = HKDF-Expand(site chain key, "fathom/chain/kdf/row/v1", 32)`.
 ///
-/// **This needs no new label.** A KDF label separates *uses* of one key; what
-/// distinguishes these two subkeys is the input key, not the info string, and
-/// the site chain key and an organisation chain key are already independently
-/// derived from the chain master (`chain::chain_key`). Adding a second label
-/// would suggest the two are derived from the same secret, which they are
-/// not. `grants.rs::site_row_key` is the one place the site input is taken.
+/// **No new label is needed.** A KDF label separates *uses* of one key; these
+/// subkeys differ by input key, and the site and organisation chain keys are
+/// already independently derived from the chain master (`chain::chain_key`). A
+/// second label would wrongly suggest one secret. `grants.rs::site_row_key` is
+/// the one place the site input is taken.
 pub fn row_key(chain_key: &Key32) -> Key32 {
     crypto::hkdf_expand(chain_key, KDF_ROW_LABEL)
 }
@@ -637,35 +588,29 @@ pub fn row_seal(row_key: &Key32, facts: &RowFacts<'_>) -> [u8; 32] {
 ///                   ‖ ⟦ LP(key_i) ‖ LP(row_seal_i) for i in sorted(state) ⟧)
 /// ```
 ///
-/// # What `state` must contain, and why it is not just the grants
+/// # What `state` must contain
 ///
-/// Every non-revoked grant, every seconding, every suspension and every
-/// revocation row — each keyed `"<table>/<row identity>"` and carrying its
-/// **recomputed** row seal.
+/// Every non-revoked grant, seconding, suspension and revocation row, each
+/// keyed `"<table>/<row identity>"` and carrying its **recomputed** row seal.
 ///
-/// §3.4's original digest covered the grants alone. That left a hole big
-/// enough to walk through: the head's digest did not move when a seconding
-/// appeared, so a `grant_secondings` row inserted directly through the
-/// application role was covered by no seal and by no head, and the only thing
-/// checked at use was a signature over bytes anybody can recompute from public
-/// columns. A bystander with no grant could flip a pending steward grant live.
-/// Covering the whole state means any row added, removed or edited anywhere in
-/// the authority makes the recomputed digest disagree with the sealed one.
+/// Covering the grants alone left a hole: the digest did not move when a
+/// seconding appeared, so a `grant_secondings` row inserted directly through
+/// the application role was covered by no seal and no head, and a bystander
+/// could flip a pending steward grant live. Covering the whole state means any
+/// row added, removed or edited makes the recomputed digest disagree with the
+/// sealed one.
 ///
 /// **The table name is inside each key**, so a row moved between authority
-/// tables lands at a different position in the digest as well as failing its
-/// own seal (which already names its table — see [`row_seal`]).
+/// tables lands elsewhere in the digest as well as failing its own seal
+/// ([`row_seal`]).
 ///
-/// **Sorted by key, and the caller does not get to choose the order**: this
-/// function sorts, because a digest over a set whose order the caller picks is
-/// a digest over a different value per caller. `live_count` is derived from
-/// the slice for the same reason — a count that disagreed with the list would
-/// be a second, unchecked statement of the same fact.
+/// **This function sorts by key; the caller does not choose the order**, since
+/// a digest over a caller-ordered set differs per caller. `live_count` is
+/// derived from the slice for the same reason.
 ///
-/// Each row's **own seal** is in the digest, not just its key, so the head
-/// covers what every row *says* as well as which rows there are. That is what
-/// makes "editing `capability` on a real grant grants nothing" true (§14's
-/// test list) without the head being rewritten.
+/// Each row's **own seal** is in the digest, so the head covers what every row
+/// *says*, not only which rows exist. That makes "editing `capability` on a
+/// real grant grants nothing" true (§14's test list).
 pub fn live_digest(
     row_key: &Key32,
     organisation: &str,
@@ -721,15 +666,14 @@ pub enum SignatureRefused {
     /// The public key is not a SEC1 uncompressed P-256 point, or is not on the
     /// curve.
     PublicKeyMalformed,
-    /// Not exactly [`SIGNATURE_LEN`] bytes. **This is the branch a DER
-    /// signature lands in** — an ASN.1 encoding of a P-256 signature is 70 to
-    /// 72 bytes, and the one length this accepts is the fixed pair.
+    /// Not exactly [`SIGNATURE_LEN`] bytes. **A DER signature lands here** (70 to
+    /// 72 bytes).
     WrongLength { len: usize },
     /// 64 bytes, but `r` or `s` is zero or not a reduced scalar.
     Malformed,
-    /// `s` is in the upper half of the curve order. A perfectly valid ECDSA
-    /// signature, and refused: it is the second member of the malleable pair,
-    /// and admitting it means one grant has two signatures (§3's correction).
+    /// `s` is in the upper half of the curve order. Valid ECDSA, but refused: it
+    /// is the second member of the malleable pair, and admitting it gives one
+    /// grant two signatures (§3's correction).
     HighS,
     /// The signature does not verify under this key over these bytes.
     DoesNotVerify,
@@ -764,16 +708,14 @@ impl std::error::Error for SignatureRefused {}
 
 /// A software ES256 signing key.
 ///
-/// **§15.1 admits this as a deliberate downgrade and says what it costs.** A
-/// software key is exactly as strong as hardware at tier 1 and tier 2; what it
-/// gives up is tier 3, where *"one bundle substitution plus one unlock mints
-/// grants for that steward indefinitely, where hardware would have required
-/// catching a real steward at a real touch, one grant at a time."* Nothing in
-/// this type may be described as more than that.
+/// **§15.1 admits this as a deliberate downgrade.** A software key is as
+/// strong as hardware at tier 1 and tier 2. It gives up tier 3: one bundle
+/// substitution plus one unlock mints grants for that steward indefinitely,
+/// where hardware would need a real steward's touch per grant. Nothing here
+/// may be described as more than that.
 ///
-/// Signing is deterministic — `ecdsa 0.17.0`'s `Signer` impl derives the
-/// ephemeral scalar per RFC 6979 — which is why `tests/authority_vectors.rs`
-/// can pin a signature as a literal at all.
+/// Signing is deterministic (`ecdsa 0.17.0` derives the ephemeral scalar per
+/// RFC 6979), so `tests/authority_vectors.rs` can pin a signature literal.
 pub struct SoftwareKey(SigningKey);
 
 impl SoftwareKey {
@@ -791,9 +733,8 @@ impl SoftwareKey {
             if let Some(key) = Self::from_bytes(&bytes) {
                 return Ok(key);
             }
-            // A uniformly random 32-byte string is out of range for the curve
-            // with probability far below 2^-32. Looping is the correct
-            // handling and it is not a hot path.
+            // Out of range with probability far below 2^-32; looping is correct and
+            // not a hot path.
         }
     }
 
@@ -813,11 +754,8 @@ impl SoftwareKey {
 
     /// Sign, and **normalise `s` low before returning**.
     ///
-    /// P-256 does not normalise by default (`NistP256::NORMALIZE_S` is
-    /// `false`), so without this line this server would sometimes produce
-    /// signatures its own [`verify_es256`] refuses — roughly half of them.
-    /// Normalising at the one place signatures are produced is what makes the
-    /// rule at the one place they are checked affordable.
+    /// P-256 does not normalise by default, so without this about half of the
+    /// signatures would be refused by this server's own [`verify_es256`].
     pub fn sign(&self, message: &[u8]) -> [u8; SIGNATURE_LEN] {
         let signature: Signature = self.0.sign(message);
         let normalised = signature.normalize_s();
@@ -842,24 +780,21 @@ impl core::fmt::Debug for SoftwareKey {
 
 /// Verify an ES256 signature over `message` under a SEC1 uncompressed key.
 ///
-/// **Three refusals happen before any curve arithmetic**, and each one closes a
-/// half of §3's malleability correction:
+/// **Three refusals happen before any curve arithmetic**; each closes half of
+/// §3's malleability correction:
 ///
 /// 1. not 64 bytes → [`SignatureRefused::WrongLength`]. A DER blob dies here.
 /// 2. `r` or `s` zero or out of range → [`SignatureRefused::Malformed`].
-/// 3. `s` high → [`SignatureRefused::HighS`]. **This is not the crate's
-///    default**: `ecdsa 0.17.0` only rejects a high `s` for curves whose
-///    `NORMALIZE_S` is true, and P-256's is false, so a verifier that wants one
-///    canonical signature per act has to say so itself. It is said here.
+/// 3. `s` high → [`SignatureRefused::HighS`]. **Not the crate's default**:
+///    `ecdsa 0.17.0` rejects a high `s` only where `NORMALIZE_S` is true, and
+///    P-256's is false, so it is enforced here.
 ///
 /// # Nothing is cached
 ///
-/// §3.4: *"no verdict is ever stored"*. This function takes the key bytes and
-/// the message bytes and returns a result; it holds no state, consults no
-/// table, and has nowhere to put a verdict even if someone wanted one. The one
-/// thing `grants.rs` memoises is the live set itself, keyed by
-/// `(organisation, auth_epoch)`, in process memory — a pure function of sealed
-/// rows, discarded on epoch change, and never a stored answer to "may they?".
+/// §3.4: *"no verdict is ever stored"*. This function holds no state and has
+/// nowhere to put a verdict. `grants.rs` memoises only the live set, keyed by
+/// `(organisation, auth_epoch)`, in process memory: a pure function of sealed
+/// rows, discarded on epoch change, never a stored answer to "may they?".
 pub fn verify_es256(
     public_key: &[u8],
     message: &[u8],
@@ -918,9 +853,8 @@ mod tests {
 
     #[test]
     fn the_signatures_this_server_produces_are_always_low_s() {
-        // Deterministic signing, so this is a statement about the normalising
-        // line rather than a sampling argument: sign many distinct messages
-        // and require every one to survive its own verifier.
+        // Signing is deterministic, so this tests the normalising line, not a
+        // sample: every signature must pass its own verifier.
         let key = a_key();
         for n in 0..64u32 {
             let message = format!("message {n}");
@@ -976,9 +910,8 @@ mod tests {
 
     #[test]
     fn seconding_binds_the_grant_and_not_an_encoding_of_a_signature() {
-        // The §3 correction, stated as a property: `second_bytes` is a
-        // function of the grant and the granter's key and of nothing else, so
-        // no re-encoding of the granter's signature can change it.
+        // The §3 correction: `second_bytes` depends only on the grant and the
+        // granter's key, so no re-encoding of the signature can change it.
         let fpr = [1u8; 32];
         let a = second_bytes(b"grant bytes", &fpr);
         let b = second_bytes(b"grant bytes", &fpr);
@@ -989,10 +922,9 @@ mod tests {
 
     #[test]
     fn the_sole_steward_flag_is_inside_the_signed_bytes() {
-        // The defect this field closes: the flag decides whether a `steward`
-        // grant is live with one signature or inert until a second arrives,
-        // and it was chosen by the server AFTER the granter signed. Two
-        // grants alike in every other respect must not have the same bytes.
+        // The flag decides whether a `steward` grant is live on one signature or
+        // inert until a second arrives. Grants alike in every other respect must
+        // not have the same bytes.
         let facts = |sole| GrantFacts {
             organisation: "01JQZ0000000000000000000AA",
             root_pubkey_fpr: &[1u8; 32],
@@ -1039,9 +971,8 @@ mod tests {
 
     #[test]
     fn a_retirement_names_the_key_that_signed_it() {
-        // The signer is not always the subject -- §8.4 lets a steward retire a
-        // departed holder's key -- so a retirement signature must not be
-        // readable as a statement by whoever the verifier resolves.
+        // §8.4 lets a steward retire a departed holder's key, so a retirement
+        // signature must name its signer.
         assert_ne!(
             retire_bytes("acct", &[1u8; 32], &[2u8; 32], 7),
             retire_bytes("acct", &[1u8; 32], &[3u8; 32], 7)
@@ -1050,8 +981,7 @@ mod tests {
 
     #[test]
     fn the_state_digest_moves_when_any_row_class_changes() {
-        // The §3.4 hole, as a property: a seconding, a suspension or a
-        // revocation appearing must move the head, not only a grant.
+        // The §3.4 hole: a seconding, suspension or revocation must move the head.
         let key = Key32::from_bytes([5u8; 32]);
         let grant = || {
             (

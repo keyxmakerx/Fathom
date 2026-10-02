@@ -2,52 +2,44 @@
 //! `docs/PHASE-2-STORAGE-DESIGN.md` §11.2 and §12.2, and the verifier that
 //! reports §11.2's three outcomes and its fourth sub-state.
 //!
-//! This module is pure. It touches no database: `designs` and `chains` read
-//! the rows and hand them here, which is what lets every construction below be
-//! driven from a test with no PostgreSQL at all, and what lets a chain be
-//! exported and verified somewhere else.
+//! This module is pure and touches no database: `designs` and `chains` read the
+//! rows and hand them here. So every construction can be tested without
+//! PostgreSQL, and a chain can be exported and verified elsewhere.
 //!
 //! # Three levels, one mechanism
 //!
-//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 — *"reuse, not
-//! reinvention"* — adds a **site** chain (one per deployment) and an
-//! **organisation** chain (one per tenant) beside §11.2's per-design one. The
-//! seal construction, the length prefixing, `prev_seal`, `chain_key_epoch` on
-//! every entry, retired chain keys kept forever and the ordering rules below
-//! are **unchanged**. What is per level is the chain key's derivation label
-//! ([`chain_key`]), so entries cannot be spliced between levels, and what is
-//! per entry is whether it binds a payload at all ([`absent_content_binding`]).
+//! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 adds a **site** chain (per
+//! deployment) and an **organisation** chain (per tenant) beside §11.2's
+//! per-design one. The seal construction, length prefixing, `prev_seal`,
+//! `chain_key_epoch`, retired chain keys and ordering rules are unchanged.
+//! Per level: the chain key's derivation label ([`chain_key`]), so entries
+//! cannot be spliced between levels. Per entry: whether it binds a payload
+//! ([`absent_content_binding`]). There is one verifier, so the §12.6a ordering
+//! rule has to be right only once.
 //!
-//! A second integrity mechanism would have been the easy way to add two
-//! levels and the wrong one: two verifiers drift, and the ordering rule in
-//! §12.6a — the one an attack found — would then have to be right twice.
+//! # Never conflate
 //!
-//! # The two things a verifier must never conflate
-//!
-//! **"Content not checked" must never render the same as "content
-//! verified."** Routine verification is links plus storage bindings, no
-//! decryption, runnable by an operator holding only the chain key. Deep
-//! verification additionally decrypts and recomputes the plaintext binding.
-//! **Both must name which they ran** — see [`Report::summary`].
+//! **"Content not checked" must never render the same as "content verified."**
+//! Routine verification is links plus storage bindings, with no decryption.
+//! Deep verification also decrypts and recomputes the plaintext binding. Both
+//! name which they ran: see [`Report::summary`].
 //!
 //! # The order of the checks is itself a control (§12.6a)
 //!
-//! **Everything verifiable is verified first, and a coverage gap is an extra
-//! fact reported alongside — never an early return.** Returning the gap first
-//! made it a switch: one `UPDATE` of any entry's `chain_key_epoch` turned a
-//! detected forgery into *"a coverage gap, not a failure"*, with a summary
-//! claiming the earlier entries verified over entries nothing had examined.
-//! Any count of what verified comes from verification and never from a
-//! position in a list, and an epoch above what this deployment ever wrote is
-//! an anomaly rather than a gap, because there is no retired key to find.
+//! Everything verifiable is verified first. A coverage gap is an extra fact
+//! reported alongside, never an early return. Otherwise one `UPDATE` of any
+//! entry's `chain_key_epoch` would turn a detected forgery into "a coverage
+//! gap, not a failure". Counts of what verified come from verification, never
+//! from a position in a list. An epoch above what this deployment ever wrote is
+//! an anomaly, not a gap: there is no retired key to find.
 //!
 //! # What the chain does not do
 //!
-//! Each seal binds backwards only. Deleting the last three entries leaves the
-//! survivors verifying end to end, and restoring last month's tables produces
-//! a rollback the chain cryptographically endorses (§6's B4 fix). `seq` is in
-//! the MAC input and **does not** detect tail truncation. Only an anchor
-//! outside the deployment does, and this order does not build one.
+//! Each seal binds backwards only. Deleting the last entries leaves the
+//! survivors verifying, and restoring old tables yields a rollback the chain
+//! endorses (§6's B4 fix). `seq` is in the MAC input but does **not** detect
+//! tail truncation. Only an anchor outside the deployment does, and this order
+//! does not build one.
 
 use core::fmt;
 
@@ -57,59 +49,43 @@ use crate::crypto::{self, Key32, KeyId};
 
 /// The per-design chain key's derivation label (§12.2).
 ///
-/// **Length-prefixed, and that is the fix.** §6 said the chain key is scoped
-/// per design; §11.2 then started from it as a given. Without length prefixes
-/// on the identity inputs, tenant `ab` + design `c` and tenant `a` + design
-/// `bc` derive the **same chain key** — the identical splice §11.2 closed one
-/// layer up.
+/// Identity inputs are length-prefixed. Without that, tenant `ab` + design `c`
+/// and tenant `a` + design `bc` would derive the same chain key.
 const CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/v1";
 
-/// The **site** chain key's derivation label — one chain per deployment.
+/// The **site** chain key's derivation label: one chain per deployment
+/// (admin design §7.1, §12.2's table).
 ///
-/// Raised by `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1, which does not own
-/// it, and landed in `docs/PHASE-2-STORAGE-DESIGN.md` §12.2's table, which
-/// does. Domain-separated from the other two so that a genuine run of entries
-/// lifted from one level into another does not verify at the other: the seal
-/// key is different, whatever the row says.
+/// Domain-separated from the other two, so entries lifted from one level do
+/// not verify at another.
 const SITE_CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/site/v1";
 
-/// The **organisation** chain key's derivation label — one chain per tenant.
-/// §7.1 again, §12.2's table again.
+/// The **organisation** chain key's derivation label: one chain per tenant
+/// (§7.1, §12.2's table).
 ///
-/// This is the chain §12.6 means by *"the tenant-level chain"*: the level a
-/// `rewrap` entry is filed on, and the reason re-wrap could not be finished
-/// when only per-design chains existed.
+/// This is §12.6's "tenant-level chain", where a `rewrap` entry is filed.
 const ORG_CHAIN_KEY_LABEL: &[u8] = b"fathom/chain/key/org/v1";
 
 /// The **site metadata** key's derivation label (§7.3, §12.2's table).
 ///
-/// Site-chain metadata is AEAD ciphertext like the organisation chain's, but
-/// the site chain exists precisely where no organisation does, so there is no
-/// tenant key to reach for. §7.3: *"under a site metadata key derived from
-/// `chain_master`"*.
+/// Site metadata is AEAD ciphertext, but no tenant key exists at the site
+/// level, so the key is derived from `chain_master`.
 ///
-/// **Per `chain_key_epoch`, and that is load-bearing rather than tidy.** A
-/// chain entry is append-only, so a key rotation can never re-encrypt one. The
-/// key that opens an entry must therefore never stop existing, which means
-/// epochs kept forever — the same rule retired chain keys and retired data
-/// keys already follow.
+/// **Per `chain_key_epoch`.** Entries are append-only and cannot be
+/// re-encrypted, so the key that opens one must never stop existing: epochs are
+/// kept forever.
 ///
-/// **What this costs, stated rather than discovered: a routine verifier
-/// holding `chain_master` can read site metadata.** That is acceptable because
-/// the site chain records deployment-level acts and holds no tenant data. It
-/// is deliberately not true one level down: the organisation content key is a
-/// wrapped DEK under the tenant key, which a verifier does not hold and cannot
-/// derive, so handing someone the ability to verify a history does not hand
-/// them a tenant's access map.
+/// **Cost:** a routine verifier holding `chain_master` can read site metadata.
+/// That is acceptable because the site chain records deployment-level acts and
+/// no tenant data. It is not true one level down: the organisation content key
+/// is a wrapped DEK under the tenant key, which a verifier cannot derive.
 const SITE_METADATA_KEY_LABEL: &[u8] = b"fathom/chain/key/site-metadata/v1";
 
 /// HKDF `info` for the sealing subkey (§12.2).
 ///
-/// **Deliberately not the same literal as the in-MAC domain tag below**, even
-/// though they were in §11.2's first draft. Different functions under
-/// different keys, so the reuse was not a weakness — but someone would later
-/// tidy one occurrence and silently change the other, and the seals written
-/// before that day would stop verifying.
+/// Deliberately a different literal from the in-MAC domain tag below. Someone
+/// tidying one would silently change the other and break every seal already
+/// written.
 const KDF_SEAL_LABEL: &[u8] = b"fathom/chain/kdf/seal/v1";
 
 /// HKDF `info` for the content-binding subkey (§12.2).
@@ -124,34 +100,24 @@ const TAG_GENESIS: &[u8] = b"fathom/chain/genesis/v1";
 
 /// The in-MAC domain tag for *"this entry binds no payload"*.
 ///
-/// A site or organisation entry records an act, not a version. It still
-/// carries both content bindings and a `content_hash`, computed by the same
-/// functions over the same shape — so [`seal`] does not change at all, and
-/// [`verify`]'s `content_hash` check runs on every entry of every level
-/// without a branch. **That is the difference between reusing §11.2's
-/// construction and forking it**: there is one seal input in this product, and
-/// an entry that carries no payload says so inside the same MAC rather than
-/// beside it.
+/// Site and organisation entries record an act, not a version, yet carry both
+/// content bindings and a `content_hash` from the same functions. So [`seal`]
+/// is unchanged and [`verify`]'s `content_hash` check runs on every entry
+/// without a branch: one seal input in this product.
 const TAG_NO_CONTENT: &[u8] = b"fathom/chain/nocontent/v1";
 
-/// The in-MAC domain tag for the **metadata binding** — the keyed value that
-/// covers what an entry's metadata *means*, as opposed to the bytes stored for
-/// it. See [`metadata_binding`].
+/// The in-MAC domain tag for the **metadata binding**: the keyed value covering
+/// what an entry's metadata *means*, not its stored bytes. See [`metadata_binding`].
 const TAG_METADATA: &[u8] = b"fathom/chain/metadata/v1";
 
 /// The AEAD associated-data tag for an encrypted metadata column.
 const AAD_METADATA: &[u8] = b"fathom/chain/metadata/aead/v1";
 
-/// Which of the three chains an entry belongs to.
+/// Which of the three chains an entry belongs to (admin design §7.1).
 ///
-/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1. The per-design edit chain is
-/// §11.2's, unchanged; the site and organisation chains are this order's.
-///
-/// **`read` is not here.** §7.2's per-design read chain (`payload_decrypted`)
-/// carries an open volume question — one entry per decryption is the honest
-/// maximum and costs two orders of magnitude more rows than the deduplicated
-/// alternative — and §15.6 does not put it in this stage. Its derivation label
-/// is reserved in §12.2's table and nothing writes it.
+/// **`read` is not here.** §7.2's per-design read chain has an open volume
+/// question and §15.6 leaves it out of this stage. Its derivation label is
+/// reserved in §12.2's table and nothing writes it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChainKind {
     /// One per deployment. Everything organisation-independent.
@@ -189,11 +155,11 @@ impl fmt::Display for ChainKind {
 
 /// Which chain, named.
 ///
-/// # The two identity slots, and why they are the same two §11.2 already had
+/// # The two identity slots
 ///
-/// §11.2's seal covers `LP(tenant_id) ‖ LP(design_id)`. Those are not two
-/// concepts the seal cares about — they are *the chain's identity, length
-/// prefixed, in two parts*. So the three levels fill the same two slots:
+/// §11.2's seal covers `LP(tenant_id) ‖ LP(design_id)`, which is just the
+/// chain's identity in two length-prefixed parts. All three levels fill the
+/// same two slots:
 ///
 /// | chain | first slot | second slot |
 /// |---|---|---|
@@ -201,15 +167,12 @@ impl fmt::Display for ChainKind {
 /// | organisation | organisation id | `""` |
 /// | design | organisation id | design id |
 ///
-/// **The design case is byte-for-byte what it was**, so every seal written
-/// before this existed still verifies. The empty slots are unambiguous because
-/// every slot is length-prefixed — `LP("")` is four zero bytes and cannot be
-/// confused with anything.
+/// The design case is byte-for-byte unchanged, so earlier seals still verify.
+/// Empty slots are unambiguous because `LP("")` is four zero bytes.
 ///
-/// The identity slots are not what keeps the levels apart, though. The chain
-/// KEY is derived under a different label per level (§7.1), so an entry moved
-/// between levels is sealed under a key the destination's verifier never
-/// derives. The slots are the second layer.
+/// The slots are the second layer of separation. The first is the per-level
+/// chain key label (§7.1): a moved entry is sealed under a key the destination
+/// never derives.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChainRef<'a> {
     Site {
@@ -271,60 +234,48 @@ pub enum EntryType {
     Create,
     /// A new version, written by someone.
     Update,
-    /// **The same content, different bytes** — a rotation re-encrypted this
-    /// version under a new key (§11.2, §12.6). The entry carries
-    /// `plaintext_binding` across unchanged, which is itself the proof that
-    /// the content did not change when the bytes did, and its metadata
-    /// records the epochs, wrap versions and storage bindings on both sides.
+    /// **The same content, different bytes**: a rotation re-encrypted this
+    /// version under a new key (§11.2, §12.6). `plaintext_binding` carries
+    /// across unchanged, proving the content did not change. Metadata records
+    /// the epochs, wrap versions and storage bindings on both sides.
     ///
-    /// This is what stops a routine key rotation looking exactly like an
-    /// attack, and so stops operators learning to dismiss the alarm.
+    /// This stops a routine rotation looking like an attack, so operators do
+    /// not learn to dismiss the alarm.
     Reencrypt,
 
     // ---- Site chain (§7.2) ------------------------------------------------
-    /// This deployment started. The site chain's first entry, and one more on
-    /// every start after that.
+    /// This deployment started: the site chain's first entry, and one more on
+    /// every later start.
     ///
-    /// §7.2 lists thirty-odd site entry types. This is one of the four this
-    /// order writes; the rest arrive with the surfaces that cause them,
-    /// because an entry type nothing emits is a name in a `CHECK` constraint
-    /// pretending to be a control.
+    /// §7.2 lists thirty-odd site types. Only those with an emitter exist: an
+    /// entry type nothing emits is a `CHECK` name pretending to be a control.
     DeploymentStarted,
-    /// **The audit destination has not taken anything for a while** — §9's
-    /// `shipper_gap`, written when the spool's oldest unshipped entry passes
-    /// one of §9's escalation points (the first hour, the sixth hour, and the
-    /// age bound itself). See `audit::SpoolBounds`.
+    /// **The audit destination has not taken anything for a while**: §9's
+    /// `shipper_gap`, written when the oldest unshipped spool entry passes an
+    /// escalation point (1h, 6h, the age bound). See `audit::SpoolBounds`.
     ShipperGap,
-    /// **The spool has passed a bound** — §9's `spool_pressure`. Written when
-    /// the spool passes its age bound or its size bound, which is the point at
-    /// which §9's degrade table stops design writes and keeps reads serving.
+    /// **The spool has passed a bound**: §9's `spool_pressure`. At the age or
+    /// size bound, §9's degrade table stops design writes and keeps reads serving.
     SpoolPressure,
 
     // ---- Sessions (§4, migration 0013) -----------------------------------
     //
-    // Five of the site chain's types, written by `sessions.rs`. **Two of them
-    // are not in §7.2's list**: it names `operator_signin|signin_failed` and
-    // gives an ACCOUNT sign-in no type at all, while §4 makes the account
-    // session the main path. The gap is the document's and is reported rather
-    // than worked around.
+    // Written by `sessions.rs`. Two are not in §7.2's list: it gives an account
+    // sign-in no type, though §4 makes that the main path.
     /// An account proved possession of an enrolled signing key over a server
-    /// challenge that also bound the fresh session public key (§4.2), and a
-    /// session row was written in the same transaction.
+    /// challenge that also bound the fresh session public key (§4.2). The
+    /// session row is written in the same transaction.
     AccountSignin,
     /// A sign-in attempt was refused. Carries the reason, including a
     /// rate-limit refusal — §13 item 7's lockout has its sealed record here
     /// rather than in a type of its own.
     AccountSigninFailed,
-    /// A session was signed out (migration `0014`). §7.2 names no type for it
-    /// — the same gap `0013` reported for the two above — and the act needs
-    /// one, because a sign-out is now RECORDED rather than only performed: the
-    /// sealed entry is what the `session_revocations` row's MAC binds to, so
-    /// stopping the log stops the act here as everywhere else.
+    /// A session was signed out (migration `0014`). §7.2 names no type for it.
+    /// The sealed entry is what the `session_revocations` row's MAC binds to, so
+    /// stopping the log stops the act.
     AccountSignedOut,
-    /// An attempt at the operator sign-in surface was refused. §4.5: an
-    /// operator session is `A1` or it does not exist, there is no password
-    /// path, and no operator key can be enrolled yet — so every attempt is
-    /// refused and every one of them is recorded.
+    /// An attempt at the operator sign-in surface was refused and recorded
+    /// (§4.5: an operator session is `A1` or does not exist; no password path).
     OperatorSigninFailed,
     /// An account was disabled: its live sessions stop at their next request.
     AccountDisabled,
@@ -333,22 +284,19 @@ pub enum EntryType {
 
     // ---- The operator console (§1.1, §5, §6, migration 0015) -------------
     //
-    // Twenty types, written by `operators.rs`. **Two are not in §7.2's list**
-    // — `operator_signed_out` and `operator_read` — and `0015` §J carries the
-    // report: §7.2 was written before §1.1's sampling rule and before sign-out
-    // was a recorded act, and an operator's acts must be legible as operator
-    // acts to a reader holding only the chain key.
-    /// An operator proved possession of a key enrolled in `operator_keys` over
-    /// a server challenge that also bound the fresh session public key (§4.2,
-    /// §4.5). There is no password path on this surface and there must never
-    /// be one.
+    // Written by `operators.rs`. `operator_signed_out` and `operator_read` are
+    // not in §7.2's list (`0015` §J carries the report). Operator acts must be
+    // legible as operator acts to a reader holding only the chain key.
+    /// An operator proved possession of a key in `operator_keys` over a server
+    /// challenge that also bound the fresh session public key (§4.2, §4.5).
+    /// There is no password path on this surface and there must never be one.
     OperatorSignin,
     /// An operator session was signed out. Not §7.2's — see above.
     OperatorSignedOut,
     /// §1.1's first verb: an operator read some surface of the console.
-    /// **Sampled** — one entry per session per surface (`0015` §F's latch) —
-    /// because an unsampled read entry lets a caller choose how fast the
-    /// sealed audit grows. Not §7.2's — see above.
+    /// **Sampled**: one entry per session per surface (`0015` §F's latch),
+    /// because an unsampled entry lets a caller choose how fast the sealed audit
+    /// grows. Not in §7.2.
     OperatorRead,
     /// The first operator of a deployment redeemed the token written to the
     /// master-key volume (§6.3).
@@ -365,22 +313,19 @@ pub enum EntryType {
     OperatorDisabled,
     /// An operator created an account shell for an address (§1.1, §6.2).
     AccountCreated,
-    /// An enrolment token was issued: §1.1's *"initiate an
-    /// authenticator-enrolment token"*, and §5.1's reset, **which are the same
-    /// act** because there is no password to reset.
+    /// An enrolment token was issued: §1.1's authenticator-enrolment token and
+    /// §5.1's reset, **which are the same act**.
     EnrolmentTokenIssued,
     /// A token was redeemed, once and only once.
     EnrolmentTokenRedeemed,
     /// A token was presented after its expiry and refused.
     EnrolmentTokenExpired,
-    /// A key joined a keyring through the enrolment path — §7.2's
-    /// `authenticator_registered`, for the account whose first key cannot be
-    /// filed on any organisation's chain because it belongs to no
-    /// organisation yet (§6.2, §6.4).
+    /// A key joined a keyring through the enrolment path (§7.2's
+    /// `authenticator_registered`), for an account whose first key cannot be
+    /// filed on an organisation chain because it has no organisation (§6.2, §6.4).
     AuthenticatorRegistered,
-    /// An operator created an organisation shell and its enrolment claim
-    /// (§6.2). The shell holds no data and permits nothing until the claim is
-    /// redeemed by an account with a registered key.
+    /// An operator created an organisation shell and its enrolment claim (§6.2).
+    /// The shell holds no data and permits nothing until the claim is redeemed.
     OrgShellCreated,
     /// A change to a site setting was requested by one operator (§5.3).
     SettingRequested,
@@ -392,8 +337,8 @@ pub enum EntryType {
     SettingApplied,
     /// A pending change was cancelled during its delay.
     SettingCancelled,
-    /// §5.4 step 5: a candidate row failed a check and was NOT silently
-    /// skipped. An incident, and the deployment banners it.
+    /// §5.4 step 5: a candidate row failed a check and was NOT silently skipped.
+    /// An incident, and the deployment banners it.
     SettingUnresolvable,
     /// §5.3's declaration, written at every startup that runs without a second
     /// operator, so nobody can later claim two-person control was in force.
@@ -401,11 +346,7 @@ pub enum EntryType {
 
     // ---- ADR-0055 stream (a): the person's credential (migration 0018 §F) --
     //
-    // Five site-chain types, written by `credentials.rs` and by
-    // `sessions.rs`'s widened sign-in. Added at the END of the site block so
-    // that the other two ADR-0055 streams' additions land beside them and the
-    // merge is mechanical.
-    /// A password was set or changed. First set and every later change are one
+    // Written by `credentials.rs` and `sessions.rs`'s widened sign-in.
     /// type; "first" is recoverable from whether a prior entry exists.
     PasswordSet,
     /// The app code was enrolled — confirmed by a real code — together with the
@@ -424,12 +365,10 @@ pub enum EntryType {
 
     // ---- The authority layer's acts (§7.2, migration 0011) ---------------
     //
-    // Nine types, every one of them written by `grants.rs`. §7.2 lists more
-    // for this chain (`scope_moved`, `devices_reparented`,
-    // `recovery_holders_set`, `break_glass_*`, `member_added|removed`,
-    // `authority_rollback`); they arrive with the surfaces that cause them,
-    // because an entry type nothing emits is a name in a `CHECK` constraint
-    // pretending to be a control.
+    // Written by `grants.rs`. §7.2's other authority types (`scope_moved`,
+    // `devices_reparented`, `recovery_holders_set`, `break_glass_*`,
+    // `member_added|removed`, `authority_rollback`) arrive with the surfaces
+    // that cause them.
     /// A signing key joined an account's keyring (§3.2, §8.4).
     AccountKeyEnrolled,
     /// An old key signed its successor, and says so (§8.4).
@@ -441,116 +380,95 @@ pub enum EntryType {
     GrantSigned,
     /// A second steward countersigned it (§3.5's quorum).
     GrantSeconded,
-    /// A grant was suspended: by a steward, or by an operator, which is the
-    /// one authority-adjacent act §1.1 gives the operator plane.
+    /// A grant was suspended: by a steward, or by an operator (the one
+    /// authority-adjacent act §1.1 gives the operator plane).
     GrantSuspended,
-    /// A steward lifted a suspension. An operator cannot: `0011`'s own
-    /// `CHECK` refuses `unsuspend` for an operator principal.
+    /// A steward lifted a suspension. An operator cannot: `0011`'s `CHECK`
+    /// refuses `unsuspend` for an operator principal.
     GrantUnsuspended,
     /// A grant was revoked — the positive, append-only fact §3.2 requires in
     /// place of a nullable column whose absence means live.
     GrantRevoked,
-    /// The organisation's authority head moved to a new epoch (§3.4). Written
-    /// by every one of the acts above, in the same transaction, because the
-    /// head is what makes the current state of the SET authenticated rather
-    /// than only the author of each row.
+    /// The organisation's authority head moved to a new epoch (§3.4). Every act
+    /// above writes it in the same transaction, so the current state of the SET
+    /// is authenticated, not just each row's author.
     AuthHeadAdvanced,
-    /// **A re-wrap happened** — §12.6's whole point.
-    ///
-    /// Custody changed and exposure did not. The entry names the old and the
-    /// new master identity, which key rows moved, who ran it, and — as a
-    /// statement of fact inside the sealed metadata — that no payload was
-    /// re-encrypted. Rotation writes a `reencrypt` entry per version because it
-    /// changes bytes; re-wrap changes no bytes at all, so without this entry
-    /// the operation that changes *who can decrypt everything* would be the
-    /// only key operation in the product with no audit trail.
-    ///
     // ---- Firmware staging (ADR-0045, migration 0017) ---------------------
     //
-    // Three types, written by `firmware.rs`. **None of them is in §7.2's
-    // list**, because §7.2 predates ADR-0045; `0017` §E carries the report,
-    // as `0013` §G and `0015` §J carried theirs.
-    /// An image arrived whole: the bytes were written to Fathom's disk, the
-    /// SHA-256 was computed over them as they were written, and it matched
-    /// the declaration. A truncated or altered upload writes nothing — it
-    /// deletes the partial file and refuses, which is trap 2 of
-    /// `docs/UPGRADING-A-JUNIPER.md`.
+    // Written by `firmware.rs`. Not in §7.2's list (it predates ADR-0045);
+    // `0017` §E carries the report.
+    /// An image arrived whole: written to disk, with its SHA-256 computed as it
+    /// was written and matching the declaration. A truncated or altered upload
+    /// writes nothing: the partial file is deleted and the upload refused (trap
+    /// 2 of `docs/UPGRADING-A-JUNIPER.md`).
     FirmwareStaged,
-    /// A one-time fetch URL was minted for a device to collect an image with.
-    /// ADR-0045 §8: this publishes bytes to anything that can reach this
-    /// server holding the token, so it is an act with a sealed record rather
-    /// than a read. **The entry names the token's id and never the token.**
+    /// A one-time fetch URL was minted for a device. ADR-0045 §8: this publishes
+    /// bytes to anything holding the token, so it is a sealed act, not a read.
+    /// **The entry names the token's id, never the token.**
     FirmwareFetchIssued,
-    /// A fetch URL was spent: the bytes went somewhere. Written and committed
-    /// BEFORE the body is served, so a transfer that dies half way still
-    /// leaves the record that it started.
+    /// A fetch URL was spent: the bytes went somewhere. Committed BEFORE the body
+    /// is served, so a transfer that dies half way still leaves the record.
     FirmwareFetchRedeemed,
 
-    /// **The one type filed on two kinds.** A re-wrap is deployment-wide,
-    /// because the master key is: one summary entry lands on the site chain
-    /// naming both master identities and how many tenants moved, and one entry
-    /// lands on each affected organisation's chain naming that tenant's own
-    /// epochs. §7.2 puts the record of the fact on the tenant-level chain and
-    /// leaves room for the site-level summary; `keys::rewrap_master_key`
-    /// writes both, in one transaction, or neither.
+    /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
+    /// entry names the old and new master identity, which key rows moved, who
+    /// ran it, and that no payload was re-encrypted. Rotation writes a
+    /// `reencrypt` entry per version because it changes bytes; re-wrap changes
+    /// none, so without this entry the operation that changes *who can decrypt
+    /// everything* would have no audit trail.
+    ///
+    /// **Filed on two kinds.** A re-wrap is deployment-wide, so one summary entry
+    /// goes on the site chain (both master identities, tenants moved) and one on
+    /// each affected organisation's chain (that tenant's epochs).
+    /// `keys::rewrap_master_key` writes all of them in one transaction or none
+    /// (§7.2).
     Rewrap,
 
     // ---- ADR-0055 stream (b) ---------------------------------------------
     //
-    // Added at the END of the enum, as the three parallel ADR-0055 streams
-    // agreed, so that a merge is mechanical. Both are SITE types and both are
-    // in the schema: `operator_recovered_from_host` in
+    // Both are SITE types, in the schema: `operator_recovered_from_host` in
     // `0019_operator_account_binding.sql` §D, `operator_key_enrolled` in
     // `0022_operator_quorum_and_the_operator_key.sql` §C.
-    /// **Break-glass, and it is loud** (ADR-0055 decision 8).
-    /// `fathom-server recover-operator <address>` ran where the key volume is
-    /// mounted and printed a ten-minute setup code for an operator who already
-    /// existed. It mints no operator. Every operator session banners it for
-    /// seven days, and that banner is derived from this entry rather than from
-    /// a column somebody could clear.
+    /// **Break-glass, and it is loud** (ADR-0055 decision 8). `fathom-server
+    /// recover-operator <address>` ran where the key volume is mounted and
+    /// printed a ten-minute setup code for an existing operator. It mints no
+    /// operator. Every operator session banners it for seven days, derived from
+    /// this entry rather than from a column someone could clear.
     OperatorRecoveredFromHost,
-    /// An account that holds the operator custody registered an operator key
-    /// for the browser it was sitting at, with its password and its app code
-    /// behind it (ADR-0055 decision 1, `POST /admin/operators/self/key`).
+    /// An account holding the operator custody registered an operator key for
+    /// its browser, with its password and app code behind it (ADR-0055 decision
+    /// 1, `POST /admin/operators/self/key`).
     ///
-    /// **Not `operator_enrolled`**: that type means a one-shot invitation was
-    /// redeemed, and an auditor has to be able to tell the two apart without
-    /// holding the chain key. The metadata carries `via` for the reader who
-    /// does hold it.
+    /// **Not `operator_enrolled`** (a redeemed one-shot invitation): an auditor
+    /// must tell the two apart without the chain key. Metadata carries `via` for
+    /// a reader who has it.
     OperatorKeyEnrolled,
     /// One operator confirmed another's recovery, clearing `0021`'s seat hold
-    /// before its 24 hours ran out (ADR-0055 decision 7). The hold itself is a
-    /// column; the fact that somebody lifted it early is an act, and an act on
-    /// the operator plane is a sealed entry.
+    /// early (ADR-0055 decision 7). The hold is a column; lifting it early is an
+    /// act, and acts on the operator plane are sealed entries.
     OperatorSeatHoldCleared,
-    /// **An operator created before ADR-0055 was bound to the install
-    /// address**, on the first start of a build that has decision 1.
+    /// **An operator created before ADR-0055 was bound to the install address**,
+    /// on the first start of a build with decision 1 (migration `0026`).
     ///
-    /// Such an operator has no account and no binding, so nobody can sign in
-    /// as them and `recover-operator` cannot resolve their address. The start
-    /// adopts them: the account at `site_install.notice_address`, the sealed
-    /// binding, and the dispossession of everything the older flow left
-    /// standing without a second factor behind it. **Not
-    /// `operator_bootstrapped`**: no operator is created here, and an auditor
-    /// has to be able to tell a first start from an upgrade. Migration `0026`.
+    /// Such an operator has no account or binding, so nobody can sign in as them
+    /// and `recover-operator` cannot resolve them. The start creates the account
+    /// at `site_install.notice_address` and the sealed binding, and dispossesses
+    /// what the older flow left without a second factor. **Not
+    /// `operator_bootstrapped`**: no operator is created, and an auditor must
+    /// tell a first start from an upgrade.
     OperatorAdopted,
     // ADR-0055 stream (c) -- console placement (decision 11, migration
-    // `0020_console_placement.sql` section C). Three types, written by
-    // `placement.rs`. **None is in §7.2's list**, which predates ADR-0055;
-    // `0020`'s own header carries the report, as `0013` §G and `0015` §J
-    // carried theirs.
-    /// An operator moved the console to a host and a set of sources. It
-    /// applies AT ONCE (`0020`: `sealed_seq NOT NULL` from the `INSERT`), so
-    /// this entry records a change that has already happened; what the window
-    /// after it decides is whether the change STAYS.
+    // `0020_console_placement.sql` §C). Written by `placement.rs`. Not in
+    // §7.2's list (`0020`'s header carries the report).
+    /// An operator moved the console to a host and a set of sources. It applies
+    /// AT ONCE (`0020`: `sealed_seq NOT NULL` from the `INSERT`), so this records
+    /// a change already made. The window after it decides whether it STAYS.
     ConsolePlacementRequested,
-    /// An operator reached the console on the new host inside the window. The
-    /// confirmation is not a route: it is the first `/admin` request that
-    /// verifies there.
+    /// An operator reached the console on the new host inside the window: the
+    /// first `/admin` request that verifies there, not a route.
     ConsolePlacementConfirmed,
-    /// The window ran out with no confirmation, or `fathom-server
-    /// console-placement --reset` cleared a placement from the host. The
-    /// entry's `reason` says which.
+    /// The window ran out unconfirmed, or `fathom-server console-placement
+    /// --reset` cleared a placement from the host. The entry's `reason` says which.
     ConsolePlacementReverted,
 }
 
@@ -688,21 +606,12 @@ impl EntryType {
         }
     }
 
-    /// Which chains this type may be filed on — **plural, because `rewrap` is
-    /// filed on two.**
+    /// Which chains this type may be filed on: plural, because `rewrap` and
+    /// `grant_suspended` are filed on two.
     ///
-    /// Mirrored by `chain_entries_type_belongs_to_kind`, created in
-    /// `migrations/0010_entry_type_belongs_to_kind.sql` and extended by
-    /// `migrations/0011_authority.sql` through that file's documented DROP +
-    /// ADD path, so the rule holds for a statement this code never issued as
-    /// well as for one it did.
-    ///
-    /// **Corrected 2026-09-12.** This read `chain_kind(self) -> ChainKind`
-    /// and its doc said the constraint was in
-    /// `0009_chains_at_three_levels.sql`. It was not: 0009 dropped 0007's
-    /// `CHECK (entry_type IN (...))` and added nothing in its place, so
-    /// `entry_type` was free text and the runtime role could insert one no
-    /// verifier could parse. 0010 adds the constraint this now mirrors.
+    /// Mirrored by the `chain_entries_type_belongs_to_kind` constraint
+    /// (`migrations/0010`, extended by `0011` through its DROP + ADD path), so
+    /// the rule also holds for statements this code never issued.
     pub fn kinds(self) -> &'static [ChainKind] {
         match self {
             Self::Create | Self::Update | Self::Reencrypt => &[ChainKind::Design],
@@ -735,9 +644,8 @@ impl EntryType {
             | Self::SettingCancelled
             | Self::SettingUnresolvable
             | Self::SingleOperatorMode
-            // ADR-0055 stream (a): migration 0018 §F files all five on the
-            // site chain, because a credential act is an act of the account
-            // plane and not of any one organisation.
+            // ADR-0055 stream (a): `0018` §F files all five on the site chain; a
+            // credential act belongs to the account plane, not one organisation.
             | Self::PasswordSet
             | Self::TotpEnrolled
             | Self::ResetRequested
@@ -764,14 +672,13 @@ impl EntryType {
             | Self::FirmwareStaged
             | Self::FirmwareFetchIssued
             | Self::FirmwareFetchRedeemed => &[ChainKind::Org],
-            // **Two types are filed on two kinds.** `rewrap` because the
-            // master key is deployment-wide (§7.2's own note), and
-            // `grant_suspended` because §1.1 gives the operator plane one
-            // authority-adjacent verb: the organisation's chain records the act
-            // for the stewards who may lift it, and the site chain records that
-            // the machine side did it. An operator act that appeared only on a
-            // tenant's chain would be invisible to anyone auditing the operator
-            // plane, which is the surface §0 calls the takeover route.
+            // **Two types are filed on two kinds.** `rewrap` because the master key
+            // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
+            // operator plane this one authority-adjacent verb: the organisation
+            // chain records it for the stewards who may lift it, the site chain
+            // records that the operator side did it. An act only on a tenant's
+            // chain would be invisible to anyone auditing the operator plane,
+            // which §0 calls the takeover route.
             Self::Rewrap | Self::GrantSuspended => &[ChainKind::Site, ChainKind::Org],
         }
     }
@@ -792,20 +699,16 @@ impl EntryType {
 
 /// An entry's type **as the row actually carries it**.
 ///
-/// `entry_type` is a text column. Until `0010` there was no constraint on it
-/// at all, and even with one a row can be forced in by whoever can disable a
-/// trigger — which `0009`'s own header rates a tier-3 move and
-/// `tests/support::tamper` performs in the open. So the verifier has to have
-/// somewhere to put a value it cannot parse.
+/// `entry_type` is text, and a row can be forced in by whoever can disable a
+/// trigger (a tier-3 move per `0009`'s header). So the verifier needs somewhere
+/// to put a value it cannot parse.
 ///
-/// **It may not be an error.** §11.2 gives verification exactly three
-/// outcomes, and *"this chain cannot be read at all"* is not one of them: an
-/// `Err` return says nothing about the entries before the bad row, which is
-/// precisely the claim a tamper-evident log exists to make. One junk type
-/// inserted by the runtime role would otherwise make a chain permanently
-/// unverifiable, which is a denial of the control rather than a detection of
-/// it. So it is [`BreakReason::EntryTypeNotRecognised`] at that row, with
-/// everything before it reported verified.
+/// **It may not be an error.** §11.2 gives verification three outcomes, and
+/// "this chain cannot be read" is not one: an `Err` says nothing about the
+/// entries before the bad row, which is the claim a tamper-evident log exists to
+/// make. One junk type would otherwise make a chain permanently unverifiable, a
+/// denial of the control. So it is [`BreakReason::EntryTypeNotRecognised`] at
+/// that row, with everything before it reported verified.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StoredEntryType {
     /// A type this build knows.
@@ -857,8 +760,8 @@ impl fmt::Display for StoredEntryType {
 // Key derivation
 // ---------------------------------------------------------------------------
 
-/// The chain key for one chain at one epoch — §12.2's derivation, extended to
-/// the three levels §7.1 adds and length-prefixed throughout.
+/// The chain key for one chain at one epoch: §12.2's derivation at the three
+/// levels of §7.1, length-prefixed throughout.
 ///
 /// ```text
 /// site:   HKDF-Expand(chain_master,
@@ -868,18 +771,13 @@ impl fmt::Display for StoredEntryType {
 /// design: HKDF-Expand(chain_master,
 ///             LP("fathom/chain/key/v1") ‖ LP(tenant_id) ‖ LP(design_id) ‖ u32(epoch), 32)
 /// ```
+/// **The design case is unchanged.** A different info string would silently stop
+/// every existing seal verifying, and render as a forgery alarm.
 ///
-/// **The design case is unchanged**, which is the requirement rather than a
-/// courtesy: a different info string here would silently stop every seal
-/// already in the database from verifying, and the failure would render as a
-/// forgery alarm.
-///
-/// **Per chain, which is what makes grafting fail** (§6's B5 fix, now at three
-/// levels): a genuine run of entries lifted from one design into another — or
-/// from one organisation's chain into another's, or between levels — does not
-/// verify under the destination's chain key. The length prefixes are what stop
-/// organisation `ab` + design `c` and organisation `a` + design `bc` deriving
-/// the same key.
+/// **Per chain, which makes grafting fail** (§6's B5 fix): entries lifted into
+/// another design, organisation or level do not verify under the destination's
+/// key. The length prefixes stop organisation `ab` + design `c` and `a` + `bc`
+/// deriving the same key.
 pub fn chain_key(chain_master: &Key32, chain: ChainRef<'_>, epoch: i32) -> Key32 {
     let mut info = Vec::new();
     match chain {
@@ -912,9 +810,8 @@ pub fn chain_key(chain_master: &Key32, chain: ChainRef<'_>, epoch: i32) -> Key32
 ///            ‖ u32(chain_key_epoch), 32)
 /// ```
 ///
-/// See [`SITE_METADATA_KEY_LABEL`] for why it is derived rather than wrapped,
-/// why it is per epoch, and what a verifier holding `chain_master` can
-/// therefore read.
+/// See [`SITE_METADATA_KEY_LABEL`] for why it is per epoch and what a verifier
+/// holding `chain_master` can read.
 pub fn site_metadata_key(chain_master: &Key32, deployment: &str, epoch: i32) -> Key32 {
     let mut info = Vec::new();
     crypto::lp(&mut info, SITE_METADATA_KEY_LABEL);
@@ -933,12 +830,9 @@ pub fn site_metadata_key(chain_master: &Key32, deployment: &str, epoch: i32) -> 
 /// `key_epoch` is `metadata_key_epoch` on an organisation entry and
 /// `chain_key_epoch` on a site one — whichever names the key that opened it.
 ///
-/// **The seal already binds the ciphertext to its position**, because
-/// `metadata_stored` and `seq` are both in the seal input. This binds it a
-/// second time inside the AEAD, so a blob lifted between two entries of the
-/// same chain fails to decrypt at all rather than decrypting into the wrong
-/// entry's report — the same reason §4 binds a wrapped key to its identity
-/// instead of trusting the row it was read from.
+/// The seal already binds the ciphertext to its position. This binds it again
+/// inside the AEAD, so a blob lifted between two entries of the same chain fails
+/// to decrypt rather than decrypting into the wrong entry's report.
 pub fn metadata_aad(chain: ChainRef<'_>, seq: i64, key_epoch: i32) -> Vec<u8> {
     let mut aad = Vec::new();
     crypto::lp(&mut aad, AAD_METADATA);
@@ -996,9 +890,8 @@ pub fn plaintext_binding(content_key: &Key32, facts: &PlaintextFacts<'_>) -> [u8
     crypto::lp(&mut msg, TAG_PLAINTEXT);
     crypto::lp(&mut msg, facts.tenant.as_bytes());
     crypto::lp(&mut msg, facts.design.as_bytes());
-    // The database column is `bigint`/`int` (signed, and non-negative by a
-    // CHECK constraint); §11.2 writes u64/u32. The cast is bit-preserving and
-    // the value is in range, so the two spellings are the same bytes.
+    // The columns are signed (non-negative by CHECK); §11.2 writes u64/u32. The
+    // cast is bit-preserving and in range.
     crypto::u64_le(&mut msg, facts.design_version as u64);
     crypto::u32_le(&mut msg, facts.payload_schema_version as u32);
     crypto::lp(&mut msg, facts.payload);
@@ -1018,19 +911,17 @@ pub fn storage_binding(content_key: &Key32, facts: &StorageFacts<'_>) -> [u8; 32
     crypto::mac(content_key.expose(), &msg)
 }
 
-/// The value both bindings carry on an entry that binds **no payload** — every
+/// The value both bindings carry on an entry that binds **no payload**: every
 /// site and organisation entry.
 ///
 /// ```text
 /// MAC(K_content, LP("fathom/chain/nocontent/v1"))
 /// ```
 ///
-/// It is keyed and domain-separated, so it can neither collide with a real
-/// binding nor be recognised from a dump without the chain key. Both slots
-/// carry it, `content_hash` is then [`content_hash`] of the pair exactly as on
-/// a design entry, and the seal input is byte-identical in shape. **No branch
-/// in the verifier and no second seal construction** — which is the whole
-/// reason it is a constant rather than a `NULL` column.
+/// Keyed and domain-separated, so it neither collides with a real binding nor is
+/// recognisable from a dump without the chain key. `content_hash` is then
+/// [`content_hash`] of the pair exactly as on a design entry: no verifier branch
+/// and no second seal construction. That is why it is a constant, not `NULL`.
 pub fn absent_content_binding(content_key: &Key32) -> [u8; 32] {
     let mut msg = Vec::with_capacity(32);
     crypto::lp(&mut msg, TAG_NO_CONTENT);
@@ -1044,27 +935,24 @@ pub fn absent_content_binding(content_key: &Key32) -> [u8; 32] {
 ///     LP("fathom/chain/metadata/v1") ‖ LP(canon(metadata)))
 /// ```
 ///
-/// # Why this exists, and what it replaced
+/// # Why this exists
 ///
-/// §11.2's seal ended `‖ LP(canon(metadata))` — the plaintext, directly in the
-/// MAC. That made §7.3's encrypted metadata impossible: recomputing **any**
-/// seal would have needed the metadata key, so §11.2's routine check — links
-/// and bindings, no decryption, runnable by an operator holding only the chain
-/// key — would not have run at all on the chains that most need checking.
+/// §11.2's seal covered `canon(metadata)` directly in the MAC. That made §7.3's
+/// encrypted metadata impossible: recomputing any seal would need the metadata
+/// key, so the routine check (chain key only, no decryption) could not run on
+/// the chains that most need it.
 ///
-/// So metadata gets the two-tier treatment the *payload* already had:
+/// So metadata gets the payload's two-tier treatment:
 ///
 /// | tier | covers | in the clear? |
 /// |---|---|---|
 /// | seal input `metadata_stored` | the bytes on disk | yes — the column |
 /// | `metadata_binding` (this) | what those bytes mean | yes — 32 bytes, keyed |
 ///
-/// Links-only recomputes the seal from stored columns alone, so **a swapped or
-/// corrupted ciphertext breaks the seal with no key but the chain key**.
-/// Deep additionally recovers the plaintext — from the column on a design
-/// chain, by decrypting on a site or organisation one — and recomputes this
-/// value. Binding only the plaintext would have left the ciphertext covered by
-/// nothing on the one run §11.2 calls routine.
+/// Links-only recomputes the seal from stored columns, so a swapped or corrupted
+/// ciphertext breaks the seal with only the chain key. Deep also recovers the
+/// plaintext (the column on a design chain, decrypted on the others) and
+/// recomputes this value.
 pub fn metadata_binding(content_key: &Key32, canonical_metadata: &[u8]) -> [u8; 32] {
     let mut msg = Vec::with_capacity(64 + canonical_metadata.len());
     crypto::lp(&mut msg, TAG_METADATA);
@@ -1084,21 +972,17 @@ pub fn content_hash(content_key: &Key32, plaintext: &[u8; 32], storage: &[u8; 32
 
 /// The value that stands in for `seal_0`.
 ///
-/// **§11.2 writes this as `LP(H("fathom/chain/genesis/v1" ‖ tenant_id ‖
-/// design_id))` and this implementation differs from that line in two
-/// deliberate ways, both reported back rather than quietly taken.**
+/// **§11.2 writes `LP(H("fathom/chain/genesis/v1" ‖ tenant_id ‖ design_id))`;
+/// this differs in two deliberate ways.**
 ///
-/// 1. The `LP(...)` is read as *how the value enters the MAC*, not as part of
-///    the value. Every `seal_{n-1}` enters the seal input through `LP(...)`
-///    already, so treating the outer prefix as part of the stored value would
-///    length-prefix the genesis value twice and nothing else once.
-/// 2. The inner concatenation is **length-prefixed**, where §11.2 writes it
-///    bare. Bare, tenant `ab` + design `c` and tenant `a` + design `bc` give
-///    the same genesis — the exact splice the same section closes one line
-///    above and §12.2 closes again for the chain-key derivation. It is
-///    harmless in practice, because the chain key is already per design, but
-///    an unprefixed concatenation sitting next to a rule that says
-///    "length-prefix every variable-length field" is what gets copied.
+/// 1. The `LP(...)` is read as how the value enters the MAC, not as part of the
+///    value: every `seal_{n-1}` already enters the seal input through `LP(...)`,
+///    so including it would length-prefix genesis twice.
+/// 2. The inner concatenation is **length-prefixed**. Bare, tenant `ab` + design
+///    `c` and `a` + `bc` give the same genesis, the splice §11.2 and §12.2 close
+///    elsewhere. Harmless in practice (the chain key is per design), but an
+///    unprefixed concatenation beside a "length-prefix every variable-length
+///    field" rule is what gets copied.
 pub fn genesis(chain: ChainRef<'_>) -> [u8; 32] {
     let (first, second) = chain.identity();
     let mut msg = Vec::new();
@@ -1118,10 +1002,9 @@ pub struct SealFacts<'a> {
     pub prev_seal: &'a [u8],
     pub content_hash: &'a [u8],
     pub entry_type: EntryType,
-    /// **The metadata column's bytes, exactly as they are stored** — the
-    /// canonical plaintext on a design chain, the AEAD blob on a site or
-    /// organisation one. The seal covers what is on disk, which is what lets
-    /// a links-only run catch a swapped ciphertext with the chain key alone.
+    /// **The metadata column's bytes exactly as stored**: canonical plaintext on
+    /// a design chain, the AEAD blob otherwise. The seal covers what is on disk,
+    /// so a links-only run catches a swapped ciphertext with the chain key alone.
     pub metadata_stored: &'a [u8],
     /// [`metadata_binding`] over `canon(metadata)` — the keyed value that
     /// covers what those bytes mean. Stored in the clear beside them.
@@ -1163,14 +1046,13 @@ fn seal_message(facts: &SealFacts<'_>) -> Vec<u8> {
 #[derive(Clone, Debug)]
 pub struct StoredEntry {
     pub seq: i64,
-    /// **The column, parsed or carried** — see [`StoredEntryType`]. A type
-    /// this build cannot parse is a break at this entry, never an error that
-    /// silences the whole chain.
+    /// **The column, parsed or carried** (see [`StoredEntryType`]). A type this
+    /// build cannot parse is a break at this entry, never an error that silences
+    /// the chain.
     pub entry_type: StoredEntryType,
     pub chain_key_epoch: i32,
-    /// `Some` on a design chain, `None` on a site or organisation chain —
-    /// where an entry records an act and there is no version to bind. The
-    /// column is nullable for exactly this reason and the migration's
+    /// `Some` on a design chain; `None` on a site or organisation chain, where an
+    /// entry records an act with no version. The migration's
     /// `chain_entries_shape_matches_kind` refuses the two wrong combinations.
     pub design_version: Option<i64>,
     pub prev_seal: Vec<u8>,
@@ -1224,9 +1106,8 @@ pub enum ContentState {
     NotRebound,
 }
 
-/// Which of the four things failed first (§11.2), plus the three this
-/// implementation adds because a verifier that cannot say them would have to
-/// stay silent about a real tamper.
+/// Which check failed first (§11.2), plus extras this implementation adds so a
+/// real tamper is never left unsaid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BreakReason {
     /// The seal does not recompute from what the entry says it covers.
@@ -1246,46 +1127,35 @@ pub enum BreakReason {
     PlaintextBindingMismatch,
     /// The entry names a payload version that is not in the database.
     PayloadMissing,
-    /// **A stored payload version that no entry in the history names.** The
-    /// other direction of [`Self::PayloadMissing`], and it has to be checked
-    /// separately: walking entries can only ever find a row an entry points
-    /// at. An inserted payload row is invisible to that walk, verifies as
-    /// nothing, and — carrying the highest `design_version` — is what a read
-    /// of "the latest version" then refuses on.
+    /// **A stored payload version that no entry names.** The other direction of
+    /// [`Self::PayloadMissing`], checked separately: walking entries only finds
+    /// rows an entry points at. An inserted row, carrying the highest
+    /// `design_version`, is what a read of "the latest version" would refuse on.
     PayloadNotNamedByAnyEntry,
-    /// **The entry names a chain key epoch this deployment has never
-    /// written.** Not a coverage gap: there is no retired key to go and find,
-    /// because no such epoch was ever minted. Someone changed the column.
+    /// **The entry names a chain key epoch this deployment never wrote.** Not a
+    /// coverage gap: no such key was minted, so there is none to find. Someone
+    /// changed the column.
     ChainKeyEpochNeverWritten,
-    /// The metadata recovered for this entry is not what
-    /// [`metadata_binding`] committed to.
+    /// The metadata recovered for this entry is not what [`metadata_binding`]
+    /// committed to.
     ///
-    /// Reachable on every chain, but by two different routes. On a design
-    /// chain the stored column *is* the plaintext, so this fires on a
-    /// links-only run: someone edited the metadata and recomputed nothing.
-    /// On a site or organisation chain the stored column is ciphertext bound
-    /// by the seal, so reaching this needs a deep run and means the
-    /// **decrypted** value disagrees with the binding — which the writer's own
-    /// key would have had to produce.
+    /// On a design chain the column is the plaintext, so this fires on a
+    /// links-only run (metadata edited, nothing recomputed). On the other chains
+    /// it needs a deep run and means the decrypted value disagrees with the
+    /// binding, which only the writer's own key could have produced.
     MetadataBindingMismatch,
-    /// **The metadata will not open under this row's own associated data.**
-    /// Deep runs only, and deliberately distinct from
-    /// [`Self::MetadataBindingMismatch`]: a binding mismatch means the
-    /// plaintext came back and is not what was committed to, this means no
-    /// plaintext came back at all.
+    /// **The metadata will not open under this row's own associated data.** Deep
+    /// runs only. Distinct from [`Self::MetadataBindingMismatch`]: that means
+    /// plaintext came back and is wrong, this means none came back.
     ///
-    /// The AEAD's associated data is
-    /// `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖ u32(key_epoch)`
-    /// ([`metadata_aad`]), so a blob lifted from one entry to another of the
-    /// same chain does not decrypt even for someone who recomputed the seal
-    /// over it — which a tier-2 attacker holding the chain key can do. Without
-    /// the AAD, that move would decrypt into the wrong entry's report and both
-    /// a links-only and a deep run would pass it.
+    /// The AAD is `LP(tag) ‖ LP(chain_kind) ‖ LP(chain_id) ‖ u64(seq) ‖
+    /// u32(key_epoch)` ([`metadata_aad`]), so a blob moved between entries of one
+    /// chain does not decrypt even if the seal was recomputed over it (which a
+    /// tier-2 attacker holding the chain key can do). Without the AAD both run
+    /// depths would pass it.
     MetadataDoesNotOpenUnderItsOwnAad,
-    /// **The `entry_type` column holds text no `EntryType` parses.** See
-    /// [`StoredEntryType`]: it is reported here, at the row, with everything
-    /// before it still verified, rather than as an error that makes the whole
-    /// chain unreadable for ever.
+    /// **The `entry_type` column holds text no `EntryType` parses.** Reported at
+    /// the row, with everything before it still verified (see [`StoredEntryType`]).
     EntryTypeNotRecognised,
 }
 
@@ -1328,27 +1198,21 @@ impl BreakReason {
     }
 }
 
-/// The failing entry's metadata, and **whether what is being handed over is
-/// readable**.
+/// The failing entry's metadata, and **whether what is handed over is readable**.
 ///
-/// An enum rather than a `Vec<u8>` or an `Option<Vec<u8>>`, and the reason is
-/// the one thing this whole tier is for: on a site or organisation chain the
-/// stored column is ciphertext, and a break report that handed an operator a
-/// blob where they expected canonical JSON would be a report they stop reading.
-/// `Option` would say "present or absent" and the question here is "present as
-/// what". The type makes the caller match, so a renderer cannot print the
-/// wrong one by default.
+/// An enum, not `Option<Vec<u8>>`: on a site or organisation chain the stored
+/// column is ciphertext, and a report that hands over a blob where canonical
+/// JSON is expected is one operators stop reading. The question is "present as
+/// what", and the type makes the caller match.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryMetadata {
-    /// `fathom-canon`'s canonical bytes — the metadata as it was sealed.
-    /// A design chain yields these on any run; a site or organisation chain
-    /// only on a deep one.
+    /// `fathom-canon`'s canonical bytes, as sealed. Available on any design-chain
+    /// run; on the other chains only on a deep one.
     Plaintext(Vec<u8>),
     /// The stored AEAD blob, on a run that did not decrypt it. **Flagged, not
-    /// rendered.** The break is still fully named — `seq`, the reason,
-    /// `entry_type` and `chain_key_epoch` all travel in the report beside this
-    /// — so an operator has everything they need except the sentence inside
-    /// the entry, and is told exactly that rather than shown noise.
+    /// rendered.** The break is still fully named (`seq`, reason, `entry_type`,
+    /// `chain_key_epoch`); only the sentence inside the entry is withheld, and
+    /// the report says so.
     Ciphertext(Vec<u8>),
     /// The break is not at an entry at all — a stored payload row no entry
     /// names has no metadata to report.
@@ -1376,24 +1240,21 @@ pub enum Outcome {
     /// N is the **first** index where one of the checks fails. Everything
     /// before N that was actually verified is reported as such.
     BrokenAt {
-        /// The failing entry's `seq`, or `0` when the break is not at an entry
-        /// at all — a stored payload no entry names has no `seq` to report,
-        /// and inventing one would send an operator to an entry that verifies.
+        /// The failing entry's `seq`, or `0` when the break is not at an entry (a
+        /// stored payload no entry names). Inventing one would send an operator
+        /// to an entry that verifies.
         seq: i64,
         reason: BreakReason,
-        /// **Counted by verification, never by a position in a list.** An
-        /// entry that could not be checked — no key for its epoch — does not
-        /// count towards this, so the number never claims more than was done.
+        /// **Counted by verification, never by list position.** An entry that
+        /// could not be checked does not count, so the number never claims more
+        /// than was done.
         verified_before: usize,
-        /// The failing entry's own metadata, so a reader has something to act
-        /// on rather than an index — **and whether it is readable**. See
-        /// [`EntryMetadata`]: on a site or organisation chain a links-only run
-        /// holds ciphertext, and saying so beats printing it.
+        /// The failing entry's own metadata, **and whether it is readable** (see
+        /// [`EntryMetadata`]). On encrypted chains a links-only run holds
+        /// ciphertext, and saying so beats printing it.
         metadata: EntryMetadata,
-        /// The failing entry's type, always in the clear, so a break on an
-        /// encrypted chain still names what kind of act it was — **including
-        /// when the column holds text nothing parses**, which is the one case
-        /// where naming it is the whole report.
+        /// The failing entry's type, always in the clear, including when the
+        /// column holds text nothing parses (where naming it is the whole report).
         entry_type: Option<StoredEntryType>,
         /// The failing entry's chain key epoch, always in the clear.
         chain_key_epoch: Option<i32>,
@@ -1401,9 +1262,8 @@ pub enum Outcome {
         design_version: Option<i64>,
     },
     /// **A coverage gap, not a failure.** Some entries name a chain key epoch
-    /// this verifier was not given — **and everything that could be checked
-    /// was checked first, and nothing was broken.** This outcome can only be
-    /// reached after a full pass.
+    /// this verifier was not given. Everything checkable was checked first and
+    /// nothing was broken, so this is reached only after a full pass.
     CannotVerifyUnderKeyEpoch {
         epochs: Vec<i32>,
         ranges: Vec<(i64, i64)>,
@@ -1411,14 +1271,12 @@ pub enum Outcome {
     },
 }
 
-/// The entries a run could not check, reported **alongside** an outcome rather
-/// than instead of one.
+/// The entries a run could not check, reported **alongside** an outcome, not
+/// instead of one.
 ///
-/// §12.6a: *"verify everything verifiable first and report every break found;
-/// a coverage gap is an additional fact reported alongside, never an early
-/// return."* Before that rule, one `UPDATE` of any entry's `chain_key_epoch`
-/// turned a detected forgery into a coverage gap and sent the operator to look
-/// for a retired key that does not exist.
+/// §12.6a: verify everything verifiable first; a coverage gap is an additional
+/// fact, never an early return. Otherwise one `UPDATE` of any entry's
+/// `chain_key_epoch` turns a detected forgery into a coverage gap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Coverage {
     /// The epochs no key was given for.
@@ -1429,19 +1287,17 @@ pub struct Coverage {
     pub entries: usize,
 }
 
-/// What a verification run says. **The depth and the content state travel with
-/// the outcome and cannot be dropped by a caller formatting it**, which is the
-/// mechanical half of *"content not checked must never render the same as
-/// content verified"*.
+/// What a verification run says. **Depth and content state travel with the
+/// outcome and cannot be dropped by a caller formatting it**: the mechanical
+/// half of "content not checked must never render as content verified".
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Report {
     pub outcome: Outcome,
     pub depth: Depth,
     pub content: ContentState,
-    /// `Some` when some entries could not be checked at all. **Present
-    /// whatever the outcome is**, including beside a break: "I could not check
-    /// these" and "this one is broken" are both true at once and the second
-    /// must not be swallowed by the first.
+    /// `Some` when some entries could not be checked at all. **Present whatever
+    /// the outcome**, including beside a break: both facts are true and neither
+    /// may swallow the other.
     pub coverage: Option<Coverage>,
 }
 
@@ -1473,10 +1329,9 @@ impl Report {
                     Some(v) => format!(" (design version {v})"),
                     None => String::new(),
                 };
-                // The text itself, quoted, for the one break whose whole
-                // content is what somebody put in the column. Truncated and
-                // escaped by `Debug`, so a value chosen to forge a log line
-                // cannot.
+                // The offending text, quoted, for the one break whose whole content
+                // is what was put in the column. Truncated and `Debug`-escaped, so
+                // a value chosen to forge a log line cannot.
                 let version = match (reason, entry_type) {
                     (
                         BreakReason::EntryTypeNotRecognised,
@@ -1551,10 +1406,9 @@ pub struct AvailableKeys {
     /// The highest chain key epoch this deployment has ever written, when the
     /// caller knows it.
     ///
-    /// **An epoch above it is an anomaly, not a coverage gap** (§12.6a): no
-    /// such key was ever minted, so there is nothing to go and find. A caller
-    /// that genuinely does not know — an offline verifier handed an exported
-    /// chain — passes `None` and gets the coverage reading.
+    /// **An epoch above it is an anomaly, not a coverage gap** (§12.6a): no such
+    /// key was ever minted. A caller that does not know (an offline verifier with
+    /// an exported chain) passes `None` and gets the coverage reading.
     pub written_through: Option<i32>,
 }
 
@@ -1583,12 +1437,10 @@ impl AvailableKeys {
 
 /// What a **deep** run is given.
 ///
-/// This module never decrypts anything. It holds no data key, no organisation
-/// content key and no site metadata key, and it should not: every construction
-/// in this file has to be drivable from a test with no PostgreSQL and from an
-/// offline verifier with an exported chain. The caller — `designs` or `chains`
-/// — opens what it can and hands the plaintext in, exactly as it already did
-/// for payloads.
+/// This module never decrypts: it holds no data key, organisation content key
+/// or site metadata key, so every construction here can be driven from a test
+/// or an offline verifier. The caller (`designs` or `chains`) opens what it can
+/// and hands the plaintext in.
 pub struct DeepInputs<'a> {
     /// Decrypted design payloads, by `design_version`. Empty on a site or
     /// organisation chain, which have none.
@@ -1600,13 +1452,11 @@ pub struct DeepInputs<'a> {
     /// The `seq`s whose metadata the caller **held the key for and could not
     /// open**.
     ///
-    /// Absence from `metadata` alone cannot say this. An entry can be missing
-    /// from that list for two reasons that must not read alike: the run held
-    /// no key for its epoch (§11.2's fourth sub-state — *content not
-    /// re-bound*, not a failure), or the key was right and the AEAD refused
-    /// (a break, [`BreakReason::MetadataDoesNotOpenUnderItsOwnAad`]). Only the
-    /// caller that tried the decryption knows which, so it says so here rather
-    /// than leaving the verifier to guess the kinder of the two.
+    /// Absence from `metadata` cannot say this: an entry may be missing because
+    /// the run held no key for its epoch (§11.2's fourth sub-state, not a
+    /// failure) or because the key was right and the AEAD refused (a break,
+    /// [`BreakReason::MetadataDoesNotOpenUnderItsOwnAad`]). Only the caller that
+    /// tried knows which.
     pub refused_metadata: &'a [i64],
 }
 
@@ -1618,12 +1468,11 @@ pub struct DeepInputs<'a> {
 ///
 /// # The order, which is the control
 ///
-/// Everything checkable is checked **first**, in one pass, in `seq` order, and
-/// the first break found is the one reported. `seq` and `prev_seal` need no
-/// key at all, so they are checked even for an entry whose epoch this run
-/// cannot open. A coverage gap is collected as it is met and reported
-/// alongside; it never returns early and it never contributes to
-/// `verified_before`.
+/// Everything checkable is checked **first**, in one pass in `seq` order, and
+/// the first break found is reported. `seq` and `prev_seal` need no key, so they
+/// are checked even where the epoch cannot be opened. A coverage gap is
+/// collected and reported alongside; it never returns early and never counts
+/// toward `verified_before`.
 pub fn verify(
     chain: ChainRef<'_>,
     entries: &[StoredEntry],
@@ -1642,22 +1491,16 @@ pub fn verify(
         ContentState::NotRebound
     };
 
-    // Whether the metadata column holds the plaintext or a blob. A design
-    // chain stores canonical bytes; the other two store AEAD ciphertext
-    // (§7.3). This is the ONE branch the metadata tier costs, and it decides
-    // only where the plaintext comes from -- never whether the seal is checked.
+    // Whether the metadata column holds plaintext (design chain) or AEAD
+    // ciphertext (§7.3). The one branch the metadata tier costs: it decides only
+    // where the plaintext comes from, never whether the seal is checked.
     let metadata_is_stored_in_the_clear = chain.kind() == ChainKind::Design;
 
-    // **The coverage gap is collected before the pass and reported with
-    // whatever the pass finds** -- never instead of it (§12.6a). Working it
-    // out first costs one key lookup per entry and means a break found at
-    // entry 1 still carries the fact that entry 3 could not be checked;
-    // collecting it as the pass went would lose that, because the pass stops
-    // at the break.
-    //
-    // An epoch above what this deployment ever wrote is deliberately NOT
-    // counted here: there is no retired key to find, so it is an anomaly and
-    // the pass reports it as a break.
+    // **The coverage gap is computed before the pass and reported with whatever
+    // the pass finds**, never instead of it (§12.6a): a break at entry 1 must
+    // still carry the fact that entry 3 could not be checked. An epoch above
+    // what this deployment ever wrote is NOT counted here: there is no retired
+    // key, so the pass reports it as a break.
     let uncovered: Vec<(i32, i64)> = entries
         .iter()
         .filter(|e| {
@@ -1677,9 +1520,8 @@ pub fn verify(
     let mut expected_seq: i64 = 1;
 
     for entry in entries {
-        // What this run can honestly hand an operator for this entry. On a
-        // design chain the column is the plaintext; on the other two it is
-        // ciphertext unless a deep run supplied the decryption.
+        // What this run can honestly hand an operator: plaintext on a design
+        // chain, else ciphertext unless a deep run decrypted it.
         let reportable_metadata = || {
             if metadata_is_stored_in_the_clear {
                 return EntryMetadata::Plaintext(entry.metadata_stored.clone());
@@ -1690,10 +1532,9 @@ pub fn verify(
             }
         };
 
-        // `content` is passed in rather than captured: the metadata tier below
-        // can downgrade it to `NotRebound` part-way through this entry, and a
-        // closure that had borrowed it would then report the value from before
-        // the downgrade -- which is the one thing this field must never do.
+        // `content` is passed in, not captured: the metadata tier below can
+        // downgrade it to `NotRebound` mid-entry, and a borrowing closure would
+        // report the stale value.
         let broke = |reason: BreakReason, content: ContentState| Report {
             outcome: Outcome::BrokenAt {
                 seq: entry.seq,
@@ -1711,12 +1552,9 @@ pub fn verify(
 
         // ---- What needs no key -------------------------------------------
         //
-        // The type is read before anything else is claimed about this entry.
-        // It is in the seal input, so a run that carried on would be sealing
-        // over text it could not name -- and a verifier that returned an ERROR
-        // here would let one junk value, insertable by the runtime role
-        // before `0010`, make a whole chain permanently unverifiable. §11.2
-        // has three outcomes and "unreadable" is not one of them.
+        // Read the type first: it is in the seal input, and returning an ERROR
+        // here would let one junk value make a chain permanently unverifiable.
+        // §11.2 has three outcomes; "unreadable" is not one.
         let Some(entry_type) = entry.entry_type.known() else {
             return broke(BreakReason::EntryTypeNotRecognised, content);
         };
@@ -1730,10 +1568,9 @@ pub fn verify(
         prev_seal = entry.seal.clone();
         expected_seq += 1;
 
-        // An epoch beyond anything this deployment ever wrote is a changed
-        // column, not a key somebody else holds -- checked before the key
-        // lookup so that it reads as the anomaly it is even when a key for
-        // that epoch happens to be derivable.
+        // An epoch beyond anything ever written is a changed column, not a key
+        // someone else holds. Checked before the key lookup so it reads as an
+        // anomaly even when that epoch's key is derivable.
         if keys
             .written_through
             .is_some_and(|highest| entry.chain_key_epoch > highest)
@@ -1743,16 +1580,14 @@ pub fn verify(
 
         // ---- What needs the key for this entry's epoch --------------------
         let Some(subkeys) = keys.get(entry.chain_key_epoch) else {
-            // Not verified, and so not counted. The links either side of it
-            // were checked above; nothing sealed under a key this run does not
-            // hold is claimed to be anything.
+            // Not verified, so not counted. The links either side were checked above.
             continue;
         };
 
-        // The entry's own two bindings must combine to the content_hash it
-        // carries — otherwise a seal could cover a content_hash that is not
-        // the bindings beside it, and the storage check below would be
-        // checking something the seal never committed to.
+        // The two bindings must combine to the entry's `content_hash`. Otherwise
+        // the seal could cover a hash that does not match the bindings beside it,
+        // and the storage check below would check something the seal never
+        // committed to.
         let recomputed = content_hash(
             &subkeys.content,
             &to32(&entry.plaintext_binding),
@@ -1778,15 +1613,13 @@ pub fn verify(
 
         // ---- The metadata's second tier ----------------------------------
         //
-        // The seal above already covered the STORED bytes, so a swapped or
-        // corrupted ciphertext is caught with the chain key alone. This is the
-        // other half: that those bytes still MEAN what was sealed.
+        // The seal covered the STORED bytes, so a swapped ciphertext is caught
+        // with the chain key alone. This checks those bytes still MEAN what was
+        // sealed.
         //
-        // On a design chain the plaintext is the column, so this runs on every
-        // run. On a site or organisation chain it runs only when a deep run
-        // supplied the decryption — and an entry that could not be decrypted
-        // is `NotRebound` rather than verified, which is §11.2's fourth
-        // sub-state doing exactly the job it was written for one tier down.
+        // On a design chain this runs every time. On the other chains it runs
+        // only when a deep run supplied the decryption; an entry that could not be
+        // decrypted is `NotRebound`, not verified (§11.2's fourth sub-state).
         let recovered: Option<&[u8]> = if metadata_is_stored_in_the_clear {
             Some(&entry.metadata_stored)
         } else {
@@ -1805,20 +1638,16 @@ pub fn verify(
                     return broke(BreakReason::MetadataBindingMismatch, content);
                 }
             }
-            // Held the key and the AEAD refused. That is not "could not
-            // check": it is a blob that does not belong at this position under
-            // this key epoch, and the associated data is what says so. A
-            // tier-2 attacker holding the chain key can move a ciphertext to
-            // another `seq` and recompute that row's seal over it, so nothing
-            // ELSE in this verifier objects -- which is exactly why the AEAD's
-            // associated data is not decoration.
+            // The key was held and the AEAD refused: the blob does not belong at
+            // this position and epoch. A tier-2 attacker with the chain key can
+            // move a ciphertext to another `seq` and recompute the seal, so
+            // nothing else here objects. The associated data is what catches it.
             None if deep.is_some_and(|d| d.refused_metadata.contains(&entry.seq)) => {
                 return broke(BreakReason::MetadataDoesNotOpenUnderItsOwnAad, content);
             }
             None if deep.is_some() => {
-                // Asked for a deep run and this entry's metadata could not be
-                // decrypted. "Content not checked" must never render the same
-                // as "content verified".
+                // Deep run, but this metadata could not be decrypted: "content
+                // not checked" must never render as "content verified".
                 content = ContentState::NotRebound;
             }
             None => {}
@@ -1826,19 +1655,15 @@ pub fn verify(
 
         // ---- The stored bytes, ENTRY-DRIVEN (§12.6a) ----------------------
         //
-        // For each entry, the payload it names. Driving this from the entries
-        // rather than from the payload rows is what closes the gap the seal
-        // itself leaves: the seal does not cover `design_version`, so an entry
-        // re-pointed at another version is unauthenticated — but the storage
-        // binding it carries is over the bytes of the version it was written
-        // for, and those are not the bytes of the version it now names.
-        // Deleting the entry instead breaks the next entry's `prev_seal`.
+        // Driven from entries, not payload rows, to close a gap the seal leaves:
+        // it does not cover `design_version`, so a re-pointed entry is
+        // unauthenticated, but its storage binding is over the bytes of the
+        // version it was written for, not the one it now names. Deleting the
+        // entry instead breaks the next `prev_seal`.
         //
-        // An entry that names no version has nothing to do here — a site or
-        // organisation entry records an act. Its two bindings are the keyed
-        // `absent_content_binding`, and the `content_hash` check above already
-        // held them to what the seal committed to, so this is a skip and not
-        // an unchecked path.
+        // An entry naming no version (site or organisation) is skipped here: its
+        // keyed `absent_content_binding` was already held to the seal by the
+        // `content_hash` check above.
         if let Some(version) = entry.design_version {
             let Some(payload) = payloads.iter().find(|p| p.design_version == version) else {
                 return broke(BreakReason::PayloadMissing, content);
@@ -1855,11 +1680,10 @@ pub fn verify(
                 },
             );
             if stored.as_slice() != entry.storage_binding.as_slice() {
-                // §11.2: *"a verifier meeting a storage-binding mismatch looks
-                // for a reencrypt entry accounting for it: found, routine;
-                // absent, broken."* A later `reencrypt` on this same version is
-                // exactly that account -- it supersedes this entry's storage
-                // binding, and is itself checked when the pass reaches it.
+                // §11.2: a storage-binding mismatch is routine if a `reencrypt`
+                // entry accounts for it, broken otherwise. A later `reencrypt` on
+                // this version supersedes this binding and is itself checked when
+                // the pass reaches it.
                 let superseded = entries.iter().any(|later| {
                     later.seq > entry.seq
                         && later.design_version == Some(version)
@@ -1889,10 +1713,8 @@ pub fn verify(
                         }
                     }
                     None => {
-                        // Asked for a deep run and one version could not be
-                        // decrypted: the links still verified, and saying
-                        // "verified" here would be the exact conflation §11.2
-                        // forbids.
+                        // Deep run, one version not decrypted: the links verified,
+                        // but saying "verified" would be the conflation §11.2 forbids.
                         content = ContentState::NotRebound;
                     }
                 }
@@ -1902,10 +1724,10 @@ pub fn verify(
         verified += 1;
     }
 
-    // The other direction, and it cannot be folded into the loop above: an
-    // inserted payload row is named by no entry, so no entry-driven walk can
-    // reach it. It is a break and not a skip -- being the highest
-    // `design_version`, it is what a read of "the latest version" lands on.
+    // The other direction; it cannot be folded into the loop. An inserted payload
+    // row is named by no entry, so no entry-driven walk reaches it. A break, not a
+    // skip: with the highest `design_version` it is what a read of "the latest
+    // version" lands on.
     for payload in payloads {
         if !entries
             .iter()
@@ -1979,10 +1801,9 @@ fn coverage_of(uncovered: &[(i32, i64)]) -> Option<Coverage> {
     })
 }
 
-/// A stored 32-byte binding. A column shorter than 32 cannot occur — the
-/// migration `CHECK`s it — and a value that somehow is shorter must not
-/// silently compare equal to a prefix, so it is zero-padded into a fixed
-/// array and will simply fail to match.
+/// A stored 32-byte binding. Migration `CHECK`s guarantee 32 bytes; a shorter
+/// value must not compare equal to a prefix, so it is zero-padded and simply
+/// fails to match.
 fn to32(bytes: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     let n = bytes.len().min(32);

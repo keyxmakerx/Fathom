@@ -1,14 +1,13 @@
 //! The byte protocol: 41 §3.3's T2 packed skeleton (a fixed header, fixed-width
 //! records, one trailing UTF-8 string blob) plus 41 §3.9's error reply, decided
-//! down to the offset in WO-07 §4.4.
+//! to the offset in WO-07 §4.4.
 //!
-//! Everything is little-endian, written with `to_le_bytes` and read with
-//! `from_le_bytes`, because the reader on the other side is `DataView` with
-//! `littleEndian = true` (41 §3.4's worked row).
+//! Everything is little-endian (`to_le_bytes`/`from_le_bytes`), because the page
+//! reads with `DataView` and `littleEndian = true` (41 §3.4).
 //!
-//! The encoding of a reply is a pure function of its content: records in
-//! order, each record's string fields appended to the blob in field order, no
-//! de-duplication (invariant 9).
+//! A reply's encoding is a pure function of its content: records in order, each
+//! record's string fields appended to the blob in field order, no de-duplication
+//! (invariant 9).
 
 use fathom_corpus::model::Entry;
 use fathom_corpus::{CorpusIndex, Risk, SourceFile};
@@ -19,24 +18,18 @@ pub const REPLY_VERSION: u16 = 1;
 pub const KIND_ERROR: u16 = 0;
 pub const KIND_FINDER_ROW: u16 = 3;
 pub const ERROR_STRIDE: u32 = 28;
-/// Stride 88, not 72: seven string refs rather than five. Both additions exist
-/// so the page can render a row without composing one.
+/// Stride 88, not 72: seven string refs, not five, so the page renders a row
+/// without composing one.
 ///
-/// **s5, the verification stamp.** ADR-0027 §3 makes it required chrome on
-/// every finder row rather than metadata in a file — *"the product's only
-/// unforgeable differentiator currently lives in a YAML field"*. It travels
-/// with the row for the same reason the field key travels with an inventory
-/// field (`encode_element_reply`): platform and version train are per-entry
-/// facts, and a page that spelled `junos-srx` into its own chrome would keep
-/// saying it on the day a second platform's corpus loads.
+/// **s5, the verification stamp.** ADR-0027 §3 makes it required chrome on every
+/// finder row. It travels with the row because platform and version train are
+/// per-entry facts; a page that spelled `junos-srx` into its chrome would keep
+/// saying it when a second platform loads.
 ///
-/// **s6, the risk caption.** ADR-0011: *"the caption is the default rendering
-/// of the band and may be overridden per corpus entry where the default is
-/// untrue"*. One entry in the seed corpus already overrides it
-/// (`CHANGES STATE — NOT REVERSIBLE BY COMMIT`), so a page holding the three
-/// default captions in an array would render that row's caption wrongly today,
-/// not merely one day. The risk *byte* still chooses the colour channel — the
-/// three inks are closed and are not sent.
+/// **s6, the risk caption.** ADR-0011: the caption is the band's default and may
+/// be overridden per corpus entry (one seed entry already does:
+/// `CHANGES STATE — NOT REVERSIBLE BY COMMIT`). The risk *byte* still chooses the
+/// colour; the three inks are closed and not sent.
 pub const FINDER_ROW_STRIDE: u32 = 88;
 pub const ROLE_SUMMARY: u8 = 0;
 pub const ROLE_SHOWN: u8 = 1;
@@ -45,17 +38,13 @@ pub const ROLE_BELOW: u8 = 2;
 /// How many string slots one finder record carries.
 const FINDER_SLOTS: usize = 7;
 
-/// Row flag bit 2 (value 4): ADR-0027 §2's label — the entry behind this row
-/// has **not been run on a box**, so it carries no `verified_on` (61 §3.1).
+/// Row flag bit 2 (value 4): ADR-0027 §2's label. The entry behind this row has
+/// **not been run on a box**, so it carries no `verified_on` (61 §3.1).
 ///
-/// It is not invariant 10's bit. A missing named reviewer is a different fact
-/// about a different act, it is reported separately in the corpus review line,
-/// and conflating the two is what let this flag clear itself on an action the
-/// project has already scheduled — see `is_unverified`.
-///
-/// A **bit**, not a string the page pattern-matches: the row's register is a
-/// typed fact, and deriving it by inspecting the stamp text is how a rendering
-/// quietly starts disagreeing with the corpus.
+/// Not invariant 10's bit: a missing named reviewer is a different fact, reported
+/// separately in the corpus review line. Conflating them let this flag clear
+/// itself on an action already scheduled (see `is_unverified`). A **bit**, not a
+/// string the page pattern-matches, so rendering cannot drift from the corpus.
 pub const ROW_UNVERIFIED: u8 = 4;
 pub const ERR_UNKNOWN_OP: u16 = 1;
 pub const ERR_NOT_INITIALISED: u16 = 2;
@@ -63,7 +52,7 @@ pub const ERR_CORPUS_LOAD: u16 = 3;
 pub const ERR_BAD_FRAME: u16 = 4;
 pub const ERR_BAD_UTF8: u16 = 5;
 
-// --- the face record (WO-08 §4.4) --------------------------------------------
+// --- the face record (WO-08 §4.4) ---
 //
 // Record kinds 0–4 are taken (41 §3.3); 5 is the face's. Stride 72:
 //
@@ -73,8 +62,7 @@ pub const ERR_BAD_UTF8: u16 = 5;
 //   4       4     slot_count (u32)
 //   8       64    eight (u32 off, u32 len) string refs, s0–s7
 //
-// Everything else is WO-07 §4.3–§4.5's, reused unchanged: little-endian, the
-// FDLT skeleton, the string-blob rules, the error record, the arena lifetime.
+// The rest is WO-07 §4.3–§4.5's, unchanged.
 
 pub const KIND_FACE_ROW: u16 = 5;
 pub const FACE_ROW_STRIDE: u32 = 72;
@@ -85,17 +73,13 @@ pub const FACE_FIELD: u8 = 2;
 pub const FACE_PORT: u8 = 3;
 pub const FACE_IFACE: u8 = 4;
 
-// --- the paste reply ---------------------------------------------------------
+// --- the paste reply ---
 //
-// Three more roles on the same stride-72 record. No new record kind: the reply
-// is a list of labelled string rows, which is exactly what KIND_FACE_ROW is,
-// and a second skeleton would be a second decoder in the page for no gain.
+// Three more roles on the stride-72 record. No new record kind: the reply is
+// labelled string rows, which `KIND_FACE_ROW` already is.
 //
-// The reply is deliberately shaped around `14`'s governing rule — NOTHING
-// PARSED IS SILENTLY LOST — so the residue is not a footnote in the summary,
-// it is rows. A caller that renders only `FACE_PASTE` shows a number; a caller
-// that renders the residue rows shows the user which of their lines Fathom did
-// not understand, which is the honest half of the answer.
+// Following `14`'s rule, NOTHING PARSED IS SILENTLY LOST, the residue is rows,
+// not a footnote: rendering them shows which lines Fathom did not understand.
 
 /// The one summary row, always record 0. Slots, all decimal strings except the
 /// last three: nodes · edges · residue lines · secrets redacted · unresolved ·
@@ -107,23 +91,18 @@ pub const FACE_RESIDUE: u8 = 6;
 /// One reference the capture named and did not contain: what it named · the
 /// edge kind that wanted it · the line number.
 pub const FACE_UNRESOLVED: u8 = 7;
-/// The paste as the REDACTION GATE left it — one row, slot 0, the whole text.
+/// The paste as the REDACTION GATE left it: one row, slot 0, the whole text.
 ///
-/// This exists so the page can journal a paste without journalling the secret
-/// that was in it. The page holds only the raw text the operator pasted; the
-/// redacted text exists only inside the module, because `RedactedCapture`'s
-/// field is private and its one constructor is `pub(crate)` and is called from
-/// exactly one place, the end of `ingest()`. So there is no way to obtain
-/// redacted text except by running the gate, which is the point.
-///
-/// **A journal built from the raw paste would put a pre-shared key in the
-/// operator's export file.** Invariant 3 is the whole reason this row exists.
+/// It lets the page journal a paste without journalling its secret. The page holds
+/// only the raw text; redacted text exists only inside the module
+/// (`RedactedCapture`'s field is private and its one constructor is `pub(crate)`,
+/// called at the end of `ingest()`). **A journal built from the raw paste would put
+/// a pre-shared key in the operator's export file** (invariant 3).
 pub const FACE_CAPTURE: u8 = 8;
 
 /// One diagram box: display id · kind · label · x · y · w · h · **aggregation**.
 ///
-/// Slot 7 is three space-separated fields — `<count> <interior> <group key>`,
-/// the last possibly empty:
+/// Slot 7 is `<count> <interior> <group key>`, the last possibly empty:
 ///
 /// | field | meaning |
 /// |---|---|
@@ -131,289 +110,199 @@ pub const FACE_CAPTURE: u8 = 8;
 /// | `interior` | edges with both ends inside this box, drawn nowhere |
 /// | `group key` | the aggregation group it belongs to, or empty |
 ///
-/// Three facts in one slot because [`FACE_SLOTS`] is eight and this record
-/// already used seven: widening the face record would change the stride of
-/// every face in the protocol, and one space-separated triple is a much smaller
-/// thing to explain than that. Group keys contain no spaces
-/// (`agg:<kind>:<ulid>#<offset>`), so the split is unambiguous.
+/// Packed because [`FACE_SLOTS`] is eight and widening changes every face's
+/// stride. Group keys have no spaces (`agg:<kind>:<ulid>#<offset>`).
 ///
-/// The count is not optional decoration. `59` §3.6: a collapse that does not
-/// say how many it hid is *"a lie with fewer elements"*, so the number crosses
-/// the boundary with the box rather than being something the page could choose
-/// not to ask for.
+/// The count is mandatory: `59` §3.6, a collapse that does not say how many it hid
+/// is *"a lie with fewer elements"*.
 pub const FACE_BOX: u8 = 9;
 /// One routed line: from id · to id · edge kind · "1" when containment ·
 /// the points as `x,y x,y ...` · how many graph edges it stands for.
 pub const FACE_LINE: u8 = 10;
 /// The drawing's extent: width · height. One row, always first.
 ///
-/// When the caller passed a layer mask (`56` §4) the row carries four more
-/// slots: the mask as a decimal 5-bit number · boxes the mask hid · lines it hid
-/// · boxes drawn that `56` §4.1 has no row for. `slot_count` is 2 without a mask
-/// and 6 with one, so an empty slot 2 means *"no layer projection was applied"*
-/// and is a different claim from *"all five layers are on"* — the two differ by
-/// §4.1's inspector-only kinds.
+/// With a layer mask (`56` §4) the row carries four more slots: the mask as a
+/// decimal 5-bit number · boxes hidden · lines hidden · boxes drawn that `56` §4.1
+/// has no row for. `slot_count` is 2 without a mask and 6 with one, so an empty
+/// slot 2 means *"no layer projection was applied"*, distinct from *"all five
+/// layers are on"* (they differ by §4.1's inspector-only kinds).
 ///
-/// The counts travel because `59`'s governing rule applies to a layer toggle as
-/// much as to an aggregate: a picture that hides things without saying how many
-/// is a lie with fewer elements. The extent itself is the UNION layout's and
-/// does not change with the mask (`56` §3.6).
+/// The counts travel because hiding things without saying how many is a lie with
+/// fewer elements (`59`). The extent is the UNION layout's, unchanged by the mask
+/// (`56` §3.6).
 pub const FACE_CANVAS: u8 = 11;
 
-// --- ADR-0036's rack elevation ----------------------------------------------
+// --- ADR-0036's rack elevation ---
 //
-// Three roles rather than one, because the page must be able to tell a box
-// that fits from one that does not without re-deriving the arithmetic. A
-// single row kind with a status column would push that decision into the
-// JavaScript, and `fathom-inventory`'s own doc is explicit that the page
-// computes nothing.
+// Three roles, so the page tells a box that fits from one that does not without
+// re-deriving the arithmetic (`fathom-inventory`: the page computes nothing).
 //
-// 12/13/14, NOT 8/9/10: those were free when this was written and are now
-// FACE_CAPTURE, FACE_BOX and FACE_LINE on the tip. A face code is a wire
-// discriminant, so a collision would silently render one record kind as
-// another; the numbers moved on the rebase rather than the meanings.
+// 12/13/14, NOT 8/9/10 (now FACE_CAPTURE, FACE_BOX, FACE_LINE): a face code is a
+// wire discriminant, and a collision silently renders one kind as another.
 
-/// The frame itself, always record 0: display id · label · height in units ·
-/// the numbering token · the direction.
+/// The frame itself, always record 0: display id · label · height in units · the
+/// numbering token · the direction.
 ///
-/// THE DIRECTION SLOT HAS THREE STATES, not two: `1` for U1 at the floor, `0`
-/// for U1 at the top, and **EMPTY for "this build cannot read the token"**. It
-/// was two, with empty meaning descending, and that is what let an unreadable
-/// token be drawn ascending — the page had no way to tell "the rack says U1 is
-/// at the top" from "the rack says something I do not understand", so it drew
-/// both. The page must not re-derive the answer by comparing the token against
-/// the enum's spellings: that is a second copy of the schema in JavaScript.
-///
-/// The numbering token travels as text alongside it so an unrecognised token
-/// from a newer schema can be PRINTED rather than merely refused.
+/// THE DIRECTION SLOT HAS THREE STATES: `1` U1 at the floor, `0` U1 at the top,
+/// **EMPTY for "this build cannot read the token"**. With two states an
+/// unreadable token was drawn ascending. The page must not re-derive the answer
+/// from the token's spelling (a second copy of the schema in JavaScript). The
+/// token travels as text too, so an unrecognised one from a newer schema can be
+/// PRINTED.
 pub const FACE_RACK: u8 = 12;
 /// One placed box: chassis display id · device · chassis · position_u ·
 /// height_u (empty = never stated) · face · `1` when it overflows the frame.
 pub const FACE_RACK_SLOT: u8 = 13;
-/// One pair of boxes whose runs intersect: the two chassis display ids.
-/// Reported, never resolved — this face has no basis for choosing which of two
-/// conflicting assertions is right.
+/// One pair of boxes whose runs intersect: the two chassis display ids. Reported,
+/// never resolved: this face cannot tell which of two conflicting assertions is
+/// right.
 pub const FACE_RACK_CLASH: u8 = 14;
-/// The inventory's editable columns, one record per reply, immediately after
-/// the header and before the first row.
+/// The inventory's editable columns, one record per reply, after the header and
+/// before the first row.
 ///
-/// **It mirrors the header's slot layout exactly** — slot 0 is not a column,
-/// slots 1..=6 are the columns in order, slot 7 is the opinions column — so the
-/// page reads a column's key at the same index it read that column's name, and
-/// an off-by-one is not available to it. Slot 0 and slot 7 are always empty:
-/// neither is a field of the row, and the opinions column is a rule engine's,
-/// which this build does not have.
+/// **It mirrors the header's slot layout**: slot 0 is not a column, slots 1..=6
+/// are the columns in order, slot 7 is the opinions column. Slots 0 and 7 are
+/// empty (the opinions column belongs to a rule engine this build lacks).
 ///
-/// **A row's own slot 7 is not always empty any more (ADR-0041 D5/D7).** It
-/// packs `<opinions> <hints>`, opinions first and hints last because hints is
-/// the one half that is usually empty — [`FACE_BOX`]'s own precedent for
-/// packing more than one fact into the slot [`FACE_SLOTS`] leaves spare, and
-/// for putting the possibly-empty field last so a trailing space is
-/// unambiguous on a `split_once(' ')`. `hints` is `fathom_inventory::Row`'s
-/// own field: a comma-separated list of 0-based cell indices that
-/// `fathom_ingest::redact::looks_like_credential` flagged, computed where the
-/// row was built and never stored in the graph (ADR-0008 — it is an opinion
-/// about a value, not a fact). This KEY row's own slot 7 stays plain empty:
-/// the opinions/hints packing is a property of a data row, and this row
-/// carries none.
+/// **A data row's slot 7 is not always empty (ADR-0041 D5/D7).** It packs
+/// `<opinions> <hints>`, hints last because usually empty (as [`FACE_BOX`], so a
+/// trailing space is unambiguous on `split_once(' ')`). `hints` is
+/// `fathom_inventory::Row`'s comma-separated 0-based cell indices flagged by
+/// `fathom_ingest::redact::looks_like_credential`, computed when the row is built
+/// and never stored (ADR-0008: an opinion, not a fact). This KEY row's slot 7
+/// stays empty.
 ///
-/// Each column's slot holds `FieldKey` in decimal, or the empty string where
-/// the column cannot be typed into — because it is a walk, or because
-/// `fathom_inventory::is_authorable` says the schema's type for it cannot yet
-/// be parsed from text. `fathom_inventory::column_keys` decides; nothing here
-/// forms an opinion about it.
+/// Each slot holds `FieldKey` in decimal, or empty where the column cannot be typed
+/// into (a walk, or a type `fathom_inventory::is_authorable` says cannot be parsed
+/// from text); `fathom_inventory::column_keys` decides. A record, not a
+/// name-to-key table in the page, which could write one field into another's slot.
 ///
-/// A record rather than more slots on the header, because [`FACE_SLOTS`] is
-/// eight and the header already spends all eight. A record rather than a
-/// name-to-key table in the page, because the page must never hold one: that is
-/// how a form ends up writing one field into another's slot, and it is why
-/// `encode_element_reply` already sends the inspector's keys the same way.
-/// **29, not 15 — this was the third face-code collision in two days.**
-///
-/// 15 went to the shape digest, 16–19 to the findings view and 20–28 to rung 4,
-/// every one of them on a branch built in parallel with this one. The paragraph
-/// above warns that a face code is a wire discriminant and that a collision
-/// renders one record kind as another; three branches then demonstrated it in a
-/// row, which is the strongest argument available that the warning was not
-/// enough on its own.
-///
-/// `artifact.rs`'s `the_pages_face_codes_match_the_modules` is what catches it
-/// now, and it caught this one. Anyone adding a face should read the next free
-/// number out of this file rather than out of a memory of it.
+/// **29, not 15: the third face-code collision in two days** (15 went to the shape
+/// digest, 16–19 to findings, 20–28 to rung 4, on parallel branches).
+/// `artifact.rs`'s `the_pages_face_codes_match_the_modules` now catches it. Read the
+/// next free number out of this file.
 pub const FACE_INV_KEY: u8 = 29;
 
-// --- the config drawer's two line faces (ADR-0052 §2) -------------------------
+// --- the config drawer's two line faces (ADR-0052 §2) ---
 //
-// Two more roles on the same stride-72 record, for the reason every face
-// block above already gives: the reply is a list of labelled string rows,
-// which is what `KIND_FACE_ROW` already is. 30 and 31 are the next free
-// numbers after `FACE_INV_KEY`'s own note about how that number was chosen —
-// read the next free number out of THIS file, never out of a memory of it.
+// Two more roles on the stride-72 record, as every face block gives (the reply
+// is labelled string rows, `KIND_FACE_ROW`). 30 and 31 are the next free numbers
+// after `FACE_INV_KEY`'s note: read the next free number out of THIS file.
 
 /// One line's fate on a paste, one row per ledger line, in ledger order:
 /// `ordinal · outcome token · byte start · byte end · display id it built,
 /// or empty · built fields (comma-joined names), or empty · reason or label`.
 ///
-/// **The outcome token is one of four words — `built`, `kept`, `noise`,
-/// `quarantined` — never the Rust variant name.** `shell::line_rows` owns the
-/// mapping; a page rendering a gutter mark must not pattern-match a debug
-/// string, the same discipline [`FACE_PASTE_LINE`]'s neighbours already hold
-/// for every other closed set on this wire.
+/// **The outcome token is one of `built`, `kept`, `noise`, `quarantined`, never
+/// the Rust variant name** (`shell::line_rows` owns the mapping). `built` is
+/// `Bound`; `quarantined` is `Quarantined`; `noise` covers `Noise` and `Blank`;
+/// `kept` covers what the gate did not destroy and the binder did not use
+/// (`Unmapped`, `Unshaped`, `Header`): the drawer's "kept as text" mark.
 ///
-/// `built` is `LineOutcome::Bound`; `quarantined` is `LineOutcome::Quarantined`;
-/// `noise` covers `LineOutcome::Noise` and `LineOutcome::Blank` — text a
-/// terminal added or nothing at all, neither of which the operator composed;
-/// `kept` covers everything else the gate did not destroy and the binder did
-/// not use (`Unmapped`, `Unshaped`, `Header`) — the drawer's "kept as text"
-/// mark.
+/// **A line can carry both this row and a [`FACE_DROP`] row.** A statement whose
+/// value the gate destroyed (the PSK line) still binds, as a `SecretPlaceholder`
+/// (a successful parse of an absence), so the line is `built` and the destroyed
+/// value gets its own row on the second face.
 ///
-/// **A line can carry both this row and a [`FACE_DROP`] row.** A statement the
-/// dictionary knows AND whose value the gate destroyed — the PSK line — still
-/// binds: the field lands as a `SecretPlaceholder`, which is a successful
-/// parse of an absence, not a parse failure, so the line's own fate here is
-/// `built` while the destroyed value gets its own row on the second face.
-///
-/// Named `FACE_PASTE_LINE`, not `FACE_LINE` — code 10 already carries that
-/// name for the diagram's routed line, and a second Rust constant of the
-/// same name would not compile; a wire discriminant collision is exactly
-/// what `FACE_INV_KEY`'s own note above warns against.
+/// Not named `FACE_LINE`: that is the diagram's routed line (code 10).
 pub const FACE_PASTE_LINE: u8 = 30;
 /// One value the gate destroyed, one row per [`fathom_ingest::redact::DropManifest`]
-/// entry: `ordinal · marker byte start · marker byte end, both in the
-/// POST-GATE capture · label · detectors, comma-joined`.
+/// entry: `ordinal · marker byte start · marker byte end, both in the POST-GATE
+/// capture · label · detectors, comma-joined`.
 ///
-/// **No slot carries the original value's length, and that is the whole point
-/// of this face existing separately from [`FACE_PASTE_LINE`].**
-/// `RedactionEntry::orig_len` is declared "for the in-session report only;
-/// the persistence layer must not store it" (`14` §9.5) and this row is what
-/// crosses the wire into a page a browser can inspect, so it is never read
-/// here — `shell::drop_rows` does not even look at the field.
+/// **No slot carries the original value's length**, which is why this is separate
+/// from [`FACE_PASTE_LINE`]: `RedactionEntry::orig_len` is "for the in-session
+/// report only; the persistence layer must not store it" (`14` §9.5), and this row
+/// reaches a page a browser can inspect. `shell::drop_rows` never reads it.
 ///
-/// The marker span IS on the wire, and that is safe rather than an
-/// oversight: `redact::marker` writes a fixed string per label —
-/// `<REDACTED:psk>` and so on — so the span's width is a property of the
-/// LABEL, never of the secret it replaced. Two PSKs of different lengths
-/// produce identical-width marker spans; only the label ever varies it.
+/// The marker span IS on the wire, safely: `redact::marker` writes a fixed string
+/// per label (`<REDACTED:psk>`), so its width depends on the LABEL, not the secret.
 pub const FACE_DROP: u8 = 31;
 
-// --- the shape reply (`49` §19 phase 0, item 3) -------------------------------
+// --- the shape reply (`49` §19 phase 0, item 3) ---
 
-/// The held estate's shape digest — one row, slot 0, 16 lowercase hex
-/// characters. [`fathom_graph::shape_hex`] defines what is in it.
+/// The held estate's shape digest: one row, slot 0, 16 lowercase hex characters
+/// ([`fathom_graph::shape_hex`] defines what is in it). One slot, no counts: the
+/// page has the paste's summary from [`FACE_PASTE`].
 ///
-/// One slot and no counts. The page already has the paste's four summary
-/// numbers from [`FACE_PASTE`] and journals them itself, so repeating them here
-/// would be a second place for the same fact to be written and a second place
-/// for it to be wrong.
-///
-/// **The value is opaque to the page.** It compares two of these for equality
-/// and never parses, truncates, orders or displays one. That is deliberate: the
-/// digest is drift detection and is NOT tamper-evidence — FNV-1a is
-/// non-cryptographic by its own specification (RFC 9923, February 2026) — so no
+/// **The value is opaque to the page**: compared for equality, never parsed,
+/// truncated, ordered or displayed. It is drift detection, NOT tamper-evidence:
+/// FNV-1a is non-cryptographic by specification (RFC 9923, February 2026), so no
 /// surface may present it as a seal.
 pub const FACE_SHAPE: u8 = 15;
 
-// --- what the estate does not know yet (`57` §13.5.3) ------------------------
+// --- what the estate does not know yet (`57` §13.5.3) ---
 //
-// Four more roles on the stride-72 face record, for the reason FACE_PASTE
-// gives: the reply is a list of labelled string rows, which is what
-// KIND_FACE_ROW already is.
-//
-// 16–19. Nothing below 16 is free: 0–4 are WO-08's, 5–8 the paste's, 9–11 the
-// diagram's, 12–14 the rack's and 15 the shape digest's. THESE WERE 15–18 UNTIL
-// THE MERGE ON 2026-08-21, when the shape digest and this view both claimed 15
-// from parallel branches — the exact collision the paragraph below warns about,
-// arriving within a day of being written down. A face code is a wire discriminant, so a
-// collision renders one record kind as another (see FACE_RACK's note, which
-// records that happening).
+// Four more roles on the stride-72 record, codes 16–19 (nothing below 16 is free;
+// see FACE_RACK on collisions).
 //
 // NOT CALLED A FINDING ANYWHERE IN THE WIRE FORMAT. `.context/conventions.md`
-// reserves that word for "one rule firing against one node", and this build
-// has no rule engine. What these rows carry is a GAP: a `card: "1"` field with
-// no stored value. The view is named Findings because it is one of `52`'s six
-// views; its content is not findings and must not claim to be.
+// reserves that word for "one rule firing against one node", and this build has
+// no rule engine. These rows carry a GAP: a `card: "1"` field with no stored
+// value. The view is named Findings because it is one of `52`'s six views; its
+// content is not findings and must not claim to be.
 
 /// The one summary row, always record 0: gap groups · unstated facts · live
 /// elements walked · kinds present · kinds the estate holds none of.
 pub const FACE_GAP_HEAD: u8 = 16;
-/// One gap group — a kind, a required field, and how many lack it:
-/// kind · field · missing · population · examples carried · the sentence ·
-/// `1` when a person can type this field's value today.
+/// One gap group: kind · field · missing · population · examples carried · the
+/// sentence · `1` when a person can type this field's value today.
 ///
-/// The sentence is composed in `fathom-inventory` and travels whole. The page
-/// renders strings and computes nothing, and "2 of 5" is a computation.
-///
-/// Slot 6 is the uncomfortable one, and being uncomfortable is why it is here:
-/// both gaps a real estate produces in this build are fields nothing can type
-/// in, so a row that reads as a job is not one yet. `Gap::authorable` carries
-/// the reasoning.
+/// The sentence is composed in `fathom-inventory` and travels whole: the page
+/// computes nothing ("2 of 5" is a computation). Slot 6 is uncomfortable on
+/// purpose: both gaps a real estate produces here are fields nothing can type in,
+/// so a row that reads as a job is not one yet (`Gap::authorable`).
 pub const FACE_GAP: u8 = 17;
-/// One element under the group above it: display id · display name · kind ·
-/// the group's index as a decimal string.
-///
-/// The index rather than a nesting depth, because the page has to be able to
-/// reassemble the tree from a flat record list and record ORDER is not a
-/// contract anything else in this protocol relies on.
+/// One element under the group above it: display id · display name · kind · the
+/// group's index as a decimal string. The index, not a nesting depth, because the
+/// page reassembles the tree from a flat list and record ORDER is not a contract
+/// anything else here relies on.
 pub const FACE_GAP_ITEM: u8 = 18;
 /// A kind the estate holds none of: kind · how many required fields went
 /// unchecked.
 ///
-/// Emitted so the view can distinguish "zero because they are all complete"
-/// from "zero because there are none" — the second being the true state of
-/// `Cable` and `PhysicalPort`, which nothing in this build creates (`57`
-/// §6.2). A list that silently reported nothing for them would be telling an
-/// operator their cabling was finished.
+/// Lets the view tell "zero because all are complete" from "zero because there
+/// are none" (the true state of `Cable` and `PhysicalPort`, which nothing in this
+/// build creates, `57` §6.2). Silence would tell an operator their cabling was
+/// finished.
 pub const FACE_GAP_EMPTY: u8 = 19;
 
-// --- inside the box, the ladder's fourth rung (`57` §7) ----------------------
+// --- inside the box, the ladder's fourth rung (`57` §7) ---
 //
-// Eight roles on the same stride-72 record and no new record kind, for the
-// reason the paste reply's block already gives: a reply that is a list of
-// labelled string rows is exactly what `KIND_FACE_ROW` is.
-//
-// The bands are FLAT and each child names its parent by display id, rather
-// than the page reassembling them from record order. `FACE_GAP_ITEM` set that
-// precedent one block up and its reason holds here too — record order is not
-// a contract anything else in this protocol relies on, and a renderer that
-// depends on one breaks silently the day a band is emitted somewhere else.
+// Eight roles on the stride-72 record. The bands are FLAT and each child names its
+// parent by display id, as `FACE_GAP_ITEM` does: relying on record order breaks
+// silently if a band is emitted elsewhere.
 
-/// The head, always record 0: device display id · hostname · interfaces ·
-/// units · zones · policy sets · policies · `<routing instances> <tunnels>
-/// <unzoned units>`.
+/// The head, always record 0: device display id · hostname · interfaces · units ·
+/// zones · policy sets · policies · `<routing instances> <tunnels> <unzoned
+/// units>` (three decimals in slot 7, as [`FACE_BOX`]).
 ///
-/// Slot 7 is three space-separated decimals, which is [`FACE_BOX`]'s own
-/// documented compromise and is taken here for the same reason: `FACE_SLOTS`
-/// is eight, widening the face record would change the stride of every face in
-/// the protocol, and three decimals in one slot is a much smaller thing to
-/// explain than that.
-///
-/// **Every number is a count of live elements this build actually walked.**
-/// The page prints them and computes none of them (ADR-0019).
+/// **Every number counts live elements this build walked.** The page prints them
+/// and computes none (ADR-0019).
 pub const FACE_INSIDE: u8 = 20;
 /// One interface: display id · name · schema kind word · unit count.
 pub const FACE_IN_IFACE: u8 = 21;
-/// One logical unit: display id · its interface's display id · label ·
-/// addresses joined `, ` · zone display id · zone name · tunnel name.
+/// One logical unit: display id · its interface's display id · label · addresses
+/// joined `, ` · zone display id · zone name · tunnel name.
 ///
-/// Slots 4–6 are empty rather than an em dash where there is nothing. The
-/// page owns how absence is said, so there is one convention for it and not
-/// two — see `Unit::zone`.
+/// Slots 4–6 are empty, not an em dash, where there is nothing: the page owns how
+/// absence is said (`Unit::zone`).
 pub const FACE_IN_UNIT: u8 = 22;
 /// One zone: display id · name · member units.
 pub const FACE_IN_ZONE: u8 = 23;
 /// One policy set: display id · what the graph can say about the zone pair it
 /// governs, **empty on every estate this build can produce** · policy count.
 ///
-/// Slot 1's emptiness is the honest half of `57` §6.3 and is documented at
-/// `fathom_inventory::SetBand::scope`: `PolicyScope` is a unit struct, so a
-/// `PolicySet` cannot name the pair it sits between. The page says so in
-/// words and draws no edge into this band.
+/// Slot 1's emptiness is the honest half of `57` §6.3
+/// (`fathom_inventory::SetBand::scope`): `PolicyScope` is a unit struct, so a
+/// `PolicySet` cannot name its pair. The page says so in words and draws no edge
+/// into this band.
 pub const FACE_IN_SET: u8 = 24;
 /// One security policy: display id · its set's display id · ordinal · name ·
 /// action · `1`/`0`/empty for enabled · description.
 ///
-/// Emitted in `ordinal` order, which is **the order the device reads them**
-/// and is the one clause of `57` §6.3 that is both exact and buildable.
+/// Emitted in `ordinal` order, **the order the device reads them**: the one
+/// clause of `57` §6.3 that is both exact and buildable.
 pub const FACE_IN_POLICY: u8 = 25;
 /// One routing instance: display id · name.
 pub const FACE_IN_ROUTE: u8 = 26;
@@ -425,9 +314,9 @@ pub const FACE_IN_TUNNEL: u8 = 28;
 
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
-/// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or
-/// the text after it is not UTF-8. Distinct from `ERR_BAD_FRAME` so the page
-/// can tell a malformed call from a paste the parser refused.
+/// The paste frame is shorter than its fixed 24-byte clock+entropy prefix, or the
+/// text after it is not UTF-8. Distinct from `ERR_BAD_FRAME` so the page can tell
+/// a malformed call from a paste the parser refused.
 pub const ERR_PASTE_FRAME: u16 = 7;
 /// `fathom_ingest::ingest` refused the input before parsing it: not UTF-8, or
 /// past `14` §11.4's caps.
@@ -435,138 +324,104 @@ pub const ERR_INGEST_REFUSED: u16 = 8;
 /// The weld refused to apply the fragment. The detail carries the refusal.
 pub const ERR_WELD_REFUSED: u16 = 9;
 /// The paste parsed without error and **bound nothing**: not one line became a
-/// fact. Almost always the wrong text — a config from another vendor, or Junos
-/// in its curly-brace form rather than `| display set`.
+/// fact. Almost always the wrong text: another vendor's config, or Junos in
+/// curly-brace form rather than `| display set`.
 ///
-/// It is a distinct code because it is not a failure of the paste so much as a
-/// failure of the *choice* of paste, and the page's remedy is different: tell
-/// the operator what Fathom expected and keep what they already had.
+/// A distinct code because it is a failure of the *choice* of paste, and the
+/// remedy differs: tell the operator what Fathom expected and keep what they had.
 pub const ERR_NOTHING_UNDERSTOOD: u16 = 10;
 
-/// A hand-entered value is not what the schema declares that field to be — a
+/// A hand-entered value is not what the schema declares the field to be: a
 /// misspelt role, an out-of-range member index, a hostname that is not an
 /// identifier.
 ///
-/// Distinct from `ERR_BAD_FRAME` because it is not a protocol fault: the frame
-/// was well-formed and the person simply typed something the field cannot hold.
-/// The page's remedy differs accordingly — keep the form open, keep what they
-/// typed, and say which field and why.
+/// Distinct from `ERR_BAD_FRAME`: the frame was well-formed and the person typed
+/// something the field cannot hold. The page keeps the form open and their input,
+/// and says which field and why.
 pub const ERR_FIELD_VALUE: u16 = 11;
 
-/// The hand-entry frame itself is malformed: too short for its prefix, a field
-/// count that overruns the buffer, a key that names nothing in `schema/`. A
-/// page defect rather than an operator one.
+/// The hand-entry frame is malformed: too short for its prefix, a field count
+/// overrunning the buffer, or a key naming nothing in `schema/`. A page defect,
+/// not an operator one.
 pub const ERR_EQUIP_FRAME: u16 = 12;
 
-/// The store refused a hand-authored write — a cardinality bound, a reused
-/// provenance id, a containment rule. Carries the store's own words: these are
-/// the errors that mean Fathom's model disagrees with what was asked for, and
-/// paraphrasing them would lose the only diagnosis available.
+/// The store refused a hand-authored write: a cardinality bound, a reused
+/// provenance id, a containment rule. Carries the store's own words; paraphrase
+/// would lose the only diagnosis (Fathom's model disagrees with the request).
 pub const ERR_EQUIP_STORE: u16 = 13;
 
 /// A paste arrived before the dictionary did.
 ///
-/// A real state since 2026-08-15, when the statement dictionary stopped being
-/// compiled into the module and started arriving over `OP_DICT`. Before that
-/// the module could always fall back on `include_str!`; now there is nothing to
-/// fall back on, and the two wrong answers are a panic and a silent empty
-/// parse. The second is worse: an empty dictionary matches no statement, so
-/// every line becomes residue and the page would report a perfectly well-formed
-/// config as *"none of these lines is one Fathom knows"*, blaming the operator
-/// for a boot the page failed to complete.
+/// The dictionary arrives over `OP_DICT` rather than being compiled in, so there is
+/// nothing to fall back on. A silent empty parse is the worst answer: every line
+/// becomes residue and a well-formed config is reported as *"none of these lines is
+/// one Fathom knows"*, blaming the operator for an incomplete boot.
 ///
-/// Distinct from `ERR_NOT_INITIALISED`, which already means two other things
-/// (no corpus for `OP_QUERY`, no estate for the face opcodes). The remedy here
-/// is the page's and only the page's: call `OP_DICT` first.
+/// Distinct from `ERR_NOT_INITIALISED`. The remedy is the page's: call `OP_DICT`
+/// first.
 pub const ERR_NO_DICTIONARY: u16 = 14;
 
-/// `OP_LINK` refused: the schema does not admit this link between these two
-/// boxes, or there is no such link to cut.
+/// `OP_LINK` refused: the schema does not admit this link between these boxes, or
+/// there is no such link to cut. Distinct from `ERR_NO_ELEMENT`: both ids resolved
+/// and the refusal is about the pair.
 ///
-/// Distinct from `ERR_NO_ELEMENT`, which means *"I cannot find that id"*. Here
-/// both ids resolved and the refusal is about the pair.
-///
-/// **The detail is empty for the schema refusal, and that is deliberate.** The
-/// sentence an operator reads — *"nothing in the schema connects a Device to a
-/// Rack"* — names both kinds, and the page picked both boxes so it knows both
-/// kinds. Building that sentence in the module measured 345 bytes against
-/// `44` §5.2's ceiling, which the artifact's own budget can absorb for nothing.
-/// The cut refusal carries its short sentence because the page cannot know
-/// whether a link was there.
+/// **The detail is empty for the schema refusal, deliberately**: the page picked
+/// both boxes and knows both kinds, and the sentence cost 345 bytes against `44`
+/// §5.2's ceiling. The cut refusal carries a short sentence since the page cannot
+/// know whether a link existed.
 pub const ERR_NO_LINK: u16 = 15;
 
-/// **Not a failure — a question.** `OP_LINK` found more than one edge kind the
-/// schema admits between those two boxes, wrote nothing, and the detail is the
-/// candidate kinds' declared names separated by single spaces.
+/// **Not a failure: a question.** `OP_LINK` found more than one edge kind the schema
+/// admits between those boxes and wrote nothing. The detail is the candidate
+/// kinds' names separated by single spaces; the page offers the choice and posts
+/// the chosen name back in the same frame.
 ///
-/// It travels as an error record because that is what refusing to write *is*,
-/// and because a bespoke reply shape measured over a kilobyte of module to
-/// carry a list of names this record already carries. The page splits on the
-/// space, offers the choice, and posts the chosen name back in the same frame.
-///
-/// A code of its own so the page can tell a question from a failure without
-/// reading prose: `78` §6's floor is about not guessing, and a page that
-/// pattern-matched an English sentence to decide whether to show a chooser
-/// would be guessing.
+/// An error record because refusing to write is one, and a bespoke reply shape cost
+/// over a kilobyte. A code of its own so the page need not read prose (`78` §6:
+/// not guessing).
 pub const ERR_LINK_CHOICE: u16 = 16;
 
-/// The paste names a device the design already holds, and Fathom will not
-/// guess whether they are the same box.
+/// The paste names a device the design already holds, and Fathom will not guess
+/// whether they are the same box.
 ///
-/// **This code exists because the thing that used to stand in for it was
-/// removed.** `70` §16.3 settled the collision question by deferring it:
+/// **This replaces a guard that was removed.** `70` §16.3: *"a tier-1 match is a
+/// proposal to a human, not an automatic merge, because two real branch sites may
+/// both run a `core-01` SRX on the same platform. Until it is designed, `OP_PASTE`
+/// replaces the held estate and says so, which is the behaviour that cannot
+/// silently merge two boxes."* Making the paste additive removed that guard (the
+/// second paste of a box used to yield one device only because it destroyed the
+/// first), so the question must exist.
 ///
-/// > a tier-1 match is a **proposal to a human, not an automatic merge**,
-/// > because two real branch sites may both run a `core-01` SRX on the same
-/// > platform. **Until it is designed, `OP_PASTE` replaces the held estate and
-/// > says so, which is the behaviour that cannot silently merge two boxes.**
+/// The message carries the existing device's display id and hostname so the page
+/// can name it. The page turns it into buttons and **never picks**.
 ///
-/// Making the paste additive removes that guard, so the proposal has to exist.
-/// It cannot ship bare.
-///
-/// **What replacing was actually doing.** Pasting the same box twice yielded
-/// one device — because the second paste destroyed the first. That is not
-/// correlation; it is amnesia that happens to look like correlation from one
-/// angle. This code replaces it with a question, which is the truth about what
-/// Fathom knows.
-///
-/// The message carries the existing device's display id and hostname so the
-/// page can name it. The page turns it into buttons and **never picks** — the
-/// same contract `ERR_LINK_CHOICE` has, and for the same reason.
-///
-/// **There is exactly one button.** *"These are different boxes — add it"*
-/// re-posts the frame with `confirm = 1`. The other one a reader expects —
-/// *"same box, update it"* — is `11` §10.4's re-identification, which has no
-/// implementation anywhere in this tree, and the refusal says so in words
-/// rather than offering a control that would lie.
+/// **Exactly one button:** *"These are different boxes — add it"* re-posts with
+/// `confirm = 1`. *"Same box, update it"* is `11` §10.4's re-identification, which
+/// is unimplemented, and the refusal says so rather than offering a control that
+/// would lie.
 pub const ERR_PASTE_CHOICE: u16 = 17;
 
-/// `OP_CABLE`'s frame carries a count byte and this build refuses any value
-/// but `1` (ADR-0038 D7). Not a limit on how many cables an estate may hold —
-/// a limit on how many one CALL may write, so a future range-cabling frame
-/// that sends more fails loudly on this build rather than silently
-/// truncating to the first record.
+/// `OP_CABLE`'s frame carries a count byte and this build refuses any value but
+/// `1` (ADR-0038 D7). Not a limit on how many cables an estate holds but on how
+/// many one CALL writes, so a future range-cabling frame fails loudly here
+/// rather than silently truncating to the first record.
 pub const ERR_CABLE_COUNT: u16 = 18;
 
-/// `OP_CABLE`'s frame named an end spec that does not resolve: not a live
-/// port, not a live device or chassis, both ends naming the same port, tag
-/// `3` (`ExternalPeer`, reserved and unbuilt), or tag `2` (unknown) on the
-/// near end — an unknown end is legal only where the operator does not know
-/// the FAR one.
+/// `OP_CABLE`'s frame named an end spec that does not resolve: not a live port,
+/// not a live device or chassis, both ends the same port, tag `3`
+/// (`ExternalPeer`, reserved and unbuilt), or tag `2` (unknown) on the near end;
+/// an unknown end is legal only on the FAR one.
 ///
-/// The detail is empty, deliberately, and for `ERR_NO_LINK`'s reason: the
-/// page sent both ends and already knows what it sent.
+/// The detail is empty, for `ERR_NO_LINK`'s reason: the page knows what it sent.
 pub const ERR_CABLE_END: u16 = 19;
 
 /// `OP_CABLE`'s cut named something that does not resolve to a live `Cable`.
 pub const ERR_NO_CABLE: u16 = 20;
 
-/// `OP_LOAD_PLAIN` or `OP_EXPORT_PLAIN` refused: `fathom_workspace::read_plain`
-/// or `write_plain` returned an error, carried whole (ADR-0052 §4) — wrong
-/// magic, an unsupported face version, a missing plaintext banner, a schema
-/// version this build does not match, or a malformed body. The detail is the
-/// store's own words, for the same reason `ERR_WELD_REFUSED` carries them
-/// whole rather than paraphrasing.
+/// `OP_LOAD_PLAIN` or `OP_EXPORT_PLAIN` refused: `fathom_workspace::read_plain` or
+/// `write_plain` returned an error, carried whole (ADR-0052 §4): wrong magic,
+/// unsupported face version, missing plaintext banner, schema version mismatch, or
+/// malformed body. The store's own words, as `ERR_WELD_REFUSED` carries.
 pub const ERR_PLAIN_REFUSED: u16 = 21;
 
 /// How many string slots one face record carries.
@@ -575,10 +430,10 @@ const FACE_SLOTS: usize = 8;
 /// The fixed header: magic, version, record_kind, record_count, record_stride.
 const HEADER_LEN: usize = 16;
 
-// --- encoding ----------------------------------------------------------------
+// --- encoding ---
 
-/// Encode §4.4's OP_INIT frame from bare-named sources. The reference
-/// encoder: WO-08's build step and this crate's tests both use it.
+/// Encode §4.4's OP_INIT frame from bare-named sources. The reference encoder,
+/// used by WO-08's build step and this crate's tests.
 pub fn pack_corpus(files: &[SourceFile]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&(files.len() as u32).to_le_bytes());
@@ -592,24 +447,22 @@ pub fn pack_corpus(files: &[SourceFile]) -> Vec<u8> {
     out
 }
 
-/// The wire tag for a corpus section. Public so a decoder can invert the
-/// encoder instead of carrying a second copy of the mapping — the artifact
-/// tests read the frame back out of the assembled page and need to name the
-/// sections it carries.
+/// The wire tag for a corpus section. Public so a decoder can invert the encoder
+/// rather than carry a second mapping (the artifact tests read the frame back out
+/// of the assembled page).
 pub fn section_byte(section: fathom_corpus::Section) -> u8 {
     match section {
         fathom_corpus::Section::Commands => 0,
         fathom_corpus::Section::Explainers => 1,
         fathom_corpus::Section::Rules => 2,
-        // 3, appended, because 0..=2 are already on the wire in every frame
-        // built to date and renumbering them would be a silent reinterpretation
-        // rather than a rejection.
+        // 3, appended: 0..=2 are on the wire in every frame built so far, and
+        // renumbering would silently reinterpret them rather than reject.
         fathom_corpus::Section::Concepts => 3,
     }
 }
 
 /// The trailing string blob under construction, with the `(offset, len)` pairs
-/// the records carry into it.
+/// the records carry.
 #[derive(Default)]
 struct Blob {
     bytes: Vec<u8>,
@@ -706,89 +559,59 @@ fn row_flags(r: &Ranked, e: &Entry) -> u8 {
     f
 }
 
-/// ADR-0027 §2's test, and nothing else's: an entry **that has not been run on
-/// a box** renders as unverified.
+/// ADR-0027 §2's test and nothing else's: an entry **that has not been run on a
+/// box** renders as unverified.
 ///
-/// It keys on `verified_on` and NOT on `reviewed_by`, and the difference is the
-/// entire point of the label. 61 §3.1: *"Absent ⇒ the entry renders an
-/// `unverified` margin tab."* 52 §3.2 says the same — *"or renders unverified
-/// when `verified_against` is null"*.
+/// It keys on `verified_on`, NOT `reviewed_by`. 61 §3.1: *"Absent ⇒ the entry
+/// renders an `unverified` margin tab."* Keying on `reviewed_by` was a bug: once
+/// the queued named expert review lands, `reviewed_by` becomes a real name on all
+/// 98 entries with none ever run on hardware, every stamp would flip to
+/// "reviewed", `ROW_UNVERIFIED` would clear and the corpus line would claim every
+/// entry was reviewed. A safety label that disarms itself on a scheduled action is
+/// worse than none. (ADR-0008 licenses adding `verified_on` to the loader, not
+/// redefining a safety label.)
 ///
-/// THE BUG THIS REPLACED, because it is worth naming. Until 2026-08-15 this
-/// keyed on `reviewed_by`, justified in a comment that said `61` §3 has no
-/// `verified_on` field. §3.1 declares it on line 218; what was actually true
-/// was narrower — `fathom_corpus`'s loader did not *parse* it — and ADR-0008
-/// licenses adding the field to the loader, not redefining a safety label to
-/// mean something the label's own ADR does not say. The consequence was
-/// concrete: the named expert review of `corpus/` is already queued (CLAUDE.md's
-/// owner-blocking list), and the day it lands `reviewed_by` becomes a real name
-/// on all 98 entries with zero of them ever run on hardware — at which point
-/// every stamp would have flipped to "reviewed", the ROW_UNVERIFIED bit would
-/// have cleared, the dotted pending rule would have gone solid, and the corpus
-/// line would have read "every one reviewed by a named human". A safety label
-/// that disarms itself on a scheduled action is worse than no label.
-///
-/// Invariant 10's separate fact is not dropped — see `has_named_reviewer` and
-/// `review_line`. It is reported as itself.
+/// Invariant 10's separate fact is reported as itself: `has_named_reviewer`,
+/// `review_line`.
 fn is_unverified(e: &Entry) -> bool {
     e.verified_on.is_none()
 }
 
-/// Invariant 10's test, and the same one `fathom_corpus::gates` applies: a
-/// `reviewed_by` that opens with `<` is the `<named human>` placeholder rather
-/// than a person. Empty counts too — an absent reviewer is not a reviewed
-/// entry, and the two must not render differently.
+/// Invariant 10's test, as `fathom_corpus::gates` applies it: a `reviewed_by`
+/// opening with `<` is the `<named human>` placeholder, not a person. Empty
+/// counts too.
 ///
-/// Deliberately NOT folded into `is_unverified`. Two facts, two states, four
-/// combinations, and the corpus will pass through at least two of them: today
-/// every entry is both unreviewed and unrun, and the next thing to change is
-/// the reviewer.
+/// Deliberately NOT folded into `is_unverified`: two facts, four combinations,
+/// and the corpus will pass through at least two (today every entry is both
+/// unreviewed and unrun; the reviewer changes next).
 fn has_named_reviewer(e: &Entry) -> bool {
     let r = e.reviewed_by.trim();
     !r.is_empty() && !r.starts_with('<')
 }
 
-/// ADR-0027 §3's stamp, composed from what the corpus actually holds and from
-/// nothing else.
+/// ADR-0027 §3's stamp, composed only from what the corpus holds.
 ///
-/// The ADR's worked form is `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor`
-/// — three facts: platform-and-train, a date, a name. All three are now
-/// reachable, but the DATE needs care, and this is the one place the shipped
-/// string deviates from the ADR's:
+/// The ADR's form is `junos-srx 21.4R3 · verified 2026-05-12 · K. Okafor`. The DATE
+/// deviates: `61` §3.1 declares `verified_on` as `{ platform, version }` with no
+/// date, and the only date declared is `reviewed_on` (when someone read the entry,
+/// not ran it). Printing it after `verified` would assert a bench date the corpus
+/// lacks, so it is labelled for what it is. Inventing `verified_on.date` would
+/// breach ADR-0008.
 ///
-/// `61` §3.1 declares `verified_on` as `{ platform, version }` — a box, with no
-/// date in it. The only date §3.1 declares is `reviewed_on`, and that is when
-/// somebody read the entry, not when somebody ran it. Printing it straight after
-/// the word `verified` would assert a bench date the corpus does not carry, so
-/// the date is labelled by what it actually is. The rejected alternative was
-/// inventing `verified_on.date` to match the ADR's string exactly, which is the
-/// ADR-0008 breach the previous version of this function wrongly claimed it was
-/// avoiding by keying the whole label on `reviewed_by` instead.
-///
-/// The verified form takes its platform and train from `verified_on` — the box
-/// that was actually used — and never from the entry's own `platform`/`versions`,
-/// which say what the entry is *for*. That distinction is why the unverified
-/// form prints no train at all: there is no verified train, and a version number
-/// sitting in the slot that means "the box we ran it on" is the exact confusion
-/// this stamp exists to prevent. An entry's applicable trains are `16` §19.5's
-/// "not on your train" caveat and belong to the row, not to its provenance line.
+/// The verified form takes platform and train from `verified_on` (the box used),
+/// never the entry's `platform`/`versions` (what it is *for*), so the unverified
+/// form prints no train. Applicable trains are `16` §19.5's "not on your train"
+/// caveat and belong to the row.
 fn verification_stamp(e: &Entry) -> String {
     match &e.verified_on {
-        // FOUR ARMS, NOT THREE. The two facts are independent — a bench run and
-        // a named reviewer — so there are four states and the stamp must name
-        // all four. The three-arm version asserted `reviewed … by {reviewed_by}`
-        // on any verified entry without ever asking whether `reviewed_by` was a
-        // person, so an entry run on a box before the expert review renders
+        // FOUR ARMS, NOT THREE: a bench run and a named reviewer are independent. Three
+        // arms printed `reviewed … by {reviewed_by}` on any verified entry without asking
+        // whether it was a person, so a run-before-review entry rendered
         //
         //     junos-srx 21.4R3 · verified · reviewed 2026-07-28 by <named human>
         //
-        // — invariant 10's literal placeholder printed as though it were a
-        // human, in a line that opens with the word `verified`. Unreachable in
-        // the shipped corpus, which has zero bench runs, and reachable the day
-        // ADR-0027 §1's conformance lab lands before the review, an ordering
-        // ADR-0027 §5 explicitly contemplates by tracking the placeholder as its
-        // own blocker. The two `None` arms already made this distinction; this
-        // one did not, which is the whole defect.
+        // : invariant 10's placeholder as though it were a human, in a line opening with
+        // `verified`. Reachable if ADR-0027 §1's conformance lab lands before the review.
         Some(v) if has_named_reviewer(e) => format!(
             "{} {} · verified · reviewed {} by {}",
             v.platform, v.version, e.reviewed_on, e.reviewed_by
@@ -797,9 +620,8 @@ fn verification_stamp(e: &Entry) -> String {
             "{} {} · verified on a box · NO NAMED REVIEWER (invariant 10)",
             v.platform, v.version
         ),
-        // Both missing facts are named. An entry with a real reviewer and no
-        // bench run must not read the same as one with neither, or the corpus
-        // cannot show its own progress.
+        // Both missing facts are named: a real reviewer and no bench run must not read
+        // as neither, or the corpus cannot show its progress.
         None if has_named_reviewer(e) => format!(
             "{} · unverified — not run on a box · reviewed {} by {}",
             e.platform, e.reviewed_on, e.reviewed_by
@@ -811,19 +633,15 @@ fn verification_stamp(e: &Entry) -> String {
     }
 }
 
-/// The corpus-wide review line, carried on the summary record of every query
-/// reply so the finder cannot render results without rendering this.
+/// The corpus-wide review line, carried on every query reply's summary record so
+/// the finder cannot render results without it. Counted here, not stated in the
+/// page.
 ///
-/// It is counted here rather than stated in the page, because a page holding
-/// the number `98` would still be holding it on the day someone runs an entry.
-///
-/// TWO COUNTS, NOT ONE, and this is the structural half of the ADR-0027 fix.
-/// The line before this reported a single number keyed on `reviewed_by` and
-/// went silent when it hit zero — so the queued expert review would have taken
-/// the alarm down while the hardware count stayed at 98. Reporting both means
-/// completing the review changes the sentence, honestly, and does not end it.
-/// The line only goes quiet when both are zero, which is the state ADR-0027 §2
-/// actually describes.
+/// TWO COUNTS, NOT ONE (the structural half of the ADR-0027 fix): a count keyed on
+/// `reviewed_by` went silent at zero, so the queued review would have taken the
+/// alarm down while the hardware count stayed at 98. With both, completing the
+/// review changes the sentence without ending it; the line goes quiet only when
+/// both are zero (ADR-0027 §2).
 pub fn review_line(index: &CorpusIndex) -> String {
     let entries = &index.corpus.entries;
     let total = entries.len();
@@ -834,11 +652,9 @@ pub fn review_line(index: &CorpusIndex) -> String {
             "{total} command entries · every one run on a box and reviewed by a named human"
         );
     }
-    // Built by appending rather than by collecting into a Vec and joining:
-    // byte-identical output, and measured 2026-08-15 the join form costs 107
-    // more wasm bytes (890,366 vs 890,259) against 44 §5.2's 900,000 ceiling.
-    // A small number, kept because it is free — the two forms are the same
-    // length to read — and because the ceiling is the binding constraint here.
+    // Built by appending, not collecting and joining: identical output, and the
+    // join form cost 107 more wasm bytes (890,366 vs 890,259) against 44 §5.2's
+    // 900,000 ceiling, the binding constraint.
     let mut line = format!("{total} command entries");
     if unverified > 0 {
         line.push_str(&format!(
@@ -875,7 +691,7 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
 
-    // Record 0 — the query summary. `risk` is 0 and not meaningful here.
+    // Record 0, the query summary. `risk` is 0 and not meaningful here.
     let captures = match &result.reverse {
         None => String::new(),
         Some(rev) => rev
@@ -900,12 +716,10 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
             None => String::new(),
             Some(rev) => rev.leftover.join(" "),
         }),
-        // Slot 5 on the summary is the corpus's own review state. It rides the
-        // reply every query already makes rather than a second opcode, so there
-        // is no ordering in which the page can have rows on screen and not have
-        // this line.
+        // Slot 5 on the summary is the corpus's review state. It rides the reply every
+        // query makes, so rows cannot be on screen without this line.
         blob.push(&review_line(idx)),
-        // s6 is the risk caption on a result row and is meaningless here.
+        // s6 is the risk caption on a result row; meaningless here.
         (0, 0),
     ];
     write_finder_record(
@@ -964,10 +778,10 @@ pub fn encode_query_reply(finder: &Finder, result: &SearchResult) -> Vec<u8> {
     out
 }
 
-// --- the face encoders (WO-08 §4.4) ------------------------------------------
+// --- the face encoders (WO-08 §4.4) ---
 
-/// One face record before it becomes 72 bytes. The encoders copy the
-/// projections' strings verbatim; nothing is recomputed here.
+/// One face record before it becomes 72 bytes. The encoders copy the projections'
+/// strings verbatim; nothing is recomputed here.
 struct FaceRecord {
     role: u8,
     slot_count: u32,
@@ -985,7 +799,7 @@ fn write_face_record(out: &mut Vec<u8>, r: &FaceRecord) {
 }
 
 /// Push a record's slots s0–s7 into the blob in order; empty slots contribute
-/// nothing, and there is no de-duplication (invariant 9).
+/// nothing, with no de-duplication (invariant 9).
 fn face_slots(blob: &mut Blob, role: u8, slot_count: u32, slots: &[&str]) -> FaceRecord {
     let mut strings = [(0u32, 0u32); FACE_SLOTS];
     for (i, s) in slots.iter().take(FACE_SLOTS).enumerate() {
@@ -1027,10 +841,9 @@ pub fn encode_inv_reply(
     let rec = face_slots(&mut blob, FACE_HEADER, slot_count, &header_slots);
     write_face_record(&mut records, &rec);
 
-    // [`FACE_INV_KEY`]: which columns a person may type into, at the same slot
-    // index the header put their names. Written from `keys` verbatim — this
-    // function decides nothing about editability, it carries what
-    // `fathom_inventory::column_keys` said.
+    // [`FACE_INV_KEY`]: which columns a person may type into, at the slot index the
+    // header put their names. Written from `keys` verbatim; this decides nothing
+    // about editability (`fathom_inventory::column_keys` does).
     let decimals: Vec<String> = keys
         .iter()
         .map(|k| k.map(|k| k.0.to_string()).unwrap_or_default())
@@ -1051,18 +864,16 @@ pub fn encode_inv_reply(
         while slots.len() < FACE_SLOTS - 1 {
             slots.push("");
         }
-        // `<opinions> <hints>` (ADR-0041 D5/D7, this constant's own doc
-        // comment above [`FACE_INV_KEY`]). `hints` is the common-case-empty
-        // half and sits last for the same reason `FACE_BOX`'s group key
-        // does: a token appended after it is unambiguous on `split(' ')`
-        // where one inserted before it would not be.
+        // `<opinions> <hints>` (ADR-0041 D5/D7; see [`FACE_INV_KEY`]). `hints` is the
+        // usually-empty half, last as `FACE_BOX`'s group key is, so a token after it is
+        // unambiguous on `split(' ')`.
         let slot7 = format!("{} {}", row.opinions, row.hints);
         slots.push(slot7.as_str());
         let rec = face_slots(&mut blob, FACE_INV, slot_count, &slots);
         write_face_record(&mut records, &rec);
     }
 
-    // 2 = the header and the key row. Both are chrome; neither is a row.
+    // 2 = the header and the key row; chrome, not rows.
     face_reply(records, 2 + rows.len(), blob)
 }
 
@@ -1084,16 +895,13 @@ fn write_element(
     );
     write_face_record(records, &rec);
     for f in &page.fields {
-        // Slot 3 is the field's wire key and slot 4 is whether it can be typed
-        // in. Both travel WITH the row rather than being looked up on the page,
-        // because a name-to-key table in JavaScript is how a form ends up
-        // writing one field into another's slot. Slot 5 is ADR-0041 D7's hint
-        // bit — `fathom_inventory::element::FieldRow.hint` — carried the same
-        // way and for the same reason `Row.hints` rides on `FACE_INV`'s slot
-        // 7: this face's own field table (`renderMeaningFace`, reached from
-        // both the inventory's details pane and the diagram's) is a second
-        // rendering of the value, and it inherits the mark rather than the
-        // page re-deciding it.
+        // Slot 3 is the field's wire key, slot 4 whether it can be typed in. Both travel
+        // WITH the row, since a name-to-key table in JavaScript is how a form ends up
+        // writing one field into another's slot. Slot 5 is ADR-0041 D7's hint bit
+        // (`fathom_inventory::element::FieldRow.hint`), carried as `Row.hints` rides on
+        // `FACE_INV`'s slot 7: this face's field table (`renderMeaningFace`, reached
+        // from the inventory's details pane and the diagram's) inherits the mark rather
+        // than the page re-deciding it.
         let key = f.key.0.to_string();
         let rec = face_slots(
             blob,
@@ -1171,24 +979,16 @@ pub fn encode_equipment_reply(page: Option<&fathom_inventory::EquipmentPage>) ->
     face_reply(records, count, blob)
 }
 
-/// One rack's elevation (ADR-0035): the frame, every box in it, then every
-/// clash.
+/// One rack's elevation (ADR-0035): the frame, every box in it, then every clash.
 ///
-/// Overflow rows are emitted with the fitting ones and flagged in slot 6,
-/// rather than being dropped or clipped to the frame. A 42U rack holding a box
-/// recorded at U48 is a data error somebody must see, and drawing it at U42
-/// would destroy the evidence while looking tidy.
-///
-/// Numbers arrive as decimal strings, for the reason `PasteReply` gives: the
-/// page prints them, and a string cannot be read at the wrong width by a
-/// `DataView`. The page does compute one thing from them — the `y` of a rect —
-/// and that is the whole reason the elevation is cheap.
+/// Overflow rows are emitted and flagged in slot 6, not dropped or clipped: a 42U
+/// rack holding a box recorded at U48 is a data error somebody must see. Numbers
+/// are decimal strings (see `PasteReply`); the page computes only a rect's `y`.
 pub fn encode_rack_reply(e: Option<&fathom_inventory::Elevation>) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
-    // `None` is the empty state, not an error — the same convention
-    // `encode_equipment_reply` uses: no rack selected, or a rack whose
-    // `height_u` was never stated and so cannot be drawn.
+    // `None` is the empty state, as in `encode_equipment_reply`: no rack selected, or
+    // one whose `height_u` was never stated and cannot be drawn.
     let Some(e) = e else {
         return face_reply(records, 0, blob);
     };
@@ -1221,9 +1021,8 @@ pub fn encode_rack_reply(e: Option<&fathom_inventory::Elevation>) -> Vec<u8> {
         .chain(e.overflow.iter().map(|s| (s, true)))
     {
         let pos = slot.position_u.to_string();
-        // An unstated height is an EMPTY slot, never "1". The page draws one
-        // unit and marks it; collapsing the two here would turn "nobody said"
-        // into a measurement, which is the one thing this face must not do.
+        // An unstated height is an EMPTY slot, never "1". The page draws one unit and
+        // marks it; collapsing the two would turn "nobody said" into a measurement.
         let h = slot.height_u.map(|v| v.to_string()).unwrap_or_default();
         let rec = face_slots(
             &mut blob,
@@ -1252,15 +1051,13 @@ pub fn encode_rack_reply(e: Option<&fathom_inventory::Elevation>) -> Vec<u8> {
     face_reply(records, count, blob)
 }
 
-/// What one paste produced: the summary row, then the lines that were not
-/// understood, then the references that were named and not found.
+/// What one paste produced: the summary row, then the lines not understood, then
+/// the references named and not found.
 ///
-/// Numbers arrive as strings. That is deliberate: every one of them is a count
-/// the page prints and never computes with, and a decimal string cannot be
-/// read as the wrong width by a `DataView`. `summary[2]` is the **total**
-/// residue count, which may exceed `residue.len()` when the caller capped the
-/// rows — the page can then say how many it is not showing rather than
-/// implying it showed them all.
+/// Numbers are strings: each is a count the page prints and never computes with,
+/// and a decimal string cannot be read at the wrong width. `summary[2]` is the
+/// **total** residue count, which may exceed `residue.len()` when the caller
+/// capped the rows, so the page can say how many it is not showing.
 pub struct PasteReply<'a> {
     /// nodes · edges · residue lines · secrets redacted · unresolved ·
     /// device display id · hostname · platform.
@@ -1269,25 +1066,25 @@ pub struct PasteReply<'a> {
     pub residue: &'a [[String; 3]],
     /// what was named · the edge kind that wanted it · line number.
     pub unresolved: &'a [[String; 3]],
-    /// The post-redaction text, for the page's journal. Empty for replies that
-    /// are not a paste.
+    /// The post-redaction text, for the page's journal. Empty for replies that are
+    /// not a paste.
     pub capture: &'a str,
     /// The shape digest of the estate this paste built — [`FACE_SHAPE`].
     pub shape: &'a str,
     /// [`FACE_PASTE_LINE`] rows, one per ledger line, in ledger order. Empty for
-    /// replies this face does not apply to (`equip_reply_text` and the door
-    /// opcodes' own tiny summaries reuse this encoder with none of it).
+    /// replies this face does not apply to (`equip_reply_text` and the door opcodes'
+    /// summaries reuse this encoder without it).
     pub lines: &'a [[String; 7]],
     /// [`FACE_DROP`] rows, one per destroyed value.
     pub drops: &'a [[String; 5]],
 }
 
-/// The diagram, as face rows. Numbers travel as decimal strings for the same
-/// reason every other face row does: one decoder in the page, not two.
+/// The diagram, as face rows. Numbers travel as decimal strings, as in every face
+/// row: one page decoder, not two.
 ///
 /// `filter` is `Some` exactly when the caller asked for a layer mask. It is
-/// reported rather than merely obeyed: the page prints the mask it got back, so
-/// a picture and its toggles can never disagree about which layers produced it.
+/// reported, not just obeyed: the page prints the mask it got back, so a picture
+/// and its toggles cannot disagree about which layers produced it.
 pub fn encode_diagram(
     d: &fathom_layout::Diagram,
     filter: Option<&fathom_layout::layers::Filter>,
@@ -1329,20 +1126,15 @@ pub fn encode_diagram(
             n.w.to_string(),
             n.h.to_string(),
         );
-        // `<count> <interior> <placed> <role> <group>`, the group possibly empty
-        // and therefore last. The placed flag rides in this slot rather than in
-        // a ninth of its own for one reason and it is measured: the module has
-        // 3,903 bytes of headroom against `44` §5.2's ceiling, a ninth slot is a
-        // ninth `face_slots` argument and another blob offset per box, and the
-        // group is the only token here that can be empty — so a token inserted
-        // *before* it is unambiguous where one appended after it would not be.
-        // ADR-0037's role is inserted at position 3 for exactly that reason, and
-        // it carries `-` when absent rather than an empty string: two adjacent
-        // empty tokens would collapse into one on a `split(' ')` and the page
-        // would read the group key as the role. `-` is not a schema token
-        // (`62` §7 variant names are `[a-z_]+`), so it cannot collide with a
-        // real one. The page reads `parts[2]` as the flag, `parts[3]` as the
-        // role and `parts[4]` as the key.
+        // `<count> <interior> <placed> <role> <group>`; the possibly-empty group is last,
+        // so a token inserted *before* it is unambiguous. The placed flag rides in this
+        // slot because a ninth slot costs another `face_slots` argument and blob offset
+        // per box, against 3,903 bytes of headroom under `44` §5.2.
+        //
+        // ADR-0037's role is at position 3 and is `-` when absent: two adjacent empty
+        // tokens collapse on `split(' ')` and the page would read the group key as the
+        // role. `-` is not a schema token (`62` §7 variants are `[a-z_]+`). The page reads
+        // `parts[2]` flag, `parts[3]` role, `parts[4]` key.
         let agg = format!(
             "{} {} {} {} {}",
             n.count,
@@ -1380,13 +1172,10 @@ pub fn encode_diagram(
             pts.push_str(&y.to_string());
         }
         let members = l.members.to_string();
-        // Slot 6 (`hand`) was APPENDED after the five that were already on the
-        // wire; slot 7 (`cable`, ADR-0038) is APPENDED after that, and is the
-        // last one `FACE_SLOTS = 8` allows. The page reads slots by index, so
-        // inserting anywhere else would have silently reinterpreted every
-        // existing row rather than rejected it — the same reasoning
-        // ADR-0035's placed flag records for the box row, where the flag went
-        // before the only possibly-empty token.
+        // Slot 6 (`hand`) was APPENDED after the five already on the wire; slot 7
+        // (`cable`, ADR-0038) after that, the last `FACE_SLOTS = 8` allows. The page
+        // reads slots by index, so inserting elsewhere would silently reinterpret every
+        // existing row rather than reject it (as with ADR-0035's placed flag).
         let rec = face_slots(
             &mut blob,
             FACE_LINE,
@@ -1411,14 +1200,9 @@ pub fn encode_diagram(
 /// What the estate does not know yet: the head row, every gap group with its
 /// examples, then every kind the estate holds none of.
 ///
-/// An estate with nothing missing is `record_count = 1` — the head row alone,
-/// with zeros in it. It is never an error and never an empty reply, because
-/// "nothing is missing" is an answer the view has to be able to state plainly
-/// and a caller cannot tell an empty reply from a call that did not happen.
-///
-/// Counts arrive as decimal strings for the reason `encode_rack_reply` gives:
-/// the page prints them, and a string cannot be read at the wrong width by a
-/// `DataView`.
+/// An estate with nothing missing is `record_count = 1`, the head row with zeros:
+/// never an error or an empty reply, since an empty reply cannot be told from a
+/// call that did not happen. Counts are decimal strings, as in `encode_rack_reply`.
 pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
@@ -1493,14 +1277,11 @@ pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
 
 /// Inside one box, as records (`57` §7).
 ///
-/// `None` is the empty state and not an error, the convention
-/// [`encode_rack_reply`] and `encode_equipment_reply` already use: the display
-/// id named something that is not a live `Device`, and the page says so rather
-/// than showing a diagnostic.
+/// `None` is the empty state, not an error (as [`encode_rack_reply`] and
+/// `encode_equipment_reply`): the display id named something that is not a live
+/// `Device`, and the page says so rather than showing a diagnostic.
 ///
-/// Counts arrive as decimal strings for the reason [`encode_rack_reply`]
-/// gives: the page prints them, and a string cannot be read at the wrong width
-/// by a `DataView`.
+/// Counts are decimal strings, as in [`encode_rack_reply`].
 pub fn encode_inside_reply(i: Option<&fathom_inventory::Inside>) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
@@ -1543,10 +1324,9 @@ pub fn encode_inside_reply(i: Option<&fathom_inventory::Inside>) -> Vec<u8> {
         write_face_record(&mut records, &rec);
         count += 1;
         for u in &w.units {
-            // Joined here rather than in the page: `55` §1.4 the other way
-            // round — a string a reader is shown is a string this side
-            // composed. Two addresses on one unit is ordinary (inet plus
-            // inet6) and the join is the only computation in the band.
+            // Joined here, not in the page: `55` §1.4 the other way round, a string a
+            // reader is shown is composed on this side. Two addresses on one unit is
+            // ordinary (inet plus inet6); the join is the band's only computation.
             let addrs = u.addresses.join(", ");
             let rec = face_slots(
                 &mut blob,
@@ -1668,10 +1448,9 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
         }
     }
 
-    // Two optional tail rows, each present only when its string is. The
-    // arithmetic counts what was written rather than assuming, because
-    // `equip_reply_text` reuses this encoder for replies that are not pastes and
-    // have neither.
+    // Two optional tail rows, each present only when its string is. The arithmetic
+    // counts what was written, since `equip_reply_text` reuses this encoder for
+    // replies that are not pastes and have neither.
     let mut extra = 0;
     if !reply.capture.is_empty() {
         let rec = face_slots(&mut blob, FACE_CAPTURE, 1, &[reply.capture]);
@@ -1707,14 +1486,13 @@ pub fn encode_paste_reply(reply: &PasteReply<'_>) -> Vec<u8> {
 }
 
 /// `OP_REDACT_TEXT`'s reply (ADR-0053 §6): the gated text, then what the gate
-/// destroyed. No summary row, no lines, no shape — those belong to a paste
-/// that reached the binder, and this door stops before it.
+/// destroyed. No summary, lines or shape: those belong to a paste that reached
+/// the binder, and this door stops before it.
 pub struct RedactReply<'a> {
-    /// The post-redaction text — [`FACE_CAPTURE`], always present, even when
-    /// the gate touched nothing.
+    /// The post-redaction text ([`FACE_CAPTURE`]), always present, even when the gate
+    /// touched nothing.
     pub capture: &'a str,
-    /// [`FACE_DROP`] rows, one per destroyed value — the same shape
-    /// `PasteReply::drops` carries.
+    /// [`FACE_DROP`] rows, one per destroyed value, as `PasteReply::drops`.
     pub drops: &'a [[String; 5]],
 }
 
@@ -1734,10 +1512,10 @@ pub fn encode_redact_reply(reply: &RedactReply<'_>) -> Vec<u8> {
     face_reply(records, 1 + reply.drops.len(), blob)
 }
 
-// --- decoding ----------------------------------------------------------------
+// --- decoding ---
 
-/// The reference reader — the decoder tests parity against, and the byte-
-/// level specification WO-08's TypeScript reader mirrors.
+/// The reference reader: what decoder tests check parity against, and the
+/// byte-level specification WO-08's TypeScript reader mirrors.
 #[derive(Debug, Clone)]
 pub struct FinderRowView {
     pub role: u8,
@@ -1801,8 +1579,8 @@ fn string_at(blob: &[u8], bytes: &[u8], off: usize) -> Result<String, String> {
         .map_err(|e| format!("string ref at offset {off} is not UTF-8: {e}"))
 }
 
-/// Refuses a bad magic, version, kind, stride, count, or out-of-blob string
-/// ref with a message naming the offset. Empty input decodes to Empty.
+/// Refuses a bad magic, version, kind, stride, count, or out-of-blob string ref
+/// with a message naming the offset. Empty input decodes to Empty.
 pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
     if bytes.is_empty() {
         return Ok(ReplyView::Empty);

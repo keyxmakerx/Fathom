@@ -1,50 +1,31 @@
 //! The repository layer: accounts, organisations, membership, and the scope
 //! hierarchy (`organisation -> network -> building -> rack`).
 //!
-//! `docs/PHASE-2-STORAGE-DESIGN.md` §1 calls this half "Identity" and
-//! "Structure" -- low sensitivity, must be queryable -- as distinct from
-//! "Designs" and "Vault", which sit behind the master key. **That boundary is
-//! no longer an open question**: ADR-0043 answered A1 and the hierarchy is
-//! built in `keys` and `designs`. Nothing in *this* file writes a design
-//! payload, a credential or a wrapped key; what it now also provides is
-//! [`TenantContext`], the pinned tenant those modules take instead of a bare
-//! organisation id (§4: *"never taken from the row being read"*).
+//! Low-sensitivity, queryable data (`docs/PHASE-2-STORAGE-DESIGN.md` §1). Nothing
+//! here writes a design payload, credential or wrapped key. It also provides
+//! [`TenantContext`], the pinned tenant that `keys` and `designs` take instead of a
+//! bare organisation id (§4).
 //!
 //! # Tenant isolation, done twice
 //!
-//! `docs/PHASE-2-STORAGE-DESIGN.md` §7: row-level security **and**
-//! application filtering, neither alone. Every function that touches
-//! `organisations`, `memberships` or `scopes` opens its own transaction,
-//! calls [`authorise`] -- which sets two transaction-scoped settings, per
-//! `src/db.rs`'s standing rule that nothing may depend on which pooled
-//! connection a request gets -- and *also* names the tenant explicitly in
-//! every `WHERE` clause. RLS is the backstop for the day one of those clauses
-//! is missing; it is deliberately not the only thing standing between two
-//! tenants' rows.
+//! §7: row-level security **and** application filtering. Every function touching
+//! `organisations`, `memberships` or `scopes` opens its own transaction, calls
+//! [`authorise`] (two transaction-scoped settings, per `src/db.rs`: nothing may
+//! depend on which pooled connection a request gets), and also names the tenant in
+//! every `WHERE`. RLS backstops a missing clause; it is not the only barrier.
 //!
-//! ## What that second layer is, and what it is not
+//! ## What the second layer is not
 //!
-//! **Both layers rest on a `tenant` and an `actor` this module is handed.
-//! There is no authentication layer yet** (`docs/OPEN-QUESTIONS.md` B1-B9,
-//! C2), so whoever calls these functions is trusted, by construction, to say
-//! truthfully which account is acting. Nothing below changes that, and this
-//! file must not be read as if something did.
+//! Both layers rest on a `tenant` and `actor` this module is handed. There is no
+//! authentication layer here (`docs/OPEN-QUESTIONS.md` B1-B9, C2), so callers are
+//! trusted to name the acting account truthfully.
 //!
-//! What [`authorise`] does buy, and the reason the order of its three steps
-//! is not arbitrary: `app.tenant_id` is set **after** the membership row has
-//! been found, never before. So the setting every policy reads is not a
-//! restatement of the caller's own argument -- it is a value the database
-//! agreed to, because a real membership row was read back under the acting
-//! account's own identity first. That read is itself policy-governed:
-//! `memberships_readable` (migration 0003) shows an account its own rows in
-//! any organisation, which is exactly the branch this needs and exactly the
-//! branch no write may use. A caller naming a tenant it has no membership in
-//! never opens a tenant context at all.
-//!
-//! So RLS is an independent filter against *the clause that goes missing*,
-//! which is the failure §7 names. It is not, and must not be described as, a
-//! defence against a caller that lies about who is acting. That defence is
-//! authentication, and it does not exist yet.
+//! [`authorise`] sets `app.tenant_id` only **after** a membership row is read back
+//! under the acting account's own identity (`memberships_readable`, migration
+//! 0003), so the setting is a value the database agreed to, not a copy of the
+//! caller's argument. RLS thus filters *the clause that goes missing* (§7); it does
+//! not defend against a caller that lies about who is acting. That is
+//! authentication's job.
 
 use core::fmt;
 use core::str::FromStr;
@@ -56,9 +37,7 @@ use fathom_id::{DecodeError, Ulid};
 
 use crate::ids::new_ulid;
 
-// ---------------------------------------------------------------------------
-// Identifiers
-// ---------------------------------------------------------------------------
+// ---- Identifiers ----
 
 macro_rules! ulid_id {
     ($(#[$doc:meta])* $name:ident) => {
@@ -67,9 +46,8 @@ macro_rules! ulid_id {
         pub struct $name(pub Ulid);
 
         impl $name {
-            // `pub(crate)`, not private: `designs` mints a `DesignId` and
-            // must not reach past this macro to `ids::new_ulid` to do it --
-            // every id in this server is minted in exactly one place.
+            // `pub(crate)`: `designs` mints a `DesignId` through this macro, so every id in
+            // the server is minted in one place.
             pub(crate) fn new() -> Self {
                 Self(new_ulid())
             }
@@ -101,41 +79,35 @@ ulid_id!(
     AccountId
 );
 ulid_id!(
-    /// An organisation's id -- the tenant boundary everything else hangs off.
+    /// An organisation's id: the tenant boundary.
     OrganisationId
 );
 ulid_id!(
-    /// A scope node's id -- one row in the `organisation -> network ->
-    /// building -> rack` hierarchy.
+    /// A scope node's id: one row in the `organisation -> network -> building -> rack`
+    /// hierarchy.
     ScopeId
 );
 ulid_id!(
-    /// A design's id. Opaque, and the ONLY way a design is addressed
-    /// server-side: `migrations/0007_key_hierarchy_and_designs.sql` gives
-    /// `designs` no name column at all, because a plaintext one would be the
-    /// side door `docs/PHASE-2-STORAGE-DESIGN.md` §11.3 cost 3 names.
+    /// A design's id. Opaque, and the only way a design is addressed server-side:
+    /// `designs` has no name column, since a plaintext one would be the side door
+    /// `docs/PHASE-2-STORAGE-DESIGN.md` §11.3 cost 3 names.
     DesignId
 );
 
 ulid_id!(
     /// A staged firmware image's id (ADR-0045, migration `0017`).
     ///
-    /// **This id is also the file's name on disk**, which is why it is minted
-    /// here like every other id rather than anywhere near the filesystem: a
-    /// ULID's encoding is twenty-six characters of Crockford base32, so it can
-    /// hold no separator, no dot and no `..`. `firmware::storage_name`
-    /// re-validates that alphabet before it joins anything to a directory, and
-    /// `0017`'s own `CHECK` says the same thing a third time.
+    /// **This id is also the file's name on disk.** A ULID is 26 Crockford base32
+    /// characters, so it holds no separator, dot or `..`. `firmware::storage_name`
+    /// re-validates that alphabet before joining it to a directory, and `0017`'s
+    /// `CHECK` says the same.
     FirmwareImageId
 );
 
-// ---------------------------------------------------------------------------
-// Small enums
-// ---------------------------------------------------------------------------
+// ---- Small enums ----
 
-/// Deliberately minimal (brief: "enough to distinguish who may administer an
-/// organisation from who may use it; the full permission model is not this
-/// task").
+/// Deliberately minimal: enough to tell who may administer an organisation from
+/// who may use it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Role {
     Admin,
@@ -159,8 +131,7 @@ impl Role {
     }
 }
 
-/// The three levels the scope hierarchy holds beneath an organisation
-/// (`docs/PHASE-2-STORAGE-DESIGN.md` §2).
+/// The three levels beneath an organisation (`docs/PHASE-2-STORAGE-DESIGN.md` §2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScopeKind {
     Network,
@@ -186,8 +157,8 @@ impl ScopeKind {
         }
     }
 
-    /// What kind the parent of a scope of this kind must be. `None` means "no
-    /// parent at all" -- only a network may be a root.
+    /// The kind a parent of this kind must have. `None` means no parent: only a
+    /// network may be a root.
     fn expected_parent_kind(self) -> Option<Self> {
         match self {
             Self::Network => None,
@@ -205,9 +176,7 @@ impl ScopeKind {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Rows
-// ---------------------------------------------------------------------------
+// ---- Rows ----
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Account {
@@ -236,15 +205,13 @@ pub struct Scope {
     pub parent_scope_id: Option<ScopeId>,
     pub kind: ScopeKind,
     pub display_name: String,
-    /// The materialised path: opaque scope ids, dot-separated, root first,
-    /// ending in `id`. Never a name -- see the migration's header.
+    /// The materialised path: opaque scope ids, dot-separated, root first, ending in
+    /// `id`. Never a name.
     pub path: String,
     pub depth: i16,
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+// ---- Errors ----
 
 #[derive(Debug)]
 pub enum RepoError {
@@ -252,28 +219,25 @@ pub enum RepoError {
     Db(tokio_postgres::Error),
     NoSuchParent,
     NoSuchScope,
-    /// The acting account is not a member of the tenant it is trying to act
-    /// in. Application-layer filtering, on top of the RLS that would also
-    /// have hidden the rows -- §7's "both, neither alone".
+    /// The acting account is not a member of the tenant. Application-layer filtering
+    /// on top of RLS (§7).
     NotAMember,
-    /// The acting account is a member, but the operation is one only an
-    /// administrator of the organisation may perform.
+    /// A member, but the operation needs an administrator.
     NotAnAdmin,
-    /// A row this transaction read and then wrote was changed underneath it
-    /// by another transaction, and the write matched nothing as a result.
-    /// **Returned rather than `Ok(())`**: a caller told an estate-of-record
-    /// change succeeded when it did not is worse than a caller told to retry.
+    /// A row this transaction read and then wrote was changed by another transaction,
+    /// and the write matched nothing. **Returned rather than `Ok(())`**: reporting
+    /// success for an estate-of-record change that did not happen is worse than
+    /// asking for a retry.
     ConcurrentModification,
-    /// A scope of this kind may not sit under a parent of the kind given (or
-    /// under no parent at all, if `expected` is `None`).
+    /// A scope of this kind may not sit under a parent of the kind given (or under no
+    /// parent, if `expected` is `None`).
     WrongKindForParent {
         expected: Option<ScopeKind>,
     },
-    /// Moving a scope under itself or one of its own descendants.
+    /// Moving a scope under itself or one of its descendants.
     WouldCreateCycle,
-    /// A row this process itself wrote could not be read back as what it is
-    /// supposed to be. Should be unreachable given the migration's `CHECK`
-    /// constraints; kept explicit rather than panicking on a row decode.
+    /// A row this process wrote could not be read back as what it should be. Should
+    /// be unreachable given the migration's `CHECK`s; explicit rather than a panic.
     Corrupt(&'static str),
 }
 
@@ -328,30 +292,19 @@ impl fmt::Display for RepoError {
 
 impl std::error::Error for RepoError {}
 
-// ---------------------------------------------------------------------------
-// Tenant context -- see the module doc and `migrations/0002_identity_and_scope.sql`.
-// ---------------------------------------------------------------------------
+// ---- Tenant context (module doc; `migrations/0002_identity_and_scope.sql`) ----
 
-/// Sets the two transaction-local settings every RLS policy in
-/// `0002_identity_and_scope.sql` and `0003_write_side_isolation.sql` reads.
+/// Sets the two transaction-local settings every RLS policy in `0002` and `0003`
+/// reads.
 ///
-/// **Only [`create_organisation`] may use this.** Everything else goes
-/// through [`authorise`], which will not open a tenant context until a
-/// membership row says it may. Creating an organisation is the one case where
-/// no such row can exist yet -- the organisation being contextualised does
-/// not exist until this transaction creates it -- so the check [`authorise`]
-/// makes has nothing to read.
+/// **Only [`create_organisation`] may use this**: everything else goes through
+/// [`authorise`], and a new organisation has no membership row yet.
 ///
-/// **`SELECT set_config(name, value, true)`, never `SET LOCAL name = value`.**
-/// The two are equivalent for the third argument `true` (`is_local`), but
-/// `set_config` is a plain function call, so it can bind `$1`/`$2` as query
-/// parameters. `SET` cannot take a bound parameter in its value position --
-/// only a literal -- and building that literal by formatting a string into
-/// SQL is exactly the injection shape this project avoids everywhere else. As
-/// a function call, `is_local = true` scopes the setting to the current
-/// transaction; it is gone the instant that transaction ends, commit or
-/// rollback, and never visible to whatever request the pool hands this
-/// connection to next.
+/// **`SELECT set_config(name, value, true)`, never `SET LOCAL`.** `set_config` binds
+/// `$1`/`$2` as parameters, while `SET` takes only a literal (formatting one into
+/// SQL is the injection shape this project avoids). `is_local = true` drops the
+/// setting at commit or rollback, so it never leaks to the next request on the
+/// connection.
 async fn set_tenant_context(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -370,22 +323,18 @@ async fn set_tenant_context(
     Ok(())
 }
 
-/// Application-layer half of §7's "both, neither alone", and the thing that
-/// makes the other half mean something: confirm the acting account really
-/// holds a membership row in this tenant, and only then open the tenant
-/// context the policies read.
+/// The application-layer half of §7: confirm the acting account holds a membership
+/// row in this tenant, and only then open the tenant context.
 ///
-/// **The order is the point.** Setting `app.tenant_id` first would make the
-/// policies' view of the world a copy of the caller's own argument -- see the
-/// module doc. Instead:
+/// **The order is the point**: setting `app.tenant_id` first would make the
+/// policies' view a copy of the caller's argument.
 ///
-/// 1. `app.account_id` is set, and nothing else. The only rows visible now
-///    are the ones `memberships_readable` shows an account about itself.
-/// 2. The membership is read *through* that policy. No row, no context.
-/// 3. `app.tenant_id` is set, from a tenant a stored row just vouched for.
+/// 1. Set `app.account_id` only; `memberships_readable` then shows an account just
+///    its own rows.
+/// 2. Read the membership *through* that policy. No row, no context.
+/// 3. Set `app.tenant_id`, from a tenant a stored row just vouched for.
 ///
-/// Returns the role, so a caller that needs more than membership -- see
-/// [`add_member`] -- can ask for it without a second query.
+/// Returns the role, so [`add_member`] needs no second query.
 async fn authorise(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -415,17 +364,11 @@ async fn authorise(
     Ok(role)
 }
 
-/// **The pinned tenant.** `docs/PHASE-2-STORAGE-DESIGN.md` §4: *"the tenant
-/// key is pinned from the authenticated request context for the request's
-/// lifetime, and never taken from the row being read. This is what actually
-/// preserves cross-tenant separation."*
-///
-/// That sentence is a rule about code, so it is made into a type. Nothing
-/// outside this module can build one — the fields are private and
-/// [`open_tenant_context`] is the only constructor — and everything in `keys`
-/// and `designs` takes one instead of an `OrganisationId`. There is therefore
-/// no signature anywhere in the key hierarchy that could be handed an
-/// organisation id read out of a row.
+/// **The pinned tenant.** §4: *"the tenant key is pinned from the authenticated
+/// request context for the request's lifetime, and never taken from the row being
+/// read."* Made a type: fields are private, [`open_tenant_context`] is the only
+/// constructor, and `keys` and `designs` take one instead of an `OrganisationId`,
+/// so no signature in the key hierarchy can be handed an id read out of a row.
 #[derive(Clone, Copy, Debug)]
 pub struct TenantContext {
     tenant: OrganisationId,
@@ -439,9 +382,8 @@ impl TenantContext {
         self.tenant
     }
 
-    /// The account the caller said is acting. See the module doc: there is no
-    /// authentication layer yet, and this is not a defence against a caller
-    /// that lies about that.
+    /// The account the caller said is acting. Not a defence against a caller that
+    /// lies about that (module doc).
     pub fn actor(&self) -> AccountId {
         self.actor
     }
@@ -452,24 +394,18 @@ impl TenantContext {
     }
 }
 
-/// Open a tenant context: [`authorise`], then the design capability, then a
-/// value the key hierarchy will accept.
+/// Open a tenant context: [`authorise`], then the design capability, then a value
+/// the key hierarchy will accept.
 ///
 /// **`app.design_capability` is set from a verified authorisation and nothing
-/// else** (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §11.1). It is set to `no`
-/// *before* anything is examined, so a code path that returns early, panics or
-/// simply forgets leaves the setting at a refusal — the empty string is
-/// already a refusal too, so the failure direction is closed either way. Only
+/// else** (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §11.1). It is set to `no` first,
+/// so an early return, panic or omission leaves a refusal (empty refuses too). Only
 /// a membership row read back through the database's own policy turns it into
-/// `yes`, and `design_payload`'s policies in
-/// `migrations/0007_key_hierarchy_and_designs.sql` require that exact string.
+/// `yes`, and `design_payload`'s policies
+/// (`migrations/0007_key_hierarchy_and_designs.sql`) require that exact string.
 ///
-/// **What this capability means today, stated so it is not over-read:**
-/// membership of the organisation, and nothing finer. Scope grants
-/// (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`'s `0005 authority`) do not exist
-/// yet; when they do, the narrower check goes here, at this one line, and
-/// every query written against `design_payload` in the meantime inherits it
-/// without being edited.
+/// Today it means organisation membership and nothing finer. When scope grants
+/// exist, the narrower check goes here and every `design_payload` query inherits it.
 pub async fn open_tenant_context(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -496,37 +432,23 @@ pub async fn open_tenant_context(
     })
 }
 
-// ---------------------------------------------------------------------------
-// The one context that is not built from a membership row
-// ---------------------------------------------------------------------------
+// ---- The one context not built from a membership row ----
 
-/// Turn on `app.key_custody` for the rest of this transaction, so
-/// `tenant_keys` can be **enumerated** deployment-wide.
+/// Turn on `app.key_custody` for the rest of this transaction, so `tenant_keys` can
+/// be **enumerated** deployment-wide.
 ///
-/// `migrations/0010_entry_type_belongs_to_kind.sql` §F carries the full
-/// reasoning; the short version is that there is one active master key per
-/// database, so a re-wrap is deployment-wide whether anyone wanted it to be,
-/// and re-wrapping the tenants you happened to name leaves the rest openable
-/// under neither key. To re-wrap every tenant you must first know which
-/// tenants there are, and every key table is behind `FORCE ROW LEVEL
-/// SECURITY` keyed on `app.tenant_id` — which with no tenant set returns zero
-/// rows, silently. That is invariant 11's failure at runtime.
+/// Reasoning: `migrations/0010_entry_type_belongs_to_kind.sql` §F (which calls this
+/// `repo::open_key_custody_context`). One active master key per database makes a
+/// re-wrap deployment-wide, and re-wrapping only some tenants would leave the rest
+/// openable under neither key. Every key table is `FORCE ROW LEVEL SECURITY` keyed
+/// on `app.tenant_id`, which with no tenant set silently returns zero rows.
 ///
-/// **The only caller is `keys::rewrap_master_key`**, which is not reachable
-/// from any request path, and the policy it unlocks is `FOR SELECT` on one
-/// table. `set_config(..., true)` scopes the setting to this transaction, so
-/// it is gone at commit or rollback and is never visible to whatever the pool
-/// hands this connection to next — the same mechanism, and the same argument,
-/// as `app.design_capability`.
+/// **The only caller is `keys::rewrap_master_key`**, unreachable from any request
+/// path; the policy is `FOR SELECT` on one table.
 ///
-/// **This is not a second way to read a tenant's designs.** It unlocks
-/// `tenant_keys` and nothing else, every row it exposes is a wrapped key whose
-/// wrapping key is not in this database, and `app.design_capability` stays at
-/// its refusal.
-///
-/// `migrations/0010_entry_type_belongs_to_kind.sql` §F refers to this
-/// function under the name `repo::open_key_custody_context`, which was never
-/// used — this is that function, for anyone grepping from the migration.
+/// **This is not a second way to read designs**: it unlocks `tenant_keys` only (each
+/// row a wrapped key whose wrapping key is not in this database), and
+/// `app.design_capability` stays at its refusal.
 pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
@@ -538,32 +460,14 @@ pub(crate) async fn enter_key_custody(tx: &Transaction<'_>) -> Result<(), RepoEr
     Ok(())
 }
 
-/// Point the tenant-scoped policies at one organisation during a
-/// deployment-wide key custody change.
-///
-/// **No membership is checked and none exists to check**, which is why this is
-/// a separate function with its own name rather than a flag on
-/// [`open_tenant_context`]. A re-wrap is an operator act on the deployment's
-/// own key material; there is no account that is a member of every
-/// organisation, and inventing one — or borrowing some steward's identity to
-/// sign the entry — would put a false actor in the one record that must not
-/// contain any. The organisation id comes from the enumeration in
-/// [`enter_key_custody`], inside the same transaction, and never from a
-/// request.
-///
-/// `app.account_id` is set to the empty string, which every policy that reads
-/// it already treats as a refusal, so nothing an account may do becomes
-/// possible here.
 /// Point the tenant-scoped policies at one organisation for **§1.1's operator
 /// suspend verb**, which has no membership to open a context from.
 ///
-/// `grants::suspend_grant_by_operator` is the only caller and the argument for
-/// the crossing is on `keys::tenant_key_for`. What this function adds over
-/// [`set_custody_tenant`] is the one line that matters: `app.design_capability`
-/// is set to its refusal FIRST and is never set to anything else on this path,
-/// so an operator transaction that names a tenant still reaches no design
-/// payload — §1.3's sightlessness, kept by the same mechanism that keeps it
-/// everywhere else rather than by this function being careful.
+/// `grants::suspend_grant_by_operator` is the only caller; the argument for the
+/// crossing is on `keys::tenant_key_for`. `app.design_capability` is set to its
+/// refusal FIRST and never to anything else on this path, so an operator
+/// transaction naming a tenant still reaches no design payload (§1.3's
+/// sightlessness).
 pub(crate) async fn enter_operator_tenant_scope(
     tx: &Transaction<'_>,
     tenant: &str,
@@ -576,6 +480,15 @@ pub(crate) async fn enter_operator_tenant_scope(
     set_custody_tenant(tx, tenant).await
 }
 
+/// Point the tenant-scoped policies at one organisation during a deployment-wide
+/// key custody change.
+///
+/// No membership exists to check, so this is a separate function, not a flag on
+/// [`open_tenant_context`]. A re-wrap is an operator act; borrowing a steward's
+/// identity to sign the entry would put a false actor in the one record that must
+/// not contain any. The organisation id comes from [`enter_key_custody`]'s
+/// enumeration in the same transaction, never a request. `app.account_id` is set to
+/// the empty string, which every policy treats as a refusal.
 pub(crate) async fn set_custody_tenant(
     tx: &Transaction<'_>,
     tenant: &str,
@@ -587,19 +500,16 @@ pub(crate) async fn set_custody_tenant(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Accounts
-// ---------------------------------------------------------------------------
+// ---- Accounts ----
 
-/// Creates an account. Not tenant-scoped -- an account belongs to zero or
-/// more organisations through [`Membership`], not to one.
+/// Creates an account. Not tenant-scoped: it belongs to organisations through
+/// [`Membership`].
 ///
-/// **Two rows, one transaction, and the order is fixed by a foreign key.**
-/// `migrations/0004_principals.sql` makes every account a *steward* principal
-/// through a composite key onto `principals (id, kind)` whose `kind` half is
-/// a generated constant, so the principal row must exist before the account
-/// row can. That is the fence that makes an operator id unrepresentable in a
-/// membership; the cost is this transaction, and it is the whole cost.
+/// **Two rows, one transaction, in a foreign-key order.**
+/// `migrations/0004_principals.sql` makes every account a *steward* principal via a
+/// composite key onto `principals (id, kind)` with a generated `kind`, so the
+/// principal row comes first. That fence makes an operator id unrepresentable in a
+/// membership.
 pub async fn create_account(
     pool: &Pool,
     email: &str,
@@ -626,14 +536,10 @@ pub async fn create_account(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Organisations and membership
-// ---------------------------------------------------------------------------
+// ---- Organisations and membership ----
 
 /// Creates an organisation and makes `creator` its first admin, in one
-/// transaction. The new organisation's own id is the tenant context this
-/// transaction sets -- there is nothing else it could be, since the row does
-/// not exist until this transaction creates it.
+/// transaction. The new organisation's own id is the tenant context set.
 pub async fn create_organisation(
     pool: &Pool,
     creator: AccountId,
@@ -662,22 +568,17 @@ pub async fn create_organisation(
     })
 }
 
-/// The half of [`create_organisation`] that takes an **id and an open
-/// transaction**, for `grants::bootstrap_organisation`.
+/// The half of [`create_organisation`] taking an **id and an open transaction**, for
+/// `grants::bootstrap_organisation`.
 ///
-/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.1 derives an organisation's id
-/// from its root public key and a salt — *"a re-minted genesis under a
-/// different key yields a DIFFERENT organisation id and matches no existing
-/// row"* — so genesis cannot use [`OrganisationId::new`], which mints a fresh
-/// ULID from the clock. And it cannot use a separate transaction either: the
-/// root row, the genesis grants, their chain entries and the authority head
-/// all commit together with this row or none of them does.
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.1 derives an organisation's id from
+/// its root public key and a salt, so genesis cannot use [`OrganisationId::new`],
+/// and needs one transaction: root row, genesis grants, chain entries and authority
+/// head all commit with this row or none do.
 ///
-/// `pub(crate)`, deliberately, and the constraint that keeps it honest is not
-/// in this function: the id an external caller could supply here still has to
-/// be the one `authority::derive_organisation_id` produces, because
-/// `grants::authorise_account` recomputes it from `organisation_roots` at every
-/// authorisation and refuses the mismatch (§3.4 step 5).
+/// `pub(crate)`. What keeps it honest is elsewhere: `grants::authorise_account`
+/// recomputes the id from `organisation_roots` at every authorisation and refuses a
+/// mismatch with `authority::derive_organisation_id` (§3.4 step 5).
 pub(crate) async fn create_organisation_in(
     tx: &Transaction<'_>,
     id: OrganisationId,
@@ -700,18 +601,10 @@ pub(crate) async fn create_organisation_in(
 
 /// Adds `member` to `tenant` with `role`.
 ///
-/// **`actor` must be an admin of `tenant`, not merely a member.** This gated
-/// only on membership until 2026-09-12, which meant any plain member could
-/// add anyone at any role -- including admin, including itself a second time
-/// were the primary key not in the way. The two roles exist precisely to
-/// "distinguish who may administer an organisation from who may use it"
-/// (the brief), and adding members is administering one.
-///
-/// Row-level security cannot supply this half: the `memberships` policies
-/// separate one tenant from another, and this is a question about two
-/// accounts inside the *same* tenant. It is an application-layer check by
-/// nature, which is why it is written here and stated plainly rather than
-/// assumed to be covered.
+/// **`actor` must be an admin of `tenant`, not merely a member**, or any member
+/// could add anyone at any role. RLS cannot supply this: its policies separate
+/// tenants, and this question is about two accounts inside one. It is an
+/// application-layer check.
 pub async fn add_member(
     pool: &Pool,
     tenant: OrganisationId,
@@ -739,10 +632,10 @@ pub async fn add_member(
     })
 }
 
-/// ADR-0057 decision 8: confirms `actor` administers `tenant`.
-/// `Err(NotAnAdmin)` for a plain member, `Err(NotAMember)` for nobody at
-/// all. `actor` stays text — `tests/sessions.rs` refuses any route that
-/// constructs an `AccountId` except through a verified session.
+/// ADR-0057 decision 8: confirms `actor` administers `tenant`. `Err(NotAnAdmin)`
+/// for a plain member, `Err(NotAMember)` for nobody. `actor` stays text:
+/// `tests/sessions.rs` refuses any route that constructs an `AccountId` except
+/// through a verified session.
 pub async fn require_admin(
     pool: &Pool,
     tenant: OrganisationId,
@@ -761,11 +654,10 @@ pub async fn require_admin(
     Ok(())
 }
 
-/// As [`require_admin`], and confirms `target` belongs to `tenant` — read
-/// through `authorise`'s own opened `memberships` rows, not a typed id.
-/// Returns the CANONICAL target id: `Ulid::decode` accepts lowercase, but
-/// every session act after this filters on the canonical form a row is
-/// stored under, so raw caller text in another case would match no row.
+/// As [`require_admin`], and confirms `target` belongs to `tenant`, read through
+/// `authorise`'s own opened `memberships` rows. Returns the CANONICAL target id:
+/// `Ulid::decode` accepts lowercase, but later session acts filter on the stored
+/// canonical form, so raw caller text in another case would match no row.
 pub async fn require_admin_over_member(
     pool: &Pool,
     tenant: OrganisationId,
@@ -834,24 +726,14 @@ pub async fn list_members(
         .collect()
 }
 
-/// The transaction half of [`list_organisations_for_account`], for
-/// `design_api`'s `GET /organisations` handler, which already has an open
-/// transaction -- a verified session's own -- and must not open a second
-/// one. `pub(crate)` because the caller sits outside this module but inside
-/// this crate.
+/// The transaction half of [`list_organisations_for_account`], for `design_api`'s
+/// `GET /organisations`, which already has a verified session's transaction.
+/// `pub(crate)`. Sets `app.account_id` only, as the wrapper does (see there). One
+/// copy of the SQL.
 ///
-/// Sets `app.account_id` and nothing else, same as the pool-based wrapper
-/// below, and for the same reason given there: this is the query the
-/// `organisations` and `memberships` RLS policies' `account_id` branch
-/// exists for, and there is no single tenant to pin before the caller knows
-/// which organisations it has. One copy of the SQL; [`list_organisations_for_account`]
-/// is this function plus the transaction around it.
-///
-/// Each organisation comes with `account`'s own [`Role`] in it, so the home
-/// screen can offer its Organisation tab only to the people who may
-/// administer it (ADR-0060 decision 7). It is a hint for what to show, not an
-/// authorisation: every act on the organisation is still authorised on its
-/// own.
+/// Each organisation carries `account`'s own [`Role`], so the home screen offers its
+/// Organisation tab only to those who may administer it (ADR-0060 decision 7): a
+/// display hint, not an authorisation.
 pub(crate) async fn list_organisations_for_account_in(
     tx: &Transaction<'_>,
     account: AccountId,
@@ -889,10 +771,10 @@ pub(crate) async fn list_organisations_for_account_in(
         .collect()
 }
 
-/// Every organisation `account` belongs to. Deliberately does **not** set a
-/// tenant context -- there is no single tenant to set before the caller knows
-/// which organisations it has. This is the query the `organisations` and
-/// `memberships` RLS policies' `account_id` branch exists for.
+/// Every organisation `account` belongs to. Deliberately sets **no** tenant
+/// context: there is no single tenant before the caller knows its organisations.
+/// This is what the `account_id` branch of the `organisations` and `memberships`
+/// RLS policies exists for.
 pub async fn list_organisations_for_account(
     pool: &Pool,
     account: AccountId,
@@ -904,14 +786,11 @@ pub async fn list_organisations_for_account(
     Ok(organisations.into_iter().map(|(o, _)| o).collect())
 }
 
-// ---------------------------------------------------------------------------
-// Scopes
-// ---------------------------------------------------------------------------
+// ---- Scopes ----
 
-/// What a create/move operation needs to know about a prospective parent.
-/// Deliberately carries no `depth`: in this fixed three-level hierarchy depth
-/// is a pure function of `kind` (enforced by the migration's own `CHECK`),
-/// so a move never has to recompute it, only the path.
+/// What a create/move needs to know about a prospective parent. Carries no
+/// `depth`: in this fixed hierarchy depth is a function of `kind` (migration
+/// `CHECK`), so a move recomputes only the path.
 struct ParentInfo {
     path: String,
     kind: Option<ScopeKind>,
@@ -921,23 +800,16 @@ struct ParentInfo {
 ///
 /// # Why `FOR SHARE` and not a plain `SELECT`
 ///
-/// The caller is about to build a path out of `path`, so between reading it
-/// and writing the row that embeds it, that text must not change. At READ
-/// COMMITTED -- the default, and what this connection uses -- an unlocked
-/// read sees the last committed version and nothing stops a `move_subtree`
-/// of this very row committing a microsecond later. The child then stores a
-/// path built from a prefix that no longer exists, `path` and
-/// `parent_scope_id` disagree, and **no constraint catches it and no later
-/// operation repairs it**. Reproduced against a real PostgreSQL 2026-09-12;
-/// `tests/repo.rs` interleaves the two transactions that produce it.
+/// The caller builds a path from `path`, which must not change between reading it
+/// and writing the row that embeds it. At READ COMMITTED an unlocked read lets a
+/// `move_subtree` of this row commit in between; the child then stores a stale
+/// prefix, `path` and `parent_scope_id` disagree, and **no constraint catches it
+/// and nothing repairs it** (`tests/repo.rs` interleaves the transactions).
 ///
-/// `FOR SHARE` is the exact amount of lock that fixes it: every path change
-/// to a row is an `UPDATE` of that row, and `FOR SHARE` conflicts with an
-/// `UPDATE` while still letting two children be created under one parent at
-/// the same time. (A plain `SELECT`'s implicit `FOR KEY SHARE` -- what the
-/// foreign key on `parent_scope_id` takes -- is NOT enough: PostgreSQL's
-/// `UPDATE` of a non-key column takes `FOR NO KEY UPDATE`, which does not
-/// conflict with it. That is precisely how the bug got in.)
+/// `FOR SHARE` conflicts with the `UPDATE` every path change is, yet lets two
+/// children be created under one parent concurrently. A plain `SELECT`'s implicit
+/// `FOR KEY SHARE` (from the `parent_scope_id` foreign key) is NOT enough: an
+/// `UPDATE` of a non-key column takes `FOR NO KEY UPDATE`, which does not conflict.
 async fn fetch_scope_for_parent(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -979,9 +851,9 @@ fn row_to_scope(row: &Row) -> Result<Scope, RepoError> {
     })
 }
 
-/// Creates one scope node under `parent` (or as a new root network, if
-/// `parent` is `None`), computing its materialised path from the parent's --
-/// never from either row's `display_name`.
+/// Creates one scope node under `parent` (or a new root network if `None`),
+/// computing its materialised path from the parent's, never from a
+/// `display_name`.
 pub async fn create_scope(
     pool: &Pool,
     tenant: OrganisationId,
@@ -998,17 +870,13 @@ pub async fn create_scope(
     Ok(scope)
 }
 
-/// The insert half of [`create_scope`], in a transaction the caller already
-/// has open.
+/// The insert half of [`create_scope`], in a transaction the caller has open.
 ///
 /// `design_api`'s scope-creation route (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
-/// §6.4: a steward of the parent creates a scope) authorises the *steward*
-/// capability itself, through `grants::authorise_account` against the parent
-/// scope (or the organisation, for a new root network) -- a stronger, scope-aware
-/// check than [`create_scope`]'s own plain membership one, and one this
-/// function must not re-loosen by opening a second transaction in which that
-/// capability is no longer what is being asked about. `pub(crate)`: the only
-/// caller outside this module is `design_api`, in this same crate.
+/// §6.4) authorises the *steward* capability itself through
+/// `grants::authorise_account` against the parent scope (or the organisation, for
+/// a new root network). That is stronger than [`create_scope`]'s plain membership
+/// check, and a second transaction here would loosen it. `pub(crate)`.
 pub(crate) async fn create_scope_in_tx(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -1060,7 +928,7 @@ pub(crate) async fn create_scope_in_tx(
     })
 }
 
-/// Lists `root` and every descendant, by a single prefix match over `path`
+/// Lists `root` and every descendant by one prefix match over `path`
 /// (`docs/PHASE-2-STORAGE-DESIGN.md` §2).
 pub async fn list_subtree(
     pool: &Pool,
@@ -1095,10 +963,9 @@ pub async fn list_subtree(
     rows.iter().map(row_to_scope).collect()
 }
 
-/// Moves `scope_id` (and, since its path is a prefix of all of theirs, every
-/// descendant) under `new_parent`. `docs/PHASE-2-STORAGE-DESIGN.md` §2:
-/// "moving a subtree rewrites every descendant's path" -- this is that
-/// rewrite, done as one statement over opaque ids.
+/// Moves `scope_id` and, since its path is a prefix of theirs, every descendant
+/// under `new_parent`: one statement over opaque ids
+/// (`docs/PHASE-2-STORAGE-DESIGN.md` §2).
 pub async fn move_subtree(
     pool: &Pool,
     tenant: OrganisationId,
@@ -1110,25 +977,15 @@ pub async fn move_subtree(
     let tx = client.transaction().await?;
     authorise(&tx, tenant, actor).await?;
 
-    // `FOR UPDATE`, and the whole correctness of this function rests on it.
-    // The `UPDATE` at the end re-matches this row by the path text read
-    // here. Every operation that can change that text is an `UPDATE` of this
-    // same row -- a move of ANY ancestor rewrites its descendants, this row
-    // among them -- so locking it is what makes read-then-write safe without
-    // raising the isolation level. Under READ COMMITTED a blocked
-    // `SELECT ... FOR UPDATE` re-reads the committed version once the other
-    // transaction ends, so what comes back here is the current path, never a
-    // stale one.
+    // `FOR UPDATE`; this function's correctness rests on it. The final `UPDATE`
+    // re-matches this row by the path text read here, and any change to that text is
+    // an `UPDATE` of this row (a move of ANY ancestor rewrites its descendants). Under
+    // READ COMMITTED a blocked `SELECT ... FOR UPDATE` re-reads the committed version,
+    // so the path is current. Without it a concurrent ancestor move made the `UPDATE`
+    // match zero rows and this **returned `Ok(())` having done nothing**.
     //
-    // Without it: a concurrent ancestor move made the final `UPDATE` match
-    // zero rows, and this function **returned `Ok(())` having done nothing**
-    // -- a caller told the estate of record changed when it had not.
-    // Reproduced against a real PostgreSQL 2026-09-12.
-    //
-    // Two moves racing can now deadlock instead (each holding a row the
-    // other wants). PostgreSQL detects that and aborts one with an error,
-    // which surfaces as `RepoError::Db`: a loud failure the caller can
-    // retry, which is the outcome a silent one was traded for.
+    // Two racing moves can deadlock; PostgreSQL aborts one as `RepoError::Db`, a loud
+    // failure the caller can retry.
     let node = tx
         .query_opt(
             "SELECT kind, path FROM scopes WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
@@ -1157,13 +1014,10 @@ pub async fn move_subtree(
         return Err(RepoError::WrongKindForParent { expected });
     }
 
-    // Given the fixed depth-per-kind mapping the `WrongKindForParent` check
-    // above already enforces, a genuine cycle cannot occur today: a scope may
-    // only be parented to the one kind strictly above it, so nothing can ever
-    // become its own ancestor. Kept anyway, because
-    // `docs/PHASE-2-STORAGE-DESIGN.md` §2 flags variable-depth scopes as a
-    // likely future change, and this check must not silently start passing
-    // bad input the day that mapping stops being fixed.
+    // A genuine cycle cannot occur today: the `WrongKindForParent` check above means
+    // a scope is only parented to the kind strictly above it. Kept because
+    // `docs/PHASE-2-STORAGE-DESIGN.md` §2 flags variable-depth scopes as a likely
+    // change, and this must not start passing bad input then.
     if let Some(p) = &parent_info {
         if p.path == old_path || p.path.starts_with(&format!("{old_path}.")) {
             return Err(RepoError::WouldCreateCycle);
@@ -1176,12 +1030,10 @@ pub async fn move_subtree(
     };
 
     // One statement covers `scope_id` and every descendant: both match
-    // `path = old_path OR path LIKE old_path || '.%'`. `substring` keeps
-    // whatever text followed the old prefix (empty, for the node itself; the
-    // rest of the path, for a descendant) and reattaches it to the new
-    // prefix. `depth` is untouched: it is a pure function of `kind`
-    // (network=1, building=2, rack=3, enforced by the migration's `CHECK`),
-    // and a move never changes any row's `kind`, only where it sits.
+    // `path = old_path OR path LIKE old_path || '.%'`. `substring` keeps the text
+    // after the old prefix and reattaches it to the new one. `depth` is untouched: it
+    // is a function of `kind` (network=1, building=2, rack=3, migration `CHECK`),
+    // and a move never changes `kind`.
     let changed = tx
         .execute(
             "UPDATE scopes \
@@ -1198,12 +1050,9 @@ pub async fn move_subtree(
         )
         .await?;
 
-    // The row lock above should make this unreachable: this statement must
-    // match at least the node itself, whose path was read under that lock.
-    // Kept because the alternative to checking is returning `Ok(())` for a
-    // write that did nothing, and that is the failure this function actually
-    // had. A guard that never fires costs one integer comparison; the bug it
-    // guards against cost a silently unmoved subtree.
+    // The row lock should make this unreachable: the statement must match at least
+    // the node itself. Kept because the alternative is returning `Ok(())` for a
+    // write that did nothing.
     if changed == 0 {
         return Err(RepoError::ConcurrentModification);
     }
