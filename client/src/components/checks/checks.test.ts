@@ -14,6 +14,8 @@ import {
   clampOffset,
   findingKey,
   firstRefusal,
+  guardMayReload,
+  standingDelay,
   matchShown,
   panelNotes,
   summaryText,
@@ -307,5 +309,31 @@ describe('panel position', () => {
   });
   it('findingKey tells two findings of one rule apart', () => {
     expect(findingKey(finding())).not.toBe(findingKey(finding({ elements: [{ id: 'device:D2', name: '' }] })));
+  });
+});
+
+describe('how long the standing checks wait, and when the guard may reload', () => {
+  it('waits 300 ms until a load has been measured, and for cheap loads', () => {
+    expect(standingDelay(null)).toBe(300);
+    expect(standingDelay(0)).toBe(300);
+    expect(standingDelay(40)).toBe(300);
+    expect(standingDelay(60)).toBe(300);
+  });
+  it('waits five times a dear load, capped at 10 s', () => {
+    expect(standingDelay(200)).toBe(1000);
+    expect(standingDelay(1500)).toBe(7500);
+    expect(standingDelay(2500)).toBe(10_000);
+    expect(standingDelay(60_000)).toBe(10_000);
+  });
+  it('ignores a measurement that is not a number', () => {
+    expect(standingDelay(Number.NaN)).toBe(300);
+    expect(standingDelay(-5)).toBe(300);
+  });
+  it('lets the guard reload up to 800 ms, and not above', () => {
+    expect(guardMayReload(null)).toBe(true);
+    expect(guardMayReload(120)).toBe(true);
+    expect(guardMayReload(800)).toBe(true);
+    expect(guardMayReload(801)).toBe(false);
+    expect(guardMayReload(2500)).toBe(false);
   });
 });

@@ -5,11 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Document } from '../../document/model';
 import type { CheckFinding, ChecksResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
-import { buildBadgeMap, buildCanon, findingKey, firstRefusal, involvedKeys, totalCount } from './checksModel';
+import { buildBadgeMap, buildCanon, findingKey, firstRefusal, guardMayReload, involvedKeys, standingDelay, totalCount } from './checksModel';
 import { createChecksStore, type ChecksApi } from './checksStore';
 
-/** Quiet time after the last document change before the standing checks run. */
-export const CHECKS_DEBOUNCE_MS = 300;
 const STORAGE_KEY = 'fathom.checks.panel';
 
 export interface PanelPrefs {
@@ -73,11 +71,13 @@ interface Inputs {
   doc: Document | null;
   /** Starts the engine once (RacksPlace's `ensureMirror`). */
   boot: () => Promise<Mirror>;
-  /** The mirror, brought up to `doc` if stale; null before it has booted. */
-  mirrorNow: () => Mirror | null;
+  /** The mirror; null before it has booted. Brought up to `doc` first if stale, unless `load` is false. */
+  mirrorNow: (load?: boolean) => Mirror | null;
+  /** How long the last load of the module took, ms; null before there has been one. */
+  loadCostMs: () => number | null;
 }
 
-export function useChecksController({ doc, boot, mirrorNow }: Inputs): ChecksController {
+export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs): ChecksController {
   const [store] = useState(createChecksStore);
   const [result, setResult] = useState<ChecksResult | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -85,10 +85,30 @@ export function useChecksController({ doc, boot, mirrorNow }: Inputs): ChecksCon
   const [why, setWhy] = useState<CheckFinding | null>(null);
   const [showKey, setShowKey] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<RefusalState | null>(null);
-  const latest = useRef({ boot, mirrorNow });
-  latest.current = { boot, mirrorNow };
+  const latest = useRef({ boot, mirrorNow, loadCostMs });
+  latest.current = { boot, mirrorNow, loadCostMs };
   const pointer = useRef({ x: 0, y: 0 });
   const tokenRef = useRef(0);
+  // A pointer is down: a drag or a gesture is on, so the standing run waits.
+  const pressed = useRef(false);
+  useEffect(() => {
+    const press = () => {
+      pressed.current = true;
+    };
+    const lift = () => {
+      pressed.current = false;
+    };
+    window.addEventListener('pointerdown', press, true);
+    window.addEventListener('pointerup', lift, true);
+    window.addEventListener('pointercancel', lift, true);
+    window.addEventListener('blur', lift);
+    return () => {
+      window.removeEventListener('pointerdown', press, true);
+      window.removeEventListener('pointerup', lift, true);
+      window.removeEventListener('pointercancel', lift, true);
+      window.removeEventListener('blur', lift);
+    };
+  }, []);
 
   // Where the pointer last was: the refusal card opens there.
   useEffect(() => {
@@ -104,16 +124,28 @@ export function useChecksController({ doc, boot, mirrorNow }: Inputs): ChecksCon
     };
   }, []);
 
-  // Standing checks, once the document has been quiet for a moment.
+  // Standing checks, once the document has been quiet for a while: longer the dearer the last load was, and never
+  // while a pointer is down (a drag or gesture is on). Any further edit restarts the wait.
   useEffect(() => {
     if (doc == null) return undefined;
     let cancelled = false;
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let waiting = false;
+    const run = () => {
+      if (pressed.current) {
+        waiting = true;
+        return;
+      }
       latest.current
         .boot()
         .then(() => {
+          if (cancelled) return;
+          if (pressed.current) {
+            waiting = true;
+            return;
+          }
           const mirror = latest.current.mirrorNow();
-          if (cancelled || mirror == null) return;
+          if (mirror == null) return;
           const next = mirror.checks();
           const canon = buildCanon(doc);
           store.set({ badges: buildBadgeMap(next.findings, canon), canon });
@@ -128,17 +160,35 @@ export function useChecksController({ doc, boot, mirrorNow }: Inputs): ChecksCon
         .catch(() => {
           if (!cancelled) setUnavailable(true);
         });
-    }, CHECKS_DEBOUNCE_MS);
+    };
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(run, standingDelay(latest.current.loadCostMs()));
+    };
+    const release = () => {
+      if (waiting && !pressed.current) {
+        waiting = false;
+        arm();
+      }
+    };
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
+    window.addEventListener('blur', release);
+    arm();
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      window.removeEventListener('pointerup', release, true);
+      window.removeEventListener('pointercancel', release, true);
+      window.removeEventListener('blur', release);
     };
   }, [doc, store]);
 
   const guardCable = useCallback<ChecksApi['guardCable']>((from, to, medias) => {
     let mirror: Mirror | null = null;
     try {
-      mirror = latest.current.mirrorNow();
+      // A dear reload is not paid here: use what the module holds (unknown ports give no rows; it fails open).
+      mirror = latest.current.mirrorNow(guardMayReload(latest.current.loadCostMs()));
     } catch {
       // Not loadable now: go ahead.
     }

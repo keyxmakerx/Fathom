@@ -165,6 +165,23 @@ export function clampOffset(parent: Rect, docked: Rect, want: { x: number; y: nu
   };
 }
 
+/** Quiet time after the last document change before the standing checks run, at the least. */
+export const CHECKS_DEBOUNCE_MS = 300;
+export const CHECKS_DEBOUNCE_CAP_MS = 10_000;
+/** The standing run waits this many times the last measured load of the module. */
+export const CHECKS_DEBOUNCE_FACTOR = 5;
+/** Above this last-measured load cost the gesture guard does not reload the module on the interaction path. */
+export const GUARD_RELOAD_LIMIT_MS = 800;
+
+/** How long the document must stay quiet before the standing checks run: max(300 ms, 5 x last load), capped. */
+export function standingDelay(lastLoadMs: number | null): number {
+  const cost = lastLoadMs != null && Number.isFinite(lastLoadMs) && lastLoadMs > 0 ? lastLoadMs : 0;
+  return Math.min(CHECKS_DEBOUNCE_CAP_MS, Math.max(CHECKS_DEBOUNCE_MS, CHECKS_DEBOUNCE_FACTOR * cost));
+}
+
+/** May the gesture guard bring the module up to date first? Not when that has been measured to cost too much. */
+export const guardMayReload = (lastLoadMs: number | null): boolean => lastLoadMs == null || !(lastLoadMs > GUARD_RELOAD_LIMIT_MS);
+
 interface GestureChecker {
   checkCable(near: { port: string }, far: { port: string }, media: string): CheckFinding[];
 }

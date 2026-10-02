@@ -296,36 +296,38 @@ export function RacksPlace(props: RacksPlaceProps) {
     return mirrorPromiseRef.current;
   }, []);
 
-  // On demand only, never on every document change: a design nobody has
-  // opened the drawer or the inside stop on yet never boots the module at
-  // all, and one already open only reloads the module when the document it
-  // holds is actually stale (`mirrorLoadedDocRef` above) — dragging a
-  // chassis, editing a hostname, fitting a PSU pay nothing here unless a
-  // call site below is about to actually use the module. Reference equality
-  // is enough: every `document/commands.ts`/`document/edit.ts` call and
-  // `mirror.pasteInto`'s own readback return a fresh `Document`, never
-  // mutate one in place.
+  // How long the last load of the module took, ms: Checks sizes its wait and its guard by it.
+  const loadCostRef = useRef<number | null>(null);
+  const loadInto = useCallback((mirror: Mirror, target: Document) => {
+    const t0 = performance.now();
+    mirror.load(target);
+    loadCostRef.current = performance.now() - t0;
+    mirrorLoadedDocRef.current = target;
+  }, []);
+
+  // The drawer and the inside stop load the module only when the document it holds is stale, at the moment they
+  // are about to use it (`mirrorLoadedDocRef` above). Checks (below) also boots it and keeps it current, but after
+  // the document has been quiet for a while, not on every change. Reference equality is enough: every
+  // `document/commands.ts`/`document/edit.ts` call and `mirror.pasteInto`'s readback return a fresh `Document`.
   const withMirror = useCallback(async (): Promise<Mirror> => {
     const mirror = await ensureMirror();
-    if (doc != null && mirrorLoadedDocRef.current !== doc) {
-      mirror.load(doc);
-      mirrorLoadedDocRef.current = doc;
-    }
+    if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
     return mirror;
-  }, [ensureMirror, doc]);
+  }, [ensureMirror, doc, loadInto]);
 
-  // Checks (ADR-0061 §5): the same engine and mirror, brought up to the current document without booting
-  // anything; the standing run is debounced, the gesture guard reads the mirror as it stands.
-  const mirrorNow = useCallback((): Mirror | null => {
-    const mirror = mirrorRef.current;
-    if (mirror == null || doc == null) return null;
-    if (mirrorLoadedDocRef.current !== doc) {
-      mirror.load(doc);
-      mirrorLoadedDocRef.current = doc;
-    }
-    return mirror;
-  }, [doc]);
-  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow });
+  // Checks (ADR-0061 §5): the same engine and mirror. The standing run is debounced by the last load's cost; the
+  // gesture guard asks for `load = false` when that cost is high and uses what the module holds.
+  const mirrorNow = useCallback(
+    (load = true): Mirror | null => {
+      const mirror = mirrorRef.current;
+      if (mirror == null || doc == null) return null;
+      if (load && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
+      return mirror;
+    },
+    [doc, loadInto],
+  );
+  const loadCostMs = useCallback(() => loadCostRef.current, []);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs });
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
