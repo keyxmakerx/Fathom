@@ -229,8 +229,7 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   Dragging onto a surface comes with free boxes on the canvas (step 7, below).
 - **Free boxes, lines and areas** (ADR-0060 step 7, schema 0.13: `Label`, `Line`, `PassiveNode.slots`).
   Boxes sit on the canvas beside racks and walls. A selected box shows hollow edge squares: drag one to
-  draw a line, click one to add a dashed new box. Marquee select (drag empty canvas; pan with middle or
-  right button, or Space), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
+  draw a line, click one to add a dashed new box. Marquee select (drag empty canvas; pan with the wheel, a trackpad, middle button or Space+drag; one finger pans on touch, the touch marquee (long press) is not built), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
   bigger), and a flat Align / Spread / Group / Label menu over the selection. Text labels and areas
   carry what sits inside them. Squares on the free unit above and below a selected racked device add a
   device there (`RackSquares.tsx`). A selected shelf has two grips, height and slots, that refuse by
@@ -243,7 +242,7 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   strip is one "Equipment" button that opens the equipment list; built-in items read "Any device" and
   "Backboard"; "+ add a surface" reads "+ Add a wall, floor or desk"; an empty design shows a note
   saying what to do; the zoom, account and trail controls name themselves on hover.
-- **Canvas looks right** (ADR-0061, bundle 2a): scrolling only zooms (max 400%); the config drawer and
+- **Canvas looks right** (ADR-0061, bundle 2a): Ctrl+wheel or pinch zooms (max 400%), the wheel pans; the config drawer and
   inside view open from right-click Open/Inside or a double-click. Ports sit at catalogue row/column,
   cables leave a port's own edge and sit under the plates; names sit in the plate's blank space (rail
   tab if none) with a click callout; at 200%+ a bundle splits into cables with port labels; the details

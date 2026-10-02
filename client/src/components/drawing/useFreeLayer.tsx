@@ -529,7 +529,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
   const containerProps = useMemo(
     () => ({
       onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
-        if (!canDraw || event.button !== 0 || spaceDown.current) return;
+        if (!canDraw || event.button !== 0 || spaceDown.current || event.pointerType === 'touch') return; // one finger pans on touch
         if (!(event.target as HTMLElement).classList.contains('react-flow__pane')) return;
         const startClient = { x: event.clientX, y: event.clientY };
         const additive = event.shiftKey;

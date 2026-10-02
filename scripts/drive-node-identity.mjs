@@ -155,7 +155,7 @@ try {
 
   const wheelDelta = await chassisRenderDelta(async () => {
     await paneForWheel.hover();
-    await page.mouse.wheel(0, -60);
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, -60); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms
     await page.waitForTimeout(120);
   });
   check('0a. a wheel tick renders no chassis', wheelDelta === 0, `delta ${wheelDelta}`);
@@ -266,11 +266,11 @@ try {
     const cy = paneBox.y + paneBox.height / 2;
     await page.mouse.move(cx, cy);
     for (let i = 0; i < 8; i += 1) {
-      await page.mouse.wheel(0, -240); // zoom in
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, -240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms // zoom in
       await page.waitForTimeout(40);
     }
     for (let i = 0; i < 8; i += 1) {
-      await page.mouse.wheel(0, 240); // zoom back out
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, 240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms // zoom back out
       await page.waitForTimeout(40);
     }
   }

@@ -96,7 +96,7 @@ const NODE_TYPES = {
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
-const PAN_BUTTONS = [1, 2];
+const PAN_BUTTONS = [1];
 
 // React Flow's corner credit link is hidden; the About page credits the library (ADR-0060).
 const PRO_OPTIONS = { hideAttribution: true };
@@ -1484,11 +1484,12 @@ function DrawingInner({
         onNodeDragStop={handleNodeDragStop}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
-        // Left-drag on empty canvas is the marquee; pan with the middle or right button, or Space.
+        // Left-drag on empty canvas is the marquee; pan with the middle button, Space+drag, the wheel or a trackpad (Ctrl+wheel or pinch zooms); one finger pans on touch.
         panOnDrag={PAN_BUTTONS}
         panActivationKeyCode="Space"
-        panOnScroll={false}
-        zoomOnScroll
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
         // UI-SPEC "Cables": a drag may be picked up from either end of a
         // future cable, and dropped on any other live port — loose mode is
         // what lets every port `Handle` (all declared `type="source"`,
