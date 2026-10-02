@@ -250,6 +250,8 @@ export interface DrawingProps extends DrawingActions {
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
+  /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
+  onCalloutChange?: (id: string | null) => void;
 }
 
 type AnyRackNode = RackNodeType;
@@ -324,6 +326,7 @@ function DrawingInner({
   litPortLabel,
   emptyHint,
   openRequest,
+  onCalloutChange,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -370,8 +373,19 @@ function DrawingInner({
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
   // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
   const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
+  // A click on a device's name draws its callout, led from the name; any other
+  // click on the plate only selects (and opens the details panel).
+  const [callout, setCallout] = useState<{ id: string; left: number; right: number; y: number } | null>(null);
   const openedRef = useRef(opened);
+  const calloutRef = useRef(callout);
+  calloutRef.current = callout;
   openedRef.current = opened;
+  useEffect(() => {
+    if (callout != null && (selected?.kind !== 'chassis' || selected.id !== callout.id)) setCallout(null);
+  }, [callout, selected]);
+  useEffect(() => {
+    onCalloutChange?.(callout?.id ?? null);
+  }, [callout, onCalloutChange]);
   const openChassis = useCallback(
     (id: string, view: 'config' | 'inside' = 'config') => {
       onSelect({ kind: 'chassis', id });
@@ -1083,12 +1097,21 @@ function DrawingInner({
   }
 
   const handleNodeClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
+    (event, node) => {
       const parsed = parseNodeId(node.id);
       if (parsed == null) return;
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
+      const name = parsed.kind === 'chassis' ? (event.target as Element).closest('.drawing-chassis__hostname') : null;
+      if (name == null) {
+        setCallout(null);
+        return;
+      }
+      const r = name.getBoundingClientRect();
+      const a = rf.screenToFlowPosition({ x: r.left, y: r.top + r.height / 2 });
+      const b = rf.screenToFlowPosition({ x: r.right, y: r.top + r.height / 2 });
+      setCallout({ id: parsed.id, left: a.x, right: b.x, y: a.y });
     },
-    [onSelect],
+    [onSelect, rf],
   );
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
@@ -1312,7 +1335,7 @@ function DrawingInner({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape' && !focusIsInAField()) {
         if (openedRef.current != null) setOpened(null);
-        else if (selected != null) onSelect(null);
+        else if (selected != null || calloutRef.current != null) onSelect(null);
         return;
       }
       if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing, undoes nothing
@@ -1432,15 +1455,15 @@ function DrawingInner({
           — never part of the React Flow pane, so it survives a pan or zoom
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
-      {selectedChassis != null && opened == null && selectedChassisFlowCentre != null && calloutRack != null ? (
+      {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}
           rackLabel={calloutRack.label}
-          plate={{ left: selectedChassisFlowCentre.x - RACK_INNER_PX / 2, right: selectedChassisFlowCentre.x + RACK_INNER_PX / 2, y: selectedChassisFlowCentre.y }}
+          plate={callout}
           rack={{ left: rackPositions[calloutRack.id]?.x ?? 0, right: (rackPositions[calloutRack.id]?.x ?? 0) + RACK_NODE_WIDTH }}
           paneWidth={containerRef.current?.clientWidth ?? Infinity}
           onOpen={() => openChassis(selectedChassis.id)}
-          onDetails={() => onSelect({ kind: 'chassis', id: selectedChassis.id })}
+          onDetails={() => setCallout(null)}
         />
       ) : null}
       {emptyHint ? (

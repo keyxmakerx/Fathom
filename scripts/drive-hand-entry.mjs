@@ -164,7 +164,7 @@ try {
   console.log('    wrote ' + SHOTS + 'H-01-dropped.png');
 
   // Select it.
-  await page.click('.react-flow__node-chassis');
+  await page.click('.react-flow__node-chassis', { position: { x: 2, y: 2 } });
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
   // Add ports `eth` 0 to 7 in one go (`addSketchPortRange`, the editor's
