@@ -10,7 +10,7 @@ import type { Selection } from '../drawing/contract';
 import { connectorName } from '../drawing/faceplate';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from '../drawing/dnd';
 import { SHEATH_VAR } from '../drawing/sheath';
-import { boundsOf, jotPlates, NAME_PX, portCentre, type JotPlate } from './jotLayout';
+import { boundsOf, jotPlates, portCentre, type JotPlate } from './jotLayout';
 import './jot.css';
 
 export interface JotViewProps {
