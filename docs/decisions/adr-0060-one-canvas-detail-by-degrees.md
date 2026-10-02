@@ -60,7 +60,10 @@ and `docs/UI-SPEC.md` disagree, this record wins.
      add wall). Press and hold does the same on a touch screen.
    - An empty design says what to do next.
    - Controls show their name on hover.
-   - Board is renamed Wall; it still covers a board on a floor or desk.
+   - ~~Board is renamed Wall; it still covers a board on a floor or desk.~~ *Reversed by the owner
+     on 2026-10-02 (sign-off page, round 3):* it stays **Backboard**, with a one-line hint saying
+     what it is for. Wall is already a separate thing on the canvas, so the rename would have given
+     two things one name. The hint is not built yet.
 
    This reverses two rules: the rail folded to unlabelled marks, and no hover labels.
 5. **Rack sizes.**
@@ -134,6 +137,23 @@ and `docs/UI-SPEC.md` disagree, this record wins.
     10. invitations and roles, then the one-form organisation setup after its security review.
 
     Cable groups (#54) picks up again after that.
+
+## Round 3, answered 2026-10-02
+
+The owner answered every card on the sign-off page's third round:
+
+- **The order of the next work:** fix main's red CI (done, PR #84); one docs-only cleanup; the
+  right-click menu's silent "no room" cases; step 3b, design names; step 7, free boxes and lines; a
+  walkthrough by the owner on a fresh install; then steps 8 to 10, cable groups, and the rest of
+  print and tags. The owner gives a go before each item from step 3b on.
+- **Issues for later:** those that wait until this ADR is done get a `later` label and stay open.
+- **The top bar keeps only what it has.** Organisation and Admin stay tabs on Home (decision 7).
+- **Admins get an amber "Admin" pill next to their initials.** It shows only to people who may
+  use the admin console, and only where the console answers (`FATHOM_ADMIN_HOSTS`). A small item,
+  after the right-click fix.
+- **Backboard keeps its name**, with a one-line hint (decision 4, amended above).
+- **Every question on the sign-off page shows two mockups** of what is proposed, and the page opens
+  on a view holding only what still waits on the owner.
 
 ## Open
 

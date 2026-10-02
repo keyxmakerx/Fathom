@@ -256,8 +256,9 @@ format and a Juniper catalogue for the models on the approved boards land here, 
 
 **This is the product.** Drag-and-drop diagramming, the way Lucidchart does it.
 
-**The design is settled: `docs/UI-SPEC.md`, approved 2026-09-11.** Rack-first — the rack, its
-faceplates, its ports and the cables between them are the product. Build against that page; open the
+**The design is settled: `docs/UI-SPEC.md`, approved 2026-09-11.** It was rack-first; since
+2026-09-27 it is one canvas with detail added by degrees (ADR-0060), the rack being the most
+detailed thing on it. Build against that page; open the
 picture canvas only when building the surface it shows.
 
 - New web app talking to the server.

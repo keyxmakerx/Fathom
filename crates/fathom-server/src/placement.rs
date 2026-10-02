@@ -1,76 +1,49 @@
-//! **Where the console lives, set from the console, guarded by confirm or
-//! revert** — ADR-0055 decisions 9 and 11, migration `0020_console_placement.sql`.
+//! **Where the console lives, set from the console, guarded by confirm or revert**
+//! (ADR-0055 decisions 9 and 11, migration `0020_console_placement.sql`).
 //!
-//! `admin_exposure.rs` already confined `/admin` and `/enrolment/operator` to
-//! `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES`. What was missing is the half
-//! an operator can reach: a deployment that wants the console on its own host
-//! had to edit the environment and restart. Decision 11 puts it on the console
-//! **outside §5.3's delay**, because *"tightening it gains an attacker nothing
-//! and loosening it already needs an operator session"* — its risk is lockout,
-//! not escalation, so the guard is not a wait but an interlock:
+//! `admin_exposure.rs` confines `/admin` and `/enrolment/operator` to
+//! `FATHOM_ADMIN_HOSTS` / `FATHOM_ADMIN_SOURCES`; this module lets an operator change
+//! that from the console. Decision 11 puts it **outside §5.3's delay**: tightening
+//! gains an attacker nothing and loosening needs an operator session, so the risk
+//! is lockout, not escalation. The guard is an interlock:
 //!
-//! 1. `POST /admin/placement` applies **at once** and is sealed in the same
-//!    transaction (`0020`: `sealed_seq NOT NULL` from the `INSERT`);
-//! 2. the browser follows the console to the new host, signs in there, and
-//!    **the first `/admin` request that verifies on a matching `Host`** inside
-//!    the window is the confirmation ([`confirm_on_the_new_host`]);
-//! 3. at the window's end an unconfirmed placement reverts to the last
-//!    confirmed one, or to open if there was none — by the clock in
-//!    [`Placement::effective`], which is what the gate reads, and by
-//!    [`PlacementStore::sweep`], which writes the sealed record of it.
+//! 1. `POST /admin/placement` applies **at once**, sealed in the same transaction
+//!    (`0020`: `sealed_seq NOT NULL`).
+//! 2. The first `/admin` request that verifies on a matching `Host` inside the
+//!    window is the confirmation ([`confirm_on_the_new_host`]).
+//! 3. An unconfirmed placement reverts at the window's end to the last confirmed
+//!    one, or to open. The clock in [`Placement::effective`] is what the gate
+//!    reads; [`PlacementStore::sweep`] writes the sealed record.
 //!
-//! # The snapshot, and why this file holds one
+//! # The snapshot
 //!
-//! `AdminExposure::allows` runs on **every** request. A database read there
-//! would put a query in front of `/health`, so the placement is held in an
-//! `Arc<RwLock<Placement>>` refreshed at startup, on every placement write and
-//! by the sweep. The snapshot carries the pending placement AND the last
-//! confirmed one, so a window that runs out takes effect on the next request
-//! without anything having to refresh it — the clock decides, not the cache.
+//! `AdminExposure::allows` runs on **every** request, so no database read there. The
+//! placement is an `Arc<RwLock<Placement>>`, refreshed at startup, on every
+//! placement write and by the sweep. It holds the pending AND last confirmed
+//! placement, so an expired window takes effect on the next request: the clock
+//! decides, not the cache.
 //!
-//! **More than one process, and that case is not hypothetical.** A snapshot
-//! refreshed only by its own process's writes is a snapshot that never hears
-//! about anybody else's. Until 2026-09-21 this header said Fathom ships as a
-//! single binary so the case did not arise; that was wrong twice over. This
-//! same binary ships a CLI — `fathom-server console-placement --reset`,
-//! decision 11's only way back from a console lockout — which runs in a
-//! second process against the same database, and `sessions.rs` and
-//! `operators.rs` both state as fact that the deployment is two
-//! interchangeable containers. The reset printed success and the running
-//! server kept enforcing the dead placement until it was restarted.
+//! **Several processes write.** The `fathom-server console-placement --reset` CLI
+//! (decision 11's only way back from a lockout) is a second process, and the
+//! deployment may be two containers, so the snapshot re-reads every
+//! [`SNAPSHOT_TTL`] (five seconds) via [`PlacementStore::spawn_snapshot_refresher`],
+//! started by `main.rs`. `LISTEN`/`NOTIFY` would be a better end state.
 //!
-//! So the snapshot re-reads on a timer: [`SNAPSHOT_TTL`], five seconds,
-//! driven by [`PlacementStore::spawn_snapshot_refresher`], which `main.rs`
-//! starts beside the server. Still no query per request — the gate reads the
-//! same `Arc<RwLock<Placement>>` it always did — and a write by any process
-//! is honoured by every process within the TTL. A `LISTEN`/`NOTIFY` would be
-//! faster and is still the better end state; a five-second poll of two small
-//! indexed rows is what this build carries, and the CLI's log line now says
-//! the true thing.
+//! # The flag
 //!
-//! # The flag, and why it is not under `/admin`
-//!
-//! `GET /placement/flag` is unauthenticated and outside `/admin` on purpose:
-//! the answer a client needs on a NON-console host is "no", and a route under
-//! `/admin` is 404 exactly there. It answers `LP("yes"|"no")`; when the
-//! answer is yes and a placement is still waiting to be confirmed, a second
-//! field with the deadline; and then a third field naming **which rule
-//! decided** — `environment`, `console` or `open`, so that decision 11's
-//! read-only form is told rather than left to infer it. It discloses whether
-//! this host is the console
-//! host, which is a fact anybody can establish by asking `/admin` for a status
-//! code; it never names the other hosts or the sources.
+//! `GET /placement/flag` is unauthenticated and outside `/admin`, since a client on a
+//! NON-console host needs "no" and `/admin` is 404 there. It discloses only whether
+//! this host is the console host (anyone can learn that from `/admin`'s status
+//! code), never other hosts or sources.
 //!
 //! # SMTP lives here too, and holds a credential
 //!
-//! `smtp` is one more `site_settings_versions` key (`0015` §F) — there is no
-//! SMTP table and there was never going to be one. What this file adds is the
-//! **validation of the value envelope** before it is sealed, so a malformed
-//! form is a typed refusal rather than a row nobody can parse later, and so
-//! that `tests/no_secret_in_logs.rs`'s second canary has a real function to
-//! drive. §5.3: *"SMTP credentials are credentials."* The password inside the
-//! envelope is carried in [`crate::secret::Secret`] from the moment it is
-//! parsed, so no `Debug`, no format string and no tracing field can print it.
+//! `smtp` is one more `site_settings_versions` key (`0015` §F). This file validates
+//! the value envelope before sealing, so a malformed form is a typed refusal.
+//! §5.3: *"SMTP credentials are credentials."* The password is a
+//! [`crate::secret::Secret`] from parse onward (`tests/no_secret_in_logs.rs`'s
+//! second canary drives it), so no `Debug`, format string or tracing field can
+//! print it.
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, RwLock};
@@ -99,18 +72,14 @@ use crate::operators::{self, OperatorError};
 use crate::secret::Secret;
 use crate::sessions::{PrincipalKind, SessionError, SessionStore, VerifiedSession};
 
-// ---------------------------------------------------------------------------
-// The labels
-// ---------------------------------------------------------------------------
+// ---- The labels ----
 
-/// The bytes an operator signs to move the console (decision 11). Its own tag,
-/// not a settings tag: a placement is not a `site_settings_versions` row and a
-/// signature over one must not verify as a signature over the other.
+/// The bytes an operator signs to move the console (decision 11). Its own tag: a
+/// signature over a placement must not verify as one over a settings row.
 const TAG_PLACEMENT_REQUEST: &[u8] = b"fathom/site/placement/request/v1";
 
-/// Same contract as [`crate::operators::LABELS`]: every label this module
-/// derives a key from or signs under, listed once, with a unit test that fails
-/// if one is used and not listed.
+/// Same contract as [`crate::operators::LABELS`]: every label this module signs
+/// under, listed once, with a test that fails if one is used and not listed.
 pub const LABELS: &[(&str, &str)] = &[(
     "fathom/site/placement/request/v1",
     "the bytes an operator signs to move the operator console to a host and a set of sources \
@@ -118,11 +87,9 @@ pub const LABELS: &[(&str, &str)] = &[(
      u64(window_seconds)",
 )];
 
-/// What an operator signs to request a placement.
-///
-/// Every field that decides the answer is inside the signature, including the
-/// window: a proxy that shortened the window to one second would otherwise be
-/// choosing when the console reverts.
+/// What an operator signs to request a placement. Every field that decides the
+/// answer, including the window, is inside the signature: otherwise a proxy
+/// could shorten the window and choose when the console reverts.
 pub fn placement_request_bytes(
     deployment: &str,
     operator: &str,
@@ -140,46 +107,34 @@ pub fn placement_request_bytes(
     msg
 }
 
-// ---------------------------------------------------------------------------
-// The window
-// ---------------------------------------------------------------------------
+// ---- The window ----
 
-/// Decision 11's default: five minutes to follow the console to its new host
-/// and sign in there.
+/// Decision 11's default: five minutes to follow the console to its new host and
+/// sign in.
 pub const DEFAULT_WINDOW_SECONDS: i64 = 300;
 
-/// `0020`'s own `CHECK (window_seconds BETWEEN 60 AND 3600)`, restated here so
-/// a bad request is a typed refusal and not a constraint violation.
+/// `0020`'s `CHECK (window_seconds BETWEEN 60 AND 3600)`, restated so a bad
+/// request is a typed refusal.
 ///
-/// **The window is per request and there is no site setting for it** (the
-/// lead's resolution, 2026-09-21, which replaced the contracts document's
-/// `console_placement_window_seconds` key): a second setting would take §5.3's
-/// delay and quorum, which is the machinery decision 11 deliberately steps
-/// around, and the number only ever matters for the one change being made.
+/// **The window is per request, with no site setting.** A setting would take
+/// §5.3's delay and quorum, the machinery decision 11 deliberately avoids.
 pub const MIN_WINDOW_SECONDS: i64 = 60;
 pub const MAX_WINDOW_SECONDS: i64 = 3600;
 
-/// One SMTP test-send per operator per five minutes (the contracts' own
-/// number), in the bucket [`take_test_send_budget`] describes.
+/// One SMTP test-send per operator per five minutes, in the bucket
+/// [`take_test_send_budget`] describes.
 pub const TEST_SEND_WINDOW_SECONDS: i64 = 300;
 
-/// **How stale this process's placement snapshot may be** — five seconds.
+/// **How stale this process's placement snapshot may be**: five seconds. It is
+/// the gap between another process writing a placement (the `--reset` CLI or the
+/// other container) and this one honouring it.
 ///
-/// The number is the gap between another process writing a placement (the
-/// `console-placement --reset` CLI, or the other of two containers) and this
-/// process honouring it. Five seconds because the act on the other end is a
-/// human on a host console who then reloads a page, and because the read is
-/// two indexed rows: shorter buys nothing a person would notice, longer makes
-/// decision 11's way back from a lockout feel broken.
-///
-/// It is not a security boundary in either direction. Loosening a placement
-/// already needs an operator session or the key volume; tightening one is
-/// honoured by the writing process at once and by every other within the TTL.
+/// Not a security boundary: loosening needs an operator session or the key
+/// volume, and tightening is honoured by the writer at once and by others within
+/// the TTL.
 pub const SNAPSHOT_TTL: Duration = Duration::from_secs(5);
 
-// ---------------------------------------------------------------------------
-// The snapshot
-// ---------------------------------------------------------------------------
+// ---- The snapshot ----
 
 /// One placement as the gate reads it: hosts and sources, already parsed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -188,11 +143,9 @@ pub struct Placed {
     pub sources: Vec<Cidr>,
 }
 
-/// What the deployment's placement is right now.
-///
-/// Both halves are held, and [`Placement::effective`] picks between them by
-/// the clock — so the moment a window runs out the gate falls back to the last
-/// confirmed placement without waiting for the sweep to notice.
+/// What the placement is right now. Both halves are held and
+/// [`Placement::effective`] picks by the clock, so an expired window falls back
+/// to the last confirmed placement without waiting for the sweep.
 #[derive(Clone, Debug, Default)]
 pub struct Placement {
     confirmed: Option<Placed>,
@@ -200,15 +153,14 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// Build one from its two halves. Used by [`PlacementStore::refresh`] and
-    /// by the tests that drive the gate without a database.
+    /// Build one from its two halves, for [`PlacementStore::refresh`] and for tests
+    /// driving the gate without a database.
     pub fn from_parts(confirmed: Option<Placed>, pending: Option<(Placed, i64)>) -> Self {
         Self { confirmed, pending }
     }
 
-    /// The placement in force at `now`, or `None` for "open": no placement has
-    /// ever been confirmed and none is pending, so the console answers
-    /// everywhere, exactly as it did before this module existed.
+    /// The placement in force at `now`, or `None` for "open": none confirmed and none
+    /// pending, so the console answers everywhere.
     pub fn effective(&self, now_unix: i64) -> Option<&Placed> {
         match &self.pending {
             Some((placed, confirm_by)) if *confirm_by > now_unix => Some(placed),
@@ -216,14 +168,14 @@ impl Placement {
         }
     }
 
-    /// Whether a placement is waiting to be confirmed and its window has
-    /// already run out — the state the sweep exists to record.
+    /// Whether a placement is pending and its window has run out: the state the sweep
+    /// records.
     pub fn window_ran_out(&self, now_unix: i64) -> bool {
         matches!(&self.pending, Some((_, confirm_by)) if *confirm_by <= now_unix)
     }
 
-    /// When the placement in force stops being in force unless it is
-    /// confirmed, or `None` when nothing is pending.
+    /// When the placement in force stops being so unless confirmed; `None` when
+    /// nothing is pending.
     pub fn confirm_by(&self, now_unix: i64) -> Option<i64> {
         match &self.pending {
             Some((_, confirm_by)) if *confirm_by > now_unix => Some(*confirm_by),
@@ -232,12 +184,10 @@ impl Placement {
     }
 }
 
-/// The shared handle `AdminExposure`, the flag route and the store all read.
+/// The shared handle `AdminExposure`, the flag route and the store read.
 pub type PlacementView = Arc<RwLock<Placement>>;
 
-// ---------------------------------------------------------------------------
-// The store
-// ---------------------------------------------------------------------------
+// ---- The store ----
 
 /// What a placement request answers with.
 pub struct Requested {
@@ -263,8 +213,7 @@ impl PlacementStore {
         }
     }
 
-    /// The handle the gate and the flag route hold. Cloning it is cloning an
-    /// `Arc`: there is one snapshot per process.
+    /// The handle the gate and flag route hold. One snapshot per process.
     pub fn view(&self) -> PlacementView {
         Arc::clone(&self.view)
     }
@@ -273,21 +222,19 @@ impl PlacementStore {
         &self.deployment
     }
 
-    /// Read the live placement out of the database and publish it.
+    /// Read the live placement from the database and publish it.
     ///
-    /// **Under `app.placement_flag`, not operator custody** (`0020` §B): this
-    /// runs at startup and after writes, with no operator anywhere near it,
-    /// and the narrowest capability that can answer the question is the one to
-    /// use.
+    /// **Under `app.placement_flag`, not operator custody** (`0020` §B): it runs at
+    /// startup and after writes with no operator involved, so it uses the narrowest
+    /// capability.
     pub async fn refresh(&self) -> Result<Placement, OperatorError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_placement_flag(&tx).await?;
 
-        // The last CONFIRMED placement, and the newest placement still waiting
-        // for its confirmation. `0020`'s own comment names the first query;
-        // the second is the half that has to be carried separately so that a
-        // window running out falls back rather than opening the console.
+        // The last CONFIRMED placement, and the newest one still awaiting confirmation.
+        // They are carried separately so an expired window falls back rather than
+        // opening the console.
         let confirmed = tx
             .query_opt(
                 "SELECT hosts, sources FROM console_placements \
@@ -296,10 +243,9 @@ impl PlacementStore {
                 &[],
             )
             .await?;
-        // **No `confirm_by > now()` here, deliberately.** An expired window is
-        // still a row the sweep has to revert, and the snapshot is what tells
-        // the sweep it exists; `Placement::effective` is what stops honouring
-        // it, by the clock, the moment it runs out.
+        // **No `confirm_by > now()`, deliberately.** An expired window is still a row
+        // the sweep must revert, and the snapshot is how the sweep learns of it;
+        // `Placement::effective` stops honouring it by the clock.
         let pending = tx
             .query_opt(
                 "SELECT hosts, sources, EXTRACT(EPOCH FROM confirm_by)::bigint \
@@ -320,26 +266,17 @@ impl PlacementStore {
         Ok(placement)
     }
 
-    /// **Re-read the snapshot every [`SNAPSHOT_TTL`], for ever.**
+    /// **Re-read the snapshot every [`SNAPSHOT_TTL`], for ever.** A placement written by
+    /// ANOTHER process (the `--reset` CLI, the other container) otherwise never reaches
+    /// this one, and the gate kept enforcing a placement that had locked everybody out.
     ///
-    /// The half of decision 11 that was missing: a placement written by
-    /// ANOTHER process — `fathom-server console-placement --reset` on the
-    /// host, or the other of two containers — reached the database and never
-    /// reached this process's `Arc<RwLock<Placement>>`, so the reset printed
-    /// success and the gate went on enforcing the placement that had locked
-    /// everybody out until somebody restarted the server. See this module's
-    /// header.
-    ///
-    /// Returns the task's handle. Dropping it does not stop the task;
-    /// `main.rs` keeps it for the life of the process and aborts it on
-    /// shutdown. A failed read is logged and the loop continues: the old
-    /// snapshot is the safe thing to keep enforcing, and a database that is
-    /// briefly unreachable must not turn the console open.
+    /// Dropping the returned handle does not stop the task; `main.rs` aborts it on
+    /// shutdown. A failed read is logged and the loop continues: the old snapshot is
+    /// the safe one, and a briefly unreachable database must not open the console.
     pub fn spawn_snapshot_refresher(store: Arc<Self>) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(SNAPSHOT_TTL);
-            // The first tick is immediate and `main.rs` has already refreshed
-            // once; skipping it keeps the startup path to one read.
+            // The first tick is immediate and `main.rs` already refreshed once.
             ticker.tick().await;
             loop {
                 ticker.tick().await;
@@ -357,15 +294,14 @@ impl PlacementStore {
     fn publish(&self, placement: Placement) {
         match self.view.write() {
             Ok(mut view) => *view = placement,
-            // A poisoned lock means a panic happened while the snapshot was
-            // being written. Refusing to update it is the safe half: the gate
-            // keeps enforcing the placement it already knows.
+            // A poisoned lock means a panic mid-write. Not updating is the safe half: the
+            // gate keeps enforcing the placement it knows.
             Err(_) => tracing::error!("the console placement snapshot is poisoned; not updated"),
         }
     }
 
-    /// Decision 11's request: **applies at once, sealed in the same
-    /// transaction**, and starts the window.
+    /// Decision 11's request: **applies at once, sealed in the same transaction**,
+    /// and starts the window.
     pub async fn request(
         &self,
         session: &VerifiedSession,
@@ -388,10 +324,9 @@ impl PlacementStore {
         let tx = client.transaction().await?;
         operators::enter_operator_custody(&tx).await?;
 
-        // The assertion by the operator's ENROLLED key, not only by the
-        // session key: moving the console is the act most likely to lock a
-        // deployment out of its own console, so it is a key touch, exactly as
-        // a settings change and a second operator are (§5.5).
+        // Asserted by the operator's ENROLLED key, not only the session key: moving the
+        // console is the act most likely to lock a deployment out, so it is a key touch,
+        // like a settings change or a second operator (§5.5).
         let message =
             placement_request_bytes(&self.deployment, &acting, &hosts, &sources, window_seconds);
         verify_operator_assertion(&tx, &self.ring, &acting, &message, assertion).await?;
@@ -476,13 +411,10 @@ impl PlacementStore {
         })
     }
 
-    /// Decision 11's confirmation: an operator reached the console **on the
-    /// new host**, inside the window.
-    ///
-    /// Returns the placement id when this call was the confirmation. Called
-    /// from [`confirm_on_the_new_host`] for every `/admin` request that
-    /// verified, so the ordinary case — no placement pending — costs one
-    /// read of the snapshot and no database work at all.
+    /// Decision 11's confirmation: an operator reached the console **on the new
+    /// host**, inside the window. Returns the placement id when this call confirmed.
+    /// Called from [`confirm_on_the_new_host`] for every verified `/admin` request,
+    /// so the usual case (nothing pending) is one snapshot read, no database work.
     pub async fn confirm_on_host(
         &self,
         host: &str,
@@ -583,29 +515,22 @@ impl PlacementStore {
         Ok(Some(id))
     }
 
-    /// The sweep: every placement whose window ran out without a confirmation
-    /// reverts, sealed.
+    /// The sweep: every placement whose window ran out unconfirmed reverts, sealed.
     ///
-    /// Called from the same place `apply_due_operator_requests` is swept from
-    /// (`admin.rs`'s operator register), because this deployment has no
-    /// scheduler — `0014` §C's argument for sweeping on the paths that care.
-    /// The GATE does not wait for it: [`Placement::effective`] stops honouring
-    /// an expired window the moment it expires. What the sweep adds is the
-    /// sealed record and the row's own state.
+    /// Called where `apply_due_operator_requests` is swept (`admin.rs`), since there
+    /// is no scheduler (`0014` §C). The GATE does not wait for it; the sweep adds the
+    /// sealed record and the row's state.
     pub async fn sweep(&self) -> Result<usize, OperatorError> {
         self.revert_all("window_expired").await
     }
 
-    /// `fathom-server console-placement --reset`, decision 11's last sentence:
-    /// the placement that locked everyone out is cleared **from the host**,
-    /// sealed, for the case where the window was confirmed and the host later
-    /// died.
+    /// `fathom-server console-placement --reset`, decision 11's last sentence: clear
+    /// the placement that locked everyone out **from the host**, sealed, for when the
+    /// window was confirmed and the host later died.
     ///
-    /// **It runs in a second process, and that is the whole point.** The
-    /// `refresh()` at the end of `revert_all` updates the CLI's own snapshot,
-    /// which nothing reads; what makes the reset take effect on the RUNNING
-    /// server is [`PlacementStore::spawn_snapshot_refresher`] there, within
-    /// [`SNAPSHOT_TTL`].
+    /// **It runs in a second process.** The `refresh()` at the end of `revert_all`
+    /// updates only the CLI's own snapshot; the RUNNING server picks the reset up
+    /// through [`PlacementStore::spawn_snapshot_refresher`] within [`SNAPSHOT_TTL`].
     pub async fn reset_from_host(&self) -> Result<usize, OperatorError> {
         self.revert_all("host_reset").await
     }
@@ -615,9 +540,8 @@ impl PlacementStore {
         let tx = client.transaction().await?;
         operators::enter_operator_custody(&tx).await?;
 
-        // `host_reset` clears every live placement, confirmed or not -- that
-        // is what "the host it was confirmed on later died" means. The sweep
-        // clears only windows that ran out.
+        // `host_reset` clears every live placement, confirmed or not. The sweep clears
+        // only windows that ran out.
         let rows = if reason == "host_reset" {
             tx.query(
                 "SELECT id, hosts, sources, window_seconds, requested_by, request_sig, \
@@ -658,20 +582,13 @@ impl PlacementStore {
                 .query_one("SELECT EXTRACT(EPOCH FROM now())::bigint", &[])
                 .await?
                 .get(0);
-            // **What the row gives up, the chain keeps.** `0020` has a
-            // `CHECK (confirmed_at IS NULL OR reverted_at IS NULL)` -- a
-            // placement that was confirmed did not then also time out -- so a
-            // confirmed row cannot simply be marked reverted, and
-            // `console-placement --reset` exists for exactly the case where a
-            // CONFIRMED placement has to go (decision 11: *"the window was
-            // confirmed and the host later died"*). The row is therefore
-            // un-confirmed and reverted in one statement, and the entry below
-            // carries `was_confirmed` and the confirming operator so the
-            // sequence stays legible to a reader holding the chain key.
-            // **Reported to the lead**: `0020`'s exclusivity CHECK and
-            // decision 11's reset case do not quite agree, and this is the
-            // only shape the schema allows without editing a shipped
-            // migration.
+            // **What the row gives up, the chain keeps.** `0020` has
+            // `CHECK (confirmed_at IS NULL OR reverted_at IS NULL)`, so a confirmed row
+            // cannot just be marked reverted, yet `--reset` exists for exactly that case.
+            // The row is un-confirmed and reverted in one statement, and the entry below
+            // carries `was_confirmed` and the confirming operator. The CHECK and decision
+            // 11's reset case do not quite agree; this is the only shape the schema allows
+            // without editing a shipped migration.
             let undo_confirmation = reason == "host_reset" && confirmed_by.is_some();
             let appended = chains::append_site(
                 &tx,
@@ -771,7 +688,7 @@ impl PlacementStore {
 }
 
 /// Turn on `app.placement_flag`: `0020` §B's third capability, narrower than
-/// operator custody, for the one read an unauthenticated caller's answer needs.
+/// operator custody, for the one read an unauthenticated answer needs.
 async fn enter_placement_flag(tx: &Transaction<'_>) -> Result<(), OperatorError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
@@ -789,9 +706,7 @@ async fn leave_placement_flag(tx: &Transaction<'_>) -> Result<(), OperatorError>
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Parsing, shared with `admin_exposure`
-// ---------------------------------------------------------------------------
+// ---- Parsing, shared with `admin_exposure` ----
 
 fn placed(hosts: String, sources: String) -> Placed {
     Placed {
@@ -800,7 +715,7 @@ fn placed(hosts: String, sources: String) -> Placed {
     }
 }
 
-/// The stored text as a list of normalised host names.
+/// The stored text as normalised host names.
 pub fn host_list(text: &str) -> Vec<String> {
     text.split(',')
         .map(str::trim)
@@ -809,9 +724,9 @@ pub fn host_list(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The stored text as a list of ranges. **An entry that does not parse is
-/// dropped here and refused at the door** ([`check_sources`]), so a row that
-/// somehow holds one cannot silently widen the gate.
+/// The stored text as ranges. **An entry that does not parse is dropped here and
+/// refused at the door** ([`check_sources`]), so a stray row cannot silently
+/// widen the gate.
 pub fn source_list(text: &str) -> Vec<Cidr> {
     text.split(',')
         .map(str::trim)
@@ -820,14 +735,12 @@ pub fn source_list(text: &str) -> Vec<Cidr> {
         .collect()
 }
 
-/// `0020`'s `CHECK (char_length(hosts) BETWEEN 1 AND 2000)` and a host name
-/// that is a host name, as a typed refusal.
+/// `0020`'s `CHECK (char_length(hosts) BETWEEN 1 AND 2000)` and valid host names,
+/// as a typed refusal.
 ///
-/// **Returns the operator's own text, trimmed and not otherwise changed** —
-/// `0020`'s own words, *"this table stores what the operator typed"* — because
-/// that text is what the operator's signature covers. Case and port are
-/// normalised where the text is READ ([`host_list`]), which is the same place
-/// the `Host` header is normalised, so one rule serves both.
+/// **Returns the operator's own text, trimmed only**, because their signature
+/// covers it. Case and port are normalised where the text is READ
+/// ([`host_list`]), the same place the `Host` header is normalised.
 fn check_hosts(text: &str) -> Result<String, OperatorError> {
     let text = text.trim().to_string();
     let hosts: Vec<String> = host_list(&text);
@@ -838,11 +751,10 @@ fn check_hosts(text: &str) -> Result<String, OperatorError> {
         return Err(OperatorError::Malformed("placement hosts"));
     }
     for host in &hosts {
-        // What a `Host` header can actually carry: letters, digits, `-`, `.`,
-        // and the brackets and colons of an IPv6 literal. Not a scheme, not a
-        // path, not a space -- a value that cannot match `Host` would confine
-        // the console to nowhere, which is the lockout this interlock exists
-        // to make survivable and should not be reachable by typo.
+        // What a `Host` header can carry: letters, digits, `-`, `.`, and the brackets
+        // and colons of an IPv6 literal. A value that cannot match `Host` would confine
+        // the console to nowhere, the lockout this interlock exists to survive and
+        // should not be reachable by typo.
         let ok = !host.is_empty()
             && host.len() <= 253
             && host.bytes().all(|b| {
@@ -860,9 +772,8 @@ fn check_hosts(text: &str) -> Result<String, OperatorError> {
     Ok(text)
 }
 
-/// Sources as text, with the whole-internet default for a deployment that
-/// wants to confine the console by host alone: `0020` requires the column to
-/// be non-empty, so "from anywhere" has to be spelled rather than left blank.
+/// Sources as text, with a whole-internet default for confining by host alone:
+/// `0020` requires a non-empty column, so "from anywhere" is spelled out.
 fn sources_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -893,9 +804,7 @@ fn check_sources(text: &str) -> Result<String, OperatorError> {
     Ok(text)
 }
 
-// ---------------------------------------------------------------------------
-// The row seal
-// ---------------------------------------------------------------------------
+// ---- The row seal ----
 
 struct PlacementFacts<'a> {
     id: &'a str,
@@ -1003,17 +912,14 @@ fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
-// ---------------------------------------------------------------------------
-// The SMTP value envelope (decision 11, the contracts' layout)
-// ---------------------------------------------------------------------------
+// ---- The SMTP value envelope (decision 11) ----
 
 /// `LP(host)‖LP(port as text)‖LP(tls_mode)‖LP(user)‖LP(password)‖LP(from_address)`,
 /// parsed and checked before it is sealed into `site_settings_versions`.
 ///
-/// **The password is a [`Secret`] from the moment it exists in this process.**
-/// §5.3: *"SMTP credentials are credentials"*. `tests/no_secret_in_logs.rs`
-/// drives this type's refusals and its `Debug` with a password shape a real
-/// SMTP server accepts.
+/// **The password is a [`Secret`] from the moment it exists.** §5.3: *"SMTP
+/// credentials are credentials"*. `tests/no_secret_in_logs.rs` drives this type's
+/// refusals and `Debug` with a password shape a real SMTP server accepts.
 pub struct SmtpSettings {
     pub host: String,
     pub port: u16,
@@ -1036,16 +942,15 @@ impl core::fmt::Debug for SmtpSettings {
     }
 }
 
-/// Text and not an integer, so a malformed row is legible in a dump without
-/// the enum table (the contracts' own reasoning).
+/// Text, not an integer, so a malformed row is legible in a dump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TlsMode {
     /// Connect in the clear and upgrade with `STARTTLS` (RFC 3207).
     StartTls,
     /// TLS from the first byte, the "submissions" port (RFC 8314 §3.3).
     Implicit,
-    /// No TLS at all. Allowed because a deployment may hand mail to a relay on
-    /// its own loopback; it is not the default and nothing here chooses it.
+    /// No TLS at all. Allowed because a deployment may hand mail to a relay on its
+    /// own loopback; never the default.
     None,
 }
 
@@ -1069,8 +974,7 @@ impl TlsMode {
 }
 
 /// Parse and check the envelope. Every refusal names the FIELD and never its
-/// value: a refusal that echoed the value would put an SMTP password in a
-/// 400's body and in whatever logs it.
+/// value: echoing it would put an SMTP password in a 400 body and its logs.
 pub fn parse_smtp_value(value: &[u8]) -> Result<SmtpSettings, OperatorError> {
     let mut rest = value;
     let mut fields: Vec<&[u8]> = Vec::with_capacity(6);
@@ -1081,9 +985,8 @@ pub fn parse_smtp_value(value: &[u8]) -> Result<SmtpSettings, OperatorError> {
         rest = remainder;
     }
     if !rest.is_empty() {
-        // Exactly six fields, as `admin.rs::read_fields` is exact: a seventh
-        // field is a sender who believes something about this envelope that is
-        // not true.
+        // Exactly six fields; a seventh means a sender believes something untrue about
+        // the envelope.
         return Err(OperatorError::Malformed("smtp settings"));
     }
     let text = |i: usize, what: &'static str| -> Result<String, OperatorError> {
@@ -1117,13 +1020,10 @@ pub fn parse_smtp_value(value: &[u8]) -> Result<SmtpSettings, OperatorError> {
         return Err(OperatorError::Malformed("smtp user"));
     }
 
-    // **The password is read as bytes and wrapped before anything can print
-    // it.** The bound is what a real SMTP AUTH exchange carries: RFC 4954's
-    // initial response travels in one command line, and RFC 5321 §4.5.3.1.4
-    // bounds a command line at 512 octets including CRLF -- so a password
-    // longer than a few hundred characters is one no real server would take.
-    // CLAUDE.md rule 2: the gate is tested against what a real device accepts,
-    // not against what makes the check easy.
+    // **Read as bytes and wrapped before anything can print it.** The bound is what
+    // a real SMTP AUTH exchange carries: RFC 4954's initial response is one command
+    // line, and RFC 5321 §4.5.3.1.4 bounds that at 512 octets including CRLF. CLAUDE.md
+    // rule 2: test against what a real server accepts, not what makes the check easy.
     let password_bytes = fields[4];
     if password_bytes.len() > 255 {
         return Err(OperatorError::Malformed("smtp password"));
@@ -1135,11 +1035,10 @@ pub fn parse_smtp_value(value: &[u8]) -> Result<SmtpSettings, OperatorError> {
 
     let from_address = text(5, "smtp from address")?;
     let from_address = from_address.trim().to_string();
-    // One `@`, something either side, no spaces, no control characters: the
-    // same shape `accounts.email` already carries. Deliberately NOT a full RFC
-    // 5322 parser -- the address is checked by the mail server that will
-    // refuse it, and a regular expression here would be a second, wronger
-    // spelling of that rule.
+    // One `@`, something either side, no spaces or control characters: the shape
+    // `accounts.email` carries. Deliberately NOT a full RFC 5322 parser; the mail
+    // server will refuse a bad address and a regex here would be a second, wronger
+    // rule.
     let at = from_address.find('@');
     let plausible = match at {
         Some(i) => {
@@ -1166,7 +1065,7 @@ pub fn parse_smtp_value(value: &[u8]) -> Result<SmtpSettings, OperatorError> {
     })
 }
 
-/// The envelope as the client sends it, for tests and for the client library.
+/// The envelope as the client sends it, for tests and the client library.
 pub fn smtp_value_bytes(
     host: &str,
     port: u16,
@@ -1185,28 +1084,22 @@ pub fn smtp_value_bytes(
     out
 }
 
-// ---------------------------------------------------------------------------
-// The confirmation hook
-// ---------------------------------------------------------------------------
+// ---- The confirmation hook ----
 
 tokio::task_local! {
-    /// Which operator the `/admin` request currently being served verified as.
+    /// Which operator the `/admin` request being served verified as.
     ///
     /// **Filled by `admin::verify`, read by [`confirm_on_the_new_host`].** A
-    /// task-local rather than a request extension because the handler gets the
-    /// extensions by value and `verify` never sees them; a middleware cannot
-    /// name the operator on its own without verifying the session a second
-    /// time, and decision 11's confirmation is precisely *"an operator sign-in
-    /// on the new host"*, so it must be attributed to the operator who
-    /// actually reached it.
+    /// task-local, because the handler gets the extensions by value and `verify`
+    /// never sees them, and a middleware cannot name the operator without verifying
+    /// the session twice. The confirmation must be attributed to the operator who
+    /// actually reached the new host.
     static ACTING_OPERATOR: Arc<Mutex<Option<String>>>;
 }
 
-/// Record the operator this request verified as, for the confirmation.
-///
-/// Silently does nothing outside [`confirm_on_the_new_host`]'s scope — every
-/// other caller of `admin::verify` (a test, a route mounted without the layer)
-/// is unaffected.
+/// Record the operator this request verified as. Does nothing outside
+/// [`confirm_on_the_new_host`]'s scope, so other callers of `admin::verify` are
+/// unaffected.
 pub fn note_acting_operator(session: &VerifiedSession) {
     if session.kind() != PrincipalKind::Operator {
         return;
@@ -1222,10 +1115,9 @@ pub fn note_acting_operator(session: &VerifiedSession) {
 /// Decision 11's confirmation, as a layer over the console router.
 ///
 /// **The first `/admin` request that VERIFIES on a matching `Host` inside the
-/// window.** Not a route of its own: the browser that followed the console to
-/// its new host signs in there and asks for the console, and that request is
-/// the confirmation. A 404 from `admin_exposure`, a refused signature or a
-/// disabled operator never reaches this because none of them is a success.
+/// window.** Not a route: the browser that followed the console signs in on the
+/// new host and asks for the console. A 404, refused signature or disabled
+/// operator is never a success, so never reaches it.
 pub async fn confirm_on_the_new_host(
     State(store): State<Arc<PlacementStore>>,
     request: Request<Body>,
@@ -1244,18 +1136,16 @@ pub async fn confirm_on_the_new_host(
     if !response.status().is_success() {
         return response;
     }
-    // Two reads of the snapshot, and in the common case -- nothing pending,
-    // nothing expired -- no database work at all.
+    // Two snapshot reads; with nothing pending or expired, no database work.
     let now = now_unix();
     let (pending, expired) = match store.view().read() {
         Ok(view) => (view.confirm_by(now).is_some(), view.window_ran_out(now)),
         Err(_) => (false, false),
     };
     if expired {
-        // The sweep `admin.rs` points at: a window that ran out writes its
-        // sealed `console_placement_reverted` here, on the next console
-        // request, because this deployment has no scheduler. The gate had
-        // already stopped honouring it (`Placement::effective`).
+        // The sweep `admin.rs` points at: a window that ran out writes its sealed
+        // `console_placement_reverted` on the next console request (no scheduler). The
+        // gate already stopped honouring it.
         if let Err(e) = store.sweep().await {
             tracing::error!(error = %e, "an expired console placement could not be reverted");
         }
@@ -1273,23 +1163,19 @@ pub async fn confirm_on_the_new_host(
     response
 }
 
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
+// ---- Routes ----
 
 /// Everything the placement routes need.
 ///
-/// **Its own state and its own router, deliberately not a field on
-/// `admin::AdminState`**: that struct is built by `main.rs` and by two test
-/// binaries, and ADR-0055 is being built by three people at once. A router
-/// that merges is a merge; a field on a shared struct is a conflict in every
-/// file that constructs it.
+/// **Its own state and router, deliberately not a field on `admin::AdminState`**,
+/// which `main.rs` and two test binaries build. A merging router avoids a
+/// conflict in every file that constructs the struct.
 #[derive(Clone)]
 pub struct PlacementState {
     pub sessions: Arc<SessionStore>,
     pub placement: Arc<PlacementStore>,
-    /// ADR-0057 decision 7. The same policy every other route's state
-    /// carries (`src/client_address.rs`).
+    /// ADR-0057 decision 7: the same policy as every other route's state
+    /// (`src/client_address.rs`).
     pub client_address: ClientAddress,
 }
 
@@ -1304,30 +1190,22 @@ impl axum::extract::FromRequest<PlacementState> for Signed {
     }
 }
 
-/// `POST /admin/placement`, to merge into the console router **inside**
-/// `admin_exposure`'s gate: moving the console is a console act.
+/// `POST /admin/placement`, merged **inside** `admin_exposure`'s gate: moving the
+/// console is a console act.
 pub fn router(state: PlacementState) -> Router {
     Router::new()
         .route("/admin/placement", post(request_placement))
         .with_state(state)
 }
 
-/// The unauthenticated flag, **outside `/admin`** (decision 9).
+/// The unauthenticated flag, **outside `/admin`** (decision 9); answer in [`flag`].
 ///
-/// Answer: `LP("yes"|"no")`, and when the answer is "yes" and a placement is
-/// still waiting for its confirmation, `LP(confirm_by as text)` — empty text
-/// when the placement is already confirmed, so the shape of the answer does
-/// not depend on which of the two it is. **Then a third field**,
-/// `LP("environment"|"console"|"open")`, in both branches — see [`flag`].
-///
-/// **It asks the console's own gate, not the placement table**, and the
-/// difference matters: `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` win over a
-/// placement (decision 11), so a client on the host the ENVIRONMENT names has
-/// to be told "yes" even though no placement row says so. The question the
-/// route answers is exactly the question the client has — *"would a console
-/// request from here be answered?"* — so it is put to
-/// [`AdminExposure::allows`] with this request's own headers and peer, and
-/// there is no second rule to keep in step with the first.
+/// **It asks the console's own gate, not the placement table.**
+/// `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` win over a placement (decision 11),
+/// so a client on an ENVIRONMENT-named host must hear "yes" though no row says so.
+/// The question is *"would a console request from here be answered?"*, put to
+/// [`AdminExposure::allows`] with this request's headers and peer, so there is no
+/// second rule to keep in step.
 pub fn flag_router(exposure: crate::admin_exposure::AdminExposure) -> Router {
     Router::new()
         .route("/placement/flag", axum::routing::get(flag))
@@ -1336,20 +1214,16 @@ pub fn flag_router(exposure: crate::admin_exposure::AdminExposure) -> Router {
 
 /// The three fields, in order:
 ///
-/// 1. `LP("yes"|"no")` — would a console request from this host be answered?
-/// 2. `LP(confirm_by as text)`, **only when the first is "yes"**, empty when
-///    nothing is waiting to be confirmed. Unchanged.
-/// 3. `LP("environment"|"console"|"open")` — **which of the three decided**
+/// 1. `LP("yes"|"no")`: would a console request from this host be answered?
+/// 2. `LP(confirm_by as text)`, **only when the first is "yes"**; empty when nothing
+///    awaits confirmation (so the shape does not depend on which).
+/// 3. `LP("environment"|"console"|"open")`: **which rule decided**
 ///    ([`crate::admin_exposure::AdminExposure::decided_by`]).
 ///
-/// The third field is decision 11's *"the form says so and is read-only
-/// then"*, told rather than inferred: the console's placement form has to
-/// know whether `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` are deciding,
-/// and the only signal it had was the absence of a deadline, which is also
-/// what a confirmed placement looks like. It discloses no host, no source
-/// and no deadline it was not already disclosing — only which of three rules
-/// is in force, on a host that has just been told it is the console host (or
-/// that it is not).
+/// The third is decision 11's *"the form says so and is read-only then"*: the form
+/// must know whether the environment is deciding, and a missing deadline cannot say
+/// (a confirmed placement has none either). It discloses only which rule is in
+/// force.
 async fn flag(
     State(exposure): State<crate::admin_exposure::AdminExposure>,
     request: Request<Body>,
@@ -1375,14 +1249,11 @@ async fn flag(
         .into_response()
 }
 
-/// `POST /admin/placement` — decision 11.
+/// `POST /admin/placement`, decision 11.
 ///
 /// Body: `LP(hosts) ‖ LP(sources) ‖ LP(window_seconds) ‖ LP(assertion)`.
-/// Answer: `LP(id) ‖ u64(confirm_by)`.
-///
-/// **A fourth field the contracts document did not have**, because the lead's
-/// resolution moved the window from a site setting to the request itself; an
-/// empty field means [`DEFAULT_WINDOW_SECONDS`].
+/// Answer: `LP(id) ‖ u64(confirm_by)`. An empty window field means
+/// [`DEFAULT_WINDOW_SECONDS`].
 async fn request_placement(
     State(state): State<PlacementState>,
     signed: Signed,
@@ -1433,10 +1304,9 @@ async fn verify(state: &PlacementState, signed: &Signed) -> Result<VerifiedSessi
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     let result: Result<VerifiedSession, Refusal> = async {
         let session = state.sessions.verify_pending(&tx, &signed.pending).await?;
-        // ADR-0057 decision 7: the ending delete a mismatch triggers must
-        // run on this transaction — the row just advanced is locked until
-        // this transaction resolves, so a separate connection's `DELETE`
-        // would wait on that lock forever.
+        // ADR-0057 decision 7: the ending delete a mismatch triggers must run on this
+        // transaction; the row just advanced is locked, so a separate connection's
+        // `DELETE` would wait forever.
         state
             .sessions
             .check_session_address(&tx, session.id(), &signed.address)
@@ -1471,23 +1341,13 @@ fn text(field: &[u8], what: &'static str) -> Result<String, Refusal> {
     String::from_utf8(field.to_vec()).map_err(|_| SessionError::Malformed(what).into())
 }
 
-// ---------------------------------------------------------------------------
-// The test-send's rate limit
-// ---------------------------------------------------------------------------
+// ---- The test-send's rate limit ----
 
-/// One test-send per operator per five minutes, in the `sign_in_attempts`
-/// table §13 item 7 already keeps.
-///
-/// **The same table, not a second limiter and not a new one** (the contracts:
-/// *"no new table, same reasoning as stream (a)'s reset buckets"*).
-/// `bucket_kind` is a closed set in `0013`'s own `CHECK` — `('account',
-/// 'source')` — so the bucket is `('account', "smtp-test:<operator>")`, which
-/// cannot collide with an account id: an account id is a 26-character ULID and
-/// this key is not.
-///
-/// The caller ALSO spends the per-source budget through
-/// [`SessionStore::check_source_budget`], so a source that has been guessing
-/// at `/session` has that much less left here.
+/// One test-send per operator per five minutes, in the `sign_in_attempts` table §13
+/// item 7 keeps: no new table. `bucket_kind` is closed by `0013`'s `CHECK`
+/// (`'account'`, `'source'`), so the bucket is `('account', "smtp-test:<operator>")`,
+/// which cannot collide with a 26-character ULID account id. The caller ALSO spends
+/// the per-source budget via [`SessionStore::check_source_budget`].
 pub async fn take_test_send_budget(
     pool: &Pool,
     operator: &str,
@@ -1495,9 +1355,8 @@ pub async fn take_test_send_budget(
 ) -> Result<bool, OperatorError> {
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    // `sign_in_attempts` is behind `app.session_custody` (`0013` §E). Set
-    // here rather than through `sessions.rs`'s own private helper, which is
-    // not exported; it is one `set_config` and the capability is the same one.
+    // `sign_in_attempts` is behind `app.session_custody` (`0013` §E). Set here
+    // because `sessions.rs`'s helper is private; same capability.
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
         &[],
@@ -1509,11 +1368,10 @@ pub async fn take_test_send_budget(
     let window = window_seconds.max(1);
     let attempts: i32 = tx
         .query_one(
-            // The window start is the same shape `sessions::window_start`
-            // computes in Rust: the epoch second, floored to the window. The
-            // casts are explicit because `EXTRACT(EPOCH FROM ...)` is
-            // `numeric` in PostgreSQL 14 and later, and an unqualified
-            // parameter beside it is inferred `numeric` too.
+            // The window start matches `sessions::window_start`: the epoch second floored to
+            // the window. The casts are explicit because `EXTRACT(EPOCH FROM ...)` is
+            // `numeric` in PostgreSQL 14+, and an unqualified parameter beside it is
+            // inferred `numeric` too.
             "INSERT INTO sign_in_attempts (bucket_kind, bucket_key, window_start, attempts) \
              VALUES ('account', $1, \
                      to_timestamp((EXTRACT(EPOCH FROM now())::bigint / $2::bigint) * $2::bigint), \
@@ -1558,8 +1416,7 @@ mod tests {
 
     #[test]
     fn the_label_list_names_every_label_this_module_uses() {
-        // One label today; written as a slice so that adding a second is a
-        // one-line change and not a rewrite of this test.
+        // One label today; a slice so adding another is a one-line change.
         let used: &[&[u8]] = &[TAG_PLACEMENT_REQUEST];
         for label in used {
             let text = core::str::from_utf8(label).unwrap();
@@ -1586,8 +1443,8 @@ mod tests {
         };
         assert_eq!(placement.effective(999), Some(&pending));
         assert_eq!(placement.confirm_by(999), Some(1_000));
-        // The window has run out and NOTHING has swept it: the gate falls back
-        // to the last confirmed placement, not to open.
+        // The window has run out and NOTHING has swept it: the gate falls back to the
+        // last confirmed placement, not open.
         assert_eq!(placement.effective(1_001), Some(&confirmed));
         assert_eq!(placement.confirm_by(1_001), None);
     }
@@ -1609,8 +1466,7 @@ mod tests {
 
     #[test]
     fn hosts_and_sources_are_checked_before_they_are_stored() {
-        // The operator's own text comes back, because that is what their
-        // signature covers; case and port are normalised where it is read.
+        // The operator's own text comes back, since their signature covers it.
         assert_eq!(
             check_hosts(" Admin.Example.test:8443, console.example.test ").unwrap(),
             "Admin.Example.test:8443, console.example.test"
@@ -1638,8 +1494,8 @@ mod tests {
 
     #[test]
     fn the_smtp_envelope_round_trips_and_refuses_what_is_malformed() {
-        // A real submission service: host, 587, STARTTLS, a login that is an
-        // address, and a password of the length a provider actually issues.
+        // A real submission service: host, 587, STARTTLS, an address as login, and a
+        // password of the length a provider issues.
         let value = smtp_value_bytes(
             "smtp.example.test",
             587,

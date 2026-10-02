@@ -8,25 +8,20 @@ use fathom_server::engine::EngineState;
 use fathom_server::health::HealthState;
 use fathom_server::{db, keys, log_startup, migrate, rls, AppState};
 
-/// **ADR-0055 decision 3 retired `FATHOM_SINGLE_OPERATOR`, and a deployment
-/// that still sets it is refused rather than quietly ignored.**
+/// **ADR-0055 decision 3 retired `FATHOM_SINGLE_OPERATOR`; a deployment that
+/// still sets it is refused, not quietly ignored.**
 ///
-/// A switch somebody believes still works is worse than a refusal: the
-/// variable used to be the only way a sole operator could change a setting
-/// alone, and an installer who set it and got a running server would believe
-/// a control was in force that no longer exists. The quorum is now
-/// `min(2, live independent operators)`, counted off the register at every
-/// act, which a sole operator satisfies without declaring anything.
-///
-/// CLAUDE.md rule 2's spirit, applied to configuration.
+/// An installer who set it and got a running server would believe a control was
+/// in force that no longer exists. The quorum is now `min(2, live independent
+/// operators)`, counted off the register at every act. CLAUDE.md rule 2's spirit,
+/// applied to configuration.
 const RETIRED_SINGLE_OPERATOR: &str = "FATHOM_SINGLE_OPERATOR is set, and it was retired by ADR-0055 decision 3. Remove it from the environment and start again. The second signature is now min(2, live independent operators), counted from the operator register: a deployment with one operator adds a colleague alone, after the 24-hour delay, and needs no switch to do it.";
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    // `43` §5.4: "distroless has no shell and no curl. The binary is its own
-    // health check." One subcommand, handled before anything else, because it
-    // needs no configuration and must not fail for want of DATABASE_URL — the
-    // container running the probe is the container being probed.
+    // `43` §5.4: distroless has no shell or curl, so the binary is its own health
+    // check. Handled first: it needs no configuration and must not fail for want of
+    // DATABASE_URL, since the container running the probe is the one being probed.
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("healthcheck") {
         let addr = match args.iter().position(|a| a == "--addr") {
@@ -38,22 +33,17 @@ async fn main() -> ExitCode {
         return match fathom_server::healthcheck::probe(&addr).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(why) => {
-                // stderr, not tracing: no subscriber has been installed and
-                // this process exists for one second to answer one question.
+                // stderr, not tracing: no subscriber is installed and this process lives one
+                // second.
                 eprintln!("fathom-server: unhealthy: {why}");
                 ExitCode::FAILURE
             }
         };
     }
-    // The second subcommand, and the one that has to be read carefully.
-    // `recover_operator` below carries the argument; the short version is that
-    // it prints a ten-minute setup code for an operator who ALREADY EXISTS,
-    // records the act on the site chain, and mints no operator (ADR-0055
-    // decision 8).
-    //
-    // Unlike `healthcheck` it needs the full configuration, the database and
-    // the key material, so it is handled after the arguments are checked and
-    // not before.
+    // `recover-operator`: prints a ten-minute setup code for an operator who
+    // ALREADY EXISTS, records the act on the site chain, and mints no operator
+    // (ADR-0055 decision 8). `recover_operator` below carries the argument. Unlike
+    // `healthcheck` it needs the full configuration, database and keys.
     if args.first().map(String::as_str) == Some("recover-operator") {
         let Some(address) = args.get(1) else {
             eprintln!("fathom-server: recover-operator takes one argument, the operator's address");
@@ -65,12 +55,9 @@ async fn main() -> ExitCode {
         }
         return recover_operator(address, false).await;
     }
-    // ADR-0055 decision 8: `reissue-bootstrap-token` folds into
-    // `recover-operator`. Kept as an alias because it is in
-    // `docs/OPERATING.md`'s drill and in operators' shell history, and a
-    // command that vanished would be discovered at the worst moment. With no
-    // address it falls back to FATHOM_OPERATOR_NOTICE_ADDRESS, which is the
-    // address the first start bound the first operator to.
+    // ADR-0055 decision 8: `reissue-bootstrap-token` folds into `recover-operator`.
+    // Kept as an alias (it is in `docs/OPERATING.md`'s drill). With no address it
+    // falls back to FATHOM_OPERATOR_NOTICE_ADDRESS.
     if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
         if args.len() > 2 {
             eprintln!("fathom-server: reissue-bootstrap-token takes at most one argument");
@@ -92,11 +79,9 @@ async fn main() -> ExitCode {
         };
         return recover_operator(&address, true).await;
     }
-    // ADR-0055 stream (c) -- decision 11's last sentence: the way back in when
-    // a placement locked everyone out of the console. Run ON THE HOST, where
-    // the key volume is mounted, like `reissue-bootstrap-token` above; it
-    // needs the full configuration and the key material, so it is handled
-    // here and not before.
+    // ADR-0055 stream (c), decision 11's last sentence: the way back in when a
+    // placement locked everyone out of the console. Run ON THE HOST, where the key
+    // volume is mounted; needs the full configuration and keys.
     if args.first().map(String::as_str) == Some("console-placement") {
         if args.get(1).map(String::as_str) != Some("--reset") || args.len() > 2 {
             eprintln!("fathom-server: console-placement takes exactly `--reset`");
@@ -113,8 +98,7 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    // Configuration BEFORE logging, so a bad configuration fails on stderr
-    // rather than through a subscriber that may not have been set up yet.
+    // Configuration BEFORE logging, so a bad configuration fails on stderr.
     let config = match Config::from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -123,21 +107,18 @@ async fn main() -> ExitCode {
         }
     };
 
-    // ADR-0055 stream (b). Before the schema, before logging, before the
-    // database: a deployment that believes a retired control is in force must
-    // not get a running server out of this process. See
-    // `RETIRED_SINGLE_OPERATOR`.
+    // ADR-0055 stream (b). Before the schema, logging or database: a deployment
+    // that believes a retired control is in force must not get a running server.
+    // See `RETIRED_SINGLE_OPERATOR`.
     if config.single_operator {
         eprintln!("fathom-server: {RETIRED_SINGLE_OPERATOR}");
         return ExitCode::from(2);
     }
 
-    // The schema tree, same shape as the config it sits beside: read before
-    // logging, fail on stderr, no subscriber to blame for having missed it.
-    // A schema that failed to parse — or failed one of its own gates, see
-    // `engine::EngineState::load` — is as fundamental a startup problem as a
-    // missing DATABASE_URL, and for the same reason gets no default beyond
-    // `config.schema_root`'s own (`FATHOM_SCHEMA_ROOT`, `config.rs`).
+    // The schema tree, like the config: read before logging, fail on stderr. A
+    // schema that fails to parse or fails its own gates (`engine::EngineState::load`)
+    // is as fundamental as a missing DATABASE_URL (`FATHOM_SCHEMA_ROOT`,
+    // `config.rs`).
     let engine = match EngineState::load(std::path::Path::new(&config.schema_root)) {
         Ok(e) => Arc::new(e),
         Err(e) => {
@@ -148,36 +129,29 @@ async fn main() -> ExitCode {
 
     tracing_subscriber::fmt()
         .with_max_level(config.log_level.to_tracing())
-        // No ANSI. RUSTSEC-2025-0055 is untrusted input logged with escape
-        // sequences intact; 0.3.23 escapes them and the `ansi` feature is off
-        // in the manifest as well. This line is the third layer of the same
-        // decision and costs nothing.
+        // No ANSI. RUSTSEC-2025-0055 is untrusted input logged with escape sequences
+        // intact; 0.3.23 escapes them and the `ansi` feature is off in the manifest.
+        // This line is the third layer.
         .with_ansi(false)
         .with_target(true)
         .init();
 
-    // The redacted URL, never the real one. `Config::database_for_logging`
-    // fails safe: anything it cannot parse confidently comes back fully
-    // redacted rather than as a best guess. The call lives in the library so
-    // that G6's test drives this exact line rather than a copy of it.
+    // The redacted URL, never the real one. `Config::database_for_logging` fails
+    // safe: anything it cannot parse confidently is fully redacted. It lives in the
+    // library so G6's test drives this exact line.
     log_startup(&config);
 
-    // ---- The migration role, used once, then dropped -------------------
+    // ---- The migration role, used once, then dropped ----
     //
-    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the migration role owns
-    // the schema and holds `CREATEROLE`. It applies any outstanding
-    // migrations and provisions the runtime role's ability to log in
-    // (`migrations/0006_runtime_role.sql` creates that role `NOLOGIN`;
-    // `db::provision_runtime_login` is the `ALTER ROLE ... LOGIN PASSWORD`
-    // that turns it into one the runtime pool can actually connect as) --
-    // and then this pool and its one connection go out of scope. Nothing
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the migration role owns the
+    // schema and holds `CREATEROLE`. It applies outstanding migrations and makes the
+    // runtime role (`migrations/0006_runtime_role.sql`, `NOLOGIN`) able to log in
+    // (`db::provision_runtime_login`). Then this pool goes out of scope, so nothing
     // past this block holds the migration credential.
     //
-    // `FATHOM_MIGRATE_DATABASE_URL` unset is a supported shape, not a partial
-    // failure: the owner's call is that a deployment that never hands the
-    // server this credential still starts and serves, PROVIDED the schema is
-    // already at the version this binary expects -- checked below, against
-    // the runtime connection, by `migrate::verify_current`.
+    // `FATHOM_MIGRATE_DATABASE_URL` unset is supported: the server still starts if
+    // the schema is already current, checked below against the runtime connection by
+    // `migrate::verify_current`.
     match db::migration_pool(&config) {
         Ok(Some(migrate_pool)) => {
             if let Some(migrate_url) = config.migrate_database_for_logging() {
@@ -195,23 +169,17 @@ async fn main() -> ExitCode {
                 }
             };
 
-            // Same gate as the runtime role's below, and for the same
-            // reason: `FORCE ROW LEVEL SECURITY` does not bind for a
-            // superuser or for `BYPASSRLS`, and the migration role owns
-            // every table in this database, so a mistake here is at least as
-            // dangerous as the same mistake on the runtime role.
+            // Same gate as the runtime role's below: `FORCE ROW LEVEL SECURITY` does not
+            // bind a superuser or `BYPASSRLS`, and the migration role owns every table.
             if let Err(e) = rls::assert_rls_binds(&migrate_client).await {
                 tracing::error!(error = %e, "refusing to start (migration role)");
                 return ExitCode::from(8);
             }
 
-            // `migrate::run`'s own advisory lock only covers `run` itself,
-            // and `provision_runtime_login` below is a second write against
-            // shared, cluster-wide state (`pg_authid`) that two migrating
-            // processes racing at startup could otherwise both touch at
-            // once. Held across both calls -- `pg_advisory_lock` is
-            // session-level and re-entrant, so `run`'s own acquisition on
-            // this same session nests inside it without deadlocking.
+            // `migrate::run`'s advisory lock covers only `run`, and
+            // `provision_runtime_login` writes cluster-wide state (`pg_authid`) that two
+            // racing processes could both touch. Held across both calls; `pg_advisory_lock`
+            // is session-level and re-entrant, so `run`'s own acquisition nests.
             if let Err(e) = migrate_client
                 .execute(
                     "SELECT pg_advisory_lock($1)",
@@ -223,14 +191,12 @@ async fn main() -> ExitCode {
                 return ExitCode::from(4);
             }
 
-            // Migrations before the listener binds. A server that accepts
-            // requests while its schema is half-applied is a server
-            // answering from a state nobody designed.
+            // Migrations before the listener binds: a half-migrated schema serves from a
+            // state nobody designed.
             let migration_result = migrate::run(&mut migrate_client).await;
 
-            // Determined (and, if possible, acted on) while the lock is
-            // still held, but reported on only after it is released -- the
-            // lock must not stay taken behind an early return.
+            // Determined while the lock is held, reported only after release, so the lock
+            // is never left taken behind an early return.
             let runtime_role_result = db::runtime_role(&config);
             let provision_result = match &runtime_role_result {
                 Ok(role) => {
@@ -264,8 +230,7 @@ async fn main() -> ExitCode {
                 tracing::error!(error = %e, "could not provision the runtime role's login");
                 return ExitCode::from(4);
             }
-            // `migrate_client` and `migrate_pool` drop at the end of this
-            // match arm.
+            // `migrate_client` and `migrate_pool` drop at the end of this arm.
         }
         Ok(None) => {
             tracing::info!(
@@ -279,7 +244,7 @@ async fn main() -> ExitCode {
         }
     }
 
-    // ---- The runtime pool: what serves every request from here on ------
+    // ---- The runtime pool: serves every request from here on ----
     let pool = match db::pool(&config) {
         Ok(p) => p,
         Err(e) => {
@@ -288,18 +253,13 @@ async fn main() -> ExitCode {
         }
     };
 
-    // The tenant-isolation gate, before the listener binds, against the
-    // RUNTIME role specifically -- this is the connection every request is
-    // served from, and the one whose isolation actually matters.
-    // `migrations/0002_identity_and_scope.sql` FORCEs row-level security, but
-    // that binds for nothing if the role this server connected as is a
-    // superuser or carries BYPASSRLS -- Postgres exempts both
-    // unconditionally. Found 2026-09-12: the shipped `compose.yaml`
-    // connected as exactly such a role, so every isolation policy was inert
-    // in production while the tests, which provision a restricted role on
-    // purpose, kept passing. This asks the database what the connected role
-    // actually is and refuses to start rather than warn -- the same shape as
-    // `EngineState::load`'s schema gate above.
+    // The tenant-isolation gate, before the listener binds, against the RUNTIME
+    // role, which every request uses. Migration `0002` FORCEs row-level security,
+    // but Postgres exempts superusers and `BYPASSRLS` roles unconditionally. The
+    // shipped `compose.yaml` once connected as such a role, so every isolation
+    // policy was inert in production while tests (which use a restricted role)
+    // passed. This asks the database what the role is and refuses to start rather
+    // than warn.
     match pool.get().await {
         Ok(client) => {
             if let Err(e) = rls::assert_rls_binds(&client).await {
@@ -327,27 +287,21 @@ async fn main() -> ExitCode {
             }
         }
         Err(e) => {
-            // deadpool's error Display does not carry the password (the pool
-            // was built from parsed parts, not the URL), but it is not this
-            // binary's guarantee to make, so it is summarised rather than
-            // printed whole.
+            // deadpool's error Display does not carry the password, but that is not this
+            // binary's guarantee to make, so it is summarised.
             tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
             return ExitCode::from(5);
         }
     }
 
-    // ---- The keys, and the one check that must run before any read -------
+    // ---- The keys, and the check that must run before any read ----
     //
-    // ADR-0043 §4, and it is the whole reason this block is here rather than
-    // at the first write: *"a restore with the wrong key must report 'this
-    // database was encrypted under master key a41f...; the configured key is
-    // 9c02...' rather than surfacing as an AEAD tag failure that reads like
-    // corruption. Without it the most common operator error produces the most
-    // alarming possible symptom."*
-    // `Arc` because the shipper holds it too: `audit::spawn`'s threshold
-    // entries are sealed site-chain entries like any other, so the background
-    // task needs the chain master. It is one allocation and it is the only
-    // thing that makes "the spool passed a bound" recordable.
+    // ADR-0043 §4: *"a restore with the wrong key must report 'this database was
+    // encrypted under master key a41f...; the configured key is 9c02...' rather than
+    // surfacing as an AEAD tag failure that reads like corruption."*
+    //
+    // `Arc` because the shipper holds it too: `audit::spawn`'s threshold entries are
+    // sealed site-chain entries, so the background task needs the chain master.
     let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, true) {
         Ok(r) => Arc::new(r),
         Err(e) => {
@@ -363,11 +317,9 @@ async fn main() -> ExitCode {
 
     {
         let (master_source, chain_source) = ring.describe_sources();
-        // ADR-0043 §10: "the key file gets its own named volume, a startup log
-        // line naming the volume that must never be archived with the
-        // database, and that sentence repeated in the backup documentation."
-        // The standard self-hosted backup recipe is "tar all the volumes",
-        // which would otherwise put both halves in one archive.
+        // ADR-0043 §10: the key file gets its own named volume and a startup log line
+        // saying that volume must never be archived with the database. "Tar all the
+        // volumes" would otherwise put both halves in one archive.
         tracing::info!(
             master_key_id = %ring.master_key_id(),
             master_key_source = %master_source,
@@ -385,10 +337,9 @@ async fn main() -> ExitCode {
                 tracing::error!(error = %e, "refusing to start");
                 return ExitCode::from(11);
             }
-            // The same stamp for the other root. Without it a lost chain key
-            // file -- which `KeyRing::load(..., true)` above silently recreates
-            // -- makes every history in this database report "broken at entry
-            // 1", which is an operator error rendered as an attack.
+            // The same stamp for the other root. Without it a lost chain key file (which
+            // `KeyRing::load(..., true)` silently recreates) makes every history report
+            // "broken at entry 1": an operator error rendered as an attack.
             if let Err(e) = keys::register_chain_master_key(&client, &ring).await {
                 tracing::error!(error = %e, "refusing to start");
                 return ExitCode::from(11);
@@ -402,11 +353,10 @@ async fn main() -> ExitCode {
 
     // ---- The site chain, and the deployment identity it is sealed under ----
     //
-    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 derives the site chain key
-    // over a `deployment_id`, so one is stamped on first start and never
-    // changes. §7.2's `deployment_started` is then the first thing this
-    // deployment can prove about itself, and one more is appended on every
-    // start — so a restart nobody authorised is a row somebody can point at.
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §7.1 derives the site chain key over
+    // a `deployment_id`, stamped on first start and never changed. §7.2's
+    // `deployment_started` is appended on every start, so an unauthorised restart
+    // is a row somebody can point at.
     let deployment = match pool.get().await {
         Ok(mut client) => {
             let registered = match fathom_server::chains::register_deployment(&**client).await {
@@ -443,9 +393,8 @@ async fn main() -> ExitCode {
                     );
                 }
                 Err(e) => {
-                    // Refusing to start rather than serving with no site chain.
-                    // An audit trail that begins whenever it happened to work
-                    // is one nobody can reason about a gap in.
+                    // Refuse to start rather than serve with no site chain: an audit trail that
+                    // begins whenever it happened to work cannot be reasoned about.
                     tracing::error!(error = %e, "could not append to the site chain");
                     return ExitCode::from(12);
                 }
@@ -458,13 +407,12 @@ async fn main() -> ExitCode {
         }
     };
 
-    // ---- Shipping the trail off the box (§9) ----------------------------
+    // ---- Shipping the trail off the box (§9) ----
     //
-    // **The absence of a destination is stated, not tolerated silently.** §9
-    // permits no witness at all and requires it to be permanently marked;
-    // §7.4 forbids calling an un-countersigned target an anchor. Receipts are
-    // deferred (§15.6), so this deployment is `unwitnessed` either way and the
-    // line says so in both branches rather than only the embarrassing one.
+    // **The absence of a destination is stated, not tolerated silently.** §9 permits
+    // no witness but requires it to be permanently marked; §7.4 forbids calling an
+    // un-countersigned target an anchor. Receipts are deferred (§15.6), so the
+    // deployment is `unwitnessed` either way and the line says so in both branches.
     match &config.audit_syslog {
         Some(target) => {
             tracing::info!(
@@ -496,14 +444,12 @@ async fn main() -> ExitCode {
         }
     }
 
-    // ---- Sessions, and the first routes that need one --------------------
+    // ---- Sessions, and the first routes that need one ----
     //
-    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §4. The store holds the pool,
-    // the chain master (for the site-scoped row key a session row's MAC is
-    // taken under), this deployment's identity (inside every challenge) and
-    // §13 item 7's limits. `EpochWatch` is the one per-process value §3.4 step
-    // 3 asks for, and this is the first thing in the server with a request
-    // layer to hold it.
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §4. The store holds the pool, the
+    // chain master (for the site-scoped row key a session MAC uses), the deployment
+    // identity (in every challenge) and §13 item 7's limits. `EpochWatch` is the one
+    // per-process value §3.4 step 3 asks for.
     let sessions = Arc::new(
         fathom_server::sessions::SessionStore::new(
             pool.clone(),
@@ -515,8 +461,8 @@ async fn main() -> ExitCode {
     );
     let watch = Arc::new(fathom_server::grants::EpochWatch::new());
     // One address policy for every route that counts one
-    // (`src/client_address.rs`). Parsed again here from text the config
-    // already validated, so the `expect` cannot fire.
+    // (`src/client_address.rs`). Parsed from text the config already validated, so
+    // the `expect` cannot fire.
     let client_address = fathom_server::client_address::ClientAddress::new(
         config.trusted_client_ip_header.clone(),
         fathom_server::client_address::parse_trusted_proxies(&config.trusted_proxies.join(","))
@@ -545,20 +491,14 @@ async fn main() -> ExitCode {
         client_address: client_address.clone(),
     };
 
-    // The design routes share the session store and the epoch watch with the
-    // session routes deliberately: two `SessionStore`s would be two nonce
-    // tables' worth of state in one process, and two `EpochWatch`es would
-    // defeat the single per-process value §3.4 step 3 asks for. They are built
-    // once above and both routers hold the same `Arc`.
+    // The design routes share the session store and epoch watch with the session
+    // routes: two `SessionStore`s would be two nonce tables in one process, and two
+    // `EpochWatch`es would defeat §3.4 step 3's single per-process value.
     //
-    // The catalogue is read once, here, and never from a request: it is
-    // read-only reference data and a per-request filesystem read would be a
-    // way to make an authenticated caller do disk work. A catalogue that will
-    // not load is a startup failure with the file and the line, the same
-    // treatment `EngineState::load` gives a broken schema tree -- serving a
-    // faceplate the operator cannot see the source of is worse than not
-    // starting. `load_catalogue` wants the directory that holds both `corpus/`
-    // and `schema/`, which is `schema_root`'s parent.
+    // The catalogue is read once, here, never from a request: a per-request disk
+    // read would let an authenticated caller force disk work. A catalogue that will
+    // not load is a startup failure with file and line. `load_catalogue` wants the
+    // directory holding both `corpus/` and `schema/`, `schema_root`'s parent.
     let corpus_root = std::path::Path::new(&config.schema_root)
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
@@ -594,22 +534,20 @@ async fn main() -> ExitCode {
         client_address: client_address.clone(),
     };
 
-    // The operator plane. ADR-0055 decision 3: the quorum is not configured
-    // here or anywhere -- it is `min(2, live independent operators)`, counted
-    // off the register at every act.
+    // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live
+    // independent operators)`, counted off the register at every act, not
+    // configured.
     let operators = Arc::new(fathom_server::operators::OperatorStore::new(
         pool.clone(),
         Arc::clone(&ring),
         deployment.clone(),
     ));
 
-    // ADR-0055 stream (c) -- where the console answers, as the console itself
-    // set it (`src/placement.rs`). Loaded once here; refreshed on every
-    // placement write, by the sweep, and every `placement::SNAPSHOT_TTL` by
-    // the task started below -- so `admin_exposure` never runs a query per
-    // request AND a placement written by another process (the
-    // `console-placement --reset` CLI, or the other container) is honoured
-    // here without a restart.
+    // ADR-0055 stream (c): where the console answers, as the console set it
+    // (`src/placement.rs`). Loaded once; refreshed on every placement write, by the
+    // sweep, and every `placement::SNAPSHOT_TTL` by the task below, so no query per
+    // request and a placement written by another process is honoured without a
+    // restart.
     let placement = Arc::new(fathom_server::placement::PlacementStore::new(
         pool.clone(),
         Arc::clone(&ring),
@@ -626,12 +564,9 @@ async fn main() -> ExitCode {
             return ExitCode::from(14);
         }
     }
-    // ADR-0055 fix (b): the snapshot re-reads on a timer, so
-    // `fathom-server console-placement --reset` -- decision 11's only way
-    // back from a console lockout -- takes effect on THIS process without a
-    // restart. Before 2026-09-21 the CLI reverted the rows, refreshed its own
-    // process's snapshot and exited, and the server kept enforcing the dead
-    // placement.
+    // The snapshot re-reads on a timer, so `fathom-server console-placement --reset`
+    // (decision 11's way back from a lockout) takes effect on THIS process without
+    // a restart.
     let placement_refresher =
         fathom_server::placement::PlacementStore::spawn_snapshot_refresher(Arc::clone(&placement));
     tracing::info!(
@@ -641,31 +576,21 @@ async fn main() -> ExitCode {
          is honoured here without a restart"
     );
 
-    // First start mints the first operator. ADR-0057 decision 1: there is no
-    // token file any more. The one-time setup secret that opens the setup
-    // screen is minted below, once, after this whole block -- unified across
-    // the first start, the adoption path and any later start that is still
-    // pending, rather than written here per arm and again there.
-    // The first operator is named after the notice address: the one thing
-    // the installer already knows about themselves, and what the console
-    // then shows beside their operator id (the owner's ask, 2026-09-21).
+    // First start mints the first operator. ADR-0057 decision 1: no token file; the
+    // one-time setup secret is minted once below, after this block, for every
+    // shape (first start, adoption, any still-pending start).
+    //
+    // The first operator is named after the notice address, which the installer
+    // already knows and which the console shows beside their operator id.
     let notice_address = config.operator_notice_address.clone().unwrap_or_default();
 
-    // **Before either of them**: every `operators` row sealed by a build older
-    // than ADR-0055's fix round is brought up to this build's seal
-    // (2026-09-21).
+    // **Before either of them**: every `operators` row sealed by a build older than
+    // ADR-0055's fix round is brought up to this build's seal.
     //
-    // `6d1b5de` put `first_independent_signin_at` inside the operator row
-    // seal, because decision 3 had just made that column decide whether a
-    // second signature is required at all. Every row written before that
-    // fails `verify_operator_row` under this build — which is the sign-in
-    // path, the seconding path, and the adoption below, all of which verify
-    // the row before they do anything with it. A deployment that upgrades
-    // into this build would refuse to start at all, having started perfectly
-    // well the day before, so this runs first and on every start.
-    //
-    // It is idempotent: a row already sealed under the current shape is left
-    // alone and the next start re-seals nothing.
+    // `first_independent_signin_at` is now inside the operator row seal (it decides
+    // whether a second signature is required). Older rows fail `verify_operator_row`
+    // on the sign-in, seconding and adoption paths, so an upgrade would refuse to
+    // start. Runs first, every start; idempotent.
     match operators.reseal_legacy_operator_rows().await {
         Ok(0) => {}
         Ok(rows) => tracing::warn!(
@@ -692,46 +617,34 @@ async fn main() -> ExitCode {
         .await
     {
         Ok(bootstrap) => {
-            // The invitation `bootstrap_first_operator` mints alongside the
-            // operator is not used: nobody is ever handed its bytes (no
-            // token file, ADR-0057 decision 1), so it is cryptographically
-            // inert and simply expires in its own time. The setup secret a
-            // person actually redeems is minted below, from
-            // `FATHOM_SETUP_PASSWORD`, after this match.
+            // The invitation `bootstrap_first_operator` mints is never handed to anybody (no
+            // token file, ADR-0057 decision 1), so it is inert and expires on its own. The
+            // setup secret a person redeems is minted below from `FATHOM_SETUP_PASSWORD`.
             tracing::warn!(
                 operator_id = %bootstrap.operator_id,
                 "FIRST START: an operator was created for FATHOM_OPERATOR_NOTICE_ADDRESS. \
                  Whether setup is open, and how, is decided below."
             );
         }
-        // Every start after the first. Not an error here: the deployment is
-        // already bootstrapped, which is the ordinary case.
+        // Every start after the first; not an error.
         //
-        // **And it is where the upgrade lands.** A deployment whose first
-        // start ran under a build before ADR-0055 has an operator, an install
-        // record and no binding, so the bootstrap answers here and, until
-        // 2026-09-21, nothing else happened: nobody could sign in and
-        // `recover-operator` refused, because it resolves an address through
-        // the binding. `adopt_first_operator_from_install` answers
-        // `Adoption::Nothing` on every deployment that does not have that
-        // shape, which is every ADR-0055-native one and every start after an
-        // adoption -- and, since 2026-09-21, a NAMED refusal on the shapes
-        // that have something to adopt and cannot.
+        // **It is also where an upgrade lands.** A deployment whose first start ran
+        // before ADR-0055 has an operator and an install record but no binding, so
+        // nobody could sign in and `recover-operator` refused (it resolves an address
+        // through the binding). `adopt_first_operator_from_install` answers
+        // `Adoption::Nothing` on every deployment without that shape, and a NAMED
+        // refusal on shapes that have something to adopt and cannot.
         Err(fathom_server::operators::OperatorError::AlreadyBootstrapped) => {
             use fathom_server::operators::{Adoption, AdoptionRefusal};
             match operators.adopt_first_operator_from_install().await {
-                // The ADR-0055-native case, and the only silent one: every
-                // operator on this deployment already holds a binding, or the
-                // first start has not run yet. Every other shape says
-                // something, because "nothing happened" and "nothing needed to
-                // happen" looked identical here until 2026-09-21.
+                // The ADR-0055-native case, and the only silent one: every operator already
+                // holds a binding, or the first start has not run. Every other shape says
+                // something, so "nothing happened" is distinguishable from "nothing needed to
+                // happen".
                 Ok(Adoption::Nothing) => {}
                 Ok(Adoption::Adopted(adopted)) => match adopted.invitation {
-                    // As the first-start arm above: this invitation is never
-                    // handed to anybody (ADR-0057 decision 1 -- no token
-                    // file), so it is inert. The setup secret is minted below
-                    // from `FATHOM_SETUP_PASSWORD`, once, for every shape
-                    // this start might be.
+                    // As the first-start arm: this invitation is never handed out (ADR-0057
+                    // decision 1), so it is inert. The setup secret is minted below.
                     Some(_) => {
                         tracing::warn!(
                             operator_id = %adopted.operator_id,
@@ -743,16 +656,12 @@ async fn main() -> ExitCode {
                              decided below."
                         );
                     }
-                    // ADR-0055 decision 9: the account already holds a
-                    // credential and a confirmed authenticator, so there is
-                    // nothing to hand anybody. A token here would be a second
-                    // bearer secret standing beside a stronger route.
+                    // ADR-0055 decision 9: the account already holds a credential and a confirmed
+                    // authenticator, so there is nothing to hand anybody. A token would be a second
+                    // bearer secret beside a stronger route.
                     //
-                    // **The words in the line below are the words on the
-                    // screen** (ADR-0056 decision 4, 2026-09-22): the factor is
-                    // an authenticator app wherever a person reads it, and an
-                    // operator reading this log line at two in the morning is a
-                    // person.
+                    // **The words below are the words on the screen** (ADR-0056 decision 4): the
+                    // factor is an authenticator app wherever a person reads it.
                     None => tracing::warn!(
                         operator_id = %adopted.operator_id,
                         notice_address = %adopted.notice_address,
@@ -769,12 +678,10 @@ async fn main() -> ExitCode {
                          stays signed in."
                     ),
                 },
-                // ---- the refusals ------------------------------------------
+                // ---- the refusals ----
                 //
-                // None of these is a reason to take a running site down: the
-                // deployment served requests yesterday and will serve them
-                // now. Each is said once per start, distinctly, until somebody
-                // acts on it.
+                // None is a reason to take a running site down. Each is said once per start,
+                // distinctly, until somebody acts on it.
                 Ok(Adoption::Refused(AdoptionRefusal::AccountDisabled {
                     operator_id,
                     account_id,
@@ -856,24 +763,19 @@ async fn main() -> ExitCode {
         }
     }
 
-    // ---- ADR-0057 decision 1: the setup password, replacing the token file
+    // ---- ADR-0057 decision 1: the setup password, replacing the token file ----
     //
-    // "Every start while setup is pending means the first operator has no
-    // stored credential. That covers the first start, the adoption path, and
-    // any later start still pending." One check below covers all three,
-    // rather than the three separate token writes the arms above used to
-    // make: `credentials::CredentialStore::operator_pending_setup` asks the
-    // single question that is true in every one of those shapes.
+    // Every start while setup is pending means the first operator has no stored
+    // credential: the first start, the adoption path, and any later pending start.
+    // One check covers all three: `credentials::CredentialStore::operator_pending_setup`.
     let credentials_for_setup = fathom_server::credentials::CredentialStore::new(
         pool.clone(),
         Arc::clone(&ring),
         deployment.clone(),
     );
-    // A `docker compose restart` does NOT re-read `.env` -- it sends the
-    // running container a restart signal and keeps its existing environment
-    // (docker/compose `docs/reference/compose_restart.md`, read 2026-09-24).
-    // Every message below that asks for `.env` to be edited therefore says
-    // what actually re-reads it.
+    // A `docker compose restart` does NOT re-read `.env`; it keeps the container's
+    // existing environment (docker/compose `docs/reference/compose_restart.md`).
+    // Messages asking for `.env` to be edited therefore say what does re-read it.
     const REREAD_ENV: &str = "run `docker compose up -d` -- a plain `docker compose restart` \
          does not re-read .env";
     let setup_secret = match &config.setup_password {
@@ -900,8 +802,8 @@ async fn main() -> ExitCode {
             }
             Ok(()) => match credentials_for_setup.operator_pending_setup().await {
                 Ok(None) => {
-                    // Decision 1's own warning: a secret left in `.env` after
-                    // it no longer does anything.
+                    // Decision 1's own warning: a secret left in `.env` after it no longer does
+                    // anything.
                     tracing::warn!(
                         "FATHOM_SETUP_PASSWORD is set, and this deployment's first operator has \
                          already finished setup; remove FATHOM_SETUP_PASSWORD from .env, then \
@@ -911,10 +813,8 @@ async fn main() -> ExitCode {
                 }
                 Ok(Some(operator_id)) => match operators.issue_setup_token(&operator_id).await {
                     Ok(invitation) => {
-                        // `Instant`, not `SystemTime`: measured against this
-                        // process's own monotonic clock, so a wall-clock
-                        // step (NTP, a manual change, a leap second) cannot
-                        // open or close the window early.
+                        // `Instant`, not `SystemTime`: this process's monotonic clock, so a wall-clock
+                        // step (NTP, manual change, leap second) cannot open or close the window early.
                         let closes_at = std::time::Instant::now()
                             + fathom_server::credentials::SETUP_SECRET_WINDOW;
                         tracing::warn!(
@@ -953,21 +853,17 @@ async fn main() -> ExitCode {
         },
     };
 
-    // ---- the colleagues a pre-ADR-0055 build created (2026-09-21) --------
+    // ---- colleagues a pre-ADR-0055 build created ----
     //
-    // The adoption above binds exactly one operator: the one with no
-    // `created_by`, which is the one a first start minted. An operator created
-    // through the console by a build before ADR-0055 has a `created_by` and no
-    // binding, and decision 1 gives it no way to acquire one -- sign-in
-    // resolves the operator custody THROUGH the binding, so that person cannot
-    // get in and no act on any surface can give them a route.
+    // The adoption above binds exactly one operator: the one with no `created_by`.
+    // An operator created through the console before ADR-0055 has a `created_by` and
+    // no binding, and sign-in resolves operator custody THROUGH the binding, so
+    // that person cannot get in and nothing can give them a route.
     //
-    // They still count towards the quorum, because the count asks `disabled_at`
-    // and `first_independent_signin_at` and not the binding. That is left
-    // exactly as it is -- changing what a second signature means on a live
-    // deployment is a decision and not a fix -- and the ids are named here
-    // instead, at every start, so an operator can disable them from the
-    // console, which is the supported way to make the count right.
+    // They still count towards the quorum (the count uses `disabled_at` and
+    // `first_independent_signin_at`, not the binding). Changing what a second
+    // signature means on a live deployment is a decision, not a fix, so their ids
+    // are named at every start for an operator to disable from the console.
     match operators.operators_without_a_binding().await {
         Ok(ids) if ids.is_empty() => {}
         Ok(ids) => tracing::warn!(
@@ -979,9 +875,8 @@ async fn main() -> ExitCode {
              the number of signatures this deployment thinks it has is not the number it has"
         ),
         Err(e) => {
-            // Not fatal. This is a warning about a shape somebody has to act
-            // on by hand; failing to compute it is no reason to refuse a start
-            // that everything else has just agreed to.
+            // Not fatal: a warning about a shape somebody must act on by hand; failing to
+            // compute it is no reason to refuse a start.
             tracing::error!(
                 error = ?e,
                 "could not check for operators with no account custody; the start continues \
@@ -990,18 +885,16 @@ async fn main() -> ExitCode {
         }
     }
 
-    // ---- ADR-0055 stream (b): what this start has to say out loud --------
+    // ---- ADR-0055 stream (b): what this start says out loud ----
     //
-    // §5.3 wanted `single_operator_mode` on the site chain *"at every startup,
-    // so nobody can later claim two-person control was in force"*. ADR-0055
-    // decision 3 makes it a DERIVED fact, so it is written at every start and
-    // not only when a switch was set: an auditor reading the chain sees how
-    // many pairs of hands this deployment was running on, and when, without
-    // taking any process's environment on trust.
+    // §5.3 wanted `single_operator_mode` on the site chain *"at every startup, so
+    // nobody can later claim two-person control was in force"*. Decision 3 makes it
+    // a DERIVED fact, written at every start: an auditor sees how many pairs of
+    // hands the deployment ran on, and when, without trusting any process's
+    // environment.
     //
-    // **After the bootstrap, not before**: on a first start the register is
-    // empty until the block above runs, and an entry saying "zero operators"
-    // would be a true statement about a moment nobody cares about.
+    // **After the bootstrap**: on a first start the register is empty until then,
+    // and "zero operators" would be true of a moment nobody cares about.
     let live_operators = match operators.record_single_operator_mode().await {
         Ok(seq) => match operators.live_independent_operators().await {
             Ok(live) => {
@@ -1023,10 +916,9 @@ async fn main() -> ExitCode {
         }
     };
 
-    // ADR-0055 decision 4: *"with one live operator the server warns at every
-    // start and the console shows a standing banner that escalates weekly. It
-    // never blocks work."* This is the first half; `GET /admin/notices` is the
-    // second.
+    // ADR-0055 decision 4: *"with one live operator the server warns at every start
+    // and the console shows a standing banner that escalates weekly. It never blocks
+    // work."* This is the first half; `GET /admin/notices` is the second.
     if live_operators < 2 {
         tracing::warn!(
             live_independent_operators = live_operators,
@@ -1039,15 +931,13 @@ async fn main() -> ExitCode {
         );
     }
 
-    // ADR-0055 decision 7's last sentence, verbatim: *"Until SMTP is applied,
-    // every start logs: 'recovery by mail is unavailable until SMTP is set in
-    // the console; until then the only recovery is fathom-server
-    // recover-operator'."*
+    // ADR-0055 decision 7's last sentence: *"Until SMTP is applied, every start
+    // logs: 'recovery by mail is unavailable until SMTP is set in the console; until
+    // then the only recovery is fathom-server recover-operator'."*
     //
-    // The setting is read rather than assumed. A read that FAILS is not
-    // treated as "no SMTP": a settings row that does not stand up to its own
-    // sealed entry is an incident (`operators::OperatorError::
-    // SettingUnresolvable`), and reporting it as a missing form would bury it.
+    // A read that FAILS is not treated as "no SMTP": a settings row that does not
+    // stand up to its sealed entry is an incident
+    // (`operators::OperatorError::SettingUnresolvable`) and would be buried.
     match operators.effective_setting("smtp").await {
         Ok(None) => tracing::warn!(
             "recovery by mail is unavailable until SMTP is set in the console; until then the \
@@ -1061,12 +951,10 @@ async fn main() -> ExitCode {
         ),
     }
 
-    // Firmware staging (ADR-0045). Absent configuration means the routes are
-    // not mounted at all rather than mounted and failing: a route that answers
-    // is a route an attacker can probe, and most deployments will never stage
-    // an image. The directory is proved writable HERE, by writing and removing
-    // a probe file, so a deployment that cannot stage learns it at startup and
-    // not from an operator halfway through a maintenance window.
+    // Firmware staging (ADR-0045). Absent configuration means the routes are not
+    // mounted: a route that answers is a route an attacker can probe. The directory
+    // is proved writable HERE with a probe file, so a deployment that cannot stage
+    // learns it at startup, not mid-maintenance-window.
     let firmware = match &config.firmware_dir {
         None => None,
         Some(dir) => {
@@ -1102,10 +990,8 @@ async fn main() -> ExitCode {
         }
     };
 
-    // The web client, served by this binary (`src/client.rs`, 2026-09-20:
-    // one published port behind the operator's own reverse proxy, like every
-    // other service they run). A root that names no `index.html` is refused
-    // at startup, not discovered as a 404 on the first visit.
+    // The web client, served by this binary (`src/client.rs`). A root with no
+    // `index.html` is refused at startup, not found as a 404 on the first visit.
     let client_root = match &config.client_root {
         None => {
             tracing::info!("no FATHOM_CLIENT_ROOT; serving the API only");
@@ -1127,22 +1013,21 @@ async fn main() -> ExitCode {
         },
     };
 
-    // ---- ADR-0055 stream (a): the credential routes ----------------------
+    // ---- ADR-0055 stream (a): the credential routes ----
     //
-    // Built before `AdminState` takes `sessions` and `operators` by value, and
-    // merged below. Its own state rather than a widened `ApiState`, for the
-    // reason `api::CredentialApiState`'s own doc gives.
+    // Built before `AdminState` takes `sessions` and `operators` by value. Its own
+    // state, not a widened `ApiState` (see `api::CredentialApiState`).
     let credential_api = fathom_server::api::CredentialApiState {
         sessions: Arc::clone(&sessions),
-        // The same store the setup-secret check above already built: one
-        // pool, one ring, one deployment id, and no reason for a second copy.
+        // The same store the setup-secret check built: one pool, ring and deployment id.
         credentials: Arc::new(credentials_for_setup),
         operators: Arc::clone(&operators),
         setup_secret,
         client_address: client_address.clone(),
     };
 
-    // ---- ADR-0057 decision 5: the organisation claim ----------------------
+    // ---- ADR-0057 decision 5: the organisation claim ----
+    //
     // Built before `AdminState` takes `operators` by value.
     let claim_api = fathom_server::api::ClaimApiState {
         sessions: Arc::clone(&sessions),
@@ -1151,8 +1036,8 @@ async fn main() -> ExitCode {
     };
 
     let admin = fathom_server::admin::AdminState {
-        // ADR-0055 stream (c): cloned rather than moved -- the placement
-        // router beside this one needs the same session store.
+        // ADR-0055 stream (c): cloned, not moved; the placement router needs the same
+        // session store.
         sessions: Arc::clone(&sessions),
         operators,
         ring: Arc::clone(&ring),
@@ -1180,13 +1065,12 @@ async fn main() -> ExitCode {
 
     tracing::info!(bind = %config.bind, "listening");
 
-    // `into_make_service_with_connect_info` rather than the router directly:
-    // §13 item 7's source bucket needs the peer address, and without this the
-    // extension it reads is never populated, so every sign-in in the
-    // deployment would count into one bucket named "unknown".
-    // Where the operator console answers (`src/admin_exposure.rs`): confined
-    // to the configured hosts and source addresses, or open, which the log
-    // says in so many words so that nobody assumes otherwise.
+    // `into_make_service_with_connect_info`, not the router directly: §13 item 7's
+    // source bucket needs the peer address, or every sign-in would count into one
+    // bucket named "unknown".
+    //
+    // Where the operator console answers (`src/admin_exposure.rs`): confined to the
+    // configured hosts and sources, or open, which the log says plainly.
     let exposure = fathom_server::admin_exposure::AdminExposure::new(
         config.admin_hosts.clone(),
         config
@@ -1195,10 +1079,9 @@ async fn main() -> ExitCode {
             .filter_map(|s| fathom_server::admin_exposure::Cidr::parse(s)),
         client_address.clone(),
     );
-    // ADR-0055 stream (c): the policy now reads the console's own placement as
-    // well as the two environment variables, so the gate is ALWAYS mounted --
-    // a placement can be written at any moment from the console, and a layer
-    // that was not mounted at startup cannot start enforcing one.
+    // ADR-0055 stream (c): the policy also reads the console's own placement, so the
+    // gate is ALWAYS mounted; a layer not mounted at startup cannot start enforcing
+    // a placement written later.
     let exposure = exposure.with_placement(placement.view());
     if exposure.environment_wins() {
         tracing::info!(
@@ -1221,8 +1104,8 @@ async fn main() -> ExitCode {
         );
     }
     let admin_router = fathom_server::admin::router(admin)
-        // ADR-0055 stream (c): `POST /admin/placement`, merged INSIDE the same
-        // gate -- moving the console is a console act.
+        // `POST /admin/placement`, INSIDE the same gate: moving the console is a console
+        // act.
         .merge(fathom_server::placement::router(
             fathom_server::placement::PlacementState {
                 sessions: Arc::clone(&sessions),
@@ -1230,9 +1113,8 @@ async fn main() -> ExitCode {
                 client_address: client_address.clone(),
             },
         ))
-        // The confirmation and the sweep: the first verified `/admin` request
-        // on the new host inside the window confirms the placement, and an
-        // expired window writes its sealed revert here.
+        // The confirmation and the sweep: the first verified `/admin` request on the new
+        // host inside the window confirms; an expired window writes its sealed revert.
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&placement),
             fathom_server::placement::confirm_on_the_new_host,
@@ -1243,17 +1125,14 @@ async fn main() -> ExitCode {
         ));
     let mut app = fathom_server::router_with_placement(
         AppState { health, engine },
-        // The same policy the console's own gate uses, so the flag and the
-        // 404 can never disagree.
+        // The same policy as the console's gate, so the flag and the 404 never disagree.
         exposure,
     )
     .merge(fathom_server::api::router(api))
-    // ADR-0055 stream (a). Account-plane, on every host, exactly like
-    // `/session` — deliberately NOT inside `admin_router` and so not behind
-    // `admin_exposure`, per the lead's resolution 8.
+    // ADR-0055 stream (a). Account-plane, on every host like `/session`;
+    // deliberately NOT inside `admin_router`, so not behind `admin_exposure`.
     .merge(fathom_server::api::credential_router(credential_api))
-    // ADR-0057 decision 5. Account-plane, on every host, for the same reason
-    // the credential routes are.
+    // ADR-0057 decision 5. Account-plane, on every host, like the credential routes.
     .merge(fathom_server::api::claim_router(claim_api))
     .merge(fathom_server::design_api::router(designs))
     .merge(admin_router);
@@ -1267,12 +1146,12 @@ async fn main() -> ExitCode {
             },
         ));
     }
-    // Last, so that every API route above wins over a file of the same name.
+    // Last, so every API route wins over a file of the same name.
     if let Some(root) = client_root {
         app = root.attach(app);
     }
-    // ADR-0055 stream (c) -- decision 12's two headers, over EVERYTHING
-    // including the fallback that serves the client's own files.
+    // ADR-0055 stream (c), decision 12's two headers, over EVERYTHING including the
+    // fallback serving the client's files.
     let app = app.layer(axum::middleware::from_fn_with_state(
         fathom_server::client::SecurityHeaders::new(client_address.clone()),
         fathom_server::client::security_headers,
@@ -1284,8 +1163,7 @@ async fn main() -> ExitCode {
     .with_graceful_shutdown(shutdown())
     .await;
 
-    // ADR-0055 fix (b): the placement refresher outlives nothing. Stopped
-    // here so a shutdown does not leave a task holding a pooled connection.
+    // Stopped here so a shutdown does not leave a task holding a pooled connection.
     placement_refresher.abort();
 
     match served {
@@ -1300,38 +1178,29 @@ async fn main() -> ExitCode {
     }
 }
 
-/// **`fathom-server recover-operator <address>`** — ADR-0055 decision 8's
-/// break-glass, and the one command in this binary that mints a bearer secret
-/// with no session behind it.
+/// **`fathom-server recover-operator <address>`**: ADR-0055 decision 8's
+/// break-glass, and the one command here that mints a bearer secret with no
+/// session behind it.
 ///
-/// Read `operators::OperatorStore::recover_operator` before changing anything
-/// here: that function carries the whole argument for why a host command that
-/// works AFTER an operator key exists is not a backdoor, and what it still
-/// refuses (it mints no operator; an unknown address writes nothing).
+/// Read `operators::OperatorStore::recover_operator` first: it carries the
+/// argument for why a host command that works AFTER an operator key exists is not
+/// a backdoor, and what it refuses (it mints no operator; an unknown address
+/// writes nothing).
 ///
-/// What this function adds around it:
-///
-/// - **The code goes to stdout, and nowhere else.** Not the log, not a file,
-///   not an error message. It is read off the terminal by the person who just
-///   typed the command and it dies in ten minutes
-///   (`operators::RECOVERY_SETUP_TOKEN_LIFETIME`). The log line names the
-///   operator, the expiry and the site-chain `seq` — everything an operator
-///   needs and nothing an attacker holding the logs can use. The first start's
-///   own token still goes to a FILE, because at that moment there is no
-///   terminal: a container wrote it.
-/// - **The key material is loaded but never created.** The server's own
-///   startup passes `create_if_missing: true`; this passes `false`, because a
-///   chain key invented here would make every entry ever sealed under the real
-///   one unverifiable, and the symptom would read as tampering.
-/// - **`reissue-bootstrap-token` is an alias** (ADR-0055 decision 8: *"it
-///   folds into it"*). It takes an optional address and falls back to
-///   `FATHOM_OPERATOR_NOTICE_ADDRESS`, prints a deprecation line, and is
-///   otherwise this same function. Kept because it is in
-///   `docs/OPERATING.md`'s drill and in operators' shell history.
+/// - **The code goes to stdout, and nowhere else**: not the log, a file or an
+///   error message. The person who typed the command reads it off the terminal
+///   and it dies in ten minutes (`operators::RECOVERY_SETUP_TOKEN_LIFETIME`). The
+///   log line names the operator, the expiry and the site-chain `seq`: nothing an
+///   attacker holding the logs can use.
+/// - **Key material is loaded, never created.** Startup passes
+///   `create_if_missing: true`; this passes `false`, because a chain key invented
+///   here would make every entry sealed under the real one unverifiable, reading
+///   as tampering.
+/// - **`reissue-bootstrap-token` is an alias** (decision 8). Optional address,
+///   falling back to `FATHOM_OPERATOR_NOTICE_ADDRESS`; prints a deprecation line.
 async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
-    // Configuration BEFORE logging, exactly as the server does and for the
-    // same reason: a bad configuration fails on stderr rather than through a
-    // subscriber that has not been set up.
+    // Configuration BEFORE logging, as the server does: a bad configuration fails
+    // on stderr.
     let config = match Config::from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -1344,13 +1213,11 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    // **The log goes to stderr here, and only here.** Everywhere else in this
-    // binary the subscriber writes to stdout, which is what a container
-    // runtime collects. This subcommand prints ONE secret to stdout -- the
-    // setup code -- and a deployment that ships its logs off the box
-    // (`audit.rs`) must not ship that code with them. Two streams, two
-    // audiences: `fathom-server recover-operator a@b > code` is a working
-    // sentence, and the log still lands wherever logs land.
+    // **The log goes to stderr here, and only here.** Elsewhere the subscriber
+    // writes to stdout, which a container runtime collects. This subcommand prints
+    // ONE secret to stdout, the setup code, and a deployment shipping logs off the
+    // box (`audit.rs`) must not ship it. `recover-operator a@b > code` stays a
+    // working sentence.
     tracing_subscriber::fmt()
         .with_max_level(config.log_level.to_tracing())
         .with_ansi(false)
@@ -1389,16 +1256,15 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
         }
     };
 
-    // The same gate the server refuses to start without, and for the same
-    // reason: this command writes rows and appends to the site chain through
-    // the runtime role, and a superuser connection would have every isolation
-    // policy in the database inert underneath it.
+    // The same gate the server refuses to start without: this command writes rows
+    // and appends to the site chain through the runtime role, and a superuser
+    // connection would make every isolation policy inert.
     if let Err(e) = rls::assert_rls_binds(&client).await {
         tracing::error!(error = %e, "refusing");
         return ExitCode::from(8);
     }
 
-    // `false`: load the keys, never create them. See this function's own doc.
+    // `false`: load the keys, never create them (see this function's doc).
     let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, false) {
         Ok(r) => Arc::new(r),
         Err(e) => {
@@ -1414,9 +1280,8 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
         }
     };
 
-    // ADR-0043 §4's check, here for the reason it is there: a wrong key must
-    // report which key this database was encrypted under, not surface as an
-    // AEAD failure that reads like corruption.
+    // ADR-0043 §4's check: a wrong key must report which key this database was
+    // encrypted under, not surface as an AEAD failure that reads like corruption.
     if let Err(e) = keys::register_master_key(&client, &ring).await {
         tracing::error!(error = %e, "refusing");
         return ExitCode::from(11);
@@ -1445,8 +1310,7 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
     let recovered = match operators.recover_operator(address).await {
         Ok(r) => r,
         Err(fathom_server::operators::OperatorError::NotFound(_)) => {
-            // **Nothing was written.** Said plainly, because the whole line
-            // decision 8 draws is that recovery restores a seat somebody
+            // **Nothing was written.** Decision 8's line: recovery restores a seat somebody
             // already held and never creates one.
             tracing::error!(
                 "no operator is bound to that address, so nothing was recovered and nothing \
@@ -1463,9 +1327,9 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
         }
     };
 
-    // stdout, and only here. `println!` rather than `tracing`, so that a
-    // deployment shipping its logs off the box (`audit.rs`) does not ship the
-    // one bearer secret this command exists to hand to a human.
+    // stdout, and only here. `println!`, not `tracing`, so a deployment shipping
+    // logs off the box (`audit.rs`) does not ship the one bearer secret this command
+    // exists to hand to a human.
     let mut code = String::with_capacity(69);
     code.push_str(fathom_server::operators::BOOTSTRAP_TOKEN_PREFIX);
     for byte in &recovered.invitation.token {
@@ -1485,28 +1349,22 @@ async fn recover_operator(address: &str, called_as_reissue: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-// ---------------------------------------------------------------------------
-// ADR-0055 stream (c) -- `fathom-server console-placement --reset`
-// ---------------------------------------------------------------------------
+// ---- ADR-0055 stream (c): `fathom-server console-placement --reset` ----
 
-/// **The way back in when a placement locked everyone out of the console** --
-/// ADR-0055 decision 11's last sentence, for the case where the window WAS
-/// confirmed and the host later died, so confirm-or-revert has nothing left to
-/// revert to.
+/// **The way back in when a placement locked everyone out of the console**
+/// (ADR-0055 decision 11's last sentence), for when the window WAS confirmed and
+/// the host later died.
 ///
-/// Run on the host, where the key volume is mounted, exactly as
-/// `reissue-bootstrap-token` is: it clears every live placement, writes a
-/// sealed `console_placement_reverted` entry for each (`revert_reason =
-/// 'host_reset'`), and leaves the console answering wherever
-/// `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` say, or everywhere if they say
-/// nothing -- on a RUNNING server within `placement::SNAPSHOT_TTL`, because
-/// the serving process holds its own snapshot and this command runs in a
-/// second process. It is loud on purpose: ADR-0043 §2 already puts the host inside
-/// tier 3, so what protects this is custody of the host plus the record that
-/// it happened -- the same argument decision 8 makes for `recover-operator`.
+/// Run on the host, where the key volume is mounted. It clears every live
+/// placement, writes a sealed `console_placement_reverted` entry for each
+/// (`revert_reason = 'host_reset'`), and leaves the console answering wherever
+/// `FATHOM_ADMIN_HOSTS`/`FATHOM_ADMIN_SOURCES` say, or everywhere. A RUNNING
+/// server follows within `placement::SNAPSHOT_TTL`, since it holds its own
+/// snapshot. It is loud on purpose: ADR-0043 §2 puts the host inside tier 3, so
+/// what protects this is custody of the host plus the record (decision 8's
+/// argument for `recover-operator`).
 ///
-/// It mints nothing, it grants nobody anything, and the next operator sign-in
-/// is still a sign-in.
+/// It mints nothing and grants nobody anything.
 async fn reset_console_placement() -> ExitCode {
     let config = match Config::from_env() {
         Ok(c) => c,
@@ -1535,15 +1393,14 @@ async fn reset_console_placement() -> ExitCode {
             return ExitCode::from(5);
         }
     };
-    // The same gate the server refuses to start without: this writes rows and
-    // appends to the site chain through the runtime role, and a superuser
-    // connection would have every isolation policy inert underneath it.
+    // The same gate the server refuses to start without: a superuser connection
+    // would make every isolation policy inert under these writes.
     if let Err(e) = rls::assert_rls_binds(&client).await {
         tracing::error!(error = %e, "refusing");
         return ExitCode::from(8);
     }
-    // `false`: load the keys, never create them -- a chain key invented here
-    // would make every entry sealed under the real one unverifiable.
+    // `false`: load the keys, never create them; a chain key invented here would
+    // make every entry sealed under the real one unverifiable.
     let ring = match keys::KeyRing::load(&config.master_key, &config.chain_key, false) {
         Ok(r) => Arc::new(r),
         Err(e) => {
@@ -1588,11 +1445,7 @@ async fn reset_console_placement() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(cleared) => {
-            // ADR-0055 fix (b): this sentence used to say the console
-            // answered everywhere AS OF THIS COMMAND, which was false -- a
-            // running server held its own snapshot and kept enforcing the
-            // dead placement until it was restarted. It now says what is
-            // true, and the server re-reads on `placement::SNAPSHOT_TTL`.
+            // States what is true: the serving process re-reads on `placement::SNAPSHOT_TTL`.
             tracing::warn!(
                 cleared,
                 takes_effect_within_seconds = fathom_server::placement::SNAPSHOT_TTL.as_secs(),
@@ -1612,17 +1465,14 @@ async fn reset_console_placement() -> ExitCode {
     }
 }
 
-/// One word for a pool error, so nothing the driver formatted can travel into a
-/// log line.
+/// One word for a pool error, so nothing the driver formatted reaches a log line.
 fn summarise(_e: &deadpool_postgres::PoolError) -> &'static str {
     "unreachable"
 }
 
-/// SIGTERM or Ctrl-C.
-///
-/// **SIGTERM is the one that matters**: it is what a container runtime sends to
-/// stop a service (`43` §5.4), and a process that ignores it is a process the
-/// runtime eventually kills mid-request.
+/// SIGTERM or Ctrl-C. **SIGTERM matters**: it is what a container runtime sends
+/// to stop a service (`43` §5.4), and a process that ignores it is killed
+/// mid-request.
 async fn shutdown() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

@@ -20,7 +20,8 @@ Read `design/tokens.css`. Do not invent a colour, a radius or a type size.
 
 ## What is already settled — do not relitigate
 
-Rack-first: the rack, its faceplates, its ports and the cables between them are the product. Zero
+One canvas, detail added by degrees (ADR-0060): free boxes and lines sit beside racks and walls, and
+the rack with its faceplates, ports and cables is the most detailed thing on it. Zero
 radius, no shadows, 1px hairlines, small type ramp, tabular numerals. Cable colour is the real sheath
 colour of the lead someone used; cable *type* is the line construction, never the hue. The three risk
 colours stay reserved. Nothing moves unless it is true now — and no particles flowing along links,
