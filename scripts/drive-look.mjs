@@ -1,5 +1,5 @@
 // Proves the look switch (ADR-0061 round 7): Rack and Diagram, a cable to a far
-// rack drawn as stubs with a tag that pans, the choice kept per account and design (look.test.ts; the harness mints a new account each load, so no reload check here).
+// rack drawn in full while both ends are on screen and as stubs with a tag that pans once one is not, the choice kept per account and design (look.test.ts; the harness mints a new account each load, so no reload check here).
 // Run: bash scripts/build-wasm.sh (if stale), then node scripts/drive-look.mjs.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -127,8 +127,24 @@ try {
 
   check('starts on Rack', (await lookButton('Rack').getAttribute('aria-pressed')) === 'true');
   check('rack faceplates are drawn', (await page.locator('.react-flow__node-chassis').count()) >= 4);
+  const fit = () => page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
+  const fullCables = () => page.locator('.drawing-cable:not(.drawing-cable--stub)').count();
+  const zoomIn = async (target) => {
+    const box = await target.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -2400);
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(700);
+  };
+  await fit();
+  check('every end on screen: the cable draws in full, no stubs', (await page.locator('.drawing-stub__tag').count()) === 0 && (await fullCables()) >= 1);
+  await zoomIn(page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }));
   const rackTags = await page.locator('.drawing-stub__tag').allInnerTexts();
-  check('the far cable is stubs with tags naming each far end', rackTags.length === 2 && rackTags.some((t) => /sw-09 · in rack R7/.test(t)), rackTags.join(' | '));
+  check('far end off screen: stubs with tags naming each far end', rackTags.some((t) => /sw-09 · in rack R7/.test(t)) && rackTags.some((t) => /fw-01 · in rack A-04/.test(t)), rackTags.join(' | '));
+  await page.locator('.drawing-stub__tag', { hasText: 'sw-09' }).hover();
+  await page.waitForTimeout(200);
+  check('hovering a tag draws the whole cable', (await fullCables()) >= 1);
   const before = await camera();
   await page.locator('.drawing-stub__tag', { hasText: 'sw-09' }).click();
   await page.waitForTimeout(700);
@@ -144,8 +160,12 @@ try {
     for (let i = 2; i < n.length - 1; i += 2) if (n[i] !== n[i - 2] && n[i + 1] !== n[i - 1]) return false;
     return true;
   }), `${hrefs.length} paths`);
+  await fit();
+  check('diagram: every end on screen, the cable draws in full', (await page.locator('.drawing-stub__tag').count()) === 0 && (await fullCables()) >= 1);
+  await zoomIn(page.locator('.drawing-diagram-box', { hasText: 'fw-01' }));
   const diaTags = await page.locator('.drawing-stub__tag').allInnerTexts();
-  check('diagram: the far cable is stubs too', diaTags.length === 2, diaTags.join(' | '));
+  check('diagram: far end off screen, stubs too', diaTags.some((t) => /sw-09 · in rack R7/.test(t)), diaTags.join(' | '));
+  await fit();
   await page.locator('.drawing-diagram-box', { hasText: 'core-sw-01' }).click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 5000 });
   check('selecting a box opens its details', (await page.locator('.drawing-editor__panel').count()) === 1);

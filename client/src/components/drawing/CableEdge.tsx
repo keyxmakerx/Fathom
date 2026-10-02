@@ -71,18 +71,24 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
 
-  if (stub != null && leads != null && onPanTo != null) {
+  // Off screen at the far end: stubs; while lit (selected, or its tag hovered) the whole cable draws too.
+  const stubTags =
+    stub != null && leads != null && onPanTo != null ? (
+      <StubTags
+        id={cable.id}
+        colour={colour}
+        width={strokeWidth}
+        points={[leads.a, leads.b]}
+        dirs={[{ dx: 0, dy: leads.a.dir }, { dx: 0, dy: leads.b.dir }]}
+        stubs={stub}
+        onPanTo={onPanTo}
+        onHover={(on) => onHoverChange(on ? cable.id : null)}
+      />
+    ) : null;
+  if (stubTags != null && !lit) {
     return (
       <g className="drawing-cable drawing-cable--stub" data-cable-id={cable.id} style={{ opacity }}>
-        <StubTags
-          id={cable.id}
-          colour={colour}
-          width={strokeWidth}
-          points={[leads.a, leads.b]}
-          dirs={[{ dx: 0, dy: leads.a.dir }, { dx: 0, dy: leads.b.dir }]}
-          stubs={stub}
-          onPanTo={onPanTo}
-        />
+        {stubTags}
       </g>
     );
   }
@@ -141,7 +147,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           {portPairLabel}
         </text>
       )}
-      {endLabels != null && leads != null && (
+      {stubTags}
+      {endLabels != null && stubTags == null && leads != null && (
         <EdgeLabelRenderer>
           {([leads.a, leads.b] as const).map((lead, i) => (
             <div

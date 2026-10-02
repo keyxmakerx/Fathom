@@ -1,9 +1,7 @@
-/** Automatic stubs (ADR-0061 round 7): a cable whose far end is a long way off
+/** Automatic stubs (ADR-0061 round 7): a cable whose far end is off screen
  * draws a short run out of each end, fading, and ends in a tag naming the far
  * end; clicking the tag pans there. Not a setting. Pure. */
 
-/** Centre-to-centre distance, in flow px, past which a cable becomes stubs. */
-export const STUB_DISTANCE_PX = 700;
 /** How far a stub runs before it has faded out. */
 export const STUB_RUN_PX = 56;
 
@@ -21,8 +19,27 @@ export interface StubEnd {
   frame?: { top: number; bottom: number };
 }
 
-export function isFarApart(a: Pt, b: Pt, threshold = STUB_DISTANCE_PX): boolean {
-  return Math.hypot(a.x - b.x, a.y - b.y) > threshold;
+/** An end this far (screen px) outside the visible canvas still counts as visible. */
+export const STUB_INSET_PX = 24;
+/** A stubbed cable returns to a full line only once its end is this far inside the canvas. */
+export const STUB_HYSTERESIS_PX = 12;
+
+export interface Rect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** The visible canvas in flow coordinates for a viewport and the pane's size. */
+export function visibleRect(vp: { x: number; y: number; zoom: number }, size: { width: number; height: number }): Rect {
+  return { x0: -vp.x / vp.zoom, y0: -vp.y / vp.zoom, x1: (size.width - vp.x) / vp.zoom, y1: (size.height - vp.y) / vp.zoom };
+}
+
+/** Whether `pt` is off screen; sticky, so a cable at the edge does not keep toggling. */
+export function endOffScreen(pt: Pt, rect: Rect, zoom: number, wasStub: boolean): boolean {
+  const m = (wasStub ? -STUB_HYSTERESIS_PX : STUB_INSET_PX) / zoom;
+  return pt.x < rect.x0 - m || pt.x > rect.x1 + m || pt.y < rect.y0 - m || pt.y > rect.y1 + m;
 }
 
 /** "→ sw-09 · in rack R7"; the rack part is left out when the far end sits in none. */

@@ -13,6 +13,7 @@ export function StubTags({
   stubs,
   dirs,
   onPanTo,
+  onHover,
 }: {
   id: string;
   colour: string;
@@ -22,6 +23,8 @@ export function StubTags({
   /** Each end's own leaving direction; defaults to square toward the other end. */
   dirs?: [{ dx: number; dy: number }, { dx: number; dy: number }];
   onPanTo: (chassisId: string) => void;
+  /** Hovering a tag asks for the whole cable to draw. */
+  onHover?: (on: boolean) => void;
 }) {
   // Tags keep a constant on-screen size; bucketed so only a real zoom change re-renders.
   const zoom = useStore((st) => Math.max(0.05, Math.round(st.transform[2] * 20) / 20));
@@ -53,6 +56,8 @@ export function StubTags({
             type="button"
             className="drawing-stub__tag nodrag nopan"
             style={{ fontSize: `${12 / zoom}px`, transform: `translate(${r.d2.dx > 0 ? '0%' : r.d2.dx < 0 ? '-100%' : '-50%'}, ${r.d2.dy > 0 ? '0%' : r.d2.dy < 0 ? '-100%' : '-50%'}) translate(${r.end.x}px, ${r.end.y}px)` }}
+            onMouseEnter={() => onHover?.(true)}
+            onMouseLeave={() => onHover?.(false)}
             onClick={(event: MouseEvent) => {
               event.stopPropagation();
               onPanTo(stubs[i]!.panTo);

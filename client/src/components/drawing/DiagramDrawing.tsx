@@ -21,7 +21,8 @@ import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
 import { StubTags } from './StubTags';
 import { SHEATH_VAR, needsHairlineOutline } from './sheath';
-import { isFarApart, stubTagText, type StubEnd } from './stubs';
+import { useSettledView } from './settledView';
+import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 
 /** The Diagram look: plain labelled boxes joined by square-cornered lines in the
  * sheath colour. It shows the same document as the Rack look; devices are added,
@@ -46,7 +47,12 @@ interface LineData extends Record<string, unknown> {
   cable: CableView;
   route: Route;
   stub?: [StubEnd, StubEnd];
+  /** Selected, or its tag hovered: the whole cable draws even when its far end is off screen. */
+  lit: boolean;
+  /** Another cable is lit: this one fades to the phantom level. */
+  dimmed: boolean;
   onSelect: (cableId: string) => void;
+  onHover: (cableId: string | null) => void;
   onPanTo: (chassisId: string) => void;
 }
 
@@ -54,13 +60,18 @@ const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copp
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, onSelect, onPanTo } = data;
+  const { cable, route, stub, lit, dimmed, onSelect, onHover, onPanTo } = data;
   const colour = SHEATH_VAR[cable.sheath ?? 'grey'];
   const width = WIDTH_VAR[cable.kind];
-  if (stub != null) {
+  const opacity = dimmed ? 'var(--phantom)' : 1;
+  const tags =
+    stub != null ? (
+      <StubTags id={cable.id} colour={colour} width={width} points={[route.a, route.b]} dirs={[route.a, route.b]} stubs={stub} onPanTo={onPanTo} onHover={(on) => onHover(on ? cable.id : null)} />
+    ) : null;
+  if (tags != null && !lit) {
     return (
-      <g className="drawing-cable drawing-cable--stub" data-cable-id={cable.id}>
-        <StubTags id={cable.id} colour={colour} width={width} points={[route.a, route.b]} dirs={[route.a, route.b]} stubs={stub} onPanTo={onPanTo} />
+      <g className="drawing-cable drawing-cable--stub" data-cable-id={cable.id} style={{ opacity }}>
+        {tags}
       </g>
     );
   }
@@ -68,15 +79,18 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
     <g
       className="drawing-cable"
       data-cable-id={cable.id}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', opacity }}
       onClick={(event) => {
         event.stopPropagation();
         onSelect(cable.id);
       }}
+      onMouseEnter={() => onHover(cable.id)}
+      onMouseLeave={() => onHover(null)}
     >
       {needsHairlineOutline(cable.sheath ?? 'grey') && <path d={route.d} fill="none" stroke="var(--hairline)" strokeWidth={`calc(${width} + 2px)`} strokeLinejoin="miter" />}
       <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" />
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
+      {tags}
     </g>
   );
 }
@@ -95,6 +109,9 @@ export interface DiagramDrawingProps {
 
 function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest }: DiagramDrawingProps) {
   const rf = useReactFlow();
+  const settled = useSettledView();
+  const stubbedRef = useRef(new Set<string>());
+  const [hoverId, setHoverId] = useState<string | null>(null);
   const [band, setBand] = useState(() => zoomBandAt(Math.max(zoom, 1)));
 
   const boxes = useMemo(() => layoutDiagram(view), [view]);
@@ -123,6 +140,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [boxes, selectedId],
   );
 
+  const litId = selectedCableId ?? hoverId;
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
     return diagramLines(view, new Set(byId.keys())).map((line) => {
@@ -130,10 +148,14 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
       const bb = byId.get(line.b)!;
       const route = orthRoute(ba, bb, line.lane);
       let stub: [StubEnd, StubEnd] | undefined;
-      if (isFarApart({ x: ba.x + ba.w / 2, y: ba.y + ba.h / 2 }, { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2 })) {
+      const was = stubbedRef.current.has(line.cable.id);
+      const centre = (b: typeof ba) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+      if (endOffScreen(centre(ba), settled.rect, settled.zoom, was) || endOffScreen(centre(bb), settled.rect, settled.zoom, was)) {
+        stubbedRef.current.add(line.cable.id);
         const tag = (to: typeof ba): StubEnd => ({ text: stubTagText(to.hostname, to.rackLabel), panTo: to.id });
         stub = [tag(bb), tag(ba)];
-      }
+      } else stubbedRef.current.delete(line.cable.id);
+      const lit = line.cable.id === litId;
       return {
         id: line.cable.id,
         type: 'diagramLine',
@@ -141,10 +163,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         target: line.b,
         selectable: false,
         className: line.cable.id === selectedCableId ? 'drawing-diagram-line--selected' : undefined,
-        data: { cable: line.cable, route, stub, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        data: { cable: line.cable, route, stub, lit, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, selectedCableId, onSelect, panTo]);
+  }, [boxes, view, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
 
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);
@@ -166,10 +188,11 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const handleMove: OnMove = useCallback((_e, vp) => setBand(zoomBandAt(Math.round(vp.zoom * 1000) / 10)), []);
   const handleMoveEnd: OnMove = useCallback(
     (_e, vp) => {
+      settled.settle(vp);
       const pct = Math.round(vp.zoom * 100);
       if (pct !== zoom) onZoomChange(pct);
     },
-    [zoom, onZoomChange],
+    [zoom, onZoomChange, settled.settle],
   );
 
   return (
