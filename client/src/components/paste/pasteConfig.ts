@@ -26,6 +26,8 @@ export interface PasteMatch {
   hostname: string;
   /** A device carries one capture; a second paste is refused until replace exists. */
   hasCapture: boolean;
+  /** Another live device carries the same name, so nothing here can say which is meant. */
+  ambiguous: boolean;
 }
 
 export interface PastePreview {
@@ -107,14 +109,11 @@ function deviceNodes(doc: Document): GraphNode[] {
 export function sameNamed(doc: Document, hostname: string): PasteMatch | null {
   const want = hostname.trim().toLowerCase();
   if (want === '') return null;
-  for (const d of deviceNodes(doc)) {
-    const name = str(d, 'Device.hostname');
-    if (name !== null && name.trim().toLowerCase() === want) {
-      const chassis = edgesOut(doc, d.id, 'HasChassis')[0];
-      return { deviceId: d.id, chassisId: chassis?.to ?? null, hostname: name, hasCapture: captureOf(doc, d.id) !== null };
-    }
-  }
-  return null;
+  const hits = deviceNodes(doc).filter((d) => str(d, 'Device.hostname')?.trim().toLowerCase() === want);
+  const d = hits[0];
+  if (!d) return null;
+  const chassis = edgesOut(doc, d.id, 'HasChassis')[0];
+  return { deviceId: d.id, chassisId: chassis?.to ?? null, hostname: str(d, 'Device.hostname') ?? hostname, hasCapture: captureOf(doc, d.id) !== null, ambiguous: hits.length > 1 };
 }
 
 /** A port for each physical-looking interface, so the config's lines can light them. */
@@ -154,7 +153,7 @@ export function previewPaste(mirror: Mirror, doc: Document, text: string, at: { 
 
   const match = sameNamed(doc, hostname);
   let attachDoc: Document | null = null;
-  if (match !== null && !match.hasCapture) {
+  if (match !== null && !match.hasCapture && !match.ambiguous) {
     mirror.load(doc);
     attachDoc = mirror.pasteInto(match.deviceId, text).doc;
   }

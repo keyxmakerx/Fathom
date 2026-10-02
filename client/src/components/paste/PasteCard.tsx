@@ -10,7 +10,7 @@ import './paste.css';
 export type PasteState =
   | { kind: 'ask' }
   | { kind: 'reading' }
-  | { kind: 'card'; preview: PastePreview }
+  | { kind: 'card'; preview: PastePreview; base: unknown }
   | { kind: 'refused'; message: string };
 
 export interface PasteCardProps {
@@ -51,9 +51,14 @@ export function PasteCard({ state, onText, onChoose, onCancel }: PasteCardProps)
       {state.kind === 'ask' && (
         <>
           <p className="paste-card__note">Paste the config here. It goes through the gate on this page before anything is stored.</p>
-          <textarea className="paste-card__box" rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder="paste a config" />
+          <textarea className="paste-card__box" rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder="paste a config" spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" />
           <div className="paste-card__actions">
-            <button type="button" onClick={() => text.trim() !== '' && onText(text)} disabled={text.trim() === ''}>
+            <button type="button" onClick={() => {
+                if (text.trim() === '') return;
+                const t = text;
+                setText('');
+                onText(t);
+              }} disabled={text.trim() === ''}>
               Read it
             </button>
             <button type="button" onClick={onCancel}>Cancel</button>
@@ -108,6 +113,7 @@ export function PasteCard({ state, onText, onChoose, onCancel }: PasteCardProps)
                 <input type="radio" name="paste-choice" checked={choice === 'attach'} disabled={!canAttach} onChange={() => setChoice('attach')} />
                 Attach to {preview.match.hostname}
                 {preview.match.hasCapture && ' (it already carries a config; a second is not accepted yet)'}
+                {preview.match.ambiguous && ' (more than one device has this name; add it, then attach by hand)'}
               </label>
             )}
             {preview.match === null ? (

@@ -639,7 +639,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           const preview = previewPaste(mirror, doc, text, at, actorOpts(accountId));
           // The module now holds the scratch design the preview was read from.
           mirrorLoadedDocRef.current = null;
-          setPasteState({ kind: 'card', preview });
+          setPasteState({ kind: 'card', preview, base: doc });
         })
         .catch((error: unknown) => {
           mirrorLoadedDocRef.current = null;
@@ -661,13 +661,18 @@ export function RacksPlace(props: RacksPlaceProps) {
     (choice: 'attach' | 'add') => {
       if (pasteState?.kind !== 'card') return;
       const { preview } = pasteState;
+      if (pasteState.base !== doc) {
+        // The design moved on while the card was open; applying the preview would undo that.
+        setPasteState({ kind: 'refused', message: 'The design changed while this was open. Paste it again.' });
+        return;
+      }
       const next = choice === 'attach' && preview.attachDoc != null ? preview.attachDoc : preview.addDoc;
       const chassisId = choice === 'attach' ? (preview.match?.chassisId ?? null) : preview.addChassisId;
       applyDocChange(next);
       if (chassisId !== null) setSelection({ kind: 'chassis', id: chassisId });
       setPasteState(null);
     },
-    [pasteState, applyDocChange],
+    [pasteState, doc, applyDocChange],
   );
   useEffect(() => {
     if (!canDraw || doc == null) return;

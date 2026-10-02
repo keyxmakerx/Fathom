@@ -22,7 +22,9 @@ if (!existsSync(WASM_PATH)) throw new Error(`${WASM_PATH} missing: run \`bash sc
 const IKE = 'FATHOMPASTEike' + 'k7Qz'.repeat(30);
 const SNMP = 'FATHOMPASTEsnmp' + 'Rw9x'.repeat(16);
 const BGP = 'FATHOMPASTEbgp' + 'Hn3m'.repeat(12);
-const SECRETS = [IKE, SNMP, BGP];
+// Short ones too: the value-shape detector alone must not be what the test leans on.
+const SHORT = ['hunter22', 'n0cR3ad', 'bgpK3y1', 'Rt8pass'];
+const SECRETS = [IKE, SNMP, BGP, ...SHORT];
 
 const CONFIG = (host: string) => `set system host-name ${host}
 set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
@@ -31,6 +33,10 @@ set interfaces st0 unit 0 family inet address 10.255.0.1/30
 set security ike policy ike-pol pre-shared-key ascii-text ${IKE}
 set snmp community ${SNMP} authorization read-only
 set protocols bgp group ISP neighbor 203.0.113.1 authentication-key ${BGP}
+set protocols bgp group ISP neighbor 203.0.113.9 authentication-key bgpK3y1
+set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 authentication simple-password n0cR3ad
+set system root-authentication plain-text-password-value Rt8pass
+set security ike policy ike-two pre-shared-key ascii-text hunter22
 `;
 
 function bytesInclude(hay: Uint8Array, needle: string): boolean {
@@ -96,6 +102,25 @@ describe('previewPaste', () => {
     expect(p.match?.hasCapture).toBe(true);
     expect(p.attachDoc).toBeNull();
     expect(sameNamed(first.addDoc, 'srx-old')?.hasCapture).toBe(true);
+  });
+
+  it('a refusal quotes no secret from the first line', () => {
+    let message = '';
+    try {
+      previewPaste(mirror, emptyDocument(), 'enable secret 0 hunter22\nsnmp-server community n0cR3ad RO\n', { x: 0, y: 0 });
+    } catch (e) {
+      message = e instanceof Error ? e.message + (e as { detail?: string }).detail : String(e);
+    }
+    expect(message).not.toBe('');
+    for (const s of SHORT) expect(message).not.toContain(s);
+  });
+
+  it('does not offer Attach when two devices share the name', () => {
+    const one = createFreeBox(emptyDocument(), { x: 0, y: 0, hostname: 'dup' }).doc;
+    const two = createFreeBox(one, { x: 200, y: 0, hostname: 'dup' }).doc;
+    const p = previewPaste(mirror, two, CONFIG('dup'), { x: 400, y: 0 });
+    expect(p.match?.ambiguous).toBe(true);
+    expect(p.attachDoc).toBeNull();
   });
 
   it('refuses text the dictionary reads nothing from', () => {

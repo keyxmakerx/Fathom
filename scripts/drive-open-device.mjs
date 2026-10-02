@@ -138,12 +138,13 @@ try {
   // Credentials as long as a device takes one (CLAUDE.md rule 2); each must appear nowhere afterwards.
   const IKE = 'FATHOMDRIVEike' + 'k7Qz'.repeat(30);
   const SNMP = 'FATHOMDRIVEsnmp' + 'Rw9x'.repeat(16);
-  const SECRETS = [IKE, SNMP];
+  const SECRETS = [IKE, SNMP, 'hunter22'];
   const CONFIG = (host) => `set system host-name ${host}
 set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
 set interfaces ge-0/0/1 unit 0 family inet address 10.0.0.1/24
 set security ike policy ike-pol pre-shared-key ascii-text ${IKE}
 set snmp community ${SNMP} authorization read-only
+set security ike policy ike-two pre-shared-key ascii-text hunter22
 `;
   const pasteText = (page, text) =>
     page.evaluate((t) => {
