@@ -95,4 +95,11 @@ Reverses parts of round 5:
   Inventory. A trouble issue kind may follow. Uploaded files wait for the security decision.
 - **Beta keeps the full order** (§1); nothing moves after it.
 
+- **Troubleshooting** (owner's idea): right-click a device, "It's down". Fathom lights what it
+  depends on (power, cable, port, VLAN, address, gateway) and asks about each in order, nearest
+  first, with OK / Not OK / Can't tell and a Why? card per step. Answers narrow it; Fathom says
+  where they point, never the cause (ADR-0020). Plan a fix opens a maintenance plan; the issue is
+  saved to each device's history. Drawn in ink, sheath colours dropped while it runs; colour only
+  where it means something. Comes right after maintenance plans; path trace extends it later.
+
 Still open: private custom fields (#93 builds shared fields only).
