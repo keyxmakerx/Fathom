@@ -90,6 +90,7 @@ export function Bar({
   viewOnly,
   onHome,
   menu,
+  adminPill,
   search,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -315,6 +316,16 @@ export function Bar({
             <Sep />
           </>
         )}
+        {adminPill &&
+          (adminPill.onSelect && !adminPill.current ? (
+            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect}>
+              Admin
+            </button>
+          ) : (
+            <span className="shell-admin-pill" data-testid="shell-admin-pill" aria-current={adminPill.current ? 'page' : undefined}>
+              Admin
+            </span>
+          ))}
         <Popover
           align="right"
           renderTrigger={({ toggle, triggerRef, triggerProps }) => (

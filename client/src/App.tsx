@@ -13,7 +13,7 @@ import {
 } from './api/placement';
 import { useSetupState } from './api/setup';
 import type { OrganisationClaim } from './api/console';
-import { fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
+import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
@@ -757,8 +757,23 @@ export default function App() {
   // with the live ones (ADR-0053 §1, off `document/undo.ts`'s `undoable`)
   // the moment a place actually renders, so the bar's chips are real
   // wherever a design is open.
+  // The amber Admin pill: the same gate as Home's Admin tab (console host, and
+  // not yet refused for want of operator custody). Display only.
+  const adminPill =
+    session.kind === 'operator'
+      ? { current: true }
+      : admin !== undefined
+        ? {
+            onSelect: () => {
+              setHomeTab('admin');
+              setView({ kind: 'home' });
+              admin.onOpen();
+            },
+          }
+        : undefined;
   const common = {
     menu,
+    adminPill,
     presence: [],
     canUndo: false,
     canRedo: false,
@@ -848,6 +863,7 @@ export default function App() {
       label: scope.displayName,
       onSelect: () => selectScope(scope.scopeId),
     })),
+    { label: designTitle(view.design) },
   ];
 
   // The tree: the forest built from every scope the caller may at least

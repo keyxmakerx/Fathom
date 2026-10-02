@@ -39,6 +39,12 @@ use crate::repo::{self, AccountId, DesignId, OrganisationId, RepoError, ScopeId,
 /// The domain tag in a payload seal's associated data.
 const AAD_PAYLOAD: &[u8] = b"fathom/payload/v1";
 
+/// The domain tag in a design name's seal (ADR-0060 step 3b).
+const AAD_NAME: &[u8] = b"fathom/design-name/v1";
+
+/// Longest design name, in characters.
+pub const MAX_NAME_CHARS: usize = 100;
+
 /// The chain key epoch everything is written under today. Retired chain keys
 /// are kept forever and every entry carries its own epoch (§11.2), so raising
 /// this later is a new key and a new epoch, never a rewrite.
@@ -133,6 +139,8 @@ pub enum DesignError {
     /// No such scope in this tenant to hang the design on. A scope id from
     /// another organisation reads the same way, which is the right answer.
     NoSuchScope,
+    /// A design name that is too long or holds control characters.
+    InvalidName,
     /// Larger than [`MAX_PAYLOAD_BYTES`].
     PayloadTooLarge {
         bytes: usize,
@@ -267,6 +275,7 @@ impl fmt::Display for DesignError {
                 "that payload's {kind} text still carries something that looks like a \
                  credential, at line {line}; refused before it reaches storage"
             ),
+            Self::InvalidName => write!(f, "invalid design name"),
             Self::Authority(e) => write!(f, "{e}"),
         }
     }
@@ -431,6 +440,124 @@ pub async fn create_design_with_first_version_in_tx(
     .await?;
 
     Ok((id, version, created_at_unix, answer.capability))
+}
+
+// ---------------------------------------------------------------------------
+// Design names
+// ---------------------------------------------------------------------------
+
+fn name_aad(tenant: &str, design: &str, key_epoch: i32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    crypto::lp(&mut aad, AAD_NAME);
+    crypto::lp(&mut aad, tenant.as_bytes());
+    crypto::lp(&mut aad, design.as_bytes());
+    crypto::u32_le(&mut aad, key_epoch as u32);
+    aad
+}
+
+/// Control, line/paragraph separator and invisible or bidi-override characters,
+/// which could make a name display as something else.
+fn is_unsafe_name_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
+}
+
+/// Set a design's name; an empty (trimmed) name clears it back to untitled.
+/// Needs `draw` on the design's scope, the same as saving a version. The name
+/// is sealed under the organisation content key and never stored in the clear.
+pub async fn rename_design_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    name: &str,
+) -> Result<(), DesignError> {
+    let name = name.trim();
+    if name.chars().count() > MAX_NAME_CHARS || name.chars().any(is_unsafe_name_char) {
+        return Err(DesignError::InvalidName);
+    }
+    // Authorise before saying whether the design exists, so a missing design
+    // and a forbidden one read the same to a member with no grant.
+    grants::authorise_account(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    scope.ok_or(DesignError::NoSuchDesign)?;
+
+    let tenant = auth.ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let changed = if name.is_empty() {
+        tx.execute(
+            "UPDATE designs SET name_ciphertext = NULL, name_nonce = NULL, name_key_epoch = NULL \
+             WHERE id = $1 AND organisation_id = $2",
+            &[&design_text, &tenant],
+        )
+        .await?
+    } else {
+        let key = keys::org_content_key(tx, auth.ctx, auth.tenant_key).await?;
+        let nonce = crypto::random_nonce()?;
+        let aad = name_aad(&tenant, &design_text, key.epoch);
+        let ciphertext = crypto::seal(&key.key, &nonce, name.as_bytes(), &aad)?;
+        keys::count_write_under_org_content_key(tx, &tenant, key.epoch).await?;
+        tx.execute(
+            "UPDATE designs SET name_ciphertext = $3, name_nonce = $4, name_key_epoch = $5 \
+             WHERE id = $1 AND organisation_id = $2",
+            &[
+                &design_text,
+                &tenant,
+                &ciphertext,
+                &nonce.to_vec(),
+                &key.epoch,
+            ],
+        )
+        .await?
+    };
+    if changed == 0 {
+        return Err(DesignError::NoSuchDesign);
+    }
+    Ok(())
+}
+
+/// Opens design names for one request, fetching each key epoch once.
+pub struct NameOpener<'a> {
+    auth: &'a Authority<'a>,
+    keys: BTreeMap<i32, crypto::Key32>,
+}
+
+impl<'a> NameOpener<'a> {
+    pub fn new(auth: &'a Authority<'a>) -> Self {
+        Self {
+            auth,
+            keys: BTreeMap::new(),
+        }
+    }
+
+    /// The decrypted name, or `None` when the design is untitled.
+    pub async fn open(
+        &mut self,
+        tx: &Transaction<'_>,
+        design: &str,
+        sealed: Option<(Vec<u8>, Vec<u8>, i32)>,
+    ) -> Result<Option<String>, DesignError> {
+        let Some((ciphertext, nonce, epoch)) = sealed else {
+            return Ok(None);
+        };
+        if !self.keys.contains_key(&epoch) {
+            let key =
+                keys::org_content_key_at_epoch(tx, self.auth.ctx, self.auth.tenant_key, epoch)
+                    .await?;
+            self.keys.insert(epoch, key);
+        }
+        let nonce: [u8; crypto::NONCE_LEN] = nonce
+            .try_into()
+            .map_err(|_| DesignError::Corrupt("design name nonce"))?;
+        let aad = name_aad(&self.auth.ctx.tenant().to_string(), design, epoch);
+        let plain = crypto::open(&self.keys[&epoch], &nonce, &ciphertext, &aad)
+            .map_err(|_| DesignError::Refused)?;
+        String::from_utf8(plain)
+            .map(Some)
+            .map_err(|_| DesignError::Corrupt("design name"))
+    }
 }
 
 // ---------------------------------------------------------------------------

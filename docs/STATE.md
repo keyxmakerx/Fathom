@@ -229,7 +229,9 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   Dragging onto a surface comes with free boxes on the canvas (step 7).
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
-  named after the organisation. Design names are not built.
+  named after the organisation.
+- **Design names** (ADR-0060 step 3b). A design starts as "Untitled design"; Home's Rename (anyone who may draw) changes it. The name is sealed under the organisation content key (`designs.name_*`, migration 0030), never stored in the clear; `POST .../designs/{design}/name` needs `draw`. No chain entry for a rename yet.
+- **Admin pill**: an amber "Admin" pill beside the initials, on the same gate as Home's Admin tab (console host, not yet refused). Display only; the server still decides.
 - **Plainer canvas words** (ADR-0060 decisions 1 and 4): the Racks place is called Canvas; the left
   strip is one "Equipment" button that opens the equipment list; built-in items read "Any device" and
   "Backboard"; "+ add a surface" reads "+ Add a wall, floor or desk"; an empty design shows a note

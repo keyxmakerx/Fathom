@@ -192,6 +192,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0029_signed_in_browsers.sql",
         sql: include_str!("../migrations/0029_signed_in_browsers.sql"),
     },
+    // ADR-0060 step 3b: encrypted design names.
+    Migration {
+        version: 30,
+        name: "0030_design_names.sql",
+        sql: include_str!("../migrations/0030_design_names.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
