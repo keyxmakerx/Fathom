@@ -877,7 +877,14 @@ export default function App() {
     ...common,
     place: view.place,
     path,
-    tree: <ScopeTree nodes={forest} currentScopeId={view.design.scopeId} onSelectScope={selectScope} />,
+    tree: (
+      <ScopeTree
+        nodes={forest}
+        currentScopeId={view.design.scopeId}
+        onSelectScope={selectScope}
+        hasDesign={(scopeId) => firstDesignByScopeId.has(scopeId)}
+      />
+    ),
     onPlaceChange: (place: Place) => {
       if (!LENSES_IN[place].includes(lens)) setLens('cables');
       setView({ ...view, place });
@@ -928,6 +935,8 @@ interface ScopeTreeProps {
   nodes: ScopeTreeNode[];
   currentScopeId: string;
   onSelectScope: (scopeId: string) => void;
+  /** Whether choosing a scope has a design to open; a row without one says so. */
+  hasDesign: (scopeId: string) => boolean;
 }
 
 /**
@@ -936,8 +945,24 @@ interface ScopeTreeProps {
  * the ordinary case (an ancestor the caller may not read is simply absent —
  * `scopes.ts`'s own doc), so this walks every root, not one tree.
  */
-function ScopeTree({ nodes, currentScopeId, onSelectScope }: ScopeTreeProps) {
-  return <>{nodes.map((node) => <ScopeTreeRows key={node.scope.scopeId} node={node} depth={0} currentScopeId={currentScopeId} onSelectScope={onSelectScope} />)}</>;
+function ScopeTree({ nodes, currentScopeId, onSelectScope, hasDesign }: ScopeTreeProps) {
+  if (nodes.length === 0) {
+    return <PopoverRow muted>No other places to open yet.</PopoverRow>;
+  }
+  return (
+    <>
+      {nodes.map((node) => (
+        <ScopeTreeRows
+          key={node.scope.scopeId}
+          node={node}
+          depth={0}
+          currentScopeId={currentScopeId}
+          onSelectScope={onSelectScope}
+          hasDesign={hasDesign}
+        />
+      ))}
+    </>
+  );
 }
 
 interface ScopeTreeRowsProps {
@@ -945,13 +970,23 @@ interface ScopeTreeRowsProps {
   depth: number;
   currentScopeId: string;
   onSelectScope: (scopeId: string) => void;
+  hasDesign: (scopeId: string) => boolean;
 }
 
-function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope }: ScopeTreeRowsProps) {
+function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope, hasDesign }: ScopeTreeRowsProps) {
+  const openable = hasDesign(node.scope.scopeId) || node.scope.scopeId === currentScopeId;
   return (
     <Fragment>
-      <PopoverRow current={node.scope.scopeId === currentScopeId} onSelect={() => onSelectScope(node.scope.scopeId)}>
-        <span style={{ paddingLeft: `${depth * 12}px` }}>{node.scope.displayName}</span>
+      <PopoverRow
+        current={node.scope.scopeId === currentScopeId}
+        muted={!openable}
+        disabled={!openable}
+        onSelect={() => onSelectScope(node.scope.scopeId)}
+      >
+        <span style={{ paddingLeft: `${depth * 12}px` }}>
+          {node.scope.displayName}
+          {!openable && ' (no designs yet)'}
+        </span>
       </PopoverRow>
       {node.children.map((child) => (
         <ScopeTreeRows
@@ -960,6 +995,7 @@ function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope }: ScopeTree
           depth={depth + 1}
           currentScopeId={currentScopeId}
           onSelectScope={onSelectScope}
+          hasDesign={hasDesign}
         />
       ))}
     </Fragment>
