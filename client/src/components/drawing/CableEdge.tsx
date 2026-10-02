@@ -1,6 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { Edge, EdgeProps } from '@xyflow/react';
+import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
 
+import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cableEnds';
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
@@ -16,6 +17,11 @@ export interface CableEdgeData extends Record<string, unknown> {
    * `undefined` the rest of the time, when a cable draws exactly as before
    * this session. */
   portPairLabel?: string;
+  /** Each end's port box in flow space, so the cable leaves the port's own
+   * edge; `null` for an end with no port on a plate. */
+  ends?: [PortPoint | null, PortPoint | null];
+  /** Close in: each end's port label and where to put it. */
+  endLabels?: [{ text: string } & PlacedLabel, { text: string } & PlacedLabel];
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -49,12 +55,13 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const litCableId = useLive((s) => s.litCableId);
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
-  const { cable, onSelect, onHoverChange, portPairLabel } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels } = data;
   const dimmed = litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
   const colour = SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
-  const d = cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
+  const leads = ends != null ? leadsFor(ends[0], ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
+  const d = leads != null ? cableLeadPath(leads, cable.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
@@ -112,6 +119,19 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
         <text x={midX} y={midY - 6} textAnchor="middle" className="drawing-cable__pair-label">
           {portPairLabel}
         </text>
+      )}
+      {endLabels != null && leads != null && (
+        <EdgeLabelRenderer>
+          {([leads.a, leads.b] as const).map((lead, i) => (
+            <div
+              key={i}
+              className="drawing-cable__end-label nodrag nopan"
+              style={{ transform: `translate(-50%, -50%) translate(${lead.x + endLabels[i]!.dx}px, ${lead.y + endLabels[i]!.dy}px)` }}
+            >
+              {endLabels[i]!.text}
+            </div>
+          ))}
+        </EdgeLabelRenderer>
       )}
     </g>
   );

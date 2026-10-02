@@ -1,20 +1,15 @@
-import { useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { useMemo, type MouseEvent } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
-import { C14, PORT_GLYPHS } from '../ports';
+import { PORT_GLYPHS } from '../ports';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { PORT_ROW_GAP_PX, U_PX, glyphScaleBudgetCap, portRowBudgetPx } from './geometry';
+import { connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
+import { RAIL_PX, U_PX } from './geometry';
 import { useLive } from './liveStore';
 import { isPanel } from './paths';
-import { portKindFor } from './portGlyph';
 import { pduUsage, pduUsageLabel } from './power';
 import { SHEATH_VAR } from './sheath';
-
-/** `drawing.css`'s `.drawing-chassis__header`'s own `min-height`, kept here
- * so the ports row's budget (whatever flow-space height is left after the
- * header) matches what the CSS actually gives it. */
-const HEADER_MIN_PX = 9;
 
 /** Counts renders into `window.__cn` when a test harness has set it to a
  * number; otherwise does nothing. */
@@ -90,243 +85,118 @@ export type ChassisNodeType = Node<ChassisNodeData, 'chassis'>;
 /** The live drag's fixed end and every port still a valid target. */
 export type LiveDrag = { fromPortId: string; livePortIds: ReadonlySet<string> } | null;
 
-function portRows(ports: PortView[]): PortView[][] {
-  const byRow = new Map<number, PortView[]>();
-  for (const port of ports) {
-    const row = byRow.get(port.row) ?? [];
-    row.push(port);
-    byRow.set(port.row, row);
-  }
-  return [...byRow.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, row]) => [...row].sort((a, b) => a.column - b.column));
-}
-
-/** One port row: non-uplink ports left, uplink ports right — UI-SPEC "Ports":
- * "uplinks right." Each glyph carries its own React Flow `Handle` (loose
- * connection mode, `Drawing.tsx`) so a drag can start or land on any port;
- * the glyph itself still carries the click that selects it. */
-function PortRow({
-  ports,
-  onSelectPort,
+/** One port on the plate, drawn where the unit has it. Zoomed out it is only
+ * its handle, so a cable still has somewhere to end and no glyph is drawn. */
+function PlatePort({
+  box,
+  port,
+  inlet,
+  glyphs,
+  scale,
   liveDrag,
   portSheath,
+  litCableId,
+  tip,
+  onSelectPort,
 }: {
-  ports: PortView[];
-  onSelectPort: (portId: string) => void;
+  box: PortBox;
+  port: PortView;
+  inlet: InletView | null;
+  glyphs: boolean;
+  scale: number;
   liveDrag: LiveDrag;
   portSheath: ChassisNodeData['portSheath'];
+  litCableId: string | null;
+  tip: string;
+  onSelectPort: (portId: string) => void;
 }) {
-  function glyph(port: PortView) {
-    const kind = portKindFor(port.connector);
-    if (kind == null) return null;
-    const Glyph = PORT_GLYPHS[kind];
-    const cable = port.cable ?? null;
-    const cabled = cable != null;
-    const sheath = cabled ? portSheath.get(port.id) : undefined;
-
-    const isOrigin = liveDrag?.fromPortId === port.id;
-    const isLive = isOrigin || (liveDrag != null && liveDrag.livePortIds.has(port.id));
-    const dimmed = liveDrag != null && !isLive;
-
-    const style: Record<string, string | number> = {};
-    if (dimmed) style.opacity = 'var(--phantom)';
-    // UI-SPEC "Cables": "the port a cable fills takes the sheath colour" —
-    // `--port-sheath` is read by `drawing.css`'s
-    // `.drawing-chassis__port--cabled .port--cabled .port__body` rule,
-    // three classes deep so it outranks `ports.css`'s own two-class
-    // `.port--cabled .port__body { fill: var(--ink) }` regardless of which
-    // stylesheet's rule happens to load last (`components/ports/index.ts`
-    // imports `ports.css` on the drawing's own first render, so load order
-    // is not something this component can rely on).
-    if (sheath != null) style['--port-sheath'] = SHEATH_VAR[sheath];
-
+  const cable = port.cable ?? null;
+  const cabled = cable != null;
+  const isOrigin = liveDrag?.fromPortId === port.id;
+  const isLive = isOrigin || (liveDrag != null && liveDrag.livePortIds.has(port.id));
+  const dimmed = (liveDrag != null && !isLive) || (inlet != null && litCableId != null && cable?.cableId !== litCableId);
+  const style: Record<string, string | number> = { left: box.x, top: box.y, width: box.w, height: box.h };
+  if (dimmed) style.opacity = 'var(--phantom)';
+  const sheath = cabled ? portSheath.get(port.id) : undefined;
+  if (sheath != null) style['--port-sheath'] = SHEATH_VAR[sheath];
+  const handle = (
+    <Handle
+      type="source"
+      position={Position.Bottom}
+      id={port.id}
+      isConnectable={inlet != null ? inlet.fitted && !cabled : !cabled}
+      className="drawing-chassis__port-handle"
+    />
+  );
+  if (!glyphs) {
     return (
-      <button
-        key={port.id}
-        type="button"
-        data-port-id={port.id}
-        className={
-          cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'
-        }
-        style={style}
-        onClick={(event: MouseEvent) => {
-          event.stopPropagation();
-          onSelectPort(port.id);
-        }}
-      >
-        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--budgeted" />
-        {/* UI-SPEC "One cable per port": an already-cabled port is never a
-            target — `isConnectable={false}` keeps it from both starting a
-            second lead and accepting one. `type="source"`, not meaningful
-            on its own: `Drawing.tsx` sets `connectionMode="loose"` so any
-            handle can both start and receive a drag. */}
-        <Handle
-          type="source"
-          position={Position.Right}
-          id={port.id}
-          isConnectable={!cabled}
-          className="drawing-chassis__port-handle"
-        />
-      </button>
+      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style}>
+        {handle}
+      </div>
     );
   }
-
-  const downlink = ports.filter((p) => !p.uplink);
-  const uplink = ports.filter((p) => p.uplink);
-  return (
-    <div className="drawing-chassis__port-row">
-      <div className="drawing-chassis__port-group">{downlink.map(glyph)}</div>
-      <div className="drawing-chassis__port-group drawing-chassis__port-group--uplink">{uplink.map(glyph)}</div>
-    </div>
-  );
-}
-
-/** ADR-0050 §1/§3: one PSU inlet, drawn like a faceplate port (not a rail
- * hexagon — that stays the front elevation's own shorthand, `RackNode.tsx`)
- * at its own position, in one of three states the C14 glyph alone cannot
- * tell apart on its own two props (`cabled`): filled when a supply is
- * fitted and cabled, hollow when fitted and uncabled (`C14`'s own
- * `cabled={false}` already draws hollow — the plain "free" reading a
- * faceplate port already has), and — an inlet with no supply behind it at
- * all, which is neither — a dashed empty outline, a state no other port on
- * this drawing needs, so it is the one added here via `className` (a prop
- * `C14`/`components/ports` already accepts) rather than a change to that
- * shared component. */
-function InletGlyph({
-  inlet,
-  onSelectPort,
-  litCableId,
-}: {
-  inlet: InletView;
-  onSelectPort: (portId: string) => void;
-  /** The lit cable; this glyph dims when a cable other than its own is lit. */
-  litCableId: string | null;
-}) {
-  const cabled = inlet.cable != null;
-  const title = `${inlet.slot || inlet.label} — ${inlet.fitted ? (cabled ? 'fed' : 'fitted, no lead') : 'not fitted'}`;
-  const dimmed = litCableId != null && inlet.cable?.cableId !== litCableId;
-  const style: Record<string, string | number> = {};
-  if (dimmed) style.opacity = 'var(--phantom)';
+  const Glyph = PORT_GLYPHS[box.kind];
+  const unfitted = inlet != null && !inlet.fitted;
   return (
     <button
-      key={inlet.id}
       type="button"
-      data-port-id={inlet.id}
-      className={
-        cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'
-      }
+      data-port-id={port.id}
+      title={tip}
+      className={cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'}
       style={style}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
-        onSelectPort(inlet.id);
+        onSelectPort(port.id);
       }}
     >
-      <C14
+      <Glyph
         cabled={cabled}
-        title={title}
-        className={
-          inlet.fitted ? 'drawing-port-glyph--budgeted' : 'drawing-port-glyph--budgeted drawing-chassis__inlet--unfitted'
-        }
+        title={tip}
+        scale={scale}
+        className={unfitted ? 'drawing-chassis__inlet--unfitted' : undefined}
       />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id={inlet.id}
-        isConnectable={inlet.fitted && !cabled}
-        className="drawing-chassis__port-handle"
-      />
+      {handle}
     </button>
   );
 }
 
-/** The inlet strip — ADR-0050 §1: "at their position in an inlet strip at
- * the plate's end." Grouped top/bottom the same way `PortRow` groups a
- * faceplate's own rows (`InletView.position.row`), right-aligned like an
- * uplink group so it reads as the plate's trailing edge regardless of how
- * many ordinary ports sit before it. */
-function InletStrip({
-  inlets,
-  onSelectPort,
-  litCableId,
-}: {
-  inlets: InletView[];
-  onSelectPort: (portId: string) => void;
-  litCableId: string | null;
-}) {
-  const byRow = new Map<string, InletView[]>();
-  for (const inlet of inlets) {
-    const key = inlet.position?.row ?? 'single';
-    const row = byRow.get(key) ?? [];
-    row.push(inlet);
-    byRow.set(key, row);
-  }
-  const rows = [...byRow.entries()].sort(([a], [b]) => (a === 'top' ? -1 : a === b ? 0 : 1));
-  return (
-    <div className="drawing-chassis__inlets">
-      {rows.map(([rowKey, rowInlets]) => (
-        <div key={rowKey} className="drawing-chassis__port-row">
-          <div className="drawing-chassis__port-group drawing-chassis__port-group--uplink">
-            {[...rowInlets]
-              .sort((a, b) => (a.position?.column ?? 0) - (b.position?.column ?? 0))
-              .map((inlet) => (
-                <InletGlyph key={inlet.id} inlet={inlet} onSelectPort={onSelectPort} litCableId={litCableId} />
-              ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+function portTip(port: PortView, layout: ReturnType<typeof faceplateLayoutFor>, inlet: InletView | null): string {
+  const where = portWhere(layout, port.id);
+  const state = port.cable != null ? 'cabled' : 'free';
+  const label = inlet != null ? inlet.slot || inlet.label : port.label ? `Port ${port.label}` : 'Port';
+  return [label, connectorName(port.connector), where, inlet != null && !inlet.fitted ? 'not fitted' : state]
+    .filter(Boolean)
+    .join(' · ');
 }
 
-/** The device box: name left, model right (ADR-0047 §9 — name up to two
- * thirds, model shrinks first). ADR-0050 §1: draws whichever faceplate
- * (`ports`/`inlets`, already resolved for `elevation` by `Drawing.tsx` via
- * `elevation.ts`) faces the current elevation — never the chassis's own
- * mounting face directly. A face with neither ports nor inlets draws as a
- * plain plate: the header (and so the chassis's name) is unconditional, so
- * an empty faceplate still reads as a device, never as a rendering failure —
- * "never nothing."
+/** The device plate: its ports drawn where the unit has them (`faceplate.ts`),
+ * its name in the blank part of the plate and above any cable, or on a tab at
+ * the rail when the plate has no room. ADR-0050 §1: draws whichever faceplate
+ * (`ports`/`inlets`, already resolved for `elevation`) faces the current
+ * elevation. A face with no ports draws as a plain plate, so an empty
+ * faceplate still reads as a device, never as a rendering failure.
  *
- * A freshly placed device has no hostname yet (the command that places it
- * leaves it unset until someone types one) and may carry a model the
+ * A freshly placed device has no hostname yet and may carry a model the
  * catalogue does not recognise — neither is a reason for the box to go
- * blank: the model is the chassis's own field and is drawn whether or not
- * the catalogue matched it (the catalogue only adds vendor and ports, it
- * never owns the model string — see `document/view.ts`'s `chassisView`),
- * and an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
+ * blank: an unset hostname reads as the muted word `UNNAMED_HOSTNAME`, never
  * blank and never invented — same rule, same word, as `Editor.tsx`. */
 export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   countRender();
   const { chassis, ports, inlets, elevation, onSelectPort, portSheath } = data;
   const myCableIds = useMyCableIds(chassis);
   const { selected, litCableId, liveDrag, dimmed } = useChassisLiveData(chassis.id, myCableIds);
-  const rows = portRows(ports);
+  const glyphs = useLive((s) => s.showPortGlyphs);
   const height = chassis.heightU * U_PX;
-  const portsBudgetPx = Math.max(0, height - HEADER_MIN_PX);
-  // A paired top/bottom faceplate draws two port rows sharing one box; the
-  // rear elevation's inlet strip is one more row sharing the same budget.
-  const showInletStrip = elevation === 'rear' && inlets.length > 0;
-  const inletRowCount = showInletStrip ? new Set(inlets.map((i) => i.position?.row ?? 'single')).size : 0;
-  // No live zoom here (no node reads the viewport) — this is the budget
-  // half only; `drawing.css` takes the smaller of it and `1 / var(--zoom)`.
-  const glyphBudgetCap = glyphScaleBudgetCap(portRowBudgetPx(portsBudgetPx, rows.length + inletRowCount));
   const hasHostname = chassis.hostname.length > 0;
-  // UI-SPEC "Keeping it readable" / "Power": an unpowered chassis (no PSU
-  // inlet the catalogue knows of — `paths.ts`'s own `isPanel`, its file
-  // header records why this is the reading this session settled on) draws
-  // without the "live device" bullet, matching `Main.dc.html`'s own
-  // patch-01/fibre-01/pdu-a04 rows — the only three boxes on that board
-  // with neither a bullet nor a PSU mark on the rail beside them.
+  const shownName = hasHostname ? chassis.hostname : UNNAMED_HOSTNAME;
+  const items = plateItems(ports, inlets, elevation);
+  const inletIds = useMemo(() => new Map(inlets.map((i) => [i.id, i])), [inlets]);
+  const itemById = useMemo(() => new Map(items.map((p) => [p.id, p])), [items]);
+  const layout = faceplateLayoutFor(items, chassis.heightU, shownName);
   const passive = isPanel(chassis);
-  // UI-SPEC "Power": "A PDU's outlets are its C13 faceplate ports and its
-  // header shows `n of m used`, derived" — takes the model text's own slot
-  // when this chassis is one; an ordinary device (or panel) keeps the model.
-  // Read off this elevation's own `ports` (not `chassis.ports`, both faces
-  // at once): a PDU's outlets are on one faceplate, and the header should
-  // count only what this face actually shows.
   const usage = pduUsage({ ports });
-  const plainPlate = ports.length === 0 && inlets.length === 0;
+  const plainPlate = items.length === 0;
+  const spot = layout.name;
 
   const className = [
     'drawing-chassis',
@@ -336,60 +206,84 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   ]
     .filter(Boolean)
     .join(' ');
-  const style = { height, '--budget-cap': glyphBudgetCap } as CSSProperties;
+
+  const marks = (
+    <>
+      {chassis.singleFed && (
+        // UI-SPEC "Power": the word carries the fact, never a bare dot.
+        <span className="drawing-chassis__single-fed">single-fed</span>
+      )}
+      {chassis.oneFitted && <span className="drawing-chassis__one-fitted">one fitted</span>}
+    </>
+  );
+  const nameBlock = (
+    <>
+      {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
+      <span
+        className={
+          hasHostname ? 'drawing-chassis__hostname' : 'drawing-chassis__hostname drawing-chassis__hostname--placeholder'
+        }
+      >
+        {shownName}
+      </span>
+    </>
+  );
 
   return (
-    <div className={className} style={style}>
-      <div className="drawing-chassis__header">
-        {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
-        <span
-          className={
-            hasHostname
-              ? 'drawing-chassis__hostname'
-              : 'drawing-chassis__hostname drawing-chassis__hostname--placeholder'
-          }
-        >
-          {hasHostname ? chassis.hostname : UNNAMED_HOSTNAME}
-        </span>
-        {chassis.singleFed && (
-          // UI-SPEC "Power": "single-fed... a bordered caution wash with
-          // those words, the only way a risk colour appears." Never a bare
-          // dot or a border alone — the word is what carries the fact.
-          <span className="drawing-chassis__single-fed">single-fed</span>
+    <div className="drawing-chassis-wrap" style={{ height }}>
+      <div className={className} style={{ height }}>
+        {plainPlate ? (
+          <div className="drawing-chassis__header">
+            {nameBlock}
+            {marks}
+            <span className="drawing-chassis__model">{usage ? pduUsageLabel(usage) : chassis.model || ABSENT}</span>
+          </div>
+        ) : (
+          <>
+            {spot.mode !== 'tab' && (
+              <div
+                className={`drawing-chassis__name drawing-chassis__name--${spot.mode}`}
+                style={{ left: spot.x, top: spot.mode === 'band' ? 1 : 0, width: spot.w, height: spot.mode === 'band' ? undefined : '100%' }}
+              >
+                {nameBlock}
+                {marks}
+              </div>
+            )}
+            <div className="drawing-chassis__ports">
+              {layout.boxes.map((box: PortBox) => {
+                const port = itemById.get(box.id)!;
+                const inlet = inletIds.get(port.id) ?? null;
+                return (
+                  <PlatePort
+                    key={port.id}
+                    box={box}
+                    port={port}
+                    inlet={inlet}
+                    glyphs={glyphs}
+                    scale={layout.scale}
+                    liveDrag={liveDrag}
+                    portSheath={portSheath}
+                    litCableId={litCableId}
+                    tip={glyphs ? portTip(port, layout, inlet) : ''}
+                    onSelectPort={onSelectPort}
+                  />
+                );
+              })}
+            </div>
+          </>
         )}
-        {chassis.oneFitted && (
-          // ADR-0050 §4: "a second wash — one fitted — joins it." A
-          // distinct mark from `singleFed`: a slot can sit empty whether or
-          // not the inlets that remain are themselves short of a feed.
-          <span className="drawing-chassis__one-fitted">one fitted</span>
-        )}
-        {!plainPlate && <span className="drawing-chassis__model">{usage ? pduUsageLabel(usage) : chassis.model || ABSENT}</span>}
       </div>
-      {!plainPlate && (
-        <div className="drawing-chassis__ports" style={{ gap: PORT_ROW_GAP_PX }}>
-          {rows.map((row, i) => (
-            <PortRow
-              key={i}
-              ports={row}
-              onSelectPort={onSelectPort}
-              liveDrag={liveDrag}
-              portSheath={portSheath}
-            />
-          ))}
-          {showInletStrip && <InletStrip inlets={inlets} onSelectPort={onSelectPort} litCableId={litCableId} />}
+      {!plainPlate && spot.mode === 'tab' && (
+        <div className="drawing-chassis__tab nodrag" style={{ right: `calc(100% + ${RAIL_PX + 2}px)` }}>
+          {nameBlock}
+          {marks}
         </div>
       )}
-      {/* A bundle band (`bundles.ts`, `Drawing.tsx`) connects two chassis,
-          not two specific ports — this invisible handle is its one shared
-          anchor, positioned at the box's own left-centre by
-          `.drawing-chassis__bundle-handle` (`drawing.css`) rather than any
-          particular port's own absolute-positioned handle above. */}
+      {/* A bundle band's shared anchor: the plate's left-centre, which the
+          bundle edge replaces with its members' own port positions. */}
       <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-chassis__bundle-handle nodrag" />
       {/* s6f #1: the rear elevation's stable inlet-end anchor — see
-          `INLET_ANCHOR_HANDLE_ID`'s own doc above. Rendered unconditionally
-          (not gated on `showInletStrip`/`plainPlate`) whenever this chassis
-          draws in the rear elevation, so it is never subject to the same
-          mount-then-measure gap the strip's own per-inlet handles are. */}
+          `INLET_ANCHOR_HANDLE_ID`'s own doc above. */}
       {elevation === 'rear' && (
         <Handle
           type="source"

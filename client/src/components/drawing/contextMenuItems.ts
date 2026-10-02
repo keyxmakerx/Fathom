@@ -5,7 +5,13 @@ export type MenuTarget =
   | { kind: 'chassis'; id: string }
   | { kind: 'rack'; id: string }
   | { kind: 'cable'; id: string }
-  | { kind: 'pane' };
+  | { kind: 'free'; id: string }
+  | { kind: 'label'; id: string }
+  | { kind: 'line'; id: string }
+  /** `at` is where the click landed, in pane pixels and flow units. */
+  | { kind: 'pane'; at?: { screen: Point; flow: Point } };
+
+type Point = { x: number; y: number };
 
 export interface MenuItem {
   label: string;
@@ -18,12 +24,21 @@ export interface MenuItem {
  * cannot do it) leaves its item out. */
 export interface MenuActions {
   onSelect(selection: Selection | null): void;
+  /** Opens a device's config drawer; zoom never does. */
+  onOpen?(chassisId: string): void;
+  /** Opens a device's inside view, where the device has one. */
+  onOpenInside?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   onAddDevice?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
+  onPasteConfig?(): void;
+  onAddBoxHere?(at: { screen: Point; flow: Point }): void;
+  onAddLabelHere?(form: 'text' | 'area', flow: Point): void;
+  onDuplicateFree?(ids: string[]): void;
+  onRemoveFree?(ids: string[]): void;
 }
 
 /** The rack sizes the empty canvas's menu offers (ADR-0060 decision 5). */
@@ -35,6 +50,8 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
   switch (target.kind) {
     case 'chassis': {
       const { id } = target;
+      if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
+      if (actions.onOpenInside) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
       if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });
@@ -52,11 +69,34 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onDisconnect) items.push({ label: 'Disconnect', onSelect: () => actions.onDisconnect?.(id), danger: true });
       break;
     }
+    case 'free':
+    case 'label': {
+      const { id } = target;
+      const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
+      if (target.kind === 'free' && actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
+      items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
+      if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
+      if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
+      break;
+    }
+    case 'line': {
+      const { id } = target;
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'line', id }) });
+      if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
+      break;
+    }
     case 'pane': {
+      const at = target.at;
+      if (at && actions.onAddBoxHere) items.push({ label: 'Add a box here', onSelect: () => actions.onAddBoxHere?.(at) });
+      if (at && actions.onAddLabelHere) {
+        items.push({ label: 'Add a label here', onSelect: () => actions.onAddLabelHere?.('text', at.flow) });
+        items.push({ label: 'Add an area here', onSelect: () => actions.onAddLabelHere?.('area', at.flow) });
+      }
       if (actions.onAddRack) {
         for (const u of RACK_SIZES) items.push({ label: `Add a ${u}U rack`, onSelect: () => actions.onAddRack?.(u) });
       }
       if (actions.onAddWall) items.push({ label: 'Add a wall', onSelect: () => actions.onAddWall?.() });
+      if (actions.onPasteConfig) items.push({ label: 'Paste config', onSelect: () => actions.onPasteConfig?.() });
       break;
     }
   }

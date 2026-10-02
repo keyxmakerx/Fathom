@@ -22,3 +22,13 @@ export const PORT_GLYPHS: Record<PortKind, (props: PortGlyphProps) => JSX.Elemen
   'qsfp-plus': QsfpPlus,
   generic: Generic,
 };
+
+/** Each glyph's true (scale 1) size, matching its `frame(...)` box. */
+export const GLYPH_SIZE: Record<PortKind, { w: number; h: number }> = {
+  rj45: { w: 23, h: 21 },
+  'sfp-plus': { w: 29, h: 17 },
+  lc: { w: 25, h: 15 },
+  c14: { w: 23, h: 17 },
+  'qsfp-plus': { w: 41, h: 14 },
+  generic: { w: 17, h: 17 },
+};

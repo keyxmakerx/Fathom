@@ -15,6 +15,7 @@ import { Engine } from './engine/engine';
 import { setSession } from './state/sessionState';
 import {
   catalogueFrom,
+  seedCanvasScene,
   seedConflictingChange,
   seedConnectedDevices,
   seedDockerScene,
@@ -112,6 +113,7 @@ async function main() {
 
   let doc;
   if (scene === 'trail') doc = seedConnectedDevices(catalogue, ME);
+  else if (scene === 'canvas') doc = seedCanvasScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);

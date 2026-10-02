@@ -155,7 +155,7 @@ try {
 
   const wheelDelta = await chassisRenderDelta(async () => {
     await paneForWheel.hover();
-    await page.mouse.wheel(0, -60);
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, -60); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms
     await page.waitForTimeout(120);
   });
   check('0a. a wheel tick renders no chassis', wheelDelta === 0, `delta ${wheelDelta}`);
@@ -213,7 +213,7 @@ try {
   check('3b. found dev-01 to relocate', dev1Before != null);
   if (dev1Before) {
     const savesBefore = await page.evaluate(() => window.__saveCount__);
-    const fx = dev1Before.x + dev1Before.width / 2;
+    const fx = dev1Before.x + 6; // the plate's blank left edge: ports sit further along, and a drag from one starts a cable
     const fy = dev1Before.y + dev1Before.height / 2;
     const uPitch = dev1Before.y - (await page.locator('.react-flow__node-chassis', { hasText: 'dev-02' }).boundingBox()).y; // dev-02 sits 1U above
     const ty = fy - (DROP_U - 1) * uPitch; // dev-01 is at U1
@@ -266,11 +266,11 @@ try {
     const cy = paneBox.y + paneBox.height / 2;
     await page.mouse.move(cx, cy);
     for (let i = 0; i < 8; i += 1) {
-      await page.mouse.wheel(0, -240); // zoom in
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, -240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms // zoom in
       await page.waitForTimeout(40);
     }
     for (let i = 0; i < 8; i += 1) {
-      await page.mouse.wheel(0, 240); // zoom back out
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, 240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms // zoom back out
       await page.waitForTimeout(40);
     }
   }

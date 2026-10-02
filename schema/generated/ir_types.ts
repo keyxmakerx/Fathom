@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.12";
+export const SCHEMA_VERSION = "0.13";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -65,7 +65,9 @@ export type NodeKind =
   | "ContainerNetwork"
   | "Container"
   | "PublishedPort"
-  | "Tag";
+  | "Tag"
+  | "Label"
+  | "Line";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -126,6 +128,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Container",
   "PublishedPort",
   "Tag",
+  "Label",
+  "Line",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -229,7 +233,10 @@ export type EdgeKind =
   | "AttachedTo"
   | "ParentUnit"
   | "HasTag"
-  | "TaggedWith";
+  | "TaggedWith"
+  | "HasLabel"
+  | "HasLine"
+  | "LineEnd";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -331,6 +338,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "ParentUnit",
   "HasTag",
   "TaggedWith",
+  "HasLabel",
+  "HasLine",
+  "LineEnd",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -454,7 +464,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
   PhysicalPort: ["label", "position", "connector", "service", "face", "speed_max", "transceiver", "notes", "occupied"],
   Cable: ["label", "assembly", "media", "length_m", "installed_on", "ownership", "provider_circuit", "notes", "last_confirmed", "sheath"],
-  PassiveNode: ["label", "form", "split_ratio", "model", "serial"],
+  PassiveNode: ["label", "form", "split_ratio", "model", "serial", "slots"],
   Premises: ["label", "street", "clli", "form", "region", "coordinates", "notes"],
   Tenant: ["name", "code", "kind", "account_ref", "contact", "description"],
   Service: ["cid", "reach", "label", "in_service_on", "ceased_on", "last_confirmed", "attributes", "description"],
@@ -473,6 +483,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Container: ["name"],
   PublishedPort: ["protocol", "container_port", "host_port", "host_address"],
   Tag: ["name"],
+  Label: ["text", "form", "w", "h"],
+  Line: ["label"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -820,4 +832,11 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PublishedPort.host_address": 341,
   "AttachedTo.address": 342,
   "Tag.name": 343,
+  "Label.text": 344,
+  "Label.form": 345,
+  "Label.w": 346,
+  "Label.h": 347,
+  "Line.label": 348,
+  "LineEnd.end": 349,
+  "PassiveNode.slots": 350,
 };

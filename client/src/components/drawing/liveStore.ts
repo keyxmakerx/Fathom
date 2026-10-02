@@ -32,6 +32,10 @@ export interface LiveState {
   /** The camera's current stop, so a node re-renders when the stop changes,
    * never on a wheel tick within it. */
   cameraStop: CameraStop;
+  /** Port glyphs are drawn only once the camera is close enough to read them. */
+  showPortGlyphs: boolean;
+  /** Close in, a bundle is drawn as its separate cables. */
+  splitBundles: boolean;
 }
 
 export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
@@ -48,6 +52,8 @@ export const INITIAL_LIVE_STATE: LiveState = {
   shakingRackId: null,
   dimmedChassisId: null,
   cameraStop: 'rack',
+  showPortGlyphs: false,
+  splitBundles: false,
 };
 
 export interface LiveStore {
@@ -74,6 +80,13 @@ export function createLiveStore(initial: LiveState = INITIAL_LIVE_STATE): LiveSt
 
 const LiveStoreContext = createContext<LiveStore | null>(null);
 export const LiveStoreProvider = LiveStoreContext.Provider;
+
+/** The store itself, for a handle that writes to it (a shelf's resize grip lights the rail). */
+export function useLiveStore(): LiveStore {
+  const store = useContext(LiveStoreContext);
+  if (store == null) throw new Error('useLiveStore: no LiveStoreProvider above this node');
+  return store;
+}
 
 /** Re-renders the calling node when its selector's answer changes by
  * `Object.is`; throws outside a `LiveStoreProvider`, which is a wiring mistake. */
