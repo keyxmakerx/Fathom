@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { EdgeLabelRenderer, useStore } from '@xyflow/react';
 
-import { axisToward, stubRun, type Pt, type StubEnd } from './stubs';
+import { axisToward, STUB_RUN_PX, stubRun, type Pt, type StubEnd } from './stubs';
 
 /** The two stub runs of one cable (or bundle) and their tags. Each end fades
  * out along its run; the tag at its tip names the far end and pans to it. */
@@ -27,7 +27,11 @@ export function StubTags({
   const zoom = useStore((st) => Math.max(0.05, Math.round(st.transform[2] * 20) / 20));
   const runs = points.map((p, i) => {
     const d = dirs?.[i] ?? axisToward(p, points[1 - i]!);
-    return { from: p, ...stubRun(p, d.dx, d.dy), d2: d };
+    // A vertical stub runs on past its rack's frame edge so the tag sits in the gap, clear of the frame and any header.
+    const f = stubs[i]!.frame;
+    const clearY = f == null ? undefined : d.dy > 0 ? f.bottom : f.top;
+    const past = clearY != null && d.dx === 0 && (clearY - p.y) * d.dy >= 0 ? Math.abs(clearY - p.y) + 6 / zoom : 0;
+    return { from: p, ...stubRun(p, d.dx, d.dy, Math.max(STUB_RUN_PX, past)), d2: d };
   });
   return (
     <>

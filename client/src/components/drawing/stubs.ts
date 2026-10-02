@@ -17,6 +17,8 @@ export interface StubEnd {
   text: string;
   /** Chassis id of the far end, for the pan. */
   panTo: string;
+  /** The frame (header included) of the rack this stub starts in, flow y, so its tag sits clear of it. */
+  frame?: { top: number; bottom: number };
 }
 
 export function isFarApart(a: Pt, b: Pt, threshold = STUB_DISTANCE_PX): boolean {

@@ -984,11 +984,15 @@ function DrawingInner({
   function stubFor(a: RealEnd, b: RealEnd, pa: PortPoint | null, pb: PortPoint | null, count = 1): [StubEnd, StubEnd] | undefined {
     if (pa == null || pb == null || a.rackId == null || b.rackId == null || a.rackId === b.rackId) return undefined;
     if (!isFarApart(centreOf(pa), centreOf(pb))) return undefined;
-    const tag = (end: RealEnd): StubEnd => {
-      const info = chassisInfo.get(end.chassisId);
-      return { text: stubTagText(info?.hostname ?? '', info?.rackLabel ?? null, count), panTo: end.chassisId };
+    // The stub at `own` names the far end `far`, and clears `own`'s rack frame.
+    const tag = (far: RealEnd, own: RealEnd): StubEnd => {
+      const info = chassisInfo.get(far.chassisId);
+      const rack = own.rackId != null ? rf.getInternalNode(rackNodeId(own.rackId)) : undefined;
+      const y = rack?.internals.positionAbsolute.y;
+      const frame = y != null && rack?.measured.height != null ? { top: y, bottom: y + rack.measured.height } : undefined;
+      return { text: stubTagText(info?.hostname ?? '', info?.rackLabel ?? null, count), panTo: far.chassisId, frame };
     };
-    return [tag(b), tag(a)];
+    return [tag(b, a), tag(a, b)];
   }
   const handlePanTo = (chassisId: string) => {
     const n = rf.getInternalNode(chassisNodeId(chassisId));
