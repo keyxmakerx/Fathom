@@ -25,6 +25,8 @@ import '../../styles/drawing.css';
 import { compatible } from '../../document/compat';
 import { Callout } from './Callout';
 import { CablesViewControl } from './CablesViewControl';
+import { isFarApart, stubTagText, type StubEnd } from './stubs';
+import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
 import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
@@ -975,6 +977,25 @@ function DrawingInner({
   type RealEnd = { portId: string; chassisId: string; rackId: string | null };
   const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
 
+  // Far-apart cables draw as stubs with a tag naming the far end (ADR-0061 round 7).
+  const chassisInfo = new Map<string, { hostname: string; rackLabel: string | null }>();
+  for (const rack of view.racks) for (const c of rack.chassis) chassisInfo.set(c.id, { hostname: c.hostname, rackLabel: rack.label });
+  const centreOf = (b: PortPoint): { x: number; y: number } => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  function stubFor(a: RealEnd, b: RealEnd, pa: PortPoint | null, pb: PortPoint | null, count = 1): [StubEnd, StubEnd] | undefined {
+    if (pa == null || pb == null || a.rackId == null || b.rackId == null || a.rackId === b.rackId) return undefined;
+    if (!isFarApart(centreOf(pa), centreOf(pb))) return undefined;
+    const tag = (end: RealEnd): StubEnd => {
+      const info = chassisInfo.get(end.chassisId);
+      return { text: stubTagText(info?.hostname ?? '', info?.rackLabel ?? null, count), panTo: end.chassisId };
+    };
+    return [tag(b), tag(a)];
+  }
+  const handlePanTo = (chassisId: string) => {
+    const n = rf.getInternalNode(chassisNodeId(chassisId));
+    if (n == null) return;
+    void rf.setCenter(n.internals.positionAbsolute.x + (n.measured.width ?? RACK_INNER_PX) / 2, n.internals.positionAbsolute.y + (n.measured.height ?? U_PX) / 2, { zoom: rf.getZoom(), ...GLIDE });
+  };
+
   // Close in, every cable is its own line with each end's port named; the
   // labels are packed so none overlaps another.
   const endLabels = new Map<string, { text: string; dx: number; dy: number }>();
@@ -1030,6 +1051,8 @@ function DrawingInner({
       portPairLabel,
       ends: boxes[0] != null || boxes[1] != null ? boxes : undefined,
       endLabels: l0 != null && l1 != null ? [l0, l1] : undefined,
+      stub: real.length === 2 ? stubFor(real[0]!, real[1]!, boxes[0], boxes[1]) : undefined,
+      onPanTo: handlePanTo,
     };
     return {
       id: cable.id,
@@ -1044,6 +1067,13 @@ function DrawingInner({
       zIndex: 5,
       data: edgeData,
     } satisfies CableEdgeType;
+  }
+
+  function stubForBundle(bundle: Bundle, pa: PortPoint | null, pb: PortPoint | null): [StubEnd, StubEnd] | undefined {
+    const m = realEndsOf(bundle.members[0]!);
+    const a = m.find((e) => e.chassisId === bundle.chassisA);
+    const b = m.find((e) => e.chassisId === bundle.chassisB);
+    return a != null && b != null ? stubFor(a, b, pa, pb, bundle.members.length) : undefined;
   }
 
   const edges: Edge[] = [];
@@ -1067,6 +1097,8 @@ function DrawingInner({
       fanned,
       onFan: setFannedBundleKey,
       ends: [side(bundle.chassisA), side(bundle.chassisB)],
+      stub: stubForBundle(bundle, side(bundle.chassisA), side(bundle.chassisB)),
+      onPanTo: handlePanTo,
     };
     edges.push({
       id: `bundle:${bundle.key}`,
