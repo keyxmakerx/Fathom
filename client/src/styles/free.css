@@ -18,23 +18,28 @@
 .free-box__code { font-size: var(--t-micro); letter-spacing: var(--track-label); color: var(--muted); }
 .free-handle { opacity: 0; pointer-events: none; width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; }
 
-/* The hollow square: same shape as a free port. */
+/* The edge handle: one rule for every box edge, area grip, rack square and shelf grip. To turn it
+   into a small ink circle, change these three values and nothing else. */
 .free-square {
+  --handle-size: 10px;
+  --handle-radius: 0;
+  --handle-fill: var(--page);
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: var(--handle-size);
+  height: var(--handle-size);
   padding: 0;
   border: 1px solid var(--ink);
-  background: var(--page);
+  border-radius: var(--handle-radius);
+  background: var(--handle-fill);
   cursor: crosshair;
   box-sizing: border-box;
 }
-.free-square:hover { background: var(--ink); }
+.free-square:hover { --handle-fill: var(--ink); }
 .free-square:focus-visible { outline: var(--focus-width) solid var(--focus-colour); }
-.free-square--t { top: -8px; left: calc(50% - 5px); }
-.free-square--b { bottom: -8px; left: calc(50% - 5px); }
-.free-square--l { left: -8px; top: calc(50% - 5px); }
-.free-square--r { right: -8px; top: calc(50% - 5px); }
+.free-square--t { top: -8px; left: calc(50% - var(--handle-size) / 2); }
+.free-square--b { bottom: -8px; left: calc(50% - var(--handle-size) / 2); }
+.free-square--l { left: -8px; top: calc(50% - var(--handle-size) / 2); }
+.free-square--r { right: -8px; top: calc(50% - var(--handle-size) / 2); }
 .free-square--grip { right: -5px; bottom: -5px; cursor: nwse-resize; }
 
 .free-label {

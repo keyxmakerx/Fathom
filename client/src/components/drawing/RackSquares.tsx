@@ -8,8 +8,6 @@ import type { MouseEvent } from 'react';
 import type { RackView } from './contract';
 import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, uToOffsetPx } from './geometry';
 
-const SIZE = 10;
-
 export interface RackSquaresProps {
   racks: readonly RackView[];
   rackPositions: Readonly<Record<string, { x: number; y: number }>>;
@@ -45,7 +43,7 @@ export function RackSquares({ racks, rackPositions, chassisId, canDraw, onOpen }
             key={u}
             type="button"
             className="free-square rack-square nodrag nopan"
-            style={{ position: 'absolute', transform: `translate(${x - SIZE / 2}px, ${y - SIZE / 2}px)`, pointerEvents: 'all' }}
+            style={{ position: 'absolute', transform: `translate(calc(${x}px - 50%), calc(${y}px - 50%))`, pointerEvents: 'all' }}
             aria-label={`Add a device at U${u}`}
             title={`Add a device at U${u}`}
             onClick={(e: MouseEvent) => {
