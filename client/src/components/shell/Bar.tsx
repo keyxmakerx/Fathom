@@ -65,6 +65,8 @@ export interface BarProps {
   /** The caller's own account-menu rows (Site, credentials, Home), above
    * Theme and Sign out. A row is present only when it acts. */
   menu?: ReactNode;
+  /** The amber Admin pill beside the account square (display only). */
+  adminPill?: { current?: boolean; onSelect?: () => void };
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
