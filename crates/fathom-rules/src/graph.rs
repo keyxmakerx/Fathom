@@ -2,7 +2,9 @@
 //!
 //! **What a rule may read is decided here, once.** A field's static type comes from the
 //! generated `slot_type`; secrets (`SecretPlaceholder`) and free-text captures and notes
-//! are `Ty::Secret`, which the checker refuses to compile even as a presence test. Nothing a
+//! are `Ty::Secret`, which the checker refuses to compile even as a presence test. Other
+//! free-text fields (`notes`, `description`) stay readable: a finding never carries a value,
+//! so a rule learns at most one bit about them, and no shipped rule reads one. Nothing a
 //! redaction gate destroyed is ever in the store, and nothing the gate would have flagged
 //! is readable by a rule (CLAUDE.md rule 4).
 

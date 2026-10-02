@@ -521,6 +521,7 @@ dependencies = [
  "fathom-ir",
  "fathom-layout",
  "fathom-rules",
+ "fathom-schema",
  "fathom-wasm",
  "fathom-weld",
  "fathom-workspace",

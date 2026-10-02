@@ -347,3 +347,17 @@ fn fuzz_the_vm_with_arbitrary_programs() {
         let _ = run(&p, &world(), vec![Val::Node(0)], 500);
     }
 }
+
+/// A long left-associative chain is refused by the depth bound, not by a stack overflow.
+#[test]
+fn a_long_left_associative_chain_is_refused_not_overflowed() {
+    for chain in [
+        format!("{} > 0", vec!["1"; 400].join("+")),
+        vec!["true"; 400].join(" && "),
+        vec!["true"; 400].join(" || "),
+        format!("n{}", ".x".repeat(400)),
+    ] {
+        assert!(parse(&chain).is_err(), "{}", &chain[..20]);
+    }
+    assert!(parse("1 + 1 + 1 > 0").is_ok());
+}

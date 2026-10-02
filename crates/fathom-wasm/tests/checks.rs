@@ -350,3 +350,38 @@ fn a_frame_that_does_not_parse_answers_no_rows() {
     }
     let _ = a;
 }
+
+/// The gesture must carry the media: with it dropped, the two media rules never refuse.
+#[test]
+fn a_cat6_lead_into_a_cage_known_empty_is_refused_ahead_of_time() {
+    use fathom_rules::fixture::build;
+    use fathom_schema::subset::{parse_profile, Profile};
+    use fathom_wasm::checks::{cable_proposal, Checks, End};
+    let text = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../corpus/rules/phy.cable.copper-in-cage/fixtures/fire-cat6-into-empty-sfp-plus.yaml",
+    ))
+    .unwrap();
+    let (g, ids) = build(&parse_profile(&text, Profile::Corpus).unwrap()).unwrap();
+    let checks = Checks::new();
+    let rows = checks.gesture(
+        &g,
+        &cable_proposal(&End::Port(ids["p1"]), &End::Unknown, "cat6"),
+    );
+    let hit = rows
+        .iter()
+        .find(|r| r.rule == "phy.cable.copper-in-cage")
+        .expect("refused");
+    assert!(
+        hit.elements.starts_with("\tthe new cable"),
+        "{:?}",
+        hit.elements
+    );
+    let none = checks.gesture(
+        &g,
+        &cable_proposal(&End::Port(ids["p1"]), &End::Unknown, ""),
+    );
+    assert!(
+        none.iter().all(|r| r.rule != "phy.cable.copper-in-cage"),
+        "no media, no claim"
+    );
+}

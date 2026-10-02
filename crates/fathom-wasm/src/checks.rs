@@ -6,7 +6,7 @@ use fathom_graph::{Graph, NodeId};
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::NodeKind;
 use fathom_rules::engine::{Dirty, Engine, Pack};
-use fathom_rules::graph::{delta_since, field_from_boxed, GraphWorld, IrSchema};
+use fathom_rules::graph::{box_from_text, delta_since, field_from_boxed, GraphWorld, IrSchema};
 use fathom_rules::overlay::{refusals, Ov, Proposal, VirtEdge};
 use fathom_rules::rule::{load_rule, Rule};
 use fathom_rules::schema::Schema;
@@ -73,6 +73,9 @@ pub struct Checks {
     seen: usize,
     /// Set if a baked rule failed to load: the product shows no checks rather than guess.
     pub load_error: Option<String>,
+    /// Rules that ran out of budget on some anchor in the last pass: their findings are
+    /// incomplete, and the panel says so.
+    pub unfinished: usize,
 }
 
 impl Checks {
@@ -95,6 +98,7 @@ impl Checks {
             instance: 0,
             seen: 0,
             load_error,
+            unfinished: 0,
         }
     }
 
@@ -114,6 +118,9 @@ impl Checks {
         self.engine.refresh(&self.pack, &GraphWorld { g }, &dirty);
         self.instance = g.instance();
         self.seen = log;
+        let mut rules: Vec<usize> = self.engine.diagnostics().iter().map(|d| d.rule).collect();
+        rules.dedup();
+        self.unfinished = rules.len();
     }
 
     /// Every standing finding, most severe first, as rows.
@@ -132,12 +139,13 @@ impl Checks {
         found
             .iter()
             .map(|f| {
-                let real = |n: &Ov<NodeId>| match n {
-                    Ov::Real(r) => Some(*r),
-                    Ov::Virt(_) => None,
+                let el = |n: &Ov<NodeId>| match n {
+                    Ov::Virt(0) => El::New("the new cable"),
+                    Ov::Virt(_) => El::New("the new port"),
+                    Ov::Real(r) => El::Old(*r),
                 };
-                let mut els = vec![real(&f.anchor)];
-                els.extend(f.involves.iter().map(real));
+                let mut els = vec![el(&f.anchor)];
+                els.extend(f.involves.iter().map(el));
                 row_opt(&self.pack, g, f.rule, &els)
             })
             .collect()
@@ -178,11 +186,17 @@ pub struct Row {
 }
 
 fn row(pack: &Pack, g: &Graph, rule: usize, anchor: &[NodeId], rest: &[NodeId]) -> Row {
-    let els: Vec<Option<NodeId>> = anchor.iter().chain(rest).map(|n| Some(*n)).collect();
+    let els: Vec<El> = anchor.iter().chain(rest).map(|n| El::Old(*n)).collect();
     row_opt(pack, g, rule, &els)
 }
 
-fn row_opt(pack: &Pack, g: &Graph, rule: usize, els: &[Option<NodeId>]) -> Row {
+/// An element of a finding: one in the estate, or one the proposal would create.
+enum El {
+    Old(NodeId),
+    New(&'static str),
+}
+
+fn row_opt(pack: &Pack, g: &Graph, rule: usize, els: &[El]) -> Row {
     let m = &pack.rules[rule].meta;
     let source = match m.sources.first() {
         Some(s) => format!("{}, {}\n{}\n{}", s.publisher, s.doc, s.url, s.note),
@@ -191,8 +205,8 @@ fn row_opt(pack: &Pack, g: &Graph, rule: usize, els: &[Option<NodeId>]) -> Row {
     let elements = els
         .iter()
         .map(|e| match e {
-            Some(n) => format!("{n}\t{}", name_of(g, *n)),
-            None => "\tthe new port".to_owned(),
+            El::Old(n) => format!("{n}\t{}", name_of(g, *n)),
+            El::New(w) => format!("\t{w}"),
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -241,7 +255,7 @@ pub fn cable_proposal(near: &End, far: &End, media: &str) -> Proposal<NodeId> {
     if !media.is_empty() {
         if let Some(info) = s.node_field(cable, "media") {
             let key = FieldKey(info.id.0);
-            if let Ok(v) = fathom_inventory::parse_into_slot(key, media) {
+            if let Ok(v) = box_from_text(key, media) {
                 fields.push((info.id, field_from_boxed(key, v)));
             }
         }
@@ -269,7 +283,9 @@ pub fn cable_proposal(near: &End, far: &End, media: &str) -> Proposal<NodeId> {
 /// A field edit as a proposal. `None` when the value does not parse (the write refuses that
 /// itself) or the key is not one a rule can read.
 pub fn field_proposal(node: NodeId, key: FieldKey, text: &str) -> Option<Proposal<NodeId>> {
-    let v = fathom_inventory::parse_into_slot(key, text).ok()?;
+    let v = fathom_inventory::parse_into_slot(key, text)
+        .or_else(|_| box_from_text(key, text))
+        .ok()?;
     let mut p = Proposal::default();
     p.fields
         .push((Ov::Real(node), FieldId(key.0), field_from_boxed(key, v)));

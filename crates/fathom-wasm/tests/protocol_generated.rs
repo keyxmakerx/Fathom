@@ -566,7 +566,16 @@ fn faces() -> Vec<FaceEntry> {
         FaceEntry {
             name: "FACE_CHECK_HEAD",
             code: p::FACE_CHECK_HEAD as u32,
-            columns: &["refuse", "warn", "idea", "rules", "load_failed", "", "", ""],
+            columns: &[
+                "refuse",
+                "warn",
+                "idea",
+                "rules",
+                "load_failed",
+                "unfinished",
+                "",
+                "",
+            ],
         },
         FaceEntry {
             name: "FACE_CHECK",

@@ -219,7 +219,8 @@ pub const FACE_PASTE_LINE: u8 = 30;
 /// per label (`<REDACTED:psk>`), so its width depends on the LABEL, not the secret.
 pub const FACE_DROP: u8 = 31;
 
-/// `OP_CHECKS` reply head: `<refuse> <warn> <idea> <rules loaded> <load failed: "1" or "">`.
+/// `OP_CHECKS` reply head: `<refuse> <warn> <idea> <rules loaded> <load failed: "1" or "">
+/// <rules that ran out of budget>`.
 pub const FACE_CHECK_HEAD: u8 = 32;
 
 /// One finding: `<rule id> <severity word> <title> <fix> <why> <concept id> <source>
@@ -1285,19 +1286,30 @@ pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
 
 /// `OP_CHECKS`'s reply, or `OP_CHECK_GESTURE`'s (`head` None).
 pub fn encode_checks_reply(
-    head: Option<([usize; 3], bool, usize)>,
+    head: Option<([usize; 3], bool, usize, usize)>,
     rows: &[crate::checks::Row],
 ) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
     let mut count = 0usize;
-    if let Some((c, failed, loaded)) = head {
-        let n: Vec<String> = c.iter().chain([&loaded]).map(|v| v.to_string()).collect();
+    if let Some((c, failed, loaded, unfinished)) = head {
+        let n: Vec<String> = c
+            .iter()
+            .chain([&loaded, &unfinished])
+            .map(|v| v.to_string())
+            .collect();
         let rec = face_slots(
             &mut blob,
             FACE_CHECK_HEAD,
-            5,
-            &[&n[0], &n[1], &n[2], &n[3], if failed { "1" } else { "" }],
+            6,
+            &[
+                &n[0],
+                &n[1],
+                &n[2],
+                &n[3],
+                if failed { "1" } else { "" },
+                &n[4],
+            ],
         );
         write_face_record(&mut records, &rec);
         count += 1;

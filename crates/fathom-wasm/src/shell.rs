@@ -1697,6 +1697,7 @@ impl Shell {
             counts,
             self.checks.load_error.is_some(),
             self.checks.rule_count(),
+            self.checks.unfinished,
         );
         protocol::encode_checks_reply(Some(head), &rows)
     }

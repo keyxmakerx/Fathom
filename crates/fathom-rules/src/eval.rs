@@ -105,7 +105,7 @@ pub fn eval_rule<W: World>(
                 Ok(_) => continue,
                 Err(e) => {
                     diag(diags, format!("where {}", e.text()));
-                    return;
+                    continue;
                 }
             }
         }
@@ -150,7 +150,6 @@ pub fn eval_rule<W: World>(
             }
             Err(e) => {
                 diag(diags, format!("condition {}", e.text()));
-                return;
             }
         }
     }

@@ -147,23 +147,29 @@ impl P<'_> {
 
     fn or(&mut self) -> Result<Expr, Error> {
         let mut l = self.and()?;
+        let base = self.depth;
         while self.peek() == &Tok::OrOr {
+            self.enter()?;
             let pos = self.pos();
             self.bump();
             let r = self.and()?;
             l = self.bin(BinOp::Or, l, r, pos);
         }
+        self.depth = base;
         Ok(l)
     }
 
     fn and(&mut self) -> Result<Expr, Error> {
         let mut l = self.rel()?;
+        let base = self.depth;
         while self.peek() == &Tok::AndAnd {
+            self.enter()?;
             let pos = self.pos();
             self.bump();
             let r = self.rel()?;
             l = self.bin(BinOp::And, l, r, pos);
         }
+        self.depth = base;
         Ok(l)
     }
 
@@ -187,12 +193,17 @@ impl P<'_> {
 
     fn add(&mut self) -> Result<Expr, Error> {
         let mut l = self.unary()?;
+        let base = self.depth;
         loop {
             let op = match self.peek() {
                 Tok::Plus => BinOp::Add,
                 Tok::Minus => BinOp::Sub,
-                _ => return Ok(l),
+                _ => {
+                    self.depth = base;
+                    return Ok(l);
+                }
             };
+            self.enter()?;
             let pos = self.pos();
             self.bump();
             let r = self.unary()?;
@@ -242,7 +253,9 @@ impl P<'_> {
 
     fn postfix(&mut self) -> Result<Expr, Error> {
         let mut e = self.primary()?;
+        let base = self.depth;
         while self.peek() == &Tok::Dot {
+            self.enter()?;
             self.bump();
             let pos = self.pos();
             let Tok::Ident(n) = self.peek().clone() else {
@@ -256,6 +269,7 @@ impl P<'_> {
                 e = self.mk(pos, ExprKind::Field(Box::new(e), n));
             }
         }
+        self.depth = base;
         Ok(e)
     }
 

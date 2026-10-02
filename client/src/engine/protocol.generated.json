@@ -95,7 +95,7 @@
     "FACE_INV_KEY": ["", "key_1", "key_2", "key_3", "key_4", "key_5", "key_6", ""],
     "FACE_PASTE_LINE": ["ordinal", "outcome", "byte_start", "byte_end", "node_id", "fields", "reason", ""],
     "FACE_DROP": ["ordinal", "marker_start", "marker_end", "label", "detectors", "", "", ""],
-    "FACE_CHECK_HEAD": ["refuse", "warn", "idea", "rules", "load_failed", "", "", ""],
+    "FACE_CHECK_HEAD": ["refuse", "warn", "idea", "rules", "load_failed", "unfinished", "", ""],
     "FACE_CHECK": ["rule", "severity", "title", "fix", "why", "concept", "source", "elements"]
   },
   "errors": {
