@@ -1319,7 +1319,7 @@ export function NotesSection({ ownerId, actions }: { ownerId: string; actions: E
   const notes = actions.notesOf ? actions.notesOf(ownerId) : [];
 
   return (
-    <div className="drawing-editor__field">
+    <div className="drawing-editor__field drawing-editor__field--notes">
       <div className="drawing-editor__field-label">Notes</div>
       {notes.length === 0 ? <div className="drawing-editor__field-value">{ABSENT}</div> : null}
       {notes.map((note) => (

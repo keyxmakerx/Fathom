@@ -658,3 +658,26 @@
   background: var(--page);
   z-index: 3;
 }
+
+/* The page header and the Notes tab already carry the title and notes. */
+.inv-page__overview .drawing-editor__title,
+.inv-page__overview .drawing-editor__field--notes {
+  display: none;
+}
+
+.inv-table__tag {
+  font: inherit;
+  cursor: pointer;
+}
+
+.inv-paste__preview {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.inv-paste__preview th,
+.inv-paste__preview td {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  text-align: left;
+}

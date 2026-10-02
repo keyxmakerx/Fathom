@@ -352,6 +352,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                     sort={sort}
                     canEdit={canDraw}
                     onCommit={onCommit}
+                    onFilterTag={(tag) => setFilters((f) => (f.some((x) => x.col === 'tags' && x.value === tag) ? f : [...f, { col: 'tags', value: tag }]))}
                     onOpen={(row) => {
                       setOpenKey(row.key);
                       setOverride(null);

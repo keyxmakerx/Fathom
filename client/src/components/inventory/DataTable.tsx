@@ -25,6 +25,8 @@ export interface DataTableProps {
   canEdit: boolean;
   /** Returns a sentence when the edit is refused; the editor then stays open. */
   onCommit: (row: InvRow, col: Column, value: string) => string | void;
+  /** A tag chip was clicked: filter the list by it. */
+  onFilterTag?: (tag: string) => void;
   onOpen: (row: InvRow) => void;
   onToggleChecked: (row: InvRow, shift: boolean) => void;
   onToggleAll: (checkAll: boolean) => void;
@@ -44,7 +46,7 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sort, canEdit, onCommit, onOpen, onToggleChecked, onToggleAll, onSort, emptyText } = props;
+  const { columns, rows, openKey, checked, sort, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, emptyText } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(600);
@@ -323,7 +325,7 @@ export function DataTable(props: DataTableProps) {
                             }}
                           />
                         ) : col.type === 'tags' ? (
-                          <TagCell tags={row.tags} />
+                          <TagCell tags={row.tags} onFilterTag={onFilterTag} />
                         ) : text !== '' ? (
                           <span className="inv-table__text" title={text}>
                             {text}
@@ -346,7 +348,7 @@ export function DataTable(props: DataTableProps) {
   );
 }
 
-function TagCell({ tags }: { tags: readonly string[] }) {
+function TagCell({ tags, onFilterTag }: { tags: readonly string[]; onFilterTag?: (tag: string) => void }) {
   if (tags.length === 0) {
     return (
       <span className="inv-table__blank" aria-label="no tags">
@@ -357,9 +359,19 @@ function TagCell({ tags }: { tags: readonly string[] }) {
   return (
     <span className="inv-table__tags">
       {tags.map((t) => (
-        <span key={t} className="inv-table__tag">
+        <button
+          type="button"
+          key={t}
+          className="inv-table__tag"
+          title={`Filter by ${t}`}
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFilterTag?.(t);
+          }}
+        >
           {t}
-        </span>
+        </button>
       ))}
     </span>
   );

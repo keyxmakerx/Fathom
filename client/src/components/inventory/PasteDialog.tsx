@@ -62,6 +62,26 @@ export function PasteDialog(props: PasteDialogProps) {
             : `${plan.adds.length} to add, ${plan.updates.length} to update${plan.skipped ? `, ${plan.skipped} skipped (no name${canAdd ? '' : ' match'})` : ''}.`}
           {plan.ignoredHeaders.length ? ` Ignored columns: ${plan.ignoredHeaders.join(', ')}.` : ''}
         </p>
+        {table.length > 0 && plan.mapped.some(Boolean) ? (
+          <table className="inv-paste__preview" aria-label="Preview">
+            <thead>
+              <tr>
+                {plan.mapped.map((c, i) => (
+                  <th key={i}>{c ? c.label : 'ignored'}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.slice(0, 6).map((cells, ri) => (
+                <tr key={ri}>
+                  {plan.mapped.map((_, i) => (
+                    <td key={i}>{cells[i] ?? ''}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
         {error ? <p role="alert">{error}</p> : null}
         <div className="inv-paste__actions">
           <button type="button" onClick={onCancel}>

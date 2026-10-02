@@ -54,7 +54,7 @@ export function ItemPage(props: ItemPageProps) {
 
   let body: ReactNode = null;
   if (active === 'overview') {
-    body = EditorFor(selection, view, actions, palette);
+    body = <div className="inv-page__overview">{EditorFor(selection, view, actions, palette)}</div>;
   } else if (active === 'interfaces') {
     body = (
       <ul className="inv-page__list">
@@ -107,7 +107,7 @@ export function ItemPage(props: ItemPageProps) {
         {lines.length === 0 ? <li className="inv-page__muted">No changes recorded.</li> : null}
         {lines.map((l, i) => (
           <li key={i}>
-            <span>{l.label}</span>
+            <span>{plainLabel(l.label)}</span>
             <span className="inv-page__muted">
               {l.who === accountId ? 'you' : l.who ? l.who.slice(-6) : ''} · {l.when ? new Date(l.when).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
             </span>
@@ -149,4 +149,23 @@ export function ItemPage(props: ItemPageProps) {
       <div className="inv-page__body">{body}</div>
     </aside>
   );
+}
+
+/** A batch label turned into words: "set Device.management_address" becomes "Changed management address". */
+function plainLabel(label: string): string {
+  const set = /^set (?:\w+\.)?(\w+)$/.exec(label);
+  if (set) return `Changed ${set[1]!.replace(/_/g, ' ')}`;
+  const fixed: Record<string, string> = {
+    'set field': 'Changed a field value',
+    'add field': 'Added a field',
+    'rename field': 'Renamed a field',
+    'remove field': 'Removed a field',
+    tag: 'Tagged',
+    untag: 'Removed a tag',
+    'add note': 'Added a note',
+    'remove note': 'Removed a note',
+  };
+  if (fixed[label]) return fixed[label]!;
+  if (/^create /.test(label)) return 'Created';
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
