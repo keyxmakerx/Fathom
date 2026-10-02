@@ -9,7 +9,7 @@ who can invite people.
 **Read `docs/STATE.md` for what is and is not built.** The short version, current as of
 2026-09-19 (read the actual page for the rest; this paragraph is corrected here because an
 earlier draft of this file said the client was a shell with no diagram, which stopped being true
-several sessions ago): you sign in, land on Home, and draw a rack-first network diagram with
+several sessions ago): you sign in, land on Home, and draw a network diagram with
 React Flow — racks, devices, ports and cables, a rear elevation, shelves and wall-mounted gear,
 a view-only config drawer behind the redaction gate, and an inventory with notes and undo. What
 is still missing: nothing is emailed, nothing talks to a live device, and the credential vault

@@ -1,5 +1,9 @@
 # Open for the owner — everything waiting on a decision
 
+> **Closed to new questions on 2026-10-02.** New questions go on the sign-off page (ADR-0060,
+> decision 9), and the plan is ADR-0060. This file stays where it is because the code cites its
+> answers by letter (A1, B5, C2, D11 and others). Read an entry when code names it, not by default.
+
 > **Status: Living list. Compiled 2026-09-04 by a full sweep of the corpus.** Ten readers over
 > the whole documentation tree found 93 candidate decisions; each was then checked
 > adversarially against later documents, `70`, the ADRs and the work orders. **42 were stale

@@ -9,7 +9,7 @@ This page records what exists. It is not a changelog — history lives in `docs/
 ## Working and keeping
 
 **The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate,
-the fragment-to-store weld, the finder, emitters, layout. 1208 tests passing as of 2026-09-14. Zero external
+the fragment-to-store weld, the finder, emitters, layout. Zero external
 dependencies on the client side, deliberately.
 
 **The schema.** Real and enforced — roughly 51 kinds, 95 edges, 61 scalars at version 0.5. Read

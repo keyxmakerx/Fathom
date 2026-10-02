@@ -28,8 +28,10 @@ paid once.
 
 ## The shape
 
-Rack-first. The rack, its faceplates, its ports and the cables between them **are** the product.
-Everything else hangs off that.
+One canvas, detail added by degrees (ADR-0060, 2026-09-27, which replaced "rack-first" here). The
+canvas takes free boxes and lines as well as racks, walls and ports; the rack, its faceplates, its
+ports and the cables between them are the most detailed thing on it, not the only thing. Where this
+spec and ADR-0060 disagree, ADR-0060 wins.
 
 **Two places, not a tab bar of views — ADR-0046, 2026-09-15.** *Racks*, the drawing below, and
 *Inventory*, lists with a page per thing. Equals; the masthead names both and marks the current one.
