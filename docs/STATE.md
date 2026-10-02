@@ -524,3 +524,5 @@ stage from the build stage, so the image ships exactly the tree it was built aga
 
 `/home/user/pouzor/homelable` — a smaller, well-built homelab visualization tool being used as a
 reference for the client rebuild. React, and it solves several problems we hand-built.
+
+- Inventory table with pages and shared custom fields (schema 0.13, ADR-0062). Private and org-wide fields are not built.

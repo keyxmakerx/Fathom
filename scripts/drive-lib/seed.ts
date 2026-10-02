@@ -20,6 +20,7 @@ import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addVlan } from './document/networks';
+import { addFieldDef, setFieldValue } from './document/fields';
 import { tagObject } from './document/tags';
 import { naturalLabelCompare, viewOf } from './document/view';
 
@@ -555,4 +556,17 @@ export function seedShelfScene(catalogue: CatalogueModel[], me: string): Documen
   let working = placeOnShelf(box.doc, box.chassisId, shelfId, 1, { actor: me });
   working = addSketchPort(working, box.chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
   return working;
+}
+
+/** ADR-0062's drive: the tags scene, a "Cost centre" field with a value on core-01, and `count`
+ * unplaced sketch devices so the table has hundreds of rows to window. */
+export function seedInventoryScene(catalogue: CatalogueModel[], me: string, count = 600): Document {
+  let doc = seedTagsScene(catalogue, me);
+  const core = firstRack(doc, catalogue).chassis.find((c) => c.hostname === 'core-01')!;
+  const def = addFieldDef(doc, { name: 'Cost centre', appliesTo: 'device', type: 'text' }, { actor: me });
+  doc = setFieldValue(def.doc, core.deviceId, def.defId, 'IT-204', { actor: me });
+  for (let i = 0; i < count; i += 1) {
+    doc = createSketchDevice(doc, { hostname: `bulk-${String(i + 1).padStart(4, '0')}`, actor: me });
+  }
+  return doc;
 }

@@ -51,6 +51,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 // `EditorActions.tagsOf`/`.allTags` below hand back, `NoteView`'s own
 // precedent for re-exporting the one `document/` shape a caller needs.
 import type { TagChip, TagSummary } from '../../document/tags';
+import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 
 export type {
   CableEnd,
@@ -67,6 +68,7 @@ export type {
 } from '../../document/view';
 export type { NoteHow, NoteView } from '../../document/notes';
 export type { TagChip, TagSummary } from '../../document/tags';
+export type { FieldRow } from '../../document/fields';
 
 export interface DrawingActions {
   onPlace(rackId: string, catalogueRef: { vendor: string; model: string; role?: string }, positionU: number): void;
@@ -124,7 +126,7 @@ export interface DrawingActions {
 export type EditorChange =
   | { kind: 'device'; id: string; field: 'hostname' | 'role' | 'management_address'; value: string | null }
   | { kind: 'chassis'; id: string; field: 'serial'; value: string | null }
-  | { kind: 'rack'; id: string; field: 'row' | 'bay'; value: string | null }
+  | { kind: 'rack'; id: string; field: 'row' | 'bay' | 'label'; value: string | null }
   /** ADR-0060 decision 5: a rack's height in units, refused below anything mounted in it. */
   | { kind: 'rack-height'; id: string; heightU: number }
   /** ADR-0051 §1 — a shelf's own editor commits its name through
@@ -283,6 +285,15 @@ export interface EditorActions {
    * Not keyed to an owner, `allTags`'s own reading: a tag's name is one fact
    * shared by everything that carries it. Optional, `onEdit`'s own reading. */
   onRenameTag?(tagId: string, name: string): { refused: string } | void;
+  /** ADR-0062 — the custom fields that apply to `ownerId`'s kind, with this thing's value or
+   * null. Optional; absent renders no "Your fields" section. */
+  fieldsOf?(ownerId: string): FieldRow[];
+  /** Sets one value; blank clears it. Optional, `onEdit`'s own reading. */
+  onSetField?(ownerId: string, defId: string, raw: string): { refused: string } | void;
+  /** Defines a new field for `ownerId`'s kind (every thing of that kind gets it). */
+  onAddFieldDef?(ownerId: string, name: string, type: FieldType): { refused: string } | void;
+  /** Removes a field's definition and every value of it. */
+  onRemoveFieldDef?(defId: string): { refused: string } | void;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only
@@ -296,6 +307,11 @@ export type NotesActions = Required<Pick<EditorActions, 'notesOf' | 'onAddNote' 
  * groups its own three — `DesignPlace.tsx` builds exactly one of these and
  * hands it to both `RacksPlace`/`InventoryPlace`. */
 export type TagsActions = Required<Pick<EditorActions, 'tagsOf' | 'allTags' | 'onAddTag' | 'onRemoveTag' | 'onRenameTag'>>;
+
+/** `EditorActions`'s four custom-field members, grouped like `TagsActions`. */
+export type FieldsActions = Required<Pick<EditorActions, 'fieldsOf' | 'onSetField' | 'onAddFieldDef' | 'onRemoveFieldDef'>>;
+
+export type { FieldFor };
 
 export type Selection =
   | { kind: 'rack'; id: string }

@@ -20,7 +20,7 @@ import { Engine } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
-import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
+import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
@@ -168,6 +168,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** ADR-0059 — Tags, threaded straight into `EditorFor`'s own `actions`
    * below, `notesActions`'s own shape. */
   tagsActions: TagsActions;
+  /** ADR-0062 — custom fields in the canvas panel, the same editor Inventory shows. */
+  fieldsActions: FieldsActions;
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
@@ -191,6 +193,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     accountId,
     notesActions,
     tagsActions,
+    fieldsActions,
     onActiveRackChange,
     ...shellProps
   } = props;
@@ -708,6 +711,10 @@ export function RacksPlace(props: RacksPlaceProps) {
             onAddTag: canDraw ? tagsActions.onAddTag : undefined,
             onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
             onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
+            fieldsOf: fieldsActions.fieldsOf,
+            onSetField: canDraw ? fieldsActions.onSetField : undefined,
+            onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
+            onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
           },
           paletteFromCatalogue(catalogue),
         )

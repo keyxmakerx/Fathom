@@ -20,6 +20,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedInventoryScene,
   seedManyDevicesScene,
   seedNetworksScene,
   seedPrintAttackScene,
@@ -117,6 +118,7 @@ async function main() {
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'tags') doc = seedTagsScene(catalogue, ME);
+  else if (scene === 'inventory') doc = seedInventoryScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
@@ -131,7 +133,7 @@ async function main() {
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
-  // scene's nodes is still legal at 0.12), the same substitution
+  // scene's nodes is still legal at 0.13), the same substitution
   // `plain.test.ts`'s "opens a 0.10 vector" tests make.
   if (scene === 'networks-010') {
     const text = new TextDecoder().decode(bytes);

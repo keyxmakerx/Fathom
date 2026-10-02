@@ -434,3 +434,8 @@ fields:
   # ADR-0059 (tags, 2026-09-26). Appended at the tail with the next integer, which is the
   # only way a key is ever assigned.
   Tag.name: 343
+  # Custom fields (0.13, 2026-10-02). Appended at the tail with the next integers.
+  FieldDef.name: 344
+  FieldDef.applies_to: 345
+  FieldDef.value_type: 346
+  FieldValue.value: 347

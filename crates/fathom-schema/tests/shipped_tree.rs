@@ -73,14 +73,17 @@ fn shipped_tree_declaration_counts_hold() {
     // ADR-0059 (2026-09-26, schema 0.12) moved four: +1 kind (`Tag`, 58 -> 59),
     // +2 edges (`HasTag`, `TaggedWith`, 100 -> 102 declared), +1 CLASS
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343).
-    assert_eq!(tree.kinds.len(), 59, "kind count");
-    assert_eq!(tree.edges.len(), 108, "edge count (100 + 8 derived)");
+    // Custom fields (2026-10-02, schema 0.13) moved four more: +2 kinds (`FieldDef`,
+    // `FieldValue`, 59 -> 61), +3 edges (`HasFieldDef`, `HasFieldValue`, `ValueOf`,
+    // 100 -> 103 declared), +1 CLASS (`Fieldable`, 6 -> 7), +4 field keys (343 -> 347).
+    assert_eq!(tree.kinds.len(), 61, "kind count");
+    assert_eq!(tree.edges.len(), 111, "edge count (103 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
-    assert_eq!(tree.classes.len(), 6, "class count");
+    assert_eq!(tree.classes.len(), 7, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 343, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 347, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -150,7 +153,11 @@ fn shipped_tree_declaration_counts_hold() {
     // (`Tag`, 58 -> 59), +2 edges (`HasTag`, `TaggedWith`, 106 -> 108), +1 class
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343). Scalars, enum
     // FILE count and import scopes are unmoved -- `Tag.name` reuses `Text`.
-    assert_eq!(tree.version.as_deref(), Some("0.12"));
+    //
+    // 0.12 -> 0.13 is custom fields and moves the same four counts, as noted above.
+    // Scalars, enum FILE count and import scopes are unmoved -- every new field reuses
+    // `Text` or an inline enum.
+    assert_eq!(tree.version.as_deref(), Some("0.13"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

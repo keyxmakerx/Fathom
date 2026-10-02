@@ -21,6 +21,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
+import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
 import { TagChips } from '../TagChips';
 import {
   ABSENT,
@@ -1313,7 +1314,7 @@ function NoteRow({ note, onRemove }: { note: NoteView; onRemove?: () => { refuse
  * are, `RacksPlace.tsx`/`InventoryPlace.tsx`'s own doc on why) but gets no
  * add box and no remove link.
  */
-function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+export function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
   if (!actions.notesOf && !actions.onAddNote) return null;
   const notes = actions.notesOf ? actions.notesOf(ownerId) : [];
 
@@ -1341,7 +1342,7 @@ function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorAc
  * sees the chips (`tagsOf` is never gated the way `onAddTag`/`onRemoveTag`
  * are) but gets no input and no remove control (`TagChips`'s own reading).
  */
-function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+export function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
   if (!actions.tagsOf && !actions.onAddTag) return null;
   const tags = actions.tagsOf ? actions.tagsOf(ownerId) : [];
   const suggestions = actions.allTags ? actions.allTags() : [];
@@ -1358,6 +1359,111 @@ function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorAct
         onRename={actions.onRenameTag}
       />
     </div>
+  );
+}
+
+/**
+ * ADR-0062 — "Your fields": the custom fields defined for this kind of thing, shared with
+ * everyone who opens the design. Absent when the caller supplies no `fieldsOf`.
+ */
+export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState<FieldType>('text');
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  if (!actions.fieldsOf) return null;
+  const rows = actions.fieldsOf(ownerId);
+  if (rows == null) return null;
+  const writable = actions.onSetField != null;
+
+  const submit = () => {
+    const result = actions.onAddFieldDef?.(ownerId, name, type);
+    if (result && 'refused' in result) {
+      setRefusal(result.refused);
+      return;
+    }
+    setName('');
+    setRefusal(null);
+    setAdding(false);
+  };
+
+  return (
+    <>
+      <div className="drawing-editor__group">Your fields</div>
+      {rows.length === 0 ? <div style={TYPED_NOTE_STYLE}>No fields yet.</div> : null}
+      {rows.map(({ def, value }) => (
+        <div key={def.id} className="drawing-editor__field">
+          <div className="drawing-editor__field-label">
+            {def.name}
+            {actions.onRemoveFieldDef ? (
+              removing === def.id ? (
+                <span style={{ marginLeft: 'var(--s2)' }}>
+                  Remove for everyone?{' '}
+                  <button type="button" onClick={() => actions.onRemoveFieldDef!(def.id)}>
+                    Remove
+                  </button>{' '}
+                  <button type="button" onClick={() => setRemoving(null)}>
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`Remove the field ${def.name}`}
+                  style={{ marginLeft: 'var(--s2)', border: 'none', background: 'none', color: 'var(--muted)', padding: 0 }}
+                  onClick={() => setRemoving(def.id)}
+                >
+                  ×
+                </button>
+              )
+            ) : null}
+          </div>
+          <EditableValue
+            value={value ?? ''}
+            placeholder={def.type === 'date' ? 'YYYY-MM-DD' : ABSENT}
+            editorKind={def.type === 'yes_no' ? 'select' : 'text'}
+            options={def.type === 'yes_no' ? ['yes', 'no'] : undefined}
+            onCommit={writable ? (raw) => actions.onSetField!(ownerId, def.id, raw ?? '') : undefined}
+          />
+        </div>
+      ))}
+      {actions.onAddFieldDef ? (
+        adding ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">New field</div>
+            <div style={{ display: 'flex', gap: 'var(--s1)', flexWrap: 'wrap' }}>
+              <input
+                aria-label="Field name"
+                value={name}
+                placeholder="Warranty ends"
+                onChange={(e) => setName(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit();
+                  if (e.key === 'Escape') setAdding(false);
+                }}
+              />
+              <select aria-label="Field type" value={type} onChange={(e) => setType(e.currentTarget.value as FieldType)}>
+                {FIELD_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {FIELD_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={submit}>
+                Add field
+              </button>
+            </div>
+            <div style={TYPED_NOTE_STYLE}>Every one of this kind gets the field, and everyone who opens the design sees it.</div>
+            {refusal ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)}>
+            + Add a field
+          </button>
+        )
+      ) : null}
+    </>
   );
 }
 
@@ -1480,6 +1586,7 @@ export function EditorFor(
             rack's own "no notes FIELD" (schema's own doc) stays true — this
             is a note reached through `HasNote`, a node, never a field
             `Rack` itself declares. */}
+        <FieldsSection ownerId={rack.id} actions={actions} />
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
       </div>
@@ -1569,6 +1676,7 @@ export function EditorFor(
         </div>
         <TypedNote shown={chassis.hostname.length > 0} />
 
+        <div className="drawing-editor__group">Device</div>
         <Field label="Model" value={chassis.model || ABSENT} />
         {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
             from ports typed by hand and says so." */}
@@ -1579,14 +1687,6 @@ export function EditorFor(
           </div>
         ) : null}
         <Field label="Vendor" value={chassis.vendor || ABSENT} />
-        {/* Rack/face are placement-only — nothing to show for a chassis
-            `PlacedOnControl` below already draws "Placed on: none" for. */}
-        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
-        {rack ? <Field label="Face" value={chassis.face} /> : null}
-        {/* PortView carries no cabled state yet — the count shown is honest
-            about that rather than inventing a "0 of n". */}
-        <Field label="Ports" value={`${ABSENT} of ${chassis.ports.length} cabled`} />
-
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Role</div>
           <EditableValue
@@ -1602,6 +1702,43 @@ export function EditorFor(
         <TypedNote shown={(chassis.role ?? '').length > 0} />
 
         <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Serial</div>
+          <EditableValue
+            value={chassis.serial ?? ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={
+              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
+            }
+          />
+        </div>
+        <TypedNote shown={(chassis.serial ?? '').length > 0} />
+
+        {/* PortView carries no cabled state yet — the count shown is honest
+            about that rather than inventing a "0 of n". */}
+        <Field label="Ports" value={`${ABSENT} of ${chassis.ports.length} cabled`} />
+
+        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+            each marked TYPED, with add/remove. A catalogued chassis keeps
+            its read-only "Ports" count above, unchanged. */}
+        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
+
+        <div className="drawing-editor__group">Location</div>
+        {/* Rack/face are placement-only — nothing to show for a chassis
+            `PlacedOnControl` below already draws "Placed on: none" for. */}
+        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
+        {rack ? <Field label="Face" value={chassis.face} /> : null}
+        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+            current one marked. */}
+        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
+
+        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
+            rack-mounted — the control stays off an unplaced chassis's panel
+            rather than offering an action that can only ever refuse. */}
+        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+
+        <div className="drawing-editor__group">Management</div>
+        <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Mgmt address</div>
           <EditableValue
             value={chassis.managementAddress ?? ''}
@@ -1615,19 +1752,6 @@ export function EditorFor(
           />
         </div>
         <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
-
-        <div className="drawing-editor__field">
-          <div className="drawing-editor__field-label">Serial</div>
-          <EditableValue
-            value={chassis.serial ?? ''}
-            placeholder={ABSENT}
-            editorKind="text"
-            onCommit={
-              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
-            }
-          />
-        </div>
-        <TypedNote shown={(chassis.serial ?? '').length > 0} />
 
         {chassis.psuInlets.length > 0 ? (
           <div className="drawing-editor__field">
@@ -1672,19 +1796,7 @@ export function EditorFor(
           </div>
         ) : null}
 
-        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
-            each marked TYPED, with add/remove. A catalogued chassis keeps
-            its read-only "Ports" count above, unchanged. */}
-        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
-
-        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
-            current one marked. */}
-        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
-
-        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
-            rack-mounted — the control stays off an unplaced chassis's panel
-            rather than offering an action that can only ever refuse. */}
-        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+        <FieldsSection ownerId={chassis.deviceId} actions={actions} />
 
         {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
             hostname and the capture, so its notes are `HasNote`'d off
@@ -1932,6 +2044,8 @@ export function EditorFor(
         />
 
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
+        <FieldsSection ownerId={cable.id} actions={actions} />
+        <NotesSection ownerId={cable.id} actions={actions} />
         <TagsSection ownerId={cable.id} actions={actions} />
       </div>
     );
@@ -1961,7 +2075,9 @@ export function EditorFor(
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
-        <NotesSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+      <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
       </div>
     );
@@ -1978,7 +2094,9 @@ export function EditorFor(
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
-        <NotesSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+      <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
       </div>
     );
@@ -1994,6 +2112,7 @@ export function EditorFor(
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
+      <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />
     </div>

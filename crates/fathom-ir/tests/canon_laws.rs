@@ -162,7 +162,14 @@ fn schema_version_is_the_trees() {
     // unrecognised kind in `unknown` rather than refusing the file. Nothing
     // existing moved. Decision 9: the reader still opens a 0.11 payload and the
     // writer always writes 0.12.
-    assert_eq!(SCHEMA_VERSION, "0.12");
+    //
+    // 0.12 -> 0.13: custom fields. Two new node kinds, `FieldDef` and `FieldValue`
+    // (both join `Placeable`), four fields, one new class `Fieldable`, `Notable`
+    // widened to Cable, Vlan and ContainerNetwork, three new edge kinds
+    // (`HasFieldDef`, `HasFieldValue`, `ValueOf`) and four new field keys, 344-347.
+    // All MINOR; nothing existing moved. The reader still opens 0.10-0.12 payloads
+    // and the writer always writes 0.13.
+    assert_eq!(SCHEMA_VERSION, "0.13");
 }
 
 #[test]
@@ -686,7 +693,10 @@ fn dispatch_names_every_registry_key() {
     //
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
     // `AttachedTo.address`.
-    assert_eq!(FIELD_KEYS.len(), 343, "the registry grew or shrank");
+    //
+    // 343 -> 347: custom fields' four keys -- `FieldDef.name`, `.applies_to`,
+    // `.value_type` (344-346) and `FieldValue.value` (347).
+    assert_eq!(FIELD_KEYS.len(), 347, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

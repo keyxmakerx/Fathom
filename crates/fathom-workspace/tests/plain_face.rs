@@ -39,7 +39,9 @@ use std::collections::BTreeSet;
 /// `Container`/`PublishedPort` kinds, their fields, and the `HasContainerNetwork`/
 /// `HasContainer`/`HasPublishedPort`/`AttachedTo`/`ParentUnit` edges, 0.12
 /// ADR-0059's `Tag` kind, its `name` field, the `Taggable` class and the
-/// `HasTag`/`TaggedWith` edges) move only this line
+/// `HasTag`/`TaggedWith` edges, 0.13 custom fields' `FieldDef`/`FieldValue` kinds,
+/// their fields, the `Fieldable` class and the `HasFieldDef`/`HasFieldValue`/`ValueOf`
+/// edges) move only this line
 /// again. The payload below is
 /// byte-identical across every bump, which is the useful thing this vector
 /// proves — adding a kind and two edges changes the header and nothing else,
@@ -57,7 +59,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.12\n",
+    "schema 0.13\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -477,11 +479,11 @@ fn schema_version_mismatch_refused_by_name() {
     }
 }
 
-/// A design saved at 0.10 (ADR-0058) still keeps opening at 0.12 — there is
+/// A design saved at 0.10 (ADR-0058) still keeps opening at 0.13 — there is
 /// no migration chain, so nothing shipped since is allowed to narrow what
 /// already opened. Saving it again writes the current version.
 #[test]
-fn a_0_10_vector_opens_and_writes_0_12() {
+fn a_0_10_vector_opens_and_writes_0_13() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
     let at_0_10 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.10", 1);
     assert_ne!(at_0_10, PINNED, "the substitution must have landed");
@@ -494,10 +496,10 @@ fn a_0_10_vector_opens_and_writes_0_12() {
     );
 }
 
-/// ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
+/// ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.13, and
 /// saving it again writes the current version, not the one it arrived at.
 #[test]
-fn a_0_11_vector_opens_and_writes_0_12() {
+fn a_0_11_vector_opens_and_writes_0_13() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
     let at_0_11 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.11", 1);
     assert_ne!(at_0_11, PINNED, "the substitution must have landed");
@@ -510,8 +512,8 @@ fn a_0_11_vector_opens_and_writes_0_12() {
     );
 }
 
-/// Two older versions are accepted, accumulated rather than replaced.
-/// Anything else, including a version older than both, still refuses.
+/// Three older versions are accepted, accumulated rather than replaced.
+/// Anything else, including a version older than all of them, still refuses.
 #[test]
 fn an_unlisted_older_version_still_refused() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
@@ -572,6 +574,54 @@ fn a_0_10_payload_holding_a_0_12_kind_is_refused() {
             assert_eq!(element_kind, "Tag");
         }
         other => panic!("a 0.12-only kind under a 0.10 header must refuse: {other:?}"),
+    }
+}
+
+/// A design saved at 0.12 keeps opening at 0.13; saving it again writes 0.13.
+#[test]
+fn a_0_12_vector_opens_and_writes_0_13() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let at_0_12 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.12", 1);
+    assert_ne!(at_0_12, PINNED, "the substitution must have landed");
+    let graph = read_plain(at_0_12.as_bytes()).expect("a 0.12 payload opens");
+    let rewritten = write_plain(&graph).expect("writes");
+    assert_eq!(
+        String::from_utf8(rewritten).expect("UTF-8"),
+        PINNED,
+        "saving a 0.12 design writes the current schema version, byte-identical otherwise"
+    );
+}
+
+/// Custom fields (0.13): a 0.12 header cannot hold a `FieldDef`, its editor
+/// never had one; the same payload under 0.13 round-trips.
+#[test]
+fn a_0_12_payload_holding_a_0_13_kind_is_refused() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::FieldDef, ulid(1), prov(1))
+        .expect("field def");
+    g.end_batch().expect("close");
+    let at_0_13 = write_plain(&g).expect("writes");
+    let text = String::from_utf8(at_0_13).expect("UTF-8");
+    assert!(text.contains(&format!("schema {SCHEMA_VERSION}")));
+    let again = read_plain(text.as_bytes()).expect("a 0.13 payload holding a FieldDef opens");
+    assert_eq!(
+        String::from_utf8(write_plain(&again).expect("writes")).expect("UTF-8"),
+        text,
+        "a 0.13 FieldDef round-trips"
+    );
+    let at_0_12 = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.12", 1);
+    assert_ne!(at_0_12, text, "the substitution must have landed");
+    match read_plain(at_0_12.as_bytes()).err() {
+        Some(PlainError::KindNotInDeclaredVersion {
+            declared_version,
+            element_kind,
+        }) => {
+            assert_eq!(declared_version, "0.12");
+            assert_eq!(element_kind, "FieldDef");
+        }
+        other => panic!("a 0.13-only kind under a 0.12 header must refuse: {other:?}"),
     }
 }
 

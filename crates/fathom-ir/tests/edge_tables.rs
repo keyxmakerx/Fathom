@@ -10,16 +10,17 @@
 use fathom_ir::generated::accessors::slot_type;
 use fathom_ir::generated::ir_types::{EdgeCardBound, EdgeClass, EdgeKind, FIELD_KEYS};
 
-/// The six `from: [root]` containment edges (`11` §7.2's *root*, as
+/// The seven `from: [root]` containment edges (`11` §7.2's *root*, as
 /// transcribed in `schema/schema.yaml`'s containment section). ADR-0059
-/// appended `HasTag`, `HasTenant`'s own shape.
-const ROOT_EDGES: [EdgeKind; 6] = [
+/// appended `HasTag`, `HasTenant`'s own shape, and custom fields `HasFieldDef`.
+const ROOT_EDGES: [EdgeKind; 7] = [
     EdgeKind::HasTunnel,
     EdgeKind::HasPremises,
     EdgeKind::HasCable,
     EdgeKind::HasTenant,
     EdgeKind::HasServiceType,
     EdgeKind::HasTag,
+    EdgeKind::HasFieldDef,
 ];
 
 #[test]
@@ -54,7 +55,7 @@ fn symmetric_is_link_and_passthrough_only() {
 }
 
 #[test]
-fn root_containment_is_the_six_root_edges() {
+fn root_containment_is_the_seven_root_edges() {
     let root: Vec<&'static str> = EdgeKind::ALL
         .iter()
         .filter(|k| k.root_containment())
@@ -109,9 +110,10 @@ fn slot_type_covers_every_registry_key() {
     // `PublishedPort.protocol`, `.container_port`, `.host_port`,
     // `.host_address` (338-341), `AttachedTo.address` (342).
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343).
+    // 343 -> 347: custom fields' four keys (344-347).
     assert_eq!(
         FIELD_KEYS.len(),
-        343,
+        347,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {
