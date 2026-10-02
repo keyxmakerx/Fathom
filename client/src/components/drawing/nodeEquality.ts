@@ -14,6 +14,8 @@ function portFieldsEqual(a: PortView, b: PortView): boolean {
     a.connector !== b.connector ||
     a.row !== b.row ||
     a.column !== b.column ||
+    a.rowKind !== b.rowKind ||
+    a.gapBefore !== b.gapBefore ||
     a.uplink !== b.uplink ||
     a.role !== b.role ||
     a.face !== b.face ||

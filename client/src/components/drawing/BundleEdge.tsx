@@ -1,6 +1,7 @@
 import type { Edge, EdgeProps } from '@xyflow/react';
 
 import type { Bundle } from './bundles';
+import { cableLeadPath, leadsFor, type PortPoint } from './cableEnds';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
 
@@ -13,6 +14,8 @@ export interface BundleEdgeData extends Record<string, unknown> {
    * fan back — UI-SPEC #2: "then it folds back on leave." */
   fanned: boolean;
   onFan: (key: string | null) => void;
+  /** Where the band meets each device: the mean of its members' ports there. */
+  ends?: [PortPoint | null, PortPoint | null];
 }
 
 export type BundleEdgeType = Edge<BundleEdgeData, 'bundle'>;
@@ -39,11 +42,12 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
   const dimmed = useLive((s) => (data ? s.litCableId != null && !data.bundle.members.some((m) => s.litCableIdSet.has(m.id)) : false));
   if (!data) return null;
   const { bundle, fanned, onFan } = data;
-  const d = cableSagPath(sourceX, sourceY, targetX, targetY, bundle.kind);
+  const leads = data.ends != null && (data.ends[0] != null || data.ends[1] != null) ? leadsFor(data.ends[0], data.ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
+  const d = leads != null ? cableLeadPath(leads, bundle.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, bundle.kind);
   const count = bundle.members.length;
   const width = BAND_BASE_WIDTH_PX + BAND_WIDTH_PER_MEMBER_PX * (count - 1);
-  const midX = (sourceX + targetX) / 2;
-  const midY = (sourceY + targetY) / 2;
+  const midX = leads != null ? (leads.a.x + leads.b.x) / 2 : (sourceX + targetX) / 2;
+  const midY = leads != null ? (leads.a.y + leads.b.y) / 2 : (sourceY + targetY) / 2;
   const opacity = dimmed ? 'var(--phantom)' : 1;
 
   return (

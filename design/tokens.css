@@ -64,7 +64,7 @@
   --sheath-erika:  #C99AC7;    /* OM4, some makers */
 
   /* --- cable construction. Type is the line, never the hue. ------------- */
-  --cable-copper:  1.8px;      /* one stroke */
+  --cable-copper:  1.2px;      /* one stroke */
   --cable-fibre:   3.2px;      /* a pair: this width, with --fibre-core over it */
   --fibre-core:    var(--page);
   --fibre-core-w:  1.1px;
@@ -72,6 +72,7 @@
   --cable-lit:     2.6px;      /* the selected path's core, over --cable-halo */
   --cable-halo:    9px;
   --phantom:       0.28;       /* everything off the lit path */
+  --leader:        #2F6FEB;    /* the callout's dotted line: apart from hairlines and sheaths */
 
   /* --- rules ---------------------------------------------------- §9 ----- */
   --rule-hair:   1px;      /* [E] */
@@ -158,6 +159,7 @@
     --safe:      #35A06E;  --safe-wash:    #132019;
     --caution:   #D97328;  --caution-wash: #29180E;
     --danger:    #EA6260;  --danger-wash:  #271817;
+    --leader:    #6FA0FF;
   }
 }
 :root[data-theme="dark"] {
@@ -167,6 +169,7 @@
   --safe:      #35A06E;  --safe-wash:    #132019;
   --caution:   #D97328;  --caution-wash: #29180E;
   --danger:    #EA6260;  --danger-wash:  #271817;
+  --leader:    #6FA0FF;
 }
 :root[data-theme="light"] {
   --ink:       #14171A;  --muted:      #5C6772;

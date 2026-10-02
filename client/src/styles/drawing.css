@@ -27,6 +27,7 @@
 .drawing[data-zoom-band='200'] { --zoom: 2; --zoom-pct: 200; }
 .drawing[data-zoom-band='250'] { --zoom: 2.5; --zoom-pct: 250; }
 .drawing[data-zoom-band='300'] { --zoom: 3; --zoom-pct: 300; }
+.drawing[data-zoom-band='400'] { --zoom: 4; --zoom-pct: 400; }
 
 /* Labels keep at least 9px on screen above 50% zoom: `--zoom` is the
    band's lower bound, never more than the camera's real zoom. */
@@ -54,6 +55,10 @@
 .drawing-chassis__ports,
 .drawing-surface__port-row {
   opacity: clamp(0, calc((var(--zoom-pct, 100) - 100) / 100), 1);
+}
+.drawing-chassis__ports {
+  position: absolute;
+  inset: 0;
 }
 
 /* A port glyph at about its true size: CSS `zoom` (not `transform`, which
@@ -374,10 +379,18 @@
 
 /* ---- the device box ---------------------------------------------------- */
 
+.drawing-chassis-wrap {
+  position: relative;
+  width: 100%;
+}
+
+/* The plate is see-through so cables run behind its name and ports; both
+   draw above them. */
 .drawing-chassis {
+  position: relative;
   box-sizing: border-box;
   border: 1px solid var(--ink);
-  background: var(--page);
+  background: transparent;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -389,19 +402,57 @@
   outline-offset: var(--focus-offset-inset);
 }
 
+/* A plate with no ports keeps the old header row: name left, model right. */
 .drawing-chassis__header {
   flex: 0 0 auto;
   display: flex;
   align-items: baseline;
   gap: var(--s1);
   padding: 0 4px;
-  /* Session 4: matches `.drawing-chassis__hostname`'s own (now `line-height:
-     1`) height at the rack-to-faceplate zoom range, where `HOSTNAME_BASE_PX`
-     in `ChassisNode.tsx` holds its counter-scaled font flat at 9px — kept
-     equal to that number (not the old 12px, set when a 1U row was 32
-     flow-space px rather than 16 — see `geometry.ts`'s file header) so a 1U
-     row's port row gets whatever is actually left over, not a guess. */
   min-height: 9px;
+}
+
+/* The name sits in the plate's blank part, on a page-coloured chip so no cable shows through it. */
+.drawing-chassis__name {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+  pointer-events: none;
+}
+.drawing-chassis__name > * {
+  background: var(--page);
+}
+.drawing-chassis__name .drawing-chassis__hostname {
+  flex: 0 1 auto;
+  padding: 0 2px;
+}
+
+/* No room on the plate: the name hangs on a tab at the rack rail. */
+.drawing-chassis__tab {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 76px;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 0 4px;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  z-index: 1;
+}
+.drawing-chassis__tab::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 28px;
+  border-top: 1px solid var(--hairline);
+}
+.drawing-chassis__tab .drawing-chassis__hostname {
+  flex: 0 1 auto;
 }
 
 /* ADR-0047 §9: the name takes up to two thirds; the model shrinks first. */
@@ -487,35 +538,8 @@
   text-overflow: ellipsis;
 }
 
-.drawing-chassis__ports {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 4px;
-  min-height: 0;
-}
-
-.drawing-chassis__port-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
-}
-
-.drawing-chassis__port-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.drawing-chassis__port-group--uplink {
-  margin-left: auto;
-}
-
 .drawing-chassis__port {
-  position: relative;
+  position: absolute;
   appearance: none;
   border: none;
   background: none;
@@ -559,16 +583,6 @@
    regardless of which stylesheet's rule the bundler happens to place last. */
 .drawing-chassis__port--cabled .port--cabled .port__body {
   fill: var(--port-sheath, var(--ink));
-}
-
-/* ADR-0050 §1: "an inlet strip at the plate's end" — the rear elevation's
-   own row (`ChassisNode.tsx`'s `InletStrip`), the same `.drawing-chassis__port-row`
-   layout every faceplate row already uses, right-aligned like an uplink
-   group so it reads as the plate's trailing edge. */
-.drawing-chassis__inlets {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 /* The inlet with no supply behind it at all (`InletView.fitted === false`) —
@@ -1389,4 +1403,129 @@
   margin-top: var(--s1);
   border-top: 1px solid var(--hairline);
   color: var(--danger);
+}
+
+/* ---- a device's callout ------------------------------------------------ */
+
+.drawing-callout__leader {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
+.drawing-callout__line {
+  fill: none;
+  stroke: var(--leader);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  animation: drawing-leader-march 0.8s linear infinite, drawing-leader-draw 220ms ease-out both;
+}
+.drawing-callout__dot {
+  fill: var(--leader);
+}
+.drawing-callout {
+  position: absolute;
+  z-index: 6;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--s3);
+  border: 1px solid var(--leader);
+  background: var(--page);
+  color: var(--ink);
+  font-size: var(--t-body);
+  animation: drawing-callout-out 220ms ease-out both;
+}
+.drawing-callout__name {
+  font-weight: 700;
+}
+.drawing-callout__muted {
+  color: var(--muted);
+}
+.drawing-callout__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+.drawing-callout__actions button {
+  font: inherit;
+  padding: 1px var(--s3);
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  cursor: pointer;
+}
+@keyframes drawing-leader-march {
+  to {
+    stroke-dashoffset: -6;
+  }
+}
+@keyframes drawing-leader-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes drawing-callout-out {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawing-callout,
+  .drawing-callout__line {
+    animation: none;
+  }
+}
+
+.drawing-cable__end-label {
+  position: absolute;
+  padding: 0 1px;
+  font-size: calc(9px / var(--zoom, 1));
+  line-height: 1;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--page);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.drawing-editor__ports-words {
+  margin: 0;
+  padding-left: var(--s4);
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+
+/* Port labels draw above every plate. */
+.drawing .react-flow__edgelabel-renderer {
+  z-index: 12;
+}
+.drawing-callout--left {
+  transform: translate(-100%, -50%);
+  transform-origin: right center;
+  animation-name: drawing-callout-out-left;
+}
+@keyframes drawing-callout-out-left {
+  from {
+    opacity: 0;
+    transform: translate(-100%, -50%) scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-100%, -50%) scaleX(1);
+  }
 }

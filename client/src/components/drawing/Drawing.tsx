@@ -12,6 +12,7 @@ import {
   type FinalConnectionState,
   type IsValidConnection,
   type NodeMouseHandler,
+  type Node as RFNode,
   type OnConnectEnd,
   type OnConnectStart,
   type OnMove,
@@ -22,9 +23,12 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
+import { Callout } from './Callout';
 import { CablesViewControl } from './CablesViewControl';
+import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
+import { faceplateLayoutFor, plateItems } from './faceplate';
 import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
-import type { CableKind, CableView, ChassisView, ClosetView, DrawingActions, RackView, RowView, Selection, Sheath } from './contract';
+import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
 import {
@@ -243,6 +247,9 @@ export interface DrawingProps extends DrawingActions {
   litPortLabel?: string | null;
   /** Shown over an empty design, saying what to do next (ADR-0060 decision 4). */
   emptyHint?: string | null;
+  /** Opens a device's config drawer or inside view, as a double-click does;
+   * a new object each time (the same edge-triggered shape `fitRequest` has). */
+  openRequest?: { id: string; view: 'config' | 'inside' } | null;
 }
 
 type AnyRackNode = RackNodeType;
@@ -316,6 +323,7 @@ function DrawingInner({
   renderInsideStop,
   litPortLabel,
   emptyHint,
+  openRequest,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -360,9 +368,21 @@ function DrawingInner({
   // choice never acts through a handler the menu opened over. A reader gets
   // only Details, the same `canDraw` gate the delete key has.
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
+  // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
+  const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
+  const openedRef = useRef(opened);
+  openedRef.current = opened;
+  const openChassis = useCallback(
+    (id: string, view: 'config' | 'inside' = 'config') => {
+      onSelect({ kind: 'chassis', id });
+      setOpened({ id, view });
+    },
+    [onSelect],
+  );
+  const onOpenInside = renderInsideStop ? (id: string) => openChassis(id, 'inside') : undefined;
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall }
-    : { onSelect };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall }
+    : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -680,13 +700,24 @@ function DrawingInner({
   // all: the caller decides that (`renderConfigDrawer`'s own doc, above) by
   // returning `null` when ADR-0052 §5's "canDraw or a capture exists" does
   // not hold, so this reads the same `!= null` check either way.
+  const calloutRack = selectedChassis != null ? view.racks.find((r) => r.chassis.some((c) => c.id === selectedChassis.id)) : undefined;
+  const openedChassis = selectedChassis != null && opened?.id === selectedChassis.id ? selectedChassis : null;
   const configDrawerContent: ReactNode =
-    selectedChassis != null && cameraStop === 'faceplate' ? (renderConfigDrawer?.(selectedChassis) ?? null) : null;
+    openedChassis != null && opened?.view === 'config' ? (renderConfigDrawer?.(openedChassis) ?? null) : null;
   const insideStopContent: ReactNode =
-    selectedChassis != null && cameraStop === 'inside' ? (renderInsideStop?.(selectedChassis) ?? null) : null;
+    openedChassis != null && opened?.view === 'inside' ? (renderInsideStop?.(openedChassis) ?? null) : null;
+  useEffect(() => {
+    if (opened != null && selectedChassis?.id !== opened.id) setOpened(null);
+  }, [opened, selectedChassis?.id]);
+  useEffect(() => {
+    if (openRequest != null) setOpened({ id: openRequest.id, view: openRequest.view });
+  }, [openRequest]);
   // UI-SPEC "Config": "Plate stays above, dimmed" — pushed to
   // `liveStore.ts` below so `ChassisNode.tsx` applies its own dim class.
   const dimmedChassisId = configDrawerContent != null ? (selectedChassis?.id ?? null) : null;
+  // Glyphs draw once a port is big enough to read; close in, a bundle is its separate cables.
+  const showPortGlyphs = zoomBand >= 125;
+  const splitBundles = zoomBand >= 200;
 
   // ADR-0052 §1, item 2 — resolves `litPortLabel` to a port id on the
   // selected chassis only: a line in one device's drawer has no business
@@ -839,6 +870,13 @@ function DrawingInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `selectedChassisFlowCentre` is rebuilt fresh every render; listing it would fire this on every pixel of a pan or scroll.
   }, [configDrawerOpen, selectedChassis?.id, rf]);
 
+  const insideOpen = insideStopContent != null;
+  useEffect(() => {
+    if (!insideOpen || selectedChassisFlowCentre == null) return;
+    void rf.setCenter(selectedChassisFlowCentre.x, selectedChassisFlowCentre.y, { zoom: CAMERA_STOPS.inside / 100, ...GLIDE });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- as the drawer effect above: the centre is rebuilt every render.
+  }, [insideOpen, selectedChassis?.id, rf]);
+
   // The camera follows the bar's zoom: about the chassis above an open drawer,
   // else about the pane centre. A person's own move reports its zoom at its end.
   useEffect(() => {
@@ -906,6 +944,45 @@ function DrawingInner({
     return locatePort(view, portId)?.port.label || portId;
   }
 
+  // Each plate's own port layout (`faceplate.ts`), so a cable can start at
+  // its port's edge. A power inlet that routes to a rail or anchor has no box.
+  const plates = new Map<string, { x: number; y: number; node: RFNode }>();
+  for (const n of nodes) if (n.type === 'chassis') plates.set((n.data as ChassisNodeData).chassis.id, { x: n.position.x, y: n.position.y, node: n });
+  function portBox(end: { portId: string; chassisId: string }): PortPoint | null {
+    const plate = plates.get(end.chassisId);
+    if (plate == null) return null;
+    const data = plate.node.data as ChassisNodeData;
+    const found = findAnyPort(view, end.portId);
+    if (found?.isPsuInlet && powerLeadHandle(elevationFor(found.rack.id), cameraStop) !== 'inlet') return null;
+    const items = plateItems(data.ports, data.inlets, data.elevation);
+    const box = faceplateLayoutFor(items, data.chassis.heightU, data.chassis.hostname || UNNAMED_HOSTNAME).byId.get(end.portId);
+    return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h };
+  }
+  type RealEnd = { portId: string; chassisId: string; rackId: string | null };
+  const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
+
+  // Close in, every cable is its own line with each end's port named; the
+  // labels are packed so none overlaps another.
+  const endLabels = new Map<string, { text: string; dx: number; dy: number }>();
+  if (splitBundles) {
+    const items: LabelItem[] = [];
+    for (const cable of visibleCables) {
+      const real = realEndsOf(cable);
+      if (real.length !== 2) continue;
+      const boxes = [portBox(real[0]!), portBox(real[1]!)] as const;
+      if (boxes[0] == null || boxes[1] == null) continue;
+      const leads = leadsFor(boxes[0], boxes[1], { x: 0, y: 0 }, { x: 0, y: 0 });
+      [leads.a, leads.b].forEach((lead, i) =>
+        items.push({ key: `${cable.id}:${i}`, x: lead.x, y: lead.y, dir: lead.dir, text: portLabel(real[i]!.portId) }),
+      );
+    }
+    const placed = placeLabels(items, 9 / (zoomBand / 100));
+    for (const item of items) {
+      const at = placed.get(item.key);
+      if (at != null) endLabels.set(item.key, { text: item.text, ...at });
+    }
+  }
+
   // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
   // ends (and the same lane/kind, `bundles.ts`'s own doc) draw as one band.
   // Built off `visibleCables` (this session's brief item 1) — a bundle with
@@ -929,11 +1006,16 @@ function DrawingInner({
     const source = resolveEnd(real[0]);
     if (source == null) return null;
 
+    const boxes: [PortPoint | null, PortPoint | null] = [portBox(real[0]!), real.length === 2 ? portBox(real[1]!) : null];
+    const l0 = endLabels.get(`${cable.id}:0`);
+    const l1 = endLabels.get(`${cable.id}:1`);
     const edgeData: CableEdgeData = {
       cable,
       onSelect: (cableId: string) => onSelect({ kind: 'cable', id: cableId }),
       onHoverChange: handleHoverCable,
       portPairLabel,
+      ends: boxes[0] != null || boxes[1] != null ? boxes : undefined,
+      endLabels: l0 != null && l1 != null ? [l0, l1] : undefined,
     };
     return {
       id: cable.id,
@@ -943,24 +1025,34 @@ function DrawingInner({
       target: target.nodeId,
       targetHandle: target.handleId,
       selectable: false, // selection is handled by CableEdge's own onClick, not React Flow's
-      // Above a chassis box's own `zIndex: 10` (below) — `Main.dc.html`'s own
-      // rack draws its cables as one SVG layer over the elevation, not
-      // tucked behind a device row a short hop happens to pass under.
-      zIndex: 11,
+      // Below a chassis's own `zIndex: 10`: names and ports draw above
+      // cables, so pressing a port always starts a new cable.
+      zIndex: 5,
       data: edgeData,
     } satisfies CableEdgeType;
   }
 
   const edges: Edge[] = [];
-  const bundledCableIds = new Set(bundles.filter((b) => b.members.length > 1).flatMap((b) => b.members.map((m) => m.id)));
+  const bundledCableIds = new Set(splitBundles ? [] : bundles.filter((b) => b.members.length > 1).flatMap((b) => b.members.map((m) => m.id)));
 
-  for (const bundle of bundles) {
+  for (const bundle of splitBundles ? [] : bundles) {
     if (bundle.members.length === 1) continue; // a bundle of one is a plain cable, handled below
     const fanned = fannedBundleKey === bundle.key;
+    // The band runs between the average of each side's own ports, not the device edge.
+    const side = (chassisId: string): PortPoint | null => {
+      const boxes = bundle.members
+        .flatMap((m) => realEndsOf(m).filter((e) => e.chassisId === chassisId))
+        .map(portBox)
+        .filter((b): b is PortPoint => b != null);
+      if (boxes.length === 0) return null;
+      const mean = (f: (b: PortPoint) => number) => boxes.reduce((n, b) => n + f(b), 0) / boxes.length;
+      return { x: mean((b) => b.x), y: mean((b) => b.y), w: mean((b) => b.w), h: mean((b) => b.h) };
+    };
     const bundleData: BundleEdgeData = {
       bundle,
       fanned,
       onFan: setFannedBundleKey,
+      ends: [side(bundle.chassisA), side(bundle.chassisB)],
     };
     edges.push({
       id: `bundle:${bundle.key}`,
@@ -970,7 +1062,7 @@ function DrawingInner({
       target: chassisNodeId(bundle.chassisB),
       targetHandle: '__bundle__',
       selectable: false,
-      zIndex: 11,
+      zIndex: 5,
       data: bundleData,
     } satisfies BundleEdgeType);
 
@@ -997,6 +1089,14 @@ function DrawingInner({
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
     },
     [onSelect],
+  );
+
+  const handleNodeDoubleClick: NodeMouseHandler = useCallback(
+    (_event, node) => {
+      const parsed = parseNodeId(node.id);
+      if (parsed?.kind === 'chassis') openChassis(parsed.id);
+    },
+    [openChassis],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1210,6 +1310,11 @@ function DrawingInner({
     }
 
     function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !focusIsInAField()) {
+        if (openedRef.current != null) setOpened(null);
+        else if (selected != null) onSelect(null);
+        return;
+      }
       if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing, undoes nothing
       if ((event.key === 'z' || event.key === 'Z') && (event.ctrlKey || event.metaKey)) {
         if (focusIsInAField()) return;
@@ -1244,7 +1349,7 @@ function DrawingInner({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
+  }, [selected, onSelect, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view]);
 
   // `useLayoutEffect`, not `useEffect` — commits before the browser paints, so a node subscribed to one of these never draws one frame stale.
   useLayoutEffect(() => {
@@ -1256,8 +1361,10 @@ function DrawingInner({
       shakingRackId: shakingId,
       dimmedChassisId,
       cameraStop,
+      showPortGlyphs,
+      splitBundles,
     });
-  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop]);
+  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles]);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1280,6 +1387,7 @@ function DrawingInner({
         onMove={handleMove}
         onMoveEnd={handleMoveEnd}
         onNodeClick={handleNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
         onPaneClick={() => onSelect(null)}
         onNodeContextMenu={handleNodeContextMenu}
         onEdgeContextMenu={handleEdgeContextMenu}
@@ -1324,6 +1432,17 @@ function DrawingInner({
           — never part of the React Flow pane, so it survives a pan or zoom
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
+      {selectedChassis != null && opened == null && selectedChassisFlowCentre != null && calloutRack != null ? (
+        <Callout
+          chassis={selectedChassis}
+          rackLabel={calloutRack.label}
+          plate={{ left: selectedChassisFlowCentre.x - RACK_INNER_PX / 2, right: selectedChassisFlowCentre.x + RACK_INNER_PX / 2, y: selectedChassisFlowCentre.y }}
+          rack={{ left: rackPositions[calloutRack.id]?.x ?? 0, right: (rackPositions[calloutRack.id]?.x ?? 0) + RACK_NODE_WIDTH }}
+          paneWidth={containerRef.current?.clientWidth ?? Infinity}
+          onOpen={() => openChassis(selectedChassis.id)}
+          onDetails={() => onSelect({ kind: 'chassis', id: selectedChassis.id })}
+        />
+      ) : null}
       {emptyHint ? (
         <p className="drawing-empty-hint" role="note">
           {emptyHint}

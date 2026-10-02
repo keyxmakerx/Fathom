@@ -5,6 +5,7 @@ import { connectPorts, disconnect, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
   createBoard,
+  addSketchPortRange,
   createSketchDevice,
   createSurface,
   isSurfaceForm,
@@ -27,7 +28,7 @@ import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
-import { SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
+import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
 
@@ -218,9 +219,11 @@ export function RacksPlace(props: RacksPlaceProps) {
   // on rack" click a fresh object, so identity itself is the "asked again"
   // signal, the same edge-triggered shape `Drawing.tsx`'s own camera moves
   // already use.
+  const [openRequest, setOpenRequest] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
   useEffect(() => {
     if (initialFocus == null || doc == null) return;
     setSelection(initialFocus);
+    if (initialFocus.kind === 'chassis') setOpenRequest({ id: initialFocus.id, view: 'config' });
     onZoomChange(CAMERA_STOPS.faceplate);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
     // on the `initialFocus` object identity and `doc` becoming available;
@@ -511,6 +514,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           let placed = movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts);
           const deviceNode = role !== null ? withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Device') : undefined;
           if (role !== null && deviceNode) placed = setDeviceField(placed, deviceNode.id, 'role', role, opts);
+          for (const run of role !== null ? (DEFAULT_FACEPLATES[role] ?? []) : []) {
+            placed = addSketchPortRange(placed, chassisNode.id, { ...run, face: 'front' }, opts);
+          }
           applyDocChange(placed);
         } catch {
           // As below: `Drawing` checked this drop against a view that
@@ -784,6 +790,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddWall={canDraw ? handleAddWall : undefined}
           onSelect={setSelection}
           canDraw={canDraw}
+          openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}

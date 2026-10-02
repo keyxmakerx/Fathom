@@ -286,14 +286,14 @@ describe('EditorFor', () => {
     expect(markup).toContain('1 of 42U');
   });
 
-  it('renders the chassis fields, honest that cable state is absent', () => {
+  it('renders the chassis fields and the cabled count', () => {
     const markup = renderToStaticMarkup(
       EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never,
     );
     expect(markup).toContain('core-01');
     expect(markup).toContain('EX4300-48P');
     expect(markup).toContain('U38');
-    expect(markup).toContain('— of 1 cabled');
+    expect(markup).toContain('0 of 1 cabled');
   });
 
   it('renders the editable role, management address and serial, each marked stored as typed', () => {

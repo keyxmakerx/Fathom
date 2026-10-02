@@ -178,7 +178,8 @@ const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
  * not immediately clamp back to it and read as "snapped out".
  */
 export const MIN_ZOOM = CAMERA_STOPS.closet / 100 - 0.1;
-export const MAX_ZOOM = CAMERA_STOPS.inside / 100 + 0.3;
+/** The last stop: zoom only magnifies, and stops here. */
+export const MAX_ZOOM = 4;
 
 /** Which named stop a zoom percentage reads as right now — nearest stop by
  * absolute distance, ties won by the earlier (smaller) stop. */
@@ -208,7 +209,7 @@ export function portOpacity(zoomPercent: number): number {
 
 /** The zoom bands `drawing.css` styles by, each named by its lower bound in
  * percent; ports fade in over the 100-200 bands. */
-export const ZOOM_BANDS = [50, 77.5, 100, 125, 150, 175, 200, 250, 300] as const;
+export const ZOOM_BANDS = [50, 77.5, 100, 125, 150, 175, 200, 250, 300, 400] as const;
 export type ZoomBand = (typeof ZOOM_BANDS)[number];
 
 /** The band a zoom percentage falls in; anything below 77.5 is the lowest. */
