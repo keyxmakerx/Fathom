@@ -91,6 +91,9 @@ export interface ShellProps {
    * landed anyway. */
   viewOnly?: boolean;
 
+  /** A chip for the bar's trailing group, before Undo (the Checks count). */
+  barExtra?: ReactNode;
+
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */
   editor: ReactNode | null;

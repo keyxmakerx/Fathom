@@ -32,6 +32,10 @@ import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignS
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { InsideStop } from '../inside/InsideStop';
+import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { mediaCandidates } from '../checks/checksModel';
+import { ChecksContext } from '../checks/checksStore';
+import { useChecksController } from '../checks/useChecksController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -309,6 +313,19 @@ export function RacksPlace(props: RacksPlaceProps) {
     }
     return mirror;
   }, [ensureMirror, doc]);
+
+  // Checks (ADR-0061 §5): the same engine and mirror, brought up to the current document without booting
+  // anything; the standing run is debounced, the gesture guard reads the mirror as it stands.
+  const mirrorNow = useCallback((): Mirror | null => {
+    const mirror = mirrorRef.current;
+    if (mirror == null || doc == null) return null;
+    if (mirrorLoadedDocRef.current !== doc) {
+      mirror.load(doc);
+      mirrorLoadedDocRef.current = doc;
+    }
+    return mirror;
+  }, [doc]);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow });
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -697,6 +714,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleJotConnect = useCallback(
     (fromPortId: string, toPortId: string) => {
       if (doc == null) return;
+      if (checks.api.guardCable(fromPortId, toPortId, mediaCandidates(realView, fromPortId, toPortId))) return;
       try {
         applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath: 'grey' }, actorOpts(accountId)));
       } catch (e) {
@@ -705,7 +723,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         else setCanvasNotice(refusalFor(e)?.refused ?? 'That cable could not be made.');
       }
     },
-    [doc, applyDocChange, accountId],
+    [doc, applyDocChange, accountId, checks.api, realView],
   );
   const handleJotAddPort = useCallback(
     (chassisId: string) => {
@@ -993,7 +1011,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} path={jotPath} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+      <ChecksContext.Provider value={checks.api}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -1071,6 +1090,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
+      {doc != null ? <ChecksSurface controller={checks} /> : null}
+      </ChecksContext.Provider>
     </Shell>
   );
 }

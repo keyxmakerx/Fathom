@@ -1,3 +1,4 @@
+import { CheckBadge } from '../checks/CheckBadge';
 import { useMemo, type MouseEvent } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
@@ -231,6 +232,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
 
   return (
     <div className="drawing-chassis-wrap" style={{ height }}>
+      <CheckBadge id={chassis.deviceId} />
       <div className={className} style={{ height }}>
         {plainPlate ? (
           <div className="drawing-chassis__header">

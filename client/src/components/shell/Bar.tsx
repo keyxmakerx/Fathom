@@ -58,6 +58,8 @@ export interface BarProps {
    * beside the undo/redo pair; absent everywhere there is nothing to be
    * read-only about (Home, or a writable design). */
   viewOnly?: boolean;
+  /** A chip before Undo (the Checks count). */
+  barExtra?: ReactNode;
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
   /** Quick search; the box is absent without it. */
@@ -88,6 +90,7 @@ export function Bar({
   onPrint,
   account,
   viewOnly,
+  barExtra,
   onHome,
   menu,
   search,
@@ -268,6 +271,13 @@ export function Bar({
             <span className="shell-chip" aria-label="view only">
               View only
             </span>
+            <Sep />
+          </>
+        )}
+
+        {barExtra != null && (
+          <>
+            {barExtra}
             <Sep />
           </>
         )}

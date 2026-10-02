@@ -1,3 +1,4 @@
+import { CableCheckBadge } from '../checks/CheckBadge';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
 
@@ -112,6 +113,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
+      <CableCheckBadge id={cable.id} x={midX} y={midY} />
       {portPairLabel != null && (
         // UI-SPEC #2: "each with its own sheath and its port pair
         // labelled" — drawn only for a fanned bundle member, never for an

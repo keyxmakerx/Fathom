@@ -23,6 +23,9 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
+import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
+import { mediaCandidates } from '../checks/checksModel';
+import { useChecksApi } from '../checks/checksStore';
 import { Callout } from './Callout';
 import { CablesViewControl } from './CablesViewControl';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
@@ -481,6 +484,7 @@ function DrawingInner({
   // selection/hover (UI-SPEC "Selection").
   const [dragFromPortId, setDragFromPortId] = useState<string | null>(null);
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
+  const checks = useChecksApi();
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
@@ -1332,12 +1336,16 @@ function DrawingInner({
     (_event, connectionState: FinalConnectionState) => {
       setDragFromPortId(null);
       const toHandleId = connectionState.toHandle?.id ?? null;
+      const fromHandleId = connectionState.fromHandle?.id;
       if (!connectionState.isValid) {
         if (toHandleId != null) triggerPortShake(toHandleId);
+        // Checks: say why the drop could not work (the card, at the pointer).
+        if (toHandleId != null && fromHandleId && fromHandleId !== toHandleId) checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId));
         return;
       }
-      const fromHandleId = connectionState.fromHandle?.id;
       if (!fromHandleId || !toHandleId) return;
+      // Checks: a refused cable is never drawn; a failure of the checks themselves is a pass.
+      if (checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId))) return;
       const from = locatePort(view, fromHandleId);
       const to = locatePort(view, toHandleId);
       if (!from || !to) return;
@@ -1359,7 +1367,7 @@ function DrawingInner({
         screenY: (rect?.top ?? 0) + connectionState.to.y,
       });
     },
-    [view, triggerPortShake],
+    [view, triggerPortShake, checks],
   );
 
   const handlePickerConfirm = useCallback(
@@ -1458,6 +1466,7 @@ function DrawingInner({
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
+  const shown = useChecksFade(allNodes, allEdges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1472,8 +1481,8 @@ function DrawingInner({
       {...free.containerProps}
     >
       <ReactFlow
-        nodes={allNodes}
-        edges={allEdges}
+        nodes={shown.nodes}
+        edges={shown.edges}
         nodeTypes={ALL_NODE_TYPES}
         edgeTypes={ALL_EDGE_TYPES}
         defaultViewport={defaultViewport}
@@ -1544,6 +1553,7 @@ function DrawingInner({
           — never part of the React Flow pane, so it survives a pan or zoom
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
+      <ChecksCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}

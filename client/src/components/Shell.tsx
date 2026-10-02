@@ -48,6 +48,7 @@ export function Shell({
   onTrailOpenChange,
   children,
   viewOnly,
+  barExtra,
   menu,
   onHome,
   search,
@@ -73,6 +74,7 @@ export function Shell({
         onPrint={onPrint}
         account={account}
         viewOnly={viewOnly}
+        barExtra={barExtra}
         menu={menu}
         onHome={onHome}
         search={search}
