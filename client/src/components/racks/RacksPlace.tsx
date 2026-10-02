@@ -39,6 +39,16 @@ import './racks.css';
 // without themselves needing to know the logic moved.
 export { canDrawFor, refusalFor };
 
+/** Folds every batch added after the first `from` into one, so a placement
+ * built from several commands (the device, its spot, its default ports) is
+ * one undo step. */
+export function oneUndoStep(doc: Document, from: number): Document {
+  const added = doc.batches.slice(from);
+  if (added.length < 2) return doc;
+  const merged = { ...added[0]!, ops: added.flatMap((b) => b.ops) };
+  return { ...doc, batches: [...doc.batches.slice(0, from), merged] };
+}
+
 /**
  * The `Actor` opts every command `handlePlace`/`handleMove` dispatches is
  * stamped with — the signed-in account's own ulid, the same shape
@@ -517,7 +527,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           for (const run of role !== null ? (DEFAULT_FACEPLATES[role] ?? []) : []) {
             placed = addSketchPortRange(placed, chassisNode.id, { ...run, face: 'front' }, opts);
           }
-          applyDocChange(placed);
+          applyDocChange(oneUndoStep(placed, working.batches.length));
         } catch {
           // As below: `Drawing` checked this drop against a view that
           // turned out to be stale. Leave the document as it was.
