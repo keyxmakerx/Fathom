@@ -110,10 +110,14 @@ export function PasteCard({ state, onText, onChoose, onCancel }: PasteCardProps)
                 {preview.match.hasCapture && ' (it already carries a config; a second is not accepted yet)'}
               </label>
             )}
-            <label>
-              <input type="radio" name="paste-choice" checked={choice === 'add'} onChange={() => setChoice('add')} />
-              Add as a new device
-            </label>
+            {preview.match === null ? (
+              <span>It will be added as a new device.</span>
+            ) : (
+              <label>
+                <input type="radio" name="paste-choice" checked={choice === 'add'} onChange={() => setChoice('add')} />
+                Add as a new device
+              </label>
+            )}
           </fieldset>
 
           <div className="paste-card__actions">

@@ -62,6 +62,7 @@ export function JotView(props: JotViewProps): JSX.Element {
   const [showConfig, setShowConfig] = useState(false);
   const [inside, setInside] = useState(startInside);
   const [moving, setMoving] = useState<{ id: string; at: Pt } | null>(null);
+  const [hoverPort, setHoverPort] = useState<string | null>(null);
   const [wire, setWire] = useState<{ from: string; a: Pt; to: Pt } | null>(null);
 
   useLayoutEffect(() => {
@@ -83,7 +84,9 @@ export function JotView(props: JotViewProps): JSX.Element {
   const device = shown.find((p) => p.isDevice)?.chassis;
 
   const bounds = boundsOf(shown.length > 0 ? shown : []);
-  const fit = shown.length === 0 ? 1 : Math.min((size.w * 0.9) / bounds.w, (size.h * (showConfig ? 0.45 : 0.75)) / bounds.h, MAX_K);
+  const room = size.h * (showConfig ? 0.45 : 0.75);
+  const fitAll = shown.length === 0 ? 1 : Math.min((size.w * 0.9) / bounds.w, room / bounds.h, MAX_K);
+  const fit = fitAll;
   const k = Math.max(MIN_K, Math.min(MAX_K, fit * zoomBy));
   const left = (size.w - bounds.w * k) / 2 - bounds.x * k;
   const top = Math.max(48, (size.h * (showConfig ? 0.5 : 0.9) - bounds.h * k) / 2) - bounds.y * k;
@@ -203,9 +206,10 @@ export function JotView(props: JotViewProps): JSX.Element {
     <div className="jot" ref={rootRef} data-testid="jot" onWheel={onWheel} onPointerDown={() => onSelect({ kind: 'chassis', id: deviceId })}>
       <div className="jot__bar" onPointerDown={(e) => e.stopPropagation()}>
         <button type="button" onClick={onBack}>
-          ← Back to the canvas
+          ← Canvas
         </button>
         <span className="jot__name">{device.hostname || 'unnamed'}</span>
+        {hoverPort !== null && <span className="jot__port">{hoverPort}</span>}
         {renderConfigDrawer && (
           <button type="button" aria-pressed={showConfig} onClick={() => setShowConfig((v) => !v)}>
             Config
@@ -228,7 +232,24 @@ export function JotView(props: JotViewProps): JSX.Element {
           onPointerMove={moveWire}
           onPointerUp={endWire}
         >
-          <div ref={stageRef} className="jot__stage" style={{ width: stageW, height: stageH, transform: `translate(${left}px, ${top}px) scale(${k})` }}>
+          <div ref={stageRef} className="jot__stage" style={{ width: stageW, height: stageH, transform: `translate(${left}px, ${top}px) scale(${k})`, ['--k' as string]: k }}>
+
+            {shown.map((plate) => (
+              <Plate
+                key={plate.chassis.id}
+                plate={plate}
+                selected={selected?.kind === 'chassis' && selected.id === plate.chassis.id}
+                lit={plate.isDevice ? litPortLabel : null}
+                canDraw={canDraw}
+                onStartMove={startMove}
+                onStartWire={startWire}
+                onMoveWire={moveWire}
+                onEndWire={endWire}
+                onAddPort={onAddPort}
+                onHoverPort={setHoverPort}
+              />
+            ))}
+
             <svg className="jot__cables" width={stageW + 2000} height={stageH + 2000} style={{ left: -1000, top: -1000 }} viewBox={`-1000 -1000 ${stageW + 2000} ${stageH + 2000}`}>
               {cables.map(({ cable, a, b }) => {
                 const horizontal = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
@@ -246,24 +267,9 @@ export function JotView(props: JotViewProps): JSX.Element {
               })}
               {wire && <line className="jot__wire" x1={wire.a.x} y1={wire.a.y} x2={wire.to.x} y2={wire.to.y} vectorEffect="non-scaling-stroke" />}
             </svg>
-
-            {shown.map((plate) => (
-              <Plate
-                key={plate.chassis.id}
-                plate={plate}
-                selected={selected?.kind === 'chassis' && selected.id === plate.chassis.id}
-                lit={plate.isDevice ? litPortLabel : null}
-                canDraw={canDraw}
-                onStartMove={startMove}
-                onStartWire={startWire}
-                onMoveWire={moveWire}
-                onEndWire={endWire}
-                onAddPort={onAddPort}
-              />
-            ))}
           </div>
           {canDraw && shown.length === 1 && (
-            <p className="jot__hint">Drag equipment here from the list on the left, or click an item in it. Draw a cable from one port to another.</p>
+            <p className="jot__hint">Open Equipment on the left, then drag an item here or click it. Draw a cable from one port to another.</p>
           )}
         </div>
       )}
@@ -283,12 +289,13 @@ function Plate(props: {
   onMoveWire: (e: ReactPointerEvent) => void;
   onEndWire: (e: ReactPointerEvent) => void;
   onAddPort: (chassisId: string) => void;
+  onHoverPort: (text: string | null) => void;
 }): JSX.Element {
-  const { plate, selected, lit, canDraw, onStartMove, onStartWire, onMoveWire, onEndWire, onAddPort } = props;
+  const { plate, selected, lit, canDraw, onStartMove, onStartWire, onMoveWire, onEndWire, onAddPort, onHoverPort } = props;
   const byId = new Map(plate.chassis.ports.map((p) => [p.id, p]));
   return (
     <div className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '')} style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }} data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}>
-      <span className="jot-plate__name" style={{ top: -NAME_PX }} onPointerDown={(e) => onStartMove(e, plate)}>
+      <span className="jot-plate__name" onPointerDown={(e) => onStartMove(e, plate)}>
         {plate.chassis.hostname || 'unnamed'}
       </span>
       {plate.layout.boxes.map((box) => {
@@ -304,6 +311,8 @@ function Plate(props: {
             className={'jot-port' + (port.label === lit ? ' jot-port--lit' : '')}
             style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
             onPointerDown={(e) => onStartWire(e, plate, box.id)}
+            onPointerEnter={() => onHoverPort(`${plate.chassis.hostname || 'unnamed'} · ${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`)}
+            onPointerLeave={() => onHoverPort(null)}
             onPointerMove={onMoveWire}
             onPointerUp={onEndWire}
           >

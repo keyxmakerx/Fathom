@@ -19,6 +19,7 @@
   position: absolute;
   left: var(--s3);
   top: var(--s3);
+  right: var(--s3);
   z-index: 3;
   display: flex;
   align-items: center;
@@ -27,6 +28,13 @@
 }
 .jot__name {
   font-weight: 700;
+}
+.jot__port {
+  color: var(--muted);
+}
+.jot__bar,
+.jot__bar > * {
+  white-space: nowrap;
 }
 .jot__bar button[aria-pressed='true'] {
   background: var(--ink);
@@ -72,19 +80,21 @@
 .jot-plate {
   position: absolute;
   background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
+  border: calc(1px / var(--k, 1)) solid var(--ink);
   box-sizing: border-box;
 }
 .jot-plate--selected {
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
+  outline: calc(2px / var(--k, 1)) solid var(--ink);
+  outline-offset: calc(1px / var(--k, 1));
 }
 .jot-plate__name {
   position: absolute;
   left: 0;
-  font-size: 9px;
+  font-size: calc(11px / var(--k, 1));
   font-weight: 700;
   line-height: 14px;
+  bottom: 100%;
+  margin-bottom: calc(2px / var(--k, 1));
   cursor: grab;
   white-space: nowrap;
 }
@@ -107,14 +117,15 @@
 .jot-plate__add {
   position: absolute;
   right: 0;
-  top: 100%;
-  font-size: 9px;
-  padding: 0 4px;
+  top: calc(100% + 2px / var(--k, 1));
+  font-size: calc(11px / var(--k, 1));
+  padding: 0 calc(4px / var(--k, 1));
+  white-space: nowrap;
 }
 .jot__hint {
   position: absolute;
   left: 50%;
-  bottom: var(--s4);
+  top: calc(var(--s3) + 2rem);
   transform: translateX(-50%);
   margin: 0;
   color: var(--muted);

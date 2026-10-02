@@ -95,7 +95,7 @@ export function interfacesOf(doc: Document, deviceId: string): PasteInterface[] 
 
 function countByLabel(labels: readonly string[]): { label: string; count: number }[] {
   const counts = new Map<string, number>();
-  for (const l of labels) counts.set(l === 'unknown' ? 'other' : l, (counts.get(l === 'unknown' ? 'other' : l) ?? 0) + 1);
+  for (const l of labels) counts.set(l === 'unknown' ? 'unrecognised secret' : l, (counts.get(l === 'unknown' ? 'unrecognised secret' : l) ?? 0) + 1);
   return [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => a.label.localeCompare(b.label));
 }
 

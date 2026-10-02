@@ -83,3 +83,7 @@
   gap: var(--s2);
   margin-top: var(--s3);
 }
+.paste-card__choice input {
+  appearance: auto;
+  margin: 0 var(--s2) 0 0;
+}

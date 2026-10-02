@@ -81,7 +81,7 @@ export function jotPlates(view: ClosetView, deviceId: string, origin: { x: numbe
     if (box.id === deviceId) continue;
     const dx = box.x - o.x;
     const dy = box.y - o.y;
-    if (!cabled.has(box.id) && Math.abs(dx) > NEAR && Math.abs(dy) > NEAR) continue;
+    if (!cabled.has(box.id) && (Math.abs(dx) > NEAR || Math.abs(dy) > NEAR)) continue;
     const chassis = findUnplacedChassis(view, box.id);
     if (chassis) plates.push(plateOf(chassis, dx, dy, false));
   }

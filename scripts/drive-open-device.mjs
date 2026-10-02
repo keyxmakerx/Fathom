@@ -224,7 +224,7 @@ set snmp community ${SNMP} authorization read-only
     check('a second box is added', (await page.locator('[data-testid=jot-box]').count()) === 2);
 
     // Cable the device's first port to the box's first port.
-    const a = await page.locator('[data-testid=jot-device] .jot-port[title*=RJ45]').first().boundingBox();
+    const a = await page.locator('[data-testid=jot-device] .jot-port[title*="RJ45 · free"]').first().boundingBox();
     const b = await page.locator('[data-testid=jot-box] .jot-port').first().boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
@@ -267,7 +267,7 @@ set snmp community ${SNMP} authorization read-only
     await page.waitForSelector('[data-testid=jot]');
     check('right-click Open goes into the device', (await page.locator('[data-testid=jot-box]').count()) >= 0);
     check('the path names the device', (await page.locator('.shell-bar__path-label--current').innerText()).length > 0);
-    await page.getByRole('button', { name: /Back to the canvas/ }).click();
+    await page.getByRole('button', { name: '← Canvas' }).click();
     await page.waitForTimeout(300);
     check('the back button leaves too', (await page.locator('[data-testid=jot]').count()) === 0);
     await page.locator('.react-flow__node-chassis').first().dblclick();

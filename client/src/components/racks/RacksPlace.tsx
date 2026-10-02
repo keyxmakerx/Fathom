@@ -202,6 +202,12 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
  * session's one `SaveQueue`, so a save already running is never joined by a
  * second one for the same design.
  */
+/** An engine refusal as a sentence: no code quoting, a capital to start. */
+function tidySentence(text: string): string {
+  const plain = text.replace(/`/g, '').trim();
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+}
+
 const NO_ROOM_ADD = 'No room in this rack for another device.';
 
 export function RacksPlace(props: RacksPlaceProps) {
@@ -637,7 +643,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         })
         .catch((error: unknown) => {
           mirrorLoadedDocRef.current = null;
-          setPasteState({ kind: 'refused', message: refusalFor(error)?.refused ?? refusalSentence(error) });
+          setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
     [doc, canDraw, withMirror, openSpot, accountId],
