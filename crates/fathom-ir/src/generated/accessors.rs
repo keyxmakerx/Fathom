@@ -1242,6 +1242,11 @@ mod body {
         pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(229))
         }
+        /// `PassiveNode.slots` — `u8`, card `0..1`, emit `—`.
+        /// A shelf's slot count, left to right (ADR-0060 step 7); absent reads as the highest slot taken.
+        pub fn slots<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u8, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(350))
+        }
     }
     /// Typed reads for `Premises` fields.
     pub mod premises {
@@ -2125,6 +2130,7 @@ mod body {
             347 => Some((core::any::TypeId::of::<u16>(), "u16")),
             348 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             349 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableEnd>(), "crate::generated::ir_types::CableEnd")),
+            350 => Some((core::any::TypeId::of::<u8>(), "u8")),
             _ => None,
         }
     }
@@ -2482,6 +2488,7 @@ mod body {
             347 => crate::canon::slot_to::<u16>(347, "u16", value),
             348 => crate::canon::slot_to::<crate::scalar::Text>(348, "crate::scalar::Text", value),
             349 => crate::canon::slot_to::<crate::generated::ir_types::CableEnd>(349, "crate::generated::ir_types::CableEnd", value),
+            350 => crate::canon::slot_to::<u8>(350, "u8", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2837,6 +2844,7 @@ mod body {
             347 => crate::canon::slot_from::<u16>(j),
             348 => crate::canon::slot_from::<crate::scalar::Text>(j),
             349 => crate::canon::slot_from::<crate::generated::ir_types::CableEnd>(j),
+            350 => crate::canon::slot_from::<u8>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

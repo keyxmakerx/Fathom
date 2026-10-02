@@ -113,7 +113,7 @@ fn slot_type_covers_every_registry_key() {
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343).
     assert_eq!(
         FIELD_KEYS.len(),
-        349,
+        350,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

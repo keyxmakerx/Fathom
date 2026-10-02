@@ -225,7 +225,7 @@ schema:
                     # 0.13 is ADR-0060 step 7 (free boxes and lines, 2026-10-02), all additive:
                     # two node kinds, Label and Line (joining Placeable), three edge kinds, HasLabel
                     # and HasLine (root containment, HasTag's shape) and LineEnd (reference,
-                    # Line to Chassis), six field keys (344-349). Whole change = MINOR; the
+                    # Line to Chassis), seven field keys (344-350, PassiveNode.slots last). Whole change = MINOR; the
                     # reader still opens 0.10 to 0.12 payloads.
 
 scalars:
@@ -1278,6 +1278,7 @@ kinds:
       - { name: split_ratio, type: SplitRatio, card: "0..1", emit: "—", doc: "{ inputs: u8, outputs: u16 } — 1:32." }
       - { name: model, type: Identifier, card: "0..1", emit: "—" }
       - { name: serial, type: Identifier, card: "0..1", emit: "—" }
+      - { name: slots, type: u8, card: "0..1", emit: "—", doc: "A shelf's slot count, left to right (ADR-0060 step 7); absent reads as the highest slot taken." }
     identity:
       - [ owner(Premises), label ]
 

@@ -464,7 +464,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
   PhysicalPort: ["label", "position", "connector", "service", "face", "speed_max", "transceiver", "notes", "occupied"],
   Cable: ["label", "assembly", "media", "length_m", "installed_on", "ownership", "provider_circuit", "notes", "last_confirmed", "sheath"],
-  PassiveNode: ["label", "form", "split_ratio", "model", "serial"],
+  PassiveNode: ["label", "form", "split_ratio", "model", "serial", "slots"],
   Premises: ["label", "street", "clli", "form", "region", "coordinates", "notes"],
   Tenant: ["name", "code", "kind", "account_ref", "contact", "description"],
   Service: ["cid", "reach", "label", "in_service_on", "ceased_on", "last_confirmed", "attributes", "description"],
@@ -838,4 +838,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Label.h": 347,
   "Line.label": 348,
   "LineEnd.end": 349,
+  "PassiveNode.slots": 350,
 };

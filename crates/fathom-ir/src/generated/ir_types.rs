@@ -820,7 +820,7 @@ mod body {
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
                 NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
                 NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
-                NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229)],
+                NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229), crate::bag::FieldKey(350)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
                 NodeKind::Tenant => &[crate::bag::FieldKey(237), crate::bag::FieldKey(238), crate::bag::FieldKey(239), crate::bag::FieldKey(240), crate::bag::FieldKey(241), crate::bag::FieldKey(242)],
                 NodeKind::Service => &[crate::bag::FieldKey(243), crate::bag::FieldKey(244), crate::bag::FieldKey(245), crate::bag::FieldKey(246), crate::bag::FieldKey(247), crate::bag::FieldKey(248), crate::bag::FieldKey(249), crate::bag::FieldKey(250)],
@@ -7285,17 +7285,19 @@ mod body {
         SplitRatio,
         Model,
         Serial,
+        Slots,
     }
 
     impl PassiveNodeField {
-        pub const COUNT: usize = 5;
+        pub const COUNT: usize = 6;
         /// Every field, declaration order.
-        pub const ALL: [PassiveNodeField; 5] = [
+        pub const ALL: [PassiveNodeField; 6] = [
             PassiveNodeField::Label,
             PassiveNodeField::Form,
             PassiveNodeField::SplitRatio,
             PassiveNodeField::Model,
             PassiveNodeField::Serial,
+            PassiveNodeField::Slots,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -7307,6 +7309,7 @@ mod body {
                 PassiveNodeField::SplitRatio => "split_ratio",
                 PassiveNodeField::Model => "model",
                 PassiveNodeField::Serial => "serial",
+                PassiveNodeField::Slots => "slots",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -7317,6 +7320,7 @@ mod body {
                 PassiveNodeField::SplitRatio => crate::bag::FieldKey(227),
                 PassiveNodeField::Model => crate::bag::FieldKey(228),
                 PassiveNodeField::Serial => crate::bag::FieldKey(229),
+                PassiveNodeField::Slots => crate::bag::FieldKey(350),
             }
         }
     }
@@ -8684,7 +8688,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 349] = [
+    pub const FIELD_KEYS: [(&str, u32); 350] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9034,6 +9038,7 @@ mod body {
         ("Label.h", 347),
         ("Line.label", 348),
         ("LineEnd.end", 349),
+        ("PassiveNode.slots", 350),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

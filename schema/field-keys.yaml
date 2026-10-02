@@ -441,3 +441,4 @@ fields:
   Label.h: 347
   Line.label: 348
   LineEnd.end: 349
+  PassiveNode.slots: 350
