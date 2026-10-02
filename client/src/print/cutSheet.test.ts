@@ -46,7 +46,7 @@ function chassis(id: string, positionU: number, ports: PortView[], overrides: Pa
 const doc = emptyDocument();
 
 function emptyView(overrides: Partial<ClosetView> = {}): ClosetView {
-  return { premisesId: 'p', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], ...overrides };
+  return { premisesId: 'p', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [], ...overrides };
 }
 
 describe('buildCutSheet', () => {

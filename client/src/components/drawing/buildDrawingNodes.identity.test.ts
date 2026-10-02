@@ -79,7 +79,7 @@ function baseInput(racks: RackView[]): BuildDrawingNodesInput {
     rackPositions[rack.id] = { x: i * 300, y: 0 };
   });
   return {
-    view: { premisesId: 'p1', racks, cables: [], rows: rowViews, surfaces: [], unplaced: [] },
+    view: { premisesId: 'p1', racks, cables: [], rows: rowViews, surfaces: [], unplaced: [], free: [], lines: [], labels: [] },
     rowViews,
     rowLayouts,
     rackPositions,

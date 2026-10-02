@@ -592,6 +592,15 @@ export function removeChassis(doc: Document, chassisId: string, opts?: Actor): D
 
   const { now } = resolve(opts);
   const { nodeIds, edgeIds } = cascadeRemoval(doc, deviceId);
+  // A free line goes with either box it joins (ADR-0060 step 7).
+  for (const id of [...nodeIds]) {
+    if (parseNodeId(id).kind !== 'Chassis') continue;
+    for (const end of edgesIn(doc, id, 'LineEnd')) {
+      const line = cascadeRemoval(doc, end.from);
+      line.nodeIds.forEach((n) => nodeIds.add(n));
+      line.edgeIds.forEach((e) => edgeIds.add(e));
+    }
+  }
 
   const working: Document = {
     ...doc,

@@ -25,7 +25,7 @@ const NOOP_ACTIONS: EditorActions = { onEdit: () => {} };
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
-  unplaced: [],
+  unplaced: [], free: [], lines: [], labels: [],
   cables: [],
   rows: [],
   surfaces: [],
@@ -79,7 +79,7 @@ const VIEW: ClosetView = {
 
 const BARE_VIEW: ClosetView = {
   premisesId: 'closet-1',
-  unplaced: [],
+  unplaced: [], free: [], lines: [], labels: [],
   cables: [],
   rows: [],
   surfaces: [],
@@ -120,7 +120,7 @@ const BARE_VIEW: ClosetView = {
 
 const SKETCH_VIEW: ClosetView = {
   premisesId: 'closet-1',
-  unplaced: [],
+  unplaced: [], free: [], lines: [], labels: [],
   cables: [],
   rows: [],
   surfaces: [
@@ -180,7 +180,7 @@ const SKETCH_VIEW: ClosetView = {
 // selected on either place — have something real to render.
 const PLACES_VIEW: ClosetView = {
   premisesId: 'closet-1',
-  unplaced: [],
+  unplaced: [], free: [], lines: [], labels: [],
   cables: [],
   rows: [],
   surfaces: [

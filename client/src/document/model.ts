@@ -830,6 +830,39 @@ export function readFixedToFields(edge: GraphEdge): FixedToFields {
   };
 }
 
+export interface LayoutPinFields {
+  x?: number;
+  y?: number;
+}
+
+export function readLayoutPinFields(node: GraphNode): LayoutPinFields {
+  return { x: asNumber(fieldValue(node.fields, 'LayoutPin.x')), y: asNumber(fieldValue(node.fields, 'LayoutPin.y')) };
+}
+
+export interface LabelFields {
+  text?: string;
+  form?: string;
+  w?: number;
+  h?: number;
+}
+
+export function readLabelFields(node: GraphNode): LabelFields {
+  return {
+    text: asString(fieldValue(node.fields, 'Label.text')),
+    form: asString(fieldValue(node.fields, 'Label.form')),
+    w: asNumber(fieldValue(node.fields, 'Label.w')),
+    h: asNumber(fieldValue(node.fields, 'Label.h')),
+  };
+}
+
+export function readLineLabel(node: GraphNode): string | undefined {
+  return asString(fieldValue(node.fields, 'Line.label'));
+}
+
+export function readLineEndSide(edge: GraphEdge): string | undefined {
+  return asString(fieldValue(edge.fields, 'LineEnd.end'));
+}
+
 export interface PremisesFields {
   label?: string;
 }
