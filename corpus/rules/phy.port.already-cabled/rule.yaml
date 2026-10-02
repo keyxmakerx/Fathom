@@ -14,7 +14,7 @@ acceptable_when: >
 reviewed_by: "pending: Key Maker"
 reviewed_on: 2026-10-02
 sources_note: >
-  Definitional: a port has one connector. Breakout lanes are modelled as Terminates.lane (schema/schema.yaml, edge Terminates).
+  Definitional: a port has one connector. Breakout lanes are recorded as a lane on each cable end.
 applies_to:
   kind: PhysicalPort
   with:
