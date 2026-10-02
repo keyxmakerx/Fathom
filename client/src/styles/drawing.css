@@ -1573,7 +1573,7 @@
   outline-offset: 2px;
 }
 .drawing-diagram-box__name {
-  font-size: calc(var(--t-body) * 1.4);
+  font-size: var(--t-mast);
   font-weight: 700;
   line-height: 1.1;
   overflow: hidden;
@@ -1585,5 +1585,5 @@
   pointer-events: none;
 }
 .drawing-diagram-line--selected path {
-  filter: drop-shadow(0 0 2px var(--ink));
+  stroke-width: 3px;
 }

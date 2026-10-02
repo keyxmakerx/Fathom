@@ -240,6 +240,7 @@ export function Bar({
                 </button>
               ))}
             </div>
+            {look != null && <Sep />}
             {look != null && (
               <div className="shell-bar__lenses" role="group" aria-label="Look">
                 {LOOKS.map((candidate) => (
