@@ -89,9 +89,27 @@ impl FieldHistory {
     }
 
     pub(crate) fn push(&mut self, entry: HistoryEntry, origin: Origin) {
+        self.push_discriminant(entry, origin.discriminant());
+    }
+
+    pub(crate) fn push_discriminant(&mut self, entry: HistoryEntry, origin: u8) {
         self.entries.push(entry);
-        self.origins.push(origin.discriminant());
+        self.origins.push(origin);
         self.prune();
+    }
+
+    /// The same history with every value left out: presence, provenance, origins, truncation.
+    pub(crate) fn meta_copy(&self) -> FieldHistory {
+        let entries = self
+            .entries
+            .iter()
+            .map(|e| HistoryEntry {
+                presence: e.presence,
+                value: None,
+                prov: e.prov,
+            })
+            .collect();
+        FieldHistory::install(entries, self.origins.clone(), self.truncated)
     }
 
     fn prune(&mut self) {

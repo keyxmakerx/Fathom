@@ -407,6 +407,19 @@ fn a_fragment_that_disagrees_with_its_ops_is_refused() {
     f.history.clear();
     assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
 
+    // A history that is not the replaced value appended to the held one: an extra entry, a
+    // changed one, a forged truncation count.
+    let h = &good.history[0];
+    let mut f = good.clone();
+    f.history[0].entries.push(h.entries[0].clone());
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+    let mut f = good.clone();
+    f.history[0].entries[0].value = Some(fathom_canon::Json::Str("forged".into()));
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+    let mut f = good.clone();
+    f.history[0].truncated = 3;
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+
     // Two states for one element.
     let mut f = good.clone();
     f.nodes.push(f.nodes[0].clone());

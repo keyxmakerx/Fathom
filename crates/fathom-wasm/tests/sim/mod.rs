@@ -2,7 +2,9 @@
 //!
 //! Devices with chassis, ports, interfaces, units, addresses, VLAN membership and power supplies;
 //! cables with `Terminates` edges; field sets, absences and clears; tombstones of nodes with
-//! subtrees and of edges; revives; undo-style reversal batches.
+//! subtrees and of edges; revives; undo-style reversal batches. With `wild` set it also
+//! re-parents ports (some edges with ids ordered before the rest, as another client's clock
+//! gives) and revives cut owner edges: histories the write path takes and the loader may refuse.
 
 #![allow(dead_code)]
 
@@ -62,6 +64,8 @@ pub struct Sim {
     pub rng: Rng,
     n: u128,
     batches: u128,
+    /// Also make the re-parent and revive-after-replacement histories (see the module docs).
+    pub wild: bool,
 }
 
 /// What one random set may write: owner kind name, field, candidate tokens.
@@ -112,6 +116,7 @@ impl Sim {
             rng: Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0xA5A5),
             n: 1,
             batches: 1,
+            wild: false,
         }
     }
 
@@ -405,6 +410,61 @@ impl Sim {
         }
     }
 
+    /// Give a port a new owner: the edges that own it are cut and a `HasPort` from another
+    /// chassis or supply is added, one time in three with an id ordered before every other.
+    pub fn reparent(&mut self) {
+        let ports = self.live_nodes(NodeKind::PhysicalPort);
+        let mut owners = self.live_nodes(NodeKind::Chassis);
+        owners.extend(self.live_nodes(NodeKind::PowerSupply));
+        let (Some(p), Some(o)) = (
+            self.rng.pick(&ports).copied(),
+            self.rng.pick(&owners).copied(),
+        ) else {
+            return;
+        };
+        self.cut_owners(p, None);
+        self.n += 1;
+        let u = if self.rng.chance(33) {
+            Ulid::from_parts(T0 - 10_000, self.n).expect("48-bit")
+        } else {
+            self.ulid()
+        };
+        let pr = self.prov();
+        let _ = self.g.insert_edge(EdgeKind::HasPort, u, o, p, pr);
+    }
+
+    /// Bring back a cut `HasPort`, usually after cutting whatever owns the port now.
+    pub fn revive_owner(&mut self) {
+        let gone: Vec<EdgeId> = self
+            .g
+            .edges_of_kind(EdgeKind::HasPort)
+            .filter(|e| e.absent_since.is_some())
+            .map(|e| e.id)
+            .collect();
+        let Some(e) = self.rng.pick(&gone).copied() else {
+            return;
+        };
+        if self.rng.chance(70) {
+            let to = self.g.edge(e).expect("listed").to;
+            self.cut_owners(to, Some(e));
+        }
+        let (at, by) = (self.at(), Self::actor());
+        let _ = self.g.revive(ElementId::Edge(e), at, by);
+    }
+
+    fn cut_owners(&mut self, port: NodeId, keep: Option<EdgeId>) {
+        let held: Vec<EdgeId> = self
+            .g
+            .inn(port, EdgeKind::HasPort)
+            .filter(|e| e.absent_since.is_none() && Some(e.id) != keep)
+            .map(|e| e.id)
+            .collect();
+        for e in held {
+            let (at, by) = (self.at(), Self::actor());
+            let _ = self.g.tombstone(ElementId::Edge(e), at, by);
+        }
+    }
+
     /// An undo of an earlier batch: what it added is tombstoned, what it tombstoned is
     /// revived, what it set is set back to nothing a rule can read (cleared). The batch is
     /// marked as the reversal.
@@ -450,7 +510,7 @@ impl Sim {
         self.batches += 1;
         let id = BatchId(Ulid::from_parts(T0, 1_000_000 + self.batches).unwrap());
         self.g.begin_batch(id, "step").unwrap();
-        let roll = self.rng.below(40);
+        let roll = self.rng.below(if self.wild { 46 } else { 40 });
         let mut reversed = false;
         match roll {
             0..=3 if self.live_nodes(NodeKind::Device).len() < 8 => self.add_device(),
@@ -466,6 +526,8 @@ impl Sim {
                     self.set_random();
                 }
             }
+            40..=42 => self.reparent(),
+            43..=45 => self.revive_owner(),
             _ => {
                 // Reverse an earlier batch (and sometimes the reversal of a reversal).
                 let log = self.g.log();
@@ -493,6 +555,11 @@ pub fn load(shell: &mut Shell, g: &Graph) {
     }
 }
 
+/// Is the reply an error frame?
+pub fn is_error(reply: &[u8]) -> bool {
+    matches!(decode_reply(reply), Ok(ReplyView::Error(_)))
+}
+
 pub fn sync_reply(shell: &mut Shell, g: &Graph, from: usize) -> Vec<u8> {
     shell.handle(
         OP_SYNC,
@@ -500,10 +567,13 @@ pub fn sync_reply(shell: &mut Shell, g: &Graph, from: usize) -> Vec<u8> {
     )
 }
 
-/// Did `OP_SYNC` take the delta? The reply is the held estate's node and edge counts; they must
-/// be the writer's own.
+/// Did `OP_SYNC` take the delta? The reply is the held estate's live node and edge counts; they
+/// must be the writer's own.
 pub fn sync_took(reply: &[u8], g: &Graph) -> bool {
-    let counts = [g.nodes().count() as u32, g.edges().count() as u32];
+    let counts = [
+        g.nodes().filter(|n| n.absent_since.is_none()).count() as u32,
+        g.edges().filter(|e| e.absent_since.is_none()).count() as u32,
+    ];
     reply.len() == 8
         && reply[..4] == counts[0].to_le_bytes()
         && reply[4..] == counts[1].to_le_bytes()

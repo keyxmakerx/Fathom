@@ -2,9 +2,12 @@
 //! byte for byte as a fresh module that loads the same design whole. The full load is the
 //! oracle, and stays the fallback.
 //!
-//! A seeded writer (`sim`) grows a realistic estate through the real write path. After every
-//! sync the incremental module is compared with a fresh one: checks reply, and (every fourth
-//! step) the exported design.
+//! A seeded writer (`sim`) grows a realistic estate through the real write path, including
+//! re-parents, ids ordered before the rest, and revives of cut owner edges: histories the write
+//! path takes and `OP_LOAD_PLAIN` may refuse. After every sync the incremental module is
+//! compared with a fresh one: the checks reply and the exported design (every fourth step), which
+//! must be exactly the writer's plain face, so it reloads. A delta the loader would refuse must be
+//! refused, and a delta it would take must be taken.
 
 #![allow(dead_code)]
 
@@ -12,10 +15,10 @@ use std::collections::BTreeMap;
 
 use fathom_wasm::protocol::decode_reply;
 use fathom_wasm::shell::Shell;
-use fathom_wasm::OP_EXPORT_PLAIN;
+use fathom_wasm::{OP_EXPORT_PLAIN, OP_LOAD_PLAIN};
 
 mod sim;
-use sim::{checks, finding_rows, load, sync_reply, sync_took, Rng, Sim};
+use sim::{checks, finding_rows, is_error, load, sync_reply, sync_took, Rng, Sim};
 
 fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
     let mut sim = Sim::new(seed);
@@ -23,11 +26,14 @@ fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
     for _ in 0..6 {
         sim.step();
     }
+    sim.wild = true;
     let mut inc = Shell::new();
     load(&mut inc, &sim.g);
     let instance = inc.estate_for_test().unwrap().instance();
     let rules = fathom_wasm::checks::RULES.len();
     let mut seen = sim.g.log().len();
+    // The last design a full load took: where the writer goes back to when the loader refuses one.
+    let mut good = fathom_workspace::write_plain(&sim.g).unwrap();
     let mut rng = Rng(seed ^ 0xDEAD);
     let mut max_rows = 0;
     for step in 0..steps {
@@ -37,11 +43,40 @@ fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
             continue;
         }
         let reply = sync_reply(&mut inc, &sim.g, seen);
+        let plain = fathom_workspace::write_plain(&sim.g).unwrap();
+        let mut fresh = Shell::new();
+        let loadable = !is_error(&fresh.handle(OP_LOAD_PLAIN, &plain));
+        let took = sync_took(&reply, &sim.g);
+        if !loadable {
+            assert!(
+                !took,
+                "seed {seed} step {step}: sync took a design the loader refuses: {:?}",
+                decode_reply(&reply)
+            );
+            assert_eq!(
+                inc.handle(OP_EXPORT_PLAIN, &[]),
+                good,
+                "seed {seed} step {step}: a refusal changed the module"
+            );
+            *stats.entry("refused_unloadable").or_default() += 1;
+            sim.g = fathom_workspace::read_plain(&good).unwrap();
+            seen = sim.g.log().len();
+            continue;
+        }
         assert!(
-            sync_took(&reply, &sim.g),
-            "seed {seed} step {step}: a pure append must sync, got {:?}",
+            took,
+            "seed {seed} step {step}: a design the loader takes must sync, got {:?}",
             decode_reply(&reply)
         );
+        // What the module holds is the writer's design, so it reloads (every fourth: it is dear).
+        if step % 4 == 0 {
+            assert_eq!(
+                inc.handle(OP_EXPORT_PLAIN, &[]),
+                plain,
+                "seed {seed} step {step}: the held design differs from the full load"
+            );
+        }
+        good = plain;
         seen = sim.g.log().len();
         let got = checks(&mut inc);
         // The store grew in place, so the cache was kept and only touched rules ran again.
@@ -50,20 +85,11 @@ fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
         *stats.entry("rules_run").or_default() += ran;
         *stats.entry("rules_possible").or_default() += rules;
 
-        let mut fresh = Shell::new();
-        load(&mut fresh, &sim.g);
         let want = checks(&mut fresh);
         assert_eq!(
             got, want,
             "seed {seed} step {step}: incremental checks differ from a full load"
         );
-        if step % 4 == 0 {
-            assert_eq!(
-                inc.handle(OP_EXPORT_PLAIN, &[]),
-                fresh.handle(OP_EXPORT_PLAIN, &[]),
-                "seed {seed} step {step}: the held design differs from the full load"
-            );
-        }
         max_rows = max_rows.max(finding_rows(&got).len());
         *stats.entry("syncs").or_default() += 1;
         *stats.entry("findings_seen").or_default() += finding_rows(&got).len();
@@ -107,6 +133,10 @@ fn incremental_checks_equal_a_full_load_over_random_edit_sequences() {
     assert!(
         stats["rules_run"] < stats["rules_possible"],
         "checks must be incremental: {stats:?}"
+    );
+    assert!(
+        stats["refused_unloadable"] > 0,
+        "the generator must make designs the loader refuses: {stats:?}"
     );
     assert!(
         stats["findings_seen"] > 500,

@@ -32,6 +32,8 @@ pub struct Shell {
     /// `OP_EQUIP_ADD` succeeds; the only workspace this build holds. `OP_ESTATE_DEMO`
     /// is gone from the shipping module (see `estate_demo`).
     estate: Option<fathom_graph::Graph>,
+    /// The schema version `OP_LOAD_PLAIN` last read the estate under; a delta must declare it.
+    estate_schema: String,
     /// The junos-srx statement dictionary, handed in over `OP_DICT` and held for the
     /// module's lifetime. Absent until that succeeds, so `OP_PASTE` can refuse with
     /// `ERR_NO_DICTIONARY`.
@@ -48,6 +50,7 @@ impl Shell {
         Shell {
             finder: None,
             estate: None,
+            estate_schema: fathom_ir::generated::ir_types::SCHEMA_VERSION.to_owned(),
             dict: None,
             csv_dict: None,
             checks: crate::checks::Checks::new(),
@@ -484,18 +487,26 @@ impl Shell {
     /// `OP_LOAD_PLAIN`: the plain face in, the held estate out. Frame in
     /// [`crate::OP_LOAD_PLAIN`].
     fn load_plain(&mut self, req: &[u8]) -> Vec<u8> {
-        let graph = match fathom_workspace::read_plain(req) {
+        let (graph, schema) = match fathom_workspace::read_plain_declared(req) {
             Ok(g) => g,
             Err(e) => return protocol::encode_error(ERR_PLAIN_REFUSED, &format!("{e:?}")),
         };
         let reply = load_plain_reply(&graph);
         self.estate = Some(graph);
+        self.estate_schema = schema;
         reply
     }
 
     /// `OP_SYNC`: append the batches the module has not seen. Frame in [`crate::OP_SYNC`].
     fn sync(&mut self, req: &[u8]) -> Vec<u8> {
         let resync = |why: String| protocol::encode_error(ERR_RESYNC, &why);
+        if req.len() > crate::SYNC_FRAME_MAX {
+            return resync(format!(
+                "the delta is {} bytes; the most OP_SYNC takes is {}",
+                req.len(),
+                crate::SYNC_FRAME_MAX
+            ));
+        }
         let Some(graph) = self.estate.as_mut() else {
             return resync("no estate loaded".to_owned());
         };
@@ -503,16 +514,30 @@ impl Shell {
             Ok(d) => d,
             Err(e) => return resync(format!("{e:?}")),
         };
+        if delta.schema != self.estate_schema {
+            return resync(format!(
+                "the delta is schema {}, the estate was loaded as {}",
+                delta.schema, self.estate_schema
+            ));
+        }
         if delta.base != graph.log().last().map(|b| b.id) {
             return resync(
                 "the module does not end at the batch the delta starts after".to_owned(),
             );
         }
+        // "From nothing" means an empty estate, not one that merely has no log.
+        if delta.base.is_none()
+            && (graph.nodes().next().is_some() || graph.edges().next().is_some())
+        {
+            return resync("the delta starts from nothing and the estate is not empty".to_owned());
+        }
         match graph.apply_batches(&delta.fragment) {
             Ok(()) => {
-                // What the module now holds, as two counts the page checks against its document.
-                let mut counts = (graph.nodes().count() as u32).to_le_bytes().to_vec();
-                counts.extend_from_slice(&(graph.edges().count() as u32).to_le_bytes());
+                // The live node and edge counts the page checks against its document.
+                let live_nodes = graph.nodes().filter(|n| n.absent_since.is_none()).count();
+                let live_edges = graph.edges().filter(|e| e.absent_since.is_none()).count();
+                let mut counts = (live_nodes as u32).to_le_bytes().to_vec();
+                counts.extend_from_slice(&(live_edges as u32).to_le_bytes());
                 counts
             }
             Err(e) => resync(format!("{e:?}")),

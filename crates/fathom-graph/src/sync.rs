@@ -25,6 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use fathom_canon::Json;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::{slot_from_canon, slot_to_canon, slot_type};
@@ -141,10 +142,8 @@ struct Run {
     undo: Vec<Undo>,
     touched: BTreeSet<ElementId>,
     added: BTreeSet<ElementId>,
-    /// The last op per field: its presence and provenance. The value comes from the fragment.
-    last: BTreeMap<(ElementId, FieldKey), (StoredPresence, ProvenanceId)>,
-    /// Fields whose ops replaced or cleared a value, so a history record must come with them.
-    archived: BTreeSet<(ElementId, FieldKey)>,
+    /// Every op per field, in order: its presence and provenance. Values come from the fragment.
+    ops: BTreeMap<(ElementId, FieldKey), Vec<(StoredPresence, ProvenanceId)>>,
     /// Provenance ids the ops cite; the fragment may carry no other record.
     cited: BTreeSet<ProvenanceId>,
     /// Something happened that the loader's ladder must be re-run for (module docs).
@@ -301,16 +300,14 @@ impl Graph {
                         key: *key,
                     }));
                 }
-                let current = match run.last.get(&(*element, *key)) {
+                let current = match run.ops.get(&(*element, *key)).and_then(|v| v.last()) {
                     Some((StoredPresence::Unknown, _)) => None,
                     Some((_, p)) => Some(*p),
                     None => self.slot_prov(*element, *key),
                 };
                 self.sync_prov(*prov, current, ix, run)?;
-                if current.is_some() || *presence == StoredPresence::Unknown {
-                    run.archived.insert((*element, *key));
-                }
-                run.last.insert((*element, *key), (*presence, *prov));
+                let chain = run.ops.entry((*element, *key)).or_default();
+                chain.push((*presence, *prov));
                 run.touched.insert(*element);
             }
             Op::Tombstone { element, at, .. } => {
@@ -401,7 +398,7 @@ impl Graph {
         let named = |el| run.touched.contains(&el);
         let stray = ix.nodes.keys().any(|n| !named(ElementId::Node(*n)))
             || ix.edges.keys().any(|e| !named(ElementId::Edge(*e)))
-            || ix.history.keys().any(|k| !run.last.contains_key(k))
+            || ix.history.keys().any(|k| !run.ops.contains_key(k))
             || ix.prov.keys().any(|p| !run.cited.contains(p));
         if stray {
             return Err(SyncError::Unexplained);
@@ -428,7 +425,7 @@ impl Graph {
             }
             // A new element holds no field its ops did not set.
             if run.added.contains(&el) {
-                if let Some(f) = fields.iter().find(|f| !run.last.contains_key(&(el, f.key))) {
+                if let Some(f) = fields.iter().find(|f| !run.ops.contains_key(&(el, f.key))) {
                     return Err(SyncError::Mismatch {
                         element: el,
                         key: Some(f.key),
@@ -436,7 +433,8 @@ impl Graph {
                 }
             }
         }
-        for ((el, key), (presence, prov)) in std::mem::take(&mut run.last) {
+        for ((el, key), chain) in std::mem::take(&mut run.ops) {
+            let (presence, prov) = *chain.last().expect("an op made the entry");
             let (_, fields) = ix.state(el)?;
             let snap = fields.iter().find(|f| f.key == key);
             let bad = SyncError::Mismatch {
@@ -469,6 +467,11 @@ impl Graph {
                 _ => return Err(bad),
             };
             let was = self.slot_map_mut(el).remove(&key);
+            let before = was.as_ref().map(|s| (s.presence, s.prov));
+            let before_value = match was.as_ref().map(|s| (s.presence, s.value.as_deref())) {
+                Some((StoredPresence::Set, Some(v))) => Some(slot_to_canon(key, v)?),
+                _ => None,
+            };
             run.undo.push(Undo::Slot {
                 element: el,
                 key,
@@ -477,29 +480,88 @@ impl Graph {
             if let Some(s) = slot {
                 self.slot_map_mut(el).insert(key, s);
             }
-            match ix.history.get(&(el, key)) {
-                Some(h) => {
-                    let installed = self.history_from(h)?;
-                    let was = self.history.insert((el, key), installed);
-                    run.undo.push(Undo::History {
-                        key: (el, key),
-                        was,
-                    });
-                }
-                // History only grows, and a replaced value is archived: a fragment without the record is stale.
-                None if self.history.contains_key(&(el, key))
-                    || run.archived.contains(&(el, key)) =>
-                {
-                    return Err(SyncError::Mismatch {
-                        element: el,
-                        key: Some(key),
-                    })
-                }
-                None => {}
+            let frag = ix.history.get(&(el, key)).copied();
+            self.check_history(el, key, (before, before_value), &chain, frag)?;
+            if let Some(h) = frag {
+                let installed = self.history_from(h)?;
+                let was = self.history.insert((el, key), installed);
+                run.undo.push(Undo::History {
+                    key: (el, key),
+                    was,
+                });
             }
         }
         for el in &run.touched {
             self.fields_match(*el, ix.state(*el)?.1)?;
+        }
+        Ok(())
+    }
+
+    /// The history the fragment gives for a field its ops wrote must be the held history with
+    /// what those ops replaced or cleared appended, pruned as the write path prunes: presence,
+    /// provenance and truncation count all derived here, and the held entries' values kept.
+    fn check_history(
+        &self,
+        el: ElementId,
+        key: FieldKey,
+        (mut current, current_value): (Option<(StoredPresence, ProvenanceId)>, Option<Json>),
+        chain: &[(StoredPresence, ProvenanceId)],
+        frag: Option<&HistorySnap>,
+    ) -> Result<(), SyncError> {
+        let bad = || SyncError::Mismatch {
+            element: el,
+            key: Some(key),
+        };
+        let held = self.history.get(&(el, key));
+        let before_prov = current.map(|c| c.1);
+        let mut want = match held {
+            Some(h) => h.meta_copy(),
+            None => FieldHistory::new(),
+        };
+        let origin = |p: ProvenanceId| self.prov.get(&p).map(|r| r.origin.discriminant());
+        let entry = |(presence, prov)| HistoryEntry {
+            presence,
+            value: None,
+            prov,
+        };
+        for &(presence, prov) in chain {
+            if let Some(old) = current {
+                want.push_discriminant(entry(old), origin(old.1).ok_or_else(bad)?);
+            }
+            current = match presence {
+                StoredPresence::Unknown => {
+                    want.push_discriminant(entry((presence, prov)), origin(prov).ok_or_else(bad)?);
+                    None
+                }
+                _ => Some((presence, prov)),
+            };
+        }
+        let (got, truncated) = frag.map_or((&[][..], 0), |h| (&h.entries[..], h.truncated));
+        if want.entries().len() != got.len()
+            || want.truncated() != truncated
+            || want
+                .entries()
+                .iter()
+                .zip(got)
+                .any(|(w, g)| (w.presence, w.prov) != (g.presence, g.prov))
+        {
+            return Err(bad());
+        }
+        // An entry the store already held (in its history, or as the slot just replaced) keeps
+        // its value. Entries for values replaced inside the delta have no other witness.
+        for g in got {
+            let kept = held.and_then(|h| h.entries().iter().find(|e| e.prov == g.prov));
+            let value = match kept {
+                Some(e) => match (e.presence, e.value.as_deref()) {
+                    (StoredPresence::Set, Some(v)) => Some(slot_to_canon(key, v)?),
+                    _ => None,
+                },
+                None if before_prov == Some(g.prov) => current_value.clone(),
+                None => continue,
+            };
+            if value != g.value {
+                return Err(bad());
+            }
         }
         Ok(())
     }

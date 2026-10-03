@@ -236,6 +236,12 @@ pub fn write_plain(graph: &Graph) -> Result<Vec<u8>, PlainError> {
 /// refusal deterministic: magic, face version, banner, schema version, the
 /// blank line, then the body.
 pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
+    read_plain_declared(bytes).map(|(graph, _)| graph)
+}
+
+/// [`read_plain`], and the schema version the file declared: the version the graph was loaded
+/// under, which a delta for it must also declare.
+pub fn read_plain_declared(bytes: &[u8]) -> Result<(Graph, String), PlainError> {
     // 1 — the magic, before the file is even shaped into lines. The sealed
     // envelope's `FTHM\x1fREC` lands here, which is the point: a build must
     // know what it is not holding before it does anything with it.
@@ -281,7 +287,7 @@ pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
     let json = Json::parse_canonical(body)?;
     let snapshot = snapshot_from_json(&json)?;
     reject_kinds_too_new_for_declared_version(declared, &snapshot)?;
-    Ok(Graph::from_snapshot(&snapshot)?)
+    Ok((Graph::from_snapshot(&snapshot)?, declared.to_owned()))
 }
 
 /// Line 1's magic for a delta (`Graph::apply_batches`'s input). Not a plain face: it holds a
@@ -294,6 +300,8 @@ pub const DELTA_FACE_VERSION: u32 = 1;
 /// A fragment and the batch the sender believes the receiver already ends at.
 #[derive(Debug)]
 pub struct Delta {
+    /// The schema version the delta declares.
+    pub schema: String,
     /// The last batch the receiver holds; `None` for a receiver with an empty log.
     pub base: Option<BatchId>,
     pub fragment: Snapshot,
@@ -359,7 +367,11 @@ pub fn read_delta(bytes: &[u8]) -> Result<Delta, PlainError> {
     }
     let fragment = snapshot_from_json(&Json::parse_canonical(body)?)?;
     reject_kinds_too_new_for_declared_version(declared, &fragment)?;
-    Ok(Delta { base, fragment })
+    Ok(Delta {
+        schema: declared.to_owned(),
+        base,
+        fragment,
+    })
 }
 
 /// The refuse-to-masquerade rule for anyone naming a file after these bytes:

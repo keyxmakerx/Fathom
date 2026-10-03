@@ -470,3 +470,211 @@ fn only_the_rules_a_batch_touched_run_again() {
     );
     assert!(ran.len() < rules.len());
 }
+
+// --- what the loader refuses, size and age of the frame, schema -----------------------------
+
+const T0: u64 = 1_790_899_200_000;
+
+fn u(n: u128) -> fathom_id::Ulid {
+    fathom_id::Ulid::from_parts(T0, n).unwrap()
+}
+
+/// A device with two chassis `c1`, `c2`, and a port `p` that `c1` owns by `e1`, whose id is `id`
+/// (a late one is what another client's clock gives), cabled twice.
+fn owned_port(sim: &mut Sim, id: Option<u128>) -> (NodeId, NodeId, NodeId, fathom_graph::EdgeId) {
+    sim.g.begin_batch(BatchId(u(9_000_001)), "s").unwrap();
+    let dev = sim.node(NodeKind::Device).unwrap();
+    let c1 = sim.node(NodeKind::Chassis).unwrap();
+    sim.edge(EdgeKind::HasChassis, dev, c1).unwrap();
+    sim.set(ElementId::Node(dev), "Device", "hostname", "alpha");
+    let c2 = sim.node(NodeKind::Chassis).unwrap();
+    sim.edge(EdgeKind::HasChassis, dev, c2).unwrap();
+    let p = sim.node(NodeKind::PhysicalPort).unwrap();
+    let (e, pr) = (id.map_or_else(|| sim.ulid(), u), sim.prov());
+    let e1 = sim.g.insert_edge(EdgeKind::HasPort, e, c1, p, pr).unwrap();
+    for _ in 0..2 {
+        let cable = sim.node(NodeKind::Cable).unwrap();
+        sim.edge(EdgeKind::Terminates, cable, p).unwrap();
+    }
+    sim.g.end_batch().unwrap();
+    (c1, c2, p, e1)
+}
+
+fn one_batch(sim: &mut Sim, id: u128, f: impl FnOnce(&mut Sim)) {
+    sim.g.begin_batch(BatchId(u(id)), "t").unwrap();
+    f(sim);
+    sim.g.end_batch().unwrap();
+}
+
+fn cut(sim: &mut Sim, el: ElementId, id: u128) {
+    one_batch(sim, id, |s| {
+        let at = s.at();
+        s.g.tombstone(el, at, Sim::actor()).unwrap();
+    });
+}
+
+#[test]
+fn a_revive_after_a_reparent_is_resync_because_the_full_load_refuses_it() {
+    let mut sim = Sim::new(1);
+    let (c1, c2, p, e1) = owned_port(&mut sim, None);
+    let (mut sh, before) = held(&sim);
+    let seen = sim.g.log().len();
+    cut(&mut sim, ElementId::Edge(e1), 9_000_002);
+    let mut e2 = None;
+    one_batch(&mut sim, 9_000_003, |s| {
+        e2 = s.edge(EdgeKind::HasPort, c2, p)
+    });
+    cut(&mut sim, ElementId::Edge(e2.unwrap()), 9_000_004);
+    one_batch(&mut sim, 9_000_005, |s| {
+        let at = s.at();
+        s.g.revive(ElementId::Edge(e1), at, Sim::actor()).unwrap();
+    });
+    assert_eq!(sim.g.owner(p), Some(c1));
+
+    // The design as the page holds it: a full load refuses it, and so does the delta.
+    let plain = fathom_workspace::write_plain(&sim.g).unwrap();
+    assert!(fathom_workspace::read_plain(&plain).is_err());
+    assert_eq!(code(&sync_reply(&mut sh, &sim.g, seen)), Some(ERR_RESYNC));
+    assert_eq!(export(&mut sh), before);
+}
+
+#[test]
+fn ids_out_of_order_give_one_owner_and_one_set_of_findings() {
+    // The replacement edge's id is ordered before the first owner's. Remove its chassis (and
+    // the port with it), bring the port and the first owner's edge back.
+    let mut sim = Sim::new(2);
+    let (c1, c2, p, e1) = owned_port(&mut sim, Some(8_000_000));
+    let (mut sh, _) = held(&sim);
+    let seen = sim.g.log().len();
+    cut(&mut sim, ElementId::Edge(e1), 9_000_002);
+    one_batch(&mut sim, 9_000_003, |s| {
+        let (e, pr) = (u(7_000_000), s.prov());
+        s.g.insert_edge(EdgeKind::HasPort, e, c2, p, pr).unwrap();
+    });
+    cut(&mut sim, ElementId::Node(c2), 9_000_004);
+    one_batch(&mut sim, 9_000_005, |s| {
+        let (at, by) = (s.at(), Sim::actor());
+        s.g.revive(ElementId::Node(p), at, by).unwrap();
+        let at = s.at();
+        s.g.revive(ElementId::Edge(e1), at, by).unwrap();
+    });
+
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
+    let (mut fresh, want) = held(&sim);
+    assert_eq!(export(&mut sh), want);
+    let (inc, full) = (
+        sh.estate_for_test().unwrap(),
+        fresh.estate_for_test().unwrap(),
+    );
+    assert_eq!(inc.owner(p), Some(c1));
+    assert_eq!(full.owner(p), Some(c1));
+    assert_eq!(inc.device_of(p), full.device_of(p));
+    assert_eq!(checks(&mut sh), checks(&mut fresh));
+}
+
+#[test]
+fn a_delta_of_many_batches_is_not_quadratic() {
+    let sim = sim_with(3, 4);
+    let (mut sh, _) = held(&sim);
+    let base = sim.g.log().last().map(|b| b.id);
+    let batches: Vec<Batch> = (0..40_000)
+        .map(|i| Batch {
+            id: BatchId(u(50_000_000 + i)),
+            label: String::new(),
+            ops: vec![],
+            comment: None,
+            reverses: None,
+        })
+        .collect();
+    let frag = Snapshot {
+        nodes: vec![],
+        edges: vec![],
+        provenance: vec![],
+        history: vec![],
+        batches,
+    };
+    let frame = fathom_workspace::write_delta(base, &frag);
+    let t = std::time::Instant::now();
+    let reply = sh.handle(OP_SYNC, &frame);
+    // 40,000 batches took 3.1 s when each was looked up in the whole log.
+    assert!(t.elapsed().as_millis() < 1_000, "{:?}", t.elapsed());
+    assert_eq!(reply.len(), 8, "{:?}", code(&reply));
+    assert_eq!(
+        sh.estate_for_test().unwrap().log().len(),
+        sim.g.log().len() + 40_000
+    );
+}
+
+#[test]
+fn a_frame_over_the_cap_is_resync_and_costs_nothing() {
+    let sim = sim_with(4, 10);
+    let (mut sh, before) = held(&sim);
+    let big = vec![b'x'; fathom_wasm::SYNC_FRAME_MAX + 1];
+    assert_eq!(code(&sh.handle(OP_SYNC, &big)), Some(ERR_RESYNC));
+    assert_eq!(export(&mut sh), before);
+}
+
+#[test]
+fn from_nothing_is_only_for_an_empty_estate() {
+    // A design with elements and no log at all: "base none" is not a match for it.
+    let sim = sim_with(5, 10);
+    let mut snap = sim.g.to_snapshot().unwrap();
+    snap.batches.clear();
+    let logless = Graph::from_snapshot(&snap).unwrap();
+    let mut sh = Shell::new();
+    load(&mut sh, &logless);
+    let before = export(&mut sh);
+    let nothing = Snapshot {
+        nodes: vec![],
+        edges: vec![],
+        provenance: vec![],
+        history: vec![],
+        batches: vec![],
+    };
+    let delta = fathom_workspace::write_delta(None, &nothing);
+    assert_eq!(code(&sh.handle(OP_SYNC, &delta)), Some(ERR_RESYNC));
+    assert_eq!(export(&mut sh), before);
+}
+
+#[test]
+fn a_delta_must_declare_the_schema_the_estate_was_loaded_under() {
+    let mut sim = sim_with(6, 10);
+    let current = fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS[0];
+    let plain = String::from_utf8(fathom_workspace::write_plain(&sim.g).unwrap()).unwrap();
+    let mut old = Shell::new();
+    let loaded = old.handle(
+        OP_LOAD_PLAIN,
+        plain
+            .replacen(&format!("schema {current}"), &format!("schema {older}"), 1)
+            .as_bytes(),
+    );
+    assert_eq!(code(&loaded), None);
+    let before = export(&mut old);
+    let seen = sim.g.log().len();
+    sim.step();
+    let frame = fathom_workspace::write_delta_since(&sim.g, seen).unwrap();
+    assert_eq!(code(&old.handle(OP_SYNC, &frame)), Some(ERR_RESYNC));
+    assert_eq!(export(&mut old), before);
+    // Declared the same, it lands.
+    let text = String::from_utf8(frame).unwrap();
+    let same = text.replacen(&format!("schema {current}"), &format!("schema {older}"), 1);
+    assert!(sync_took(&old.handle(OP_SYNC, same.as_bytes()), &sim.g));
+}
+
+#[test]
+fn the_reply_counts_live_elements_only() {
+    let mut sim = sim_with(7, 20);
+    let (mut sh, _) = held(&sim);
+    let seen = sim.g.log().len();
+    let cable = sim
+        .g
+        .nodes_of_kind(NodeKind::Cable)
+        .find(|c| c.absent_since.is_none());
+    let cable = cable.expect("the writer made a cable").id;
+    cut(&mut sim, ElementId::Node(cable), 9_100_000);
+    let reply = sync_reply(&mut sh, &sim.g, seen);
+    let live = sim.g.nodes().filter(|n| n.absent_since.is_none()).count() as u32;
+    assert!(sim.g.nodes().count() as u32 > live);
+    assert_eq!(reply[..4], live.to_le_bytes());
+}
