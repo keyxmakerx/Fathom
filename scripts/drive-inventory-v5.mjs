@@ -451,6 +451,22 @@ try {
   await adder.pressSequentially(`enable secret ${SECRET}`);
   check('typed text is kept as typed', (await adder.inputValue()) === `enable secret ${SECRET}`);
   await adder.fill('');
+  // The same boundary covers the table's own cell editor.
+  if (WRITES) {
+    await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(6).dblclick();
+    const cellEditor = page.locator('.inv-table__editor');
+    await cellEditor.waitFor({ timeout: 5_000 });
+    await page.evaluate((text) => {
+      const el = document.activeElement;
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, `enable secret ${SECRET}`);
+    await page.waitForFunction(() => document.querySelector('.inv-table__editor')?.value !== '', null, { timeout: 5_000 });
+    const inCell = await cellEditor.inputValue();
+    check('a paste into a table cell is gated too', inCell.length > 0 && !inCell.includes(SECRET), inCell);
+    await page.keyboard.press('Escape');
+  }
 
   // 11 — a big bulk change shows a progress line and is one undo step; the notice Undo goes when the header Undo has run.
   if (WRITES) {

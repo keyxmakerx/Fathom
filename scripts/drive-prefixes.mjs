@@ -161,7 +161,7 @@ try {
   await shot('prefixes-02-page.png');
 
   // 5 - a big range gets a coarse grid. A page replaces the list, so Back first.
-  await page.getByRole('button', { name: /^← Prefixes/ }).click();
+  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
   await page.waitForSelector('.inv-table__row');
   await page.locator('.inv-table__row', { hasText: '172.16.0.0/16' }).first().click();
   await page.waitForFunction(() => document.querySelectorAll('.ipam-grid .ipam-grid__cell').length === 256);
@@ -170,7 +170,7 @@ try {
   await shot('prefixes-03-coarse.png');
 
   // 6 - typing an address writes it to a device interface; one undo removes it.
-  await page.getByRole('button', { name: /^← Prefixes/ }).click();
+  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
   await page.waitForSelector('.inv-table__row');
   await page.locator('.inv-table__row', { hasText: '10.0.20.0/24' }).first().click();
   await page.waitForSelector('.ipam-grid');
@@ -195,7 +195,7 @@ try {
   check('an address outside the prefix is refused plainly', (await page.locator('.ipam-form__error').innerText()).includes('not inside 10.0.20.0/24'));
 
   // 8 - a new prefix with no device interface is refused, not left orphaned.
-  await page.getByRole('button', { name: /^← Prefixes/ }).click();
+  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: '+ Add a prefix' }).click();
   await page.getByLabel('Prefix', { exact: true }).fill('10.0.40.0/24');
@@ -212,7 +212,7 @@ try {
   await shot('prefixes-05-new.png');
 
   // 9 - paste rows: header row, two good rows and one without an owner; one undo takes them all.
-  await page.getByRole('button', { name: /^← Prefixes/ }).click();
+  await page.getByRole('button', { name: /^← Back to Prefixes/ }).click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: 'Paste rows' }).click();
   await page.getByLabel('Pasted rows').fill('Prefix\tAddress\tDevice\tInterface\n10.0.50.0/24\t10.0.50.1/24\tfw-01\tge-0/0/1\n10.0.51.0/24\t10.0.51.1/24\tnas-01\teth0\n10.0.52.0/24\t10.0.52.1/24\t\t');
@@ -232,7 +232,7 @@ try {
   await page.locator('.inv-table__row').first().click();
   await page.waitForSelector('.ipam-page');
   check('the VLAN page lists its prefix and members', (await page.locator('.ipam-page').innerText()).includes('10.0.20.0/24'));
-  await page.getByRole('button', { name: /^← VLANs/ }).click();
+  await page.getByRole('button', { name: /^← Back to VLANs/ }).click();
   await page.waitForSelector('.inv-table__row');
   await page.getByRole('button', { name: '+ Add a VLAN' }).click();
   await page.getByLabel('VLAN number').fill('30');
