@@ -7,6 +7,8 @@ import type { Document } from '../../document/model';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
 import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
+import { CableCorrections, type CorrectionsApi } from './CableCorrections';
+import { dismissedLabel } from './corrections';
 import { historyOf } from './kinds';
 import { PanelMap, PathStrip, PluggedInto, RackContents } from './PageParts';
 import type { PlaceIndex, Where } from './placeIndex';
@@ -32,6 +34,8 @@ export interface ItemPageProps {
   /** The open tab, as the address holds it ('' is Overview), so Back lands on the same tab. */
   tab: string;
   onTab: (tab: string) => void;
+  /** Corrections from the floor (a cable page sends or settles them). Absent: none shown. */
+  corrections?: CorrectionsApi;
 }
 
 function portsOf(view: ClosetView, selection: Selection): PortView[] {
@@ -42,7 +46,7 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere } = props;
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections } = props;
   const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
   const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
@@ -62,6 +66,7 @@ export function ItemPage(props: ItemPageProps) {
     body = (
       <div className="inv-page__overview">
         {selection.kind === 'cable' ? <PathStrip doc={doc} view={view} idx={idx} cableId={selection.id} actions={actions} /> : null}
+        {selection.kind === 'cable' && corrections ? <CableCorrections cableId={selection.id} api={corrections} accountId={accountId} /> : null}
         {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
         {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
         <TypedNoteMode.Provider value="once">{EditorFor(selection, view, actions, palette)}</TypedNoteMode.Provider>
@@ -92,7 +97,14 @@ export function ItemPage(props: ItemPageProps) {
     );
   } else {
     const ids = [ownerId, selection.id, ...ports.map((p) => p.id)].filter((x): x is string => !!x);
-    const lines = historyOf(doc, ids);
+    // A dismissal changes nothing in the design, so it comes from the corrections themselves.
+    const dismissed =
+      selection.kind === 'cable' && corrections
+        ? corrections.list
+            .filter((c) => c.cable === selection.id && c.state === 'dismissed' && c.decidedAt != null)
+            .map((c) => ({ label: dismissedLabel(c), who: c.decidedBy ?? '', when: c.decidedAt! }))
+        : [];
+    const lines = [...historyOf(doc, ids), ...dismissed].sort((a, b) => b.when - a.when);
     body = (
       <ul className="inv-page__list">
         {lines.length === 0 ? <li className="inv-page__muted">No changes recorded.</li> : null}

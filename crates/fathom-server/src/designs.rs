@@ -149,6 +149,19 @@ pub enum DesignError {
     FieldDefinitionConflict {
         current: i64,
     },
+    /// A cable correction that fails the kind, cable or text rules.
+    InvalidCorrection(&'static str),
+    /// Correction text the redaction gate's bare check reads as a credential.
+    CorrectionLooksSecret,
+    /// Too many corrections waiting (per cable, per sender or per design).
+    CorrectionCap(&'static str),
+    /// No such correction on this design.
+    NoSuchCorrection,
+    /// A correction already decided, or changed since the caller read it.
+    CorrectionConflict {
+        state: String,
+        version: i64,
+    },
     /// Larger than [`MAX_PAYLOAD_BYTES`].
     PayloadTooLarge {
         bytes: usize,
@@ -239,6 +252,12 @@ impl fmt::Display for DesignError {
             Self::NoSuchFieldDefinition => f.write_str("no such field definition"),
             Self::FieldDefinitionConflict { current } => {
                 write!(f, "that field is now at version {current}")
+            }
+            Self::InvalidCorrection(why) | Self::CorrectionCap(why) => f.write_str(why),
+            Self::CorrectionLooksSecret => f.write_str("correction text looks like a credential"),
+            Self::NoSuchCorrection => f.write_str("no such correction"),
+            Self::CorrectionConflict { state, version } => {
+                write!(f, "that correction is {state} at version {version}")
             }
             Self::PayloadTooLarge { bytes } => write!(
                 f,

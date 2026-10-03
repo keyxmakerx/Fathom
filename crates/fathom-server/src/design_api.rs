@@ -92,6 +92,7 @@ use crate::api;
 use crate::audit;
 use crate::authority::Capability;
 use crate::chain;
+use crate::corrections;
 use crate::crypto;
 use crate::designs::{self, DesignError};
 use crate::field_defs;
@@ -213,6 +214,22 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/field-definitions/{definition}/archive",
             post(archive_field_definition_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/corrections",
+            get(list_corrections_handler).post(create_correction_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/corrections/{correction}/accept",
+            post(accept_correction_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/corrections/{correction}/dismiss",
+            post(dismiss_correction_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/corrections/{correction}/reopen",
+            post(reopen_correction_handler),
         )
         .route("/catalogue/models", get(catalogue_list_handler))
         .route(
@@ -470,6 +487,33 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::FieldDefinitionConflict { current } => (
             StatusCode::CONFLICT,
             format!("that field is now at version {current}; reload and try again\n"),
+        )
+            .into_response(),
+        DesignError::InvalidCorrection(why) => {
+            (StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()
+        }
+        DesignError::CorrectionLooksSecret => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "That looks as if it carries a password or key, so it was not sent. A word such as key, \
+             secret, password or community next to a value is refused, even in an ordinary \
+             sentence; reword it without the value.\n",
+        )
+            .into_response(),
+        DesignError::CorrectionCap(why) => {
+            (StatusCode::TOO_MANY_REQUESTS, format!("{why}\n")).into_response()
+        }
+        DesignError::NoSuchCorrection => {
+            (StatusCode::NOT_FOUND, "no such correction\n").into_response()
+        }
+        DesignError::CorrectionConflict { state, version } => (
+            StatusCode::CONFLICT,
+            if state == "open" {
+                format!(
+                    "that correction changed (now at version {version}); reload and try again\n"
+                )
+            } else {
+                format!("that correction was already {state}\n")
+            },
         )
             .into_response(),
         DesignError::InvalidName => (
@@ -2502,6 +2546,128 @@ async fn archive_field_definition_handler(
     let def = field_defs::archive(&tx, &auth, &id, if_version).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(def.to_json()))
+}
+
+// ---- Cable corrections from the floor ----
+
+/// `GET /organisations/{o}/designs/{d}/corrections`: a `draw` caller sees every open correction
+/// on the design, a `read` caller only their own. See [`corrections::list`].
+async fn list_corrections_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let design_id = parse_design(&design)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let found = corrections::list(&tx, &auth, design_id).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(Json::Arr(
+        found.iter().map(corrections::Correction::to_json).collect(),
+    )))
+}
+
+/// `POST /organisations/{o}/designs/{d}/corrections`: body `{cable, kind, text?}`. Needs `read`
+/// on the design's place; see [`corrections::create`].
+async fn create_correction_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let design_id = parse_design(&design)?;
+    let mut m = object_body(&signed.body, &["cable", "kind", "text"])?;
+    let cable = str_field(&mut m, "cable")?.ok_or(SessionError::Malformed("request body"))?;
+    let kind = str_field(&mut m, "kind")?.ok_or(SessionError::Malformed("request body"))?;
+    let text = str_field(&mut m, "text")?.unwrap_or_default();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let made = corrections::create(&tx, &auth, design_id, &cable, &kind, &text).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(made.to_json()))
+}
+
+async fn decide_correction(
+    state: DesignApiState,
+    path: (String, String, String),
+    signed: Signed,
+    verb: corrections::Verb,
+) -> Result<Response, RouteError> {
+    let (organisation, design, correction) = path;
+    let design_id = parse_design(&design)?;
+    let id = fathom_id::Ulid::decode(&correction)
+        .map(|u| u.to_string())
+        .map_err(|_| SessionError::Malformed("correction id"))?;
+    let mut m = object_body(&signed.body, &["ifVersion"])?;
+    let if_version = if_version_field(&mut m)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let done = corrections::decide(&tx, &auth, design_id, &id, if_version, verb).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(done.to_json()))
+}
+
+/// `POST .../corrections/{id}/accept`: body `{ifVersion}`. Needs `draw`.
+async fn accept_correction_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(path): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    decide_correction(state, path, signed, corrections::Verb::Accept).await
+}
+
+/// `POST .../corrections/{id}/dismiss`: body `{ifVersion}`. Needs `draw`.
+async fn dismiss_correction_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(path): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    decide_correction(state, path, signed, corrections::Verb::Dismiss).await
+}
+
+/// `POST .../corrections/{id}/reopen`: body `{ifVersion}`. Needs `draw`. An ACCEPTED correction
+/// goes back to open (the edit it was accepted for failed); a dismissed one cannot, because its
+/// text was scrubbed when it was dismissed.
+async fn reopen_correction_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(path): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    decide_correction(state, path, signed, corrections::Verb::Reopen).await
 }
 
 // ---- Response framing ----
