@@ -406,6 +406,33 @@ export function listTags(doc: Document): TagSummary[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The Cables list's own tag group — a stored reference is a node id of the
+ * group (one of the tag ids that folds into it), resolved through the same
+ * node-to-group map `untagObject`/`renameTag` read: a rename keeps
+ * resolving, since it never moves the node off its own group. `null` when
+ * `nodeId` names no live tag. */
+export function tagGroupByNodeId(doc: Document, nodeId: string): { name: string; count: number } | null {
+  const idx = tagIndex(doc);
+  const key = idx.keyOfNode.get(nodeId);
+  if (key === undefined) return null;
+  const g = idx.groups.get(key)!;
+  return { name: g.name, count: idx.objectsOfGroup.get(g.key)?.size ?? 0 };
+}
+
+const EMPTY_OBJECT_IDS: ReadonlySet<string> = new Set();
+
+/** The raw membership set behind `tagGroupByNodeId`'s count — every live
+ * object id carrying that same group, read straight off the one cached
+ * index (`tagIndex`) rather than a fresh scan per caller. The Cables list's
+ * own tag group turns this into cable ids in one further pass over the
+ * view (`components/drawing/cableGroups.ts`), never one lookup per cable
+ * through this module. */
+export function objectsInTagGroupByNodeId(doc: Document, nodeId: string): ReadonlySet<string> {
+  const idx = tagIndex(doc);
+  const key = idx.keyOfNode.get(nodeId);
+  return key === undefined ? EMPTY_OBJECT_IDS : (idx.objectsOfGroup.get(key) ?? EMPTY_OBJECT_IDS);
+}
+
 /**
  * Removes `tagId`'s whole group and every live edge touching any node in it
  * — `cascade.ts`'s own schema-driven cascade, run once per node and merged

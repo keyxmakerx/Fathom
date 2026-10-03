@@ -72,6 +72,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   session: DesignSession;
   /** "Show on canvas": switches the place to the canvas with `selection` chosen. */
   onShowOnRack: (selection: Selection) => void;
+  /** What is selected, by element id, for presence (ADR-0063 §12). */
+  onSelectedChange?: (id: string | null) => void;
   notesActions: NotesActions;
   tagsActions: TagsActions;
   fieldsActions: FieldsActions;
@@ -126,7 +128,7 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onSelectedChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -367,6 +369,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   };
 
   const pageSelection = openRow?.selection ?? null;
+  const selectedId = pageSelection?.id ?? null;
+  useEffect(() => {
+    onSelectedChange?.(selectedId);
+  }, [onSelectedChange, selectedId]);
 
   const ctx = useMemo(() => ({ catalogue, actor: getSession()?.accountId, defs: fieldDefs }), [catalogue, fieldDefs]);
 

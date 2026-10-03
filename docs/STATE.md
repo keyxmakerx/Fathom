@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (aef4c10) on 2026-10-03; counts not re-read. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -11,6 +11,12 @@ This page records what exists. It is not a changelog — history lives in `docs/
 **The Rust engine.** Schema toolchain, typed graph store, config ingest with the redaction gate, the
 fragment-to-store weld, the finder, emitters, layout. Zero external dependencies on the client side,
 deliberately. The schema is real and enforced; read counts off `fathom-schema-check`.
+
+**Paste, four platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
+(Junos SRX, Junos EX, EdgeOS, OPNsense). A paste names its platform (frame flag byte, bits 1-3) or the
+engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
+candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
+device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
@@ -126,192 +132,137 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
 
 ## The browser client
 
-Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `gate-npm` are green.
+`client/`: React, Vite, React Flow, plain CSS. Typecheck, tests, build and `gate-npm` are green.
+Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
 
-- **Sign-in and enrolment, both planes, no choice of plane.** Enrolment redeems a token and generates
-  a non-extractable keypair stored under a pending slot before the request goes out, promoted on a
-  confirmed answer. The operator plane has its own door (`/enrolment/operator`, whose answer carries
-  the operator id). A token's prefix names its door (`op_` on the server's file, `inv_` on the
-  console's invitations; `operators::BOOTSTRAP_TOKEN_PREFIX`); sign-in lists identities this browser
-  holds a key for, or looks a typed one up on both planes. The first operator is named after the
-  notice address. CI's compose job redeems the first-operator token
-  (`scripts/ci/first-operator-signin.mjs`).
-- **First run and sign-in (ADR-0055 decision 10, ADR-0056).** No operator door is a key-only
-  redemption. Until the first operator has a password (`GET /setup/state`) the client shows the
-  first-run flow: setup token, the address, a password, the authenticator app (QR code and setup key),
-  ten recovery codes shown once. `SignIn.tsx` is address and password, then the verification code when
-  asked, for any account; a browser key is evidence sent with a session, not the only way in.
-- **The operator console** (`client/src/components/console/`): create an account and invitation,
-  reissue one, disable or re-enable an account, create an organisation shell and claim, list operators
-  and organisations; every token shown once. `PlacementForm.tsx` sets the console's host and sources
-  (warns, redirects, confirms or reverts in a window); `SmtpForm.tsx` writes the `smtp` setting and
-  asks for a test send; `Operators.tsx` adds and disables operators with the one-operator warning. The
-  organisation claim redeems with `POST /enrolment/organisation`: the browser makes the root keypair,
-  signs the genesis grant, shows the recovery key once as base32, then forgets it; the server verifies
-  the signature before writing (ADR-0057 decision 5, 0027). Not on the console: the two-person verbs
-  (they need an assertion by the enrolled key this client does not build), the site trail, an account
-  list (no route).
-- **The shell of ADR-0047:** the one-row bar, the path that opens the scope tree, the five lenses,
-  search that collapses to its magnifier, presence, undo and redo, zoom, the
-  account menu, an editor absent when nothing is selected. **Home** lists your organisations and the
-  designs you may open under their closet's name; an account with one place goes there directly.
-- **The Canvas** (Session 4). Opening a design fetches the catalogue and payload, reads the plain face
-  (ADR-0049) into the browser's document, and draws it with React Flow: racks with rails, U numbers,
-  hatched free runs, device boxes, and ports fading in toward the faceplate stop. The camera has seven
-  stops (UI-SPEC "The shape"); the client has four: closet 87.5%, rack 100% (one 42U rack fits),
-  faceplate 200%, inside 300%. A dragged palette item snaps to a unit, refuses an overlap with a
-  shake, and places the device, chassis and ports. A device can be removed with everything it contains.
-  Every change saves: one save in flight, the latest queued, a refusal shown and never rolled back. The
-  TypeScript writer reproduces all three Rust-made vectors byte for byte; the server reads every
-  payload back before storing it.
-- **Cables** (Session 5). Drawn as UI-SPEC "Cables" says. Bundles with a count fan open on hover; a
-  hovered or selected cable lights its whole path through panels and portals; a cable leaving the
-  closet ends in a dashed portal tray. PSU inlets on the rail (filled when fed, the single-fed wash, a
-  PDU's n of m used); a front | rear flip at the rack stop. The editor edits hostname, role,
-  management address and serial; typed values are marked and a refused value is said aloud. A cable's
-  panel has colour selector and ends; ports offer Select cable and Go to far end; a cables view control
-  filters by kind; a wrong drop shakes the port. Catalogue: an APC PDU and two Panduit panels, cited.
-- **The rear elevation** (Session 6, ADR-0050, schema 0.7). A rack has a row and bay; a supply is a
-  part in a slot with its own serial, hosting its inlet port. The catalogue records each supply slot
-  per face with a hot-swap flag, and management and console ports by name (the EX4300's me0, con and
-  both slots, cited). Every rack has two elevations; the closet stop lays racks out by row and a row
-  flips as one camera. *Single-fed* and *one fitted* are derived. The editor fits or removes a supply
-  and sets a rack's row and bay.
-- **Shelves, surfaces and sketches** (Session 6(b), ADR-0051 §1-2, schema 0.8). A shelf takes units
-  and its occupants take slots. A device or passive is fixed to a wall, floor, desk, ceiling or a board
-  on a wall; equipment outside a rack draws whole. A device with no catalogue entry carries ports typed
-  by hand and says so. A port records its face. An outlet box or panel gets pass-through pairs at
-  placement and a lit path follows them. Catalogue: a Tripp Lite shelf, an ICC outlet box and a
-  CyberPower UPS, cited.
-- **The config drawer (view-only) and the inside stop** (Session 6(c), ADR-0052, schema 0.9). The
-  redaction module ships as a file and runs in the browser with no packages; a paste goes through the
-  gate before anything reaches the document, and a driven browser run proves seven credentials of real
-  device length absent from every save body. The drawer sits under the dimmed faceplate with the three
-  gutter marks, a black block where a value was destroyed, the six rules printed, and a lit port for a
-  built line. The capture is a node on the device; marks derive from provenance on reopen. A reader
-  sees a view-only chip and text only, and the server refuses a read account's save. The inside stop
-  draws a firewall's zones, interfaces, policy rail, routes and tunnels, never a verdict.
-- **Inventory, notes, undo that records** (Session 6(d), ADR-0053, schema 0.11). Two places over one
-  opened design, sharing the document and save queue. Inventory has a rail of kinds, the device grid
-  grouped per rack with the lens choosing columns, the Gaps section, the page as the one editor, and
-  Show on rack both ways. The Networks kind (ADR-0058): VLANs, subnets, Docker networks with their
-  containers and published ports, and an editor. A note is a node on a device, port or rack, pasted
-  through the gate by its own door or stored as typed and saying so. An undo is a new batch of
-  reversing operations (a revive operation restores what a tombstone removed); only your own batches,
-  and a colleague's later change refuses by name. The trail beside the drawing shows sealed and
-  pending, a comment on the next change, live chips and keys.
-- **Saves, designs, scopes** (Session 7, ADR-0054). A save names its base version; the server refuses
-  a base that is not current, naming both numbers, and writes nothing; the wash offers Reload.
-  `POST .../scopes/{scope}/designs` (draw creates a design) and `POST .../scopes` (a steward of the
-  parent creates a scope) make a design reachable from a fresh deployment. The server refuses a
-  payload whose capture or note text still looks like a credential; save, open, verify and create
-  re-check the grant inside the acting transaction; a body is capped at one mebibyte until the
-  signature is checked.
-- **Print, phase 1** (#39). A Print button beside Undo, or Ctrl+P: this rack, every rack in the
-  closet, or the cut sheet; A4 or Letter; cables none or all; serial numbers and management addresses
-  optional; black and white with cable colours as words; a title block and page x of y on every page.
-  A rack sheet draws front and rear to scale with a device table. The cut sheet has a block per device
-  and a row per port, as .csv or .xlsx. Not built: the map sheet and "as filtered on screen".
-- **Tags** (ADR-0059, schema 0.12). A tag is a node that a device, passive, port, cable, rack,
-  premises, VLAN, Docker network or container points at. Chips sit in those editors and on VLAN rows,
-  Docker networks and containers; "Add tag" suggests existing tags; clicking a chip's name renames the
-  tag; a VLAN row tags through its members ("2 of 3"). Quick search finds devices, racks and ports by
-  tag. Not built: the Inventory column and filter, tags in the cable filter (#54), search over cables,
-  VLANs and containers.
-- **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
-  lists every library the web app ships with licence and copyright. The canvas no longer shows React
-  Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's licence is off
-  deny.toml's list (build tools may also be MPL-2.0) or the About list and lockfile disagree; `--write`
-  regenerates the list.
-- **Rack height and surface placement** (ADR-0060 decisions 5 and 11). A rack's details panel offers
-  42U, 24U and 12U or a typed height, and refuses one below anything mounted in it, naming it. Moving a
-  device onto a wall, floor, desk or board no longer asks for millimetres; the surface lays it out.
-  Dragging onto a surface comes with free boxes on the canvas (step 7, below).
-- **Free boxes, lines and areas** (ADR-0060 step 7, schema 0.13: `Label`, `Line`, `PassiveNode.slots`).
-  Boxes sit on the canvas beside racks and walls. A selected free box (equipment with no model) shows small ink circles on its edges: drag one to
-  draw a line, click one to add a dashed new free box. Modelled devices have none. Marquee select (drag empty canvas; pan with the wheel, a trackpad, middle button or Space+drag; one finger pans on touch, the touch marquee (long press) is not built), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
-  bigger), and a flat Align / Spread / Group / Label menu over the selection. Text labels and areas
-  carry what sits inside them. Right-click a free unit of a rack for "Add here". A selected shelf has two grips, height and slots, that refuse by
-  naming what is in the way; the details panel has both as numbers. Not built: cable styles, line
-  routing, a highlighted drop unit while dragging, copying a box's typed ports (a copy gets its role's usual ports).
-- **Open a device, and paste a config anywhere** (ADR-0060 step 8, ADR-0061 §7). Right-click → Open or a
-  double-click goes into a device ("jot mode", `components/jot/`): drawn large with its ports, equipment
-  dragged or clicked in from the list beside it (free boxes, on the canvas where the device is), cables
-  dragged port to port, Config and Inside buttons, Esc or the bar's path back out. Ctrl+V with text, or
-  right-click → Paste config, runs the text through the wasm gate (`components/paste/`) and shows a card:
-  hostname, platform, interfaces, what the gate destroyed by kind (never values), and attach to the
-  same-named device or add a new one. Nothing is stored until the choice. Not built: replacing a device's
-  capture, an import page; a cable to a free box is not drawn on the full canvas (the look switch's stubs).
-- **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
-  in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
-  named after the organisation.
-- **Design names** (ADR-0060 step 3b). A design starts as "Untitled design"; Home's Rename (anyone who may draw) changes it. The name is sealed under the organisation content key (`designs.name_*`, migration 0030), never stored in the clear; `POST .../designs/{design}/name` needs `draw`. No chain entry for a rename yet.
-- **Inventory table with pages and shared custom fields** (schema 0.14, ADR-0062). Field definitions are an organisation-wide server store (migration 0031); a value is a `FieldValue` node in the design. Private fields are not built.
-- **Admin pill**: an amber "Admin" pill beside the initials, on the same gate as Home's Admin tab (console host, not yet refused). Display only; the server still decides.
-- **Plainer canvas words** (ADR-0060 decisions 1 and 4): the Racks place is called Canvas; the left
-  strip is one "Equipment" button that opens the equipment list; built-in items read "Any device" and
-  "Backboard"; "+ add a surface" reads "+ Add a wall, floor or desk"; an empty design shows a note
-  saying what to do; the zoom, account and trail controls name themselves on hover.
-- **Canvas looks right** (ADR-0061, bundle 2a): Ctrl+wheel or pinch zooms (max 400%), the wheel pans; the config drawer and
-  inside view open from right-click Open/Inside or a double-click. Ports sit at catalogue row/column,
-  cables leave a port's own edge and sit under the plates; names sit in the plate's blank space (rail
-  tab if none) with a click callout; at 200%+ a bundle splits into cables with port labels; the details
-  panel lists ports in words; Switch/Router are placed with a default faceplate; zoomed out, ports are
-  not drawn. Logic: `drawing/faceplate.ts`, `drawing/cableEnds.ts`.
-- **The look switch** (ADR-0061 round 7): a Rack | Diagram switch in the top bar. Rack is faceplates and dressed
-  cables; Diagram is a plain labelled box per device (one column per rack) and square-cornered lines in the
-  sheath colour, view-and-select only (devices are placed, moved and cabled in Rack). Each person's choice is
-  kept in this browser per account and design (`drawing/look.ts`); new designs start on Rack. A design-held
-  starting choice is deferred until design names give the design a settings home. A cable whose far end is
-  off screen (24 px inset, settled after a pan or zoom) draws as stubs in both looks, each ending in a tag naming
-  the far end that pans to it; selected or tag-hovered, the whole cable draws (`drawing/stubs.ts`). Zoom never changes the look.
-- **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
-  Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
-  row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
-  common device arrives named (router-1) with its role set, dragged or clicked. Clicking Backboard
-  puts one on the first wall, floor or desk.
-- **Right-click menus** (ADR-0060 decision 4) replace the browser's on the canvas:
-  - A device offers Details, Duplicate and Remove.
-  - A rack offers Details and Add a device.
-  - A cable offers Details and Disconnect.
-  - The empty canvas offers a 42U, 24U or 12U rack and a wall, named Rack 2, Wall 1 and so on.
-  - A reader gets Details only.
-  - Adding a wall, floor or desk no longer waits for a rack; the design's premises is made
-    alongside it.
-- **Home tabs and the account menu** (ADR-0060 decision 7):
-  - Home has tabs: Designs, Organisation and Admin. Each shows only to someone who may use it,
-    and the row is hidden when Designs is the only tab.
-  - Organisation is for the organisation's admins. `GET /organisations` now carries the caller's
-    own role, `admin` or `member`, to decide this; the server still authorises every act. The tab
-    holds the folders (Sites, Buildings and Closets) and where to make more. Designs no longer
-    offers New site, New building or New closet.
-  - Admin is the operator console, renamed from Site. It is a Home tab where the console
-    answers; choosing it signs in to the console, and asks for a verification code there when
-    one is needed. The console shows the same tabs above it.
-  - The account menu holds only the person's own things: Your account, Signed-in browsers (the
-    same screen, opened at that section), the theme, and Sign out.
-  - Not built yet: people, invitations and roles on the Organisation tab, which need server
-    routes, and the one-form "Create an organisation for myself", which needs a security review.
+**Sign-in and the console**
+- **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
+  invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
+  takes the setup token, address, password, authenticator app and ten recovery codes shown once;
+  `SignIn.tsx` is address and password, then the code when asked. A browser key is evidence sent with a
+  session, not the only way in. CI redeems the first-operator token (`scripts/ci/first-operator-signin.mjs`).
+- **Operator console** (`components/console/`): accounts, invitations, organisation shells and claims,
+  operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
+  browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
+  verbs (no assertion by the enrolled key yet), the site trail, an account list.
+- **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins: folders, i.e. Sites, Buildings
+  and Closets), and Admin (the console, only where it answers). Each shows only to someone who may use it.
+  The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
+  shows beside the initials where the console answers. "New design" goes in the first Site the person may
+  draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
+  needs `draw`. Not built: people, invitations and roles on the Organisation tab (need server routes).
+- **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
+  CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
+- **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
+- **IP and VLAN tables, file importer** (ADR-0063): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 
-**Carried:**
-- The dependency-vulnerability gate needs a machine with egress to the advisory database
-  (`scripts/osv-gate.sh`); the v0.1 tag waits on that run.
-- The server's credential check is the detector only; SNMPv3 auth and priv values are a known
-  residual until dictionary matching runs on the server (W7).
-- Nothing exercises two genuinely concurrent saves (the row lock serialises them by construction);
-  the "two people on a running server" proof is still stood in for by tests and screenshots.
-- Trail and notes: the sealed mark is an idle-time approximation until the session hook exposes save
-  completion; the comment box should attach to the next batch, not an already-recorded one; a note's
-  line count is taken before the gate; the private notes layer arrives with the vault (W6).
+**The canvas** (one canvas, detail by degrees; ADR-0060)
+- **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
+  U numbers, hatched free runs, device boxes and ports that fade in toward the faceplate. Four camera
+  stops: closet 87.5%, rack 100%, faceplate 200%, inside 300%. Ctrl+wheel or pinch zooms (max 400%), the
+  wheel pans. Placing snaps to a unit and refuses an overlap with a shake. Every change saves: one in
+  flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
+  typed, refused below what is mounted.
+- **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own
+  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay.
+- **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
+  desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
+  panels get pass-through pairs and a lit path.
+- **Cables.** Bundles fan open on hover; a hovered or selected cable lights its whole path; a cable leaving
+  the closet ends in a dashed portal tray. PSU inlets on the rail. Ports sit at catalogue row and column;
+  cables leave a port's own edge. At 200%+ a bundle splits with port labels.
+- **Free boxes, lines, areas** (ADR-0060 step 7, schema 0.13). Small ink circles on a selected free box
+  draw a line or add a dashed box. Marquee select, copy, paste, duplicate, alignment guides, arrow-key
+  nudge, an Align / Spread / Group / Label menu, labels and areas that carry what sits inside. Shelf grips
+  set height and slots. Not built: line routing, a highlighted drop unit, touch marquee.
+- **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
+  lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
+  cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
+- **Equipment list** (left "Equipment" button): search, headings Common / On a wall / Exact models; click
+  or Enter adds where there is room. Common devices arrive named (router-1) with a role.
+- **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
+  Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
+- **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
+  "jot mode" (`components/jot/`): the device large with its ports, equipment dragged in, cables dragged
+  port to port, Config and Inside buttons, Esc out. Ctrl+V or Paste config runs text through the wasm gate
+  (`components/paste/`) and shows a card: hostname, platform, interfaces, what the gate destroyed by kind
+  (never values), attach to the same-named device or add a new one. Nothing is stored until you choose.
+  Not built: replacing a device's capture; a cable to a free box on the full canvas.
+- **Config drawer and inside stop** (ADR-0052): the gate runs in the browser; a driven run proves seven
+  device-length credentials absent from every save body. The drawer shows the six rules, a black block
+  where a value was destroyed and a lit port per built line. Readers see text only. Inside shows a
+  firewall's zones, interfaces, policy rail, routes and tunnels, never a verdict.
+
+**Inventory, notes, undo** (ADR-0053, 0058, 0059)
+- Two places over one document: Canvas and Inventory. Inventory has a rail of kinds, a device grid
+  grouped per rack, the Gaps section, one page as the editor, and Show on rack. Networks kind: VLANs,
+  subnets, Docker networks with containers and published ports.
+- **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
+- **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
+  refuses by name. The trail shows sealed and pending, with a comment on the next change.
+- **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
+  containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
+  Not built: the Inventory column and filter.
+
+**Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
+numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
+a scope. The server refuses credential-looking capture, note or doc text, re-checks the grant inside the
+acting transaction, and caps a body at 1 MiB until the signature is checked.
+
+**Checks** (ADR-0061 §5-6, #97, #103). The Rust engine runs in the browser (wasm) and checks the open
+design against twelve written rules (`corpus/rules/`: addresses on a link, VLAN access and trunk,
+cable media, link speed, one cable per port, single-fed power, single-cabled switches).
+- A bar chip counts findings and opens a docked, draggable panel; severity is a word and a glyph, never a
+  colour. Each finding has a **Why?** card: the plain reason, the fix, when it is acceptable, and a source
+  note. A wrong drop is refused with a card naming the rule. Badges show for refuse and warn only.
+- Checks load incrementally: about 19 ms per edit at 1000 devices against about 4.5 s reloading whole.
+- Every rule's reviewer is `pending: Key Maker`, so Why? says "Source not yet checked by a person".
+- The server runs no checks. Not built: the Show-menu Checks layer (#110).
+
+**Docs** (ADR-0061 round 7, #109, schema 0.14). A doc has a title, Markdown text and links, and is about a
+device, port, cable, rack, catalogue model (shows on every unit) or the design. A "Docs" line in those
+panels and a Docs button in the bar open the list. Markdown is a safe subset (no HTML, images as words,
+http/https links with host). Pasted text goes through the gate; typed text is stored as typed; the server
+refuses a credential in doc text. Files (PDF, image, text, 25 MB) hang off a doc: text is gated in the
+browser and only the redacted copy uploaded; the server sniffs by content, refuses text still carrying a
+password, seals bytes under the design key and serves downloads only. Images and PDFs (no PDF text
+check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not checked · image/PDF".
+"Remove" takes a file off the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps
+name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
+kind (#93), docs on maintenance plans (#98).
+
+**View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
+PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
+organisation can be added. The grant is signed in the steward's enrolled browser and the server
+re-derives every signed field. Shares do not expire and cover everything inside the scope. Not built:
+outside invites, a public link.
+
+**Print pack** (#39, round 10). Print lists pages with counts: This view (also a PNG drawn by the browser
+from the canvas), Rack elevations, Cable schedule, Port map; "Make PDF" opens the preview and the browser's
+own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials and management addresses
+optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
+.xlsx. Not built: the Inventory table page.
+
+**Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
+VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
+saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.
+
+**Open, not on main yet:** #93 Inventory table, #98 maintenance plans, #100 more paste platforms, #101
+live co-editing, #110 Show menu, #111 print pack.
+
+**Carried**
+- The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
+  v0.1 tag waits on that run.
+- The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
+  (W7). Narrow redaction leaks are tracked in issue #104.
+- Nothing exercises two genuinely concurrent saves (the row lock serialises them).
+- Trail and notes: the sealed mark is an idle-time approximation; the comment box should attach to the
+  next batch; a note's line count is taken before the gate; private notes arrive with the vault (W6).
 - Wire shapes have no cross-language vector yet.
-- Unbuilt: saved filters and the grids for racks, cables and ports; replacing a capture (a second
-  paste into the same device is refused); unreachable-policy hatching; the assistant panel; optics
-  (ADR-0047 §5); a Proxmox dictionary with guest and bridge kinds.
-- Rough edges: the drawer tags every built line and should show them on hover only; a successful
-  paste has no confirmation pulse; dropping a board onto a surface is a no-op until the drawing has a
-  surface drop zone; the opened occupant can sit under the editor; a panel's label pairing remains as
-  the fallback when no pass-through edge exists.
-- The left-right order of the EX4300's two supply slots could not be established.
+- Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
+  assistant panel; optics (ADR-0047 §5); a Proxmox dictionary.
+- Rough edges: the drawer tags every built line; no confirmation pulse after a paste; the opened
+  occupant can sit under the editor.
 - The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
 
 ---
@@ -396,11 +347,3 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
     SFP or SFP28 kind. `secret_exempt` is honoured only for path shapes a core-held allowlist names;
     empty citations and reviewers are refused; every dictionary file carries a `source` header and a
     reviewer.
-
----
-
-## Reference
-
-`/home/user/pouzor/homelable` — a smaller, well-built homelab visualization tool used as a reference
-for the client rebuild. React; it solves several problems we hand-built.
-- Inventory Prefix and VLAN kinds and a file importer (CSV, NetBox, Proxmox, nmap), ADR-0063.

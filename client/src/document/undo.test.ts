@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { createRack, placeChassis, removeChassis, UnknownReferenceError } from './commands';
+import { createRack, createSketchDevice, placeChassis, removeChassis, UnknownReferenceError } from './commands';
 import { connectToOutside, setCableField } from './cables';
 import { setRackField } from './edit';
 import { LOCAL_ACTOR, edgesIn, edgesOut, emptyDocument, findEdge, findNode, formatNodeId, type Document } from './model';
@@ -312,5 +312,16 @@ describe('undo — ADR-0053 §1, revive re-runs the same check an add does', () 
 
     // Refused, not partially applied: the note stays gone under its dead owner.
     expect(findNode(deviceGone, noteId)!.absentSince).toBe(NOW + 3);
+  });
+
+  it('undoing an add skips elements a later batch already tombstoned', () => {
+    const made = createSketchDevice(emptyDocument(), { actor: ACTOR_A, now: NOW });
+    const createId = made.batches.at(-1)!.id;
+    const chassisId = made.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    const removed = removeChassis(made, chassisId, { actor: ACTOR_A, now: NOW + 1 });
+
+    const undone = undo(removed, createId, { actor: ACTOR_A, now: NOW + 2 });
+    expect(undone.batches.at(-1)!.ops).toEqual([]);
+    expect(undone.nodes.every((n) => n.absentSince === NOW + 1)).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -23,6 +23,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 import type { FixtureView, Placement, RackView } from '../../document/view';
 import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
 import { TagChips } from '../TagChips';
+import { DocsSection } from '../docs/DocsSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -285,6 +286,23 @@ function SupplyAction({
       </button>
       {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
     </>
+  );
+}
+
+/** "Hide this cable" / "Show this cable" in the cable's own panel: a view
+ * choice, never an edit — never gated on `actions.onEdit` the way
+ * `SupplyAction` above is, so a read-only viewer can hide a cable too.
+ * Absent only when the caller supplies neither half of the pair at all. */
+function HideCableAction({ cable, actions }: { cable: CableView; actions: EditorActions }) {
+  if (!actions.isCableHidden || !actions.onToggleCableHidden) return null;
+  const hidden = actions.isCableHidden(cable.id);
+  return (
+    <div className="drawing-editor__hide-cable">
+      <button type="button" onClick={() => actions.onToggleCableHidden!(cable.id)}>
+        {hidden ? 'Show this cable' : 'Hide this cable'}
+      </button>
+      {!hidden && <span className="drawing-editor__hide-cable-note">in this browser only; nothing is deleted</span>}
+    </div>
   );
 }
 
@@ -1603,7 +1621,31 @@ function AddNoteForm({
  * page — this file draws the fields and raises `actions.onEdit`; it never
  * reads or writes a `Document` itself.
  */
+/** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
+function elementsOf(selection: Selection, view: ClosetView): string {
+  const ids = [selection.id];
+  if (selection.kind === 'chassis') {
+    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+    if (chassis != null) {
+      ids.push(chassis.deviceId);
+      for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
+    }
+  }
+  return ids.join(' ');
+}
+
 export function EditorFor(
+  selection: Selection | null,
+  view: ClosetView,
+  actions: EditorActions,
+  catalogue: readonly PaletteItem[] = [],
+): ReactNode {
+  const panel = panelFor(selection, view, actions, catalogue);
+  if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
+  return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
+}
+
+function panelFor(
   selection: Selection | null,
   view: ClosetView,
   actions: EditorActions,
@@ -1657,6 +1699,7 @@ export function EditorFor(
         <FieldsSection ownerId={rack.id} actions={actions} />
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
+        <DocsSection ownerId={rack.id} />
       </div>
     );
   }
@@ -1925,6 +1968,7 @@ export function EditorFor(
             `chassis.deviceId`, not `chassis.id`. */}
         <NotesSection ownerId={chassis.deviceId} actions={actions} />
         <TagsSection ownerId={chassis.deviceId} actions={actions} />
+        <DocsSection ownerId={chassis.deviceId} model={chassis.model} />
 
         {/* UI-SPEC's cable-delete rule — the same one-shot action shape
             `SupplyAction` already gives "remove"/"Disconnect", raising
@@ -2165,10 +2209,13 @@ export function EditorFor(
           onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
         />
 
+        <HideCableAction cable={cable} actions={actions} />
+
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
         <FieldsSection ownerId={cable.id} actions={actions} />
         <NotesSection ownerId={cable.id} actions={actions} />
         <TagsSection ownerId={cable.id} actions={actions} />
+        <DocsSection ownerId={cable.id} />
       </div>
     );
   }
@@ -2201,6 +2248,7 @@ export function EditorFor(
         <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
+        <DocsSection ownerId={port.id} />
       </div>
     );
   }
@@ -2220,6 +2268,7 @@ export function EditorFor(
         <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
+        <DocsSection ownerId={port.id} />
       </div>
     );
   }
@@ -2237,6 +2286,7 @@ export function EditorFor(
       <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />
+      <DocsSection ownerId={port.id} />
     </div>
   );
 }

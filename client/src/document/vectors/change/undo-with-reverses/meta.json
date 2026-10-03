@@ -1,0 +1,5 @@
+{
+  "name": "undo-with-reverses",
+  "description": "An undo batch: reverses the earlier relabel, carries a comment, and sets the label back to R1 under a new provenance record.",
+  "actor": "01HF7YAT000000000000000007"
+}

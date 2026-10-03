@@ -19,9 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { ApiRefusal } from '../../api/errors';
 import type { DesignCapability } from '../../api/designs';
+import { LiveFeed, postChange, postPresence, type Person } from '../../api/live';
 import { openDesign } from '../../api/payload';
 import { applyEditorChange } from './applyChange';
+import { writeChange } from '../../document/change';
 import { ConditionalSave } from './conditionalSave';
+import { LiveEditing, type LiveMode, type LiveView } from './liveSession';
 import type { EditorChange } from '../drawing';
 import {
   AlreadyPlacedError,
@@ -92,8 +95,34 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
   return undefined;
 }
 
+/** What the live connection has to say; the page shows it, `liveSession.ts` decides it. */
+export interface LiveStatus {
+  mode: LiveMode;
+  /** The stream is up. */
+  connected: boolean;
+  /** The stream dropped and is being reopened. */
+  reconnecting: boolean;
+  pendingCount: number;
+  note: string | null;
+  overwrite: LiveView['overwrite'];
+  merged: string | null;
+  self: Person | null;
+  people: Person[];
+}
+
+const NO_LIVE: LiveStatus = { mode: 'connecting', connected: false, reconnecting: false, pendingCount: 0, note: null, overwrite: null, merged: null, self: null, people: [] };
+
 export interface DesignSession {
   doc: Document | null;
+  live: LiveStatus;
+  /** Live editing: restore the value another person's change just replaced (an item's `id` from `live.overwrite`). */
+  putMineBack: (id: string) => void;
+  dismissOverwrite: () => void;
+  dismissNote: () => void;
+  /** One sentence in the live notice's place (e.g. what an undo left alone). */
+  tell: (sentence: string) => void;
+  /** The view this person is in ("canvas" or "inventory") and what they have selected, for presence. */
+  setPresence: (view: string, selected: string | null) => void;
   catalogue: CatalogueModel[];
   /** The open design's id, for per-design browser-local choices (the look). */
   designId?: string;
@@ -138,6 +167,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveStatus>(NO_LIVE);
+  const liveRef = useRef<LiveEditing | null>(null);
+  const viewRef = useRef<{ view: string; selected: string | null } | null>(null);
 
   // ADR-0054 §1: the base a save is conditioned on, held here rather than in
   // state — it moves on every save that lands, which a document mid-drawing
@@ -170,8 +202,34 @@ export function useDesignSession(organisationId: string, designId: string, capab
         // always the person's own asking (the initial open, or Reload after
         // a conflict), never a reaction to a refusal's own header.
         conditionalSaveRef.current = new ConditionalSave(opened.version);
-        setDoc(readPlain(opened.bytes));
+        const opened0 = readPlain(opened.bytes);
         setSaveRefusal(null);
+        liveRef.current?.dispose();
+        const session = new LiveEditing(
+          {
+            me: getSession()?.accountId,
+            canDraw,
+            reopen: async () => {
+              const again = await openDesign(organisationId, designId);
+              return { doc: readPlain(again.bytes), version: again.version };
+            },
+            post: (change, after) => postChange(organisationId, designId, writeChange(change), after),
+            postView: (body) => postPresence(organisationId, designId, body),
+            makeFeed: (since, events, view) => new LiveFeed({ organisationId, designId, since, events, view }),
+            save: (next) => saveQueueRef.current?.push(writePlain(next)),
+            onView: (v) => {
+              if (cancelledRef.current) return;
+              setDoc(v.doc);
+              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, merged: v.merged, self: v.self, people: v.people });
+            },
+          },
+          opened0,
+          opened.version,
+        );
+        liveRef.current = session;
+        setDoc(opened0);
+        session.start();
+        if (viewRef.current !== null) session.setPresence(viewRef.current.view, viewRef.current.selected);
       })
       .catch((error: unknown) => {
         if (!cancelledRef.current) setLoadError(describeError(error));
@@ -182,17 +240,34 @@ export function useDesignSession(organisationId: string, designId: string, capab
     setDoc(null);
     setCatalogue([]);
     setSaveRefusal(null);
+    setLive(NO_LIVE);
     conditionalSaveRef.current = null;
     load();
     return () => {
       cancelledRef.current = true;
+      liveRef.current?.dispose();
+      liveRef.current = null;
     };
   }, [load]);
 
   /** ADR-0054 §1's Reload — see the `DesignSession.reloadDesign` doc. */
   const reloadDesign = useCallback(() => {
-    load();
+    const session = liveRef.current;
+    if (session != null && session.currentMode !== 'legacy') session.reload();
+    else load();
   }, [load]);
+
+  // Closing the tab with changes the server has not confirmed loses them: they are never kept in browser storage.
+  const pendingCount = live.pendingCount;
+  useEffect(() => {
+    if (pendingCount === 0) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pendingCount]);
 
   const saveQueue = useMemo(
     () =>
@@ -217,14 +292,31 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [organisationId, designId],
   );
 
+  const saveQueueRef = useRef(saveQueue);
+  saveQueueRef.current = saveQueue;
+
   const applyDocChange = useCallback(
     (next: Document) => {
+      const session = liveRef.current;
+      if (session != null) {
+        session.edit(next);
+        return;
+      }
       setDoc(next);
       if (!canDraw) return;
       saveQueue.push(writePlain(next));
     },
     [saveQueue, canDraw],
   );
+
+  const putMineBack = useCallback((id: string) => liveRef.current?.putBack(id), []);
+  const dismissOverwrite = useCallback(() => liveRef.current?.dismissOverwrite(), []);
+  const dismissNote = useCallback(() => liveRef.current?.dismissNote(), []);
+  const tell = useCallback((sentence: string) => liveRef.current?.tell(sentence), []);
+  const setPresence = useCallback((view: string, selected: string | null) => {
+    viewRef.current = { view, selected };
+    liveRef.current?.setPresence(view, selected);
+  }, []);
 
   const handleEdit = useCallback(
     (change: EditorChange): { refused: string } | void => {
@@ -255,5 +347,21 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
+  return {
+    doc,
+    designId,
+    live,
+    putMineBack,
+    dismissOverwrite,
+    dismissNote,
+    tell,
+    setPresence,
+    catalogue,
+    loadError,
+    saveRefusal,
+    canDraw,
+    applyDocChange,
+    handleEdit,
+    reloadDesign,
+  };
 }

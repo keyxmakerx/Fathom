@@ -1,6 +1,9 @@
 # Fathom — Rebuild Plan
 
-**Status:** Draft, 2026-09-11
+**Status:** Draft, 2026-09-11. Progress note 2026-10-03: Phases 0-2 are done; Phase 3 (canvas) is built
+and being polished (ADR-0060, 0061); the Phase 5 inventory is mostly built (a table with pages is in
+review, #93); Phase 6's config checker is built as **Checks** (#97, #103). Phase 4 (live co-editing) is
+in review (#101). See `docs/STATE.md` for what is on main.
 **Supersedes:** `00-ROUTE-TO-WORKABLE.md` and `00-PROGRAM-PLAN.md` as the operative plan.
 
 ---

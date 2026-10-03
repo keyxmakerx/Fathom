@@ -58,6 +58,12 @@ function splitId(s: string): [string, string] {
   return [kebabPart, ulidPart];
 }
 
+/** Is this element id a node's (not an edge's)? By the kind in its prefix. */
+export function isNodeId(s: string): boolean {
+  const at = s.indexOf(':');
+  return at > 0 && NODE_KIND_BY_KEBAB.has(s.slice(0, at));
+}
+
 export function formatNodeId(kind: NodeKind, ulid: string): string {
   return `${kebab(kind)}:${ulid}`;
 }
@@ -301,11 +307,17 @@ function pruneHistoryEntries(doc: Document, entries: HistoryEntry[]): { entries:
  * written, so a value is never simply gone the moment it is edited. Entries
  * are oldest first, matching `FieldHistory::entries`'s own doc comment. */
 export function archiveField(doc: Document, element: string, field: string, replaced: FieldEntry): Document {
+  return appendHistory(doc, element, field, { presence: replaced.presence, prov: replaced.prov, value: replaced.value });
+}
+
+/** Append one entry to a field's history, pruned as `FieldHistory::push` prunes. A clear records
+ * its own `unknown` entry here, as `clear_field` does, since no slot remains to carry it. */
+export function appendHistory(doc: Document, element: string, field: string, entry: HistoryEntry): Document {
   const idx = doc.history.findIndex((h) => h.element === element && h.field === field);
   const prior = idx >= 0 ? doc.history[idx] : undefined;
   const appended: HistoryEntry[] = [
     ...(prior?.entries ?? []),
-    { presence: replaced.presence, prov: replaced.prov, value: replaced.value },
+    entry,
   ];
   const { entries, dropped } = pruneHistoryEntries(doc, appended);
   const record: HistoryRecord = { element, field, entries, truncated: (prior?.truncated ?? 0) + dropped };
@@ -677,16 +689,16 @@ export function isGoTrimSpaceBlank(s: string): boolean {
   return true;
 }
 
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
+export function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
   const e = fields[name];
   return e && e.presence === 'set' ? e.value : undefined;
 }
 
-function asString(v: CanonValue | undefined): string | undefined {
+export function asString(v: CanonValue | undefined): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-function asNumber(v: CanonValue | undefined): number | undefined {
+export function asNumber(v: CanonValue | undefined): number | undefined {
   return typeof v === 'number' ? v : undefined;
 }
 

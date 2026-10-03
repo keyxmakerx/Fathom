@@ -231,6 +231,25 @@ const TABLES: &[TableClaim] = &[
               below exists for.",
     },
     TableClaim {
+        name: "design_change",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "one accepted live change per row (ADR-0063), sealed like a payload under a \
+              different associated-data tag. `body_digest` is a keyed digest used only to \
+              recognise a retried batch.",
+    },
+    TableClaim {
+        name: "design_checkpoint",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "the design's head as a full face at a version, written by the server \
+              (ADR-0063). Derived from chained data, so it has no chain entry of its own.",
+    },
+    TableClaim {
         name: "chain_entries",
         protection: Protection::KeyProtected {
             columns: &["metadata"],
@@ -556,6 +575,19 @@ const TABLES: &[TableClaim] = &[
               signature is what a later reader verifies rather than something to keep. **No \
               SMTP value lands here**: `smtp` is one more sealed `site_settings_versions` row \
               (`0015` §F), which is where its ciphertext claim already is.",
+    },
+    // ADR-0061 round 10 -- migration `0031_design_files.sql`.
+    TableClaim {
+        name: "design_files",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, like `design_payload`; the file id and design are bound in \
+                    the AEAD associated data",
+        },
+        why: "files attached to docs. The bytes are sealed whole; the file name, size and the \
+              gate's result live in the chained design graph. The text of a file has passed the \
+              server's credential check and the browser's redaction gate before it is sealed. \
+              `nonce`, `key_epoch` and the other columns are not secret.",
     },
 ];
 

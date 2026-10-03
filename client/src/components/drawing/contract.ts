@@ -323,6 +323,12 @@ export interface EditorActions {
   onAddFieldDef?(ownerId: string, name: string, type: FieldType, choices?: readonly string[]): Promise<{ refused: string } | void>;
   /** Removes a field for the whole organisation; values already set stay, shown as removed. */
   onRemoveFieldDef?(defId: string): Promise<{ refused: string } | void>;
+  /** "Hide this cable" / "Show this cable" in the cable's own panel. A view
+   * choice, not an edit (never gated on `onEdit`'s own presence — a
+   * read-only viewer can do it too): absent only where the caller supplies
+   * no hidden-cable tracking at all. */
+  isCableHidden?(cableId: string): boolean;
+  onToggleCableHidden?(cableId: string): void;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only

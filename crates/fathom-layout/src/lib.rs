@@ -161,8 +161,9 @@ pub struct Link {
     /// gives about position and for one more: a link is the load-bearing claim
     /// a network diagram makes, and *"who says these two are connected"* is a
     /// question the picture has to be able to answer. `51` §9 rules out both
-    /// obvious strokes — `dashed` is reserved for AI-proposed content and
-    /// `dotted` for an unanswered required value — so this is marked the way a
+    /// obvious strokes — `dashed` is reserved for AI-proposed content (a maintenance
+    /// plan's marks are dashed too, always indigo and only inside an open plan; AI-proposed
+    /// stays ink) and `dotted` for an unanswered required value — so this is marked the way a
     /// placed box is: a word in the picture and a phrase on the Outline row.
     ///
     /// A merged stroke (`members > 1`) is hand only when every edge under it
@@ -171,7 +172,7 @@ pub struct Link {
     /// True when this line is not a graph edge at all but the picture of a
     /// `Cable` — derived from `Cable -> Terminates -> PhysicalPort ->
     /// (owning Chassis) -> (owning Device)` (ADR-0038 D10), never stored.
-    /// `59`'s reserved strokes (dashed for AI-proposed, dotted for
+    /// `59`'s reserved strokes (dashed for AI-proposed or an open plan, dotted for
     /// unanswered) are not this: a cable line is drawn solid, the same as a
     /// link, and marked with its own word — *"cable · by hand"*, `hand` and
     /// `cable` both true, because nothing but a hand gesture creates one yet.

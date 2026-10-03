@@ -102,6 +102,11 @@ impl Checks {
         }
     }
 
+    /// The rules the last `OP_CHECKS` evaluated again, as indexes into [`RULES`].
+    pub fn last_run(&self) -> &[usize] {
+        &self.engine.last_run
+    }
+
     pub fn rule_count(&self) -> usize {
         self.pack.rules.len()
     }

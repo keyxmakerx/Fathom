@@ -1,0 +1,122 @@
+/* The History panel beside the canvas (round 11, mockup r11-history-a): ink only, no colour. */
+.history {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: var(--t-small);
+}
+.shell-editor .history__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: var(--s3) var(--s4) var(--s2);
+}
+.shell-editor .history__title {
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.shell-editor .history__close,
+.shell-editor .history__older {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+.shell-editor .history__older {
+  align-self: flex-start;
+  padding: var(--s2) var(--s4);
+}
+.shell-editor .history__verify,
+.shell-editor .history__note {
+  margin: 0;
+  padding: 0 var(--s4) var(--s3);
+}
+.shell-editor .history__note {
+  color: var(--muted);
+}
+.shell-editor .history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.shell-editor .history__row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: var(--s2) var(--s4);
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.shell-editor .history__row--on {
+  border-left-color: var(--ink);
+  background: var(--surface);
+}
+.shell-editor .history__what {
+  display: block;
+  color: var(--muted);
+}
+.shell-editor .history__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.shell-editor .history__btn {
+  font: inherit;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.shell-editor .history__btn--primary {
+  background: var(--ink);
+  color: var(--page);
+}
+.shell-editor .history__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.history__confirm p {
+  margin: 0 0 var(--s2);
+}
+
+/* Over the canvas while a past save is shown. */
+.history-banner {
+  position: absolute;
+  top: var(--s3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-small);
+  color: var(--ink);
+  pointer-events: none;
+}
+/* What the picked save changed: dashed ink, never a colour. */
+.history-changed {
+  outline: 2px dashed var(--ink);
+  outline-offset: 0;
+}
+.react-flow__edge.history-changed {
+  outline: none;
+}
+.react-flow__edge.history-changed path {
+  stroke-dasharray: 6 5;
+}

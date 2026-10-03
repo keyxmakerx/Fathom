@@ -167,8 +167,20 @@ async function choosePaper(page, paper) {
   await page.locator(`[data-testid="print-paper-${paper.toLowerCase()}"]`).click();
 }
 
+/** Ticks exactly `wanted` among the page list's rows (rows that are absent or disabled are left alone). */
+async function setSections(page, wanted) {
+  for (const id of ['view', 'racks', 'cables', 'ports', 'inventory']) {
+    const box = page.locator(`[data-testid="print-section-${id}"]`);
+    if ((await box.count()) === 0 || (await box.isDisabled())) continue;
+    if ((await box.isChecked()) !== wanted.includes(id)) await box.click();
+  }
+}
+
 async function chooseWhat(page, what) {
-  await page.locator(`[data-testid="print-what-${what}"]`).click();
+  if (what === 'cut-sheet') return setSections(page, ['ports']);
+  await setSections(page, ['racks']);
+  const scope = page.locator(`[data-testid="print-racks-${what === 'closet' ? 'all' : 'active'}"]`);
+  if ((await scope.count()) > 0) await scope.click();
 }
 
 /** Clicks the panel's own Print button, waits for the preview, and reads
@@ -211,9 +223,10 @@ try {
   // -------------------------------------------------------------------------
   await openPanel(page);
   const panelText = await page.locator('[data-testid="print-panel"]').innerText();
-  check('the panel names the rack it will print ("This rack")', panelText.includes('This rack'));
-  check('the panel offers "Every rack in this closet"', panelText.includes('Every rack in this closet'));
-  check('the panel offers "The cut sheet"', panelText.includes('The cut sheet'));
+  check('the panel lists the pack pages with counts', panelText.includes('This view') && panelText.includes('Rack elevations, front and back') && panelText.includes('Cable schedule') && panelText.includes('Port map per device'));
+  check('the panel offers a rack scope: "This rack" and "Every rack"', panelText.includes('This rack') && panelText.includes('Every rack'));
+  const makeLabel = await page.locator('[data-testid="print-panel-print"]').innerText();
+  check('the Make PDF button carries the page total', /Make PDF · \d+ pages?/.test(makeLabel), makeLabel);
   check('the panel offers A4 and Letter', panelText.includes('A4') && panelText.includes('Letter'));
   await page.screenshot({ path: SHOTS + 'P-01-panel.png' });
   console.log('    wrote ' + SHOTS + 'P-01-panel.png');
@@ -528,6 +541,52 @@ try {
 
     await page.locator('[data-testid="print-preview-close"]').click();
   }
+
+  // -------------------------------------------------------------------------
+  // The pack (r10-print B): view + racks + cable schedule + port map in one
+  // PDF; the button's total must equal the pages shown; PNG is a real PNG.
+  // -------------------------------------------------------------------------
+  await openPanel(page, 'print-loft');
+  await setSections(page, ['view', 'racks', 'cables', 'ports']);
+  const total = Number(/(\d+) page/.exec(await page.locator('[data-testid="print-panel-print"]').innerText())?.[1] ?? -1);
+  await page.waitForFunction(() => !document.querySelector('[data-testid^="print-count-"]')?.textContent?.includes('…'), null, { timeout: 5_000 }).catch(() => {});
+  const { domPageCount, pairs } = await toPreviewAndReadTitleBlocks(page);
+  check('pack: the Make PDF total equals the pages shown', total === domPageCount, `button ${total}, shown ${domPageCount}`);
+  check('pack: page numbers run 1..of', pairs.every((p, i) => p && p.page === i + 1 && p.of === domPageCount), JSON.stringify(pairs));
+  const imgOk = await page.evaluate(async () => {
+    const img = document.querySelector('[data-testid="print-view-image"]');
+    if (!img) return 'no image page';
+    if (!img.src.startsWith('data:image/png')) return 'not a png: ' + img.src.slice(0, 30);
+    await img.decode();
+    return img.naturalWidth > 100 && img.naturalHeight > 100 ? 'ok' : `tiny ${img.naturalWidth}x${img.naturalHeight}`;
+  });
+  check('pack: "This view" is a real PNG of the canvas', imgOk === 'ok', imgOk);
+  const imgPixels = await page.evaluate(async () => {
+    const img = document.querySelector('[data-testid="print-view-image"]');
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let dark = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 120 && d[i + 1] < 120 && d[i + 2] < 120) dark += 1;
+    return { dark, total: d.length / 4 };
+  });
+  check('pack: the picture draws something (not blank paper)', imgPixels.dark > 200, JSON.stringify(imgPixels));
+  const scheduleText = (await page.locator('[data-testid="print-cables-table"]').first().innerText()).toLowerCase();
+  check('pack: the cable schedule names both ends of a cable', scheduleText.includes('from') && scheduleText.includes('to'), scheduleText.slice(0, 80));
+  await checkNoOverflow(page, 'pack');
+  await page.screenshot({ path: SHOTS + 'P-05-pack-top.png' });
+  const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
+  check('pack: the real PDF page count matches', countPdfPages(pdf).byTypePage === domPageCount, `pdf ${countPdfPages(pdf).byTypePage}, shown ${domPageCount}`);
+  await page.locator('[data-testid="print-preview-close"]').click();
+
+  await openPanel(page, 'print-loft');
+  const [png] = await Promise.all([page.waitForEvent('download'), page.locator('[data-testid="print-save-png"]').click()]);
+  const pngPath = join(DOWNLOAD_DIR, 'view.png');
+  await png.saveAs(pngPath);
+  const pngBytes = readFileSync(pngPath);
+  check('the saved view starts with the PNG signature', pngBytes[0] === 0x89 && pngBytes.toString('latin1', 1, 4) === 'PNG', `${pngBytes.length} bytes`);
+  copyFileSync(pngPath, SHOTS + 'P-05-view.png');
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
