@@ -1,0 +1,16 @@
+[package]
+name = "fathom-rules"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# fex (ADR-0009) and the rule engine. No external dependencies, on purpose: the
+# condition language runs in the browser against attacker-influenced graph content, so
+# its lexer, checker, compiler and VM are ours (12 §3.3). `graph` is the one module that
+# touches the real store; everything else runs over the `World` and `Schema` traits.
+[dependencies]
+fathom-graph = { path = "../fathom-graph" }
+fathom-ir = { path = "../fathom-ir" }
+fathom-schema = { path = "../fathom-schema" }
+fathom-id = { path = "../fathom-id" }

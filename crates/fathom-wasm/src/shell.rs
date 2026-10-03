@@ -20,10 +20,10 @@ use crate::protocol::{
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
 use crate::{
-    OP_CABLE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE, OP_EQUIPMENT, OP_EQUIP_ADD,
-    OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE, OP_INV_ROWS, OP_LINK,
-    OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE,
-    OP_REDACT_TEXT,
+    OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
+    OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
+    OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY,
+    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT,
 };
 
 pub struct Shell {
@@ -39,6 +39,8 @@ pub struct Shell {
     /// The OPNsense firewall-rules dictionary, likewise. A second slot, not a
     /// replacement: a paste chooses one and the other must remain for the next.
     csv_dict: Option<fathom_ingest::dict::Dictionary>,
+    /// The rule pack and its cache over `estate` (ADR-0061 §5).
+    checks: crate::checks::Checks,
 }
 
 impl Shell {
@@ -48,6 +50,7 @@ impl Shell {
             estate: None,
             dict: None,
             csv_dict: None,
+            checks: crate::checks::Checks::new(),
         }
     }
 
@@ -97,6 +100,8 @@ impl Shell {
             OP_RACK_PLACE => self.rack_place(req),
             OP_RACK_ELEVATION => self.rack_elevation(req),
             OP_FINDINGS => self.findings(req),
+            OP_CHECKS => self.checks(req),
+            OP_CHECK_GESTURE => self.check_gesture(req),
             OP_INSIDE => self.inside(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
@@ -1673,6 +1678,97 @@ impl Shell {
             return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
         };
         protocol::encode_findings_reply(&fathom_inventory::findings(estate))
+    }
+
+    /// `OP_CHECKS`: the standing findings. No request bytes.
+    fn checks(&mut self, req: &[u8]) -> Vec<u8> {
+        if !req.is_empty() {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                &format!("OP_CHECKS takes no request; got {} bytes", req.len()),
+            );
+        }
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let rows = self.checks.standing(estate);
+        let counts = crate::checks::Checks::severity_counts(&rows);
+        let head = (
+            counts,
+            self.checks.load_error.is_some(),
+            self.checks.rule_count(),
+            self.checks.unfinished,
+        );
+        protocol::encode_checks_reply(Some(head), &rows)
+    }
+
+    /// `OP_CHECK_GESTURE`: what a proposed cable or field edit would break, if anything.
+    /// Frame in `lib.rs`. Reads only; a frame that does not parse answers with no rows.
+    fn check_gesture(&mut self, req: &[u8]) -> Vec<u8> {
+        use crate::checks::{cable_proposal, field_proposal, End};
+        let none = || protocol::encode_checks_reply(None, &[]);
+        let Some(estate) = self.estate.as_ref() else {
+            return none();
+        };
+        let Some((kind, body)) = req.split_first() else {
+            return none();
+        };
+        let proposal = match kind {
+            0 => {
+                let Ok((near, rest)) = take_cable_end(body) else {
+                    return none();
+                };
+                let Ok((far, rest)) = take_cable_end(rest) else {
+                    return none();
+                };
+                let Some((media, rest)) = take_len_bytes(rest) else {
+                    return none();
+                };
+                let (Ok(media), true) = (core::str::from_utf8(media), rest.is_empty()) else {
+                    return none();
+                };
+                let end = |raw: RawCableEnd| match raw {
+                    RawCableEnd::Port(id) => match self.resolve_node(&id) {
+                        Some(n)
+                            if n.kind == fathom_ir::generated::ir_types::NodeKind::PhysicalPort =>
+                        {
+                            Some(End::Port(n))
+                        }
+                        _ => None,
+                    },
+                    RawCableEnd::Mint(..) => Some(End::Minted),
+                    RawCableEnd::Unknown => Some(End::Unknown),
+                    RawCableEnd::Reserved => None,
+                };
+                let (Some(near), Some(far)) = (end(near), end(far)) else {
+                    return none();
+                };
+                cable_proposal(&near, &far, media)
+            }
+            1 => {
+                let (Some(key), Some(len)) = (body.get(..4), body.get(4..6)) else {
+                    return none();
+                };
+                let key = fathom_ir::bag::FieldKey(u32::from_le_bytes(le4(key, 0)));
+                let len = usize::from(u16::from_le_bytes([len[0], len[1]]));
+                let (Some(id), Some(value)) = (body.get(6..6 + len), body.get(6 + len..)) else {
+                    return none();
+                };
+                let (Ok(id), Ok(value)) = (core::str::from_utf8(id), core::str::from_utf8(value))
+                else {
+                    return none();
+                };
+                let Some(node) = self.resolve_node(id) else {
+                    return none();
+                };
+                match field_proposal(node, key, value) {
+                    Some(p) => p,
+                    None => return none(),
+                }
+            }
+            _ => return none(),
+        };
+        protocol::encode_checks_reply(None, &self.checks.gesture(estate, &proposal))
     }
 
     fn inv_rows(&mut self, req: &[u8]) -> Vec<u8> {

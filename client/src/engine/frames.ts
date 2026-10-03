@@ -134,3 +134,32 @@ export function pasteFrame(text: string, confirm: boolean, now: number | bigint,
   const textBytes = new TextEncoder().encode(text);
   return concatBytes([at, nonce, confirmByte, textBytes]);
 }
+
+/** One cable end as `OP_CABLE` and `OP_CHECK_GESTURE` spell it: an existing port by display id, a port to
+ * mint on a box, or an unknown far end. */
+export type CableEnd = { port: string } | { mint: { box: string; label: string } } | 'unknown';
+
+function lenPrefixed(text: string, what: string): Uint8Array {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length > 255) throw new Error(`${what} is ${bytes.length} bytes; the frame takes at most 255`);
+  return concatBytes([new Uint8Array([bytes.length]), bytes]);
+}
+
+function endSpec(end: CableEnd): Uint8Array {
+  if (end === 'unknown') return new Uint8Array([2]);
+  if ('port' in end) return concatBytes([new Uint8Array([0]), lenPrefixed(end.port, 'a port id')]);
+  return concatBytes([new Uint8Array([1]), lenPrefixed(end.mint.box, 'a box id'), lenPrefixed(end.mint.label, 'a port label')]);
+}
+
+/** `OP_CHECK_GESTURE`, kind 0: a proposed cable. `media` is a `Cable.media` token, empty when unset. */
+export function cableGestureFrame(near: CableEnd, far: CableEnd, media: string): Uint8Array {
+  return concatBytes([new Uint8Array([0]), endSpec(near), endSpec(far), lenPrefixed(media, 'a media token')]);
+}
+
+/** `OP_CHECK_GESTURE`, kind 1: a proposed field edit. */
+export function fieldGestureFrame(key: number, displayId: string, value: string): Uint8Array {
+  const id = new TextEncoder().encode(displayId);
+  const idLen = new Uint8Array(2);
+  new DataView(idLen.buffer).setUint16(0, id.length, true);
+  return concatBytes([new Uint8Array([1]), u32le(key), idLen, id, new TextEncoder().encode(value)]);
+}

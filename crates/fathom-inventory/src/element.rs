@@ -120,7 +120,7 @@ pub fn element_page(g: &Graph, id: NodeId) -> Option<ElementPage> {
 }
 
 /// WO-08 §4.6's display-name rule. Computed here, never in JS.
-pub(crate) fn display_name(g: &Graph, id: NodeId) -> String {
+pub fn display_name(g: &Graph, id: NodeId) -> String {
     match id.kind {
         NodeKind::Device => value_cell(g, id, key("Device.hostname")),
         // ADR-0038 D11. `PhysicalPort.label` became legally absent at schema

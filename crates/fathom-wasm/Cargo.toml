@@ -31,6 +31,7 @@ fathom-ingest = { path = "../fathom-ingest" }
 fathom-inventory = { path = "../fathom-inventory" }
 fathom-layout = { path = "../fathom-layout" }
 fathom-ir = { path = "../fathom-ir" }
+fathom-rules = { path = "../fathom-rules" }
 fathom-weld = { path = "../fathom-weld" }
 fathom-workspace = { path = "../fathom-workspace" }
 
@@ -42,3 +43,4 @@ fathom-workspace = { path = "../fathom-workspace" }
 # asserts that rather than trusting it.
 [dev-dependencies]
 fathom-wasm = { path = ".", features = ["demo-estate", "inspect"] }
+fathom-schema = { path = "../fathom-schema" }
