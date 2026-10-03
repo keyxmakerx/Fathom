@@ -3009,6 +3009,36 @@ async fn people_lists_everyone_with_their_access_and_removing_a_steward_waits_a_
     assert_eq!(int(&prep, "takes_effect_at_unix"), int(&prep, "at"));
 }
 
+/// Act as the shipper until the spool is empty, to a receiver that keeps nothing.
+/// The caller holds the spool lock, so nobody else is waiting on these lines.
+async fn ship_the_backlog(client: &tokio_postgres::Client) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target =
+        fathom_server::audit::SyslogTarget::parse(&listener.local_addr().unwrap().to_string())
+            .expect("a bound address is host:port");
+    let receiver = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut sink = Vec::new();
+                let _ = socket.read_to_end(&mut sink).await;
+            });
+        }
+    });
+    for _ in 0..2000 {
+        let drained = fathom_server::audit::drain_once(client, &target)
+            .await
+            .unwrap();
+        if drained.remaining == 0 || drained.shipped == 0 {
+            break;
+        }
+    }
+    receiver.abort();
+}
+
 // ===========================================================================
 // 15. Timing: five hundred in one batch
 // ===========================================================================
@@ -3016,6 +3046,10 @@ async fn people_lists_everyone_with_their_access_and_removing_a_steward_waits_a_
 #[tokio::test]
 async fn five_hundred_people_confirm_in_one_batch_inside_the_drift_budget() {
     let _site = support::lock_the_site_chain().await;
+    // This test queues thousands of audit lines. Holding the shipper's lock keeps
+    // the spool tests in `audit_chains` from running over that backlog, and the
+    // drain at the end hands it on through the shipper's own path.
+    let spool = support::lock_the_spool().await;
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring, 1).await;
@@ -3138,4 +3172,6 @@ async fn five_hundred_people_confirm_in_one_batch_inside_the_drift_budget() {
         .get(0);
     assert_eq!(confirmed_count, 500);
     the_chains_verify(&pool, &ring, &estate).await;
+
+    ship_the_backlog(&spool).await;
 }
