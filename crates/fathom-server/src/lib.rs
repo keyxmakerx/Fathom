@@ -68,6 +68,7 @@ pub mod heads;
 pub mod health;
 pub mod healthcheck;
 pub mod ids;
+pub mod invitations;
 pub mod keyprovider;
 pub mod keys;
 pub mod live;

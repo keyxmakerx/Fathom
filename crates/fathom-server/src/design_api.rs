@@ -92,6 +92,7 @@ use crate::chain;
 use crate::crypto;
 use crate::designs::{self, DesignError};
 use crate::grants::{self, Authority, EpochWatch};
+use crate::invitations::{self, BatchReason, InviteError};
 use crate::keys::KeyRing;
 use crate::live::{self, Live};
 use crate::repo::{self, DesignId, OrganisationId, ScopeId, TenantContext};
@@ -117,6 +118,9 @@ pub struct DesignApiState {
     pub client_address: crate::client_address::ClientAddress,
     /// Live co-editing (ADR-0063): the design heads, the stream hub, the limits.
     pub live: Arc<Live>,
+    /// The two caps on steward invitations. [`invitations::Limits::STANDARD`] in
+    /// production; a test lowers them.
+    pub invitation_limits: invitations::Limits,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -181,6 +185,35 @@ pub fn router(state: DesignApiState) -> Router {
             "/organisations/{organisation}/scopes/{scope}/grants/{grant}/revoke",
             get(revoke_bytes_handler).post(revoke_share_handler),
         )
+        .route(
+            "/organisations/{organisation}/scopes/{scope}/grants/{grant}/second",
+            get(second_view_handler).post(second_grant_handler),
+        )
+        .route(
+            "/organisations/{organisation}/grants/{grant}/second",
+            get(second_view_any_scope_handler).post(second_grant_any_scope_handler),
+        )
+        .route(
+            "/organisations/{organisation}/invitations",
+            get(list_invitations_handler).post(issue_invitation_handler),
+        )
+        .route(
+            "/organisations/{organisation}/invitations/confirm/propose",
+            post(propose_confirm_handler),
+        )
+        .route(
+            "/organisations/{organisation}/invitations/confirm",
+            post(confirm_handler),
+        )
+        .route(
+            "/organisations/{organisation}/invitations/{invitation}/cancel",
+            post(cancel_invitation_handler),
+        )
+        .route(
+            "/organisations/{organisation}/invitations/{invitation}/refuse",
+            post(refuse_invitation_handler),
+        )
+        .route("/organisations/{organisation}/people", get(people_handler))
         .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
@@ -486,6 +519,14 @@ pub enum RouteError {
     Design(DesignError),
     /// A per-account limit (ADR-0063 #14): answered 429.
     Limited(&'static str),
+    /// An invitation act refused: [`invite_error_response`].
+    Invite(InviteError),
+}
+
+impl From<InviteError> for RouteError {
+    fn from(e: InviteError) -> Self {
+        Self::Invite(e)
+    }
 }
 
 impl From<SessionError> for RouteError {
@@ -513,6 +554,62 @@ impl IntoResponse for RouteError {
                 format!("{why}\n"),
             )
                 .into_response(),
+            Self::Invite(e) => invite_error_response(e),
+        }
+    }
+}
+
+/// An invitation act's refusal. A permission answer is the same sentence and
+/// status every other route gives; an integrity fault is logged and answered
+/// `refused`. A batch refusal is JSON so a client can act on `reason`: `stale`
+/// means propose the whole batch again.
+fn invite_error_response(e: InviteError) -> Response {
+    match e {
+        InviteError::Authority(inner) => authority_refusal_response(&inner),
+        InviteError::Malformed(what) => {
+            tracing::info!(what, "malformed invitation request");
+            (StatusCode::BAD_REQUEST, "malformed request\n").into_response()
+        }
+        InviteError::NotFound => (StatusCode::NOT_FOUND, "no such invitation\n").into_response(),
+        InviteError::NotOpen(why) => (StatusCode::CONFLICT, format!("{why}\n")).into_response(),
+        InviteError::OpenLimit => (
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("{}\n", InviteError::OpenLimit),
+        )
+            .into_response(),
+        InviteError::RateLimit => (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, "3600")],
+            format!("{}\n", InviteError::RateLimit),
+        )
+            .into_response(),
+        InviteError::Batch { index, reason } => {
+            let status = match reason {
+                BatchReason::NotAuthorised => StatusCode::FORBIDDEN,
+                BatchReason::BadSignature => StatusCode::UNPROCESSABLE_ENTITY,
+                BatchReason::Unverifiable => {
+                    tracing::error!(index, "an invitation row did not verify");
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response();
+                }
+                _ => StatusCode::CONFLICT,
+            };
+            let mut map = BTreeMap::new();
+            map.insert("error".to_string(), Json::Str("batch_refused".to_string()));
+            map.insert("index".to_string(), Json::Int(index as i64));
+            map.insert("reason".to_string(), Json::Str(reason.as_str().to_string()));
+            (
+                status,
+                [
+                    (axum::http::header::CONTENT_TYPE, "application/json"),
+                    (axum::http::header::CACHE_CONTROL, "no-store"),
+                ],
+                Json::Obj(map).to_canonical_bytes(),
+            )
+                .into_response()
+        }
+        other => {
+            tracing::error!(reason = %other, "invitation act failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
         }
     }
 }
@@ -1576,14 +1673,20 @@ async fn revoke_bytes_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let bytes = grants::revoke_bytes_for_share(&tx, &auth, scope_id, &grant, at)
+    let view = grants::revoke_bytes_for_share(&tx, &auth, scope_id, &grant, at)
         .await
         .map_err(SessionError::Authority)?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     let mut map = BTreeMap::new();
     map.insert("at".to_string(), Json::Int(at));
-    map.insert("bytes".to_string(), Json::Str(to_hex(&bytes)));
+    map.insert("bytes".to_string(), Json::Str(to_hex(&view.bytes)));
+    // When it would bite: a day later for removing another steward (§3.5).
+    map.insert("steward".to_string(), Json::Bool(view.steward));
+    map.insert(
+        "takes_effect_at_unix".to_string(),
+        Json::Int(view.takes_effect_unix),
+    );
     Ok(json_response(Json::Obj(map)))
 }
 
@@ -1624,14 +1727,438 @@ async fn revoke_share_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    grants::revoke_shared_grant(&tx, &auth, scope_id, &grant, &signature, at)
+    let takes_effect = grants::revoke_shared_grant(&tx, &auth, scope_id, &grant, &signature, at)
         .await
         .map_err(SessionError::Authority)?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     let mut map = BTreeMap::new();
     map.insert("grant".to_string(), Json::Str(grant));
+    map.insert("takes_effect_at_unix".to_string(), Json::Int(takes_effect));
+    map.insert("delayed".to_string(), Json::Bool(takes_effect > at));
     Ok(json_response(Json::Obj(map)))
+}
+
+// ---- Invitations, Waiting for you, People and seconding ----
+//
+// `src/invitations.rs` has the transactions and `docs`-level reasoning; these
+// handlers are plumbing in the pattern of the Share routes above: one
+// transaction for the signed request, the tenant context and the act, with the
+// caller's authority checked before any row is read.
+
+/// `POST /organisations/{organisation}/invitations`: body `LP(display_name) ‖
+/// LP(contact_email or "") ‖ LP(capability) ‖ LP(scope_id or "")`. There is no
+/// account field. Answers the link once, with the sign-in name to hand over beside
+/// it.
+async fn issue_invitation_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let request = invitations::parse_issue_body(&signed.body)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let issued = invitations::issue(
+        &tx,
+        state.sessions.pool(),
+        &state.ring,
+        &auth,
+        &request,
+        &state.invitation_limits,
+    )
+    .await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("invitation".to_string(), Json::Str(issued.invitation));
+    map.insert("account".to_string(), Json::Str(issued.account));
+    map.insert("sign_in_name".to_string(), Json::Str(issued.sign_in_name));
+    map.insert(
+        "link_path".to_string(),
+        Json::Str(format!("/invite#{}", issued.token)),
+    );
+    map.insert("token".to_string(), Json::Str(issued.token));
+    map.insert(
+        "expires_at_unix".to_string(),
+        Json::Int(issued.expires_at_unix),
+    );
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `GET /organisations/{organisation}/invitations`: the Waiting screen. Stewards
+/// only, and only the invitations in scopes the caller stewards.
+async fn list_invitations_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = invitations::waiting(&tx, &state.ring, &auth).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
+}
+
+/// `GET /organisations/{organisation}/people`: every member and what they can do
+/// in the scopes the caller stewards, with the invited and the waiting. Stewards
+/// only.
+async fn people_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = invitations::people(&tx, &state.ring, &auth).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
+}
+
+/// `POST .../invitations/{invitation}/cancel` (any open invitation) and
+/// `.../refuse` (a person who has joined): empty body. Neither creates a
+/// membership.
+async fn close_invitation(
+    state: DesignApiState,
+    organisation: String,
+    invitation: String,
+    signed: Signed,
+    how: invitations::CloseHow,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let closed = invitations::close(&tx, &state.ring, &auth, &invitation, how).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("invitation".to_string(), Json::Str(closed.id));
+    map.insert(
+        "state".to_string(),
+        Json::Str(closed.state.as_str().to_string()),
+    );
+    Ok(json_response(Json::Obj(map)))
+}
+
+async fn cancel_invitation_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, invitation)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    close_invitation(
+        state,
+        organisation,
+        invitation,
+        signed,
+        invitations::CloseHow::Cancel,
+    )
+    .await
+}
+
+async fn refuse_invitation_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, invitation)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    close_invitation(
+        state,
+        organisation,
+        invitation,
+        signed,
+        invitations::CloseHow::Refuse,
+    )
+    .await
+}
+
+/// `POST .../invitations/confirm/propose`: body `LP(n) ‖ n×[LP(invitation_id) ‖
+/// LP(capability) ‖ LP(scope_id)]` (and `LP(expires_at or "")` for one steward
+/// request). Writes nothing; answers each grant's fields and the `bytes` to sign.
+async fn propose_confirm_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let items = invitations::parse_propose_body(&signed.body)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let proposed = invitations::propose(&tx, &state.ring, &auth, &items, unix_now()).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let first_epoch = proposed
+        .first()
+        .map_or(0, |p| i64::from(p.proposal.auth_epoch));
+    let mut map = BTreeMap::new();
+    map.insert("head_epoch".to_string(), Json::Int(first_epoch - 1));
+    map.insert(
+        "items".to_string(),
+        Json::Arr(
+            proposed
+                .iter()
+                .map(invitations::Proposed::to_json)
+                .collect(),
+        ),
+    );
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `POST .../invitations/confirm`: body `LP(n) ‖ n×[LP(invitation_id) ‖
+/// LP(capability) ‖ LP(scope) ‖ LP(effective_from) ‖ LP(auth_epoch) ‖
+/// LP(expires_at) ‖ LP(granter_fpr hex) ‖ LP(subject_fpr hex) ‖ LP(root_fpr hex) ‖
+/// LP(sig hex)]`. The subject is never in the body. All of it, or none.
+async fn confirm_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let items = invitations::parse_confirm_body(&signed.body)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let (batch_id, confirmed) =
+        invitations::confirm(&tx, &state.ring, &auth, &items, unix_now()).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("batch_id".to_string(), Json::Str(batch_id));
+    map.insert(
+        "confirmed".to_string(),
+        Json::Arr(
+            confirmed
+                .iter()
+                .map(invitations::Confirmed::to_json)
+                .collect(),
+        ),
+    );
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `GET .../grants/{grant}/second`: what a second steward is shown before they
+/// sign: every field needed to rebuild `grant_bytes`, the subject's name and key
+/// code, and `second_bytes`.
+async fn second_view_for(
+    state: DesignApiState,
+    organisation: String,
+    scope: Option<String>,
+    grant: String,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = scope.as_deref().map(parse_scope).transpose()?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let view = grants::second_view(&tx, &auth, scope_id, &grant)
+        .await
+        .map_err(SessionError::Authority)?;
+    let subject_name = invitations::account_name(&tx, &view.grant.subject_id).await?;
+    let label = invitations::scope_label(
+        &tx,
+        &ctx.tenant().to_string(),
+        view.grant.scope_id.as_deref(),
+    )
+    .await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(invitations::second_view_json(
+        &view,
+        &subject_name,
+        &label,
+    )))
+}
+
+/// `POST .../grants/{grant}/second`: body `LP(signature hex)`, over `second_bytes`.
+async fn second_grant_for(
+    state: DesignApiState,
+    organisation: String,
+    scope: Option<String>,
+    grant: String,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = scope.as_deref().map(parse_scope).transpose()?;
+    let mut rest: &[u8] = &signed.body;
+    let signature = unhex(lp_text(&mut rest, "signature")?)
+        .filter(|s| s.len() == 64)
+        .ok_or(SessionError::Malformed("signature"))?;
+    if !rest.is_empty() {
+        return Err(SessionError::Malformed("request body").into());
+    }
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    grants::second_grant_guarded(&tx, &auth, scope_id, &grant, &signature)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("grant".to_string(), Json::Str(grant));
+    map.insert("seconded".to_string(), Json::Bool(true));
+    Ok(json_response(Json::Obj(map)))
+}
+
+async fn second_view_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope, grant)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    second_view_for(state, organisation, Some(scope), grant, signed).await
+}
+
+async fn second_view_any_scope_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, grant)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    second_view_for(state, organisation, None, grant, signed).await
+}
+
+async fn second_grant_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope, grant)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    second_grant_for(state, organisation, Some(scope), grant, signed).await
+}
+
+async fn second_grant_any_scope_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, grant)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    second_grant_for(state, organisation, None, grant, signed).await
 }
 
 fn unix_now() -> i64 {
