@@ -207,17 +207,22 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   payload whose capture or note text still looks like a credential; save, open, verify and create
   re-check the grant inside the acting transaction; a body is capped at one mebibyte until the
   signature is checked.
-- **Print, phase 1** (#39). A Print button beside Undo, or Ctrl+P: this rack, every rack in the
-  closet, or the cut sheet; A4 or Letter; cables none or all; serial numbers and management addresses
-  optional; black and white with cable colours as words; a title block and page x of y on every page.
-  A rack sheet draws front and rear to scale with a device table. The cut sheet has a block per device
-  and a row per port, as .csv or .xlsx. Not built: the map sheet and "as filtered on screen".
+- **Print pack** (#39, round 10). Print lists pages with counts: This view (also a PNG, drawn by the
+  browser from the canvas), Rack elevations, Cable schedule, Port map per device; "Make PDF" opens the
+  preview and the browser's own Save as PDF. A4 or Letter; cables none, all or as shown on screen;
+  serials and management addresses optional; black and white with colours as words; title block and
+  page x of y on every page. Port map also as .csv or .xlsx. No config text goes in. Not built: the
+  Inventory table page.
 - **Tags** (ADR-0059, schema 0.12). A tag is a node that a device, passive, port, cable, rack,
   premises, VLAN, Docker network or container points at. Chips sit in those editors and on VLAN rows,
   Docker networks and containers; "Add tag" suggests existing tags; clicking a chip's name renames the
-  tag; a VLAN row tags through its members ("2 of 3"). Quick search finds devices, racks and ports by
-  tag. Not built: the Inventory column and filter, tags in the cable filter (#54), search over cables,
-  VLANs and containers.
+  tag; a VLAN row tags through its members ("2 of 3"). Quick search finds devices, racks, ports, cables,
+  VLANs and containers by name or tag. Tags are also a Cables list group. Not built: the Inventory
+  column and filter.
+- **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, any number on
+  at once, All and None, a count each; a ticked VLAN's trunk cables draw dashed; "Hide this cable"
+  from its panel with a "n hidden · show" chip. Per browser and design, never saved. Applies to both
+  looks; the Diagram look draws cables in ink, sheath colours only in the Rack look.
 - **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
   lists every library the web app ships with licence and copyright. The canvas no longer shows React
   Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's licence is off
