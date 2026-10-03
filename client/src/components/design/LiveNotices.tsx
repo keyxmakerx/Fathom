@@ -1,3 +1,4 @@
+import type { OverwritePart } from '../../document/liveDoc';
 import type { LiveStatus } from './useDesignSession';
 import './liveNotices.css';
 
@@ -8,31 +9,47 @@ interface Props {
   onDismissNote: () => void;
 }
 
-const TAIL = ' just after you';
-
-/** "<b>Bob changed the serial on core-sw-01</b> just after you" */
-function Line({ text }: { text: string }) {
-  const at = text.endsWith(TAIL) ? text.length - TAIL.length : text.length;
+/** "<b>Bob changed the serial on <nowrap>core-sw-01</nowrap></b> just after you" */
+function Line({ part }: { part: OverwritePart }) {
   return (
     <span className="live-notice__line">
-      <b>{text.slice(0, at)}</b>
-      {text.slice(at)}
+      <b>
+        {part.head} on <span className="live-notice__device">{part.on}</span>
+      </b>
+      {part.tail}
     </span>
   );
 }
 
-/** The live design's lines (ADR-0063): "<who> changed <field> on <device> just after you", a merge
- * reassurance, a dropped change, a dropped connection. The status region is always there; only its
- * children come and go. Shell puts it under the field in the editor, or at the canvas's top right. */
+const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Is there anything to show? */
+export function hasLiveNotices(live: LiveStatus): boolean {
+  return live.overwrite != null || live.merged != null || live.note != null || (live.mode !== 'legacy' && live.reconnecting);
+}
+
+/** What a screen reader is told, once, by the one status region the shell keeps mounted. */
+export function announcement(live: LiveStatus): string {
+  const out: string[] = [];
+  if (live.overwrite != null) out.push(...live.overwrite.lines);
+  if (live.merged != null) out.push(live.merged);
+  if (live.note != null) out.push(live.note);
+  if (live.mode !== 'legacy' && live.reconnecting) out.push('Reconnecting; your changes are kept.');
+  return out.join('. ');
+}
+
+/** The live design's lines (ADR-0063), drawn where they belong: under the field, or the canvas's top right.
+ * Not a live region: the shell's own hidden status region carries the announcement, so this can move. */
 export function LiveNotices({ live, onKeepTheirs, onPutMineBack, onDismissNote }: Props) {
+  if (!hasLiveNotices(live)) return null;
   const down = live.mode !== 'legacy' && live.reconnecting;
   const o = live.overwrite;
   return (
-    <div className="live-notices" role="status" aria-live="polite">
+    <div className="live-notices">
       {o != null && (
         <div className="live-notice live-notice--ink" data-testid="live-overwrite">
-          {o.lines.map((line) => (
-            <Line key={line} text={line} />
+          {o.parts.map((part) => (
+            <Line key={`${part.head}\n${part.on}`} part={part} />
           ))}
           {o.items.length === 1 ? (
             <>
@@ -50,8 +67,15 @@ export function LiveNotices({ live, onKeepTheirs, onPutMineBack, onDismissNote }
             <>
               {o.items.map((item) => (
                 <span className="live-notice__item" key={item.id}>
-                  <span className="live-notice__mono">{item.yours}</span>
-                  <button type="button" className="live-notice__btn" onClick={() => onPutMineBack(item.id)}>
+                  <span className="live-notice__mono">
+                    {cap(item.field)}: {item.yours}
+                  </span>
+                  <button
+                    type="button"
+                    className="live-notice__btn"
+                    aria-label={`Put my ${item.field} back`}
+                    onClick={() => onPutMineBack(item.id)}
+                  >
                     Put mine back
                   </button>
                 </span>

@@ -35,11 +35,13 @@ import {
   mergedSentence,
   openLive,
   overwriteLines,
+  overwriteParts,
   panelLabel,
   putMineBack,
   yoursLine,
   type LiveState,
   type Overwrite,
+  type OverwritePart,
 } from '../../document/liveDoc';
 import type { Document } from '../../document/model';
 
@@ -57,7 +59,16 @@ export interface LiveView {
   /** A sentence about a change that was dropped or refused. */
   note: string | null;
   /** "<who> changed <field> on <device> just after you": one notice, a line and a Put mine back for each field. */
-  overwrite: { lines: string[]; items: Array<{ id: string; yours: string }>; keep: string; anchor: string } | null;
+  overwrite: {
+    lines: string[];
+    /** The same lines in parts, so the device name can be kept whole. */
+    parts: OverwritePart[];
+    items: Array<{ id: string; yours: string; field: string }>;
+    keep: string;
+    /** The panel label and element of the first overwrite: where the notice belongs. */
+    anchor: string;
+    element: string;
+  } | null;
   /** Said once when this person's change merged with someone else's. */
   merged: string | null;
   /** This person, as the server names them. */
@@ -188,9 +199,11 @@ export class LiveEditing {
     if (this.overwrites.length === 0) return null;
     return {
       lines: overwriteLines(this.overwrites, this.nameOf),
-      items: this.overwrites.map((o) => ({ id: `${o.element}\n${o.key}`, yours: yoursLine(o, this.nameOf) })),
+      parts: overwriteParts(this.overwrites, this.nameOf),
+      items: this.overwrites.map((o) => ({ id: `${o.element}\n${o.key}`, yours: yoursLine(o, this.nameOf), field: panelLabel(o.key) })),
       keep: keepLabel(this.overwrites, this.nameOf),
       anchor: panelLabel(this.overwrites[0].key),
+      element: this.overwrites[0].element,
     };
   }
 
@@ -368,7 +381,7 @@ export class LiveEditing {
         this.overwrites = [...this.overwrites.filter((x) => x.element !== o.element || x.key !== o.key), o];
       }
       if (r.merged) {
-        this.merged = mergedSentence(r.merged.keys, this.nameOf(r.merged.by));
+        this.merged = mergedSentence(r.merged.keys);
         clearTimeout(this.mergedTimer);
         this.mergedTimer = setTimeout(() => {
           this.merged = null;

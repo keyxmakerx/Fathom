@@ -73,3 +73,8 @@
   border: none;
   cursor: pointer;
 }
+
+/* A device's name is kept whole, never broken across lines. */
+.live-notice__device {
+  white-space: nowrap;
+}

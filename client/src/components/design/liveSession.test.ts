@@ -227,6 +227,9 @@ describe('what others do', () => {
     expect(last(r).overwrite?.items.map((i) => i.yours)).toEqual(["yours router → Bob's switch"]);
     expect(last(r).overwrite?.keep).toBe("Keep Bob's");
     expect(last(r).overwrite?.anchor).toBe('role');
+    expect(last(r).overwrite?.element).toBe(deviceId);
+    expect(last(r).overwrite?.items.map((i) => i.field)).toEqual(['role']);
+    expect(last(r).overwrite?.parts).toEqual([{ head: 'Bob Roe changed the role', on: 'an unnamed device', tail: ' just after you' }]);
     expect(findNode(last(r).doc, deviceId)!.fields['Device.role'].value).toBe('switch');
 
     r.live.putBack(last(r).overwrite!.items[0].id);
@@ -285,7 +288,7 @@ describe('what others do', () => {
     r.events().frame(frame(FRAME_CHANGE, 11, writeChange(changeOf(base, mine))));
     const theirs = setRackField(mine, rackId, 'bay', 2, { actor: THEM, now: Date.now() + 5 });
     r.events().frame(frame(FRAME_CHANGE, 12, writeChange(changeOf(mine, theirs))));
-    expect(last(r).merged).toBe("Your row change merged with Bob Roe's. Both are in history.");
+    expect(last(r).merged).toBe("Your row change merged; you changed different fields. Both are in history.");
     expect(last(r).overwrite).toBeNull();
     await vi.advanceTimersByTimeAsync(21_000);
     expect(last(r).merged).toBeNull();

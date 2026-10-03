@@ -376,8 +376,17 @@ function listWords(words: readonly string[]): string {
   return words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
-/** One bold line per person and device: "Bob changed the serial and the address on core-sw-01 just after you". */
-export function overwriteLines(os: readonly Overwrite[], nameOf: (account: string) => string): string[] {
+export interface OverwritePart {
+  /** "Bob changed the serial" */
+  head: string;
+  /** The device, kept whole. */
+  on: string;
+  /** " just after you", or empty for a put-back. */
+  tail: string;
+}
+
+/** One line per person and device, in three parts so the device name can be kept whole. */
+export function overwriteParts(os: readonly Overwrite[], nameOf: (account: string) => string): OverwritePart[] {
   const groups = new Map<string, Overwrite[]>();
   for (const o of os) {
     const k = `${o.by}\n${o.on}\n${o.putBack}`;
@@ -386,8 +395,15 @@ export function overwriteLines(os: readonly Overwrite[], nameOf: (account: strin
   return [...groups.values()].map((g) => {
     const fields = listWords([...new Set(g.map((o) => `the ${panelLabel(o.key)}`))]);
     const who = nameOf(g[0].by);
-    return g[0].putBack ? `${who} put back ${fields} on ${g[0].on}` : `${who} changed ${fields} on ${g[0].on} just after you`;
+    return g[0].putBack
+      ? { head: `${who} put back ${fields}`, on: g[0].on, tail: '' }
+      : { head: `${who} changed ${fields}`, on: g[0].on, tail: ' just after you' };
   });
+}
+
+/** "Bob changed the serial and the address on core-sw-01 just after you". */
+export function overwriteLines(os: readonly Overwrite[], nameOf: (account: string) => string): string[] {
+  return overwriteParts(os, nameOf).map((p) => `${p.head} on ${p.on}${p.tail}`);
 }
 
 /** `yours SN-ANN-1 → Bob's SN-BOB-2` */
@@ -406,10 +422,10 @@ export function keepLabel(os: readonly Overwrite[], nameOf: (account: string) =>
   return people.size === 1 ? `Keep ${firstName(nameOf(os[0].by))}'s` : 'Keep theirs';
 }
 
-/** Said once when this person's change on the same element merged with someone else's. */
-export function mergedSentence(keys: readonly string[], who: string): string {
+/** Said once when this person's change on the same element merged with someone else's, on other fields. */
+export function mergedSentence(keys: readonly string[]): string {
   const fields = listWords([...new Set(keys.map(panelLabel))]);
-  return `Your ${fields} ${keys.length > 1 ? 'changes' : 'change'} merged with ${who}'s. Both are in history.`;
+  return `Your ${fields} ${keys.length > 1 ? 'changes' : 'change'} merged; you changed different fields. Both are in history.`;
 }
 
 export function droppedSentence(dropped: readonly Change[]): string {

@@ -271,6 +271,13 @@ const PLACES_VIEW: ClosetView = {
 };
 
 describe('EditorFor', () => {
+  it('lists the ids a panel holds on its root, so a live notice lands only on the right device', () => {
+    const chassis = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
+    expect(chassis).toMatch(/data-elements="chassis-1 device-1[^"]*"/);
+    const rack = renderToStaticMarkup(EditorFor({ kind: 'rack', id: 'rack-1' }, VIEW, NOOP_ACTIONS) as never);
+    expect(rack).toContain('data-elements="rack-1"');
+  });
+
   it('returns null for no selection', () => {
     expect(EditorFor(null, VIEW, NOOP_ACTIONS)).toBeNull();
   });

@@ -13,6 +13,7 @@ import {
   localEdit,
   openLive,
   overwriteLines,
+  overwriteParts,
   yoursLine,
   keepLabel,
   mergedSentence,
@@ -352,6 +353,7 @@ describe('the words of a notice', () => {
       'Bob changed the serial and the mgmt address on core-sw-01 just after you',
     ]);
     expect(overwriteLines([o('Chassis.serial', THEM, 'a'), o('Rack.row', 'x', 'b')], name)).toHaveLength(2);
+    expect(overwriteParts([o('Chassis.serial', THEM, 'rack on a')], name)).toEqual([{ head: 'Bob changed the serial', on: 'rack on a', tail: ' just after you' }]);
   });
 
   it('says a put-back as a put-back, without guessing a pronoun', () => {
@@ -369,8 +371,8 @@ describe('the words of a notice', () => {
   });
 
   it('says a merge once, with the field the person changed', () => {
-    expect(mergedSentence(['Device.role'], 'Bob')).toBe("Your role change merged with Bob's. Both are in history.");
-    expect(mergedSentence(['Chassis.serial', 'Device.role'], 'Bob')).toBe("Your serial and role changes merged with Bob's. Both are in history.");
+    expect(mergedSentence(['Device.role'])).toBe('Your role change merged; you changed different fields. Both are in history.');
+    expect(mergedSentence(['Chassis.serial', 'Device.role'])).toBe('Your serial and role changes merged; you changed different fields. Both are in history.');
   });
 
   it('labels fields as the panel does and names an element by its device', () => {

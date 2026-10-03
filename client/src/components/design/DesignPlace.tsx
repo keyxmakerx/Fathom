@@ -23,7 +23,7 @@ import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
-import { LiveNotices } from './LiveNotices';
+import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
 import { useDesignSession } from './useDesignSession';
 
@@ -455,14 +455,16 @@ export function DesignPlace(props: DesignPlaceProps) {
     account,
     presence,
     noticeField: session.live.overwrite?.anchor ?? null,
-    notices: (
+    noticeElement: session.live.overwrite?.element ?? null,
+    announce: announcement(session.live),
+    notices: hasLiveNotices(session.live) ? (
       <LiveNotices
         live={session.live}
         onKeepTheirs={session.dismissOverwrite}
         onPutMineBack={session.putMineBack}
         onDismissNote={session.dismissNote}
       />
-    ),
+    ) : null,
     search,
     trail,
     trailOpen,

@@ -222,7 +222,7 @@ export function Bar({
         {presence.length > 0 && (
           <div className="shell-bar__people" role="group" aria-label="Also in this view">
             {presence.map((person) => (
-              <span className="shell-person" key={person.id} tabIndex={0} aria-label={person.name} title={person.name}>
+              <span className="shell-person" key={person.id} role="img" tabIndex={0} aria-label={person.name} title={person.name}>
                 {person.initials}
               </span>
             ))}

@@ -101,6 +101,10 @@ export interface ShellProps {
   notices?: ReactNode;
   /** The panel label of the field the notice sits under ("serial"). */
   noticeField?: string | null;
+  /** The element the notice is about; it sits in the editor only if the panel shows this element. */
+  noticeElement?: string | null;
+  /** What the one always-present, visually hidden status region says. */
+  announce?: string;
 
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */

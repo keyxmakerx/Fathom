@@ -89,8 +89,8 @@ describe('Bar — who else is here', () => {
       }),
     );
     expect(markup).toContain('role="group" aria-label="Also in this view"');
-    expect(markup).toContain('<span class="shell-person" tabindex="0" aria-label="Sam Kerr" title="Sam Kerr">SK</span>');
-    expect(markup).toContain('<span class="shell-person" tabindex="0" aria-label="Ann Bell" title="Ann Bell">AB</span>');
+    expect(markup).toContain('<span class="shell-person" role="img" tabindex="0" aria-label="Sam Kerr" title="Sam Kerr">SK</span>');
+    expect(markup).toContain('<span class="shell-person" role="img" tabindex="0" aria-label="Ann Bell" title="Ann Bell">AB</span>');
     expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-person');
   });
 });
