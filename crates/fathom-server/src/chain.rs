@@ -412,6 +412,13 @@ pub enum EntryType {
     /// A fetch URL was spent: the bytes went somewhere. Committed BEFORE the body
     /// is served, so a transfer that dies half way still leaves the record.
     FirmwareFetchRedeemed,
+    // ---- Steward invitations (migration 0037) ------------------------------
+    /// A steward invited someone. The entry names the invitation, the scope, the
+    /// capability asked and who issued it; never the link and never an email.
+    InvitationIssued,
+    /// A steward closed an invitation: `reason` is `confirmed` (with the grant,
+    /// and for a batch the `batch_id` and its size), `refused` or `cancelled`.
+    InvitationClosed,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -536,6 +543,8 @@ impl EntryType {
             Self::FirmwareStaged => "firmware_staged",
             Self::FirmwareFetchIssued => "firmware_fetch_issued",
             Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
+            Self::InvitationIssued => "invitation_issued",
+            Self::InvitationClosed => "invitation_closed",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -603,6 +612,8 @@ impl EntryType {
             "firmware_staged" => Some(Self::FirmwareStaged),
             "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
             "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
+            "invitation_issued" => Some(Self::InvitationIssued),
+            "invitation_closed" => Some(Self::InvitationClosed),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -676,7 +687,9 @@ impl EntryType {
             | Self::AuthHeadAdvanced
             | Self::FirmwareStaged
             | Self::FirmwareFetchIssued
-            | Self::FirmwareFetchRedeemed => &[ChainKind::Org],
+            | Self::FirmwareFetchRedeemed
+            | Self::InvitationIssued
+            | Self::InvitationClosed => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation
