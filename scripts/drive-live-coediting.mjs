@@ -169,7 +169,7 @@ const panel = (page) => page.locator('.drawing-editor__panel');
 
 /** The value span of a labelled field in the editor panel (not the title). */
 const fieldValue = (page, label) =>
-  panel(page).locator('.drawing-editor__field', { has: page.locator('.drawing-editor__field-label', { hasText: new RegExp('^' + label + '$') }) }).locator('.drawing-editor__field-value, span').first();
+  panel(page).locator('.drawing-editor__field', { has: page.locator('.drawing-editor__field-label', { hasText: new RegExp('^' + label + '$') }) }).locator('.drawing-editor__field-value, span:not([data-testid="live-overwrite"] span)').first();
 
 async function selectDevice(page) {
   await page.locator('.drawing-chassis').first().click();
@@ -296,14 +296,17 @@ async function runProof(browser, seed) {
   await dragPaletteItemOntoRack(A, 0, 0);
   await A.locator('.drawing-chassis').first().waitFor({ timeout: 15000 });
   await A.waitForTimeout(1500);
-  check('setup: Ann placed a device in the design', (await A.locator('.drawing-chassis').count()) >= 1);
+  await dragPaletteItemOntoRack(A, 1, 1);
+  await until(async () => (await A.locator('.drawing-chassis').count()) >= 2, 15000);
+  await A.waitForTimeout(1500);
+  check('setup: Ann placed two devices in the design', (await A.locator('.drawing-chassis').count()) >= 2, String(await A.locator('.drawing-chassis').count()));
   check('setup: Ann sees no refusal', (await A.locator('.racks-place__refusal').count()) === 0);
 
   // Bob signs in and lands on the same design (the only one).
   await B.bringToFront();
   await signIn(B, seed.drawer, PASSWORDS.drawer, URL_B);
   await B.locator('.drawing-chassis').first().waitFor({ timeout: 20000 });
-  check('setup: Bob opens the same design and sees the device', (await B.locator('.drawing-chassis').count()) >= 1);
+  check('setup: Bob opens the same design and sees both devices', (await until(async () => (await B.locator('.drawing-chassis').count()) >= 2, 10000)) === true);
 
   // ---- 1. presence dots ----------------------------------------------------
   const bothDots = await until(async () => {
@@ -365,11 +368,26 @@ async function runProof(browser, seed) {
   const notice = A.locator('[data-testid="live-overwrite"]');
   const gotNotice = await until(async () => (await notice.count()) === 1, 10000);
   const noticeText = gotNotice ? ((await notice.innerText()) ?? '').replace(/\s+/g, ' ') : '(no notice)';
-  check('4. Ann sees "<Bob> changed serial just after you" with Keep theirs / Put mine back',
-    !!gotNotice && /changed serial just after you/.test(noticeText) && /Keep theirs/.test(noticeText) && /Put mine back/.test(noticeText), noticeText);
+  check('4. Ann sees "<Bob> changed the serial on core-sw-01 just after you", "yours -> theirs", Keep Bob\'s / Put mine back',
+    !!gotNotice && /Bob\w* ?\w* changed the serial on core-sw-01 just after you/.test(noticeText) && /yours SN-ANN-1 → .*SN-BOB-2/.test(noticeText) && /Keep /.test(noticeText) && /Put mine back/.test(noticeText), noticeText);
+  if (gotNotice) {
+    const where = await notice.evaluate((el) => ({
+      inEditor: !!el.closest('.drawing-editor__panel'),
+      inInspector: !!el.closest('aside, .shell-editor, [class*="editor"]'),
+      top: el.getBoundingClientRect().top,
+    }));
+    const serialTop = await fieldValue(A, 'Serial').evaluate((el) => el.getBoundingClientRect().top);
+    const vh = await A.evaluate(() => window.innerHeight);
+    check('4. the notice sits in the inspector, under the Serial field, visible without scrolling', where.inInspector && where.top > serialTop && where.top < vh - 40, JSON.stringify({ ...where, serialTop, viewportHeight: vh }));
+  }
   check('4. Ann\'s Serial now shows Bob\'s value before choosing', (await fieldText(A, 'Serial')) === 'SN-BOB-2', await fieldText(A, 'Serial'));
   await A.bringToFront();
-  await shotA('04a-ann-just-after-you-notice');
+  await shotA('04a-ann-notice-under-the-field');
+  if (gotNotice) {
+    await notice.scrollIntoViewIfNeeded();
+    await shotA('04a-ann-notice-scrolled-into-view');
+    await A.locator('.shell-editor').evaluate((el) => { el.scrollTop = 0; });
+  }
   await shotB('04a-bob-after-overwriting');
   if (gotNotice) {
     await A.getByRole('button', { name: 'Put mine back' }).click();
@@ -387,15 +405,13 @@ async function runProof(browser, seed) {
   check('5. Bob moves to Inventory; Ann\'s dot for Bob disappears', !!gone, JSON.stringify(await dotsOf(A)));
   check('5. Bob sees no dot for Ann in Inventory', (await dotsOf(B)).length === 0, JSON.stringify(await dotsOf(B)));
   await shotBoth('05-bob-in-inventory-no-dots');
-  // And back: selecting a device puts a person in that rack's view (the view
-  // is "rack:<id>" once a rack is in play, "canvas" before), so the dots
-  // return once both are looking at the same rack again.
+  // And back: the view is Canvas or Inventory, so the dots return on their own.
   await B.locator('.shell-bar__tab', { hasText: 'Canvas' }).click();
   await B.locator('.drawing-chassis').first().waitFor({ timeout: 10000 });
-  await selectDevice(B);
   const back5 = await until(async () => (await dotsOf(A)).length === 1 && (await dotsOf(B)).length === 1, 12000);
   console.log('     presence posts so far: ' + JSON.stringify(views));
-  check('5. Bob returns to Canvas and selects the device again; the dots return', !!back5, `A sees ${JSON.stringify(await dotsOf(A))}, B sees ${JSON.stringify(await dotsOf(B))}`);
+  check('5. Bob returns to Canvas (selecting nothing); the dots return', !!back5, `A sees ${JSON.stringify(await dotsOf(A))}, B sees ${JSON.stringify(await dotsOf(B))}`);
+  await selectDevice(B);
 
   // Bob's earlier Serial was replaced by Ann's Put mine back: he gets the
   // notice too. Keep theirs clears it and leaves Ann's value.
@@ -403,9 +419,10 @@ async function runProof(browser, seed) {
   const bNotice = (await B.locator('[data-testid="live-overwrite"]').count()) === 1;
   check('5. Bob, whose serial Ann put back, is shown the notice too', bNotice);
   if (bNotice) {
+    console.log('     Bob\'s notice: ' + ((await B.locator('[data-testid="live-overwrite"]').innerText()) ?? '').replace(/\s+/g, ' '));
     await shotB('05b-bob-notice-after-put-mine-back');
-    await B.getByRole('button', { name: 'Keep theirs' }).click();
-    check('5. Keep theirs clears the notice and leaves Ann\'s serial', (await B.locator('[data-testid="live-overwrite"]').count()) === 0 && (await fieldText(B, 'Serial')) === 'SN-ANN-1');
+    await B.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click();
+    check('5. Keep (theirs) clears the notice and leaves Ann\'s serial', (await B.locator('[data-testid="live-overwrite"]').count()) === 0 && (await fieldText(B, 'Serial')) === 'SN-ANN-1');
   }
 
   // ---- 6. B loses the network, edits, gets it back -------------------------
@@ -435,11 +452,71 @@ async function runProof(browser, seed) {
   await B.waitForTimeout(20000);
   const downWhileOffline = (await B.locator('[data-testid="live-down"]').count()) === 1;
   const annGot = (await fieldText(A, 'Serial')) === 'SN-OFFLINE-9';
-  console.log(`     6x (informational): browser-offline emulation, 20 s after an edit: reconnecting line shown=${downWhileOffline}, reached Ann=${annGot}`);
+  console.log(`     6x: browser-offline emulation, 20 s after an edit: failed-send line shown=${downWhileOffline}, reached Ann=${annGot}`);
+  check('6x. with the stream still open but sends failing, Bob is shown the line (failed-send indicator)', downWhileOffline);
   await shotB('06x-bob-playwright-offline-20s-after-edit');
   await ctxB.setOffline(false);
   const arrivedX = await until(async () => (await fieldText(A, 'Serial')) === 'SN-OFFLINE-9', 60000);
   console.log(`     6x: after going back online the edit reached Ann=${!!arrivedX}`);
+
+  // ---- 8. the selection dot on the canvas ----------------------------------
+  await A.bringToFront();
+  const chassisBox = async (page, i) => page.locator('.drawing-chassis').nth(i).boundingBox();
+  const peerBox = async (page) => (await page.locator('.drawing-peer').count()) > 0 ? page.locator('.drawing-peer').first().boundingBox() : null;
+  const inside = (pb, cb) => pb && cb && pb.x >= cb.x - 2 && pb.x + pb.width <= cb.x + cb.width + 2 && pb.y >= cb.y - 2 && pb.y + pb.height <= cb.y + cb.height + 2;
+  const nearTopRight = (pb, cb) => pb && cb && Math.abs((pb.x + pb.width) - (cb.x + cb.width)) < 12 && Math.abs(pb.y - cb.y) < 12;
+  await B.bringToFront();
+  await B.locator('.drawing-chassis').nth(1).click();
+  await B.locator('.drawing-peer').count();
+  const dot2 = await until(async () => {
+    const pb = await peerBox(A);
+    return pb && nearTopRight(pb, await chassisBox(A, 1)) ? pb : false;
+  }, 10000);
+  check('8. Bob selects the second device; Ann sees his initials dot at its top-right', !!dot2, JSON.stringify({ peer: await peerBox(A), device2: await chassisBox(A, 1), count: await A.locator('.drawing-peer').count(), text: await A.locator('.drawing-peer').allInnerTexts() }));
+  check('8. the dot reads "BB" and is labelled with his name', ((await A.locator('.drawing-peer').first().innerText()) ?? '').trim() === 'BB' && /Bob/.test((await A.locator('.drawing-peer').first().getAttribute('aria-label')) ?? ''), (await A.locator('.drawing-peer').first().getAttribute('aria-label')) ?? '');
+  await shotA('08a-ann-sees-bobs-selection-dot-device-2');
+  await B.locator('.drawing-chassis').nth(0).click();
+  const dot1 = await until(async () => {
+    const pb = await peerBox(A);
+    return pb && nearTopRight(pb, await chassisBox(A, 0)) && !nearTopRight(pb, await chassisBox(A, 1)) ? pb : false;
+  }, 10000);
+  check('8. Bob selects the first device; the dot moves to it', !!dot1, JSON.stringify({ peer: await peerBox(A), device1: await chassisBox(A, 0) }));
+  check('8. Ann sees exactly one selection dot for Bob', (await A.locator('.drawing-peer').count()) === 1, String(await A.locator('.drawing-peer').count()));
+  await shotA('08b-ann-sees-dot-moved-to-device-1');
+  const annDotOnB = await until(async () => (await B.locator('.drawing-peer').count()) === 1, 8000);
+  check('8. and Bob sees Ann\'s dot on the device Ann has selected', !!annDotOnB);
+  await shotB('08c-bob-sees-anns-selection-dot');
+
+  // ---- 9. two fields overwritten at once: one merged notice ----------------
+  await A.bringToFront();
+  await setField(A, fieldValue(A, 'Mgmt address'), '10.0.0.1');
+  await setField(A, fieldValue(A, 'Serial'), 'SN-A-9');
+  await until(async () => (await fieldText(B, 'Mgmt address')) === '10.0.0.1' && (await fieldText(B, 'Serial')) === 'SN-A-9', 10000);
+  await B.bringToFront();
+  await setField(B, fieldValue(B, 'Mgmt address'), '10.0.0.2');
+  await setField(B, fieldValue(B, 'Serial'), 'SN-B-9');
+  const merged9 = await until(async () => (await A.locator('[data-testid="live-overwrite"]').count()) >= 1 && (await fieldText(A, 'Serial')) === 'SN-B-9' && (await fieldText(A, 'Mgmt address')) === '10.0.0.2', 10000);
+  const n9 = await A.locator('[data-testid="live-overwrite"]').count();
+  const text9 = n9 > 0 ? ((await A.locator('[data-testid="live-overwrite"]').first().innerText()) ?? '').replace(/\s+/g, ' ') : '(none)';
+  check('9. two fields overwritten by Bob show ONE notice naming both', !!merged9 && n9 === 1 && /address/.test(text9) && /serial/.test(text9), `notices=${n9}: ${text9}`);
+  check('9. the merged notice carries a "yours -> theirs" line for each field and one Keep button', (text9.match(/yours /g) ?? []).length === 2 && (text9.match(/Keep /g) ?? []).length === 1, text9);
+  await shotA('09a-ann-one-notice-for-two-fields');
+  await A.locator('[data-testid="live-overwrite"]').first().scrollIntoViewIfNeeded().catch(() => {});
+  await shotA('09a-ann-one-notice-for-two-fields-scrolled-into-view');
+  await shotB('09a-bob-after-overwriting-two-fields');
+  const putBacks = A.locator('[data-testid="live-overwrite"]').getByRole('button', { name: 'Put mine back' });
+  if ((await putBacks.count()) >= 1) {
+    await putBacks.first().click();
+    await A.waitForTimeout(2000);
+    const after = [await fieldText(A, 'Mgmt address'), await fieldText(A, 'Serial'), await fieldText(B, 'Mgmt address'), await fieldText(B, 'Serial')];
+    const left = await A.locator('[data-testid="live-overwrite"]').count();
+    console.log(`     9: after one Put mine back: A/B mgmt+serial = ${JSON.stringify(after)}, notices left on A=${left}`);
+    check('9. Put mine back on one field restores just that field on both screens', after[0] === after[2] && after[1] === after[3] && (after[0] === '10.0.0.1') !== (after[1] === 'SN-A-9'), JSON.stringify(after));
+    await shotA('09b-ann-after-putting-one-back');
+    if (left > 0) await A.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click();
+    check('9. Keep clears what is left', (await A.locator('[data-testid="live-overwrite"]').count()) === 0);
+  }
+  await B.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click({ timeout: 3000 }).catch(() => {});
 
   // ---- 7. the read-only holder -------------------------------------------
   const ctxC = await browser.newContext({ viewport: { width: 1440, height: 900 } });
