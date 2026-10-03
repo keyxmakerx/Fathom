@@ -19,6 +19,7 @@ import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
 import { connectPorts } from '../document/cables';
 import { addSketchPort, createSketchDevice, removeChassis } from '../document/commands';
+import { setDeviceField } from '../document/edit';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
 import { edgesIn, edgesOut, emptyDocument, type Document } from '../document/model';
 import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
@@ -658,5 +659,75 @@ describe('a design stays saveable after undo', () => {
     expect(undone.nodes.find((n) => n.id === chassisA)?.absentSince).toBeUndefined();
     expect(edgesOut(undone, cableFromPortA, 'Terminates')).toHaveLength(2);
     expect(() => engine.loadPlain(writePlain(undone))).not.toThrow();
+  });
+});
+
+describe('OP_CHECKS (32) and OP_CHECK_GESTURE (33)', () => {
+  const step = (() => {
+    let now = 1_790_700_000_000;
+    return () => ({ actor: '01ARZ3NDEKTSV4RRFFQ69G5FAV', now: (now += 1000) });
+  })();
+  function labDoc() {
+    let doc = emptyDocument();
+    const ports: string[] = [];
+    for (const label of ['Et1', 'Et2', 'Et3']) {
+      const before = doc;
+      doc = createSketchDevice(doc, step());
+      const chassis = doc.nodes.find((n) => n.id.startsWith('chassis:') && !before.nodes.some((b) => b.id === n.id))!.id;
+      doc = addSketchPort(doc, chassis, { label, connector: 'rj45', face: 'front' }, step());
+      ports.push(edgesOut(doc, chassis, 'HasPort')[0]!.to);
+    }
+    return { doc, ports };
+  }
+
+  it('standing checks decode: a head with the rule count, and no finding on a clean estate', () => {
+    const { doc } = labDoc();
+    engine.loadPlain(writePlain(doc));
+    const result = engine.checks();
+    expect(result.rulesLoaded).toBeGreaterThan(0);
+    expect(result.loadFailed).toBe(false);
+    expect(result.findings.length).toBe(result.refuse + result.warn + result.idea);
+  });
+
+  it('a switch with one cable is one idea, with its source, elements and counts', () => {
+    const { doc, ports } = labDoc();
+    const device = doc.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const cabled = connectPorts(setDeviceField(doc, device, 'role', 'switch', step()), ports[0], ports[1], {}, step());
+    engine.loadPlain(writePlain(cabled));
+    const result = engine.checks();
+    const idea = result.findings.find((f) => f.rule === 'topo.switch.single-cable');
+    expect(idea?.severity).toBe('idea');
+    expect(result.idea).toBeGreaterThanOrEqual(1);
+    expect(idea?.source.note.length).toBeGreaterThan(0);
+    expect(idea?.elements.length).toBeGreaterThan(0);
+    expect(idea?.elements.every((e) => e.id.includes(':'))).toBe(true);
+  });
+
+  it('a cable onto an already-cabled port is refused with a sentence, a fix and a source line; nothing is written', () => {
+    const { doc, ports } = labDoc();
+    const cabled = connectPorts(doc, ports[0], ports[1], {}, step());
+    engine.loadPlain(writePlain(cabled));
+    const before = engine.exportPlain();
+    const rows = engine.checkCable({ port: ports[0] }, { port: ports[2] }, 'cat6');
+    const refusal = rows.find((r) => r.rule === 'phy.port.already-cabled');
+    expect(refusal?.severity).toBe('refuse');
+    expect(refusal?.title.length).toBeGreaterThan(0);
+    expect(refusal?.fix.length).toBeGreaterThan(0);
+    expect(refusal?.why.length).toBeGreaterThan(0);
+    expect(refusal?.source.note.length).toBeGreaterThan(0);
+    expect(refusal?.elements.some((e) => e.id === ports[0])).toBe(true);
+    expect(engine.exportPlain()).toEqual(before);
+  });
+
+  it('a cable between two free ports is let through: zero rows', () => {
+    const { doc, ports } = labDoc();
+    engine.loadPlain(writePlain(doc));
+    expect(engine.checkCable({ port: ports[0] }, { port: ports[1] }, 'cat6')).toEqual([]);
+  });
+
+  it('a frame naming nothing live answers with no rows, not an error', () => {
+    const { doc } = labDoc();
+    engine.loadPlain(writePlain(doc));
+    expect(engine.checkCable({ port: 'physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAV' }, 'unknown', '')).toEqual([]);
   });
 });

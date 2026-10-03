@@ -1,0 +1,240 @@
+/* Checks (ADR-0061 §5). Ink on paper: tokens only, square, no fills, no hue. Severity is a word and a glyph. */
+
+.checks-panel {
+  position: absolute;
+  /* Below the cables control, which sits at the top-left and can reach this far on a narrow canvas. */
+  top: calc(var(--s2) * 6);
+  right: var(--s2);
+  /* Over the open-device view (--z-modal + 1, earlier in the page), under the paste card and other cards (+ 2). */
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-direction: column;
+  width: min(264px, 60%);
+  max-height: calc(100% - 7 * var(--s2));
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+}
+
+.checks-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.checks-panel__title {
+  margin: 0;
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.checks-panel__body {
+  overflow-y: auto;
+  padding: var(--s2) var(--s3) var(--s3);
+}
+
+.checks-panel__summary,
+.checks-panel__note {
+  margin: 0 0 var(--s2);
+  color: var(--muted);
+}
+
+.checks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.checks-row {
+  padding: var(--s2) 0;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.checks-row--refuse {
+  padding-left: var(--s2);
+  border-left: var(--rule-mast) solid var(--ink);
+}
+
+.checks-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.checks-row__sev {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.checks-row--refuse .checks-row__sev {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* The anchor's name leads the row: ink, body size. */
+.checks-row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: var(--t-body);
+  font-weight: 700;
+}
+
+.checks-probe {
+  display: none;
+}
+
+.checks-row__title,
+.checks-row__links {
+  margin: var(--s1) 0 0;
+}
+
+.checks-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.checks-link[aria-pressed='true'] {
+  font-weight: 700;
+}
+
+.checks-why {
+  margin: 0 0 var(--s2);
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+}
+
+.checks-why p {
+  margin: var(--s1) 0;
+}
+
+.checks-why__title {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 700;
+}
+
+.checks-why__source {
+  margin: var(--s2) 0;
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+  color: var(--muted);
+}
+
+.checks-why__label {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.checks-why__source a {
+  color: var(--ink);
+}
+
+.checks-btn {
+  padding: 2px var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The card a refused gesture raises, at the pointer. */
+.checks-refusal {
+  position: fixed;
+  z-index: calc(var(--z-modal) + 3);
+  box-sizing: border-box;
+  padding: var(--s3);
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-mast) solid var(--ink);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+}
+
+.checks-refusal p {
+  margin: var(--s1) 0 0;
+}
+
+.checks-refusal__heading {
+  margin: 0;
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.checks-refusal__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+/* A count on a device or a cable: a square, a hairline, a numeral. */
+.checks-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 12;
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.checks-cable-badge rect {
+  fill: var(--page);
+  stroke: var(--ink);
+  stroke-width: 1px;
+}
+
+.checks-cable-badge text {
+  fill: var(--ink);
+  font-family: var(--sans);
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* Too far out to read a plate: no badges. */
+.drawing[data-zoom-band='50'] .checks-badge,
+.drawing[data-zoom-band='50'] .checks-cable-badge {
+  display: none;
+}
+
+/* Show: everything not involved takes the phantom fade (the same 28% as a lit cable path). */
+.react-flow__node.checks-faded,
+.react-flow__edge.checks-faded {
+  opacity: var(--phantom);
+}

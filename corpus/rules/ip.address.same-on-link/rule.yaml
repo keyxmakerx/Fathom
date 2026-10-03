@@ -1,0 +1,25 @@
+id: ip.address.same-on-link
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "Both ends of a link have the same IP address"
+why: >
+  Both ends of one cable hold the same address, so neither can reach the other: each treats the address as its own.
+fix: >
+  Give each end its own address in the link's subnet.
+concept: check.ip.link-addressing
+acceptable_when: >
+  A shared virtual address (VRRP) on both ends, or the same address on different VLAN sub-interfaces. Fathom does not tell those apart yet.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "IETF", doc: "RFC 5227, IPv4 Address Conflict Detection (July 2008)", url: "https://www.rfc-editor.org/rfc/rfc5227", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    a_adr: { via: [{ role: Terminates, where: { end: a } }, { role: Occupies, reverse: true }, HasUnit, HasAddress], card: many }
+    b_adr: { via: [{ role: Terminates, where: { end: b } }, { role: Occupies, reverse: true }, HasUnit, HasAddress], card: many }
+condition: >
+  a_adr.exists(x, b_adr.exists(y, addr_of(x.value) == addr_of(y.value)))
+involves: [a_adr, b_adr]
