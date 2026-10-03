@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   compileQuery,
+  boundText,
   globMatcher,
+  parseBound,
   fieldState,
   parseQuery,
   readQuery,
@@ -276,5 +278,101 @@ describe('wildcards are linear, not a regular expression', () => {
     const parsed = parseQuery(q, FIELDS);
     expect(parsed.terms).toEqual([]);
     expect(parsed.errors[0]!.message.startsWith(q)).toBe(true);
+  });
+});
+
+describe('!=, quotes and number comparisons on text', () => {
+  it('!= honours a wildcard', () => {
+    expect(names(run('name!=lon1*', ROWS))).toEqual(['man1-sw01', 'man1-ap001']);
+    expect(names(run('name!=*-sw01', ROWS))).toEqual(['lon1-core1', 'lon1-fw1', 'man1-ap001']);
+  });
+  it('!= is the negation of :, so role!=any is the blank ones and role!=empty the filled ones', () => {
+    const rows: Row[] = [{ name: 'a', role: 'Switch' }, { name: 'b', role: '' }];
+    expect(names(run('role!=any', rows))).toEqual(['b']);
+    expect(names(run('role!=empty', rows))).toEqual(['a']);
+    expect(names(run('-role:any', rows))).toEqual(['b']);
+  });
+  it('reads a != on a number as numbers', () => {
+    expect(names(run('length!=12', ROWS))).toEqual(['lon1-core1', 'man1-sw01', 'man1-ap001']);
+  });
+  it('an unclosed quote is an error that names the term', () => {
+    const p = parseQuery('role:switch name:"core 1', FIELDS);
+    expect(p.terms).toHaveLength(1);
+    expect(p.errors).toHaveLength(1);
+    expect(p.errors[0]!.raw).toBe('name:"core 1');
+    expect(p.errors[0]!.message.startsWith('name:"core 1:')).toBe(true);
+    expect(p.errors[0]!.message).toContain('quote');
+  });
+  it('an unclosed quote on a bare word is an error too', () => {
+    const p = parseQuery('"core', FIELDS);
+    expect(p.terms).toEqual([]);
+    expect(p.errors[0]!.message.startsWith('"core:')).toBe(true);
+  });
+  it('name>3 on a text field is an error that names the term', () => {
+    const p = parseQuery('name>3 length>3', FIELDS);
+    expect(p.terms).toHaveLength(1);
+    expect(p.errors).toHaveLength(1);
+    expect(p.errors[0]!.message.startsWith('name>3:')).toBe(true);
+    expect(p.errors[0]!.message).toContain('text');
+  });
+});
+
+describe('the panel never drops or rewrites a term it cannot show', () => {
+  const write = (q: string, field: string, patch: Partial<ReturnType<typeof fieldState>>) => setField(q, field, { ...fieldState(q, field), ...patch });
+
+  it('keeps a negation when Name contains is set', () => {
+    expect(write('-name:lon1-core1', 'name', { has: 'lon' })).toBe('-name:lon1-core1 name~lon');
+    expect(fieldState('-name:lon1-core1', 'name').others).toEqual(['-name:lon1-core1']);
+  });
+  it('keeps a negated group when a value is ticked', () => {
+    expect(write('-(role:a | role:b)', 'role', { values: ['server'] })).toBe('-(role:a | role:b) role:server');
+    expect(fieldState('-(role:a | role:b)', 'role').values).toEqual([]);
+  });
+  it('unticks a value inside a bracket group by taking it out of the group', () => {
+    const q = '(role:switch | site:LON1)';
+    expect(fieldState(q, 'role').values).toEqual(['switch']);
+    expect(write(q, 'role', { values: [] })).toBe('site:LON1');
+    expect(write('(role:switch | role:router | site:LON1)', 'role', { values: ['router'] })).toBe('(role:router | site:LON1)');
+  });
+  it('keeps strict > and adds a max next to it', () => {
+    expect(write('length>30', 'length', { max: '100', maxStrict: false })).toBe('length>30 length<=100');
+    expect(write('length>=30 length<50', 'length', { min: '10' })).toBe('length>=10 length<50');
+    expect(fieldState('length>30 length<=100', 'length')).toMatchObject({ min: '30', minStrict: true, max: '100', maxStrict: false });
+  });
+  it('leaves != , ^ , wildcards and a second range term alone', () => {
+    expect(write('role!=switch', 'role', { values: ['firewall'] })).toBe('role!=switch role:firewall');
+    expect(write('name^lon', 'name', { has: 'core' })).toBe('name^lon name~core');
+    expect(write('name:lon*', 'name', { has: 'x' })).toBe('name:lon* name~x');
+    expect(fieldState('length>1 length>2', 'length').others).toEqual(['length>2']);
+  });
+  it('still replaces its own earlier picks', () => {
+    expect(write('role:switch site:LON1', 'role', { values: ['firewall', 'server'] })).toBe('site:LON1 (role:firewall | role:server)');
+    expect(write('role:switch', 'role', { values: [] })).toBe('');
+  });
+  it('a typed condition replaces the same sort of term and keeps the rest', () => {
+    expect(setFieldTerm('-name:lon1-core1 name~sw', 'name', 'name~lon')).toBe('-name:lon1-core1 name~lon');
+    expect(setFieldTerm('length>30', 'length', 'length<=100')).toBe('length>30 length<=100');
+    expect(setFieldTerm('length>30', 'length', 'length>=40')).toBe('length>=40');
+    expect(setFieldTerm('name!=a', 'name', 'name!=b')).toBe('name!=a name!=b');
+    expect(setFieldTerm('name!=a', 'name', 'name!=a')).toBe('name!=a');
+  });
+  it('counts scope by stripping only what the panel owns', () => {
+    expect(stripField('-name:x name~y name:z', 'name')).toBe('-name:x');
+  });
+});
+
+describe('bounds typed in the panel', () => {
+  it('reads 30, >30 and >=30, and refuses words', () => {
+    expect(parseBound('30', 'min')).toEqual({ v: '30', strict: false });
+    expect(parseBound(' >30', 'min')).toEqual({ v: '30', strict: true });
+    expect(parseBound('>=30', 'min')).toEqual({ v: '30', strict: false });
+    expect(parseBound('<100', 'max')).toEqual({ v: '100', strict: true });
+    expect(parseBound('', 'max')).toEqual({ v: '', strict: false });
+    expect(parseBound('abc', 'min')).toBeNull();
+    expect(parseBound('<5', 'min')).toBeNull();
+  });
+  it('shows a strict bound with its sign, so the panel reads back what the line says', () => {
+    expect(boundText('30', true, 'min')).toBe('>30');
+    expect(boundText('100', false, 'max')).toBe('100');
   });
 });

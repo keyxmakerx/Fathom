@@ -145,6 +145,11 @@ function Question(props: { field: string; label: string; schema: QuerySchema; ro
       {bare ? null : <div className="inv-cm__head">Show only</div>}
       {tooMany || numeric ? (
         <>
+          {st.others.length > 0 ? (
+            <p className="inv-cm__note">
+              Also in the line, left as it is: <code>{st.others.join(' ')}</code>
+            </p>
+          ) : null}
           <p className="inv-cm__note">
             {numeric ? `${fmt(dv.n)} different values. Ask with a number.` : `${fmt(dv.n)} different values: too many to list. Type a condition.`}
           </p>
@@ -168,6 +173,11 @@ function Question(props: { field: string; label: string; schema: QuerySchema; ro
             {keys.length > SHOWN ? <p className="inv-cm__note">{fmt(keys.length - SHOWN)} more: narrow with the box above.</p> : null}
             {keys.length === 0 ? <p className="inv-cm__note">Nothing matches.</p> : null}
           </div>
+          {st.others.length > 0 ? (
+            <p className="inv-cm__note">
+              Also in the line, left as it is: <code>{st.others.join(' ')}</code>
+            </p>
+          ) : null}
           {st.values.length > 0 ? (
             <button type="button" className="inv-cm__clear" onClick={() => onQ(stripField(q, field))}>
               Clear {label}

@@ -31,7 +31,7 @@ export interface Outcome {
   total: number;
   /** Matches that Where hides. */
   outside: number;
-  /** The one thing Enter opens, when exactly one thing matches and it is not a guess. */
+  /** The one thing Enter opens: exactly one match, and an exact one. */
   jump: Hit | null;
 }
 
@@ -71,7 +71,8 @@ export function portKey(label: string): { type: string; path: string } {
 }
 const lastPart = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
-const MAC_IN_TEXT = /([0-9a-f]{2}([:-][0-9a-f]{2}){5})|(([0-9a-f]{4}\.){2}[0-9a-f]{4})|\b[0-9a-f]{12}\b/gi;
+// A MAC as stored in a field: colons or dashes, spaces, Cisco dots, HP/H3C `001a-2b3c-4d5e`, or bare.
+const MAC_IN_TEXT = /\b[0-9a-f]{2}(?:[:\- ][0-9a-f]{2}){5}\b|\b(?:[0-9a-f]{4}[.\-]){2}[0-9a-f]{4}\b|\b[0-9a-f]{12}\b/gi;
 
 /** Twelve hex digits from a MAC written any way (colons, dashes, Cisco dots, bare), or a start of one. */
 export function macClue(text: string): { hex: string; full: boolean } | null {
@@ -80,8 +81,12 @@ export function macClue(text: string): { hex: string; full: boolean } | null {
   const hex = t.replace(/[^0-9a-f]/gi, '').toLowerCase();
   const sep = /[:.\-\s]/.test(t);
   if (hex.length === 12) return { hex, full: true };
-  // A start of an address (the vendor part) needs separators, so a plain number is not read as one.
-  if (sep && hex.length >= 6 && hex.length < 12 && /[a-f]/.test(hex)) return { hex, full: false };
+  if (hex.length >= 6 && hex.length < 12) {
+    // A vendor prefix written in pairs, "00:50:56", is a MAC clue even with no letter in it.
+    if (/^[0-9a-f]{2}([:-][0-9a-f]{2}){2,4}$/i.test(t)) return { hex, full: false };
+    // Otherwise a plain number is not read as one: it needs separators and a letter.
+    if (sep && /[a-f]/.test(hex)) return { hex, full: false };
+  }
   return null;
 }
 const prettyMac = (hex: string): string => (hex.match(/.{1,2}/g) ?? []).join(':');
@@ -305,7 +310,8 @@ function devicePort(ix: SearchIndex, clue: string): Reading | null {
       } else if (p.path === want.path) {
         out.push(hit('ports', p.row, 'exact', onDevice ? 'the port number' : 'a port of that number'));
       } else if (!want.path.includes('/') && lastPart(p.path) === want.path) {
-        out.push(hit('ports', p.row, 'part', 'ends in that port number'));
+        // "core1 24" names a device and a number: one port ending in it is the answer (two are listed).
+        out.push(hit('ports', p.row, onDevice ? 'exact' : 'part', 'ends in that port number'));
       }
     }
     return out;
@@ -431,6 +437,7 @@ export function search(ix: SearchIndex, clue: string, where: Where): Outcome {
     const hs = inside.filter((h) => h.kind === kind);
     if (hs.length) groups.push({ kind: kind as Kind, label: KIND_LABEL[kind]!, hits: hs });
   }
-  const jump = inside.length === 1 && inside[0]!.how !== 'near' ? inside[0]! : null;
+  // Enter opens only one EXACT match; a fragment of a serial or a name shows the results instead.
+  const jump = inside.length === 1 && inside[0]!.how === 'exact' ? inside[0]! : null;
   return { clue: t, reading: used.map((r) => r.text).join(', or '), groups, total: inside.length, outside, jump };
 }

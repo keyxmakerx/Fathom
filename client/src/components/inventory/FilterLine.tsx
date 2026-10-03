@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { BLANK, PANEL_LIMIT, distinctOf, type Distinct } from './facets';
 import type { InvRow } from './kinds';
-import { OPERATOR_HELP, fieldState, readQuery, removeUnit, setField, stripField, units, type Parsed } from './query';
+import { OPERATOR_HELP, boundText, fieldState, parseBound, readQuery, removeUnit, setField, stripField, units, type Parsed } from './query';
 import { filterRows, type QuerySchema } from './rowQuery';
 import { applySuggestion, suggestAt, type Suggestion } from './suggest';
 
@@ -280,7 +280,7 @@ function Panel(props: { q: string; onQ: (q: string) => void; schema: QuerySchema
       <div className="inv-fp__grid">
         {cards.map(({ f, dv }) => {
           const st = fieldState(q, f.key);
-          const on = st.values.length > 0 || st.min !== '' || st.max !== '' || st.has !== '';
+          const on = st.values.length > 0 || st.min !== '' || st.max !== '' || st.has !== '' || st.others.length > 0;
           const lower = new Set(dv.keys.map((k) => k.toLowerCase()));
           const keys = [...st.values.filter((v) => !lower.has(v.toLowerCase())), ...dv.keys];
           return (
@@ -291,9 +291,9 @@ function Panel(props: { q: string; onQ: (q: string) => void; schema: QuerySchema
               </div>
               {f.numeric ? (
                 <div className="inv-fp__range">
-                  <input type="text" inputMode="decimal" aria-label={`${f.label} from`} placeholder="from" defaultValue={st.min} key={`min:${st.min}`} onBlur={(e) => write(f.key, { min: Number.isFinite(Number(e.currentTarget.value)) ? e.currentTarget.value.trim() : '' })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+                  <input type="text" inputMode="decimal" aria-label={`${f.label} from`} placeholder="from" defaultValue={boundText(st.min, st.minStrict, 'min')} key={`min:${st.min}:${st.minStrict}`} onBlur={(e) => { const b = parseBound(e.currentTarget.value, 'min'); if (b) write(f.key, { min: b.v, minStrict: b.strict }); else e.currentTarget.value = boundText(st.min, st.minStrict, 'min'); }} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
                   <span>to</span>
-                  <input type="text" inputMode="decimal" aria-label={`${f.label} to`} placeholder="to" defaultValue={st.max} key={`max:${st.max}`} onBlur={(e) => write(f.key, { max: Number.isFinite(Number(e.currentTarget.value)) ? e.currentTarget.value.trim() : '' })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+                  <input type="text" inputMode="decimal" aria-label={`${f.label} to`} placeholder="to" defaultValue={boundText(st.max, st.maxStrict, 'max')} key={`max:${st.max}:${st.maxStrict}`} onBlur={(e) => { const b = parseBound(e.currentTarget.value, 'max'); if (b) write(f.key, { max: b.v, maxStrict: b.strict }); else e.currentTarget.value = boundText(st.max, st.maxStrict, 'max'); }} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
                 </div>
               ) : dv.n > PANEL_LIMIT ? (
                 <input type="text" className="inv-fp__has" aria-label={`${f.label} contains`} placeholder={`contains… (${fmt(dv.n)} values)`} defaultValue={st.has} key={`has:${st.has}`} onBlur={(e) => write(f.key, { has: e.currentTarget.value.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
@@ -318,6 +318,11 @@ function Panel(props: { q: string; onQ: (q: string) => void; schema: QuerySchema
                   })}
                 </div>
               )}
+              {st.others.length > 0 ? (
+                <p className="inv-fp__kept">
+                  Also in the line, left as it is: <code>{st.others.join(' ')}</code>
+                </p>
+              ) : null}
             </div>
           );
         })}

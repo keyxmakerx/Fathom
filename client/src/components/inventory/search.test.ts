@@ -57,6 +57,44 @@ describe('MAC clues', () => {
   });
 });
 
+describe('MAC clues, more ways', () => {
+  it('reads HP/H3C, spaced and short vendor-prefix forms', () => {
+    expect(macClue('001a-2b3c-4d5e')).toEqual({ hex: '001a2b3c4d5e', full: true });
+    expect(macClue('00 1a 2b 3c 4d 5e')).toEqual({ hex: '001a2b3c4d5e', full: true });
+    expect(macClue('00:50:56')).toEqual({ hex: '005056', full: false });
+    expect(macClue('00-50-56')).toEqual({ hex: '005056', full: false });
+    expect(macClue('00:50:56:ab')).toEqual({ hex: '005056ab', full: false });
+    expect(macClue('10.20.30')).toBeNull();
+    expect(macClue('005056')).toBeNull();
+  });
+
+  it('finds a MAC stored in a device field or a port field, in any stored spelling', () => {
+    const e = smallEstate();
+    const view = viewOf(e.doc, []);
+    const idx = buildPlaceIndex(e.doc, view);
+    const devices = deviceRows(e.doc, view, [], idx);
+    const ports = portRows(e.doc, view, idx, []);
+    const dev = devices.find((d) => d.cells.name === 'lon1-b01-fw1')!;
+    const port = ports[0]!;
+    const ix = buildSearchIndex({
+      devices: devices.map((d) => (d.key === dev.key ? { ...d, cells: { ...d.cells, 'field:mac': '001a-2b3c-4d5e' } } : d)),
+      ports: ports.map((p) => (p.key === port.key ? { ...p, cells: { ...p.cells, 'field:mac': '00 50 56 aa bb cc' } } : p)),
+      racks: rackRows(e.doc, view, [], idx),
+      cables: cableRows(e.doc, view, idx, []),
+      idx,
+    });
+    expect(search(ix, '001a.2b3c.4d5e', NO_WHERE).jump?.row.cells.name).toBe('lon1-b01-fw1');
+    expect(search(ix, '00:1a:2b:3c:4d:5e', NO_WHERE).jump?.row.cells.name).toBe('lon1-b01-fw1');
+    const p = search(ix, '00:50:56:aa:bb:cc', NO_WHERE);
+    expect(p.jump?.row.key).toBe(port.key);
+    expect(p.groups[0]?.kind).toBe('ports');
+    // The VMware prefix finds the port too, by its start, without jumping.
+    const pre = search(ix, '00:50:56', NO_WHERE);
+    expect(pre.groups[0]?.hits.map((h) => h.row.key)).toContain(port.key);
+    expect(pre.jump).toBeNull();
+  });
+});
+
 describe('finding things', () => {
   const { ix } = estate();
   const where = NO_WHERE;
@@ -68,7 +106,8 @@ describe('finding things', () => {
     expect(o.jump?.row.cells.name).toBe('C-10412');
     expect(search(ix, 'c10412', where).jump?.row.cells.name).toBe('C-10412');
     const part = search(ix, '10412', where);
-    expect(part.jump?.how).toBe('part');
+    expect(part.jump).toBeNull();
+    expect(part.groups[0]?.hits[0]?.how).toBe('part');
     expect(part.reading).toContain('part of a cable label');
   });
 
@@ -78,7 +117,9 @@ describe('finding things', () => {
       expect(o.jump?.row.cells.name, t).toBe('lon1-b01-fw1');
       expect(o.reading).toContain('00:1a:2b:3c:4d:5e');
     }
-    expect(search(ix, '00:1a:2b', where).jump?.how).toBe('part');
+    const prefix = search(ix, '00:1a:2b', where);
+    expect(prefix.jump).toBeNull();
+    expect(prefix.groups[0]?.hits[0]?.row.cells.name).toBe('lon1-b01-fw1');
   });
 
   it('an IP address finds the device that has it; a prefix finds the network', () => {
@@ -91,7 +132,9 @@ describe('finding things', () => {
     const none = search(ix, '10.20.30.99', where);
     expect(none.groups[0]?.kind).toBe('prefixes');
     expect(none.groups[0]?.hits[0]?.why).toContain('no device has 10.20.30.99');
-    expect(search(ix, '10.20.30', where).jump?.row.cells.name).toBe('lon1-a03-tor1');
+    const start = search(ix, '10.20.30', where);
+    expect(start.jump).toBeNull();
+    expect(names(start)).toEqual(['lon1-a03-tor1']);
   });
 
   it('a device and port, spelled any way', () => {
@@ -115,7 +158,11 @@ describe('finding things', () => {
   it('a serial number, whole or in part', () => {
     expect(search(ix, 'XH12345678', where).jump?.row.cells.name).toBe('lon1-a03-tor1');
     expect(search(ix, 'xh-1234 5678', where).jump?.how).toBe('exact');
-    expect(search(ix, 'H123456', where).jump?.how).toBe('part');
+    // A fragment is not a unique answer: Enter shows the results rather than jumping.
+    const part = search(ix, 'H123456', where);
+    expect(part.jump).toBeNull();
+    expect(part.groups[0]?.hits[0]?.how).toBe('part');
+    expect(part.groups[0]?.hits[0]?.row.cells.name).toBe('lon1-a03-tor1');
   });
 
   it('a rack, and device names', () => {

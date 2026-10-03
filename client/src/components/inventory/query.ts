@@ -120,7 +120,14 @@ function distance(a: string, b: string): number {
   return prev[b.length]!;
 }
 
+/** The term as named in a sentence: a long one is cut short. */
+const nameOf = (tok: string): string => (tok.length > 32 ? `${tok.slice(0, 30)}…` : tok);
+
 function parseWord(tok: string, fields: readonly FieldSpec[], kindWord: string, errors: QueryError[]): Term | undefined {
+  if ((tok.match(/"/g)?.length ?? 0) % 2 === 1) {
+    errors.push({ raw: tok, message: `${nameOf(tok)}: a quote is not closed. Add a second " after the value.` });
+    return undefined;
+  }
   const m = FIELD_TERM.exec(tok);
   if (!m) {
     const neg = tok.length > 1 && tok.startsWith('-');
@@ -148,7 +155,12 @@ function parseWord(tok: string, fields: readonly FieldSpec[], kindWord: string, 
     errors.push({ raw: tok, message: `${tok}: more than ${MAX_WILDCARDS} wildcards (*) in one value. Use fewer.` });
     return undefined;
   }
-  if ((op === '>' || op === '<' || op === '>=' || op === '<=') && !Number.isFinite(Number(value))) {
+  const compares = op === '>' || op === '<' || op === '>=' || op === '<=';
+  if (compares && !spec.numeric) {
+    errors.push({ raw: tok, message: `${tok}: “${spec.key}” holds text, and ${op} compares numbers. Try ${spec.key}~${value} (contains) or ${spec.key}^${value} (starts with).` });
+    return undefined;
+  }
+  if (compares && !Number.isFinite(Number(value))) {
     errors.push({ raw: tok, message: `${tok}: “${value}” is not a number, and ${op} compares numbers.` });
     return undefined;
   }
@@ -279,15 +291,16 @@ function compileTerm(term: Term, numeric: ReadonlySet<string>): Predicate {
   const wild = value.includes('*') ? globMatcher(value) : null;
   const n = Number(value);
   const isNum = numeric.has(field) && Number.isFinite(n) && value.trim() !== '';
+  // `field!=x` is `-field:x`: every kind of value `:` understands (empty, any, a wildcard, a number).
   let test: Predicate;
-  if (op === ':') {
-    if (lv === 'empty') test = (p) => p.values(field).every((x) => x === '') ;
-    else if (lv === 'any') test = (p) => p.values(field).some((x) => x !== '');
-    else if (wild) test = (p) => p.values(field).some((x) => wild(x));
-    else if (isNum) test = (p) => p.values(field).some((x) => x !== '' && Number(x) === n) || p.number(field) === n;
-    else test = (p) => p.values(field).some((x) => x.toLowerCase() === lv);
-  } else if (op === '!=') {
-    test = lv === 'empty' ? (p) => p.values(field).some((x) => x !== '') : (p) => !p.values(field).some((x) => x.toLowerCase() === lv);
+  if (op === ':' || op === '!=') {
+    let is: Predicate;
+    if (lv === 'empty') is = (p) => p.values(field).every((x) => x === '');
+    else if (lv === 'any') is = (p) => p.values(field).some((x) => x !== '');
+    else if (wild) is = (p) => p.values(field).some((x) => wild(x));
+    else if (isNum) is = (p) => p.values(field).some((x) => x !== '' && Number(x) === n) || p.number(field) === n;
+    else is = (p) => p.values(field).some((x) => x.toLowerCase() === lv);
+    test = op === ':' ? is : (p) => !is(p);
   } else if (op === '~') {
     test = (p) => p.values(field).some((x) => x.toLowerCase().includes(lv));
   } else if (op === '^') {
@@ -316,7 +329,7 @@ function phrase(term: FieldTerm, label: string): string {
   const lv = v.toLowerCase();
   let w: string;
   if (term.op === ':') w = lv === 'empty' ? 'is empty' : lv === 'any' ? 'is filled in' : v.includes('*') ? `matches ${v}` : `is ${v}`;
-  else if (term.op === '!=') w = lv === 'empty' ? 'is filled in' : `is not ${v}`;
+  else if (term.op === '!=') w = lv === 'empty' ? 'is filled in' : lv === 'any' ? 'is blank' : v.includes('*') ? `does not match ${v}` : `is not ${v}`;
   else w = `${OP_WORDS[term.op]} ${v}`;
   return `${label} ${w}`;
 }
@@ -365,34 +378,111 @@ export function removeUnit(input: string, index: number): string {
 
 export const quoteValue = (v: string): string => (/[\s()|"]/.test(v) ? `"${v.replace(/"/g, '')}"` : v);
 
-function fieldOfUnit(u: string): string | null {
-  const m = FIELD_TERM.exec(u);
-  return m && !u.startsWith('(') ? m[2]!.toLowerCase() : null;
+// ---------------------------------------------------------------------------
+// The Filters panel and the column menus read one field out of the line and write it back. They
+// understand only some shapes (see `Role`); every other unit that mentions the field is left exactly
+// as it is and is listed in `others`, so a panel never drops or rewrites a term it cannot show.
+
+type Role = 'free' | 'value' | 'values' | 'min' | 'max' | 'has' | 'mixed' | 'starts' | 'other';
+
+interface Scanned {
+  unit: string;
+  role: Role;
+  /** value, min, max, has: the text; values / mixed: the ticked values. */
+  vals: string[];
+  strict?: boolean;
+  /** mixed: the group's alternatives as tokens, to rewrite it. */
+  alts?: string[][];
+  neg?: boolean;
 }
 
-/** Inner units of a group unit, `|` removed. */
-function groupFields(u: string): string[] | null {
-  const m = /^-?\((.*)\)$/.exec(u);
-  if (!m) return null;
-  return tokenize(m[1]!).filter((x) => x !== BAR).map((x) => fieldOfUnit(x) ?? '');
+/** A plain positive `field:value` that names a literal value (not `any`, not a wildcard). */
+function literalValue(tok: string, f: string): string | null {
+  const m = FIELD_TERM.exec(tok);
+  if (!m || m[1] || m[2]!.toLowerCase() !== f || m[3] !== ':') return null;
+  const v = unquote(m[4]!);
+  if (v === '' || v.includes('*') || v.toLowerCase() === 'any') return null;
+  return v.toLowerCase() === 'empty' ? '(blank)' : v;
 }
 
-/** The line without any plain term on `field` and without bracket groups made only of `field`. */
-export function stripField(input: string, field: string): string {
-  const f = field.toLowerCase();
-  const keep = units(input).filter((u) => {
-    if (u.startsWith('(') || u.startsWith('-(')) {
-      const inner = groupFields(u);
-      return !(inner && inner.length > 0 && inner.every((x) => x === f));
+const mentions = (tok: string, f: string): boolean => {
+  const m = FIELD_TERM.exec(tok);
+  return !!m && m[2]!.toLowerCase() === f;
+};
+
+function scanUnit(unit: string, f: string): Scanned {
+  const toks = tokenize(unit);
+  if (!toks.some((t) => mentions(t, f))) return { unit, role: 'free', vals: [] };
+  const other: Scanned = { unit, role: 'other', vals: [] };
+  if (toks.length === 1) {
+    const m = FIELD_TERM.exec(toks[0]!);
+    if (!m || m[1]) return other;
+    const v = unquote(m[4]!);
+    switch (m[3]) {
+      case ':': {
+        const lit = literalValue(toks[0]!, f);
+        return lit === null ? other : { unit, role: 'value', vals: [lit] };
+      }
+      case '>=':
+      case '>':
+        return { unit, role: 'min', vals: [v], strict: m[3] === '>' };
+      case '<=':
+      case '<':
+        return { unit, role: 'max', vals: [v], strict: m[3] === '<' };
+      case '~':
+        return { unit, role: 'has', vals: [v] };
+      case '^':
+        return { unit, role: 'starts', vals: [v] };
+      default:
+        return other;
     }
-    return fieldOfUnit(u) !== f;
-  });
-  return joinUnits(keep);
+  }
+  if (toks[0] !== OPEN || toks[toks.length - 1] !== CLOSE) return other; // a negated group, say
+  const alts: string[][] = [[]];
+  for (const t of toks.slice(1, -1)) {
+    if (t === OPEN || t === NEG_OPEN || t === CLOSE) return other; // nested: not ours to rewrite
+    if (t === BAR) alts.push([]);
+    else alts[alts.length - 1]!.push(t);
+  }
+  const single = alts.map((a) => (a.length === 1 ? literalValue(a[0]!, f) : null));
+  const vals = single.filter((x): x is string => x !== null);
+  if (vals.length === 0) return other;
+  return single.every((x) => x !== null) ? { unit, role: 'values', vals } : { unit, role: 'mixed', vals, alts };
 }
 
-/** Put `term` for `field` in the line, replacing the field's earlier plain terms. */
+/** Each unit read for `field`; a second min, max or "contains" is not the panel's, so it is `other`. */
+function scanField(input: string, field: string): Scanned[] {
+  const f = field.toLowerCase();
+  const seen = new Set<Role>();
+  return units(input).map((u) => {
+    const sc = scanUnit(u, f);
+    if (sc.role === 'min' || sc.role === 'max' || sc.role === 'has') {
+      if (seen.has(sc.role)) return { ...sc, role: 'other' as const };
+      seen.add(sc.role);
+    }
+    return sc;
+  });
+}
+
+/** The line without the terms a panel owns for `field`: its plain values, its ranges and its "contains". */
+export function stripField(input: string, field: string): string {
+  const own = new Set<Role>(['value', 'values', 'min', 'max', 'has']);
+  return joinUnits(scanField(input, field).filter((s) => !own.has(s.role)).map((s) => s.unit));
+}
+
+/**
+ * Put `term` for `field` in the line, replacing the field's earlier terms of the same sort (an
+ * earlier "is", "at least", "at most", "contains" or "starts with"). "Is not" only ever adds, and a
+ * negation or bracket group already there stays.
+ */
 export function setFieldTerm(input: string, field: string, term: string): string {
-  return joinUnits([...units(stripField(input, field)), term]);
+  const m = FIELD_TERM.exec(term);
+  const op = m && !m[1] ? m[3] : '';
+  const replaces: Role[] = op === ':' ? ['value', 'values'] : op === '>=' || op === '>' ? ['min'] : op === '<=' || op === '<' ? ['max'] : op === '~' ? ['has'] : op === '^' ? ['starts'] : [];
+  const keep = scanField(input, field)
+    .filter((s) => !replaces.includes(s.role))
+    .map((s) => s.unit);
+  return joinUnits(keep.includes(term) ? keep : [...keep, term]);
 }
 
 export interface FieldState {
@@ -400,39 +490,75 @@ export interface FieldState {
   values: string[];
   min: string;
   max: string;
+  /** `>` rather than `>=`, `<` rather than `<=`. */
+  minStrict: boolean;
+  maxStrict: boolean;
   has: string;
+  /** Units about this field the panel cannot show; they stay in the line as they are. */
+  others: string[];
 }
+
+const NONE: FieldState = { values: [], min: '', max: '', minStrict: false, maxStrict: false, has: '', others: [] };
 
 /** What the Filters panel shows for one field, read back from the line. */
 export function fieldState(input: string, field: string): FieldState {
-  const f = field.toLowerCase();
-  const st: FieldState = { values: [], min: '', max: '', has: '' };
-  const visit = (tok: string, inGroup: boolean) => {
-    const m = FIELD_TERM.exec(tok);
-    if (!m || m[1] || m[2]!.toLowerCase() !== f) return;
-    const v = unquote(m[4]!);
-    if (m[3] === ':') st.values.push(v.toLowerCase() === 'empty' ? '(blank)' : v);
-    else if (m[3] === '>=' || m[3] === '>') st.min = v;
-    else if (m[3] === '<=' || m[3] === '<') st.max = v;
-    else if (m[3] === '~' && !inGroup) st.has = v;
-  };
-  for (const u of units(input)) {
-    if (u.startsWith('(')) for (const x of tokenize(u.slice(1, -1))) visit(x, true);
-    else visit(u, false);
+  const st: FieldState = { ...NONE, values: [], others: [] };
+  for (const s of scanField(input, field)) {
+    if (s.role === 'value' || s.role === 'values' || s.role === 'mixed') st.values.push(...s.vals);
+    else if (s.role === 'min') [st.min, st.minStrict] = [s.vals[0]!, !!s.strict];
+    else if (s.role === 'max') [st.max, st.maxStrict] = [s.vals[0]!, !!s.strict];
+    else if (s.role === 'has') st.has = s.vals[0]!;
+    else if (s.role === 'other' || s.role === 'starts') st.others.push(s.unit);
   }
   return st;
 }
 
-/** The panel's pick written into the line: one value is `f:v`, several are `(f:a | f:b)`. */
-export function setField(input: string, field: string, st: FieldState): string {
+/**
+ * The panel's pick written into the line: one value is `f:v`, several are `(f:a | f:b)`. A value
+ * ticked inside a bracket group that also asks about something else is unticked by taking it out
+ * of that group; every unit the panel does not own is kept as it is.
+ */
+export function setField(input: string, field: string, st: Omit<FieldState, 'others' | 'minStrict' | 'maxStrict'> & Partial<Pick<FieldState, 'minStrict' | 'maxStrict'>>): string {
+  const want = new Set(st.values.map((v) => v.toLowerCase()));
+  const kept: string[] = [];
+  const inGroups = new Set<string>();
+  for (const s of scanField(input, field)) {
+    if (s.role === 'value' || s.role === 'values' || s.role === 'min' || s.role === 'max' || s.role === 'has') continue;
+    if (s.role !== 'mixed') {
+      kept.push(s.unit);
+      continue;
+    }
+    const alts = s.alts!.filter((a) => {
+      const lit = a.length === 1 ? literalValue(a[0]!, field.toLowerCase()) : null;
+      if (lit === null) return true;
+      if (!want.has(lit.toLowerCase())) return false;
+      inGroups.add(lit.toLowerCase());
+      return true;
+    });
+    if (alts.length === 1) kept.push(alts[0]!.join(' '));
+    else if (alts.length > 1) kept.push(`(${alts.map((a) => a.join(' ')).join(' | ')})`);
+  }
   const add: string[] = [];
-  const vs = st.values.map((v) => (v === '(blank)' ? `${field}:empty` : `${field}:${quoteValue(v)}`));
+  const vs = st.values.filter((v) => !inGroups.has(v.toLowerCase())).map((v) => (v === '(blank)' ? `${field}:empty` : `${field}:${quoteValue(v)}`));
   if (vs.length === 1) add.push(vs[0]!);
   else if (vs.length > 1) add.push(`(${vs.join(' | ')})`);
-  if (st.min !== '') add.push(`${field}>=${st.min}`);
-  if (st.max !== '') add.push(`${field}<=${st.max}`);
+  if (st.min !== '') add.push(`${field}${st.minStrict ? '>' : '>='}${st.min}`);
+  if (st.max !== '') add.push(`${field}${st.maxStrict ? '<' : '<='}${st.max}`);
   if (st.has !== '') add.push(`${field}~${quoteValue(st.has)}`);
-  return joinUnits([...units(stripField(input, field)), ...add]);
+  return joinUnits([...kept, ...add]);
+}
+
+/** A bound as typed in a panel box: `30`, `>30` (strict) or `>=30`. Null when it is not a number. */
+export function parseBound(text: string, side: 'min' | 'max'): { v: string; strict: boolean } | null {
+  const t = text.trim();
+  if (t === '') return { v: '', strict: false };
+  const m = (side === 'min' ? /^(>=|>)?\s*(-?\d+(?:\.\d+)?)$/ : /^(<=|<)?\s*(-?\d+(?:\.\d+)?)$/).exec(t);
+  return m ? { v: m[2]!, strict: m[1] === '>' || m[1] === '<' } : null;
+}
+
+/** The bound as a box shows it: the number, with `>` or `<` in front when the line says "over" or "under". */
+export function boundText(v: string, strict: boolean, side: 'min' | 'max'): string {
+  return v !== '' && strict ? `${side === 'min' ? '>' : '<'}${v}` : v;
 }
 
 /** The operators, for the "?" help. */
