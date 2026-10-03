@@ -2197,12 +2197,27 @@ impl Shell {
                 "a trace request is three lines: start, end, flow",
             );
         };
-        let flow = flow.split_once(' ').and_then(|(p, port)| {
-            Some(fathom_inventory::Flow {
-                protocol: p.parse().ok()?,
-                port: port.parse().ok()?,
-            })
-        });
+        let flow = flow.trim();
+        let flow = if flow.is_empty() {
+            None
+        } else {
+            let mut parts = flow.split_whitespace();
+            let parsed = match (parts.next(), parts.next(), parts.next()) {
+                (Some(p), Some(port), None) => p
+                    .parse()
+                    .ok()
+                    .zip(port.parse().ok())
+                    .map(|(protocol, port)| fathom_inventory::Flow { protocol, port }),
+                _ => None,
+            };
+            if parsed.is_none() {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    "the flow line is `<protocol number> <port>` or empty",
+                );
+            }
+            parsed
+        };
         protocol::encode_trace_reply(&fathom_inventory::trace(
             estate,
             from.trim(),

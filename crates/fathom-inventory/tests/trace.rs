@@ -693,3 +693,71 @@ fn no_verdict_word_appears_in_any_hop_text() {
         }
     }
 }
+
+/// One device with one addressed unit (10.1.1.1/24 on eth0) and nothing cabled.
+fn lone() -> (B, NodeId) {
+    let mut b = B::new();
+    let d = b.device("r-lone");
+    let c = b.chassis(d);
+    let p = b.port(c, "eth0");
+    b.unit(d, p, "eth0", Some((v4(10, 1, 1, 1), 24)), None);
+    (b, d)
+}
+
+#[test]
+fn a_shorter_discard_route_does_not_stop_a_longer_connected_one() {
+    let (mut b, d) = lone();
+    b.route(d, (v4(10, 0, 0, 0), 8), NextHop::Discard);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(
+        !t.stopped.contains("discard"),
+        "the /24 connected route wins: {}",
+        t.stopped
+    );
+    assert!(t
+        .hops
+        .iter()
+        .any(|h| h.detail.iter().any(|l| l.contains("connected"))));
+}
+
+#[test]
+fn a_winning_discard_route_is_said_plainly() {
+    let (mut b, d) = lone();
+    b.route(d, (v4(10, 9, 0, 0), 16), NextHop::Discard);
+    let t = trace(&b.g, &d.to_string(), "10.9.1.1", None);
+    assert!(t.stopped.contains("discard"), "{}", t.stopped);
+}
+
+#[test]
+fn two_routing_instances_stop_the_route_lookup() {
+    let (mut b, d) = lone();
+    for _ in 0..2 {
+        let r = b.node(NodeKind::RoutingInstance);
+        b.edge(EdgeKind::HasRoutingInstance, d, r);
+    }
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(
+        t.stopped.contains("more than one routing instance"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_dual_stack_start_does_not_invent_a_source() {
+    let (mut b, d) = lone();
+    // A second IPv4 address on the same unit: no single source of that family.
+    let u = b.g.nodes_of_kind(NodeKind::LogicalUnit).next().unwrap().id;
+    let n = b.node(NodeKind::Address);
+    b.set(
+        n,
+        "Address.value",
+        scalar::InterfaceAddress {
+            addr: v4(10, 1, 1, 2),
+            prefix_len: 24,
+        },
+    );
+    b.edge(EdgeKind::HasAddress, u, n);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert_eq!(t.hops[0].detail[0], "from this device");
+}

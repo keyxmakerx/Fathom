@@ -19,8 +19,8 @@ use std::net::IpAddr;
 
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
-    address, address_object, application, logical_unit, policy_set, security_policy, static_route,
-    vlan,
+    address, address_object, address_set, application, logical_unit, policy_set, security_policy,
+    static_route, vlan,
 };
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
 use fathom_ir::scalar::{IpPrefix, IpRange};
@@ -33,6 +33,8 @@ const MAX_STEPS: usize = 24;
 
 /// How far one switch search wanders through further switches.
 const L2_DEPTH: usize = 4;
+/// Ports the switch search may visit in one trace, so a meshed fabric ends in "could not establish" and not a frozen tab.
+const SEARCH_BUDGET: u32 = 2_000;
 
 /// A flow's protocol and destination port, when the person gave them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +91,7 @@ pub struct Trace {
 /// interface unit) or, for `to`, an address.
 pub fn trace(g: &Graph, from: &str, to: &str, flow: Option<Flow>) -> Trace {
     let mut w = Walk {
+        steps: std::cell::Cell::new(0),
         g,
         flow,
         t: Trace {
@@ -108,6 +111,8 @@ pub fn trace(g: &Graph, from: &str, to: &str, flow: Option<Flow>) -> Trace {
 
 struct Walk<'a> {
     g: &'a Graph,
+    /// Switch-search steps taken; the search ends at `SEARCH_BUDGET`.
+    steps: std::cell::Cell<u32>,
     flow: Option<Flow>,
     t: Trace,
 }
@@ -137,6 +142,21 @@ impl Walk<'_> {
     fn run(&mut self, from: &str, to: &str) -> Result<(), String> {
         let (mut dev, mut ingress, mut src) = self.start(from)?;
         let (dest, dest_dev) = self.end(to)?;
+        // A source address is set only when the person gave it (an address as the start), or the start
+        // interface (else the start device) holds exactly one address of the destination's family.
+        if src.is_none() {
+            let held = match ingress {
+                Some(u) => self.unit_addrs(u),
+                None => self.device_addrs(dev),
+            };
+            let same: Vec<IpAddr> = held
+                .into_iter()
+                .filter(|a| a.is_ipv4() == dest.is_ipv4())
+                .collect();
+            if let [a] = same.as_slice() {
+                src = Some(*a);
+            }
+        }
         self.t.hops.push(Hop {
             kind: "start",
             title: display_name(self.g, dev),
@@ -179,9 +199,6 @@ impl Walk<'_> {
                     return Err(e);
                 }
             };
-            if src.is_none() {
-                src = self.unit_addr(chosen.unit, dest);
-            }
             let mut hop = Hop {
                 kind: "device",
                 title: display_name(self.g, dev),
@@ -210,7 +227,17 @@ impl Walk<'_> {
                 .g
                 .device_of(holder_port)
                 .ok_or("the far port is not on a device")?;
-            ingress = self.units_on(holder_port).into_iter().next();
+            // The unit that holds the next hop; none, or several, and the entry unit is not stated.
+            let entry: Vec<NodeId> = self
+                .units_on(holder_port)
+                .into_iter()
+                .filter(|u| {
+                    self.unit_prefixes(*u)
+                        .iter()
+                        .any(|(a, l)| prefix_has(*a, *l, chosen.next))
+                })
+                .collect();
+            ingress = (entry.len() == 1).then(|| entry[0]);
             dev = holder_dev;
         }
         Err(format!(
@@ -234,15 +261,17 @@ impl Walk<'_> {
                         .g
                         .device_of(n)
                         .ok_or("the start port is on no device")?;
-                    let u = self.units_on(n).into_iter().next();
-                    Ok((d, u, u.and_then(|u| self.unit_addrs(u).first().copied())))
+                    // Several units on one port: which one traffic uses is not stated.
+                    let units = self.units_on(n);
+                    let u = (units.len() == 1).then(|| units[0]);
+                    Ok((d, u, None))
                 }
                 NodeKind::LogicalUnit => {
                     let d = self
                         .g
                         .device_of(n)
                         .ok_or("the start unit is on no device")?;
-                    Ok((d, Some(n), self.unit_addrs(n).first().copied()))
+                    Ok((d, Some(n), None))
                 }
                 _ => Err(format!(
                     "{} is not a device, port or interface unit",
@@ -347,21 +376,18 @@ impl Walk<'_> {
         found
     }
 
-    /// The address on `unit` that shares a subnet with `toward`, else its first.
-    fn unit_addr(&self, unit: NodeId, toward: IpAddr) -> Option<IpAddr> {
-        let ps = self.unit_prefixes(unit);
-        ps.iter()
-            .find(|(a, l)| prefix_has(*a, *l, toward))
-            .or_else(|| ps.first())
-            .map(|(a, _)| *a)
-    }
-
     // ---- routes -------------------------------------------------------
 
     fn route(&self, dev: NodeId, dest: IpAddr) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
-        // (prefix length, preference, chosen)
-        let mut found: Vec<(u8, u32, Chosen)> = Vec::new();
+        if children(self.g, dev, EdgeKind::HasRoutingInstance).len() > 1 {
+            return Err(format!(
+                "{name} has more than one routing instance, and which one this flow uses could not be established"
+            ));
+        }
+        // (prefix length, preference when stated, candidate). A candidate that cannot be followed is
+        // kept, not returned: only the winning prefix may stop the trace.
+        let mut found: Vec<(u8, Option<u32>, Result<Chosen, String>)> = Vec::new();
 
         for u in self.device_units(dev) {
             if self
@@ -375,14 +401,14 @@ impl Walk<'_> {
                 if prefix_has(a, l, dest) {
                     found.push((
                         l,
-                        0,
-                        Chosen {
+                        Some(0),
+                        Ok(Chosen {
                             unit: u,
                             next: dest,
                             words: format!("connected: {} is on {}/{}", dest, mask(a, l), l),
                             node: u,
                             source: "LogicalUnit.index".to_owned(),
-                        },
+                        }),
                     ));
                 }
             }
@@ -397,103 +423,122 @@ impl Walk<'_> {
                 if !prefix_has(p.addr, p.len, dest) {
                     continue;
                 }
-                let pref = static_route::preference(node).map_or(u32::MAX, |p| u32::from(*p));
-                let hops = static_route::next_hop(node)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
-                let words = format!("static route {}/{}", p.addr, p.len);
-                let chosen = match hops {
-                    [] => {
-                        return Err(format!(
-                            "the static route {}/{} on {name} names no next hop",
-                            p.addr, p.len
-                        ))
-                    }
-                    [NextHop::Address(a)] => {
-                        let via = a.0;
-                        let unit = self.device_units(dev).into_iter().find(|u| {
-                            self.unit_prefixes(*u)
-                                .iter()
-                                .any(|(ua, l)| prefix_has(*ua, *l, via))
-                        });
-                        let Some(unit) = unit else {
-                            return Err(format!(
-                                "the static route {}/{} on {name} goes via {via}, and no interface on {name} reaches {via}",
-                                p.addr, p.len
-                            ));
-                        };
-                        Chosen {
-                            unit,
-                            next: via,
-                            words: format!("{words} via {via}"),
-                            node: r,
-                            source: "StaticRoute.destination".to_owned(),
-                        }
-                    }
-                    [NextHop::Interface(id)] => {
-                        let unit = match self.g.resolve_ref(*id) {
-                            Some(ElementId::Node(n)) if n.kind == NodeKind::LogicalUnit && live(self.g, n) => n,
-                            _ => {
-                                return Err(format!(
-                                    "the static route {}/{} on {name} names an interface that is not in this design",
-                                    p.addr, p.len
-                                ))
-                            }
-                        };
-                        Chosen {
-                            unit,
-                            next: dest,
-                            words: format!("{words} out {}", display_name(self.g, unit)),
-                            node: r,
-                            source: "StaticRoute.destination".to_owned(),
-                        }
-                    }
-                    [NextHop::Discard] | [NextHop::Reject] => {
-                        return Err(format!(
-                            "the best route on {name} for {dest} is {}/{}, which the config sets to discard",
-                            p.addr, p.len
-                        ))
-                    }
-                    [_] => {
-                        return Err(format!(
-                            "the static route {}/{} on {name} uses a next hop this trace does not read",
-                            p.addr, p.len
-                        ))
-                    }
-                    _ => {
-                        return Err(format!(
-                            "the static route {}/{} on {name} has more than one next hop; could not establish which one the flow takes",
-                            p.addr, p.len
-                        ))
-                    }
-                };
-                found.push((p.len, pref, chosen));
+                let pref = static_route::preference(node).ok().map(|p| u32::from(*p));
+                found.push((p.len, pref, self.static_choice(dev, r, p.addr, p.len, dest)));
             }
         }
 
-        // Longest prefix first, then the lower preference (connected counts 0).
-        let best = found
-            .iter()
-            .map(|(l, p, _)| (*l, std::cmp::Reverse(*p)))
-            .max();
-        let Some(best) = best else {
+        // Longest prefix first.
+        let Some(longest) = found.iter().map(|(l, _, _)| *l).max() else {
             return Err(format!(
                 "no connected or static route on {name} covers {dest}; learned routes are not in the design, so the route on {name} could not be established"
             ));
         };
-        let mut top: Vec<Chosen> = found
+        let top: Vec<(Option<u32>, Result<Chosen, String>)> = found
             .into_iter()
-            .filter(|(l, p, _)| (*l, std::cmp::Reverse(*p)) == best)
-            .map(|(_, _, c)| c)
+            .filter(|(l, _, _)| *l == longest)
+            .map(|(_, p, c)| (p, c))
             .collect();
-        top.sort_by(|a, b| a.words.cmp(&b.words));
-        top.dedup_by(|a, b| a.words == b.words);
-        if top.len() > 1 {
+        // Equal length: the lower preference wins, but a route whose preference was not read (a pasted
+        // Junos route carries none) cannot be ranked against another.
+        let stated: Vec<u32> = top.iter().filter_map(|(p, _)| *p).collect();
+        let unstated = top.iter().filter(|(p, _)| p.is_none()).count();
+        let mut winners: Vec<Result<Chosen, String>> = if unstated > 0 && !stated.is_empty() {
+            return Err(format!(
+                "routes on {name} equally specific for {dest} differ in whether their preference was read; could not establish which one is used"
+            ));
+        } else if unstated > 0 {
+            top.into_iter().map(|(_, c)| c).collect()
+        } else {
+            let low = stated.iter().copied().min().unwrap_or(0);
+            top.into_iter()
+                .filter(|(p, _)| *p == Some(low))
+                .map(|(_, c)| c)
+                .collect()
+        };
+        winners.sort_by(|a, b| match (a, b) {
+            (Ok(x), Ok(y)) => x.words.cmp(&y.words),
+            (Err(x), Err(y)) => x.cmp(y),
+            (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+            (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        });
+        winners.dedup_by(|a, b| match (a, b) {
+            (Ok(x), Ok(y)) => x.words == y.words,
+            (Err(x), Err(y)) => x == y,
+            _ => false,
+        });
+        if winners.len() > 1 {
             return Err(format!(
                 "more than one route on {name} is equally specific for {dest}; could not establish which one is used"
             ));
         }
-        Ok(top.remove(0))
+        winners.remove(0)
+    }
+
+    /// One static route as a way forward, or the reason it cannot be followed.
+    fn static_choice(
+        &self,
+        dev: NodeId,
+        r: NodeId,
+        addr: IpAddr,
+        len: u8,
+        dest: IpAddr,
+    ) -> Result<Chosen, String> {
+        let name = display_name(self.g, dev);
+        let node = self.g.node(r).ok_or("the route is gone")?;
+        let words = format!("static route {addr}/{len}");
+        let hops = static_route::next_hop(node)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        match hops {
+            [] => Err(format!("the static route {addr}/{len} on {name} names no next hop")),
+            [NextHop::Address(a)] => {
+                let via = a.0;
+                let unit = self.device_units(dev).into_iter().find(|u| {
+                    self.unit_prefixes(*u)
+                        .iter()
+                        .any(|(ua, l)| prefix_has(*ua, *l, via))
+                });
+                let Some(unit) = unit else {
+                    return Err(format!(
+                        "the static route {addr}/{len} on {name} goes via {via}, and no interface on {name} reaches {via}"
+                    ));
+                };
+                Ok(Chosen {
+                    unit,
+                    next: via,
+                    words: format!("{words} via {via}"),
+                    node: r,
+                    source: "StaticRoute.destination".to_owned(),
+                })
+            }
+            [NextHop::Interface(id)] => {
+                let unit = match self.g.resolve_ref(*id) {
+                    Some(ElementId::Node(n)) if n.kind == NodeKind::LogicalUnit && live(self.g, n) => n,
+                    _ => {
+                        return Err(format!(
+                            "the static route {addr}/{len} on {name} names an interface that is not in this design"
+                        ))
+                    }
+                };
+                Ok(Chosen {
+                    unit,
+                    next: dest,
+                    words: format!("{words} out {}", display_name(self.g, unit)),
+                    node: r,
+                    source: "StaticRoute.destination".to_owned(),
+                })
+            }
+            [NextHop::Discard] | [NextHop::Reject] => Err(format!(
+                "the best route on {name} for {dest} is {addr}/{len}, which the config sets to discard"
+            )),
+            [_] => Err(format!(
+                "the static route {addr}/{len} on {name} uses a next hop this trace does not read"
+            )),
+            _ => Err(format!(
+                "the static route {addr}/{len} on {name} has more than one next hop; could not establish which one the flow takes"
+            )),
+        }
     }
 
     // ---- cables, patch panels, switches -----------------------------------
@@ -669,6 +714,10 @@ impl Walk<'_> {
         hint: Option<u16>,
         depth: usize,
     ) -> Result<(Vec<Hop>, NodeId), String> {
+        self.steps.set(self.steps.get() + 1);
+        if self.steps.get() > SEARCH_BUDGET {
+            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+        }
         let (mut hops, far) = self.cable_chain(from_port)?;
         let dev = self
             .g
@@ -748,6 +797,9 @@ impl Walk<'_> {
                 Err(e) => errs.push(e),
             }
         }
+        if self.steps.get() > SEARCH_BUDGET {
+            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+        }
         match paths.len() {
             1 => {
                 let (mut p, hp) = paths.remove(0);
@@ -807,6 +859,7 @@ impl Walk<'_> {
         };
         hop.scope = format!("{} to {}", zname(zin, ingress), zname(zout, Some(egress)));
 
+        let mut here = 0;
         for s in sets {
             let scope = self.g.node(s).and_then(|n| policy_set::scope(n).ok());
             let place = match scope {
@@ -824,7 +877,10 @@ impl Walk<'_> {
             };
             let lines = self.policy_lines(s, src, dst);
             match place {
-                Place::Here => hop.policies.extend(lines),
+                Place::Here => {
+                    here += 1;
+                    hop.policies.extend(lines);
+                }
                 Place::Unplaced => {
                     hop.unplaced_why =
                         "could not establish which interface and direction these rules apply to"
@@ -859,9 +915,30 @@ impl Walk<'_> {
                 Place::Elsewhere => {}
             }
         }
+        if here > 1 {
+            hop.detail.push(
+                "More than one policy set applies; the order between sets is not read, so rows from different sets are not ranked against each other".to_owned(),
+            );
+        }
+        if hop.policies.is_empty() && hop.unplaced.is_empty() && zin.is_some() && zout.is_some() {
+            hop.detail.push(
+                "No policy set between these zones is in the design; could not establish what the device does with this flow".to_owned(),
+            );
+        }
         hop.detail.push("NAT is not read".to_owned());
         hop.detail
             .push("Policies are listed as stored; qualifiers the config uses but Fathom does not read are not shown".to_owned());
+    }
+
+    /// A policy's object by the name the config gave it; `display_name` has no case for these kinds.
+    fn label(&self, n: NodeId) -> String {
+        let name = self.g.node(n).and_then(|node| match n.kind {
+            NodeKind::AddressObject => address_object::name(node).ok().map(|i| i.0.clone()),
+            NodeKind::AddressSet => address_set::name(node).ok().map(|i| i.0.clone()),
+            NodeKind::Application => application::name(node).ok().map(|i| i.0.clone()),
+            _ => None,
+        });
+        name.unwrap_or_else(|| display_name(self.g, n))
     }
 
     fn zone_ref(&self, r: fathom_id::NodeId) -> Option<NodeId> {
@@ -938,7 +1015,13 @@ impl Walk<'_> {
                     self.app_state(p, get(security_policy::match_any_application)),
                 ),
             ];
-            combine(&parts)
+            let (st, mut why) = combine(&parts);
+            if st == "matches" && self.source_of(p, "SecurityPolicy.name") == PASTED {
+                why.push_str(
+                    " (as read from the config; a deactivated policy or a qualifier Fathom does not read is not shown)",
+                );
+            }
+            (st, why)
         };
         PolicyLine {
             id: p.to_string(),
@@ -974,7 +1057,7 @@ impl Walk<'_> {
         };
         let mut cant: Option<String> = None;
         for o in objects {
-            let name = display_name(self.g, o);
+            let name = self.label(o);
             match self.g.node(o).and_then(|n| address_object::value(n).ok()) {
                 Some(AddressValue::Prefix(IpPrefix { addr, len }))
                     if prefix_has(*addr, *len, ip) =>
@@ -999,6 +1082,18 @@ impl Walk<'_> {
                 None => {
                     cant.get_or_insert(format!("{name} is named but its address was not read"));
                 }
+            }
+        }
+        // A set read from a config may hold sets inside it, which the paste does not bind.
+        if cant.is_none() {
+            let parsed_set = children(self.g, p, edge).into_iter().find(|t| {
+                t.kind == NodeKind::AddressSet && self.source_of(*t, "AddressSet.name") == PASTED
+            });
+            if let Some(set) = parsed_set {
+                cant = Some(format!(
+                    "{} was read from a config, and sets inside sets are not read",
+                    self.label(set)
+                ));
             }
         }
         match cant {
@@ -1044,16 +1139,22 @@ impl Walk<'_> {
         };
         let mut cant: Option<String> = None;
         for a in apps {
-            let name = display_name(self.g, a);
+            let name = self.label(a);
             match self.g.node(a).and_then(|n| application::l4(n).ok()) {
                 Some(L4Spec::Any) => {
                     return (State::Matches, format!("{name} covers any protocol"))
                 }
                 Some(L4Spec::Protocol {
                     protocol,
+                    source_ports,
                     destination_ports,
-                    ..
                 }) => {
+                    if protocol.0 == flow.protocol && !source_ports.is_empty() {
+                        cant.get_or_insert(format!(
+                            "{name} also names source ports, and the flow's source port was not given"
+                        ));
+                        continue;
+                    }
                     let ports = destination_ports.is_empty()
                         || destination_ports
                             .iter()
@@ -1097,12 +1198,14 @@ impl Walk<'_> {
             .and_then(|p| self.g.provenance(p))
             .map(|r| &r.origin)
         {
-            Some(Origin::Parsed { .. }) => "read from a pasted config".to_owned(),
+            Some(Origin::Parsed { .. }) => PASTED.to_owned(),
             Some(Origin::Hand) => "entered by hand".to_owned(),
             None => String::new(),
         }
     }
 }
+
+const PASTED: &str = "read from a pasted config";
 
 enum Place {
     Here,

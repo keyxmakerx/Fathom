@@ -1372,9 +1372,19 @@ pub fn encode_trace_reply(t: &fathom_inventory::Trace) -> Vec<u8> {
     let mut count = 1usize;
     for (i, h) in t.hops.iter().enumerate() {
         let n = (i + 1).to_string();
-        let detail = h.detail.join("\n");
-        let nodes = h.nodes.join("\n");
-        let scope = format!("{}\n{}", h.scope, h.unplaced_why);
+        let one = |v: &[String]| {
+            v.iter()
+                .map(|x| x.replace(['\r', '\n'], " "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let detail = one(&h.detail);
+        let nodes = one(&h.nodes);
+        let scope = format!(
+            "{}\n{}",
+            h.scope.replace(['\r', '\n'], " "),
+            h.unplaced_why.replace(['\r', '\n'], " ")
+        );
         let rec = face_slots(
             &mut blob,
             FACE_TR_HOP,
