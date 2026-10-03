@@ -8,6 +8,8 @@ import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
 import { PlanEdgeTag } from './PlanGhostEdge';
 import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
+import { StubTags } from './StubTags';
+import type { StubEnd } from './stubs';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 
 export interface CableEdgeData extends Record<string, unknown> {
@@ -29,6 +31,9 @@ export interface CableEdgeData extends Record<string, unknown> {
   ends?: [PortPoint | null, PortPoint | null];
   /** Close in: each end's port label and where to put it. */
   endLabels?: [{ text: string } & PlacedLabel, { text: string } & PlacedLabel];
+  /** Far apart: each end draws a short fading run and a tag naming the far end. */
+  stub?: [StubEnd, StubEnd];
+  onPanTo?: (chassisId: string) => void;
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -62,7 +67,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const litCableId = useLive((s) => s.litCableId);
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
-  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
   const dimmed = data.checksFaded !== true && litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
@@ -73,6 +78,28 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
+
+  // Off screen at the far end: stubs; while lit (selected, or its tag hovered) the whole cable draws too.
+  const stubTags =
+    stub != null && leads != null && onPanTo != null ? (
+      <StubTags
+        id={cable.id}
+        colour={colour}
+        width={strokeWidth}
+        points={[leads.a, leads.b]}
+        dirs={[{ dx: 0, dy: leads.a.dir }, { dx: 0, dy: leads.b.dir }]}
+        stubs={stub}
+        onPanTo={onPanTo}
+        onHover={(on) => onHoverChange(on ? cable.id : null)}
+      />
+    ) : null;
+  if (stubTags != null && !lit) {
+    return (
+      <g className="drawing-cable drawing-cable--stub" data-cable-id={cable.id} style={{ opacity }}>
+        {stubTags}
+      </g>
+    );
+  }
 
   function handleClick(event: ReactMouseEvent) {
     event.stopPropagation();
@@ -136,7 +163,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           {portPairLabel}
         </text>
       )}
-      {endLabels != null && leads != null && (
+      {stubTags}
+      {endLabels != null && stubTags == null && leads != null && (
         <EdgeLabelRenderer>
           {([leads.a, leads.b] as const).map((lead, i) => (
             <div

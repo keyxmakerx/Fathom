@@ -7,6 +7,8 @@ import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
 import { PlanEdgeTag } from './PlanGhostEdge';
 import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
+import { StubTags } from './StubTags';
+import type { StubEnd } from './stubs';
 
 export interface BundleEdgeData extends Record<string, unknown> {
   bundle: Bundle;
@@ -21,6 +23,9 @@ export interface BundleEdgeData extends Record<string, unknown> {
   onFan: (key: string | null) => void;
   /** Where the band meets each device: the mean of its members' ports there. */
   ends?: [PortPoint | null, PortPoint | null];
+  /** Far apart: stubs with tags naming each far end, as a lone cable's. */
+  stub?: [StubEnd, StubEnd];
+  onPanTo?: (chassisId: string) => void;
 }
 
 export type BundleEdgeType = Edge<BundleEdgeData, 'bundle'>;
@@ -57,6 +62,22 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
   const midX = leads != null ? (leads.a.x + leads.b.x) / 2 : (sourceX + targetX) / 2;
   const midY = leads != null ? (leads.a.y + leads.b.y) / 2 : (sourceY + targetY) / 2;
   const opacity = dimmed ? 'var(--phantom)' : 1;
+
+  if (data.stub != null && leads != null && data.onPanTo != null) {
+    return (
+      <g className="drawing-bundle drawing-bundle--stub" data-bundle-key={bundle.key} style={{ opacity }}>
+        <StubTags
+          id={bundle.key}
+          colour={bandColour}
+          width={`${width}px`}
+          points={[leads.a, leads.b]}
+          dirs={[{ dx: 0, dy: leads.a.dir }, { dx: 0, dy: leads.b.dir }]}
+          stubs={data.stub}
+          onPanTo={data.onPanTo}
+        />
+      </g>
+    );
+  }
 
   return (
     <g

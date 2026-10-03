@@ -30,6 +30,7 @@ export function Shell({
   tree,
   lens,
   onLensChange,
+  look,
   presence,
   zoom,
   onZoomIn,
@@ -40,6 +41,7 @@ export function Shell({
   onUndo,
   onRedo,
   onPrint,
+  onShare,
   account,
   editor,
   rail,
@@ -51,6 +53,7 @@ export function Shell({
   barExtra,
   band,
   menu,
+  adminPill,
   onHome,
   search,
 }: ShellProps) {
@@ -63,6 +66,7 @@ export function Shell({
         tree={tree}
         lens={lens}
         onLensChange={onLensChange}
+        look={look}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}
@@ -73,10 +77,12 @@ export function Shell({
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
+        onShare={onShare}
         account={account}
         viewOnly={viewOnly}
         barExtra={barExtra}
         menu={menu}
+        adminPill={adminPill}
         onHome={onHome}
         search={search}
       />

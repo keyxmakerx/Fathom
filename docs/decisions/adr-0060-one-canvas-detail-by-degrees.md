@@ -155,6 +155,12 @@ The owner answered every card on the sign-off page's third round:
 - **Every question on the sign-off page shows two mockups** of what is proposed, and the page opens
   on a view holding only what still waits on the owner.
 
+## Step 3b, built 2026-10-02
+
+Why designs had no name: a plaintext name would be a second copy in rows and logs (migration 0007).
+So the name is sealed under the organisation content key, never in the clear, and a rename writes no
+chain entry. Both go to the owner to confirm.
+
 ## Open
 
 Nothing from rounds 1 and 2. The owner never said which panel was the "tiny view". The round 2 note
