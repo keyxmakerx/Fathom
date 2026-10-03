@@ -15,28 +15,37 @@ import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import type { SubnetRow } from '../../document/networks-derive';
 import { vlanLabel, type PrefixRow, type VlanKindRow } from '../../document/ipam';
 import type { CableEnd, ClosetView, Selection } from '../drawing/contract';
-import { ABSENT } from '../drawing/contract';
+import { ABSENT, UNNAMED_HOSTNAME } from '../drawing/contract';
 import type { Lens } from '../shell/lens';
 import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './rows';
+import type { Place, PlaceIndex } from './placeIndex';
+import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'racks' | 'cables' | 'interfaces' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
-export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
-  { key: 'devices', label: 'Devices' },
-  { key: 'racks', label: 'Racks' },
-  { key: 'cables', label: 'Cables' },
-  { key: 'interfaces', label: 'Interfaces' },
-  { key: 'networks', label: 'Networks' },
-  { key: 'prefixes', label: 'Prefixes' },
-  { key: 'vlans', label: 'VLANs' },
-  { key: 'addresses', label: 'Addresses' },
+export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
+/** The side list's kinds in quiet groups. Docs, Maintenance and Issues are not built, so not listed. */
+export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
+  [
+    { key: 'devices', label: 'Devices' },
+    { key: 'ports', label: 'Ports' },
+    { key: 'racks', label: 'Racks' },
+    { key: 'cables', label: 'Cables' },
+  ],
+  [
+    { key: 'networks', label: 'Networks' },
+    { key: 'prefixes', label: 'Prefixes' },
+    { key: 'vlans', label: 'VLANs' },
+    { key: 'addresses', label: 'Addresses' },
+  ],
 ];
+export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
+export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
 
 /** The field kind a table kind's rows take; networks and addresses take none here. */
 export const FIELD_FOR_KIND: Partial<Record<Kind, FieldFor>> = {
   devices: 'device',
   racks: 'rack',
   cables: 'cable',
-  interfaces: 'port',
+  ports: 'port',
 };
 
 export type CellType = 'text' | 'select' | FieldType | 'tags' | 'bar';
@@ -70,6 +79,62 @@ export interface InvRow {
   meter?: Readonly<Record<string, number>>;
   /** A Device-row's name, for jumping to it from an address. */
   deviceNodeId?: string;
+  /** Numbers for the query language where the cell is words ("5 of 42U"). */
+  nums?: Readonly<Record<string, number>>;
+  /** Extra values the query language can ask about that no column shows (a cable's far end). */
+  facets?: Readonly<Record<string, readonly string[]>>;
+  /** Where the row is (a cable has two ends). Undefined for kinds that have no place; empty when unplaced. */
+  places?: readonly Place[];
+}
+
+const siteRoomRack: FacetSpec[] = [
+  { key: 'site', label: 'Site' },
+  { key: 'row', label: 'Row' },
+  { key: 'rack', label: 'Rack' },
+];
+
+/** What the filter line can ask about beyond the columns. */
+export const FACETS: Partial<Record<Kind, readonly FacetSpec[]>> = {
+  devices: [...siteRoomRack, { key: 'u', label: 'Unit', numeric: true }],
+  ports: [...siteRoomRack, { key: 'role', label: 'What the device is' }, { key: 'connected', label: 'Connected' }],
+  racks: [siteRoomRack[0]!, siteRoomRack[1]!],
+  cables: [
+    { key: 'site', label: 'Site at either end' },
+    { key: 'row', label: 'Row at either end' },
+    { key: 'rack', label: 'Rack at either end' },
+    { key: 'role', label: 'What either end is' },
+    { key: 'device', label: 'Device at either end' },
+    { key: 'a.device', label: 'One end: device' },
+    { key: 'a.port', label: 'One end: port' },
+    { key: 'a.role', label: 'One end: what it is' },
+    { key: 'a.rack', label: 'One end: rack' },
+    { key: 'a.site', label: 'One end: site' },
+    { key: 'b.device', label: 'Other end: device' },
+    { key: 'b.port', label: 'Other end: port' },
+    { key: 'b.role', label: 'Other end: what it is' },
+    { key: 'b.rack', label: 'Other end: rack' },
+    { key: 'b.site', label: 'Other end: site' },
+  ],
+};
+
+/** Smaller questions a column's menu offers beyond its own values: facets about the same thing. */
+export const COLUMN_ASKS: Partial<Record<Kind, Readonly<Record<string, readonly string[]>>>> = {
+  devices: { where: ['site', 'row', 'rack', 'u'] },
+  ports: { device: ['role', 'site', 'rack'], cable: ['connected'] },
+  cables: {
+    endA: ['a.site', 'a.rack', 'a.role', 'a.device', 'a.port'],
+    endB: ['b.site', 'b.rack', 'b.role', 'b.device', 'b.port'],
+  },
+};
+
+/** The facets every placed row answers: site, row and rack of each place. */
+export function placeFacets(places: readonly Place[]): Record<string, string[]> {
+  const uniq = (xs: string[]) => [...new Set(xs)];
+  return {
+    site: uniq(places.map((p) => p.site)),
+    row: uniq(places.map((p) => p.row)),
+    rack: uniq(places.map((p) => p.rack)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +184,8 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('endA', 'End A', 170),
     core('endB', 'End B', 170),
   ],
-  interfaces: [
-    core('name', 'Name', 110),
+  ports: [
+    core('name', 'Port', 110),
     core('device', 'Device', 140),
     core('connector', 'Connector', 100),
     core('service', 'Service', 100),
@@ -160,7 +225,7 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   }
   if (kind === 'racks') return ['name', 'height', 'row', 'bay', 'used', 'devices', 'tags'];
   if (kind === 'cables') return ['name', 'kind', 'sheath', 'length', 'endA', 'endB', 'tags'];
-  if (kind === 'interfaces') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
+  if (kind === 'ports') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
   if (kind === 'addresses') return ['address', 'interface', 'device', 'subnet'];
   if (kind === 'prefixes') return ['prefix', 'vlan', 'site', 'used', 'gateway'];
   if (kind === 'vlans') return ['vlan', 'label', 'prefixes', 'site', 'devices', 'members'];
@@ -228,7 +293,7 @@ function deviceInfo(doc: Document, chassisId: string): { deviceId: string; hostn
   };
 }
 
-export function deviceRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = []): InvRow[] {
+export function deviceRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = [], idx?: PlaceIndex): InvRow[] {
   const out: InvRow[] = [];
   for (const group of groupDeviceRows(view, doc)) {
     for (const r of group.rows as DeviceRow[]) {
@@ -249,7 +314,12 @@ export function deviceRows(doc: Document, view: ClosetView, defs: readonly Field
         lastChange: r.lastChangeMs != null ? formatLastChange(r.lastChangeMs) : '',
       };
       const { tags } = withExtras(doc, 'devices', ownerId, cells, defs);
+      const place = idx?.hosts.get(chassisId);
+      const places = idx ? (place ? [place] : []) : undefined;
       out.push({
+        places,
+        facets: places ? placeFacets(places) : undefined,
+        nums: place?.u != null ? { u: place.u } : undefined,
         key: `${r.selection.kind}:${chassisId}`,
         selection: r.selection,
         ownerId,
@@ -264,7 +334,7 @@ export function deviceRows(doc: Document, view: ClosetView, defs: readonly Field
   return out;
 }
 
-export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = []): InvRow[] {
+export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = [], idx?: PlaceIndex): InvRow[] {
   return view.racks.map((rack) => {
     const used = rack.chassis.reduce((n, c) => n + c.heightU, 0) + rack.shelves.reduce((n, s) => n + s.heightU, 0);
     const free = rack.freeRuns.reduce((n, r) => n + (r.toU - r.fromU + 1), 0);
@@ -278,7 +348,11 @@ export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDe
       free: `${free}U`,
     };
     const { tags } = withExtras(doc, 'racks', rack.id, cells, defs);
+    const place = idx?.racks.get(rack.id);
     return {
+      places: idx ? (place ? [place] : []) : undefined,
+      facets: place ? placeFacets([place]) : undefined,
+      nums: { used, free, devices: rack.chassis.length, height: rack.heightU, ...(rack.bay != null ? { bay: rack.bay } : {}) },
       key: `rack:${rack.id}`,
       selection: { kind: 'rack', id: rack.id },
       ownerId: rack.id,
@@ -290,7 +364,16 @@ export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDe
   });
 }
 
-export function cableRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
+/** A cable end in words: "host · port", the same words the canvas editor uses. */
+export function endTextOf(idx: PlaceIndex, end: CableEnd): string {
+  if ('outside' in end) return end.label || ABSENT;
+  const p = idx.portById.get(end.portId);
+  if (!p) return ABSENT;
+  const host = p.hostKind === 'chassis' || p.hostKind === 'unplaced' ? p.hostName || UNNAMED_HOSTNAME : p.hostName || ABSENT;
+  return `${host} · ${p.label || ABSENT}`;
+}
+
+export function cableRows(doc: Document, view: ClosetView, idx: PlaceIndex, defs: readonly FieldDefView[] = []): InvRow[] {
   return view.cables.map((cable) => {
     const cells: Record<string, string> = {
       name: cable.label ?? '',
@@ -299,11 +382,29 @@ export function cableRows(doc: Document, view: ClosetView, endText: (end: CableE
       sheath: cable.sheath ?? '',
       length: cable.lengthM != null ? String(cable.lengthM) : '',
       ownership: cable.ownership ?? '',
-      endA: cable.ends[0] ? endText(cable.ends[0]) : '',
-      endB: cable.ends[1] ? endText(cable.ends[1]) : '',
+      endA: cable.ends[0] ? endTextOf(idx, cable.ends[0]) : '',
+      endB: cable.ends[1] ? endTextOf(idx, cable.ends[1]) : '',
     };
     const { tags } = withExtras(doc, 'cables', cable.id, cells, defs);
+    const ends = cable.ends.map((e) => ('portId' in e ? idx.portById.get(e.portId) : undefined));
+    const places = ends.flatMap((p) => (p?.place ? [p.place] : []));
+    const facets: Record<string, string[]> = { ...placeFacets(places) };
+    const sides = ['a', 'b'] as const;
+    const both = (f: (p: NonNullable<(typeof ends)[number]>) => string): string[] => [...new Set(ends.flatMap((p) => (p ? [f(p)] : [])))];
+    facets.device = both((p) => p.hostName);
+    facets.role = both((p) => p.role);
+    sides.forEach((side, i) => {
+      const p = ends[i];
+      facets[`${side}.device`] = [p?.hostName ?? ''];
+      facets[`${side}.port`] = [p?.label ?? ''];
+      facets[`${side}.role`] = [p?.role ?? ''];
+      facets[`${side}.rack`] = [p?.place?.rack ?? ''];
+      facets[`${side}.site`] = [p?.place?.site ?? ''];
+    });
     return {
+      places,
+      facets,
+      nums: cable.lengthM != null ? { length: cable.lengthM } : undefined,
       key: `cable:${cable.id}`,
       selection: { kind: 'cable', id: cable.id },
       ownerId: cable.id,
@@ -315,27 +416,30 @@ export function cableRows(doc: Document, view: ClosetView, endText: (end: CableE
   });
 }
 
-export function interfaceRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
-  const out: InvRow[] = [];
+export function portRows(doc: Document, view: ClosetView, idx: PlaceIndex, defs: readonly FieldDefView[] = []): InvRow[] {
   const cableById = new Map(view.cables.map((c) => [c.id, c]));
-  const push = (port: ClosetView['racks'][number]['chassis'][number]['ports'][number], device: string) => {
+  return idx.ports.map((port) => {
     let cableTo = '';
-    if (port.cable) {
-      const cable = cableById.get(port.cable.cableId);
+    if (port.cableId) {
+      const cable = cableById.get(port.cableId);
       const far = cable?.ends.find((e) => !('portId' in e) || e.portId !== port.id);
-      cableTo = far ? endText(far) : '';
+      cableTo = far ? endTextOf(idx, far) : '';
     }
+    const device = port.hostKind === 'chassis' || port.hostKind === 'unplaced' ? port.hostName || UNNAMED_HOSTNAME : port.hostName;
     const cells: Record<string, string> = {
       name: port.label,
       device,
       connector: port.connector,
-      service: '',
+      service: port.service ?? '',
       face: port.face,
       uplink: port.uplink ? 'yes' : 'no',
       cable: cableTo,
     };
-    const { tags } = withExtras(doc, 'interfaces', port.id, cells, defs);
-    out.push({
+    const { tags } = withExtras(doc, 'ports', port.id, cells, defs);
+    const places = port.place ? [port.place] : [];
+    return {
+      places,
+      facets: { ...placeFacets(places), role: [port.role], connected: [port.cableId ? 'yes' : 'no'] },
       key: `port:${port.id}`,
       selection: { kind: 'port', id: port.id },
       ownerId: port.id,
@@ -343,22 +447,8 @@ export function interfaceRows(doc: Document, view: ClosetView, endText: (end: Ca
       tags,
       ids: {},
       title: `${device} · ${port.label}`,
-    });
-  };
-  for (const row of view.rows) {
-    for (const rack of row.racks) {
-      for (const c of rack.chassis) for (const p of c.ports) push(p, c.hostname || 'unnamed');
-      for (const shelf of rack.shelves) for (const o of shelf.occupants) for (const p of o.ports) push(p, o.label);
-    }
-  }
-  const walk = (fixtures: ClosetView['surfaces'][number]['fixtures']) => {
-    for (const f of fixtures) {
-      for (const p of f.ports) push(p, f.label);
-      walk(f.fixtures);
-    }
-  };
-  for (const s of view.surfaces) walk(s.fixtures);
-  return out;
+    };
+  });
 }
 
 export function addressRows(doc: Document, subnets: readonly SubnetRow[], deviceLabel: (deviceNodeId: string) => string): InvRow[] {
@@ -381,6 +471,11 @@ export function addressRows(doc: Document, subnets: readonly SubnetRow[], device
   return out;
 }
 
+/** A prefix or VLAN is where its devices are; with none placed it belongs to no site and is never filtered out. */
+function sitePlaces(sites: readonly string[]): Place[] | undefined {
+  return sites.length ? sites.map((site) => ({ site, row: '', rack: '', rackId: '', u: null })) : undefined;
+}
+
 /** Prefix rows: derived from the addresses on devices, read-only here (typing writes to a device). */
 export function prefixRows(rows: readonly PrefixRow[]): InvRow[] {
   return rows.map((p) => ({
@@ -396,6 +491,7 @@ export function prefixRows(rows: readonly PrefixRow[]): InvRow[] {
     },
     tags: [],
     ids: {},
+    places: sitePlaces(p.sites),
     title: p.prefix,
     sort: { prefix: p.range ? p.range.base * 33 + p.range.len : Number.MAX_SAFE_INTEGER, used: p.readable && p.total > 0 ? p.used / p.total : -1 },
     meter: p.readable && p.total > 0 ? { used: p.used / p.total } : undefined,
@@ -417,6 +513,7 @@ export function vlanKindRows(rows: readonly VlanKindRow[]): InvRow[] {
     },
     tags: [],
     ids: {},
+    places: sitePlaces(v.sites),
     title: v.name ? `VLAN ${v.vlanId} · ${v.name}` : `VLAN ${v.vlanId}`,
     sort: { vlan: v.vlanId, members: v.members.length },
   }));

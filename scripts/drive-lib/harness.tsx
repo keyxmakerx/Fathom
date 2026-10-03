@@ -31,6 +31,7 @@ import {
   seedPrintLoftScene,
   seedPrintScene,
   seedShelfScene,
+  seedBulkEstate,
   seedSingleDevice,
   seedTagsScene,
   seedUnplacedDevice,
@@ -133,6 +134,8 @@ async function main() {
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
+  else if (scene === 'estate') doc = seedBulkEstate(ME, 0.15);
+  else if (scene === 'scale') doc = seedBulkEstate(ME, Number(params.get('scale') ?? '1'));
   else doc = seedEmptyDesign();
 
   let version = 1;

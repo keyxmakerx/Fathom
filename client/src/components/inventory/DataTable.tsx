@@ -3,25 +3,26 @@
 // Keys: arrows move, Enter or F2 or typing edits, Tab and Shift Tab move to the next editable cell
 // (committing), Escape cancels. It never writes the document: `onCommit` does, and may refuse.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import type { Column, InvRow } from './kinds';
+import type { SortKey } from './listState';
+import { SheathWord } from './Swatch';
 
 export const ROW_HEIGHT = 30;
 const OVERSCAN = 8;
 const CHECK_WIDTH = 34;
 
-export interface Sort {
-  key: string;
-  dir: 'asc' | 'desc';
-}
+export type Sort = SortKey;
 
 export interface DataTableProps {
   columns: readonly Column[];
   rows: readonly InvRow[];
+  /** The row last opened, marked when the list comes back. */
   openKey: string | null;
   checked: ReadonlySet<string>;
-  sort: Sort | null;
+  /** First is the main sort; a second comes from a shift-click. */
+  sorts: readonly Sort[];
   canEdit: boolean;
   /** Returns a sentence when the edit is refused; the editor then stays open. */
   onCommit: (row: InvRow, col: Column, value: string) => string | void;
@@ -30,8 +31,14 @@ export interface DataTableProps {
   onOpen: (row: InvRow) => void;
   onToggleChecked: (row: InvRow, shift: boolean) => void;
   onToggleAll: (checkAll: boolean) => void;
-  onSort: (key: string) => void;
+  /** `additive` is a shift-click: sort by this column after the others. */
+  onSort: (key: string, additive: boolean) => void;
+  /** The ▾ menu's content for a column; omit it and headings have no ▾. */
+  columnMenu?: (col: Column, close: () => void) => ReactNode;
   emptyText: string;
+  /** Where the list was scrolled to when it was last left. */
+  initialScrollTop?: number;
+  onScrollTop?: (top: number) => void;
 }
 
 interface Cell {
@@ -48,19 +55,40 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sort, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, emptyText } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, initialScrollTop = 0, onScrollTop } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
+  const [scrollTop, setScrollTop] = useState(initialScrollTop);
   const [viewHeight, setViewHeight] = useState(600);
   const [active, setActive] = useState<Cell | null>(null);
   const [editing, setEditing] = useState<{ cell: Cell; draft: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ key: string; left: number; top: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (menuRef.current?.contains(t) || t.closest('.inv-table__menu')) return;
+      setMenu(null);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return undefined;
     const measure = () => setViewHeight(el.clientHeight || 600);
     measure();
+    if (initialScrollTop > 0) el.scrollTop = initialScrollTop;
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -207,10 +235,14 @@ export function DataTable(props: DataTableProps) {
         e.preventDefault();
         onToggleChecked(rows[ri]!, e.shiftKey);
         return;
-      case 'Enter':
       case 'F2':
         e.preventDefault();
         if (columns[ci]!.editable && canEdit) startEdit(active);
+        return;
+      case 'Enter':
+        e.preventDefault();
+        // The first column is the row's title: Enter opens it. Other editable cells edit.
+        if (ci > 0 && columns[ci]!.editable && canEdit) startEdit(active);
         else onOpen(rows[ri]!);
         return;
       default:
@@ -224,14 +256,6 @@ export function DataTable(props: DataTableProps) {
     }
   };
 
-  // Keep the open row's page in step with the arrow keys.
-  useEffect(() => {
-    if (!active) return;
-    const row = rows.find((r) => r.key === active.rowKey);
-    if (row && row.key !== openKey && !editing) onOpen(row);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a move of the active row opens.
-  }, [active?.rowKey]);
-
   const allChecked = rows.length > 0 && rows.every((r) => checked.has(r.key));
 
   return (
@@ -244,7 +268,10 @@ export function DataTable(props: DataTableProps) {
       <div
         className="inv-table__scroll"
         ref={scrollRef}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        onScroll={(e) => {
+          setScrollTop(e.currentTarget.scrollTop);
+          onScrollTop?.(e.currentTarget.scrollTop);
+        }}
         role="grid"
         aria-rowcount={rows.length + 1}
         aria-colcount={columns.length + 1}
@@ -261,20 +288,44 @@ export function DataTable(props: DataTableProps) {
                 onChange={(e) => onToggleAll(e.currentTarget.checked)}
               />
             </div>
-            {columns.map((c) => (
-              <button
-                type="button"
-                key={c.key}
-                role="columnheader"
-                className={`inv-table__th${STICKY.has(c.key) ? ' inv-table__stick' : ''}`}
-                style={{ width: c.width }}
-                aria-sort={sort?.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                onClick={() => onSort(c.key)}
-              >
-                {c.label}
-                {sort?.key === c.key ? <span aria-hidden="true">{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span> : null}
-              </button>
-            ))}
+            {columns.map((c) => {
+              const at = sorts.findIndex((x) => x.key === c.key);
+              const sort = at >= 0 ? sorts[at]! : null;
+              return (
+                <div
+                  key={c.key}
+                  role="columnheader"
+                  className={`inv-table__th${STICKY.has(c.key) ? ' inv-table__stick' : ''}`}
+                  style={{ width: c.width }}
+                  aria-sort={sort ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                >
+                  <button type="button" className="inv-table__sort" onClick={(e) => onSort(c.key, e.shiftKey)}>
+                    <span className="inv-table__label">{c.label}</span>
+                    {sort ? (
+                      <span className="inv-table__mark" aria-hidden="true">
+                        {sorts.length > 1 ? `${at + 1}` : ''}
+                        {sort.dir === 'asc' ? '▲' : '▼'}
+                      </span>
+                    ) : null}
+                  </button>
+                  {columnMenu ? (
+                    <button
+                      type="button"
+                      className="inv-table__caret"
+                      aria-label={`${c.label} menu`}
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.key === c.key}
+                      onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setMenu(menu?.key === c.key ? null : { key: c.key, left: Math.min(r.left, window.innerWidth - 340), top: r.bottom + 2 });
+                      }}
+                    >
+                      ▾
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
           {rows.length === 0 ? <div className="inv-table__empty">{emptyText}</div> : null}
           <div style={{ height: rows.length * ROW_HEIGHT, position: 'relative' }}>
@@ -299,7 +350,7 @@ export function DataTable(props: DataTableProps) {
                       onClick={(e) => onToggleChecked(row, e.shiftKey)}
                     />
                   </div>
-                  {columns.map((col) => {
+                  {columns.map((col, colIndex) => {
                     const isActive = active?.rowKey === row.key && active.colKey === col.key;
                     const isEditing = editing?.cell.rowKey === row.key && editing.cell.colKey === col.key;
                     const text = row.cells[col.key] ?? '';
@@ -312,7 +363,9 @@ export function DataTable(props: DataTableProps) {
                         style={{ width: col.width }}
                         onClick={() => {
                           setActive({ rowKey: row.key, colKey: col.key });
-                          if (!isOpen) onOpen(row);
+                          // A click opens the row, except in an editable cell past the first column,
+                          // which takes the click as "select it" so a double-click can edit.
+                          if (colIndex === 0 || !(col.editable && canEdit)) onOpen(row);
                         }}
                         onDoubleClick={() => startEdit({ rowKey: row.key, colKey: col.key })}
                       >
@@ -335,6 +388,10 @@ export function DataTable(props: DataTableProps) {
                             </span>
                             <span className="inv-table__text">{text}</span>
                           </span>
+                        ) : text !== '' && col.key === 'sheath' ? (
+                          <span className="inv-table__text" title={text}>
+                            <SheathWord name={text} />
+                          </span>
                         ) : text !== '' ? (
                           <span className="inv-table__text" title={text}>
                             {text}
@@ -353,6 +410,11 @@ export function DataTable(props: DataTableProps) {
           </div>
         </div>
       </div>
+      {menu && columnMenu ? (
+        <div ref={menuRef} className="inv-table__menu" style={{ left: menu.left, top: menu.top }}>
+          {columnMenu(columns.find((c) => c.key === menu.key)!, () => setMenu(null))}
+        </div>
+      ) : null}
     </div>
   );
 }
