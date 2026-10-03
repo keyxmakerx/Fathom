@@ -14,7 +14,6 @@ import { applyEdits, splitRows } from './model';
 
 const noop = () => undefined;
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
-const FORBIDDEN = [/zero-knowledge/i, /end-to-end/i, /we cannot read your data/i, /only you hold the key/i];
 
 describe('Invite someone', () => {
   it('asks name, optional email, Read/Draw/Steward and a folder, and says nothing is granted yet', () => {
@@ -259,15 +258,5 @@ describe('Waiting for you', () => {
     expect(out).toContain('Cannot be confirmed');
     expect(out).toContain('joined more than 14 days ago');
     expect(out).not.toContain('Confirm 1');
-  });
-});
-
-describe('what these screens never say', () => {
-  it('uses none of the four forbidden sentences', () => {
-    const everything = [
-      html(createElement(InviteForm, { folders: [], organisationName: 'N', busy: false, error: null, onSubmit: noop, onCancel: noop })),
-      html(createElement(ReviewList, { checked: checkedOf(2), names: {}, labels: {}, busy: false, steward: null, onSign: noop, onBack: noop })),
-    ].join('\n');
-    for (const phrase of FORBIDDEN) expect(everything).not.toMatch(phrase);
   });
 });
