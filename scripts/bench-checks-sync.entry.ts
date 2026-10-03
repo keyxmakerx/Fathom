@@ -6,6 +6,7 @@ import { Engine } from '../client/src/engine/engine';
 import { Mirror } from '../client/src/engine/mirror';
 import { EDITS, buildDesign } from '../client/src/engine/syncDesign';
 import { fileLoader } from '../client/src/engine/wasm';
+import { writePlain } from '../client/src/document/plain';
 
 export interface Options {
   wasmPath: string;
@@ -32,12 +33,15 @@ export async function run(o: Options): Promise<void> {
   const mirror = new Mirror(engine);
 
   t = performance.now();
+  const plainBytes = writePlain(d.doc).length;
+  const writeMs = performance.now() - t;
+  t = performance.now();
   const kind = mirror.sync(d.doc);
   const firstSync = performance.now() - t;
   t = performance.now();
   const first = mirror.checks();
   const firstChecks = performance.now() - t;
-  log(`first load (${kind}): sync ${f(firstSync)}, first checks ${f(firstChecks)}, ${first.findings.length} findings`);
+  log(`first load (${kind}): sync ${f(firstSync)} (writePlain alone ${f(writeMs)}, ${plainBytes} bytes), first checks ${f(firstChecks)}, ${first.findings.length} findings`);
 
   const rows: { name: string; kind: string; sync: number; checks: number }[] = [];
   for (let i = 0; i < o.edits; i += 1) {
