@@ -204,11 +204,17 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0031_design_files.sql",
         sql: include_str!("../migrations/0031_design_files.sql"),
     },
+    // Docs files follow-up: delete for good.
+    Migration {
+        version: 33,
+        name: "0033_design_files_delete.sql",
+        sql: include_str!("../migrations/0033_design_files_delete.sql"),
+    },
     // ADR-0063: live co-editing storage and its NOTIFY triggers.
     Migration {
-        version: 32,
-        name: "0032_live_co_editing.sql",
-        sql: include_str!("../migrations/0032_live_co_editing.sql"),
+        version: 34,
+        name: "0034_live_co_editing.sql",
+        sql: include_str!("../migrations/0034_live_co_editing.sql"),
     },
 ];
 

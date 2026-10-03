@@ -223,9 +223,11 @@ panels and a Docs button in the bar open the list. Markdown is a safe subset (no
 http/https links with host). Pasted text goes through the gate; typed text is stored as typed; the server
 refuses a credential in doc text. Files (PDF, image, text, 25 MB) hang off a doc: text is gated in the
 browser and only the redacted copy uploaded; the server sniffs by content, refuses text still carrying a
-password, seals bytes under the design key and serves downloads only. Images and PDFs are stored "can't
-be read". Removing a file leaves the sealed copy on the server. Not built: a Docs Inventory kind (#93),
-docs on maintenance plans (#98), delete for good.
+password, seals bytes under the design key and serves downloads only. Images and PDFs (no PDF text
+check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not checked · image/PDF".
+"Remove" takes a file off the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps
+name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
+kind (#93), docs on maintenance plans (#98).
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the

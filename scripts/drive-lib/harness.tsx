@@ -108,6 +108,7 @@ declare global {
     __saveCount__: number;
     /** Every body this backend stored as a doc file, as Latin-1 text. */
     __uploads__: string[];
+    __deleted__: string[];
     /** The `positionU` the last saved document gives the chassis with this hostname. */
     __savedPositionU__: (hostname: string) => number | null;
   }
@@ -177,6 +178,7 @@ async function main() {
   window.__saveLoadFailures__ = [];
   window.__saveCount__ = 0;
   window.__uploads__ = [];
+  window.__deleted__ = [];
   const driveFiles: Record<string, Uint8Array> = {};
   let verifyEngine: Engine | null = null;
   try {
@@ -284,6 +286,13 @@ async function main() {
       driveFiles[id] = requestBody;
       window.__uploads__.push(bytesToLatin1(requestBody));
       return new Response(`${id} ${media}\n`, { status: 200 });
+    }
+    if (method === 'DELETE' && p.startsWith(`${org}/designs/${DESIGN_ID}/files/`)) {
+      const key = p.split('/').pop() ?? '';
+      if (!(key in driveFiles)) return new Response('no such file\n', { status: 404 });
+      delete driveFiles[key];
+      window.__deleted__.push(key);
+      return new Response('deleted\n', { status: 200 });
     }
     if (method === 'GET' && p.startsWith(`${org}/designs/${DESIGN_ID}/files/`)) {
       const hit = driveFiles[p.split('/').pop() ?? ''];

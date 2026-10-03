@@ -172,6 +172,10 @@ pub enum DesignError {
     FileTypeRefused,
     /// No such file on this design.
     NoSuchFile,
+    /// The file was deleted for good, on this date (`YYYY-MM-DD`).
+    FileGone {
+        on: String,
+    },
     /// **The audit spool is past one of §9's bounds, so design writes stop and
     /// reads continue.**
     ///
@@ -274,6 +278,7 @@ impl fmt::Display for DesignError {
             ),
             Self::FileTypeRefused => f.write_str("a doc file must be a PDF, an image or text"),
             Self::NoSuchFile => f.write_str("no such file on this design"),
+            Self::FileGone { on } => write!(f, "deleted for good on {on}"),
             Self::PayloadTooLarge { bytes } => write!(
                 f,
                 "that payload is {bytes} bytes; one design version may be at most \
@@ -1241,7 +1246,7 @@ pub async fn rotate_design_under(
     let file_rows = tx
         .query(
             "SELECT file_id, ciphertext, nonce, key_epoch FROM design_files \
-             WHERE design_id = $1 AND organisation_id = $2",
+             WHERE design_id = $1 AND organisation_id = $2 AND deleted_at IS NULL",
             &[&design_text, &tenant_text],
         )
         .await?;
@@ -2874,7 +2879,8 @@ pub async fn store_file_in_tx(
     let held = tx
         .query_one(
             "SELECT count(*), COALESCE(sum(octet_length(ciphertext)), 0)::bigint \
-             FROM design_files WHERE design_id = $1 AND organisation_id = $2",
+             FROM design_files WHERE design_id = $1 AND organisation_id = $2 \
+             AND deleted_at IS NULL",
             &[&design_text, &tenant_text],
         )
         .await
@@ -2932,12 +2938,15 @@ pub async fn read_file_in_tx(
     let design_text = design.to_string();
     let row = tx
         .query_opt(
-            "SELECT ciphertext, nonce, key_epoch FROM design_files \
-             WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3",
+            "SELECT ciphertext, nonce, key_epoch, to_char(deleted_at, 'YYYY-MM-DD') \
+             FROM design_files WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3",
             &[&design_text, &tenant_text, &file],
         )
         .await?
         .ok_or(DesignError::NoSuchFile)?;
+    if let Some(on) = row.get::<_, Option<String>>(3) {
+        return Err(DesignError::FileGone { on });
+    }
     let ciphertext: Vec<u8> = row.get(0);
     let nonce: Vec<u8> = row.get(1);
     let epoch: i32 = row.get(2);
@@ -2947,6 +2956,46 @@ pub async fn read_file_in_tx(
         .map_err(|_| DesignError::Corrupt("file nonce"))?;
     let aad = file_aad(&tenant_text, &design_text, file, epoch);
     crypto::open(&key.key, &nonce, &ciphertext, &aad).map_err(|_| DesignError::Refused)
+}
+
+/// Erases a file's sealed bytes for good. Draw holders only. The row stays, saying who and when;
+/// asking again is not an error. Whatever the old row version leaves in the table's free space is
+/// the database's to vacuum.
+pub async fn delete_file_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    file: &str,
+) -> Result<(), DesignError> {
+    grants::authorise_account(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    let tenant_text = auth.ctx.tenant().to_string();
+    let design_text = design.to_string();
+    lock_design(tx, &design_text, &tenant_text).await?;
+    let found = tx
+        .query_opt(
+            "SELECT 1 FROM design_files \
+             WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3",
+            &[&design_text, &tenant_text, &file],
+        )
+        .await?;
+    if found.is_none() {
+        return Err(DesignError::NoSuchFile);
+    }
+    tx.execute(
+        "UPDATE design_files SET ciphertext = ''::bytea, deleted_at = now(), deleted_by = $4 \
+         WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3 AND deleted_at IS NULL",
+        &[
+            &design_text,
+            &tenant_text,
+            &file,
+            &auth.ctx.actor().to_string(),
+        ],
+    )
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
