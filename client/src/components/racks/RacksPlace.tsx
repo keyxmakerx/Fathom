@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { captureOf } from '../../document/capture';
 import { connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
@@ -221,6 +221,9 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
+  /** The History panel, shown in the editor's place, and the line over the canvas while a
+   * past save is shown. Absent unless History is open. */
+  historyView?: { panel: ReactNode; banner: string | null };
   /** The cable ids the Cables list shows, or `null` when it shows them all — for "as shown on screen" in print. */
   onShownCablesChange?: (ids: ReadonlySet<string> | null) => void;
   /** The Cables list's own storage key (`fathom.cables.<designId>`), one
@@ -257,6 +260,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     notesActions,
     tagsActions,
     onActiveRackChange,
+    historyView,
     onShownCablesChange,
     designId,
     onSelectedChange,
@@ -1228,8 +1232,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           paletteFromCatalogue(catalogue),
         )
       : null;
-  const editor =
-    saveRefusal != null ? (
+  const editor = historyView != null ? historyView.panel : saveRefusal != null ? (
       <div className="racks-place__refusal">
         {saveRefusal}
         {/* ADR-0054 §1's refusal wash "offers reload". */}
@@ -1287,6 +1290,11 @@ export function RacksPlace(props: RacksPlaceProps) {
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
+      {historyView?.banner != null ? (
+        <div className="history-banner" role="status" data-testid="history-banner">
+          {historyView.banner}
+        </div>
+      ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
       {doc == null ? (

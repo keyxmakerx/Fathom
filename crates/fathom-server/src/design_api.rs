@@ -2406,7 +2406,8 @@ async fn history_handler(
     let rows = tx
         .query(
             "SELECT e.seq, e.entry_type, e.chain_key_epoch, e.design_version, \
-                    coalesce(c.created_by, p.created_by) \
+                    coalesce(c.created_by, p.created_by), \
+                    extract(epoch FROM e.created_at)::bigint \
              FROM chain_entries e \
              LEFT JOIN design_change c \
                ON c.design_id = e.design_id AND c.organisation_id = e.organisation_id \
@@ -2428,6 +2429,7 @@ async fn history_handler(
         let chain_key_epoch: i32 = row.get(2);
         let design_version: Option<i64> = row.get(3);
         let actor: Option<String> = row.get(4);
+        let at_unix: i64 = row.get(5);
         let entry_type = chain::StoredEntryType::from_column(&entry_type_text);
 
         let mut map = BTreeMap::new();
@@ -2447,6 +2449,7 @@ async fn history_handler(
                 None => Json::Null,
             },
         );
+        map.insert("at_unix".to_string(), Json::Int(at_unix));
         map.insert("actor".to_string(), actor.map_or(Json::Null, Json::Str));
         out.push(Json::Obj(map));
     }

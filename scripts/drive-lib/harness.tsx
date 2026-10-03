@@ -25,6 +25,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedHistoryVersions,
   seedManyDevicesScene,
   seedNetworksScene,
   seedPrintAttackScene,
@@ -144,7 +145,16 @@ async function main() {
   else if (scene === 'cable-groups-speed') doc = seedCableGroupsSpeedScene(catalogue, ME, Number(params.get('count') ?? '2100'));
   else doc = seedEmptyDesign();
 
+  // Every saved version of DESIGN_ID, for the History panel: `log[v - 1]`.
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const log: { bytes: Uint8Array; atUnix: number; actor: string }[] = [];
+  if (scene === 'history') {
+    const docs = seedHistoryVersions(catalogue, ME, COLLEAGUE);
+    docs.forEach((d, i) => log.push({ bytes: writePlain(d), atUnix: nowUnix - (docs.length - i) * 3600, actor: i === 1 ? COLLEAGUE : ME }));
+    doc = docs[docs.length - 1]!;
+  }
   let bytes = writePlain(doc);
+  if (log.length === 0) log.push({ bytes, atUnix: nowUnix, actor: ME });
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
@@ -166,7 +176,7 @@ async function main() {
   // generalised to a map so the two id-addressed routes further down can
   // serve either design by id rather than only ever `DESIGN_ID`.
   const designs = new Map<string, { version: number; bytes: Uint8Array }>();
-  designs.set(DESIGN_ID, { version: 1, bytes });
+  designs.set(DESIGN_ID, { version: log.length, bytes });
   if (scene === 'cable-groups') {
     designs.set(DESIGN_ID_2, { version: 1, bytes: writePlain(seedEmptyDesign()) });
   }
@@ -243,6 +253,20 @@ async function main() {
         })),
       );
     }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/history`) {
+      return json(log.map((e, i) => ({ seq: i + 1, entry_type: i === 0 ? 'create' : 'update', chain_key_epoch: 1, design_version: i + 1, at_unix: e.atUnix, actor: e.actor })));
+    }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/verify`) {
+      return json({ outcome: 'verified', entries: log.length });
+    }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}` && u.searchParams.has('version')) {
+      const hit = log[Number(u.searchParams.get('version')) - 1];
+      if (!hit) return new Response('no such version\n', { status: 404 });
+      return new Response(hit.bytes as BodyInit, {
+        status: 200,
+        headers: { 'fathom-design-version': u.searchParams.get('version')!, 'fathom-payload-schema-version': String(minor) },
+      });
+    }
     const designMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)$/.exec(p);
     if (method === 'GET' && designMatch) {
       const entry = designs.get(designMatch[1]);
@@ -268,6 +292,7 @@ async function main() {
       const nextVersion = entry.version + 1;
       const nextBytes = requestBody.slice(4);
       designs.set(versionsMatch[1], { version: nextVersion, bytes: nextBytes });
+      if (versionsMatch[1] === DESIGN_ID) log.push({ bytes: nextBytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
       window.__saveCount__ += 1;
       if (verifyEngine) {
         try {

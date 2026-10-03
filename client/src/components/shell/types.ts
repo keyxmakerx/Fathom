@@ -85,6 +85,10 @@ export interface ShellProps {
   onShare?: () => void;
   /** The design's docs list; absent with no design open. */
   onDocs?: () => void;
+  /** The History button; absent with no design open. */
+  onHistory?: () => void;
+  /** History is open: the button reads as on. */
+  historyOpen?: boolean;
 
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
