@@ -32,6 +32,10 @@ export interface LiveState {
   /** The camera's current stop, so a node re-renders when the stop changes,
    * never on a wheel tick within it. */
   cameraStop: CameraStop;
+  /** Port glyphs are drawn only once the camera is close enough to read them. */
+  showPortGlyphs: boolean;
+  /** Close in, a bundle is drawn as its separate cables. */
+  splitBundles: boolean;
 }
 
 export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
@@ -48,6 +52,8 @@ export const INITIAL_LIVE_STATE: LiveState = {
   shakingRackId: null,
   dimmedChassisId: null,
   cameraStop: 'rack',
+  showPortGlyphs: false,
+  splitBundles: false,
 };
 
 export interface LiveStore {

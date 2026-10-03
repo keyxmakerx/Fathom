@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -27,6 +27,7 @@ import {
   UNNAMED_HOSTNAME,
   type CableEnd,
   type CableView,
+  type ChassisView,
   type ClosetView,
   type EditorActions,
   type EditorChange,
@@ -37,6 +38,7 @@ import {
   type Selection,
 } from './contract';
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
+import { describePorts, faceplateLayoutFor } from './faceplate';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1108,6 +1110,31 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   );
 }
 
+/** The unit's ports in words, so the plate can stay clean: connector, count,
+ * numbers, rows and where they sit. */
+function PortsInWords({ chassis }: { chassis: ChassisView }) {
+  const lines = useMemo(() => {
+    const out: string[] = [];
+    for (const face of ['front', 'rear'] as const) {
+      const ports = chassis.ports.filter((p) => p.face === face);
+      if (ports.length === 0) continue;
+      out.push(...describePorts(ports, faceplateLayoutFor(ports, chassis.heightU, chassis.hostname)));
+    }
+    return out;
+  }, [chassis.ports, chassis.heightU, chassis.hostname]);
+  if (lines.length === 0) return null;
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">Ports on this unit</div>
+      <ul className="drawing-editor__ports-words">
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** ADR-0051 §1, brief item 2 — a sketch's own ports, each marked TYPED
  * (`TYPED_BADGE_STYLE`) with a remove action, plus "+ add a port". A
  * chassis WITH a catalogue model shows its ports read-only "as today" (the
@@ -1585,7 +1612,8 @@ export function EditorFor(
         {rack ? <Field label="Face" value={chassis.face} /> : null}
         {/* PortView carries no cabled state yet — the count shown is honest
             about that rather than inventing a "0 of n". */}
-        <Field label="Ports" value={`${ABSENT} of ${chassis.ports.length} cabled`} />
+        <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
+        <PortsInWords chassis={chassis} />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Role</div>

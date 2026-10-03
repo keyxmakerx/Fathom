@@ -18,6 +18,10 @@ export interface MenuItem {
  * cannot do it) leaves its item out. */
 export interface MenuActions {
   onSelect(selection: Selection | null): void;
+  /** Opens a device's config drawer; zoom never does. */
+  onOpen?(chassisId: string): void;
+  /** Opens a device's inside view, where the device has one. */
+  onOpenInside?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
@@ -35,6 +39,8 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
   switch (target.kind) {
     case 'chassis': {
       const { id } = target;
+      if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
+      if (actions.onOpenInside) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
       if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });

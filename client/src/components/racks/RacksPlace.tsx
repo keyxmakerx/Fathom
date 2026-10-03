@@ -5,6 +5,7 @@ import { connectPorts, disconnect, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
   createBoard,
+  addSketchPortRange,
   createSketchDevice,
   createSurface,
   isSurfaceForm,
@@ -27,7 +28,7 @@ import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
-import { SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
+import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
 
@@ -37,6 +38,16 @@ import './racks.css';
 // (`RacksPlace.canDraw.test.ts`, `RacksPlace.edit.test.ts`) keep passing
 // without themselves needing to know the logic moved.
 export { canDrawFor, refusalFor };
+
+/** Folds every batch added after the first `from` into one, so a placement
+ * built from several commands (the device, its spot, its default ports) is
+ * one undo step. */
+export function oneUndoStep(doc: Document, from: number): Document {
+  const added = doc.batches.slice(from);
+  if (added.length < 2) return doc;
+  const merged = { ...added[0]!, ops: added.flatMap((b) => b.ops) };
+  return { ...doc, batches: [...doc.batches.slice(0, from), merged] };
+}
 
 /**
  * The `Actor` opts every command `handlePlace`/`handleMove` dispatches is
@@ -198,6 +209,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
+  const [calloutId, setCalloutId] = useState<string | null>(null);
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -218,9 +231,11 @@ export function RacksPlace(props: RacksPlaceProps) {
   // on rack" click a fresh object, so identity itself is the "asked again"
   // signal, the same edge-triggered shape `Drawing.tsx`'s own camera moves
   // already use.
+  const [openRequest, setOpenRequest] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
   useEffect(() => {
     if (initialFocus == null || doc == null) return;
     setSelection(initialFocus);
+    if (initialFocus.kind === 'chassis') setOpenRequest({ id: initialFocus.id, view: 'config' });
     onZoomChange(CAMERA_STOPS.faceplate);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
     // on the `initialFocus` object identity and `doc` becoming available;
@@ -511,7 +526,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           let placed = movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts);
           const deviceNode = role !== null ? withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Device') : undefined;
           if (role !== null && deviceNode) placed = setDeviceField(placed, deviceNode.id, 'role', role, opts);
-          applyDocChange(placed);
+          for (const run of role !== null ? (DEFAULT_FACEPLATES[role] ?? []) : []) {
+            placed = addSketchPortRange(placed, chassisNode.id, { ...run, face: 'front' }, opts);
+          }
+          applyDocChange(oneUndoStep(placed, working.batches.length));
         } catch {
           // As below: `Drawing` checked this drop against a view that
           // turned out to be stale. Leave the document as it was.
@@ -703,7 +721,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0047: the editor is absent, not empty, when nothing is selected —
   // an empty fragment here would still mount the surface and take its width.
   const selectedPanel =
-    doc != null
+    doc != null && !(selection?.kind === 'chassis' && selection.id === calloutId)
       ? EditorFor(
           selection,
           displayView,
@@ -783,7 +801,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddRack={canDraw ? handleAddRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
           onSelect={setSelection}
+          onCalloutChange={setCalloutId}
           canDraw={canDraw}
+          openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}

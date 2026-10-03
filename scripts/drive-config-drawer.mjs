@@ -284,7 +284,7 @@ try {
   check('one chassis placed', (await page.locator('.react-flow__node-chassis').count()) === 1);
 
   // Select it.
-  await page.click('.react-flow__node-chassis');
+  await page.click('.react-flow__node-chassis', { position: { x: 2, y: 2 } });
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
   // A sketch device has no faceplate ports until typed by hand (UI-SPEC
@@ -300,16 +300,10 @@ try {
   await page.waitForTimeout(300);
   check('the ge-0/0/0 port typed onto the faceplate', (await page.locator('.drawing-editor__panel').innerText()).includes('ge-0/0/0'));
 
-  // The config drawer opens only once the real camera reads the faceplate
-  // stop (`Drawing.tsx`'s own `cameraStop === 'faceplate'`, `geometry.ts`'s
-  // `cameraStopAt`) — ten clicks of the bar's own "Zoom in" (each +10%)
-  // carry it from the rack stop (100%, the drawing's own start) to the
-  // faceplate stop (200%), the same stepped control a person has.
-  for (let i = 0; i < 10; i += 1) {
-    await page.click('button[aria-label="Zoom in"]');
-  }
+  // Zoom never opens the drawer (ADR-0061); a double-click on the device does.
+  await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
-  check('the config drawer opened at the faceplate stop', (await page.locator('.config-drawer').count()) === 1);
+  check('the config drawer opened on a double-click', (await page.locator('.config-drawer').count()) === 1);
 
   // -------------------------------------------------------------------------
   // The first paste — the redaction gate, live.
@@ -384,15 +378,9 @@ try {
   await page.screenshot({ path: SHOTS + 's6g-lit.png' });
   console.log('    wrote ' + SHOTS + 's6g-lit.png');
 
-  // -------------------------------------------------------------------------
-  // The inside stop, same device, same camera (Motion #10) — ten more clicks
-  // of the bar's own "Zoom in" (each +10%) carry the real camera from the
-  // faceplate stop (200%, reached above) to the inside stop (300%): the same
-  // stepped control a person has, not a harness-only shortcut.
-  // -------------------------------------------------------------------------
-  for (let i = 0; i < 10; i += 1) {
-    await page.click('button[aria-label="Zoom in"]');
-  }
+  // The inside view opens from the device's right-click menu, not from zoom.
+  await page.locator('.react-flow__node-chassis').first().click({ button: 'right', position: { x: 6, y: 8 } });
+  await page.getByRole('menuitem', { name: 'Inside' }).click();
   await page.waitForSelector('.drawing-inside-stop', { timeout: 10_000 });
   check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop').count()) === 1);
   const insideText = await page.locator('.drawing-inside-stop').innerText();
@@ -401,10 +389,10 @@ try {
   await page.screenshot({ path: SHOTS + 's6g-inside.png' });
   console.log('    wrote ' + SHOTS + 's6g-inside.png');
 
-  // Back to the faceplate stop for the second paste attempt.
-  for (let i = 0; i < 10; i += 1) {
-    await page.click('button[aria-label="Zoom out"]');
-  }
+  // Back to the config drawer for the second paste attempt.
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.drawing-inside-stop', { state: 'detached', timeout: 10_000 });
+  await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
 
   // -------------------------------------------------------------------------
@@ -464,14 +452,13 @@ try {
     };
   }, host);
   const inStrip = (at) => at.drawerTop != null && at.plate > 0 && at.plate < at.drawerTop && at.zoom === 2;
-  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-05' }).click();
-  for (let i = 0; i < 10; i += 1) await camPage.click('button[aria-label="Zoom in"]');
+  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-05' }).dblclick({ position: { x: 6, y: 6 } });
   await camPage.waitForSelector('.config-drawer', { timeout: 10_000 });
   await camPage.waitForTimeout(1000);
   const opened = await plateAboveDrawer('dev-05');
   check('on opening, the plate sits above the drawer at exactly the faceplate stop', inStrip(opened), JSON.stringify(opened));
   // dev-12 may be under the drawer, so the click goes to the node itself rather than to a point on screen.
-  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-12' }).dispatchEvent('click');
+  await camPage.locator('.react-flow__node-chassis', { hasText: 'dev-12' }).dispatchEvent('dblclick');
   await camPage.waitForTimeout(1000);
   const switched = await plateAboveDrawer('dev-12');
   check('after switching devices, the new plate sits above the drawer at exactly the faceplate stop', inStrip(switched), JSON.stringify(switched));

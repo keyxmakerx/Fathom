@@ -213,7 +213,7 @@ try {
   check('3b. found dev-01 to relocate', dev1Before != null);
   if (dev1Before) {
     const savesBefore = await page.evaluate(() => window.__saveCount__);
-    const fx = dev1Before.x + dev1Before.width / 2;
+    const fx = dev1Before.x + 6; // the plate's blank left edge: ports sit further along, and a drag from one starts a cable
     const fy = dev1Before.y + dev1Before.height / 2;
     const uPitch = dev1Before.y - (await page.locator('.react-flow__node-chassis', { hasText: 'dev-02' }).boundingBox()).y; // dev-02 sits 1U above
     const ty = fy - (DROP_U - 1) * uPitch; // dev-01 is at U1

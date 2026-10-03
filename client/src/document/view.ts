@@ -102,6 +102,10 @@ export interface PortView {
   connector: string;
   row: number;
   column: number;
+  /** The catalogue's own row token and group gap, for drawing the port where
+   * the unit has it; absent on a hand-typed port. */
+  rowKind?: 'top' | 'bottom' | 'single';
+  gapBefore?: boolean;
   uplink: boolean;
   /** The catalogue's own `role` (`api/catalogue.ts`'s `CataloguePort.role`),
    * carried through when a faceplate match supplies one; `null` for a PSU
@@ -514,6 +518,8 @@ function portView(
         connector,
         row: rowNumber(match.row),
         column: match.column,
+        rowKind: match.row,
+        gapBefore: match.groupGapBefore,
         uplink,
         role,
         face: explicit ?? faceplate.face,

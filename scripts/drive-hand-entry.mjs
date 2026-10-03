@@ -164,7 +164,7 @@ try {
   console.log('    wrote ' + SHOTS + 'H-01-dropped.png');
 
   // Select it.
-  await page.click('.react-flow__node-chassis');
+  await page.click('.react-flow__node-chassis', { position: { x: 2, y: 2 } });
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
   // Add ports `eth` 0 to 7 in one go (`addSketchPortRange`, the editor's
@@ -187,7 +187,7 @@ try {
   check('8 ports typed in one go', removeButtonCount === 8, `${removeButtonCount} "remove" buttons`);
   // Natural label order (`document/view.ts`'s `naturalLabelCompare`), not
   // mint order.
-  const orderedLabels = panelTextAfterRange.match(/eth\d+/g) ?? [];
+  const orderedLabels = (panelTextAfterRange.split(/ports · typed by hand/i)[1] ?? panelTextAfterRange).match(/eth\d+/g) ?? [];
   const wantOrder = ['eth0', 'eth1', 'eth2', 'eth3', 'eth4', 'eth5', 'eth6', 'eth7'];
   check(
     'the "Ports · typed by hand" list reads eth0…eth7 in order',

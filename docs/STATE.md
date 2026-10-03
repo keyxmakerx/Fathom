@@ -234,6 +234,12 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   strip is one "Equipment" button that opens the equipment list; built-in items read "Any device" and
   "Backboard"; "+ add a surface" reads "+ Add a wall, floor or desk"; an empty design shows a note
   saying what to do; the zoom, account and trail controls name themselves on hover.
+- **Canvas looks right** (ADR-0061, bundle 2a): scrolling only zooms (max 400%); the config drawer and
+  inside view open from right-click Open/Inside or a double-click. Ports sit at catalogue row/column,
+  cables leave a port's own edge and sit under the plates; names sit in the plate's blank space (rail
+  tab if none) with a click callout; at 200%+ a bundle splits into cables with port labels; the details
+  panel lists ports in words; Switch/Router are placed with a default faceplate; zoomed out, ports are
+  not drawn. Logic: `drawing/faceplate.ts`, `drawing/cableEnds.ts`.
 - **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
   Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
   row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
