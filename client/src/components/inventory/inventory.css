@@ -915,13 +915,6 @@
   text-align: left;
 }
 
-.inv-page__ports li {
-  display: grid;
-  grid-template-columns: 1fr 1.4fr auto;
-  gap: var(--s2);
-  align-items: baseline;
-}
-
 .inv-page__mono {
   font-family: var(--mono, monospace);
 }
@@ -2159,4 +2152,17 @@ button.inv-path__host {
   background: var(--page);
   border: var(--rule-hair) solid var(--ink);
   cursor: pointer;
+}
+
+/* ---- a phone: the three-column lists give their last column its own line -------------------- */
+@media (max-width: 760px) {
+  .inv-page__list--plug {
+    --cols: 9ch minmax(0, 1fr);
+  }
+  .inv-page__list--plug li > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .inv-page__list--touch {
+    --cols: minmax(0, 1fr);
+  }
 }

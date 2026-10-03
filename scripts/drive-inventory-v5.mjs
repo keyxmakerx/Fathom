@@ -58,6 +58,7 @@ writeFileSync(
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fathom — ADR-0062 proof preview (throwaway, not shipped)</title>
   </head>
   <body>
@@ -223,7 +224,8 @@ try {
   await find.press('Enter');
   await page.waitForSelector('.inv-page', { timeout: 10_000 });
   check('Enter on exactly one match opens it', (await page.locator('.inv-page').innerText()).includes('ge-0/0/4'));
-  await page.getByRole('button', { name: /^← Ports/ }).click();
+  check('Back says where it goes', (await page.getByRole('button', { name: /^← Back to / }).innerText()).includes('Back to Devices'));
+  await page.getByRole('button', { name: /^← Back to Devices/ }).click();
   await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
   await find.fill('lon1-a02');
   await page.waitForSelector('.inv-find__group', { timeout: 5_000 });
@@ -333,7 +335,7 @@ try {
   check('the run shows front and rear', /front/.test(run) && /rear/.test(run));
   check('the run carries a Last traced stamp', /Last traced:/.test(run));
   await shot('v5-10-cable-page.png');
-  await page.getByRole('button', { name: /^← Cables/ }).click();
+  await page.getByRole('button', { name: /^← Back to Cables/ }).click();
   await cabLine2.fill('');
   await cabLine2.blur();
   await find.fill('lon1-a02-tor1');
@@ -364,12 +366,186 @@ try {
   await rail.getByRole('button', { name: /^Devices/ }).first().click();
   await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
 
+  // 8 — a link inside a page is a history entry: the browser's Back works, Back says where it goes,
+  // the title is the name, and a device reached by a link still has its Notes and History.
+  await find.fill('lon1-a02-tor1');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  const deviceAddress = await hashOf();
+  await page.locator('.inv-plug li button').first().click();
+  await page.waitForSelector('.inv-page', { timeout: 10_000 });
+  check('a link in a page is a new address', (await hashOf()) !== deviceAddress && (await hashOf()).includes('o=cable'), await hashOf());
+  const linkTitle = await page.locator('.inv-page__title').innerText();
+  check('the page title is the name, not an id fragment', linkTitle.length > 0 && !/^cable\s+[A-Z0-9]{4,}$/i.test(linkTitle) && !/[A-Z0-9]{20,}/.test(linkTitle), linkTitle);
+  check('Back names the page it goes back to', (await page.getByRole('button', { name: /^← Back to / }).innerText()).includes('Back to lon1-a02-tor1'), await page.getByRole('button', { name: /^← Back to / }).innerText());
+  await page.goBack();
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  check('the browser Back returns to the page the link was on', (await hashOf()) === deviceAddress);
+  await find.fill('rack LON1-A02');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-rackp', { timeout: 10_000 });
+  await page.locator('.inv-rackp .inv-page__list--rack button').first().click();
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  await page.getByRole('tab', { name: /^Notes/ }).click();
+  check('a device reached by a link still has its Notes', (await page.locator('textarea[placeholder="add a note"]').count()) === 1);
+  await page.getByRole('tab', { name: /^History/ }).click();
+  check('and its History', (await page.locator('.inv-page__body').innerText()).length > 0);
+  await page.waitForTimeout(400); // the address follows a tab a moment after the click
+  check('the tab is in the address', (await hashOf()).includes('t=history'), await hashOf());
+  await page.goBack();
+  await page.waitForSelector('.inv-rackp', { timeout: 10_000 });
+  await page.getByRole('button', { name: 'Set Where to this rack' }).click();
+  await page.waitForTimeout(300);
+  // One step back is the page the rack was reached from, as the button says.
+  check('Back from the rack names the device it came from', (await page.getByRole('button', { name: /^← Back to / }).innerText()).includes('Back to lon1-a02-tor1'));
+  await page.getByRole('button', { name: /^← Back to / }).click();
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  check('a Where set while a page was open survives Back', (await page.locator('.inv-where').getByLabel('Rack').inputValue()) === 'LON1-A02');
+  await page.locator('.inv-where').getByRole('button', { name: /^Clear/ }).click();
+  await page.getByRole('button', { name: /^← Back to / }).click();
+  await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
+
+  // 9 — scroll and ticks come back after Find, and after a reload.
+  await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
+  if (await page.locator('.inv-bulk').count()) await page.getByRole('button', { name: 'Clear', exact: true }).first().click();
+  await page.locator('.inv-table__scroll').evaluate((el) => { el.scrollTop = 600; });
+  await page.waitForTimeout(400);
+  // A row well inside the window: the first few rows are only drawn as spare above it.
+  await page.locator('.inv-table__row').nth(10).getByRole('checkbox').check();
+  const tickedTop = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollTop);
+  check('the list is scrolled and a row ticked', tickedTop >= 560 && (await page.locator('.inv-bulk').innerText()).includes('1 selected'), `top=${tickedTop}`);
+  await find.fill('lon1-a02-tor1');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  await page.getByRole('button', { name: /^← Back to / }).click();
+  await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
+  await page.waitForTimeout(300);
+  const restoredTop = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollTop);
+  check('Back after Find restores the scroll', Math.abs(restoredTop - tickedTop) < 40, `top=${restoredTop}`);
+  check('and the ticked row', (await page.locator('.inv-bulk').innerText()).includes('1 selected'));
+  // A reload lands on the same list, scrolled to the same place (the ticks too, when the rows have the same keys).
+  await page.waitForTimeout(400);
+  await page.reload();
+  await page.waitForSelector('.drawing, .inv-table__row', { timeout: 120_000 });
+  if (!(await page.locator('.inv-table__row').count())) await page.getByRole('button', { name: 'Inventory', exact: true }).click();
+  await page.waitForSelector('.inv-table__row', { timeout: 60_000 });
+  await page.waitForTimeout(500);
+  const reloadedTop = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollTop);
+  check('a reload keeps the scroll', Math.abs(reloadedTop - tickedTop) < 40, `top=${reloadedTop} was ${tickedTop} hash=${await hashOf()}`);
+  if (await page.locator('.inv-bulk').count()) await page.getByRole('button', { name: 'Clear', exact: true }).first().click();
+
+  // 10 — pasted text goes through the gate; typed text is stored as typed.
+  const adder = page.getByLabel(/Name of the new/);
+  const SECRET = 'Sup3rS3cret!';
+  await adder.focus();
+  await page.evaluate((text) => {
+    const el = document.activeElement;
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, `enable secret ${SECRET}`);
+  await page.waitForFunction(() => document.activeElement && document.activeElement.value !== '', null, { timeout: 5_000 });
+  const pasted = await adder.inputValue();
+  check('a paste into a box is gated: the secret never lands', pasted.length > 0 && !pasted.includes(SECRET), pasted);
+  await adder.fill('');
+  await adder.pressSequentially(`enable secret ${SECRET}`);
+  check('typed text is kept as typed', (await adder.inputValue()) === `enable secret ${SECRET}`);
+  await adder.fill('');
+
+  // 11 — a big bulk change shows a progress line and is one undo step; the notice Undo goes when the header Undo has run.
+  if (WRITES) {
+    await page.locator('.inv-table__scroll').evaluate((el) => { el.scrollTop = 0; });
+    await devLine.fill('role:server');
+    await page.waitForTimeout(400);
+    const countOf = async () => /^([\d,]+)/.exec(await page.locator('.inv-foot').innerText())?.[1];
+    const serverCount = await countOf();
+    await devLine.fill('');
+    await page.waitForTimeout(300);
+    await page.getByLabel('Select all rows').check();
+    const everyone = await page.locator('.inv-bulk b').innerText();
+    await page.getByLabel('Column to set').selectOption('role');
+    await page.getByLabel('Value').fill('other');
+    await page.getByRole('button', { name: 'Set', exact: true }).click();
+    await page.evaluate(() => {
+      window.__changing = [];
+      new MutationObserver(() => {
+        const m = /Changing [\d,]+ of [\d,]+…/.exec(document.querySelector('.inv-toolbar')?.innerText ?? '');
+        if (m) window.__changing.push(m[0]);
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    await page.getByRole('button', { name: /^Apply to/ }).click();
+    await page.waitForSelector('.inv-toolbar__undo', { timeout: 60_000 });
+    const progress = await page.evaluate(() => window.__changing);
+    check('a change over 200 rows shows a progress line', progress.length > 0 && /of \d+/.test(progress.at(-1)), `${everyone}; ${progress.slice(0, 3).join(' | ')}`);
+    await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
+    await page.waitForTimeout(1500);
+    check('after the header Undo the notice has no Undo of its own', (await page.locator('.inv-toolbar__undo').count()) === 0);
+    await devLine.fill('role:server');
+    await page.waitForTimeout(400);
+    check('one Undo put every row back', (await countOf()) === serverCount, `${await countOf()} vs ${serverCount}`);
+    await devLine.fill('');
+    await page.getByRole('button', { name: 'Clear', exact: true }).first().click().catch(() => {});
+  }
+
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
   if (WRITES) {
     await page.getByLabel(/Name of the new/).fill('v5-added');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.waitForSelector('.inv-page', { timeout: 30_000 });
     await page.waitForFunction(() => (window.__saveCount__ ?? 0) > 0, null, { timeout: 60_000 });
+  }
+
+  // 12 — a phone (390 x 844): the list, the filter line and a page fit the width; nothing runs off the side.
+  {
+    const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const ph = await phoneCtx.newPage();
+    ph.on('pageerror', (e) => pageErrors.push(e.message));
+    const phShot = async (name) => {
+      await ph.screenshot({ path: SHOTS + name });
+      console.log('    wrote ' + SHOTS + name);
+    };
+    // Only the Inventory is judged: the shell's top bar is the shell's own business.
+    const overflow = () => ph.evaluate(() => {
+      const root = document.querySelector('.inventory-place');
+      const edge = root.getBoundingClientRect().right;
+      const wide = [...root.querySelectorAll('*')].filter((el) => {
+        const r = el.getBoundingClientRect();
+        return !el.closest('.inv-table__scroll, .inv-fp__vals') && r.width > 0 && r.right > edge + 1;
+      });
+      return { scrollW: root.scrollWidth, w: root.clientWidth, wide: wide.slice(0, 4).map((el) => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}>${Math.round(edge)}`) };
+    });
+    await ph.goto(`${BASE}/drive.html?scene=${SCENE}&scale=${process.env.FATHOM_SCALE ?? '1'}`);
+    await ph.waitForSelector('.drawing', { timeout: 240_000 });
+    await ph.getByRole('button', { name: 'Inventory', exact: true }).click();
+    await ph.waitForSelector('.inv-table__row', { timeout: 60_000 });
+    await phShot('v5-phone-list.png');
+    const o1 = await overflow();
+    check('phone: the list fits the width', o1.scrollW <= o1.w + 1 && o1.wide.length === 0, JSON.stringify(o1));
+    const phLine = ph.getByLabel('Filter devices');
+    await phLine.fill('role:switch rack:LON1-A02');
+    await ph.waitForTimeout(500);
+    await phShot('v5-phone-filter.png');
+    const o2 = await overflow();
+    check('phone: the filter line and its chips fit', o2.scrollW <= o2.w + 1 && o2.wide.length === 0, JSON.stringify(o2));
+    await ph.getByRole('button', { name: 'Filters ▾' }).click();
+    await ph.waitForTimeout(300);
+    await phShot('v5-phone-panel.png');
+    const o3 = await overflow();
+    check('phone: the Filters panel fits', o3.scrollW <= o3.w + 1 && o3.wide.length === 0, JSON.stringify(o3));
+    await ph.getByRole('button', { name: /^Filters/ }).click();
+    await ph.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
+    await ph.waitForSelector('.inv-page', { timeout: 10_000 });
+    await phShot('v5-phone-page.png');
+    const o4 = await overflow();
+    check('phone: a page fits', o4.scrollW <= o4.w + 1 && o4.wide.length === 0, JSON.stringify(o4));
+    await ph.getByRole('button', { name: /^← Back to / }).click();
+    await ph.waitForSelector('.inv-table__row', { timeout: 10_000 });
+    await ph.getByLabel('Find anything').fill('lon1-a02');
+    await ph.waitForSelector('.inv-find__panel', { timeout: 5_000 });
+    await phShot('v5-phone-find.png');
+    const o5 = await overflow();
+    check('phone: Find and its results fit', o5.scrollW <= o5.w + 1 && o5.wide.length === 0, JSON.stringify(o5));
+    await phoneCtx.close();
   }
 
   console.log('timings (ms): ' + JSON.stringify(timings));
