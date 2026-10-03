@@ -1,0 +1,5 @@
+{
+  "name": "add-edge-with-fields",
+  "description": "A MountedIn edge from the Chassis to the Rack with position_u and face.",
+  "actor": "01HF7YAT000000000000000007"
+}

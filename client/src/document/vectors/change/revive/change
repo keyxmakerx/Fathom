@@ -1,0 +1,4 @@
+fathom-change 1
+schema 0.17
+
+{"batch":{"id":"01HF7YAT00000000000001X141","label":"restore rack","ops":[{"revive":{"at":1700000006000,"by":"01HF7YAT000000000000000007","element":"rack:01HF7YAT000000000000000003"}}]},"provenance":[],"values":[]}

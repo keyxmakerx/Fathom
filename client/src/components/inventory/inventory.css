@@ -244,3 +244,456 @@
 .inventory-place__show-on-rack {
   margin: var(--s3);
 }
+
+/* ---- ADR-0062: the list, its toolbar and the page beside it --------------------------------- */
+
+.inv-list {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: var(--rule-hair) solid var(--hairline);
+}
+
+.inv-list__grid {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+}
+
+.inv-toolbar {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  font-size: var(--t-small);
+}
+
+.inv-toolbar button,
+.inv-page button,
+.inv-paste button {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+  cursor: pointer;
+}
+
+.inv-toolbar button:disabled,
+.inv-paste button:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.inv-toolbar input,
+.inv-toolbar select,
+.inv-paste textarea {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
+}
+
+.inv-toolbar__row,
+.inv-bulk,
+.inv-toolbar__pop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.inv-toolbar__grow {
+  flex: 1;
+}
+
+.inv-toolbar__add {
+  display: flex;
+  gap: var(--s1);
+}
+
+.inv-toolbar__hint,
+.inv-page__muted,
+.inv-paste__muted {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.inv-toolbar__pop {
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+}
+
+.inv-toolbar__pop--columns label {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 140px;
+}
+
+.inv-toolbar__error {
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s1) var(--s2);
+}
+
+.inv-toolbar__notice {
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  padding: var(--s1) var(--s2);
+}
+
+.inv-bulk {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+}
+
+.inv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  border: var(--rule-hair) solid var(--ink);
+  padding: 0 var(--s2);
+  font-weight: 700;
+}
+
+.inv-chip button {
+  border: none;
+  padding: 0 2px;
+}
+
+/* The table: fixed row height, so a window of rows is all that is in the page. */
+.inv-table {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.inv-table__scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  font-variant-numeric: var(--num-tabular);
+}
+
+.inv-table__scroll:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.inv-table__inner {
+  min-width: 100%;
+}
+
+.inv-table__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  background: var(--page);
+  border-bottom: var(--rule-mast) solid var(--ink);
+}
+
+.inv-table__th {
+  flex: none;
+  text-align: left;
+  font: inherit;
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0 var(--s2);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.inv-table__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+}
+
+.inv-table__row:hover {
+  background: var(--surface);
+}
+
+.inv-table__row--open {
+  background: var(--surface);
+}
+
+.inv-table__row--open .inv-table__check {
+  border-left: var(--rule-accent) solid var(--ink);
+}
+
+.inv-table__row--checked {
+  background: var(--surface-2, var(--hairline));
+}
+
+.inv-table__check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv-table__cell {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s2);
+  overflow: hidden;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.inv-table__cell--active {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.inv-table__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv-table__blank {
+  color: var(--muted);
+}
+
+.inv-table__tags {
+  display: flex;
+  gap: var(--s1);
+  overflow: hidden;
+}
+
+.inv-table__tag {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s1);
+  font-size: var(--t-small);
+}
+
+.inv-table__editor {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  border: none;
+  background: var(--page);
+  color: var(--ink);
+  padding: 0;
+}
+
+.inv-table__editor:focus {
+  outline: none;
+}
+
+.inv-table__error {
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-small);
+}
+
+.inv-table__empty {
+  padding: var(--s4);
+  color: var(--muted);
+  font-family: var(--sans);
+}
+
+/* The page. It wears the shell editor's class for the editor's own control styling. */
+.inv-page {
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--page);
+}
+
+.inv-page__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4) var(--s2);
+}
+
+.inv-page__title {
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.inv-page__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s3);
+}
+
+.inv-page .inv-page__tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: var(--s1) var(--s2);
+}
+
+.inv-page .inv-page__tab--on {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  text-shadow: 0 0 0 currentColor;
+}
+
+.inv-page__body {
+  padding: var(--s3) var(--s4);
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.inv-page__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.inv-page__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.inv-paste {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: color-mix(in srgb, var(--page) 72%, transparent);
+  display: grid;
+  place-items: center;
+}
+
+.inv-paste__box {
+  width: min(640px, 92vw);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.inv-paste__box h2 {
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.inv-paste__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+/* The tick column stays put while the columns scroll sideways. */
+.inv-table__check {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: inherit;
+}
+
+.inv-table__head .inv-table__check {
+  background: var(--page);
+  z-index: 3;
+}
+
+/* Only the table's own scroller scrolls sideways, never the page around it. */
+.inv-list,
+.inv-list__grid,
+.inv-table {
+  overflow: hidden;
+}
+
+/* The global `input { appearance: none }` collapses checkboxes; restore the native control. */
+.inv-table__check input,
+.inv-toolbar input[type='checkbox'],
+.inv-columns input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* The name stays in view while the other columns scroll. */
+.inv-table__stick {
+  position: sticky;
+  left: 34px;
+  z-index: 1;
+  background: inherit;
+}
+
+.inv-table__head .inv-table__stick {
+  background: var(--page);
+  z-index: 3;
+}
+
+/* The page header and the Notes tab already carry the title and notes. */
+.inv-page__overview .drawing-editor__title,
+.inv-page__overview .drawing-editor__field--notes {
+  display: none;
+}
+
+.inv-table__tag {
+  font: inherit;
+  cursor: pointer;
+}
+
+.inv-paste__preview {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.inv-paste__preview th,
+.inv-paste__preview td {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  text-align: left;
+}
+
+.inv-page__ports li {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: var(--s2);
+  align-items: baseline;
+}
+
+.inv-page__mono {
+  font-family: var(--mono, monospace);
+}
+
+.inv-page__link {
+  display: block;
+  margin-top: var(--s2);
+}

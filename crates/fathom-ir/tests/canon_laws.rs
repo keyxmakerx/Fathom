@@ -167,10 +167,18 @@ fn schema_version_is_the_trees() {
     // kinds (`HasLabel`, `HasLine`, `LineEnd`), seven new field keys (344-350); all MINOR.
     //
     // 0.13 -> 0.14: ADR-0061 round 7. Two node kinds (`Doc`, `DocLink`), three edge kinds
-    // (`HasDoc`, `DocOn`, `HasDocLink`), six field keys (351-356), then ADR-0061 round 10's `DocFile` (kind, `HasDocFile`, 357-363); all MINOR. 0.14 -> 0.17 adds `SecurityPolicy.match_any_application` (364).
+    // (`HasDoc`, `DocOn`, `HasDocLink`), six field keys (351-356), then ADR-0061 round 10's `DocFile` (kind, `HasDocFile`, 357-363); all MINOR.
     //
-    // 0.14 -> 0.17: ADR-0061 path trace, part 1. No kind, edge, field or key; five structured
-    // value types get shapes; all MINOR (0.15 and 0.16 belong to other PRs).
+    // 0.14 -> 0.15: ADR-0061 round 7, maintenance plans. Two node kinds (`MaintenancePlan`,
+    // `PlanStep`), two edge kinds (`HasPlan`, `HasStep`), seventeen field keys (364-380); all MINOR.
+    //
+    // 0.15 -> 0.16: custom-field values. One new node kind, `FieldValue` (joins
+    // `Placeable`), two fields, one new class `Fieldable`, `Notable` widened to Cable,
+    // Vlan and ContainerNetwork, one new edge kind (`HasFieldValue`) and two new field
+    // keys, 381-382. The definitions live on the server, not in the graph. All MINOR.
+    //
+    // 0.16 -> 0.17: ADR-0061 path trace, part 1. One field, `SecurityPolicy.match_any_application`
+    // (383); five structured value types get shapes; all MINOR.
     assert_eq!(SCHEMA_VERSION, "0.17");
 }
 
@@ -690,7 +698,12 @@ fn dispatch_names_every_registry_key() {
     //
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
     // `AttachedTo.address`.
-    assert_eq!(FIELD_KEYS.len(), 364, "the registry grew or shrank");
+    //
+    // 380 -> 382: custom-field values' two keys -- `FieldValue.value` (381) and
+    // `FieldValue.definition` (382).
+    //
+    // 382 -> 383: path trace's `SecurityPolicy.match_any_application` (383).
+    assert_eq!(FIELD_KEYS.len(), 383, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

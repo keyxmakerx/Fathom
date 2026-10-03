@@ -5,6 +5,8 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
+import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
+import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
@@ -43,6 +45,8 @@ export interface BarProps {
   onLensChange: (lens: Lens) => void;
   /** The Rack | Diagram switch; omitted where the look does not apply. */
   look?: { value: Look; onChange: (look: Look) => void };
+  /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void } };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -59,6 +63,9 @@ export interface BarProps {
   onShare?: () => void;
   /** The Docs button: the design's docs list. */
   onDocs?: () => void;
+  /** The History button: the design's saves beside the canvas. */
+  onHistory?: () => void;
+  historyOpen?: boolean;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -76,6 +83,18 @@ export interface BarProps {
   menu?: ReactNode;
   /** The amber Admin pill beside the account square (display only). */
   adminPill?: { current?: boolean; onSelect?: () => void };
+  /** The Cables list, hanging from the Cables lens: absent everywhere but
+   * the Racks place. The lens shows a ▾ while lit, and a click while it is
+   * ALREADY lit opens this as a popover; a click while some other lens is
+   * lit only switches to Cables, the same as every other lens button. */
+  cablesGroupsPopover?: ReactNode;
+  /** While anything is filtered, the lens reads "Cables · 5 of 38."
+   * `null`/absent leaves the lens reading plain "Cables". */
+  cablesGroupsSummary?: string | null;
+  /** The bar shows "3 hidden · show" in the Racks place while any cable in
+   * this closet is hidden one at a time. Zero or absent renders nothing. */
+  hiddenCablesCount?: number;
+  onShowAllHiddenCables?: () => void;
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -88,6 +107,7 @@ export function Bar({
   lens,
   onLensChange,
   look,
+  layers,
   presence,
   zoom,
   onZoomIn,
@@ -100,6 +120,8 @@ export function Bar({
   onPrint,
   onShare,
   onDocs,
+  onHistory,
+  historyOpen,
   account,
   viewOnly,
   barExtra,
@@ -107,6 +129,10 @@ export function Bar({
   menu,
   adminPill,
   search,
+  cablesGroupsPopover,
+  cablesGroupsSummary,
+  hiddenCablesCount,
+  onShowAllHiddenCables,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -231,6 +257,16 @@ export function Bar({
         >
           {tree}
         </Popover>
+        {/* Others in this view: a round dot with their initials; the full name is its label. */}
+        {presence.length > 0 && (
+          <div className="shell-bar__people" role="group" aria-label="Also in this view">
+            {presence.map((person) => (
+              <span className="shell-person" key={person.id} role="img" tabIndex={0} aria-label={person.name} title={person.name}>
+                {person.initials}
+              </span>
+            ))}
+          </div>
+        )}
         {/* A lens is what is drawn on top of the drawing's boxes, so it
             belongs to the camera and not to every screen. On Home
             (`place === null`) there is nothing for a lens to act on, and
@@ -240,17 +276,58 @@ export function Bar({
           <>
             <Sep />
             <div className="shell-bar__lenses">
-              {LENSES_IN[place].map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  aria-pressed={candidate === lens}
-                  className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                  onClick={() => onLensChange(candidate)}
-                >
-                  {LENS_LABEL[candidate]}
-                </button>
-              ))}
+              {LENSES_IN[place].map((candidate) =>
+                candidate === 'cables' && cablesGroupsPopover != null ? (
+                  <Popover
+                    key={candidate}
+                    align="left"
+                    renderTrigger={({ toggle, triggerRef, triggerProps }) => (
+                      <button
+                        type="button"
+                        aria-pressed={candidate === lens}
+                        className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                        aria-haspopup={triggerProps['aria-haspopup']}
+                        aria-expanded={candidate === lens ? triggerProps['aria-expanded'] : false}
+                        aria-controls={triggerProps['aria-controls']}
+                        onClick={(event) => {
+                          triggerRef.current = event.currentTarget;
+                          // Clicking the Cables lens while it is lit opens
+                          // the list; while it is some other lens's turn, a
+                          // click only switches to Cables, the same as any
+                          // other lens button — it never also opens the
+                          // popover in the same click.
+                          if (candidate !== lens) {
+                            onLensChange(candidate);
+                            return;
+                          }
+                          toggle();
+                        }}
+                      >
+                        {LENS_LABEL[candidate]}
+                        {cablesGroupsSummary != null && ` · ${cablesGroupsSummary}`}
+                        {candidate === lens && (
+                          <span className="shell-lens__caret" aria-hidden="true">
+                            {' '}
+                            ▾
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  >
+                    {cablesGroupsPopover}
+                  </Popover>
+                ) : (
+                  <button
+                    key={candidate}
+                    type="button"
+                    aria-pressed={candidate === lens}
+                    className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                    onClick={() => onLensChange(candidate)}
+                  >
+                    {LENS_LABEL[candidate]}
+                  </button>
+                ),
+              )}
             </div>
             {look != null && <Sep />}
             {look != null && (
@@ -268,6 +345,74 @@ export function Bar({
                 ))}
               </div>
             )}
+            {hiddenCablesCount != null && hiddenCablesCount > 0 && (
+              <>
+                <Sep />
+                <span className="shell-chip shell-bar__hidden-chip" data-testid="shell-hidden-cables-chip">
+                  {hiddenCablesCount} hidden ·{' '}
+                  <button type="button" className="shell-chip__link" onClick={onShowAllHiddenCables}>
+                    show
+                  </button>
+                </span>
+              </>
+            )}
+            {layers != null && <Sep />}
+            {layers != null && (
+              <Popover
+                renderTrigger={({ open, triggerProps, triggerRef }) => (
+                  <button
+                    type="button"
+                    className={open ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                    data-testid="shell-show"
+                    ref={(el) => {
+                      triggerRef.current = el;
+                    }}
+                    {...triggerProps}
+                  >
+                    Show ▾
+                  </button>
+                )}
+              >
+                <div className="shell-show" role="group" aria-label="Show on the drawing">
+                  <div className="shell-show__head">Show on the drawing</div>
+                  {LAYERS.filter((l) => l.available).map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={layers.value[l.id]}
+                      className="shell-show__row"
+                      data-testid={`show-${l.id}`}
+                      onClick={() => layers.onToggle(l.id)}
+                    >
+                      <span aria-hidden="true">{layers.value[l.id] ? '☑' : '☐'}</span>
+                      <span>{l.label}</span>
+                      {l.onByDefault && <span className="shell-show__note">on by default</span>}
+                    </button>
+                  ))}
+                  {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
+                  <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
+                  {layers.style != null && (
+                    <div className="shell-show__style" role="group" aria-label="Device style">
+                      <span className="shell-show__head">Device style</span>
+                      {DIAGRAM_STYLES.map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={layers.style!.value === st}
+                          className={layers.style!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                          data-testid={`style-${st}`}
+                          onClick={() => layers.style!.onChange(st)}
+                        >
+                          {DIAGRAM_STYLE_LABEL[st]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Popover>
+            )}
           </>
         )}
       </div>
@@ -277,19 +422,6 @@ export function Bar({
       {search && <SearchBox search={search} collapsed={searchCollapsed} />}
 
       <div className="shell-bar__trailing" ref={trailingRef}>
-        {presence.length > 0 && (
-          <>
-            <div className="shell-bar__presence">
-              {presence.map((person) => (
-                <span className="shell-chip" key={person.id}>
-                  {person.name}
-                </span>
-              ))}
-            </div>
-            <Sep />
-          </>
-        )}
-
         {/* ADR-0052 §5: "view only" reads with the same plain hairline chip
             as everything else in this group — UI-SPEC "Look" reserves
             colour for an error, a warning, a recommendation or a
@@ -330,6 +462,20 @@ export function Bar({
           <>
             <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
               Docs
+            </button>
+            <Sep />
+          </>
+        )}
+        {onHistory && (
+          <>
+            <button
+              type="button"
+              className="shell-chip shell-chip--ink"
+              aria-pressed={historyOpen ?? false}
+              onClick={onHistory}
+              data-testid="shell-history"
+            >
+              History
             </button>
             <Sep />
           </>

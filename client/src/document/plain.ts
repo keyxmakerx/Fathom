@@ -47,7 +47,7 @@ export { SCHEMA_VERSION };
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -72,36 +72,53 @@ const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedW
 const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
 const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
 
-// Kinds 0.14 (ADR-0061 round 7) added; same reasoning, for 0.10 to 0.13.
+// Kinds 0.14 (ADR-0061 round 7, docs) added; same reasoning, for 0.10 to 0.13.
 const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
 const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
+
+// Kinds 0.15 (ADR-0061 round 7, maintenance plans) added; same reasoning, for 0.10 to 0.14.
+const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
+const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
+
+// Kinds 0.16 (custom-field values) added; same reasoning, for 0.10 to 0.15.
+const NODE_KINDS_SINCE_0_16: ReadonlySet<NodeKind> = new Set(['FieldValue']);
+const EDGE_KINDS_SINCE_0_16: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
   if (!ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) return;
+  // Each `since` set is too new for every declared version older than it.
   const minor = Number(declared.slice(2));
-  const nodesSince: [number, ReadonlySet<NodeKind>][] = [
-    [11, NODE_KINDS_SINCE_0_11],
-    [12, NODE_KINDS_SINCE_0_12],
-    [13, NODE_KINDS_SINCE_0_13],
-    [14, NODE_KINDS_SINCE_0_14],
-  ];
-  const edgesSince: [number, ReadonlySet<EdgeKind>][] = [
-    [11, EDGE_KINDS_SINCE_0_11],
-    [12, EDGE_KINDS_SINCE_0_12],
-    [13, EDGE_KINDS_SINCE_0_13],
-    [14, EDGE_KINDS_SINCE_0_14],
-  ];
+  const tooNew = (n16: boolean, n15: boolean, n14: boolean, n13: boolean, n12: boolean, n11: boolean): boolean =>
+    [[16, n16], [15, n15], [14, n14], [13, n13], [12, n12], [11, n11]].some(([m, hit]) => hit && minor < (m as number));
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
-    if (nodesSince.some(([since, kinds]) => minor < since && kinds.has(kind))) {
+    if (
+      tooNew(
+        NODE_KINDS_SINCE_0_16.has(kind),
+        NODE_KINDS_SINCE_0_15.has(kind),
+        NODE_KINDS_SINCE_0_14.has(kind),
+        NODE_KINDS_SINCE_0_13.has(kind),
+        NODE_KINDS_SINCE_0_12.has(kind),
+        NODE_KINDS_SINCE_0_11.has(kind),
+      )
+    ) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
-    if (edgesSince.some(([since, kinds]) => minor < since && kinds.has(kind))) {
+    if (
+      tooNew(
+        EDGE_KINDS_SINCE_0_16.has(kind),
+        EDGE_KINDS_SINCE_0_15.has(kind),
+        EDGE_KINDS_SINCE_0_14.has(kind),
+        EDGE_KINDS_SINCE_0_13.has(kind),
+        EDGE_KINDS_SINCE_0_12.has(kind),
+        EDGE_KINDS_SINCE_0_11.has(kind),
+      )
+    ) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
@@ -150,7 +167,7 @@ function plainErrorMessage(r: PlainErrorReason): string {
   }
 }
 
-function shapeErr(path: string, expected: string): PlainError {
+export function shapeErr(path: string, expected: string): PlainError {
   return new PlainError({ kind: 'shape', path, expected });
 }
 
@@ -396,7 +413,7 @@ function originToJson(o: Origin): CanonValue {
   };
 }
 
-function provenanceToJson(r: ProvenanceRecord): CanonValue {
+export function provenanceToJson(r: ProvenanceRecord): CanonValue {
   const out: { [key: string]: CanonValue } = {
     asserted_at: r.assertedAt,
     asserted_by: { user: r.assertedBy },
@@ -440,7 +457,7 @@ function opToJson(op: Op): CanonValue {
   }
 }
 
-function batchToJson(b: Batch): CanonValue {
+export function batchToJson(b: Batch): CanonValue {
   const out: { [key: string]: CanonValue } = { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
   // ADR-0053 §4: both optional, written only when present.
   if (b.comment !== undefined) out.comment = b.comment;
@@ -461,14 +478,14 @@ function documentToJson(doc: Document): CanonValue {
 // ---------------------------------------------------------------------------
 // canonical JSON -> Document
 
-function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
+export function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     throw shapeErr(path, 'a JSON object');
   }
   return v;
 }
 
-function isArr(v: CanonValue, path: string): CanonValue[] {
+export function isArr(v: CanonValue, path: string): CanonValue[] {
   if (!Array.isArray(v)) throw shapeErr(path, 'a JSON array');
   return v;
 }
@@ -483,7 +500,7 @@ function isNum(v: CanonValue, path: string): number {
   return v;
 }
 
-function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
+export function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
   if (!(key in m)) throw shapeErr(`${path}.${key}`, 'a required key');
   return m[key];
 }
@@ -556,7 +573,7 @@ function readOrigin(v: CanonValue, path: string): Origin {
   };
 }
 
-function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
+export function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
   const m = isObj(v, path);
   const actor = isObj(req(m, 'asserted_by', path), path);
   if (!('user' in actor) || Object.keys(actor).length !== 1) {
@@ -647,7 +664,7 @@ function readOp(v: CanonValue, path: string): Op {
   }
 }
 
-function readBatch(v: CanonValue, path: string): Batch {
+export function readBatch(v: CanonValue, path: string): Batch {
   const m = isObj(v, path);
   const ops = isArr(req(m, 'ops', path), `${path}.ops`).map((o, i) => readOp(o, `${path}.ops[${i}]`));
   const batch: Batch = { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };

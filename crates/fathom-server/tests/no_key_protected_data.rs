@@ -231,6 +231,25 @@ const TABLES: &[TableClaim] = &[
               below exists for.",
     },
     TableClaim {
+        name: "design_change",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "one accepted live change per row (ADR-0063), sealed like a payload under a \
+              different associated-data tag. `body_digest` is a keyed digest used only to \
+              recognise a retried batch.",
+    },
+    TableClaim {
+        name: "design_checkpoint",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "the design's head as a full face at a version, written by the server \
+              (ADR-0063). Derived from chained data, so it has no chain entry of its own.",
+    },
+    TableClaim {
         name: "chain_entries",
         protection: Protection::KeyProtected {
             columns: &["metadata"],
@@ -249,6 +268,16 @@ const TABLES: &[TableClaim] = &[
               master. On the DESIGN chain it stays canonical plaintext -- an actor, an entry \
               type and two version numbers -- and the design's contents live encrypted in \
               `design_payload`. No key is stored in this table.",
+    },
+    TableClaim {
+        name: "field_definitions",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "custom-field definitions (ADR-0062). Name, type and choices are one sealed blob; \
+              the plaintext columns are the definition id, its kind, a version counter, the \
+              creator and an archived flag, none of which names a field.",
     },
     TableClaim {
         name: "org_content_keys",

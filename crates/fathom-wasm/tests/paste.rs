@@ -462,8 +462,14 @@ fn another_vendors_config_says_so() {
     let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CISCO)));
     assert!(
-        e.detail.contains("Juniper SRX today"),
+        e.detail.contains("Junos, EdgeOS and OPNsense today"),
         "the message should name what Fathom does know: {}",
+        e.detail
+    );
+    let first = CISCO.lines().find(|l| !l.trim().is_empty()).unwrap().trim();
+    assert!(
+        !e.detail.contains(first),
+        "the refusal must not quote the paste back: {}",
         e.detail
     );
     assert!(

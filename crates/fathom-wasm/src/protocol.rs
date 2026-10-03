@@ -228,6 +228,11 @@ pub const FACE_CHECK_HEAD: u8 = 32;
 /// `display id TAB name`, one per line, anchor first.
 pub const FACE_CHECK: u8 = 33;
 
+/// `OP_PLAN_PREVIEW`, one step: `<step display id> <ordinal> <why it cannot apply, or empty>
+/// <impact, one sentence per line> <touches: display id TAB name, one per line>`. Followed by
+/// the [`FACE_CHECK`] rows that step adds.
+pub const FACE_PLAN_STEP: u8 = 34;
+
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
 /// The held estate's shape digest: one row, slot 0, 16 lowercase hex characters
@@ -437,6 +442,31 @@ pub const ERR_PLAIN_REFUSED: u16 = 21;
 /// module is unchanged. The detail names why, for a log, not for a person.
 pub const ERR_RESYNC: u16 = 22;
 
+/// `OP_PASTE` / `OP_PASTE_INTO` could not tell which set-form platform wrote the text
+/// and no platform was named: two or more dictionaries read it about equally. The
+/// detail is the candidate platforms, comma-separated. The page asks the person and
+/// re-posts naming one; it never picks. Nothing is stored on this refusal.
+pub const ERR_PLATFORM_CHOICE: u16 = 23;
+
+/// The platforms a paste frame's flag byte can name, in bits 1..=3 (value 0 = detect;
+/// bit 0 is `confirm`). Append-only, like the opcode table; `client/src/engine/frames.ts`
+/// mirrors it and a test holds the two together.
+pub const PASTE_PLATFORMS: [&str; 4] = ["junos-srx", "junos-ex", "edgeos", "opnsense"];
+
+/// The platform a paste frame's flag byte names, `None` for detect. Any other bit set
+/// is a bad frame, refused rather than ignored.
+pub fn paste_platform(flags: u8) -> Result<Option<&'static str>, Vec<u8>> {
+    let code = usize::from(flags >> 1);
+    match code {
+        0 => Ok(None),
+        1..=4 if flags & 0xf0 == 0 => Ok(Some(PASTE_PLATFORMS[code - 1])),
+        _ => Err(encode_error(
+            ERR_PASTE_FRAME,
+            &format!("the paste flag byte {flags:#04x} names no platform this build knows"),
+        )),
+    }
+}
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -516,6 +546,25 @@ pub fn encode_error(code: u16, detail: &str) -> Vec<u8> {
     out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
     out.extend_from_slice(&blob.bytes);
     out
+}
+
+/// The detail of an error reply, `None` when `reply` is not one.
+pub fn error_detail(reply: &[u8]) -> Option<(u16, String)> {
+    if reply.get(6..8) != Some(&KIND_ERROR.to_le_bytes()[..]) {
+        return None;
+    }
+    let at = |i: usize| {
+        reply
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let (off, len) = (at(36)?, at(40)?);
+    let blob = reply.get(48..)?;
+    let code = u16::from_le_bytes([*reply.get(16)?, *reply.get(17)?]);
+    Some((
+        code,
+        String::from_utf8_lossy(blob.get(off..off + len)?).into_owned(),
+    ))
 }
 
 fn risk_byte(risk: Risk) -> u8 {
@@ -1336,6 +1385,44 @@ pub fn encode_checks_reply(
         );
         write_face_record(&mut records, &rec);
         count += 1;
+    }
+    face_reply(records, count, blob)
+}
+
+/// `OP_PLAN_PREVIEW`'s reply.
+pub fn encode_plan_reply(steps: &[crate::plan::StepOut]) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let mut count = 0usize;
+    for s in steps {
+        let ordinal = s.ordinal.to_string();
+        let rec = face_slots(
+            &mut blob,
+            FACE_PLAN_STEP,
+            5,
+            &[&s.id, &ordinal, &s.error, &s.impact, &s.touches],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for r in &s.rows {
+            let rec = face_slots(
+                &mut blob,
+                FACE_CHECK,
+                8,
+                &[
+                    &r.rule,
+                    r.severity,
+                    &r.title,
+                    &r.fix,
+                    &r.why,
+                    &r.concept,
+                    &r.source,
+                    &r.elements,
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
     }
     face_reply(records, count, blob)
 }

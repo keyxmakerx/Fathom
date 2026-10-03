@@ -1,0 +1,259 @@
+/* The Cables list, hanging from the lit Cables lens. Renders inside
+   `shell.css`'s one `.shell-popover` box; every rule below is the content
+   only. `design/proposals/cables/cable-filter.dc.html` panel 1 is the
+   board. */
+
+.cable-groups-pop {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cable-groups-pop__header {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.cable-groups-pop__title {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.cable-groups-pop__showing {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.cable-groups-pop__shortcuts {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.cable-groups-pop__fchip {
+  appearance: none;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--muted);
+  padding: 2px var(--s3);
+  font-size: var(--t-tab);
+  cursor: pointer;
+}
+
+.cable-groups-pop__fchip--lit {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.cable-groups-pop__hint {
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.cable-groups-pop__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.cable-groups-pop__row--on {
+  background: var(--surface);
+}
+
+.cable-groups-pop__row--on .cable-groups-pop__name {
+  font-weight: 700;
+}
+
+.cable-groups-pop__check {
+  display: flex;
+}
+
+/* `design/tokens.css` sets `appearance: none` on every input (no native
+   box left to render at all) — a visible one is built here, the board's
+   own small square-plus-tick (`cable-filter.dc.html`'s `.box`/`.box--on`). */
+.cable-groups-pop__check input[type='checkbox'] {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: var(--rule-hair) solid var(--muted);
+  background: var(--page);
+  cursor: pointer;
+  position: relative;
+}
+
+.cable-groups-pop__check input[type='checkbox']:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.cable-groups-pop__check input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: -1px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--page);
+  border-width: 0 1.4px 1.4px 0;
+  transform: rotate(40deg);
+}
+
+.cable-groups-pop__name {
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cable-groups-pop__kind {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  width: 44px;
+}
+
+.cable-groups-pop__count {
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  width: 20px;
+  text-align: right;
+}
+
+.cable-groups-pop__remove {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: var(--t-tab);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+}
+
+.cable-groups-pop__row:hover .cable-groups-pop__remove,
+.cable-groups-pop__row:focus-within .cable-groups-pop__remove {
+  opacity: 1;
+}
+
+.cable-groups-pop__add {
+  appearance: none;
+  border: none;
+  background: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 7px var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cable-groups-pop__add-plus {
+  color: var(--muted);
+}
+
+.cable-groups-pop__hidden {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 7px var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.cable-groups-pop__hidden-chip {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 2px var(--s2);
+  color: var(--muted);
+  font-size: var(--t-tab);
+}
+
+.cable-groups-pop__show-link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cable-groups-pop__footer {
+  padding: var(--s2) var(--s3) var(--s3);
+  font-size: var(--t-micro);
+  line-height: 15px;
+  color: var(--muted);
+}
+
+.cable-groups-pop__back {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  font-size: var(--t-micro);
+  cursor: pointer;
+  padding: 0;
+}
+
+.cable-groups-pop__search {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.cable-groups-pop__search input {
+  width: 100%;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  padding: 2px var(--s2);
+  font: inherit;
+}
+
+.cable-groups-pop__rows {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.cable-groups-pop__pick-row {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+}
+
+.cable-groups-pop__pick-row:hover,
+.cable-groups-pop__pick-row--highlight {
+  background: var(--surface);
+}
+
+.cable-groups-pop__empty {
+  padding: var(--s3);
+  color: var(--muted);
+  font-size: var(--t-small);
+}

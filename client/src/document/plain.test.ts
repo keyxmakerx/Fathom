@@ -331,7 +331,7 @@ describe('readPlain refusals', () => {
     }
   });
 
-  // A design saved at 0.10 (ADR-0058) still keeps opening at 0.12 — there
+  // A design saved at 0.10 (ADR-0058) still keeps opening at 0.14 — there
   // is no migration chain, so nothing shipped since is allowed to narrow
   // what already opened.
   it('opens a 0.10 vector and writes it back at the current version', () => {
@@ -341,7 +341,7 @@ describe('readPlain refusals', () => {
     expect(rewritten).toEqual(PINNED);
   });
 
-  // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
+  // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.14, and
   // saving it again writes the current version, not the one it arrived at.
   it('opens a 0.11 vector and writes it back at the current version', () => {
     const at011 = PINNED.replace('schema 0.17', 'schema 0.11');
@@ -371,13 +371,13 @@ describe('readPlain refusals', () => {
     expect(() => readPlain(bytesOf(bad))).toThrow('Doc does not exist in schema 0.13');
   });
 
-  it('opens a 0.14 vector and holds a Doc there', () => {
+  it('opens a 0.14 vector and refuses a plan under a 0.14 header', () => {
     const at014 = PINNED.replace('schema 0.17', 'schema 0.14');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at014))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
-    const withDoc: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Doc', newUlid()), existence: newUlid(), fields: {} }] };
-    const doc014 = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.17', 'schema 0.14');
-    expect(() => readPlain(bytesOf(doc014))).not.toThrow();
+    const withPlan: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('MaintenancePlan', newUlid()), existence: newUlid(), fields: {} }] };
+    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.17', 'schema 0.14');
+    expect(() => readPlain(bytesOf(bad))).toThrow('MaintenancePlan does not exist in schema 0.14');
   });
 
   it('refuses an unlisted older version', () => {
@@ -457,6 +457,45 @@ describe('readPlain refusals', () => {
         elementKind: 'Tag',
       });
       expect((e as PlainError).message).toBe('Tag does not exist in schema 0.11');
+    }
+  });
+
+  it('opens a 0.12 vector and writes it back at the current version', () => {
+    const at012 = PINNED.replace('schema 0.17', 'schema 0.12');
+    const doc = readPlain(bytesOf(at012));
+    const rewritten = new TextDecoder().decode(writePlain(doc));
+    expect(rewritten).toEqual(PINNED);
+  });
+
+  it('opens a 0.13 vector and writes it back at the current version', () => {
+    const at013 = PINNED.replace('schema 0.17', 'schema 0.13');
+    const doc = readPlain(bytesOf(at013));
+    const rewritten = new TextDecoder().decode(writePlain(doc));
+    expect(rewritten).toEqual(PINNED);
+  });
+
+  it('refuses an older header holding a 0.16-only kind', () => {
+    const doc = readPlain(bytesOf(PINNED));
+    const withValue: Document = {
+      ...doc,
+      nodes: [...doc.nodes, { id: formatNodeId('FieldValue', newUlid()), existence: newUlid(), fields: {} }],
+    };
+    const at016 = new TextDecoder().decode(writePlain(withValue));
+    // The same payload under the current header round-trips.
+    expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at016))))).toEqual(at016);
+    for (const old of ['0.12', '0.13', '0.14', '0.15']) {
+      const atOld = at016.replace('schema 0.17', `schema ${old}`);
+      try {
+        readPlain(bytesOf(atOld));
+        throw new Error('expected a refusal');
+      } catch (e) {
+        expect(e).toBeInstanceOf(PlainError);
+        expect((e as PlainError).reason).toEqual({
+          kind: 'kind-not-in-declared-version',
+          declaredVersion: old,
+          elementKind: 'FieldValue',
+        });
+      }
     }
   });
 });

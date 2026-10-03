@@ -233,14 +233,28 @@ schema:
                     # edge kinds, HasDoc (root containment, HasTag's shape), DocOn (reference, Doc to
                     # Docable), HasDocLink and HasDocFile (containment, Doc to DocLink or DocFile);
                     # thirteen field keys (351-363). Whole change = MINOR.
+                    # 0.15 is ADR-0061 round 7, maintenance plans (2026-10-03), all additive:
+                    # two node kinds, MaintenancePlan and PlanStep (joining Placeable), two edge
+                    # kinds, HasPlan (root containment, HasTag's shape) and HasStep (containment,
+                    # plan to step), seventeen field keys (364-380). Whole change = MINOR; the
+                    # reader still opens 0.10 to 0.14 payloads.
+                    # 0.16 is custom-field values (2026-10-02), all additive. One new node
+                    # kind, FieldValue (value, definition; keys 381-382), joining Placeable as
+                    # Tag does. One new class, Fieldable. Notable widens to Cable, Vlan and
+                    # ContainerNetwork. One new edge kind, HasFieldValue (containment, HasNote's
+                    # shape) (62 §16.2: each is minor). The DEFINITIONS are not in the graph:
+                    # they are an organisation-wide server store (ADR-0062), and a value names
+                    # its definition by id in `definition`. Nothing removed, retyped or
+                    # reordered. Whole change = MINOR: the client and server read 0.10 to 0.15
+                    # payloads and write 0.16.
                     #
-                    # 0.17 is ADR-0061 path trace, part 1 (2026-10-03; 0.15 and 0.16 are claimed by
-                    # #98 and #93). No kind or edge moves. Five structured value types
+                    # 0.17 is ADR-0061 path trace, part 1 (2026-10-03; 0.15 and 0.16 are maintenance plans
+                    # and custom-field values). No kind or edge moves. Five structured value types
                     # that were unit structs get shapes: PolicyScope (ZonePair, InterfaceDirection,
                     # Global), AddressValue (Prefix, Range, Host, Fqdn, Any), L4Spec (Any, or a
                     # protocol with port ranges), NatScope and NatAction. A unit struct serialised
                     # as {}, and ingest never wrote one, so no stored payload holds the old form.
-                    # One optional field, SecurityPolicy.match_any_application (key 381), joins its
+                    # One optional field, SecurityPolicy.match_any_application (key 383), joins its
                     # two siblings so a policy can say "any application" (62 §16.2: minor).
                     # Whole change = MINOR; the reader opens the same older versions as before.
 
@@ -464,10 +478,15 @@ classes:
       - Doc
       - DocLink
       - DocFile
+      # ADR-0061 round 7: a plan and its steps are drawn by the plan views, not the layout.
+      - MaintenancePlan
+      - PlanStep
+      # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
+      - FieldValue
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
-    members: [Device, PhysicalPort, Rack]
+    members: [Device, PhysicalPort, Rack, Cable, Vlan, ContainerNetwork]
     doc: |
       The owners of Note (ADR-0053 §5). Device, not Chassis: the device has the page, the
       hostname and the capture, so a note about the box belongs where those already live.
@@ -478,6 +497,10 @@ classes:
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack, Premises, Vlan, ContainerNetwork, Container]
     doc: |
       The owners of TaggedWith (ADR-0059 decision 2). Widens later, as Placeable has.
+  - class: Fieldable
+    members: [Device, PhysicalPort, Cable, Rack, Vlan, ContainerNetwork]
+    doc: |
+      The owners of FieldValue (custom fields, 0.16): the inventory things a field can apply to.
 
   - class: Docable
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack]
@@ -1928,7 +1951,62 @@ kinds:
       - { name: removed, type: u32, card: "0..1", emit: "—", doc: "How many values the gate destroyed; present when checked is removed." }
       - { name: file_id, type: Identifier, card: "1", emit: "—", doc: The server's id for the stored bytes. }
       - { name: sha256, type: Text, card: "1", emit: "—", doc: Lowercase hex SHA-256 of the stored bytes. }
+  # ADR-0061 round 7, maintenance plans (2026-10-03). Appended at the tail (62 §13).
+  - kind: MaintenancePlan
+    layer: physical
+    emits: false
+    doc: |
+      A planned change: a title, a window, and ordered steps (HasStep). Hung off the root
+      through HasPlan. The plan never changes the live design; applying a step does, through
+      the same edit a person would make by hand. `stage` runs planned, doing, recorded;
+      `outcome` and `record` are set once, when it is recorded. Identity is weak on purpose,
+      Label's own precedent. Anyone who can read the design can read its plans.
+    fields:
+      - { name: title, type: Text, card: "1", emit: "—", doc: What the plan is called. }
+      - { name: window_start, type: Text, card: "0..1", emit: "—", doc: "When the work may start, as typed (an ISO date or date and time)." }
+      - { name: window_end, type: Text, card: "0..1", emit: "—", doc: When the work must be finished by. }
+      - { name: author, type: Text, card: "0..1", emit: "—", doc: Who wrote the plan. }
+      - { name: stage, type: "enum { planned, doing, recorded }", card: "1", emit: "—", doc: Where the plan is. }
+      - { name: outcome, type: "enum { succeeded, partial, failed }", card: "0..1", emit: "—", doc: How it went; set when recorded. }
+      - { name: record, type: Text, card: "0..1", emit: "—", doc: "What went wrong, or anything worth keeping; set when recorded." }
     identity: []
+
+  - kind: PlanStep
+    layer: physical
+    emits: false
+    doc: |
+      One step of a plan, in `ordinal` order. It holds its change as an `edit` the canvas
+      already knows how to make (a field set, a cable, a move) and applies it only when the
+      step is marked done. `targets` names what it touches, one design id per line.
+    fields:
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the plan. Steps run in this order. }
+      - { name: kind, type: "enum { address, route, cable, move, other }", card: "1", emit: "—", doc: What sort of change. }
+      - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step touches, one per line." }
+      - { name: change, type: Text, card: "1", emit: "—", doc: The step in a sentence. }
+      - { name: before, type: Text, card: "0..1", emit: "—", doc: How it is now. }
+      - { name: after, type: Text, card: "0..1", emit: "—", doc: How it will be. }
+      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable` or `move` first. Absent for a step done by hand." }
+      - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
+      - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }
+    identity: []
+
+  # Custom-field values (0.16, 2026-10-02). Appended at the tail because order is wire identity
+  # (62 §13) -- Tag's own precedent.
+  - kind: FieldValue
+    layer: physical
+    emits: false
+    doc: |
+      One value of a custom field on one object, owned through the Fieldable class by
+      HasFieldValue. The field's definition (name, type, choices) is NOT in the graph: it is
+      an organisation-wide server record (ADR-0062), and `definition` is that record's id.
+      `emits: false` and `layer: physical` keep a parsed configuration from creating one. The
+      value is stored as text whatever the definition's type; the editor parses and formats it.
+    fields:
+      - { name: definition, type: Text, card: "1", emit: "—", doc: "The organisation's field-definition id this value fills." }
+      - { name: value, type: Text, card: "1", emit: "—", doc: "The value as text." }
+    identity:
+      - [ owner(Fieldable), definition ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -3354,6 +3432,29 @@ edges:
     doc: |
       ADR-0060 step 7. Which box a line end is on. A REFERENCE EDGE because a Line already has
       its containment parent (root, via HasLine); Terminates' own shape, to a box not a port.
+  # ADR-0061 round 7 (2026-10-03). Appended at the tail (62 §13).
+  - edge: HasPlan
+    class: containment
+    from: [root]
+    to: [MaintenancePlan]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 round 7. Plans hang off the design root as Tag does.
+  - edge: HasStep
+    class: containment
+    from: [MaintenancePlan]
+    to: [PlanStep]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 round 7. A plan's steps; their order is PlanStep.ordinal.
 
   # ADR-0061 round 7 (2026-10-03). Appended at the tail (62 §13).
   - edge: HasDoc
@@ -3402,6 +3503,20 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0061 round 10. A doc's files, HasDocLink's own shape.
+
+  # Custom-field values (0.16, 2026-10-02). Appended at the tail because order is wire identity
+  # (62 §13) -- TaggedWith's own precedent.
+  - edge: HasFieldValue
+    class: containment
+    from: [Fieldable]
+    to: [FieldValue]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: A value hangs off whichever Fieldable object it is on, HasNote's own shape.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
