@@ -5,9 +5,9 @@ import { viewOfAll, type ClosetView } from '../../document/view';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
-import { refusalFor, type DesignSession } from '../design/useDesignSession';
+import { type DesignSession } from '../design/useDesignSession';
 import { useCorrections } from '../design/useCorrections';
-import type { CorrectionsApi } from './CableCorrections';
+import { WaitingPage, type CorrectionsApi } from './CableCorrections';
 import { applyCorrection, whyNotApplicable } from './corrections';
 import { EditorFor, type FieldsActions, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { paletteFromCatalogue } from '../racks/palette';
@@ -164,7 +164,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const importBase = useRef<typeof doc>(null);
   const liveDoc = useRef(doc);
   liveDoc.current = doc;
-  const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
+  const [addingRaw, setAdding] = useState<'prefix' | 'vlan' | 'waiting' | null>(null);
+  // Opening a page (a link, Back, a pasted address) puts away the form or list that was shown in its place.
+  const adding = openKey ? null : addingRaw;
   const [mine, setMine] = useState<SavedView[]>(loadMine);
 
   const corrections = useCorrections(organisationId, session.designId);
@@ -503,12 +505,27 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       if (gone) return { refused: gone };
       const decided = await corrections.decide(c, 'accept');
       if ('refused' in decided) return decided;
-      const current = liveDoc.current;
+      // The server now says accepted. If the edit cannot be made or saved, say so there too, so the
+      // correction is waiting again rather than recorded as done.
+      const putBack = async (why: string): Promise<{ refused: string }> => {
+        const back = await corrections.decide(decided, 'reopen');
+        return {
+          refused:
+            'refused' in back
+              ? `${why} It is still marked accepted and could not be put back in the waiting list (${back.refused}); make the change by hand.`
+              : `${why} The correction is back in the waiting list.`,
+        };
+      };
+      let next: typeof doc;
       try {
-        if (current) applyDocChange(applyCorrection(current, decided, actorOpts));
+        const current = liveDoc.current;
+        next = current ? applyCorrection(current, decided, actorOpts) : null;
       } catch (e) {
-        return refusalFor(e) ?? { refused: 'It was marked accepted, but the edit could not be made.' };
+        return putBack(`The edit could not be made${e instanceof Error && e.message ? ` (${e.message})` : ''}.`);
       }
+      if (!next) return putBack('No design is open.');
+      const saved = await session.applyAndConfirm(next);
+      if (saved && 'refused' in saved) return putBack('The edit could not be saved, so it is not in the design.');
     },
     dismiss: async (c) => {
       const decided = await corrections.decide(c, 'dismiss');
@@ -516,13 +533,13 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     },
   };
   const waitingCount = canDraw ? corrections.list.filter((c) => c.state === 'open').length : 0;
-  const openFirstWaiting = () => {
-    const here = new Set(view.cables.map((cb) => cb.id));
-    const first = corrections.list.find((c) => c.state === 'open' && here.has(c.cable));
-    const target = first ? linkTarget({ kind: 'cable', id: first.cable }) : null;
-    if (target) push({ kind: target.kind, q: '', sorts: [], view: '', open: target.open, tab: '' });
-    else setNotice('The cables those corrections are about are no longer in this design.');
+  const openWaiting = () => {
+    setPrefs(null);
+    setNotice(null);
+    if (openKey) push({ open: '', tab: '' });
+    setAdding('waiting');
   };
+  const cableLabels = useMemo(() => new Map(view.cables.map((cb) => [cb.id, cb.label] as const)), [view]);
 
   const afterIpamWrite = (next: typeof doc, openNext?: string) => {
     if (!next) return;
@@ -534,6 +551,18 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const ipamPage = (() => {
     if (!doc) return null;
     if (adding === 'prefix') return <AddPrefixForm doc={doc} actor={actorOpts} onDone={(next, key) => afterIpamWrite(next, key)} onCancel={() => setAdding(null)} />;
+    if (adding === 'waiting')
+      return (
+        <WaitingPage
+          api={correctionsApi}
+          cables={cableLabels}
+          onOpenCable={(id) => {
+            const t = linkTarget({ kind: 'cable', id });
+            setAdding(null);
+            if (t) push({ kind: t.kind, q: '', sorts: [], view: '', open: t.open, tab: '' });
+          }}
+        />
+      );
     if (adding === 'vlan') return <AddVlanForm doc={doc} actor={actorOpts} onDone={(next) => afterIpamWrite(next)} onCancel={() => setAdding(null)} />;
     if (!openRow) return null;
     const prefix = kind === 'prefixes' ? ipam.prefixes.find((p) => p.key === openRow.key) : undefined;
@@ -620,7 +649,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             onKind={switchKind}
             onView={onView}
             onRemoveView={onRemoveView}
-            waiting={canDraw ? { count: waitingCount, onOpen: openFirstWaiting } : undefined}
+            waiting={canDraw ? { count: waitingCount, onOpen: openWaiting } : undefined}
           />
 
           {kind === 'networks' ? (
@@ -634,7 +663,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 <button type="button" className="inv-pageframe__back" onClick={closePage}>
                   ← Back to {adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel}
                 </button>
-                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : 'New VLAN'}</span> : null}
+                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : 'Corrections waiting'}</span> : null}
               </div>
               <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
             </div>

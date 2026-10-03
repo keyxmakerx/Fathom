@@ -104,6 +104,9 @@ export interface DesignSession {
    * it for save (ADR-0052 §5: a reader's document never reaches the
    * `SaveQueue`). */
   applyDocChange: (next: Document) => void;
+  /** As `applyDocChange`, but resolves once a save that carries `next` has landed (void) or has
+   * been refused (`{ refused }`), so a caller can undo a promise it made on the strength of it. */
+  applyAndConfirm: (next: Document) => Promise<{ refused: string } | void>;
   /** ADR-0046 §2, "edited from either": the one `EditorChange` dispatcher
    * both places' `EditorFor` calls raise through `EditorActions.onEdit`. */
   handleEdit: (change: EditorChange) => { refused: string } | void;
@@ -194,12 +197,17 @@ export function useDesignSession(organisationId: string, designId: string, capab
     load();
   }, [load]);
 
+  // Callers waiting on the next save to start: it carries everything they applied before it began.
+  const waitersRef = useRef<Array<(error: unknown) => void>>([]);
+
   const saveQueue = useMemo(
     () =>
       new SaveQueue<Uint8Array>(
         (bytes) => {
+          const mine = waitersRef.current.splice(0);
           const conditionalSave = conditionalSaveRef.current;
           if (conditionalSave == null) {
+            mine.forEach((w) => w(new Error('save queued before the design finished opening')));
             // Cannot happen through `applyDocChange` (it requires `doc`,
             // which is set in the same step as `conditionalSaveRef`), but a
             // typed `Promise.reject` here is still an honest answer rather
@@ -210,7 +218,16 @@ export function useDesignSession(organisationId: string, designId: string, capab
           // ADR-0054 §1: this is the one call site that ever appends
           // `?base=` — `conditionalSave.save` reads and moves the base
           // itself; this hook never touches it directly.
-          return conditionalSave.save(organisationId, designId, bytes).then(() => setSaveRefusal(null));
+          return conditionalSave.save(organisationId, designId, bytes).then(
+            () => {
+              setSaveRefusal(null);
+              mine.forEach((w) => w(null));
+            },
+            (error: unknown) => {
+              mine.forEach((w) => w(error));
+              throw error;
+            },
+          );
         },
         (error: unknown) => setSaveRefusal(describeError(error)),
       ),
@@ -224,6 +241,17 @@ export function useDesignSession(organisationId: string, designId: string, capab
       saveQueue.push(writePlain(next));
     },
     [saveQueue, canDraw],
+  );
+
+  const applyAndConfirm = useCallback(
+    (next: Document): Promise<{ refused: string } | void> => {
+      if (!canDraw) return Promise.resolve({ refused: 'You can only read this design.' });
+      return new Promise((resolve) => {
+        waitersRef.current.push((error) => resolve(error == null ? undefined : { refused: describeError(error) }));
+        applyDocChange(next);
+      });
+    },
+    [applyDocChange, canDraw],
   );
 
   const handleEdit = useCallback(
@@ -255,5 +283,5 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
+  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, applyAndConfirm, handleEdit, reloadDesign };
 }

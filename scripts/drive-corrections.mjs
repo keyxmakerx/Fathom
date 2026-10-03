@@ -145,7 +145,7 @@ try {
     const sect = page.locator('.inv-corr');
     check('read: the cable page offers the three buttons', (await sect.getByRole('button').allInnerTexts()).join('|') === 'Traced ✓|Label wrong|Not here', (await sect.getByRole('button').allInnerTexts()).join('|'));
     check('read: no Accept or Dismiss', (await page.getByRole('button', { name: /^(Accept|Dismiss)$/ }).count()) === 0);
-    check('read: their own earlier correction shows how it ended', /dismissed/.test(await sect.innerText()) && /In the other row/.test(await sect.innerText()), await sect.innerText());
+    check('read: their own dismissed correction shows its text is gone', /dismissed/.test(await sect.innerText()) && /removed once dismissed/.test(await sect.innerText()) && !/In the other row/.test(await sect.innerText()), await sect.innerText());
     check('read: nobody else\'s correction is shown', !/PP1-04|Ann Floor/.test(await sect.innerText()));
     await r.shot('corrections-01-read-cable.png');
 
@@ -157,6 +157,7 @@ try {
     await sect.getByRole('button', { name: 'Traced ✓' }).click();
     await page.waitForFunction(() => document.querySelectorAll('.inv-corr__sent li').length >= 3, null, { timeout: 5_000 });
     await sect.getByRole('button', { name: 'Not here' }).click();
+    check('read: the form says Fathom does not hide what you type', (await sect.innerText()).includes('Fathom does not hide what you type, so do not type passwords.'));
     const where = page.getByLabel('Where is it actually?');
     await where.fill('');
     // A paste is gated: a device-style secret does not arrive in the box.
@@ -187,15 +188,43 @@ try {
     const r = await open('steward');
     const { page } = r;
     const rail = page.locator('.inventory-place__rail');
-    check('draw: the rail shows Corrections waiting 3', /Corrections waiting\s*3/.test(await rail.innerText()), await rail.innerText());
+    check('draw: the rail shows Corrections waiting 4', /Corrections waiting\s*4/.test(await rail.innerText()), await rail.innerText());
     await r.shot('corrections-04-draw-rail.png');
     await rail.getByRole('button', { name: /Corrections waiting/ }).click();
+    await page.waitForSelector('.inv-corr--page', { timeout: 10_000 });
+    const list = page.locator('.inv-corr--page');
+    check('draw: the waiting page lists all four', (await list.locator('h3').textContent()).includes('(4)'), await list.locator('h3').textContent());
+    const orphan = list.locator('li', { hasText: 'GONE-1' });
+    check('draw: the orphan has Dismiss but no Accept', (await orphan.getByRole('button', { name: 'Accept' }).count()) === 0 && (await orphan.getByRole('button', { name: 'Dismiss' }).count()) === 1);
+    check('draw: the orphan says its cable is gone', (await orphan.innerText()).includes('no longer in this design'));
+    check('draw: the others can be accepted', (await list.getByRole('button', { name: 'Accept' }).count()) === 3);
+    await r.shot('corrections-04b-draw-waiting-page.png');
+    await orphan.getByRole('button', { name: 'Dismiss' }).click();
+    await page.waitForFunction(() => document.querySelector('.inv-corr--page h3')?.textContent?.includes('(3)'), null, { timeout: 5_000 });
+    check('draw: dismissing the orphan clears it', /Corrections waiting\s*3/.test(await rail.innerText()), await rail.innerText());
+    await r.gotoCable(0);
     await page.waitForSelector('.inv-corr', { timeout: 10_000 });
     const sect = page.locator('.inv-corr');
     check('draw: the first cable shows "Corrections waiting (2)"', (await sect.locator('h3').textContent()).includes('Corrections waiting (2)'), await sect.locator('h3').textContent());
     check('draw: no send buttons', (await page.getByRole('button', { name: 'Label wrong' }).count()) === 0);
     check('draw: the sender is named', (await sect.innerText()).includes('Ann Floor'));
     await r.shot('corrections-05-draw-cable.png');
+
+    // The server's "accepted" is taken back when the edit cannot be saved.
+    await page.evaluate(() => { window.__failSaves__ = true; });
+    await sect.locator('li', { hasText: 'PP1-04' }).getByRole('button', { name: 'Accept' }).click();
+    await page.waitForSelector('.inv-corr__refused', { timeout: 15_000 });
+    const why = await page.locator('.inv-corr__refused').innerText();
+    check('draw: a failed save says the correction is back in the waiting list', /could not be saved/.test(why) && /back in the waiting list/.test(why), why);
+    check('draw: it is still listed as waiting (2)', (await sect.locator('h3').textContent()).includes('(2)'), await sect.locator('h3').textContent());
+    await r.shot('corrections-05b-draw-save-failed.png');
+    await page.evaluate(() => { window.__failSaves__ = false; });
+    // Reload drops the unsaved local edit, as the refusal wash says.
+    await page.getByRole('button', { name: 'Reload' }).click();
+    await page.waitForTimeout(1500);
+    await r.gotoCable(0);
+    await page.waitForSelector('.inv-corr', { timeout: 15_000 });
+    check('draw: after Reload the correction is still waiting (2)', (await page.locator('.inv-corr h3').textContent()).includes('(2)'), await page.locator('.inv-corr h3').textContent());
 
     const before = await r.saves();
     await sect.locator('li', { hasText: 'PP1-04' }).getByRole('button', { name: 'Accept' }).click();
@@ -217,11 +246,12 @@ try {
     check('draw: dismissing wrote nothing to the design', dismissedSaves === before + 1, `${dismissedSaves} vs ${before + 1}`);
 
     await rail.getByRole('button', { name: /Corrections waiting/ }).click();
-    await page.waitForSelector('.inv-corr', { timeout: 10_000 });
-    await page.locator('.inv-corr li', { hasText: 'blanking plate' }).getByRole('button', { name: 'Accept' }).click();
-    await page.waitForFunction(() => !document.querySelector('.inv-corr'), null, { timeout: 5_000 });
-    await page.getByRole('tab', { name: /^Notes/ }).click();
-    check('draw: a not-here report became a note on the cable', (await page.locator('.inv-page__body').innerText()).includes('Reported not here by Ben Rack: Behind the blanking plate in B3'), await page.locator('.inv-page__body').innerText());
+    await page.waitForSelector('.inv-corr--page', { timeout: 10_000 });
+    await page.locator('.inv-corr--page li', { hasText: 'blanking plate' }).getByRole('button', { name: 'Accept' }).click();
+    await page.waitForFunction(() => document.querySelector('.inv-corr--page h3')?.textContent?.includes('(0)'), null, { timeout: 8_000 });
+    await r.gotoCable(1, 'notes');
+    await page.waitForSelector('.inv-page__body', { timeout: 10_000 });
+    check('draw: a not-here report became a note on the cable', (await page.locator('.inv-page__body').innerText()).includes('Reported not here: Behind the blanking plate in B3'), await page.locator('.inv-page__body').innerText());
     check('draw: nothing is waiting now', !/Corrections waiting/.test(await rail.innerText()));
     await r.shot('corrections-08-draw-note.png');
 

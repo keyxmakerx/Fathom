@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { CorrectionView } from '../../api/corrections';
-import { CableCorrections, sayCorrection, type CorrectionsApi } from './CableCorrections';
+import { CableCorrections, TYPED_WARNING, WaitingPage, sayCorrection, type CorrectionsApi } from './CableCorrections';
 
 // Render-to-string smoke tests, as the other component tests here do: no DOM library is installed.
 
@@ -65,5 +65,28 @@ describe('corrections on a cable page', () => {
   it('says each kind in a sentence', () => {
     expect(sayCorrection(c({ kind: 'traced', text: '' }), 'Ann')).toMatch(/^Ann traced this cable on 03 Oct 2026$/);
     expect(sayCorrection(c({ kind: 'not_here', text: 'in B3' }), 'Ann')).toBe('Ann says it is not here: in B3');
+  });
+
+  it('says a dismissed correction\'s text is gone, and tells a reader not to type passwords', () => {
+    expect(sayCorrection(c({ state: 'dismissed', text: '' }), 'You')).toContain('removed once dismissed');
+    expect(TYPED_WARNING).toBe('Fathom does not hide what you type, so do not type passwords.');
+  });
+});
+
+describe('the waiting page', () => {
+  const page = (list: CorrectionView[], cables: Map<string, string | null>) =>
+    renderToStaticMarkup(createElement(WaitingPage, { api: api(true, list), cables, onOpenCable: () => undefined }));
+
+  it('lists a correction whose cable is gone with Dismiss only, so it can always be cleared', () => {
+    const out = page([c({ id: 'a', cable: 'cable:gone' }), c({ id: 'b', cable: 'cable:1' })], new Map([['cable:1', 'C-1']]));
+    expect(out).toContain('Corrections waiting (2)');
+    expect(out).toContain('no longer in this design');
+    expect((out.match(/>Accept</g) ?? []).length).toBe(1);
+    expect((out.match(/>Dismiss</g) ?? []).length).toBe(2);
+    expect(out).toContain('C-1');
+  });
+
+  it('says so when nothing waits', () => {
+    expect(page([], new Map())).toContain('Nothing is waiting');
   });
 });

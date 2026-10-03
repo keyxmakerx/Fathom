@@ -81,12 +81,13 @@ export async function sendCorrection(
   return parseOne(parse(await signedFetch('POST', base(organisationId, designId), body(correction))));
 }
 
-/** Marks a correction accepted or dismissed. The edit an acceptance makes is the caller's own. */
+/** Accepts, dismisses, or (an accepted one whose edit failed) reopens a correction. The edit an
+ * acceptance makes is the caller's own. A dismissal scrubs the text on the server. */
 export async function decideCorrection(
   organisationId: string,
   designId: string,
   correction: Pick<CorrectionView, 'id' | 'version'>,
-  verb: 'accept' | 'dismiss',
+  verb: 'accept' | 'dismiss' | 'reopen',
 ): Promise<CorrectionView> {
   const path = `${base(organisationId, designId)}/${encodeURIComponent(correction.id)}/${verb}`;
   return parseOne(parse(await signedFetch('POST', path, body({ ifVersion: correction.version }))));

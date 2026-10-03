@@ -11,8 +11,8 @@ export interface CorrectionsStore {
   list: readonly CorrectionView[];
   refresh(): Promise<void>;
   send(cable: string, kind: CorrectionKind, text: string): Promise<{ refused: string } | void>;
-  /** Marks a correction accepted or dismissed on the server. Resolves to the decided correction. */
-  decide(correction: CorrectionView, verb: 'accept' | 'dismiss'): Promise<{ refused: string } | CorrectionView>;
+  /** Marks a correction accepted, dismissed or (after a failed edit) reopened on the server. Resolves to the decided correction. */
+  decide(correction: Pick<CorrectionView, 'id' | 'version'>, verb: 'accept' | 'dismiss' | 'reopen'): Promise<{ refused: string } | CorrectionView>;
 }
 
 const refusal = (e: unknown, fallback: string): { refused: string } => ({

@@ -2237,3 +2237,19 @@ button.inv-path__host {
   width: 100%;
   margin-top: var(--s3);
 }
+
+.inv-page__link-inline {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+  justify-self: start;
+}
+
+.inv-corr--page {
+  padding: var(--s3) var(--s4);
+}

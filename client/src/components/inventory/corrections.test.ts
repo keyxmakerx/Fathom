@@ -4,7 +4,7 @@ import type { CorrectionView } from '../../api/corrections';
 import { findNode } from '../../document/model';
 import { undo } from '../../document/undo';
 import { viewOf } from '../../document/view';
-import { acceptedLabel, applyCorrection, dayOf, dismissedLabel, whyNotApplicable } from './corrections';
+import { acceptedLabel, applyCorrection, dayOf, dismissedLabel, targetIsALiveCable, whyNotApplicable } from './corrections';
 import { historyOf } from './kinds';
 import { lastTracedOf } from './cablePath';
 import { notesOf } from '../../document/notes';
@@ -49,7 +49,7 @@ describe('accepting a correction', () => {
 
   it('a not-here report is added as a note on the cable', () => {
     const next = applyCorrection(e.doc, correction({ kind: 'not_here', text: 'Behind the blanking plate' }), { actor: 'acct-draw' });
-    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here by Ann: Behind the blanking plate']);
+    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here: Behind the blanking plate']);
     expect(next.batches.length).toBe(e.doc.batches.length + 1);
   });
 
@@ -65,6 +65,19 @@ describe('accepting a correction', () => {
     expect(whyNotApplicable(e.doc, correction({ cable: 'cable:01JNOSUCHCABLE0000000000AA' }))).toMatch(/no longer/);
     expect(() => applyCorrection(e.doc, correction({ cable: 'cable:01JNOSUCHCABLE0000000000AA' }))).toThrow();
     expect(findNode(e.doc, cableId)).toBeDefined();
+  });
+
+  it('puts no sender name in the note, so a surname like Key cannot trip a later save', () => {
+    const next = applyCorrection(e.doc, correction({ kind: 'not_here', text: 'In B3', senderName: 'Key Secret' }), { actor: 'acct-draw' });
+    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here: In B3']);
+    expect(next.batches[next.batches.length - 1]!.label).toBe("accepted Key Secret's correction");
+  });
+
+  it('refuses a target that is not a Cable, even a live one', () => {
+    const rack = e.doc.nodes.find((n) => n.id.startsWith('rack:'))!.id;
+    expect(targetIsALiveCable(e.doc, rack)).toBe(false);
+    expect(whyNotApplicable(e.doc, correction({ cable: rack }))).toMatch(/no longer/);
+    expect(() => applyCorrection(e.doc, correction({ cable: rack, kind: 'not_here', text: 'x' }))).toThrow();
   });
 
   it('words the two decisions', () => {

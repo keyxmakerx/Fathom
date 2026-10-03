@@ -35,4 +35,12 @@ describe('the corrections API', () => {
     expect(spy.mock.calls[0]![1]).toBe(`/organisations/o/designs/d/corrections/${one.id}/accept`);
     expect(new TextDecoder().decode(spy.mock.calls[0]![2] as Uint8Array)).toBe('{"ifVersion":1}\n');
   });
+
+  it('reopens an accepted correction with the version it read', async () => {
+    const spy = vi.spyOn(signed, 'signedFetch').mockResolvedValue(reply({ ...one, state: 'open', version: 3 }));
+    const back = await decideCorrection('o', 'd', { id: one.id, version: 2 }, 'reopen');
+    expect(back.state).toBe('open');
+    expect(spy.mock.calls[0]![1]).toBe(`/organisations/o/designs/d/corrections/${one.id}/reopen`);
+    expect(new TextDecoder().decode(spy.mock.calls[0]![2] as Uint8Array)).toBe('{"ifVersion":2}\n');
+  });
 });

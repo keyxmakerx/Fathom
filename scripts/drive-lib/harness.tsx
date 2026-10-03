@@ -106,6 +106,8 @@ declare global {
     __savedPositionU__: (hostname: string) => number | null;
     /** The cable ids of the scene, when it was opened with corrections=1. */
     __cableIds__: string[];
+    /** A drive sets this to make every save answer 503, to prove what the client does then. */
+    __failSaves__?: boolean;
   }
 }
 
@@ -190,7 +192,9 @@ async function main() {
       mk(1, COLLEAGUE, 'Ann Floor', cableIds[0]!, 'label', 'PP1-04'),
       mk(2, COLLEAGUE, 'Ann Floor', cableIds[0]!, 'traced', ''),
       mk(3, COLLEAGUE, 'Ben Rack', cableIds[1]!, 'not_here', 'Behind the blanking plate in B3'),
-      mk(4, ME, 'Drive User', cableIds[0]!, 'not_here', 'In the other row', 'dismissed'),
+      mk(4, ME, 'Drive User', cableIds[0]!, 'not_here', '', 'dismissed'),
+      // A correction about a cable that is no longer in the design.
+      mk(5, COLLEAGUE, 'Ben Rack', `cable:${newUlid()}`, 'label', 'GONE-1'),
     );
     window.__cableIds__ = cableIds;
   }
@@ -255,6 +259,7 @@ async function main() {
       });
     }
     if (method === 'POST' && p === `${org}/designs/${DESIGN_ID}/versions`) {
+      if (window.__failSaves__) return new Response('the server is not taking saves right now\n', { status: 503 });
       const base = Number(u.searchParams.get('base'));
       if (base !== version) {
         return new Response(`the design is at version ${version}; this save was based on version ${base}\n`, {
@@ -307,8 +312,14 @@ async function main() {
         if (!drawer) return new Response('not authorised\n', { status: 403 });
         const hit = corrections.find((c) => c.id === rest[0]);
         if (!hit) return new Response('no such correction\n', { status: 404 });
+        if (rest[1] === 'reopen') {
+          if (hit.state !== 'accepted' || hit.version !== sent.ifVersion) return new Response(`that correction is ${hit.state}\n`, { status: 409 });
+          Object.assign(hit, { state: 'open', decidedBy: null, decidedAt: null, version: hit.version + 1 });
+          return json(hit);
+        }
         if (hit.state !== 'open' || hit.version !== sent.ifVersion) return new Response(`that correction was already ${hit.state}\n`, { status: 409 });
         hit.state = rest[1] === 'accept' ? 'accepted' : 'dismissed';
+        if (hit.state === 'dismissed') hit.text = '';
         hit.decidedBy = ME;
         hit.decidedAt = Date.now();
         hit.version += 1;
