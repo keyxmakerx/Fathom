@@ -32,6 +32,8 @@ export interface MenuActions {
   onDuplicateDevice?(chassisId: string): void;
   /** Opens a maintenance plan on a device (ADR-0061 round 7). */
   onPlanChange?(elementId: string): void;
+  /** Opens the "It's down" checklist on a device (ADR-0061 troubleshooting). */
+  onItsDown?(elementId: string): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   onAddDevice?(rackId: string): void;
@@ -57,6 +59,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
       if (actions.onOpenInside) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
+      if (actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
       if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });
@@ -82,6 +85,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
       if (target.kind === 'free' && actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
+      if (target.kind === 'free' && actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (target.kind === 'free' && actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
       if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });

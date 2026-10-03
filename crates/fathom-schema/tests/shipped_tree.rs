@@ -77,14 +77,16 @@ fn shipped_tree_declaration_counts_hold() {
     // (`HasLabel`, `HasLine`, `LineEnd`, 102 -> 105 declared), +7 field keys (344-350).
     // ADR-0061 round 7 (2026-10-03, schema 0.14): +2 kinds (`MaintenancePlan`, `PlanStep`,
     // 61 -> 63), +2 edges (`HasPlan`, `HasStep`, 105 -> 107 declared), +17 field keys (351-367).
-    assert_eq!(tree.kinds.len(), 63, "kind count");
-    assert_eq!(tree.edges.len(), 113, "edge count (100 + 8 derived)");
+    // ADR-0061 troubleshooting (2026-10-03, schema 0.17): +2 kinds (`Issue`, `IssueStep`,
+    // 63 -> 65), +2 edges (`HasIssue`, `HasIssueStep`, 107 -> 109 declared), +15 field keys (368-382).
+    assert_eq!(tree.kinds.len(), 65, "kind count");
+    assert_eq!(tree.edges.len(), 115, "edge count (100 + 8 derived)");
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
     assert_eq!(tree.classes.len(), 6, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 367, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 382, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -154,7 +156,7 @@ fn shipped_tree_declaration_counts_hold() {
     // (`Tag`, 58 -> 59), +2 edges (`HasTag`, `TaggedWith`, 106 -> 108), +1 class
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343). Scalars, enum
     // FILE count and import scopes are unmoved -- `Tag.name` reuses `Text`.
-    assert_eq!(tree.version.as_deref(), Some("0.14"));
+    assert_eq!(tree.version.as_deref(), Some("0.17"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

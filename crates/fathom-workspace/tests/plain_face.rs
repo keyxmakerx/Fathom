@@ -57,7 +57,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.14\n",
+    "schema 0.17\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -746,5 +746,33 @@ fn a_0_13_header_opens_but_cannot_hold_a_plan() {
             assert_eq!(element_kind, "MaintenancePlan");
         }
         other => panic!("a 0.14-only kind under a 0.13 header must refuse: {other:?}"),
+    }
+}
+
+/// ADR-0061 troubleshooting: a 0.14 design keeps opening at 0.17, and a 0.14 header
+/// cannot hold an issue.
+#[test]
+fn a_0_14_header_opens_but_cannot_hold_an_issue() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let at_0_14 = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.14", 1);
+    assert_ne!(at_0_14, PINNED, "the substitution must have landed");
+    read_plain(at_0_14.as_bytes()).expect("a 0.14 payload opens");
+
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::Issue, ulid(1), prov(1))
+        .expect("issue");
+    g.end_batch().expect("close");
+    let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+    let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.14", 1);
+    match read_plain(old.as_bytes()).err() {
+        Some(PlainError::KindNotInDeclaredVersion {
+            declared_version,
+            element_kind,
+        }) => {
+            assert_eq!(declared_version, "0.14");
+            assert_eq!(element_kind, "Issue");
+        }
+        other => panic!("a 0.17-only kind under a 0.14 header must refuse: {other:?}"),
     }
 }

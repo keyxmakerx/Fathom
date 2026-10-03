@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.14";
+export const SCHEMA_VERSION = "0.17";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -69,7 +69,9 @@ export type NodeKind =
   | "Label"
   | "Line"
   | "MaintenancePlan"
-  | "PlanStep";
+  | "PlanStep"
+  | "Issue"
+  | "IssueStep";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -134,6 +136,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Line",
   "MaintenancePlan",
   "PlanStep",
+  "Issue",
+  "IssueStep",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -242,7 +246,9 @@ export type EdgeKind =
   | "HasLine"
   | "LineEnd"
   | "HasPlan"
-  | "HasStep";
+  | "HasStep"
+  | "HasIssue"
+  | "HasIssueStep";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -349,6 +355,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "LineEnd",
   "HasPlan",
   "HasStep",
+  "HasIssue",
+  "HasIssueStep",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -495,6 +503,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Line: ["label"],
   MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
+  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan"],
+  IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -866,4 +876,19 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PlanStep.state": 365,
   "PlanStep.note": 366,
   "PlanStep.done_at": 367,
+  "Issue.title": 368,
+  "Issue.device": 369,
+  "Issue.author": 370,
+  "Issue.opened_at": 371,
+  "Issue.stage": 372,
+  "Issue.outcome": 373,
+  "Issue.plan": 374,
+  "IssueStep.ordinal": 375,
+  "IssueStep.topic": 376,
+  "IssueStep.question": 377,
+  "IssueStep.detail": 378,
+  "IssueStep.targets": 379,
+  "IssueStep.answer": 380,
+  "IssueStep.note": 381,
+  "IssueStep.answered_at": 382,
 };

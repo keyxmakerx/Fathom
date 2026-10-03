@@ -30,7 +30,10 @@ use fathom_graph::{
     Actor, BatchId, Confidence, Graph, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
 };
 use fathom_id::Ulid;
-use fathom_ir::generated::ir_types::{CaptureField, NodeKind, NoteField};
+use fathom_ir::generated::ir_types::{
+    CaptureField, EdgeKind, IssueField, IssueStepAnswer, IssueStepField, IssueStepTopic, NodeKind,
+    NoteField,
+};
 use fathom_ir::scalar;
 use fathom_server::api::{
     HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN,
@@ -484,11 +487,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.14"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.17"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `12` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 14;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 17;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -2613,6 +2616,147 @@ async fn a_capture_carrying_a_space_separated_real_device_credential_refuses_the
         assert_eq!(status, "422", "{line}: {text}");
         assert!(text.contains("Capture"), "{line}: {text}");
     }
+}
+
+/// A plain-face payload carrying one `Issue` (device down) and one answered `IssueStep`
+/// whose `note` is `note`, verbatim: what the troubleshooting panel saves.
+fn a_payload_with_issue(seed: u128, note: &str) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "issue test fixture")
+        .expect("open batch");
+    let issue = g
+        .insert_node(NodeKind::Issue, Ulid(seed * 10 + 1), a_graph_prov(seed))
+        .expect("issue node");
+    let step = g
+        .insert_node(NodeKind::IssueStep, Ulid(seed * 10 + 4), a_graph_prov(seed))
+        .expect("step node");
+    g.insert_edge(
+        EdgeKind::HasIssueStep,
+        Ulid(seed * 10 + 5),
+        issue,
+        step,
+        a_graph_prov(seed),
+    )
+    .expect("has issue step");
+    let mut text = |node: fathom_graph::NodeId, key: fathom_ir::bag::FieldKey, t: &str| {
+        g.set_field(
+            node.into(),
+            key,
+            scalar::Text(t.to_string()),
+            a_graph_prov(seed),
+        )
+        .expect("set text");
+    };
+    text(issue, IssueField::Title.key(), "nas-01 is down");
+    text(
+        issue,
+        IssueField::OpenedAt.key(),
+        "2026-10-03T21:40:00.000Z",
+    );
+    text(
+        step,
+        IssueStepField::Question.key(),
+        "Link light on sw-02 port 23?",
+    );
+    text(step, IssueStepField::Note.key(), note);
+    g.set_field(
+        issue.into(),
+        IssueField::Stage.key(),
+        fathom_ir::generated::ir_types::IssueStage::Open,
+        a_graph_prov(seed),
+    )
+    .expect("stage");
+    g.set_field(
+        step.into(),
+        IssueStepField::Topic.key(),
+        IssueStepTopic::Link,
+        a_graph_prov(seed),
+    )
+    .expect("topic");
+    g.set_field(
+        step.into(),
+        IssueStepField::Answer.key(),
+        IssueStepAnswer::NotOk,
+        a_graph_prov(seed),
+    )
+    .expect("answer");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+/// Troubleshooting (ADR-0061): an `Issue` is an ordinary write. A reader may open a design that
+/// holds one but is refused saving one, a drawer saves an honest one, and one whose step note
+/// carries a device credential is refused naming the kind.
+#[tokio::test]
+async fn a_reader_cannot_save_an_issue_and_a_credential_in_its_note_refuses_the_write() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+    let honest = a_payload_with_issue(401, "Light is off; cable 0412 is warm");
+
+    // The reader's save is the same 403 as for any write, and writes nothing.
+    let (status, body) = call(
+        addr,
+        &reader,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &honest),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(latest, Err(designs::DesignError::NoSuchVersion)),
+        "{latest:?}"
+    );
+
+    // A credential typed into a step note is refused naming the kind, with nothing stored.
+    let leaky = a_payload_with_issue(
+        402,
+        "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234",
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &leaky),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "422", "{text}");
+    assert!(text.contains("IssueStep"), "{text}");
+
+    // The honest issue saves for a drawer, and the reader can then open it.
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &honest),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let open_path = format!("/organisations/{}/designs/{}", estate.organisation, design);
+    let (status, _) = call(addr, &reader, "GET", &open_path, b"").await;
+    assert_eq!(status, "200");
 }
 
 // ---------------------------------------------------------------------------

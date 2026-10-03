@@ -97,3 +97,33 @@
   stroke-width: 1.4px;
   stroke-linecap: round;
 }
+
+/* "It's down" (ADR-0061 troubleshooting): ink only. The current step's things are outlined; what the answers
+   point at wears a tag. The fade and the lit halo are Checks' and the cable's own. */
+.react-flow__node.trouble-current {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.react-flow__node.trouble-suspect::after {
+  content: var(--trouble-word);
+  position: absolute;
+  top: -8px;
+  right: 6px;
+  padding: 0 5px;
+  height: 12px;
+  line-height: 10px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+  color: var(--page);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  pointer-events: none;
+  z-index: 1;
+}
+.drawing[data-zoom-band='50'] .react-flow__node.trouble-suspect::after {
+  display: none;
+}
+.react-flow__edge.trouble-current .drawing-cable__halo {
+  stroke: var(--ink);
+}

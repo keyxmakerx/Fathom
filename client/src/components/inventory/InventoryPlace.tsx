@@ -9,6 +9,7 @@ import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
 import { MiddleClip } from './MiddleClip';
 import { NetworksPanel } from './NetworksPanel';
+import { IssuesList } from '../troubleshoot/IssuesList';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import {
   COLUMN_LABEL,
@@ -24,13 +25,14 @@ import './inventory.css';
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
 
-type Kind = 'devices' | 'racks' | 'cables' | 'ports' | 'networks';
+type Kind = 'devices' | 'racks' | 'cables' | 'ports' | 'networks' | 'issues';
 const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
   { key: 'devices', label: 'Devices' },
   { key: 'racks', label: 'Racks' },
   { key: 'cables', label: 'Cables' },
   { key: 'ports', label: 'Ports' },
   { key: 'networks', label: 'Networks' },
+  { key: 'issues', label: 'Issues' },
 ];
 
 /** Selection identity for a React key and an "is this row selected" check —
@@ -163,16 +165,18 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   // rail's own number and the grid's own row count can never disagree about
   // what a "device" is.
   const counts: Record<Kind, number | null> = useMemo(() => {
-    if (!doc) return { devices: 0, racks: 0, cables: 0, ports: 0, networks: 0 };
+    if (!doc) return { devices: 0, racks: 0, cables: 0, ports: 0, networks: 0, issues: 0 };
     let devices = 0;
     let cables = 0;
     let ports = 0;
+    let issues = 0;
     for (const node of doc.nodes) {
       if (node.absentSince !== undefined) continue;
       const nodeKind = parseNodeId(node.id).kind;
       if (nodeKind === 'Chassis') devices += 1;
       else if (nodeKind === 'Cable') cables += 1;
       else if (nodeKind === 'PhysicalPort') ports += 1;
+      else if (nodeKind === 'Issue') issues += 1;
     }
     return {
       devices,
@@ -180,6 +184,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       cables,
       ports,
       networks: networksCount,
+      issues,
     };
   }, [doc, view.racks.length, networksCount]);
 
@@ -189,7 +194,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   // row is not a `Selection` (ADR-0058, `NetworksPanel.tsx`'s header
   // note), so `EditorFor` is not asked for it.
   const selectedPanel =
-    doc != null && kind !== 'networks'
+    doc != null && kind !== 'networks' && kind !== 'issues'
       ? EditorFor(
           selection,
           view,
@@ -257,6 +262,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           <div className={kind === 'networks' ? 'inventory-place__main inventory-place__main--flush' : 'inventory-place__main'}>
             {kind === 'networks' ? (
               doc != null ? <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} /> : null
+            ) : kind === 'issues' ? (
+              doc != null ? <IssuesList doc={doc} /> : null
             ) : kind !== 'devices' ? (
               <div className="inventory-place__unbuilt">This list is not built yet.</div>
             ) : (

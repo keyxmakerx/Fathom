@@ -14,6 +14,8 @@ export interface BundleEdgeData extends Record<string, unknown> {
   bundle: Bundle;
   /** Set while an open plan touches a cable in this band: its stage colour and tag. */
   planMark?: PlanEdgeMark;
+  /** While "It's down" runs (ADR-0061): the band draws in ink. */
+  troubleInk?: boolean;
   /** True while this bundle is fanned open (`Drawing.tsx`'s own hover
    * state) — the band itself draws invisible (its members draw instead,
    * each a real `CableEdge`) but keeps its generous hit path mounted, so
@@ -57,7 +59,7 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
   const count = bundle.members.length;
   // One shared sheath draws the band in it (Zoom B); a mix draws grey.
   const sheaths = new Set(bundle.members.map((m) => m.sheath ?? 'grey'));
-  const bandColour = sheaths.size === 1 ? SHEATH_VAR[[...sheaths][0]!] : 'var(--sheath-grey)';
+  const bandColour = data.troubleInk === true ? 'var(--ink)' : sheaths.size === 1 ? SHEATH_VAR[[...sheaths][0]!] : 'var(--sheath-grey)';
   const width = BAND_BASE_WIDTH_PX + BAND_WIDTH_PER_MEMBER_PX * (count - 1);
   const midX = leads != null ? (leads.a.x + leads.b.x) / 2 : (sourceX + targetX) / 2;
   const midY = leads != null ? (leads.a.y + leads.b.y) / 2 : (sourceY + targetY) / 2;

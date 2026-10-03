@@ -136,3 +136,25 @@ Still open: private custom fields (#93 builds shared fields only).
   design; lessons on your own design follow later as a lesson type.
 - **Inventory's list of kinds:** sent back. Key Maker leaned to the flat list (A) as cleaner but
   asked for a mix of both, worked from real lookups. A new card follows.
+
+## Troubleshooting, built 2026-10-03
+
+"It's down" as the round 7 note describes it, on schema 0.17.
+- **Stored:** an `Issue` (title, author, opened, outcome, stage open or closed) with ordered `IssueStep`
+  nodes (question, detail, answer, note, targets, answered-at), joined by `HasIssue` and `HasIssueStep`.
+  Layer physical, emits nothing. A saved issue is a record: answers are not edited, only "Mark closed".
+- **The checklist is built from the graph alone:** power, the others on the switch, link, port, address,
+  gateway, nearest first. A missing link is a step that says "Fathom doesn't know...", never a skipped
+  step. It is read once when the session opens; the draft lives in memory until Save or Plan a fix.
+- **Why? text** is the Checks rule's own words where a rule matches (a test holds them word for word),
+  else one fixed sentence. Where the answers point is the first Not OK's suspects and the tests that tell
+  them apart; it never names a cause and says Fathom does not decide.
+- **Words go through the gate as plans do:** typed notes are stored as typed, a pasted note meets the
+  gate. The server also refuses a credential-shaped line in an issue (delimiter scan only).
+- **Who:** a read holder sees saved issues but cannot open, answer or save one; the server refuses it too.
+- **Plan a fix** saves the issue, makes "Fix: <device> is down" with one `other` step per suspect, links
+  it and opens it, as one undo. Off, with a one-line reason, while nothing is suspect.
+- **Canvas:** the chain stays full strength, the rest takes the Checks fade, cables draw in ink; the
+  step in hand is outlined and what the answers point at wears "POINTS HERE". No colour is added.
+- **Checked by** `scripts/drive-troubleshoot.mjs` (real browser; not in CI, as drive-plans is not).
+

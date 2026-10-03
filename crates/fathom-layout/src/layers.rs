@@ -382,6 +382,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0061 round 7: plans are drawn by the plan views, never as a box.
         | NodeKind::MaintenancePlan
         | NodeKind::PlanStep
+        //     ADR-0061 troubleshooting: issues are drawn by the issue views, never as a box.
+        | NodeKind::Issue
+        | NodeKind::IssueStep
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and
         //     `11` §6.9 keeps them out of the graph — but the kind exists, so
         //     something could hold one, and hiding it on the strength of a

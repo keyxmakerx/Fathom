@@ -460,3 +460,19 @@ fields:
   PlanStep.state: 365
   PlanStep.note: 366
   PlanStep.done_at: 367
+  # ADR-0061 troubleshooting (2026-10-03). Appended at the tail with the next integers.
+  Issue.title: 368
+  Issue.device: 369
+  Issue.author: 370
+  Issue.opened_at: 371
+  Issue.stage: 372
+  Issue.outcome: 373
+  Issue.plan: 374
+  IssueStep.ordinal: 375
+  IssueStep.topic: 376
+  IssueStep.question: 377
+  IssueStep.detail: 378
+  IssueStep.targets: 379
+  IssueStep.answer: 380
+  IssueStep.note: 381
+  IssueStep.answered_at: 382

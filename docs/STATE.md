@@ -264,6 +264,13 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   starting choice is deferred until design names give the design a settings home. A cable whose far end is
   off screen (24 px inset, settled after a pan or zoom) draws as stubs in both looks, each ending in a tag naming
   the far end that pans to it; selected or tag-hovered, the whole cable draws (`drawing/stubs.ts`). Zoom never changes the look.
+- **"It's down"** (ADR-0061, troubleshooting; schema 0.17): right-click a device, or the button on its
+  page, opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address,
+  gateway) answered OK / Not OK / Can't tell, with Why? cards, an optional typed note, where the answers
+  point and Also affected. Plan a fix makes and opens a plan; Save as an issue puts it in the device's
+  history and the Inventory's Issues list. A read holder can see saved issues only. Logic:
+  `components/troubleshoot/`, `document/issues.ts`, `drawing/troubleMarks.ts`. Checked by
+  `scripts/drive-troubleshoot.mjs`.
 - **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
   Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
   row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
