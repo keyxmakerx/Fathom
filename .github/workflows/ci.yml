@@ -137,22 +137,6 @@ jobs:
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
             "CREATE DATABASE fathom_test OWNER fathom_test;"
 
-      # Most server tests wait on the clock (a one-time code's thirty-second step) rather
-      # than compute, so the suite runs many more test threads than cores (parallel-tests.sh).
-      # That needs more connections than the image's 100, and this database is thrown away
-      # with the job, so it also skips disk syncs. The service container is restarted once
-      # for the connection limit, which only takes effect on a restart.
-      - name: Tune the test database (connections, no fsync)
-        run: |
-          export PGPASSWORD=postgres
-          psql -h 127.0.0.1 -U postgres \
-            -c "ALTER SYSTEM SET max_connections = 600" \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off"
-          docker restart "$(docker ps -q --filter ancestor=postgres:16)"
-          until pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
-
       # ---- Layer 1, and everything else that needs no toolchain at all. ----
 
       - name: Gate zero — no unapproved dependency
