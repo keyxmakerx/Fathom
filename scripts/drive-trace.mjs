@@ -187,7 +187,7 @@ try {
     check(`[${w}x${h}] the others are dimmed`, (await page.locator('.react-flow__node.trace-faded').count()) >= 1 || (await page.locator('.react-flow__node').count()) === (await page.locator('.react-flow__node.trace-path').count()));
 
     // Why? on a hop.
-    await page.locator('[data-testid=trace-hop]').nth(1).getByRole('button', { name: 'Why?' }).first().click();
+    await page.locator('[data-testid=trace-hop]').nth(1).getByRole('button', { name: /^Why: / }).first().click();
     await page.waitForSelector('[data-testid=trace-why]', { timeout: 3_000 });
     const why = await page.locator('[data-testid=trace-why]').first().innerText();
     check(`[${w}x${h}] Why? opens a card with the reason`, why.length > 20 && !VERDICT.test(why), why.replace(/\s+/g, ' ').slice(0, 200));

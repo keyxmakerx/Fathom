@@ -187,6 +187,7 @@ impl B {
         o
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn policy(
         &mut self,
         set: NodeId,
@@ -649,7 +650,10 @@ fn the_start_can_be_the_firewall_itself() {
     // The sets that end in the egress zone are listed, each "can't tell": the zone entered from is the gap.
     assert!(fw.policies.is_empty());
     assert!(!fw.unplaced.is_empty());
-    assert!(fw.unplaced.iter().all(|p| p.state == "can't tell" && p.could_affect));
+    assert!(fw
+        .unplaced
+        .iter()
+        .all(|p| p.state == "can't tell" && p.could_affect));
     assert!(fw.unplaced_why.starts_with("could not establish"));
 }
 

@@ -31,9 +31,9 @@ function PolicyRow({ p }: { p: TracePolicy }): JSX.Element {
     <li className={`trace-policy${affect ? ' trace-policy--affect' : ''}`} data-testid="trace-policy" data-state={p.state}>
       <span className="trace-policy__line">
         <span className="trace-policy__ord">#{Number(p.ordinal) + 1}</span> {p.name} <span className="trace-muted">· {p.action}</span>
-        <span className="trace-policy__state"> · {affect && p.state === "can't tell" ? "could affect: can't tell" : p.state}</span>
+        <span className="trace-policy__state"> · {affect ? `could affect: ${p.state}` : p.state}</span>
       </span>
-      <button type="button" className="trace-link" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
+      <button type="button" className="trace-link" aria-expanded={why} aria-label={`Why: ${p.name}`} onClick={() => setWhy((w) => !w)}>
         Why?
       </button>
       {why && <WhyCard lines={[p.reason]} onClose={() => setWhy(false)} />}
@@ -51,7 +51,7 @@ function Hop({ hop, only }: { hop: TraceHop; only: boolean }): JSX.Element {
       <div className="trace-hop__head">
         {hop.kind !== 'stop' && <span className="trace-hop__n">{hop.n}</span>}
         <span className="trace-hop__title">{hop.title}</span>
-        {hop.scope !== '' && <span className="trace-muted"> · {hop.scope} reads, in order:</span>}
+        {hop.scope !== '' && <span className="trace-muted"> · {hop.scope}{placed.length > 0 ? ' reads, in order:' : ''}</span>}
       </div>
       {hop.detail.map((d) => (
         <p key={d} className="trace-hop__detail">
@@ -79,7 +79,7 @@ function Hop({ hop, only }: { hop: TraceHop; only: boolean }): JSX.Element {
       <p className="trace-hop__links">
         {hop.source !== '' && <span className="trace-muted">{hop.source}</span>}
         {hop.source !== '' && ' · '}
-        <button type="button" className="trace-link" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
+        <button type="button" className="trace-link" aria-expanded={why} aria-label={`Why: ${hop.title}`} onClick={() => setWhy((w) => !w)}>
           Why?
         </button>
       </p>
@@ -94,7 +94,17 @@ export function TracePanel({ controller }: { controller: TraceController }): JSX
   if (from == null) return null;
   const reading = readingAs(query, target?.label ?? null);
   return (
-    <aside className="trace-panel" aria-label="Path trace" data-testid="trace-panel">
+    <aside
+      className="trace-panel"
+      aria-label="Path trace"
+      data-testid="trace-panel"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          controller.close();
+        }
+      }}
+    >
       <div className="trace-panel__head">
         <h2 className="trace-panel__title">
           {from.label} → {target?.label ?? (result != null ? result.to : '…')}
@@ -143,11 +153,17 @@ export function TracePanel({ controller }: { controller: TraceController }): JSX
           onChange={(e) => controller.setFlowText(e.target.value)}
           data-testid="trace-flow"
           aria-invalid={controller.flowBad}
+          aria-describedby={controller.flowBad ? 'trace-flow-hint' : undefined}
         />
       </label>
-      {controller.flowBad && <p className="trace-muted">{FLOW_HINT}</p>}
+      {controller.flowBad && (
+        <p id="trace-flow-hint" className="trace-muted">
+          {FLOW_HINT}
+        </p>
+      )}
 
-      {controller.error !== '' && <p role="alert">{controller.error}</p>}
+      {controller.error !== '' && <p role="alert">The trace could not run. {controller.error}</p>}
+      {result == null && controller.error === '' && controller.pending && <p className="trace-muted">Tracing…</p>}
 
       {result != null && (
         <>
@@ -159,7 +175,7 @@ export function TracePanel({ controller }: { controller: TraceController }): JSX
               <Hop key={h.n} hop={h} only={only} />
             ))}
           </ol>
-          <p className="trace-end">{endLine(result)}</p>
+          {result.stopped === '' && <p className="trace-end">{endLine(result)}</p>}
         </>
       )}
     </aside>

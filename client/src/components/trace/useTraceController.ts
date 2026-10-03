@@ -28,6 +28,8 @@ export interface TraceController {
   suggestions: TraceEnd[];
   result: TraceResult | null;
   error: string;
+  /** A trace is asked for and its answer has not come back. */
+  pending: boolean;
   openFrom(chassisId: string): void;
   close(): void;
   setQuery(text: string): void;
@@ -149,6 +151,7 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     suggestions,
     result,
     error,
+    pending: from != null && to != null && flow !== null && result == null && error === '',
     openFrom,
     close,
     setQuery,

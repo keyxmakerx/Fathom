@@ -86,12 +86,16 @@ fn a_policy_row_carries_the_stored_action_and_a_match_state_never_a_verdict() {
     let (mut shell, device) = pasted();
     let rows = trace(&mut shell, &device, "198.51.100.77", "6 443");
     let pols: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_TR_POL).collect();
-    // The set is for trust to untrust; with no ingress interface it cannot be
-    // placed, so nothing is listed as if it applied here.
+    // The set is for trust to untrust; with no ingress interface it is not placed on the hop, but
+    // it is listed as "can't tell" with the gap named.
     assert!(
-        pols.is_empty(),
-        "no policy is placed on an unestablished pair"
+        !pols.is_empty(),
+        "the set ending in the egress zone is listed"
     );
+    for p in &pols {
+        assert_eq!(p.strings[5], "can't tell");
+        assert_eq!(p.strings[7], "unplaced");
+    }
     let all: String = rows
         .iter()
         .flat_map(|r| r.strings.iter().cloned())

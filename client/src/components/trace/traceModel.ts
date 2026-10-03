@@ -4,7 +4,7 @@ import type { Canon } from '../checks/checksModel';
 
 /** Words Fathom never uses as a conclusion about a flow (UI-SPEC "Inside a box"). A test holds every string
  * the panel shows against this list. */
-export const VERDICT_WORDS = ['allowed', 'permitted', 'denied', 'blocked', 'reachable', 'unreachable'] as const;
+export const VERDICT_WORDS = ['allowed', 'permitted', 'denied', 'blocked', 'reachable', 'unreachable', 'reached', 'reaches'] as const;
 
 export interface Flow {
   protocol: number;
@@ -37,7 +37,7 @@ export function readingAs(text: string, deviceLabel: string | null): string {
   if (deviceLabel != null) return `Reading as a device: ${deviceLabel}`;
   const t = text.trim();
   if (t === '') return '';
-  return readAddress(t) != null ? `Reading as an address: ${t}` : 'Not an address yet. Pick a device from the list or type one.';
+  return readAddress(t) != null ? `Reading as an address: ${t}` : 'Not an address yet. Type an address or a device name.';
 }
 
 /** The rows a hop shows: every policy, or with the filter on only those that could affect the flow. */
@@ -75,5 +75,5 @@ export function pathKeys(result: TraceResult, canon: Canon): Set<string> {
 /** The sentence over the hops: where the path ended. */
 export function endLine(result: TraceResult): string {
   if (result.stopped !== '') return `Could not establish: ${result.stopped}`;
-  return result.hops.length > 0 ? 'Reached the far end.' : '';
+  return result.hops.length > 0 ? `The walk ends at ${result.to}. The rows above are what the devices read.` : '';
 }

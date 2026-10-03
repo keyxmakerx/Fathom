@@ -98,7 +98,7 @@ describe('the far-end box', () => {
     expect(readingAs('10.8.0.5', null)).toBe('Reading as an address: 10.8.0.5');
     expect(readingAs('nas', 'nas-01')).toBe('Reading as a device: nas-01');
     expect(readingAs('', null)).toBe('');
-    expect(readingAs('nas-0', null)).toContain('Pick a device');
+    expect(readingAs('nas-0', null)).toContain('Not an address yet');
   });
 });
 
@@ -120,7 +120,7 @@ describe('the rows a hop shows', () => {
   });
 
   it('says where the path ended', () => {
-    expect(endLine(result())).toBe('Reached the far end.');
+    expect(endLine(result())).toMatch(/^The walk ends at /);
     expect(endLine({ ...result(), stopped: 'no cable is recorded on ge-0/0/1 of rtr-1' })).toBe('Could not establish: no cable is recorded on ge-0/0/1 of rtr-1');
   });
 });
@@ -136,7 +136,7 @@ describe('the panel', () => {
     expect(out).toContain("could affect: can&#x27;t tell");
     expect(out).toContain('users to servers reads, in order:');
     expect(out).toContain('Not placed: could not establish which interface and direction');
-    expect(out).toContain('Reached the far end.');
+    expect(out).toMatch(/The walk ends at /);
     expect(out).toContain('Why?');
   });
 
