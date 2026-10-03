@@ -1614,6 +1614,17 @@
   color: var(--ink);
 }
 
+/* ADR-0062: a titled group of fields inside the editor (Device, Location, Management, Your fields). */
+.drawing-editor__group {
+  margin-top: var(--s3);
+  padding-bottom: var(--s1);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 /* Another person's selection (UI-SPEC "Presence"): an ink initials dot at the thing's top right. No ring, no animation, and it moves only when their selection does. */
 .drawing-peer {
   position: absolute;

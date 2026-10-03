@@ -1940,6 +1940,19 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(380))
         }
     }
+    /// Typed reads for `FieldValue` fields.
+    pub mod field_value {
+        /// `FieldValue.definition` — `Text`, card `1`, emit `—`.
+        /// The organisation's field-definition id this value fills.
+        pub fn definition<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(382))
+        }
+        /// `FieldValue.value` — `Text`, card `1`, emit `—`.
+        /// The value as text.
+        pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(381))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2326,6 +2339,8 @@ mod body {
             378 => Some((core::any::TypeId::of::<crate::generated::ir_types::PlanStepState>(), "crate::generated::ir_types::PlanStepState")),
             379 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             380 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            381 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            382 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2714,6 +2729,8 @@ mod body {
             378 => crate::canon::slot_to::<crate::generated::ir_types::PlanStepState>(378, "crate::generated::ir_types::PlanStepState", value),
             379 => crate::canon::slot_to::<crate::scalar::Text>(379, "crate::scalar::Text", value),
             380 => crate::canon::slot_to::<crate::scalar::Text>(380, "crate::scalar::Text", value),
+            381 => crate::canon::slot_to::<crate::scalar::Text>(381, "crate::scalar::Text", value),
+            382 => crate::canon::slot_to::<crate::scalar::Text>(382, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3100,6 +3117,8 @@ mod body {
             378 => crate::canon::slot_from::<crate::generated::ir_types::PlanStepState>(j),
             379 => crate::canon::slot_from::<crate::scalar::Text>(j),
             380 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            381 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            382 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

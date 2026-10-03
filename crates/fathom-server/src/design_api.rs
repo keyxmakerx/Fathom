@@ -78,7 +78,7 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, Path as PathExtractor, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use deadpool_postgres::Transaction;
 
@@ -91,6 +91,7 @@ use crate::authority::Capability;
 use crate::chain;
 use crate::crypto;
 use crate::designs::{self, DesignError};
+use crate::field_defs;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::KeyRing;
 use crate::live::{self, Live};
@@ -212,6 +213,18 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/designs/{design}/verify",
             get(verify_design_handler),
+        )
+        .route(
+            "/organisations/{organisation}/field-definitions",
+            get(list_field_definitions_handler).post(create_field_definition_handler),
+        )
+        .route(
+            "/organisations/{organisation}/field-definitions/{definition}",
+            patch(update_field_definition_handler),
+        )
+        .route(
+            "/organisations/{organisation}/field-definitions/{definition}/archive",
+            post(archive_field_definition_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}/files",
@@ -525,6 +538,17 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::NoSuchDesign | DesignError::NoSuchVersion | DesignError::NoSuchScope => {
             (StatusCode::NOT_FOUND, "no such design\n").into_response()
         }
+        DesignError::NoSuchFieldDefinition => {
+            (StatusCode::NOT_FOUND, "no such field definition\n").into_response()
+        }
+        DesignError::InvalidFieldDefinition(why) => {
+            (StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()
+        }
+        DesignError::FieldDefinitionConflict { current } => (
+            StatusCode::CONFLICT,
+            format!("that field is now at version {current}; reload and try again\n"),
+        )
+            .into_response(),
         DesignError::NoSuchFile => (StatusCode::NOT_FOUND, "no such file\n").into_response(),
         DesignError::FileGone { on } => {
             (StatusCode::GONE, format!("deleted for good on {on}\n")).into_response()
@@ -2799,6 +2823,199 @@ fn json_of_port(p: &Port) -> Json {
         Json::Bool(p.group_gap_before),
     );
     Json::Obj(map)
+}
+
+// ---- Custom-field definitions (ADR-0062) ----
+//
+// Bodies are canonical JSON (sorted keys, no whitespace, one trailing LF).
+
+/// Verify the session, open the tenant context and the organisation content key.
+async fn begin_org<'a>(
+    state: &DesignApiState,
+    signed: &Signed,
+    client: &'a mut deadpool_postgres::Client,
+    organisation: &str,
+) -> Result<(Transaction<'a>, TenantContext, crate::keys::DataKey), RouteError> {
+    let tenant = parse_organisation(organisation)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    Ok((tx, ctx, tenant_key))
+}
+
+/// The body as an object whose keys are all among `allowed`.
+fn object_body(body: &[u8], allowed: &[&str]) -> Result<BTreeMap<String, Json>, SessionError> {
+    match Json::parse_canonical(body) {
+        Ok(Json::Obj(m)) if m.keys().all(|k| allowed.contains(&k.as_str())) => Ok(m),
+        _ => Err(SessionError::Malformed("request body")),
+    }
+}
+
+fn str_field(m: &mut BTreeMap<String, Json>, key: &str) -> Result<Option<String>, SessionError> {
+    match m.remove(key) {
+        None => Ok(None),
+        Some(Json::Str(s)) => Ok(Some(s)),
+        Some(_) => Err(SessionError::Malformed("request body")),
+    }
+}
+
+fn choices_field(m: &mut BTreeMap<String, Json>) -> Result<Option<Vec<String>>, SessionError> {
+    match m.remove("choices") {
+        None => Ok(None),
+        Some(Json::Arr(items)) => items
+            .into_iter()
+            .map(|j| match j {
+                Json::Str(s) => Ok(s),
+                _ => Err(SessionError::Malformed("request body")),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Some(_) => Err(SessionError::Malformed("request body")),
+    }
+}
+
+fn if_version_field(m: &mut BTreeMap<String, Json>) -> Result<i64, SessionError> {
+    match m.remove("ifVersion") {
+        Some(Json::Int(v)) if v >= 1 => Ok(v),
+        _ => Err(SessionError::Malformed("request body")),
+    }
+}
+
+fn parse_definition_id(text: &str) -> Result<String, SessionError> {
+    fathom_id::Ulid::decode(text)
+        .map(|u| u.to_string())
+        .map_err(|_| SessionError::Malformed("field definition id"))
+}
+
+/// `GET /organisations/{o}/field-definitions`: every definition, archived ones
+/// flagged. Any member.
+async fn list_field_definitions_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let defs = field_defs::list(&tx, &auth).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(Json::Arr(
+        defs.iter()
+            .map(field_defs::FieldDefinition::to_json)
+            .collect(),
+    )))
+}
+
+/// `POST /organisations/{o}/field-definitions`: body `{kind, name, type, choices?}`.
+/// Needs `draw` somewhere in the organisation.
+async fn create_field_definition_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["kind", "name", "type", "choices"])?;
+    let kind = str_field(&mut m, "kind")?.ok_or(SessionError::Malformed("request body"))?;
+    let name = str_field(&mut m, "name")?.ok_or(SessionError::Malformed("request body"))?;
+    let ty = str_field(&mut m, "type")?.ok_or(SessionError::Malformed("request body"))?;
+    let choices = choices_field(&mut m)?.unwrap_or_default();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let def = field_defs::create(&tx, &auth, &kind, &name, &ty, &choices).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(def.to_json()))
+}
+
+/// `PATCH /organisations/{o}/field-definitions/{id}`: body `{name?, choices?,
+/// ifVersion}`. The creator or an organisation admin.
+async fn update_field_definition_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, definition)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let id = parse_definition_id(&definition)?;
+    let mut m = object_body(&signed.body, &["name", "choices", "ifVersion"])?;
+    let if_version = if_version_field(&mut m)?;
+    let name = str_field(&mut m, "name")?;
+    let choices = choices_field(&mut m)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let def = field_defs::update(
+        &tx,
+        &auth,
+        &id,
+        if_version,
+        name.as_deref(),
+        choices.as_deref(),
+    )
+    .await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(def.to_json()))
+}
+
+/// `POST /organisations/{o}/field-definitions/{id}/archive`: body `{ifVersion}`.
+/// The creator or an organisation admin.
+async fn archive_field_definition_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, definition)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let id = parse_definition_id(&definition)?;
+    let mut m = object_body(&signed.body, &["ifVersion"])?;
+    let if_version = if_version_field(&mut m)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let def = field_defs::archive(&tx, &auth, &id, if_version).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(def.to_json()))
 }
 
 // ---- Response framing ----

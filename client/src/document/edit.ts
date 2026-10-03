@@ -210,7 +210,7 @@ export function setChassisField(
   return commitField(built.doc, now, chassisId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }
 
-export type RackFieldKey = 'row' | 'bay';
+export type RackFieldKey = 'row' | 'bay' | 'label';
 
 /**
  * `Rack.row` (`Text`, ADR-0050 §2 — the room's own name for it, "Row A") or
@@ -235,6 +235,10 @@ export function setRackField(
       case 'row':
         if (typeof value !== 'string') throw new FieldValueError(wireKey, String(value), 'must be text');
         encoded = text(value);
+        break;
+      case 'label':
+        if (typeof value !== 'string' || value.trim() === '') throw new FieldValueError(wireKey, String(value), 'must not be blank');
+        encoded = text(value.trim());
         break;
       case 'bay':
         if (typeof value !== 'number' || !Number.isInteger(value)) {

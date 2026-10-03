@@ -62,6 +62,7 @@ pub mod db;
 pub mod design_api;
 pub mod designs;
 pub mod engine;
+pub mod field_defs;
 pub mod firmware;
 pub mod grants;
 pub mod heads;

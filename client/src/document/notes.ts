@@ -48,7 +48,7 @@ function resolve(opts: Actor | undefined): { actor: string; now: number } {
 
 /** `Notable` (`schema/schema.yaml`) — the only three kinds a `HasNote` may
  * own. Chassis is deliberately not one of them (schema's own doc on why). */
-const NOTABLE_KINDS: readonly NodeKind[] = ['Device', 'PhysicalPort', 'Rack'];
+const NOTABLE_KINDS: readonly NodeKind[] = ['Device', 'PhysicalPort', 'Rack', 'Cable', 'Vlan', 'ContainerNetwork'];
 
 /** Refused: `ownerId` is a live node of some kind, but not one `Notable`
  * lists. Never thrown for an unknown id at all — that stays

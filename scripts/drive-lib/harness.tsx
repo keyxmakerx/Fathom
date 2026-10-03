@@ -25,6 +25,8 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  COST_CENTRE,
+  seedInventoryScene,
   seedHistoryVersions,
   seedManyDevicesScene,
   seedNetworksScene,
@@ -134,6 +136,7 @@ async function main() {
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'tags') doc = seedTagsScene(catalogue, ME);
+  else if (scene === 'inventory') doc = seedInventoryScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);
@@ -158,7 +161,7 @@ async function main() {
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
-  // scene's nodes is still legal at 0.12), the same substitution
+  // scene's nodes is still legal at 0.14), the same substitution
   // `plain.test.ts`'s "opens a 0.10 vector" tests make.
   if (scene === 'networks-010') {
     const text = new TextDecoder().decode(bytes);
@@ -202,6 +205,8 @@ async function main() {
     return saved.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostname)?.positionU ?? null;
   };
 
+  const fieldDefs: Array<Record<string, unknown> & { id: string; version: number; archived: boolean }> =
+    scene === 'inventory' ? [{ id: COST_CENTRE.id, kind: 'device', name: 'Cost centre', type: 'text', choices: [], version: 1, createdBy: ME, archived: false }] : [];
   window.__requests__ = [];
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -322,6 +327,22 @@ async function main() {
     if (method === 'GET' && p.startsWith(`${org}/designs/${DESIGN_ID}/files/`)) {
       const hit = driveFiles[p.split('/').pop() ?? ''];
       return hit ? new Response(hit as BodyInit, { status: 200 }) : new Response('no such file\n', { status: 404 });
+    }
+    if (p === `${org}/field-definitions` || p.startsWith(`${org}/field-definitions/`)) {
+      const rest = p.slice(`${org}/field-definitions`.length).split('/').filter(Boolean);
+      const sent = requestBody.length > 0 ? JSON.parse(new TextDecoder().decode(requestBody)) : {};
+      if (method === 'GET') return json({ definitions: fieldDefs });
+      if (method === 'POST' && rest.length === 0) {
+        const made = { id: `01ARZ3NDEKTSV4RRFFQ69G5F${String(fieldDefs.length + 10)}`, kind: sent.kind, name: sent.name, type: sent.type, choices: sent.choices ?? [], version: 1, createdBy: ME, archived: false };
+        fieldDefs.push(made);
+        return json(made);
+      }
+      const hit = fieldDefs.find((d) => d.id === rest[0]);
+      if (!hit) return new Response('no such field\n', { status: 404 });
+      if (rest[1] === 'archive') hit.archived = true;
+      else Object.assign(hit, { name: sent.name ?? hit.name, choices: sent.choices ?? hit.choices });
+      hit.version += 1;
+      return json(hit);
     }
     if (method === 'GET' && p === '/catalogue/models') {
       return json(cat.list);

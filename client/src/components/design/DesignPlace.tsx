@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
+import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
+import { useFieldDefinitions } from './useFieldDefinitions';
+import type { Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -448,6 +451,42 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  // ADR-0062 — custom fields, shared with everyone who opens the design.
+  const fieldDefs = useFieldDefinitions(organisationId);
+  const { refresh: refreshFieldDefs } = fieldDefs;
+  useEffect(() => {
+    if (props.place === 'inventory') void refreshFieldDefs();
+  }, [props.place, refreshFieldDefs]);
+  const fieldsOfCallback = useCallback(
+    (ownerId: string) => (session.doc ? fieldsOfDoc(session.doc, ownerId, fieldDefs.defs) : []),
+    [session.doc, fieldDefs.defs],
+  );
+  const fieldsWrite = useCallback(
+    (write: (current: Document, opts: { actor: string } | undefined) => Document, fallback: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        const next = write(current, accountId ? { actor: accountId } : undefined);
+        if (next !== current) session.applyDocChange(next);
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : fallback };
+      }
+    },
+    [session, accountId],
+  );
+  const fieldsActions = {
+    fieldsOf: fieldsOfCallback,
+    onSetField: (ownerId: string, defId: string, raw: string) =>
+      fieldsWrite((d, o) => setFieldValue(d, ownerId, defId, raw, fieldDefs.defs, o), 'That value was refused.'),
+    onAddFieldDef: async (ownerId: string, name: string, type: FieldType, choices?: readonly string[]) => {
+      const kind = fieldForOwner(ownerId);
+      if (kind === undefined) return { refused: 'This kind of thing takes no fields.' };
+      return fieldDefs.create(kind, name, type, choices);
+    },
+    onRemoveFieldDef: (defId: string) => fieldDefs.archive(defId),
+  };
+  const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
+
   const showOnRack = useCallback(
     (selection: Selection) => {
       setFocus({ ...selection });
@@ -608,6 +647,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         accountId={accountId}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
         onActiveRackChange={setActiveRackId}
         onShownCablesChange={setShownCableIds}
         designId={designId}
@@ -622,6 +662,10 @@ export function DesignPlace(props: DesignPlaceProps) {
         onSelectedChange={setSelectedId}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
+        fieldDefs={fieldDefs.defs}
+        redact={redact}
+        accountId={accountId}
       />
     );
 
