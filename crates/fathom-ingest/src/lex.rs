@@ -84,28 +84,59 @@ pub(crate) fn scan(
             });
             continue;
         }
-        if ch == table.quote || Some(ch) == table.alt_quote {
-            let close = ch;
-            it.next();
-            let mut escaped = false;
-            let mut closed = None;
-            for (at2, ch2) in it.by_ref() {
-                if escaped {
-                    escaped = false;
-                } else if ch2 == table.escape {
-                    escaped = true;
-                } else if ch2 == close {
-                    closed = Some(base + (at2 + ch2.len_utf8()) as u32);
-                    break;
+        let is_quote = |c: char| c == table.quote || Some(c) == table.alt_quote;
+        if is_quote(ch) {
+            // One token however many quoted and bare pieces are glued with no space
+            // between them (`'a'b c'` is one word, as a shell reads it), so a value split
+            // by an inner quote is not left half-gated. An unterminated quote still
+            // emits the rest of the line as a token before it errs: the gate looks back
+            // from tokens that exist, and a secret word followed by nothing finds none.
+            let mut end = start;
+            let mut open = Some(ch);
+            loop {
+                if let Some(close) = open.take() {
+                    it.next();
+                    let mut escaped = false;
+                    let mut closed = None;
+                    for (at2, ch2) in it.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if ch2 == table.escape {
+                            escaped = true;
+                        } else if ch2 == close {
+                            closed = Some(base + (at2 + ch2.len_utf8()) as u32);
+                            break;
+                        }
+                    }
+                    let Some(e) = closed else {
+                        out.push(Token {
+                            kind: TokenKind::Quoted,
+                            span: ByteSpan {
+                                start,
+                                end: base + text.len() as u32,
+                            },
+                        });
+                        return Err(ShapeError::UnterminatedQuote);
+                    };
+                    end = e;
+                }
+                match it.peek().copied() {
+                    Some((_, c)) if is_quote(c) => open = Some(c),
+                    Some((at2, c))
+                        if !table.bare_excludes.contains(&c)
+                            && c != table.list_open
+                            && c != table.list_close =>
+                    {
+                        end = base + (at2 + c.len_utf8()) as u32;
+                        it.next();
+                    }
+                    _ => break,
                 }
             }
-            match closed {
-                Some(end) => out.push(Token {
-                    kind: TokenKind::Quoted,
-                    span: ByteSpan { start, end },
-                }),
-                None => return Err(ShapeError::UnterminatedQuote),
-            }
+            out.push(Token {
+                kind: TokenKind::Quoted,
+                span: ByteSpan { start, end },
+            });
             continue;
         }
         // Bare: everything up to the next excluded character.

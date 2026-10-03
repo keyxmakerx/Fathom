@@ -348,3 +348,43 @@ fn single_quoted_secrets_are_destroyed_whole() {
     platform_of(&shell.handle(OP_PASTE, &frame(0, &text)));
     assert!(contains(&shell.handle(OP_EXPORT_PLAIN, &[]), "WAN uplink"));
 }
+
+/// Awkward quoting must never hide a secret from the gate: an unterminated quote,
+/// apostrophes mid-word, a value split by an inner quote, a wrapped line. Each input
+/// is checked through every door, with a platform named and without.
+#[test]
+fn odd_quoting_never_leaves_a_secret() {
+    let psk = "QkA1walrusjumbo";
+    let cases: Vec<(String, Vec<&str>)> = vec![
+        (format!("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret '{psk} tail"), vec![psk, "tail"]),
+        (format!("set service snmp community '{psk} ro"), vec![psk]),
+        (format!("set system login user o'brien authentication plaintext-password '{psk}"), vec![psk]),
+        (format!("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret \"{psk}"), vec![psk]),
+        (format!("set interfaces ethernet eth0 description Bob's 'x \\\nset vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret {psk}"), vec![psk]),
+        (format!("set vpn ipsec site-to-site peer bob's-office authentication pre-shared-secret \\\n{psk}"), vec![psk]),
+        ("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret 'QkA9it's QkA9tail'".to_owned(), vec!["QkA9tail"]),
+        ("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret 'QkD4a'QkD4b QkD4c".to_owned(), vec!["QkD4b", "QkD4c"]),
+    ];
+    for (text, secrets) in cases {
+        let text = format!("set system host-name odd-gw\n{text}\n");
+        for flags in [named("edgeos"), named("junos-srx")] {
+            let mut shell = common::all_booted_shell();
+            let display = place(&mut shell, "edgeos");
+            let into = shell.handle(OP_PASTE_INTO, &into_frame(flags, &display, &text));
+            let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+            let mut fresh = common::all_booted_shell();
+            let new = fresh.handle(OP_PASTE, &frame(flags, &text));
+            let note = fresh.handle(OP_REDACT_TEXT, text.as_bytes());
+            for s in &secrets {
+                for (door, bytes) in [
+                    ("paste-into", &into),
+                    ("stored", &stored),
+                    ("paste", &new),
+                    ("note", &note),
+                ] {
+                    assert!(!contains(bytes, s), "{door} leaks {s} for {text:?}");
+                }
+            }
+        }
+    }
+}

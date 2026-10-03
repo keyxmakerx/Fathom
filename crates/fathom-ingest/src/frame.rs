@@ -278,7 +278,19 @@ fn ends_with_unquoted_backslash(text: &str) -> bool {
     let mut in_quote: Option<char> = None;
     let mut escaped = false;
     let mut trailing_backslash = false;
+    // A `'` opens a quote only at the start of a word, as the lexer reads it
+    // (`lex::scan`); `Bob's` is one bare word. `"` opens anywhere, as before.
+    // After a closed quote the rest of the word is glued to it and a further `'` opens
+    // again, as the lexer's one-token rule reads it.
+    let mut word_start = true;
+    let mut glued = false;
     for ch in text.chars() {
+        let boundary = ch == ' ' || ch == '[' || ch == ']';
+        let starts = word_start || glued;
+        word_start = boundary;
+        if boundary {
+            glued = false;
+        }
         if let Some(close) = in_quote {
             if escaped {
                 escaped = false;
@@ -286,9 +298,10 @@ fn ends_with_unquoted_backslash(text: &str) -> bool {
                 escaped = true;
             } else if ch == close {
                 in_quote = None;
+                glued = true;
             }
             trailing_backslash = false;
-        } else if ch == '"' || ch == '\'' {
+        } else if ch == '"' || (ch == '\'' && starts) {
             in_quote = Some(ch);
             trailing_backslash = false;
         } else {
