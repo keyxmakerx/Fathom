@@ -57,7 +57,7 @@ export function PrintPanel({
     [hasView, hasInventory, rackCount],
   );
   const [ticked, setTicked] = useState<ReadonlySet<PrintSection>>(
-    () => new Set<PrintSection>(['view', 'racks', 'cables'].filter((id) => available.includes(id as PrintSection)) as PrintSection[]),
+    () => new Set<PrintSection>((hasInventory ? ['inventory'] : ['view', 'racks', 'cables']).filter((id) => available.includes(id as PrintSection)) as PrintSection[]),
   );
   const [paper, setPaper] = useState<PaperSize>('A4');
   const [rackScope, setRackScope] = useState<RackScope>('all');
@@ -243,7 +243,7 @@ export function PrintPanel({
         <input type="checkbox" checked={hideSensitive} onChange={(e) => setHideSensitive(e.target.checked)} data-testid="print-hide-sensitive" />
         <span>
           Leave out serial numbers and management addresses
-          <span className="print-panel__hint-block">on the rack pages, as a dash with a note saying so</span>
+          <span className="print-panel__hint-block">a dash on the rack pages, no column in the Inventory table</span>
         </span>
       </label>
       <label className="print-panel__check">

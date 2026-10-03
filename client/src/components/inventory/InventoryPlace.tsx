@@ -8,6 +8,7 @@ import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
 import type { DesignSession } from '../design/useDesignSession';
 import { EditorFor, type FieldsActions, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { paletteFromCatalogue } from '../racks/palette';
+import type { InventoryPrintable } from '../../print/inventoryTable';
 import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
 import { DataTable } from './DataTable';
@@ -74,6 +75,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   onShowOnRack: (selection: Selection) => void;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
+  /** The table as shown (columns, filtered and sorted rows), for the print pack; `null` when no table is shown. */
+  onPrintableChange?: (printable: InventoryPrintable | null) => void;
   notesActions: NotesActions;
   tagsActions: TagsActions;
   fieldsActions: FieldsActions;
@@ -128,7 +131,7 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onSelectedChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -350,6 +353,21 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     saveMine(next);
     if (ls.view === v.id) go({ view: '' });
   };
+
+  useEffect(() => {
+    if (!onPrintableChange) return undefined;
+    if (doc == null || kind === 'networks') {
+      onPrintableChange(null);
+      return undefined;
+    }
+    onPrintableChange({
+      kindLabel,
+      columns: columns.map((c) => ({ key: c.key, label: c.label, width: c.width })),
+      rows,
+      filterWords: q.trim() === '' ? [] : [q.trim()],
+    });
+    return () => onPrintableChange(null);
+  }, [onPrintableChange, doc, kind, kindLabel, columns, rows, q]);
 
   const switchKind = (next: Kind) => {
     push({ kind: next, q: '', sorts: [], view: '', open: '', tab: '' });
