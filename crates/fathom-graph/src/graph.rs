@@ -543,7 +543,7 @@ impl Graph {
         if self.by_ulid.contains_key(&ulid) {
             return Err(WriteError::UlidReused { ulid });
         }
-        let (from, to) = self.check_edge_l0(kind, from, to)?;
+        let (from, to) = self.check_edge_l0(kind, from, to, true)?;
 
         let id = EdgeId { kind, ulid };
         let prov = self.intern(filled);
@@ -581,11 +581,17 @@ impl Graph {
     /// Extracted from `insert_edge` unchanged so that `Graph::from_snapshot`
     /// runs *this* ladder rather than a second copy of it: loading is not
     /// trusting, and the refusal set on load must be the refusal set on write.
+    ///
+    /// `counted` is false only when loading an edge that is not itself
+    /// effective (tombstoned, or an endpoint is): such an edge adds to no
+    /// count, so the checks that read other live edges are skipped and only
+    /// the structural ones run.
     pub(crate) fn check_edge_l0(
         &self,
         kind: EdgeKind,
         from: NodeId,
         to: NodeId,
+        counted: bool,
     ) -> Result<(NodeId, NodeId), WriteError> {
         if kind.root_containment() {
             return Err(WriteError::RootContainment { edge: kind });
@@ -631,6 +637,9 @@ impl Graph {
         } else {
             (from, to)
         };
+        if !counted {
+            return Ok((from, to));
+        }
         if kind.symmetric() {
             if let Some(existing) = self.live_edge_between(kind, from, to) {
                 return Err(WriteError::SymmetricDuplicate {
@@ -1125,7 +1134,7 @@ impl Graph {
                 let (kind, from, to) = (id.kind, edge.from, edge.to);
                 // The tombstoned edge itself is not `is_effective`, so it
                 // cannot collide with itself here; see the doc comment above.
-                self.check_edge_l0(kind, from, to)?;
+                self.check_edge_l0(kind, from, to, true)?;
                 self.edges.get_mut(&id).expect("checked").absent_since = None;
             }
         }

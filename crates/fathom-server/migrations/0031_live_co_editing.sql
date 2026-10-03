@@ -204,10 +204,9 @@ CREATE TRIGGER memberships_notify
     AFTER UPDATE OR DELETE ON memberships
     FOR EACH ROW EXECUTE FUNCTION fathom_notify_authority('org', 'organisation_id');
 
-DROP TRIGGER IF EXISTS sessions_ended_notify ON sessions;
-CREATE TRIGGER sessions_ended_notify
-    AFTER DELETE ON sessions
-    FOR EACH ROW EXECUTE FUNCTION fathom_notify_authority('session', 'id');
+-- No trigger on `sessions` (tests/operators.rs: the evidence-key check must stay
+-- a constraint). The code that ends a session sends the NOTIFY itself, in the
+-- same transaction: `sessions::notify_session_ended`.
 
 DROP TRIGGER IF EXISTS session_revocations_notify ON session_revocations;
 CREATE TRIGGER session_revocations_notify

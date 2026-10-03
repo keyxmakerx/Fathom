@@ -1640,6 +1640,15 @@ async fn live_handler(
         .map(|r| r.get(0))
         .ok_or(SessionError::Corrupt("authority head"))?;
     let account = ctx.actor().to_string();
+    let name: String = tx
+        .query_opt(
+            "SELECT display_name FROM accounts WHERE id = $1",
+            &[&account],
+        )
+        .await
+        .map_err(SessionError::Db)?
+        .map(|r| r.get(0))
+        .unwrap_or_default();
     tx.commit().await.map_err(SessionError::Db)?;
     drop(client);
 
@@ -1650,6 +1659,7 @@ async fn live_handler(
         scope,
         session,
         account,
+        name,
         since,
         head,
     })
@@ -1685,8 +1695,10 @@ async fn live_handler(
 }
 
 /// `POST /organisations/{organisation}/designs/{design}/presence`: where the
-/// signed-in person is. Needs `read`. Body: a view id, UTF-8, 1 to 64 bytes. Held
-/// only while the person has a stream on this design.
+/// signed-in person is. Needs `read`. Body: JSON `{"view": "canvas" |
+/// "inventory", "selected": <element id> | null}`, at most 256 bytes
+/// ([`live::parse_presence`]). Held only while the person has a stream on this
+/// design.
 async fn presence_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1694,12 +1706,8 @@ async fn presence_handler(
 ) -> Result<Response, RouteError> {
     let tenant = parse_organisation(&organisation)?;
     let design_id = parse_design(&design)?;
-    if signed.body.is_empty() || signed.body.len() > live::VIEW_ID_MAX {
-        return Err(SessionError::Malformed("view id").into());
-    }
-    let view = core::str::from_utf8(&signed.body)
-        .map_err(|_| SessionError::Malformed("view id"))?
-        .to_owned();
+    let (view, selected) =
+        live::parse_presence(&signed.body).ok_or(SessionError::Malformed("presence body"))?;
 
     let mut client = state
         .sessions
@@ -1716,21 +1724,11 @@ async fn presence_handler(
     if !state.live.hub.allow_presence(&account, &design_text) {
         return Err(RouteError::Limited("too many presence updates; slow down"));
     }
-    let initials = match tx
-        .query_opt(
-            "SELECT display_name FROM accounts WHERE id = $1",
-            &[&account],
-        )
-        .await
-    {
-        Ok(Some(row)) => live::initials_of(&row.get::<_, String>(0)),
-        _ => "-".to_owned(),
-    };
     tx.commit().await.map_err(SessionError::Db)?;
     state
         .live
         .hub
-        .set_presence(&design_text, &account, &view, &initials);
+        .set_presence(&design_text, &account, view, selected);
 
     Ok((
         StatusCode::OK,

@@ -102,6 +102,13 @@ impl Shard {
         self.clock
     }
 
+    /// Forget the pending copy for `design`, and stop counting its bytes.
+    fn drop_pending(&mut self, design: &str) {
+        if let Some((_, _, cost)) = self.pending.remove(design) {
+            self.bytes = self.bytes.saturating_sub(cost);
+        }
+    }
+
     fn insert(&mut self, design: &str, mut head: Head) {
         head.used = self.touch();
         if let Some(old) = self.heads.remove(design) {
@@ -138,6 +145,8 @@ impl Shard {
             }
             return Ok(());
         }
+        // The key moved: whatever was pending was applied to a head that is gone.
+        self.drop_pending(&key.design);
         let Some(rebuild) = rebuild else {
             return Err(HeadError::NeedRebuild);
         };
@@ -169,8 +178,20 @@ impl Shard {
         let mut next = head.graph.clone();
         apply_change_in_place(&mut next, &doc, Actor::User(UserId(actor)))
             .map_err(|e| HeadError::Refused(e.to_string()))?;
+        // A checkpoint is only worth having if it reads back; one that does
+        // not is skipped (the change itself still stands) and logged.
         let plain = if want_plain {
-            Some(write_plain(&next).map_err(|e| HeadError::Rebuild(format!("{e:?}")))?)
+            match write_plain(&next) {
+                Ok(bytes) if read_plain(&bytes).is_ok() => Some(bytes),
+                Ok(_) => {
+                    tracing::error!(design = %key.design, "a checkpoint did not read back; skipped");
+                    None
+                }
+                Err(e) => {
+                    tracing::error!(design = %key.design, error = ?e, "a checkpoint did not write; skipped");
+                    None
+                }
+            }
         } else {
             None
         };
@@ -280,6 +301,7 @@ impl HeadStore {
         let job: Job = Box::new(move |shard| {
             if shard.pending.get(&design).is_some_and(|p| p.0 == ticket) {
                 if let Some((_, graph, cost)) = shard.pending.remove(&design) {
+                    shard.bytes = shard.bytes.saturating_sub(cost);
                     shard.insert(
                         &design,
                         Head {
@@ -302,7 +324,7 @@ impl HeadStore {
         let design = design.to_owned();
         let job: Job = Box::new(move |shard| {
             if shard.pending.get(&design).is_some_and(|p| p.0 == ticket) {
-                shard.pending.remove(&design);
+                shard.drop_pending(&design);
             }
         });
         let _ = shard.send(job);
@@ -318,4 +340,55 @@ pub async fn replay(rebuild: Rebuild) -> Result<Vec<u8>, HeadError> {
     })
     .await
     .map_err(|_| HeadError::Gone)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(version: i64) -> HeadKey {
+        HeadKey {
+            design: "d".into(),
+            version,
+            tip: vec![1],
+        }
+    }
+
+    #[test]
+    fn a_pending_copy_is_counted_and_a_moved_key_clears_it() {
+        let mut shard = Shard {
+            cap: 1 << 20,
+            ..Shard::default()
+        };
+        shard.head(Graph::new(), key(1), 100);
+        shard.pending.insert("d".into(), (7, Graph::new(), 500));
+        shard.bytes += 500;
+        assert_eq!(shard.bytes, 600);
+
+        // The same key keeps it; a moved key (a commit that never reported)
+        // drops it and its bytes.
+        shard.head_at(&key(1), None).unwrap();
+        assert_eq!(shard.pending.len(), 1);
+        assert!(matches!(
+            shard.head_at(&key(2), None),
+            Err(HeadError::NeedRebuild)
+        ));
+        assert!(shard.pending.is_empty());
+        assert_eq!(shard.bytes, 100);
+    }
+
+    impl Shard {
+        fn head(&mut self, graph: Graph, key: HeadKey, cost: usize) {
+            self.insert(
+                &key.design,
+                Head {
+                    graph,
+                    version: key.version,
+                    tip: key.tip,
+                    cost,
+                    used: 0,
+                },
+            );
+        }
+    }
 }

@@ -4323,15 +4323,20 @@ async fn sweep_expired_nonces(tx: &Transaction<'_>) -> Result<(), SessionError> 
 /// No revocation row is recorded for a swept session, unlike a sign-out: `expires_at` is inside
 /// the row's own MAC, so a restored expired row is refused by the expiry check on its own bytes.
 async fn sweep_expired_sessions(tx: &Transaction<'_>) -> Result<(), SessionError> {
-    tx.execute(
-        "DELETE FROM sessions \
-          WHERE id IN (SELECT id FROM sessions \
-                        WHERE expires_at <= now() \
-                        ORDER BY expires_at \
-                        LIMIT $1)",
-        &[&SWEEP_BATCH],
-    )
-    .await?;
+    let ended = tx
+        .query(
+            "DELETE FROM sessions \
+              WHERE id IN (SELECT id FROM sessions \
+                            WHERE expires_at <= now() \
+                            ORDER BY expires_at \
+                            LIMIT $1) \
+              RETURNING id",
+            &[&SWEEP_BATCH],
+        )
+        .await?;
+    for row in ended {
+        notify_session_ended(tx, &row.get::<_, String>(0)).await?;
+    }
     Ok(())
 }
 
@@ -4466,6 +4471,22 @@ async fn query_sessions_of(
 async fn delete_session(tx: &Transaction<'_>, id: &str) -> Result<(), SessionError> {
     tx.execute("DELETE FROM sessions WHERE id = $1", &[&id])
         .await?;
+    notify_session_ended(tx, id).await?;
+    Ok(())
+}
+
+/// Tell every process a session ended, so open live streams recheck (ADR-0063
+/// #13). Delivered at commit; sent by the code that ends the session, not by a
+/// trigger (the `sessions` table carries none).
+pub(crate) async fn notify_session_ended(
+    tx: &Transaction<'_>,
+    id: &str,
+) -> Result<(), tokio_postgres::Error> {
+    tx.execute(
+        "SELECT pg_notify('fathom_authority', 'session:' || $1::text)",
+        &[&id],
+    )
+    .await?;
     Ok(())
 }
 

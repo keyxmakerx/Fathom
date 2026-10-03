@@ -72,8 +72,9 @@ server in the clear over TLS, pass the same gate, and are stored encrypted. Rule
 11. **Without a live connection** a whole save names its base and is refused if anything landed
     since (ADR-0054). An accepted whole save replaces the head and streams as a reload; clients
     load it and replay their pending changes on top. A `read` holder receives every change, as `open` gives them the whole design.
-12. **Presence: an initials dot, scoped to the view.** A signed `POST …/presence` needing `read`,
-    with a view id of at most 64 bytes, at most 2 a second, expiring when the stream closes. A
+12. **Presence: an initials dot, scoped to the view.** Dots in the bar, and a small ink initials
+    dot at the top-right of the first thing each person has selected; it moves only when their
+    selection changes. A signed `POST …/presence` needing `read`, bounded in size, at most 2 a second, expiring when the stream closes. A
     subscriber receives only the people in its own view. Changes reach everyone and carry their
     author.
 13. **Authorization on the stream.** Any change to authority state, and a session's sign-out,
@@ -110,4 +111,8 @@ connection per browser per open design.
 - **GET `…/live?since=N`:** frames of `u8 type ‖ u64_le version ‖ u32_le length ‖ bytes`. Types:
   1 change (a change document), 2 reload (a whole save landed at `version`), 3 presence (JSON
   list of the others in your view), 4 heartbeat, 5 resync (reopen from your last version).
-- **POST `…/presence`:** body the view id, UTF-8, at most 64 bytes.
+- **POST `…/presence`:** body JSON `{"view": "canvas" | "inventory", "selected": <element id> | null}`,
+  at most 256 bytes.
+- **Presence frame (3):** `{"self": P, "others": [P…]}`, `P` = `{"account", "initials", "name"}`
+  plus `selected` for others. **Author frame (6):** `P`, sent before the first change from an
+  author the stream has not named yet.

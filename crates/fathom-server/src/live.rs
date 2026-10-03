@@ -36,6 +36,7 @@ pub const FRAME_RELOAD: u8 = 2;
 pub const FRAME_PRESENCE: u8 = 3;
 pub const FRAME_HEARTBEAT: u8 = 4;
 pub const FRAME_RESYNC: u8 = 5;
+pub const FRAME_AUTHOR: u8 = 6;
 
 /// ADR-0063 #13 and #14.
 pub const HEARTBEAT: Duration = Duration::from_secs(25);
@@ -51,7 +52,8 @@ pub const CHANGES_PER_SECOND: f64 = 20.0;
 pub const CHANGE_BURST: f64 = 30.0;
 pub const PRESENCE_PER_SECOND: f64 = 2.0;
 pub const PRESENCE_BURST: f64 = 2.0;
-pub const VIEW_ID_MAX: usize = 64;
+/// A presence post is at most this many bytes.
+pub const PRESENCE_BODY_MAX: usize = 256;
 
 /// Workers and bytes for the head store when nothing says otherwise.
 pub const DEFAULT_HEAD_THREADS: usize = 4;
@@ -82,12 +84,15 @@ struct Entry {
     org: String,
     session: String,
     account: String,
+    /// The account's display name, read when the stream opened.
+    name: String,
     signal: Arc<Signal>,
 }
 
+/// Where a person is: their view, and the element they have selected.
 struct Person {
-    view: String,
-    initials: String,
+    view: &'static str,
+    selected: Option<String>,
 }
 
 struct Bucket {
@@ -154,6 +159,7 @@ impl Hub {
         org: &str,
         session: &str,
         account: &str,
+        name: &str,
     ) -> Result<Registered, Refusal> {
         let mut h = self.lock();
         let on_design = h.by_design.get(design).map_or(0, BTreeSet::len);
@@ -182,6 +188,7 @@ impl Hub {
                 org: org.to_owned(),
                 session: session.to_owned(),
                 account: account.to_owned(),
+                name: name.to_owned(),
                 signal: signal.clone(),
             },
         );
@@ -317,7 +324,13 @@ impl Hub {
 
     /// Record where `account` is. Held only while the account has a stream on
     /// the design in this process; false (and nothing kept) otherwise.
-    pub fn set_presence(&self, design: &str, account: &str, view: &str, initials: &str) -> bool {
+    pub fn set_presence(
+        &self,
+        design: &str,
+        account: &str,
+        view: &'static str,
+        selected: Option<String>,
+    ) -> bool {
         let mut h = self.lock();
         let here = h
             .streams
@@ -326,21 +339,29 @@ impl Hub {
         if !here {
             return false;
         }
-        h.people.entry(design.to_owned()).or_default().insert(
-            account.to_owned(),
-            Person {
-                view: view.to_owned(),
-                initials: initials.to_owned(),
-            },
-        );
+        h.people
+            .entry(design.to_owned())
+            .or_default()
+            .insert(account.to_owned(), Person { view, selected });
         Self::poke_presence(&h, design);
         true
     }
 
-    /// The others in the same view as `account`, as the presence frame's JSON.
+    /// The presence frame's JSON for `account`: itself, and the others in the
+    /// same view (none until it has said which view it is in).
     fn presence_json(&self, design: &str, account: &str) -> String {
         let h = self.lock();
-        let mut out = String::from("[");
+        let name_of = |who: &str| -> String {
+            h.streams
+                .values()
+                .find(|e| e.design == design && e.account == who)
+                .map(|e| e.name.clone())
+                .unwrap_or_default()
+        };
+        let mut out = format!(
+            "{{\"self\":{},\"others\":[",
+            person_json(account, &name_of(account), None)
+        );
         if let Some(people) = h.people.get(design) {
             if let Some(me) = people.get(account) {
                 let mut first = true;
@@ -352,21 +373,93 @@ impl Hub {
                         out.push(',');
                     }
                     first = false;
-                    out.push_str(&format!(
-                        "{{\"account\":\"{}\",\"initials\":\"{}\"}}",
-                        json_text(other),
-                        json_text(&p.initials)
+                    out.push_str(&person_json(
+                        other,
+                        &name_of(other),
+                        Some(p.selected.as_deref()),
                     ));
                 }
             }
         }
-        out.push(']');
+        out.push_str("]}");
         out
     }
 
     #[cfg(test)]
     fn stream_count(&self) -> usize {
         self.lock().streams.len()
+    }
+}
+
+/// `{"account","initials","name"}`, plus `"selected"` when given (`Some(None)`
+/// is an explicit null). Every string is escaped.
+fn person_json(account: &str, name: &str, selected: Option<Option<&str>>) -> String {
+    let mut out = format!(
+        "{{\"account\":\"{}\",\"initials\":\"{}\",\"name\":\"{}\"",
+        json_text(account),
+        json_text(&initials_of(name)),
+        json_text(name)
+    );
+    if let Some(sel) = selected {
+        match sel {
+            Some(id) => out.push_str(&format!(",\"selected\":\"{}\"", json_text(id))),
+            None => out.push_str(",\"selected\":null"),
+        }
+    }
+    out.push('}');
+    out
+}
+
+/// A presence post: `{"view": "canvas" | "inventory", "selected": <element id> | null}`.
+/// Whitespace and key order are free; nothing else is: no other keys, no
+/// escapes, no repeats, at most [`PRESENCE_BODY_MAX`] bytes, and an element id
+/// is a well-formed id. `None` for anything else.
+pub fn parse_presence(body: &[u8]) -> Option<(&'static str, Option<String>)> {
+    if body.len() > PRESENCE_BODY_MAX {
+        return None;
+    }
+    let text = core::str::from_utf8(body).ok()?;
+    let mut at = text.trim_start();
+    at = at.strip_prefix('{')?.trim_start();
+    let mut view: Option<&'static str> = None;
+    let mut selected: Option<Option<String>> = None;
+    loop {
+        let rest = at.strip_prefix('"')?;
+        let (key, rest) = rest.split_once('"')?;
+        let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+        let (value, rest) = if let Some(r) = rest.strip_prefix("null") {
+            (None, r)
+        } else {
+            let r = rest.strip_prefix('"')?;
+            let (v, r) = r.split_once('"')?;
+            // No escapes and nothing but printable ASCII in a value.
+            if !v.bytes().all(|b| (0x20..0x7f).contains(&b) && b != b'\\') {
+                return None;
+            }
+            (Some(v), r)
+        };
+        match (key, value) {
+            ("view", Some("canvas")) if view.is_none() => view = Some("canvas"),
+            ("view", Some("inventory")) if view.is_none() => view = Some("inventory"),
+            ("selected", v) if selected.is_none() => {
+                // `<kebab-kind>:<ulid>`, a declared kind and a canonical ulid.
+                if let Some(id) = v {
+                    fathom_graph::ElementId::parse(id).ok()?;
+                }
+                selected = Some(v.map(str::to_owned));
+            }
+            _ => return None,
+        }
+        let rest = rest.trim_start();
+        if let Some(r) = rest.strip_prefix(',') {
+            at = r.trim_start();
+        } else {
+            let r = rest.strip_prefix('}')?;
+            if !r.trim().is_empty() {
+                return None;
+            }
+            return Some((view?, selected?));
+        }
     }
 }
 
@@ -498,6 +591,8 @@ pub struct Opening {
     pub scope: Option<ScopeId>,
     pub session: VerifiedSession,
     pub account: String,
+    /// The account's display name, for presence.
+    pub name: String,
     pub since: i64,
     /// The organisation's authority head as the opening request saw it.
     pub head: Vec<u8>,
@@ -511,6 +606,7 @@ pub fn open(opening: Opening) -> Result<Tail, Refusal> {
         &opening.tenant.to_string(),
         opening.session.id(),
         &opening.account,
+        &opening.name,
     )?;
     let (writer, reader) = tokio::io::duplex(64 * 1024);
     let gone = Arc::new(Notify::new());
@@ -536,6 +632,10 @@ struct Stream {
     head: Vec<u8>,
     last_write: Instant,
     last_presence: Option<String>,
+    /// Authors this stream has already named in an author frame.
+    named: BTreeSet<String>,
+    /// Display names of authors read with the rows, by account.
+    names: BTreeMap<String, String>,
 }
 
 async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc<Notify>) {
@@ -553,6 +653,8 @@ async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc
         writer,
         last_write: Instant::now(),
         last_presence: None,
+        named: BTreeSet::new(),
+        names: BTreeMap::new(),
     };
     let end = Instant::now() + STREAM_LIFE;
     let mut last_check = Instant::now();
@@ -675,6 +777,15 @@ impl Stream {
                 LiveBatch::Rows(rows) => {
                     let full = rows.len() as i64 >= PAGE;
                     for row in rows {
+                        if let (Some(_), Some(author)) = (&row.change, &row.author) {
+                            if !self.named.contains(author) {
+                                let name = self.names.get(author).cloned().unwrap_or_default();
+                                let json = person_json(author, &name, None);
+                                self.frame(FRAME_AUTHOR, row.version, json.as_bytes())
+                                    .await?;
+                                self.named.insert(author.clone());
+                            }
+                        }
                         match &row.change {
                             Some(doc) => self.frame(FRAME_CHANGE, row.version, doc).await?,
                             None => self.frame(FRAME_RELOAD, row.version, &[]).await?,
@@ -697,7 +808,7 @@ impl Stream {
                 .presence_json(&self.o.design.to_string(), &self.o.account);
             let changed = match &self.last_presence {
                 Some(prev) => *prev != json,
-                None => json != "[]",
+                None => true,
             };
             if changed {
                 let since = self.o.since;
@@ -758,6 +869,28 @@ impl Stream {
             designs::live_rows_after(&tx, &state.ring, &ctx, self.o.design, self.o.since, PAGE)
                 .await
                 .map_err(|e| e.to_string())?;
+        // The display names of authors this stream has not named yet.
+        if let LiveBatch::Rows(rows) = &batch {
+            let unnamed: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r.author.clone())
+                .filter(|a| !self.named.contains(a) && !self.names.contains_key(a))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            if !unnamed.is_empty() {
+                let found = tx
+                    .query(
+                        "SELECT id, display_name FROM accounts WHERE id = ANY($1)",
+                        &[&unnamed],
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                for row in found {
+                    self.names.insert(row.get(0), row.get(1));
+                }
+            }
+        }
         tx.commit().await.map_err(|e| e.to_string())?;
         self.head = head;
         Ok(batch)
@@ -778,19 +911,19 @@ mod tests {
     #[test]
     fn a_stream_limit_holds_per_account_and_per_design() {
         let hub = Hub::default();
-        let a = hub.admit("d1", "o", "s", "alice").unwrap();
-        let _b = hub.admit("d1", "o", "s", "alice").unwrap();
+        let a = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
+        let _b = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
         assert_eq!(
-            hub.admit("d1", "o", "s", "alice").err(),
+            hub.admit("d1", "o", "s", "alice", "Alice A").err(),
             Some(Refusal::AccountDesign)
         );
         for d in 2..=4 {
             let name = format!("d{d}");
-            hub.admit(&name, "o", "s", "alice").unwrap();
-            hub.admit(&name, "o", "s", "alice").unwrap();
+            hub.admit(&name, "o", "s", "alice", "Alice A").unwrap();
+            hub.admit(&name, "o", "s", "alice", "Alice A").unwrap();
         }
         assert_eq!(
-            hub.admit("d5", "o", "s", "alice").err(),
+            hub.admit("d5", "o", "s", "alice", "Alice A").err(),
             Some(Refusal::Account)
         );
         assert!(!hub.leave(a.id));
@@ -805,32 +938,81 @@ mod tests {
         assert!(hub.allow_change("bob"));
     }
 
+    const ID_A: &str = "chassis:01HF7YAT00000000000000000C";
+
     #[test]
-    fn presence_shows_only_others_in_the_same_view() {
+    fn a_presence_body_is_validated_by_shape_and_length() {
+        let ok = |b: &str| parse_presence(b.as_bytes());
+        assert_eq!(
+            ok(r#"{"view":"canvas","selected":null}"#),
+            Some(("canvas", None))
+        );
+        assert_eq!(
+            ok(&format!(
+                r#" {{ "selected" : "{ID_A}" , "view" : "inventory" }} "#
+            )),
+            Some(("inventory", Some(ID_A.to_owned())))
+        );
+        for bad in [
+            "",
+            "{}",
+            r#"{"view":"canvas"}"#,
+            r#"{"selected":null}"#,
+            r#"{"view":"elevation","selected":null}"#,
+            r#"{"view":"canvas","selected":"not-an-id"}"#,
+            r#"{"view":"canvas","selected":"01HF7YAT00000000000000000C"}"#,
+            r#"{"view":"canvas","selected":"chassis:01HF7YAT00000000000000000C0"}"#,
+            r#"{"view":"canvas","selected":"chassi:01HF7YAT00000000000000000C"}"#,
+            r#"{"view":"canvas","selected":"chassis:01hf7yat00000000000000000c"}"#,
+            r#"{"view":"canvas","selected":null,"extra":null}"#,
+            r#"{"view":"canvas","view":"canvas","selected":null}"#,
+            r#"{"view":"canvas","selected":null"#,
+            r#"{"view":"canvas","selected":null} x"#,
+            r#"{"view":"can\u0076as","selected":null}"#,
+            r#"{"view":null,"selected":null}"#,
+            r#"[1]"#,
+        ] {
+            assert_eq!(ok(bad), None, "{bad}");
+        }
+        let long = format!(
+            r#"{{"view":"canvas","selected":null,"pad":"{}"}}"#,
+            "x".repeat(300)
+        );
+        assert_eq!(ok(&long), None);
+    }
+
+    #[test]
+    fn presence_shows_self_and_only_others_in_the_same_view() {
         let hub = Hub::default();
-        hub.admit("d", "o", "s1", "alice").unwrap();
-        hub.admit("d", "o", "s2", "bob").unwrap();
-        hub.admit("d", "o", "s3", "carol").unwrap();
-        assert!(hub.set_presence("d", "alice", "v1", "AL"));
-        assert!(hub.set_presence("d", "bob", "v1", "BO"));
-        assert!(hub.set_presence("d", "carol", "v2", "CA"));
+        hub.admit("d", "o", "s1", "alice", "Alice \"Al\" Ames")
+            .unwrap();
+        hub.admit("d", "o", "s2", "bob", "Bob Brown").unwrap();
+        hub.admit("d", "o", "s3", "carol", "Carol Cho").unwrap();
+        assert!(hub.set_presence("d", "alice", "canvas", None));
+        assert!(hub.set_presence("d", "bob", "canvas", Some(ID_A.to_owned())));
+        assert!(hub.set_presence("d", "carol", "inventory", None));
         assert_eq!(
             hub.presence_json("d", "alice"),
-            "[{\"account\":\"bob\",\"initials\":\"BO\"}]"
+            format!(
+                "{{\"self\":{{\"account\":\"alice\",\"initials\":\"AA\",\"name\":\"Alice \\\"Al\\\" Ames\"}},\"others\":[{{\"account\":\"bob\",\"initials\":\"BB\",\"name\":\"Bob Brown\",\"selected\":\"{ID_A}\"}}]}}"
+            )
         );
-        assert_eq!(hub.presence_json("d", "carol"), "[]");
-        assert!(!hub.set_presence("d", "dave", "v1", "DA"));
+        assert_eq!(
+            hub.presence_json("d", "carol"),
+            "{\"self\":{\"account\":\"carol\",\"initials\":\"CC\",\"name\":\"Carol Cho\"},\"others\":[]}"
+        );
+        assert!(!hub.set_presence("d", "dave", "canvas", None));
     }
 
     #[test]
     fn presence_goes_when_the_last_stream_of_an_account_does() {
         let hub = Hub::default();
-        let a = hub.admit("d", "o", "s1", "alice").unwrap();
-        let b = hub.admit("d", "o", "s2", "bob").unwrap();
-        hub.set_presence("d", "alice", "v", "AL");
-        hub.set_presence("d", "bob", "v", "BO");
+        let a = hub.admit("d", "o", "s1", "alice", "Alice A").unwrap();
+        let b = hub.admit("d", "o", "s2", "bob", "Bob B").unwrap();
+        hub.set_presence("d", "alice", "canvas", None);
+        hub.set_presence("d", "bob", "canvas", None);
         assert!(!hub.leave(a.id));
-        assert_eq!(hub.presence_json("d", "bob"), "[]");
+        assert!(hub.presence_json("d", "bob").ends_with("\"others\":[]}"));
         assert!(hub.leave(b.id));
     }
 }

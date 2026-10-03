@@ -657,6 +657,61 @@ fn a_second_mounted_in_for_a_chassis_is_refused() {
     ));
 }
 
+/// Tombstone an edge and replace it with one whose id sorts *before* it: the
+/// write path counts live edges, so it is legal, and the face must load again.
+fn replaced_edge_round_trips(kind: EdgeKind, from: NodeId, to: NodeId, old: u128, new: u128) {
+    let mut g = base();
+    // `old` may already be in `base`; add it only when it is not.
+    if g.edge(fathom_graph::EdgeId {
+        kind,
+        ulid: ulid(old),
+    })
+    .is_none()
+    {
+        g.begin_batch(batch_id(801), "first").unwrap();
+        g.insert_edge(kind, ulid(old), from, to, prov(801)).unwrap();
+        g.end_batch().unwrap();
+    }
+    g.begin_batch(batch_id(802), "remove").unwrap();
+    g.tombstone_exact(
+        fathom_graph::EdgeId {
+            kind,
+            ulid: ulid(old),
+        }
+        .into(),
+        Timestamp(AT),
+        me(),
+    )
+    .unwrap();
+    g.end_batch().unwrap();
+    g.begin_batch(batch_id(803), "replace").unwrap();
+    g.insert_edge(kind, ulid(new), from, to, prov(823)).unwrap();
+    g.end_batch().unwrap();
+
+    let bytes = write_plain(&g).unwrap();
+    let back = read_plain(&bytes).expect("a face the write path produced must read back");
+    assert_eq!(write_plain(&back).unwrap(), bytes);
+}
+
+#[test]
+fn a_tombstoned_edge_replaced_by_one_with_a_smaller_id_still_loads() {
+    replaced_edge_round_trips(
+        EdgeKind::MountedIn,
+        node(NodeKind::Chassis, CHASSIS),
+        node(NodeKind::Rack, RACK),
+        911,
+        905,
+    );
+    // Containment: HasRack (id 5 in `base`) replaced by id 4.
+    replaced_edge_round_trips(
+        EdgeKind::HasRack,
+        node(NodeKind::Premises, PREMISES),
+        node(NodeKind::Rack, RACK),
+        HAS_RACK,
+        4,
+    );
+}
+
 #[test]
 fn a_reused_element_id_is_refused() {
     let c = add_node(NodeKind::Rack, RACK, 900).build(1);
@@ -804,6 +859,87 @@ fn a_credential_in_a_capture_or_a_note_is_refused() {
         )
         .build(3);
     apply_change(&mut base(), &fine, me()).unwrap();
+}
+
+/// Full-length device secrets (CLAUDE.md rule 2): a real MD5-crypt hash on a
+/// bare-space `enable secret 5`, and a real-length SHA-512 crypt on a Junos line.
+const CISCO_SECRET: &str = "enable secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0";
+const JUNOS_SECRET: &str = "set system root-authentication encrypted-password \"$6$9aZ0Cq3o$Qo1fJ0mH1jXy2x6E3C8kP5W7vNnR4tY1uB0sD2gHfL9aKjM3pQwErTyUiOp5AsDfGhJkLzXcVbNm1QwErTyUiOpAsDfGh.\"";
+
+#[test]
+fn a_secret_set_and_then_overwritten_in_one_batch_is_still_refused() {
+    for secret in [CISCO_SECRET, JUNOS_SECRET] {
+        let el: ElementId = node(NodeKind::Capture, 950).into();
+        let c = add_node(NodeKind::Capture, 950, 950)
+            .text(el, CaptureField::Text.key(), secret, 951)
+            .text(el, CaptureField::Text.key(), "interfaces { }\n", 952)
+            .build(1);
+        assert!(
+            matches!(
+                refused(&base(), &c),
+                ChangeError::Credential {
+                    kind: "Capture",
+                    line: 1
+                }
+            ),
+            "{secret}"
+        );
+    }
+    // The same on an existing note, where the end state is clean.
+    let mut g = base();
+    let add = add_node(NodeKind::Note, 960, 960)
+        .text(
+            node(NodeKind::Note, 960).into(),
+            NoteField::Text.key(),
+            "replaced the key switch",
+            961,
+        )
+        .build(2);
+    apply_change(&mut g, &add, me()).unwrap();
+    let el: ElementId = node(NodeKind::Note, 960).into();
+    let c = Build::new()
+        .text(
+            el,
+            NoteField::Text.key(),
+            "pre-shared-key=Str0ngP@ssw0rd!",
+            962,
+        )
+        .text(el, NoteField::Text.key(), "fine", 963)
+        .build(3);
+    assert!(matches!(
+        refused(&g, &c),
+        ChangeError::Credential { kind: "Note", .. }
+    ));
+}
+
+#[test]
+fn a_secret_in_a_fields_history_is_found_in_a_whole_graph() {
+    for secret in [CISCO_SECRET, JUNOS_SECRET] {
+        let mut g = base();
+        g.begin_batch(batch_id(70), "history").unwrap();
+        let cap = g
+            .insert_node(NodeKind::Capture, ulid(970), prov(970))
+            .unwrap();
+        g.set_field(
+            cap.into(),
+            CaptureField::Text.key(),
+            Text(secret.into()),
+            prov(971),
+        )
+        .unwrap();
+        g.set_field(
+            cap.into(),
+            CaptureField::Text.key(),
+            Text("interfaces { }\n".into()),
+            prov(972),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        assert!(
+            fathom_workspace::find_credential(&g).is_some(),
+            "a secret only in history must still be found: {secret}"
+        );
+    }
 }
 
 #[test]

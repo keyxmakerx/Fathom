@@ -1011,7 +1011,7 @@ async fn materialise(
         }
     }
     for skip in 0..BASE_FALLBACKS {
-        let Some(rebuild) = rebuild_inputs(tx, ring, ctx, design, target, skip).await? else {
+        let Some(rebuild) = rebuild_inputs(tx, ring, ctx, design, target, skip, true).await? else {
             break;
         };
         let built = match (store, key) {
@@ -1476,6 +1476,13 @@ async fn verify_design_locked(
         None
     };
 
+    // ADR-0063 #8: a checkpoint has no chain entry, so verify replays to check
+    // it: each one must open, read, and equal the face replayed from whole
+    // saves and changes alone.
+    if deep {
+        verify_checkpoints(tx, ring, ctx, design).await?;
+    }
+
     // A design chain stores its metadata in the clear (§7.3: it is an actor,
     // an entry type and two version numbers), so `DeepInputs::metadata` is
     // empty and the verifier reads the column directly -- which means the
@@ -1504,6 +1511,51 @@ async fn verify_design_locked(
 // ---------------------------------------------------------------------------
 // Live changes and checkpoints (ADR-0063)
 // ---------------------------------------------------------------------------
+
+/// Every checkpoint of `design` against a replay that does not use any.
+async fn verify_checkpoints(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+) -> Result<(), DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let rows = tx
+        .query(
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
+               FROM design_checkpoint WHERE design_id = $1 AND organisation_id = $2 \
+              ORDER BY design_version",
+            &[&design_text, &tenant],
+        )
+        .await?;
+    let mut keys = KeyCache::default();
+    for row in rows {
+        let version: i64 = row.get(0);
+        let key_epoch: i32 = row.get(3);
+        let schema: i32 = row.get(4);
+        let stored = open_sealed(
+            Sealed::Checkpoint,
+            keys.get(tx, ring, ctx, design, key_epoch).await?,
+            &tenant,
+            &design_text,
+            version,
+            key_epoch,
+            schema,
+            &row.get::<_, Vec<u8>>(2),
+            &row.get::<_, Vec<u8>>(1),
+        )?;
+        let rebuild = rebuild_inputs(tx, ring, ctx, design, version, 0, false)
+            .await?
+            .ok_or(DesignError::Corrupt("checkpoint with no base to replay"))?;
+        let replayed = heads::replay(rebuild).await.map_err(head_failure)?;
+        if replayed != stored {
+            tracing::error!(%design, version, "a checkpoint differs from its replay");
+            return Err(DesignError::Corrupt("checkpoint differs from its replay"));
+        }
+    }
+    Ok(())
+}
 
 /// A change body above this is refused before the signature is checked.
 pub const MAX_CHANGE_BYTES: usize = 4 * 1024 * 1024;
@@ -1612,6 +1664,7 @@ async fn base_candidates(
     design: &str,
     tenant: &str,
     target: i64,
+    checkpoints: bool,
 ) -> Result<Vec<(i64, Sealed)>, DesignError> {
     let rows = tx
         .query(
@@ -1620,8 +1673,9 @@ async fn base_candidates(
              UNION ALL \
              SELECT design_version, true FROM design_checkpoint \
               WHERE design_id = $1 AND organisation_id = $2 AND design_version <= $3 \
+                AND $4 \
              ORDER BY 1 DESC LIMIT 8",
-            &[&design, &tenant, &target],
+            &[&design, &tenant, &target, &checkpoints],
         )
         .await?;
     Ok(rows
@@ -1643,6 +1697,8 @@ async fn base_candidates(
 /// The inputs for a head at `target`: the `skip`th newest base and every
 /// change after it. `None` when there is no such base. Only a checkpoint may
 /// be skipped (a failing whole save is not replaceable by an older one).
+/// With `checkpoints` false only whole saves are bases: a replay that does not
+/// trust the derived data (verify).
 pub(crate) async fn rebuild_inputs(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -1650,10 +1706,11 @@ pub(crate) async fn rebuild_inputs(
     design: DesignId,
     target: i64,
     skip: usize,
+    checkpoints: bool,
 ) -> Result<Option<Rebuild>, DesignError> {
     let tenant = ctx.tenant().to_string();
     let design_text = design.to_string();
-    let candidates = base_candidates(tx, &design_text, &tenant, target).await?;
+    let candidates = base_candidates(tx, &design_text, &tenant, target, checkpoints).await?;
     if candidates[..skip.min(candidates.len())]
         .iter()
         .any(|(_, kind)| *kind != Sealed::Checkpoint)
@@ -1870,7 +1927,7 @@ pub async fn write_change_in_tx(
             return Err(DesignError::Corrupt("design head"));
         }
         rebuild = Some(
-            rebuild_inputs(tx, auth.ring, ctx, design, current, skip)
+            rebuild_inputs(tx, auth.ring, ctx, design, current, skip, true)
                 .await?
                 .ok_or(DesignError::Corrupt("design head"))?,
         );
@@ -2052,6 +2109,10 @@ pub async fn checkpoint_if_due_in_tx(
         tip: tip.unwrap_or_default(),
     };
     let plain = materialise(tx, auth.ring, ctx, design, current, Some(&key), Some(store)).await?;
+    if fathom_workspace::read_plain(&plain).is_err() {
+        tracing::error!(%design, "a checkpoint did not read back; skipped");
+        return Ok(false);
+    }
     insert_checkpoint(tx, auth.ring, ctx, design, current, &plain).await?;
     Ok(true)
 }
@@ -2068,6 +2129,8 @@ pub struct LiveRow {
     pub version: i64,
     /// `Some(change document)`, or `None` for a whole save that landed.
     pub change: Option<Vec<u8>>,
+    /// The account that made the change.
+    pub author: Option<String>,
 }
 
 /// The rows after `since`, at most `limit` of them. If a whole save landed
@@ -2100,6 +2163,7 @@ pub(crate) async fn live_rows_after(
         rows.push(LiveRow {
             version: save,
             change: None,
+            author: None,
         });
         floor = save;
     }
@@ -2117,7 +2181,8 @@ pub(crate) async fn live_rows_after(
     }
     let found = tx
         .query(
-            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version, \
+                    created_by \
                FROM design_change \
               WHERE design_id = $1 AND organisation_id = $2 \
                 AND design_version > $3 AND design_version <= $4 \
@@ -2144,6 +2209,7 @@ pub(crate) async fn live_rows_after(
         rows.push(LiveRow {
             version,
             change: Some(doc),
+            author: Some(row.get(5)),
         });
     }
     Ok(LiveBatch::Rows(rows))

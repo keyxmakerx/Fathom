@@ -23,7 +23,8 @@ use fathom_graph::{
 };
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::{capture, note, slot_from_canon};
-use fathom_ir::generated::ir_types::{NodeKind, SCHEMA_VERSION};
+use fathom_ir::generated::ir_types::{CaptureField, NodeKind, NoteField, SCHEMA_VERSION};
+use fathom_ir::scalar::Text;
 
 use crate::{
     batch_to_json, get_arr, get_obj, key_or, obj, provenance_to_json, read_batch, read_provenance,
@@ -307,6 +308,18 @@ pub fn apply_change_in_place(
                             found: change.values.len(),
                         })?;
                         let boxed = slot_from_canon(*key, value).map_err(ChangeError::Value)?;
+                        // Every value written, not only the one left standing: a
+                        // secret set and then overwritten is still in the change.
+                        if let (ElementId::Node(n), Some(text)) =
+                            (element, boxed.downcast_ref::<Text>())
+                        {
+                            if let Some(hit) = credential_in_text(n.kind, *key, &text.0) {
+                                return Err(ChangeError::Credential {
+                                    kind: hit.0,
+                                    line: hit.1,
+                                });
+                            }
+                        }
                         graph.set_field_boxed(*element, *key, boxed, rec)?;
                     }
                     StoredPresence::Absent => graph.assert_absent(*element, *key, rec)?,
@@ -432,15 +445,49 @@ fn made_only_by(graph: &Graph, batch: &Batch, actor: Actor) -> bool {
 /// `Capture` is never hand-typed, so it is always pasted device output and
 /// bare adjacency is the right aggression. `Note.text` may be prose, so it
 /// stays on the delimiter-only check (ADR-0053 §5).
+///
+/// Superseded values count too: the history of those fields is stored and
+/// streamed with the face, so a secret there is as stored as one in the value.
 pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
     for kind in [NodeKind::Capture, NodeKind::Note] {
         for node in graph.nodes_of_kind(kind) {
             if let Some(hit) = credential_in_node(graph, node.id) {
                 return Some(hit);
             }
+            let key = match kind {
+                NodeKind::Capture => CaptureField::Text.key(),
+                _ => NoteField::Text.key(),
+            };
+            let Some(history) = graph.history(node.id.into(), key) else {
+                continue;
+            };
+            for entry in history.entries() {
+                let text = entry.value.as_ref().and_then(|v| v.downcast_ref::<Text>());
+                if let Some(hit) = text.and_then(|t| credential_in_text(kind, key, &t.0)) {
+                    return Some(hit);
+                }
+            }
         }
     }
     None
+}
+
+/// The credential check for one value written to `key` of a `kind` node:
+/// `None` unless it is `Capture.text` or `Note.text`.
+fn credential_in_text(
+    kind: NodeKind,
+    key: fathom_ir::bag::FieldKey,
+    text: &str,
+) -> Option<(&'static str, usize)> {
+    match kind {
+        NodeKind::Capture if key == CaptureField::Text.key() => {
+            credential_line(text, true).map(|l| ("Capture", l))
+        }
+        NodeKind::Note if key == NoteField::Text.key() => {
+            credential_line(text, false).map(|l| ("Note", l))
+        }
+        _ => None,
+    }
 }
 
 /// [`find_credential`] for one node; `None` for any kind but `Capture`/`Note`.

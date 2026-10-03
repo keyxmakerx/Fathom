@@ -406,7 +406,21 @@ impl Graph {
             if e.id.kind.symmetric() && e.to < e.from {
                 return Err(SnapshotError::SymmetricNotNormalised { edge: e.id });
             }
-            let (from, to) = loader.graph.check_edge_l0(e.id.kind, e.from, e.to)?;
+            // Bounds, containment and cycles are over *effective* edges, as the
+            // write path counts them: an edge that is itself tombstoned, or
+            // sits on a tombstoned node, is structurally checked and counted
+            // by nobody (a tombstone-then-replace history must load).
+            let effective = e.absent_since.is_none()
+                && [e.from, e.to].iter().all(|n| {
+                    loader
+                        .graph
+                        .nodes
+                        .get(n)
+                        .is_some_and(|n| n.absent_since.is_none())
+                });
+            let (from, to) = loader
+                .graph
+                .check_edge_l0(e.id.kind, e.from, e.to, effective)?;
             if (from, to) != (e.from, e.to) {
                 return Err(SnapshotError::SymmetricNotNormalised { edge: e.id });
             }
@@ -429,7 +443,9 @@ impl Graph {
                 .insert(e.id.ulid, ElementId::Edge(e.id));
             insert_sorted(loader.graph.out.entry((from, e.id.kind)).or_default(), e.id);
             insert_sorted(loader.graph.inn.entry((to, e.id.kind)).or_default(), e.id);
-            if e.id.kind.class() == EdgeClass::Containment {
+            if e.id.kind.class() == EdgeClass::Containment
+                && (effective || !loader.graph.owner_edge.contains_key(&to))
+            {
                 loader.graph.owner_edge.insert(to, e.id);
             }
         }

@@ -636,6 +636,18 @@ async fn sign_request(
     path: &str,
     body: &[u8],
 ) -> Vec<(&'static str, String)> {
+    let session = sign_in_session(addr, person).await;
+    sign_with(addr, &session, method, path, body, 1).await
+}
+
+/// A signed-in session whose requests the caller signs one by one.
+struct LiveSession {
+    id: String,
+    token: Vec<u8>,
+    key: SoftwareKey,
+}
+
+async fn sign_in_session(addr: SocketAddr, person: &Person) -> LiveSession {
     let session_key = SoftwareKey::random().unwrap();
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
@@ -681,14 +693,30 @@ async fn sign_request(
     let (session_id, rest) = read_lp(&answer);
     let (token, _) = read_lp(rest);
     let session_id = String::from_utf8(session_id.to_vec()).unwrap();
+    LiveSession {
+        id: session_id,
+        token: token.to_vec(),
+        key: session_key,
+    }
+}
 
+/// One signed request on `session`: a fresh nonce, then the signature.
+async fn sign_with(
+    addr: SocketAddr,
+    session: &LiveSession,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    counter: i64,
+) -> Vec<(&'static str, String)> {
+    let session_id = session.id.clone();
     let (status, answer) = post_bytes(
         addr,
         "/session/nonce",
         b"",
         &[
             (HEADER_SESSION, session_id.clone()),
-            (HEADER_TOKEN, hex(token)),
+            (HEADER_TOKEN, hex(&session.token)),
         ],
     )
     .await;
@@ -697,7 +725,6 @@ async fn sign_request(
     let nonce: [u8; 32] = nonce.try_into().unwrap();
 
     let unix_ms = now_ms();
-    let counter = 1i64;
     let message = sessions::request_bytes(
         &session_id,
         method,
@@ -707,7 +734,7 @@ async fn sign_request(
         unix_ms,
         counter,
     );
-    let signature = session_key.sign(&message);
+    let signature = session.key.sign(&message);
     vec![
         (HEADER_SESSION, session_id),
         (HEADER_NONCE, hex(nonce)),
@@ -3053,6 +3080,89 @@ mod live {
         )
     }
 
+    /// Like [`body_of`], for a batch that sets fields: the values are read back
+    /// from the graph in op order.
+    fn body_with_values(after: &Graph) -> Vec<u8> {
+        let batch = after.log().last().expect("a batch").clone();
+        let snap = after.to_snapshot().expect("snapshot");
+        let mut ids: Vec<ProvenanceId> = Vec::new();
+        let mut values = Vec::new();
+        let mut seen: std::collections::BTreeMap<
+            (fathom_graph::ElementId, fathom_ir::bag::FieldKey),
+            usize,
+        > = std::collections::BTreeMap::new();
+        for op in &batch.ops {
+            match op {
+                Op::AddNode { prov, .. } | Op::AddEdge { prov, .. } => ids.push(*prov),
+                Op::SetField {
+                    element, key, prov, ..
+                } => {
+                    ids.push(*prov);
+                    // Only the final value is in the snapshot; the earlier ones
+                    // are in the field's history, oldest first.
+                    let n = seen.entry((*element, *key)).or_default();
+                    let total = op_count(&batch, *element, *key);
+                    let value = if *n + 1 == total {
+                        let fields = match element {
+                            fathom_graph::ElementId::Node(id) => {
+                                &snap.nodes.iter().find(|x| x.id == *id).unwrap().fields
+                            }
+                            fathom_graph::ElementId::Edge(id) => {
+                                &snap.edges.iter().find(|x| x.id == *id).unwrap().fields
+                            }
+                        };
+                        fields
+                            .iter()
+                            .find(|f| f.key == *key)
+                            .and_then(|f| f.value.clone())
+                            .unwrap()
+                    } else {
+                        let h = snap
+                            .history
+                            .iter()
+                            .find(|h| h.element == *element && h.key == *key)
+                            .unwrap();
+                        h.entries[*n].value.clone().unwrap()
+                    };
+                    values.push(value);
+                    *n += 1;
+                }
+                other => panic!("this helper writes no {other:?}"),
+            }
+        }
+        ids.sort();
+        ids.dedup();
+        let provenance = ids
+            .iter()
+            .map(|id| {
+                let mut r = after.provenance(*id).expect("recorded").clone();
+                r.supersedes = None;
+                r
+            })
+            .collect();
+        let change = fathom_workspace::Change {
+            batch,
+            provenance,
+            values,
+        };
+        save_body(
+            CURRENT_SCHEMA_WIRE_VERSION,
+            &fathom_workspace::write_change(&change),
+        )
+    }
+
+    fn op_count(
+        batch: &fathom_graph::Batch,
+        element: fathom_graph::ElementId,
+        key: fathom_ir::bag::FieldKey,
+    ) -> usize {
+        batch
+            .ops
+            .iter()
+            .filter(|o| matches!(o, Op::SetField { element: e, key: k, .. } if *e == element && *k == key))
+            .count()
+    }
+
     /// Add a rack under the premises: batch `n`.
     fn add_rack(local: &mut Graph, by: AccountId, n: u128) -> Vec<u8> {
         local
@@ -3184,17 +3294,23 @@ mod live {
         raw: Vec<u8>,
         body: Vec<u8>,
         closed: bool,
+        /// Presence and author frames passed over while waiting for a change.
+        passed: Vec<(u8, Vec<u8>)>,
     }
 
     async fn open_feed(w: &World, who: &Person, since: i64) -> Feed {
-        use tokio::io::AsyncWriteExt;
         let path = w.path(&format!("live?since={since}"));
         let headers = sign_request(w.addr, who, "GET", &path, b"").await;
+        connect_feed(w, &path, &headers).await
+    }
+
+    async fn connect_feed(w: &World, path: &str, headers: &[(&'static str, String)]) -> Feed {
+        use tokio::io::AsyncWriteExt;
         let mut stream = tokio::net::TcpStream::connect(w.addr)
             .await
             .expect("connect");
         let mut head = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n");
-        for (name, value) in &headers {
+        for (name, value) in headers {
             head.push_str(&format!("{name}: {value}\r\n"));
         }
         head.push_str("\r\n");
@@ -3222,6 +3338,7 @@ mod live {
             raw: rest,
             body: Vec::new(),
             closed: false,
+            passed: Vec::new(),
         };
         feed.dechunk();
         feed
@@ -3291,17 +3408,23 @@ mod live {
             }
         }
 
+        /// The next change frame must be at `version`; presence and author
+        /// frames before it are kept in `passed`.
         async fn change_at(&mut self, version: u64) {
-            match self.next(Duration::from_secs(10)).await {
-                Next::Frame(1, v, doc) => {
-                    assert_eq!(v, version);
-                    assert!(doc.starts_with(b"fathom-change 1\n"));
+            loop {
+                match self.next(Duration::from_secs(10)).await {
+                    Next::Frame(1, v, doc) => {
+                        assert_eq!(v, version);
+                        assert!(doc.starts_with(b"fathom-change 1\n"));
+                        return;
+                    }
+                    Next::Frame(k @ (3 | 6), _, json) => self.passed.push((k, json)),
+                    Next::Frame(k, v, _) => {
+                        panic!("expected a change at {version}, got type {k} at {v}")
+                    }
+                    Next::Quiet => panic!("expected a change at {version}, got silence"),
+                    Next::Closed => panic!("expected a change at {version}, the stream closed"),
                 }
-                Next::Frame(k, v, _) => {
-                    panic!("expected a change at {version}, got type {k} at {v}")
-                }
-                Next::Quiet => panic!("expected a change at {version}, got silence"),
-                Next::Closed => panic!("expected a change at {version}, the stream closed"),
             }
         }
     }
@@ -3552,8 +3675,16 @@ mod live {
         assert!(report.contains("\"outcome\":\"verified\""), "{report}");
     }
 
+    fn presence_body(view: &str, selected: Option<&str>) -> Vec<u8> {
+        match selected {
+            Some(id) => format!("{{\"view\":\"{view}\",\"selected\":\"{id}\"}}"),
+            None => format!("{{\"view\":\"{view}\",\"selected\":null}}"),
+        }
+        .into_bytes()
+    }
+
     #[tokio::test]
-    async fn a_change_reaches_a_stream_and_presence_shows_only_the_same_view() {
+    async fn presence_and_author_frames_follow_the_wire() {
         let _site = support::lock_the_site_chain().await;
         let w = world().await;
         let drawer = a_member_with(
@@ -3564,47 +3695,124 @@ mod live {
             Some(Capability::Draw),
         )
         .await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
 
         let mut steward_feed = open_feed(&w, &w.estate.steward, 1).await;
         let mut drawer_feed = open_feed(&w, &drawer, 1).await;
-        for (who, view) in [(&w.estate.steward, "view-a"), (&drawer, "view-a")] {
-            let (status, _) = call(w.addr, who, "POST", &w.path("presence"), view.as_bytes()).await;
-            assert_eq!(status, "200");
+        let mut reader_feed = open_feed(&w, &reader, 1).await;
+        let rack = format!("rack:{}", u(RACK).encode());
+        for (who, body) in [
+            (&w.estate.steward, presence_body("canvas", None)),
+            (&drawer, presence_body("canvas", Some(&rack))),
+            (&reader, presence_body("inventory", None)),
+        ] {
+            let (status, answer) = call(w.addr, who, "POST", &w.path("presence"), &body).await;
+            assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
         }
-        let mut seen = false;
-        for _ in 0..4 {
+
+        // The steward is told of itself and of the drawer, in its own view, with
+        // what the drawer has selected; never of the reader, in another view.
+        let mut told = String::new();
+        for _ in 0..8 {
             if let Next::Frame(3, _, json) = steward_feed.next(Duration::from_secs(10)).await {
-                let json = String::from_utf8_lossy(&json);
-                if json.contains("\"initials\":\"DR\"") {
-                    seen = true;
+                told = String::from_utf8_lossy(&json).into_owned();
+                if told.contains("\"others\":[{") {
                     break;
                 }
             }
         }
-        assert!(seen, "the steward was told the drawer is in the same view");
+        assert!(
+            told.contains("\"self\":{\"account\":")
+                && told.contains("\"initials\":\"ST\",\"name\":\"steward\"}"),
+            "{told}"
+        );
+        assert!(
+            told.contains(&format!(
+                "\"initials\":\"DR\",\"name\":\"drawer\",\"selected\":\"{rack}\""
+            )),
+            "{told}"
+        );
+        assert!(!told.contains("reader"), "{told}");
 
+        // A change: the author is named once, before the change, and not again.
         let mut local = w.base.clone();
-        let body = add_rack(&mut local, drawer.account, 1);
-        let (status, _) = w.post_change(&drawer, &body, 1).await;
+        let (status, _) = w
+            .post_change(&drawer, &add_rack(&mut local, drawer.account, 1), 1)
+            .await;
         assert_eq!(status, "200");
-        for feed in [&mut steward_feed, &mut drawer_feed] {
-            loop {
-                match feed.next(Duration::from_secs(10)).await {
-                    Next::Frame(1, 2, _) => break,
-                    Next::Frame(3, ..) => {}
-                    Next::Frame(k, v, _) => panic!("unexpected frame {k} at {v}"),
-                    Next::Quiet | Next::Closed => panic!("the change did not arrive"),
-                }
-            }
+        let (status, _) = w
+            .post_change(&drawer, &add_rack(&mut local, drawer.account, 2), 2)
+            .await;
+        assert_eq!(status, "200");
+        for feed in [&mut steward_feed, &mut reader_feed, &mut drawer_feed] {
+            feed.change_at(2).await;
+            feed.change_at(3).await;
+            let authors: Vec<String> = feed
+                .passed
+                .iter()
+                .filter(|(k, _)| *k == 6)
+                .map(|(_, j)| String::from_utf8_lossy(j).into_owned())
+                .collect();
+            assert_eq!(authors.len(), 1, "{authors:?}");
+            assert!(
+                authors[0].contains(&format!("\"account\":\"{}\"", drawer.account))
+                    && authors[0].contains("\"initials\":\"DR\",\"name\":\"drawer\"}"),
+                "{authors:?}"
+            );
         }
 
-        // A stream that starts behind catches up from storage.
+        // A stream that opens behind is told the author of what it replays.
         let mut late = open_feed(&w, &w.estate.steward, 1).await;
         late.change_at(2).await;
+        assert_eq!(late.passed.iter().filter(|(k, _)| *k == 6).count(), 1);
+    }
 
-        // A read holder's presence is accepted; a body over 64 bytes is not.
-        let (status, _) = call(w.addr, &drawer, "POST", &w.path("presence"), &[b'x'; 65]).await;
-        assert_eq!(status, "400");
+    #[tokio::test]
+    async fn a_presence_body_that_is_not_the_shape_is_refused() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+        let long = format!(
+            "{{\"view\":\"canvas\",\"selected\":null,\"pad\":\"{}\"}}",
+            "x".repeat(300)
+        );
+        let bad: [&[u8]; 8] = [
+            b"canvas",
+            b"{}",
+            br#"{"view":"elevation","selected":null}"#,
+            br#"{"view":"canvas","selected":"nope"}"#,
+            br#"{"view":"canvas","selected":"01HF7YAT00000000000000000C"}"#,
+            br#"{"view":"canvas","selected":null,"x":1}"#,
+            b"",
+            long.as_bytes(),
+        ];
+        for body in bad {
+            let (status, _) = call(w.addr, &reader, "POST", &w.path("presence"), body).await;
+            assert_eq!(status, "400", "{}", String::from_utf8_lossy(body));
+        }
+        let (status, _) = call(
+            w.addr,
+            &reader,
+            "POST",
+            &w.path("presence"),
+            &presence_body("inventory", None),
+        )
+        .await;
+        assert_eq!(status, "200");
     }
 
     /// Rows of `table` for the design, as `(version, key_epoch)`, read in a
@@ -3718,5 +3926,178 @@ mod live {
         assert_eq!(status, "200");
         let graph = fathom_workspace::read_plain(&v2).expect("reads");
         assert_eq!(graph.log().len(), 2, "the base and the first change");
+    }
+
+    /// Open a stream on a session the test keeps hold of.
+    async fn open_feed_on(w: &World, who: &Person, session: &LiveSession) -> Feed {
+        let path = w.path("live?since=1");
+        let headers = sign_with(w.addr, session, "GET", &path, b"", 1).await;
+        let _ = who;
+        connect_feed(w, &path, &headers).await
+    }
+
+    /// After `ended`, a drawer's change must not reach the reader's stream, which
+    /// must close; a control stream still hears it.
+    async fn assert_closed_before_delivery(w: &World, mut ended: Feed) {
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+        let mut control = open_feed(w, &w.estate.steward, 1).await;
+        let mut local = w.base.clone();
+        let body = add_rack(&mut local, drawer.account, 1);
+        let (status, _) = w.post_change(&drawer, &body, 1).await;
+        assert_eq!(status, "200");
+        control.change_at(2).await;
+        loop {
+            match ended.next(Duration::from_secs(10)).await {
+                Next::Closed => return,
+                Next::Frame(1, v, _) => panic!("a change at {v} reached an ended session"),
+                Next::Frame(..) => {}
+                Next::Quiet => panic!("the stream stayed open"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn signing_out_closes_the_stream_before_the_next_delivery() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+        let session = sign_in_session(w.addr, &reader).await;
+        let feed = open_feed_on(&w, &reader, &session).await;
+
+        let headers = sign_with(w.addr, &session, "DELETE", "/session", b"", 2).await;
+        let (status, _) = raw_request(w.addr, "DELETE", "/session", &headers, b"").await;
+        assert_eq!(status, "200", "sign-out");
+
+        assert_closed_before_delivery(&w, feed).await;
+    }
+
+    #[tokio::test]
+    async fn disabling_the_account_closes_the_stream_before_the_next_delivery() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+        let session = sign_in_session(w.addr, &reader).await;
+        let feed = open_feed_on(&w, &reader, &session).await;
+
+        store(&w.pool, Arc::clone(&w.ring))
+            .await
+            .set_account_disabled(&reader.account.to_string(), true)
+            .await
+            .expect("disable the account");
+
+        assert_closed_before_delivery(&w, feed).await;
+    }
+
+    #[tokio::test]
+    async fn the_change_route_refuses_a_real_length_secret_even_if_it_is_overwritten() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        // Real-length device secrets, on the lines a device prints them
+        // (CLAUDE.md rule 2): a type-5 hash and a Junos SHA-512 crypt.
+        let secrets = [
+            "enable secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0",
+            "set system root-authentication encrypted-password \"$6$9aZ0Cq3o$Qo1fJ0mH1jXy2x6E3C8kP5W7vNnR4tY1uB0sD2gHfL9aKjM3pQwErTyUiOp5AsDfGhJkLzXcVbNm1QwErTyUiOpAsDfGh.\"",
+        ];
+        for (i, secret) in secrets.into_iter().enumerate() {
+            for overwrite in [false, true] {
+                let n = 100 + 2 * i as u128 + u128::from(overwrite);
+                let mut local = w.base.clone();
+                let capture = node(NodeKind::Capture, 500 + n);
+                local
+                    .begin_batch(BatchId(u(6_000_000 + n)), "paste")
+                    .unwrap();
+                local
+                    .insert_node(
+                        NodeKind::Capture,
+                        capture.ulid,
+                        prov_of(10 * n, drawer.account),
+                    )
+                    .unwrap();
+                local
+                    .set_field(
+                        capture.into(),
+                        CaptureField::Text.key(),
+                        fathom_ir::scalar::Text(secret.into()),
+                        prov_of(10 * n + 1, drawer.account),
+                    )
+                    .unwrap();
+                if overwrite {
+                    local
+                        .set_field(
+                            capture.into(),
+                            CaptureField::Text.key(),
+                            fathom_ir::scalar::Text("interfaces { }".into()),
+                            prov_of(10 * n + 2, drawer.account),
+                        )
+                        .unwrap();
+                }
+                local.end_batch().unwrap();
+                let body = body_with_values(&local);
+                let (status, answer) = w.post_change(&drawer, &body, 1).await;
+                let answer = String::from_utf8_lossy(&answer);
+                assert_eq!(status, "422", "{secret}: {answer}");
+                assert!(answer.contains("credential"), "{answer}");
+            }
+        }
+        assert_eq!(w.latest().await, 1, "nothing was stored");
+
+        // A whole save may not carry the secret in a field's history either.
+        let mut g = w.base.clone();
+        let capture = node(NodeKind::Capture, 900);
+        g.begin_batch(BatchId(u(6_100_000)), "paste").unwrap();
+        g.insert_node(
+            NodeKind::Capture,
+            capture.ulid,
+            prov_of(9000, drawer.account),
+        )
+        .unwrap();
+        for (n, text) in [(9001, secrets[0]), (9002, "interfaces { }")] {
+            g.set_field(
+                capture.into(),
+                CaptureField::Text.key(),
+                fathom_ir::scalar::Text(text.into()),
+                prov_of(n, drawer.account),
+            )
+            .unwrap();
+        }
+        g.end_batch().unwrap();
+        let save = save_body(
+            CURRENT_SCHEMA_WIRE_VERSION,
+            &fathom_workspace::write_plain(&g).expect("writes"),
+        );
+        let (status, answer) =
+            call(w.addr, &drawer, "POST", &w.path("versions?base=1"), &save).await;
+        assert_eq!(status, "422", "{}", String::from_utf8_lossy(&answer));
+        assert_eq!(w.latest().await, 1);
     }
 }
