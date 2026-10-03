@@ -14,7 +14,7 @@
 // `InsideStop.tsx`. This file only forwards to it, the same as `load`/
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
-import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult } from './engine';
+import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult, type TraceResult } from './engine';
 import { errorName } from './protocol.constants';
 import { readPlain, writeDelta, writePlain } from '../document/plain';
 import type { Document } from '../document/model';
@@ -137,6 +137,11 @@ export class Mirror {
    * drawer and inside stop both open. */
   inside(deviceId: string): InsideFaces {
     return this.engine.inside(deviceId);
+  }
+
+  /** `OP_TRACE` over the estate `load` last put in the module. */
+  trace(from: string, to: string, flow?: { protocol: number; port: number }): TraceResult {
+    return this.engine.trace(from, to, flow);
   }
 
   /** `OP_CHECKS` over the estate `load` last put in the module. */

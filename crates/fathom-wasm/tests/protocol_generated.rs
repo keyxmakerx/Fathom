@@ -150,6 +150,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_SYNC",
             code: m::OP_SYNC,
         },
+        Entry {
+            name: "OP_TRACE",
+            code: m::OP_TRACE,
+        },
     ]
 }
 
@@ -533,6 +537,39 @@ fn faces() -> Vec<FaceEntry> {
             name: "FACE_IN_TUNNEL",
             code: p::FACE_IN_TUNNEL as u32,
             columns: &["id", "name", "unit", "", "", "", "", ""],
+        },
+        FaceEntry {
+            name: "FACE_TR_HEAD",
+            code: p::FACE_TR_HEAD as u32,
+            columns: &["from", "to", "flow", "stopped", "hop_count", "", "", ""],
+        },
+        FaceEntry {
+            name: "FACE_TR_HOP",
+            code: p::FACE_TR_HOP as u32,
+            columns: &[
+                "n",
+                "kind",
+                "title",
+                "detail",
+                "nodes",
+                "why",
+                "source",
+                "scope",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_TR_POL",
+            code: p::FACE_TR_POL as u32,
+            columns: &[
+                "hop",
+                "id",
+                "ordinal",
+                "name",
+                "action",
+                "state",
+                "reason",
+                "placed",
+            ],
         },
         FaceEntry {
             name: "FACE_INV_KEY",
