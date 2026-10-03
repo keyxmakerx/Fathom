@@ -251,7 +251,7 @@ try {
     await page.waitForFunction(() => document.querySelector('.inv-corr--page h3')?.textContent?.includes('(0)'), null, { timeout: 8_000 });
     await r.gotoCable(1, 'notes');
     await page.waitForSelector('.inv-page__body', { timeout: 10_000 });
-    check('draw: a not-here report became a note on the cable', (await page.locator('.inv-page__body').innerText()).includes('Reported not here: Behind the blanking plate in B3'), await page.locator('.inv-page__body').innerText());
+    check('draw: a not-here report became a note on the cable', /Reported not here by .+: Behind the blanking plate in B3/.test(await page.locator('.inv-page__body').innerText()), await page.locator('.inv-page__body').innerText());
     check('draw: nothing is waiting now', !/Corrections waiting/.test(await rail.innerText()));
     await r.shot('corrections-08-draw-note.png');
 

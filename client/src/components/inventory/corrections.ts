@@ -47,7 +47,7 @@ export function applyCorrection(doc: Document, c: CorrectionView, opts?: Actor):
   } else if (c.kind === 'label') {
     working = setCableField(doc, c.cable, 'label', c.text, opts);
   } else {
-    working = addNote(doc, c.cable, { text: `Reported not here: ${c.text}`, how: 'typed', actor: opts?.actor });
+    working = addNote(doc, c.cable, { text: `Reported not here by ${c.senderName}: ${c.text}`, how: 'typed', actor: opts?.actor });
   }
   const folded = foldFrom(working, before);
   const last = folded.batches[folded.batches.length - 1];

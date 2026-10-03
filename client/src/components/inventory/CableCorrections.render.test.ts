@@ -58,8 +58,11 @@ describe('corrections on a cable page', () => {
     expect(out).not.toContain('Label wrong');
   });
 
-  it('a drawer with nothing waiting sees nothing', () => {
-    expect(html(api(true, [c({ state: 'accepted' })]))).toBe('');
+  it('a drawer with nothing waiting sees only the Traced stamp', () => {
+    const out = html(api(true, [c({ state: 'accepted' })]));
+    expect(out).toContain('Traced');
+    expect(out).not.toContain('Label wrong');
+    expect(out).not.toContain('Not here');
   });
 
   it('says each kind in a sentence', () => {

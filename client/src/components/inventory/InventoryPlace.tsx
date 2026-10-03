@@ -498,6 +498,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const correctionsApi: CorrectionsApi = {
     list: corrections.list,
     canDraw,
+    redact,
     send: corrections.send,
     accept: async (c) => {
       if (!liveDoc.current) return { refused: 'No design is open.' };

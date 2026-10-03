@@ -49,7 +49,7 @@ describe('accepting a correction', () => {
 
   it('a not-here report is added as a note on the cable', () => {
     const next = applyCorrection(e.doc, correction({ kind: 'not_here', text: 'Behind the blanking plate' }), { actor: 'acct-draw' });
-    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here: Behind the blanking plate']);
+    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here by Ann: Behind the blanking plate']);
     expect(next.batches.length).toBe(e.doc.batches.length + 1);
   });
 
@@ -69,7 +69,7 @@ describe('accepting a correction', () => {
 
   it('puts no sender name in the note, so a surname like Key cannot trip a later save', () => {
     const next = applyCorrection(e.doc, correction({ kind: 'not_here', text: 'In B3', senderName: 'Key Secret' }), { actor: 'acct-draw' });
-    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here: In B3']);
+    expect(notesOf(next, cableId).map((n) => n.text)).toEqual(['Reported not here by Key Secret: In B3']);
     expect(next.batches[next.batches.length - 1]!.label).toBe("accepted Key Secret's correction");
   });
 
