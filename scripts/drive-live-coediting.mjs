@@ -504,7 +504,7 @@ async function runProof(browser, seed) {
   await A.locator('[data-testid="live-overwrite"]').first().scrollIntoViewIfNeeded().catch(() => {});
   await shotA('09a-ann-one-notice-for-two-fields-scrolled-into-view');
   await shotB('09a-bob-after-overwriting-two-fields');
-  const putBacks = A.locator('[data-testid="live-overwrite"]').getByRole('button', { name: 'Put mine back' });
+  const putBacks = A.locator('[data-testid="live-overwrite"]').locator('button', { hasText: 'Put mine back' });
   if ((await putBacks.count()) >= 1) {
     await putBacks.first().click();
     await A.waitForTimeout(2000);
@@ -515,8 +515,42 @@ async function runProof(browser, seed) {
     await shotA('09b-ann-after-putting-one-back');
     if (left > 0) await A.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click();
     check('9. Keep clears what is left', (await A.locator('[data-testid="live-overwrite"]').count()) === 0);
+    for (const t of [500, 2000, 4000]) { await A.waitForTimeout(t); console.log(`     9: +${t}ms after Keep, notices on A: ` + JSON.stringify(await A.locator('[data-testid="live-overwrite"]').allInnerTexts())); }
   }
   await B.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click({ timeout: 3000 }).catch(() => {});
+
+  // ---- 10. the notice follows the element, not the open panel --------------
+  // Ann writes Serial on device 1, then looks at device 2; Bob overwrites
+  // device 1's Serial. Ann's notice must not appear under device 2's fields.
+  console.log(`     10: before: notices on A=${await A.locator('[data-testid="live-overwrite"]').count()}, on B=${await B.locator('[data-testid="live-overwrite"]').count()}`);
+  await A.bringToFront();
+  await A.locator('.drawing-chassis').nth(0).click();
+  await setField(A, fieldValue(A, 'Serial'), 'SN-ANN-DEV1');
+  await until(async () => (await fieldText(B, 'Serial')) === 'SN-ANN-DEV1', 10000);
+  await A.locator('.drawing-chassis').nth(1).click();
+  const aPanelTitle = await A.locator('.drawing-editor__panel .drawing-editor__title').first().innerText();
+  await B.bringToFront();
+  await setField(B, fieldValue(B, 'Serial'), 'SN-BOB-DEV1');
+  await B.waitForTimeout(2500);
+  console.log('     10: notice text(s) on A: ' + JSON.stringify(await A.locator('[data-testid="live-overwrite"]').allInnerTexts()));
+  const n10 = await until(async () => (await A.locator('[data-testid="live-overwrite"]').count()) === 1, 10000);
+  const place10 = n10 ? await A.locator('[data-testid="live-overwrite"]').evaluate((el) => ({
+    inPanel: !!el.closest('.drawing-editor__panel'),
+    inCorner: !!el.closest('.shell__notices-corner'),
+    inInspector: !!el.closest('.shell-editor'),
+    text: el.innerText.replace(/\s+/g, ' '),
+  })) : null;
+  check('10. Ann has device 2 open, Bob overwrote device 1: the notice is in the canvas corner, not under device 2\'s fields',
+    !!n10 && place10.inCorner && !place10.inPanel, JSON.stringify({ panelShows: aPanelTitle.trim(), ...place10 }));
+  check('10. the notice names device 1', !!n10 && /core-sw-01/.test(place10.text), place10?.text);
+  await shotA('10-ann-other-device-open-notice-in-canvas-corner');
+  // Opening the overwritten device brings it under the field.
+  await A.locator('.drawing-chassis').nth(0).click();
+  const moved = await until(async () => A.locator('[data-testid="live-overwrite"]').evaluate((el) => !!el.closest('.drawing-editor__panel')).catch(() => false), 8000);
+  console.log(`     10: after Ann opens device 1 the notice is under its field: ${!!moved}`);
+  await shotA('10b-ann-opens-device-1-notice-under-field');
+  await A.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click().catch(() => {});
+  await B.locator('[data-testid="live-overwrite"]').getByRole('button', { name: /^Keep/ }).click({ timeout: 2000 }).catch(() => {});
 
   // ---- 7. the read-only holder -------------------------------------------
   const ctxC = await browser.newContext({ viewport: { width: 1440, height: 900 } });
