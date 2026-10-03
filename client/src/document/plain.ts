@@ -164,7 +164,7 @@ function plainErrorMessage(r: PlainErrorReason): string {
   }
 }
 
-function shapeErr(path: string, expected: string): PlainError {
+export function shapeErr(path: string, expected: string): PlainError {
   return new PlainError({ kind: 'shape', path, expected });
 }
 
@@ -410,7 +410,7 @@ function originToJson(o: Origin): CanonValue {
   };
 }
 
-function provenanceToJson(r: ProvenanceRecord): CanonValue {
+export function provenanceToJson(r: ProvenanceRecord): CanonValue {
   const out: { [key: string]: CanonValue } = {
     asserted_at: r.assertedAt,
     asserted_by: { user: r.assertedBy },
@@ -454,7 +454,7 @@ function opToJson(op: Op): CanonValue {
   }
 }
 
-function batchToJson(b: Batch): CanonValue {
+export function batchToJson(b: Batch): CanonValue {
   const out: { [key: string]: CanonValue } = { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
   // ADR-0053 §4: both optional, written only when present.
   if (b.comment !== undefined) out.comment = b.comment;
@@ -475,14 +475,14 @@ function documentToJson(doc: Document): CanonValue {
 // ---------------------------------------------------------------------------
 // canonical JSON -> Document
 
-function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
+export function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     throw shapeErr(path, 'a JSON object');
   }
   return v;
 }
 
-function isArr(v: CanonValue, path: string): CanonValue[] {
+export function isArr(v: CanonValue, path: string): CanonValue[] {
   if (!Array.isArray(v)) throw shapeErr(path, 'a JSON array');
   return v;
 }
@@ -497,7 +497,7 @@ function isNum(v: CanonValue, path: string): number {
   return v;
 }
 
-function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
+export function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
   if (!(key in m)) throw shapeErr(`${path}.${key}`, 'a required key');
   return m[key];
 }
@@ -570,7 +570,7 @@ function readOrigin(v: CanonValue, path: string): Origin {
   };
 }
 
-function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
+export function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
   const m = isObj(v, path);
   const actor = isObj(req(m, 'asserted_by', path), path);
   if (!('user' in actor) || Object.keys(actor).length !== 1) {
@@ -661,7 +661,7 @@ function readOp(v: CanonValue, path: string): Op {
   }
 }
 
-function readBatch(v: CanonValue, path: string): Batch {
+export function readBatch(v: CanonValue, path: string): Batch {
   const m = isObj(v, path);
   const ops = isArr(req(m, 'ops', path), `${path}.ops`).map((o, i) => readOp(o, `${path}.ops[${i}]`));
   const batch: Batch = { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };

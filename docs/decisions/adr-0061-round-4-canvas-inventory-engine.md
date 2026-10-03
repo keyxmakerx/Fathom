@@ -134,8 +134,37 @@ Still open: private custom fields (#93 builds shared fields only).
   Files open as downloads, never inside Fathom.
 - **Guided lessons:** sample networks first, each lesson in its own copy that can't touch a real
   design; lessons on your own design follow later as a lesson type.
-- **Inventory's list of kinds:** sent back. Key Maker leaned to the flat list (A) as cleaner but
-  asked for a mix of both, worked from real lookups. A new card follows.
+- **Inventory's list of kinds:** sent back, then settled below.
+
+## Round 10, later answers (2026-10-03)
+
+- **Inventory at scale** (prototype v5, after a three-reviewer panel): kinds in a side list with
+  saved views nested under them; Ports is a kind; a Where bar (site, room, rack) scopes everything.
+  One search box reads any clue (label, part of one, MAC in any format, device and port, serial)
+  and says how it read it; it jumps only on one exact match. One filter language, reached by typing
+  (with a "?" field list and suggestions), column menus or a Filters panel; it lives in the URL and
+  saves as a view. A cable page walks the path through patch panels; field corrections are
+  proposals someone with Draw accepts. Opening a row replaces the list; Back restores it.
+- **Files the gate can't read:** photos and scanned pages are allowed, labelled "Not checked",
+  after the person adding each one confirms it shows no passwords. A PDF's text is checked in the
+  browser once a PDF reader passes security review; until then PDFs are "Not checked" too.
+- **Delete for good** (design thread): removing a file stays undoable; a separate delete erases the
+  stored bytes and keeps name, size, hash, who and when in history. Before alpha.
+
+## Round 11 (2026-10-03)
+
+- **History** lives in a panel beside the canvas: the verify result in words, saves newest first,
+  pick one to see the design as it was with that save's changes outlined. Restore makes a new save;
+  history is never rewritten. An auditor's page comes later as Export from the same list.
+- **Network icons** are drawn in outline, in ink, like the rest of the canvas.
+- **Cable corrections** can be sent by anyone with Read on the place; no new access level. Someone
+  with Draw accepts or dismisses; both are recorded with the sender's name.
+- **People and access:** one invite flow, but confirming each person who joins one at a time was
+  sent back as too tedious. Access is still signed only after the person joins, because the grant
+  names their own key (PHASE-2 design §6.4: no grant to an account without a registered key; batches are capped and listed); a
+  capped, listed batch confirm is the way to make it quick. Recorded once answered.
+- **Design defaults** (design thread): pasted interfaces join drawn ports only by a confirmed
+  suggestion (the `Occupies` rule); suggestions come only from cited, dated vendor naming.
 
 ## Troubleshooting, built 2026-10-03
 
@@ -155,6 +184,5 @@ Still open: private custom fields (#93 builds shared fields only).
 - **Plan a fix** saves the issue, makes "Fix: <device> is down" with one `other` step per suspect, links
   it and opens it, as one undo. Off, with a one-line reason, while nothing is suspect.
 - **Canvas:** the chain stays full strength, the rest takes the Checks fade, cables draw in ink; the
-  step in hand is outlined and what the answers point at wears "POINTS HERE". No colour is added.
+  step in hand is outlined and what the answers point at wears "YOUR ANSWERS POINT HERE". No colour is added.
 - **Checked by** `scripts/drive-troubleshoot.mjs` (real browser; not in CI, as drive-plans is not).
-

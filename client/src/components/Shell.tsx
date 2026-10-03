@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import '../styles/shell.css';
 import { Bar } from './shell/Bar';
 import { Editor } from './shell/Editor';
@@ -31,6 +33,7 @@ export function Shell({
   lens,
   onLensChange,
   look,
+  layers,
   presence,
   zoom,
   onZoomIn,
@@ -43,8 +46,14 @@ export function Shell({
   onPrint,
   onShare,
   onDocs,
+  onHistory,
+  historyOpen,
   account,
   editor,
+  notices,
+  noticeField,
+  noticeElement,
+  announce,
   rail,
   trail,
   trailOpen,
@@ -57,9 +66,21 @@ export function Shell({
   adminPill,
   onHome,
   search,
+  cablesGroupsPopover,
+  cablesGroupsSummary,
+  hiddenCablesCount,
+  onShowAllHiddenCables,
 }: ShellProps) {
+  // The notice sits under its field when the open panel shows it; otherwise in the canvas corner.
+  const [anchored, setAnchored] = useState(false);
+  const inEditor = editor != null && anchored;
   return (
     <div className="shell">
+      {announce !== undefined && (
+        <div className="shell__sr-only" role="status" aria-live="polite">
+          {announce}
+        </div>
+      )}
       <Bar
         place={place}
         onPlaceChange={onPlaceChange}
@@ -68,6 +89,7 @@ export function Shell({
         lens={lens}
         onLensChange={onLensChange}
         look={look}
+        layers={layers}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}
@@ -80,6 +102,8 @@ export function Shell({
         onPrint={onPrint}
         onShare={onShare}
         onDocs={onDocs}
+        onHistory={onHistory}
+        historyOpen={historyOpen}
         account={account}
         viewOnly={viewOnly}
         barExtra={barExtra}
@@ -87,6 +111,10 @@ export function Shell({
         adminPill={adminPill}
         onHome={onHome}
         search={search}
+        cablesGroupsPopover={cablesGroupsPopover}
+        cablesGroupsSummary={cablesGroupsSummary}
+        hiddenCablesCount={hiddenCablesCount}
+        onShowAllHiddenCables={onShowAllHiddenCables}
       />
       {band}
       <div className="shell__body">
@@ -95,8 +123,13 @@ export function Shell({
         {rail != null && <Strip rail={rail} />}
         <main className="shell__drawing" aria-label="Drawing">
           {children}
+          {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
-        {editor != null && <Editor>{editor}</Editor>}
+        {editor != null && (
+          <Editor notices={notices} noticeField={noticeField} noticeElement={noticeElement} onAnchored={setAnchored}>
+            {editor}
+          </Editor>
+        )}
         {/* The trail folds to a strip on the right; it can be open beside the editor. */}
         {trail != null && (
           <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>

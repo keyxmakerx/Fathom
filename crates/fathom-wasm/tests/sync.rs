@@ -514,7 +514,7 @@ fn cut(sim: &mut Sim, el: ElementId, id: u128) {
 }
 
 #[test]
-fn a_revive_after_a_reparent_is_resync_because_the_full_load_refuses_it() {
+fn a_revive_after_a_reparent_loads_and_syncs() {
     let mut sim = Sim::new(1);
     let (c1, c2, p, e1) = owned_port(&mut sim, None);
     let (mut sh, before) = held(&sim);
@@ -531,11 +531,12 @@ fn a_revive_after_a_reparent_is_resync_because_the_full_load_refuses_it() {
     });
     assert_eq!(sim.g.owner(p), Some(c1));
 
-    // The design as the page holds it: a full load refuses it, and so does the delta.
+    // The replaced edge is tombstoned, so it counts against nothing: a full load takes the
+    // design as the write path built it, and so does the delta.
     let plain = fathom_workspace::write_plain(&sim.g).unwrap();
-    assert!(fathom_workspace::read_plain(&plain).is_err());
-    assert_eq!(code(&sync_reply(&mut sh, &sim.g, seen)), Some(ERR_RESYNC));
-    assert_eq!(export(&mut sh), before);
+    assert!(fathom_workspace::read_plain(&plain).is_ok());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
+    assert_ne!(export(&mut sh), before);
 }
 
 #[test]

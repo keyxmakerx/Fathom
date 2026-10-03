@@ -15,15 +15,15 @@
 //! names: evidence the ops do not explain is refused, not dropped.
 //!
 //! **Loadable.** A store this accepts must reload through `Graph::from_snapshot`, whose edge
-//! ladder (in `EdgeId` order, against the final tombstones) is stricter than the write path's
-//! (in time order). A delta that revives a node, or adds or revives an edge ordered before an
-//! ineffective one, is therefore re-run through that ladder (`Graph::check_loadable`) and refused
-//! if the loader would refuse. Any other delta cannot make the loader refuse, and is not.
+//! ladder runs in `EdgeId` order against the final tombstones, not in time order. A delta that
+//! may make the two differ is re-run through that ladder (`Graph::check_loadable`) and refused
+//! if the loader would refuse.
 //!
 //! **All or nothing.** Every mutation leaves an undo entry; a refusal runs them back, so a
 //! failed delta leaves the store as it was, including its log and its adjacency maps.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use fathom_canon::Json;
 use fathom_ir::bag::FieldKey;
@@ -475,7 +475,7 @@ impl Graph {
                     let Some(j) = &f.value else { return Err(bad) };
                     Some(Slot {
                         presence,
-                        value: Some(slot_from_canon(key, j)?),
+                        value: Some(Rc::from(slot_from_canon(key, j)?)),
                         prov,
                     })
                 }
@@ -661,7 +661,7 @@ impl Graph {
                 .get(&e.prov)
                 .ok_or(SyncError::DanglingProvenance { id: e.prov })?;
             let value = match (e.presence, &e.value) {
-                (StoredPresence::Set, Some(j)) => Some(slot_from_canon(h.key, j)?),
+                (StoredPresence::Set, Some(j)) => Some(Rc::from(slot_from_canon(h.key, j)?)),
                 (StoredPresence::Set, None) | (_, Some(_)) => {
                     return Err(SyncError::Mismatch {
                         element: h.element,

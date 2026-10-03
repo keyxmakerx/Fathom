@@ -545,6 +545,7 @@ dependencies = [
  "fathom-canon",
  "fathom-graph",
  "fathom-id",
+ "fathom-ingest",
  "fathom-ir",
 ]
 

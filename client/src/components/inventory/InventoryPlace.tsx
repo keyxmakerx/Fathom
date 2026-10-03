@@ -80,6 +80,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   onShowOnRack: (selection: Selection) => void;
   /** An Inventory issue page's "Show on canvas": the Canvas place with that issue open. */
   onShowIssue?: (issueId: string) => void;
+  /** What is selected, by element id, for presence (ADR-0063 §12). */
+  onSelectedChange?: (id: string | null) => void;
   /** ADR-0053 §5/§6 — Notes, the same three doors `RacksPlace.tsx`
    * receives, built once by `DesignPlace.tsx` and threaded straight into
    * this place's own `EditorFor` call: "the one editor" holds for Notes
@@ -100,11 +102,15 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  * unbuilt rather than a grid with nothing behind it.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onShowIssue, notesActions, tagsActions, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, notesActions, tagsActions, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
   const [selection, setSelection] = useState<Selection | null>(null);
+  const selectedId = selection?.id ?? null;
+  useEffect(() => {
+    onSelectedChange?.(selectedId);
+  }, [onSelectedChange, selectedId]);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const groups = useMemo(() => (doc ? groupDeviceRows(view, doc) : []), [view, doc]);

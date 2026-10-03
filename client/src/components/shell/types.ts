@@ -19,9 +19,11 @@ export interface ShellSearch {
   choose: (selection: SearchHit['selection']) => void;
 }
 
-/** One name chip in "who else is here". */
+/** One person in "who else is here", drawn as an initials dot. */
 export interface PresenceUser {
   id: string;
+  initials: string;
+  /** Their display name, for the dot's label and title. */
   name: string;
 }
 
@@ -55,11 +57,13 @@ export interface ShellProps {
   lens: Lens;
   onLensChange: (lens: Lens) => void;
 
+  /** The Show ▾ menu of canvas layers (Racks place only). */
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void };
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
-  /** Who else is here, as name chips. Empty renders no chips — never a
-   * placeholder name. */
+  /** Who else is in this view, as initials dots. Empty renders nothing —
+   * never a placeholder name. */
   presence: PresenceUser[];
 
   /** The zoom percentage shown between the sign buttons, e.g. `100`. */
@@ -81,6 +85,10 @@ export interface ShellProps {
   onShare?: () => void;
   /** The design's docs list; absent with no design open. */
   onDocs?: () => void;
+  /** The History button; absent with no design open. */
+  onHistory?: () => void;
+  /** History is open: the button reads as on. */
+  historyOpen?: boolean;
 
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
@@ -96,12 +104,29 @@ export interface ShellProps {
   /** Quick search. Absent where there is nothing to search yet (Home, Site). */
   search?: ShellSearch;
 
+  /** The Cables list, hanging from the Cables lens. `Bar.tsx`'s own doc:
+   * absent everywhere but the Racks place. */
+  cablesGroupsPopover?: ReactNode;
+  cablesGroupsSummary?: string | null;
+  /** The hidden-one-at-a-time chip. */
+  hiddenCablesCount?: number;
+  onShowAllHiddenCables?: () => void;
+
   /** ADR-0052 §5: the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the
    * bar. Omitted or `false` on Home and everywhere a reader could not have
    * landed anyway. */
   viewOnly?: boolean;
 
+  /** The live design's notices. Shown under the editor's fields, or at the
+   * canvas's top right while no editor is open. */
+  notices?: ReactNode;
+  /** The panel label of the field the notice sits under ("serial"). */
+  noticeField?: string | null;
+  /** The element the notice is about; it sits in the editor only if the panel shows this element. */
+  noticeElement?: string | null;
+  /** What the one always-present, visually hidden status region says. */
+  announce?: string;
   /** A chip for the bar's trailing group, before Undo (the Checks count). */
   barExtra?: ReactNode;
 
