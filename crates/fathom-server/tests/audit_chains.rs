@@ -1367,6 +1367,19 @@ async fn the_act_applies_when_the_destination_is_dead_and_drains_in_order_when_i
         "nothing may be dropped while the destination is unreachable"
     );
 
+    // The queue is shared with every other test binary, and a drain only takes
+    // its first batch. Ship the older entries of other chains to a sink until
+    // this chain's are in the batch, so the dead attempt below reaches them.
+    let sink = Receiver::start().await;
+    for _ in 0..50 {
+        let head = audit::peek(&su, 64).await.expect("peek");
+        if head.iter().any(|e| e.chain_id == chain_id) {
+            break;
+        }
+        audit::drain_once(&su, &sink.target()).await.expect("drain");
+    }
+    sink.stop();
+
     // A drain attempt against the dead address fails, and drops nothing.
     let err = audit::drain_once(&su, &dead)
         .await
