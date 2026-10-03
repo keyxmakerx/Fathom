@@ -210,6 +210,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
+  /** The cable ids the Cables list shows, or `null` when it shows them all — for "as shown on screen" in print. */
+  onShownCablesChange?: (ids: ReadonlySet<string> | null) => void;
   /** The Cables list's own storage key (`fathom.cables.<designId>`), one
    * per design, never the document. */
   designId: string;
@@ -242,6 +244,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     notesActions,
     tagsActions,
     onActiveRackChange,
+    onShownCablesChange,
     designId,
     ...shellProps
   } = props;
@@ -590,6 +593,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const cablesGroupsSummary = isCableGroupsFiltered(effectiveCableGroupsState)
     ? `${cableDraw.drawnIds.size} of ${closetCableIds.size}`
     : null;
+  const cablesFiltered = isCableGroupsFiltered(effectiveCableGroupsState);
+  useEffect(() => {
+    onShownCablesChange?.(cablesFiltered ? cableDraw.drawnIds : null);
+  }, [onShownCablesChange, cablesFiltered, cableDraw]);
   const hiddenCablesInClosetCount = closetHiddenCableCount(displayView, effectiveCableGroupsState.hiddenCableIds);
 
   const handleToggleCableHidden = useCallback(
@@ -1180,6 +1187,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          drawnCableIds={cableDraw.drawnIds}
+          dashedCableIds={cableDraw.dashedIds}
         />
       ) : (
         <Drawing

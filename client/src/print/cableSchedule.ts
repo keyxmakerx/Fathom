@@ -32,6 +32,7 @@ export function buildCableScheduleRows(doc: Document, view: ClosetView): CutShee
   const sorted = [...view.cables].sort((a, b) => Number(!a.label) - Number(!b.label) || (a.label ?? '').localeCompare(b.label ?? '') || a.id.localeCompare(b.id));
   return sorted.map((c) => ({
     isDeviceHeader: false,
+    key: c.id,
     row: {
       bold: false,
       cells: [

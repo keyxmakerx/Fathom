@@ -15,6 +15,8 @@ export interface PrintPanelProps {
   hasView: boolean;
   /** The Inventory table's rows can be printed (the Inventory page is open). */
   hasInventory: boolean;
+  /** The Cables list is filtering, so "as shown on screen" differs from "all". */
+  cablesFiltered: boolean;
   rackCount: number;
   /** Takes the canvas picture; resolves `null` when there is no drawing on screen. */
   captureView: (blackAndWhite: boolean) => Promise<string | null>;
@@ -40,6 +42,7 @@ export function PrintPanel({
   buildJob,
   hasView,
   hasInventory,
+  cablesFiltered,
   rackCount,
   captureView,
   onPrint,
@@ -220,6 +223,11 @@ export function PrintPanel({
           <button type="button" className={cables === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('all')} data-testid="print-cables-all">
             All
           </button>
+          {cablesFiltered && (
+            <button type="button" className={cables === 'screen' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('screen')} data-testid="print-cables-screen">
+              As shown on screen
+            </button>
+          )}
         </div>
       )}
 

@@ -20,7 +20,6 @@ import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
 import { StubTags } from './StubTags';
-import { SHEATH_VAR, needsHairlineOutline } from './sheath';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 
@@ -49,6 +48,8 @@ interface LineData extends Record<string, unknown> {
   stub?: [StubEnd, StubEnd];
   /** Selected, or its tag hovered: the whole cable draws even when its far end is off screen. */
   lit: boolean;
+  /** A ticked VLAN group's trunk member: drawn dashed. */
+  dashed: boolean;
   /** Another cable is lit: this one fades to the phantom level. */
   dimmed: boolean;
   onSelect: (cableId: string) => void;
@@ -60,8 +61,9 @@ const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copp
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, lit, dimmed, onSelect, onHover, onPanTo } = data;
-  const colour = SHEATH_VAR[cable.sheath ?? 'grey'];
+  const { cable, route, stub, lit, dashed, dimmed, onSelect, onHover, onPanTo } = data;
+  // Round 10: cables are plain ink on the canvas; sheath colours live in the Rack look only.
+  const colour = 'var(--ink)';
   const width = WIDTH_VAR[cable.kind];
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const tags =
@@ -87,8 +89,7 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       onMouseEnter={() => onHover(cable.id)}
       onMouseLeave={() => onHover(null)}
     >
-      {needsHairlineOutline(cable.sheath ?? 'grey') && <path d={route.d} fill="none" stroke="var(--hairline)" strokeWidth={`calc(${width} + 2px)`} strokeLinejoin="miter" />}
-      <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" />
+      <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} />
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
       {tags}
     </g>
@@ -105,9 +106,12 @@ export interface DiagramDrawingProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   fitRequest?: number;
+  /** The Cables list's draw rule; `undefined` draws every cable, none dashed. */
+  drawnCableIds?: ReadonlySet<string>;
+  dashedCableIds?: ReadonlySet<string>;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
@@ -143,7 +147,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const litId = selectedCableId ?? hoverId;
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
-    return diagramLines(view, new Set(byId.keys())).map((line) => {
+    return diagramLines(view, new Set(byId.keys()))
+      .filter((line) => drawnCableIds == null || drawnCableIds.has(line.cable.id))
+      .map((line) => {
       const ba = byId.get(line.a)!;
       const bb = byId.get(line.b)!;
       const route = orthRoute(ba, bb, line.lane);
@@ -163,10 +169,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         target: line.b,
         selectable: false,
         className: line.cable.id === selectedCableId ? 'drawing-diagram-line--selected' : undefined,
-        data: { cable: line.cable, route, stub, lit, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
 
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);

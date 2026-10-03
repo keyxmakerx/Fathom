@@ -10,7 +10,8 @@ import { allCableLines, elevationCableLines, rackDeviceRows, type ElevationCable
 export const PRINT_SECTIONS = ['view', 'racks', 'cables', 'ports', 'inventory'] as const;
 export type PrintSection = (typeof PRINT_SECTIONS)[number];
 export type RackScope = 'all' | 'active';
-export type CablesOption = 'none' | 'all';
+/** `screen`: only the cables the Cables list currently shows. */
+export type CablesOption = 'none' | 'all' | 'screen';
 
 export interface PrintOptions {
   paper: PaperSize;
@@ -87,9 +88,11 @@ function buildRackSheet(
   options: Pick<PrintOptions, 'cables' | 'hideSensitive'>,
   cables: readonly CableView[],
   designName: string,
+  shown: ReadonlySet<string> | null,
 ): RackSheetUnpaginated {
   const sheathByCableId = new Map(cables.map((c) => [c.id, c.sheath] as const));
-  const cablesNote = options.cables === 'all' ? 'cables: all' : 'cables: none';
+  const cablesNote = options.cables === 'all' ? 'cables: all' : options.cables === 'screen' ? 'cables: as shown on screen' : 'cables: none';
+  const keep = (lines: ElevationCableLine[]) => (options.cables === 'none' ? [] : lines.filter((l) => options.cables === 'all' || shown == null || shown.has(l.cableId)));
   const deviceCount = rack.chassis.length + rack.shelves.reduce((sum, s) => sum + s.occupants.length, 0);
   return {
     kind: 'rack',
@@ -101,9 +104,9 @@ function buildRackSheet(
     chassis: rack.chassis,
     shelves: rack.shelves,
     hideSensitive: options.hideSensitive,
-    frontCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'front', sheathByCableId) : [],
-    rearCables: options.cables === 'all' ? elevationCableLines(rack.chassis, 'rear', sheathByCableId) : [],
-    allCables: options.cables === 'all' ? allCableLines(rack.chassis, sheathByCableId) : [],
+    frontCables: keep(elevationCableLines(rack.chassis, 'front', sheathByCableId)),
+    rearCables: keep(elevationCableLines(rack.chassis, 'rear', sheathByCableId)),
+    allCables: keep(allCableLines(rack.chassis, sheathByCableId)),
     deviceRows: rackDeviceRows(rack, options.hideSensitive),
     heading: {
       title: `Rack ${rack.label} · ${designName}`,
@@ -135,6 +138,8 @@ export interface BuildPrintJobInput {
    * "cable colours also written as words" in black-and-white mode. */
   cables: readonly CableView[];
   cutSheetDevices: readonly CutSheetDevice[];
+  /** Cable ids the Cables list shows; `null` when it shows them all. */
+  shownCableIds?: ReadonlySet<string> | null;
   /** Ready-made sheets for the sections built outside this file. */
   extra: Partial<Record<PrintSection, SheetUnpaginated[]>>;
   options: PrintOptions;
@@ -146,7 +151,7 @@ export function buildPrintJob(input: BuildPrintJobInput): PrintJob {
   for (const section of PRINT_SECTIONS) {
     if (!input.sections.has(section)) continue;
     if (section === 'racks') {
-      sheets.push(...input.racks.map((rack) => buildRackSheet(rack, input.options, input.cables, input.meta.designName)));
+      sheets.push(...input.racks.map((rack) => buildRackSheet(rack, input.options, input.cables, input.meta.designName, input.shownCableIds ?? null)));
     } else if (section === 'ports') {
       sheets.push(buildPortMap(input.cutSheetDevices));
     } else {

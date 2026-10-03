@@ -92,6 +92,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Print. `activeRackId` is RacksPlace's own report of what the current
   // selection resolves to; `null` when there is none, which the panel reads as "no active rack".
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
+  const [shownCableIds, setShownCableIds] = useState<ReadonlySet<string> | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -137,11 +138,14 @@ export function DesignPlace(props: DesignPlaceProps) {
       const view = viewOf(doc, session.catalogue);
       const allRacks = view.rows.flatMap((row) => row.racks);
       const racks = options.rackScope === 'active' ? allRacks.filter((r) => r.id === (activeRackId ?? allRacks[0]?.id)) : allRacks;
-      const cableRows = sections.has('cables') ? buildCableScheduleRows(doc, view) : [];
+      const cableRows = sections.has('cables')
+        ? buildCableScheduleRows(doc, view).filter((r) => options.cables !== 'screen' || shownCableIds == null || shownCableIds.has(r.key ?? ''))
+        : [];
       return buildPrintJob({
         sections,
         racks,
         cables: view.cables,
+        shownCableIds,
         cutSheetDevices: sections.has('ports') ? buildCutSheet(doc, view) : [],
         extra: {
           view: viewPng == null ? [] : [{ kind: 'image', section: 'view', dataUrl: viewPng, heading: { title: `This view · ${designLabel}`, detail: 'the canvas as drawn' } }],
@@ -160,7 +164,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         meta: { designName: designLabel, path: pathLabel, printedBy: accountAddress ?? '', printedAt: new Date() },
       });
     },
-    [session.doc, session.catalogue, activeRackId, designLabel, pathLabel, accountAddress],
+    [session.doc, session.catalogue, activeRackId, shownCableIds, designLabel, pathLabel, accountAddress],
   );
 
   const showPreview = useCallback((job: PrintJob) => {
@@ -477,6 +481,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         notesActions={notesActions}
         tagsActions={tagsActions}
         onActiveRackChange={setActiveRackId}
+        onShownCablesChange={setShownCableIds}
         designId={designId}
       />
     ) : (
@@ -503,6 +508,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           buildJob={buildPackJob}
           hasView={props.place === 'racks'}
           hasInventory={false}
+          cablesFiltered={shownCableIds != null}
           rackCount={printView.racks.length}
           captureView={captureViewPng}
           onPrint={showPreview}
