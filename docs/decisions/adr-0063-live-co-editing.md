@@ -1,77 +1,98 @@
-# ADR-0063: Live co-editing: the server orders, the clients merge field by field
+# ADR-0063: Live co-editing: the server applies and orders, the clients merge field by field
 
-**Status:** proposed 2026-10-03. Builds round 9's approval (ADR-0061, #99): merge per field, put
-mine back, no locks, presence as an initials dot. Answers REBUILD-PLAN's open question "who wins".
-Amends ADR-0054 §1 for live sessions.
+**Status:** proposed 2026-10-03; design thread approved 2026-10-03; revised after two opus review
+passes the same day (server-held head, checkpoints by the server). Builds round 9's approval (ADR-0061, #99):
+merge per field, put mine back, no locks, presence as an initials dot. Answers REBUILD-PLAN's open
+question "who wins". Amends ADR-0054 §1 and §5 for live sessions.
 
 ## Correction to the brief
 
-The brief says the server cannot read designs and changes travel sealed. That is not the system:
-the server reads every payload back and refuses credentials before storing it (ADR-0049 §2,
-`design_api.rs` `validate_payload`), and encrypts at rest under a key it holds. A sealed change
-would skip that gate (rule 4). So live changes reach the server in the clear over TLS, pass the
-same gate, and are stored encrypted, exactly like saves. Rule 5 stays honoured.
+The brief said the server cannot read designs and changes travel sealed. It reads every payload
+back and refuses credentials before storing it (ADR-0049 §2, `validate_payload`), and encrypts at
+rest under a key it holds. A sealed change would skip that gate (rule 4). Live changes reach the
+server in the clear over TLS, pass the same gate, and are stored encrypted. Rule 5 stays honoured.
 
 ## Decision
 
-1. **Transport: signed requests up, one streamed response down.** No WebSocket and no new crate.
-   - A change is a signed `POST …/designs/{d}/changes`: the per-request signature, single-use
-     nonce, and capability check every route already has (`sessions.rs`). Needs `draw`, checked in
-     the transaction that writes it. A `read` holder cannot send.
-   - The live feed is a signed `GET …/designs/{d}/live?since=N` whose response body streams
-     (fetch with a reader; `EventSource` cannot sign). Needs `read`.
-   - Across server processes, Postgres `NOTIFY` carries only `(design, version)`; each process
-     reads the row and delivers it. No design data goes through `NOTIFY`.
-2. **The unit is a change: one batch.** The ops `fathom-graph` already logs (add node, add edge,
-   set field, tombstone, revive), the values they set, and their provenance, as a
-   `fathom-change 1` canonical JSON document. The server reads it with a Rust reader beside
-   `read_plain` and refuses: an id whose kind does not declare the field (schema, rule 3), a value
-   the field's codec rejects, a credential in `Capture.text` or `Note.text` (the save gate's
-   lines), a provenance or `by` naming anyone but the signed-in account (actor comes from the
-   session), a batch id already in the design (a retry gets the stored version back, so a lost
-   answer never applies twice).
-3. **Ordering: the server's version number is the only clock.** Under the design's row lock a
-   change takes `version + 1`, gets its chain entry, and is stored encrypted as a delta. Client
-   clocks are never compared. Every client applies changes in version order with one
-   deterministic `applyChange`, so all converge. A gap in versions makes the client re-ask from
-   its last version.
-4. **Merge, field by field.** Different fields always merge. On the same field the later version
-   wins. The client keeps a confirmed document plus its own pending changes replayed on top; a
-   remote change lands on the confirmed document and the pending ones replay. A pending change
-   whose thing was removed meanwhile is dropped and the person is told. History keeps every value
-   (the existing field archive).
-5. **"Sam changed X just after you."** When a remote change overwrites a field whose value you set
-   in this sitting, within the last 10 minutes, you see it at once with *Keep theirs* / *Put mine
-   back*. Put mine back is a new change restoring your value from history. Undo never overwrites
-   another person's later value: that part of the undo is skipped and said.
-6. **Rules across things are not merge rules.** Two people filling the same U, or two ports with
-   one label, both apply; the clash shows as a Check, not a refusal. Local gestures still refuse
-   as today.
-7. **Checkpoints.** Opening a design reads the latest full version plus the deltas after it. After
-   100 deltas, or when the last person leaves, a client writes the full face as a checkpoint at
-   the current version through the existing save checks (`read_plain`, credential gate,
-   `base` = current). A checkpoint adds a chain entry, not a version.
-8. **Offline and rejoin.** Pending changes wait in memory, never in browser storage (plaintext on
-   disk). On reconnect the client streams from its last version, replays, then sends. Arrival
-   order still decides, so an edit made offline and sent late wins, and the other person is told.
-   Closing the tab with pending changes warns as today.
-9. **Without a live connection** a save still names its base and is refused if anything landed
-   since (ADR-0054). Read-only viewers stream the same changes through whatever filter `open`
-   applies to them (bundle 2 strips config text); the stream never hands out more than `open`.
-10. **Presence: an initials dot, scoped to the view.** The client posts its view (canvas, a rack,
-    Inventory) on change. A subscriber receives only the people in its own view; in another rack
-    you do not know they are there. Changes still reach everyone in the design, unattributed live.
-11. **Authorization is re-checked.** Each change is a fresh signed request. A stream re-checks its
-    session and capability every 15 s and at once when a grant changes in that organisation
-    (`NOTIFY`), and closes on failure. Streams also end after 10 minutes and reopen signed.
-12. **Limits per session:** 2 streams per design, 8 in total; a change body of at most 8 MiB;
-    20 changes a second, burst 40; a subscriber more than 256 messages behind is closed and
-    resyncs with `since`.
+1. **Transport: signed requests up, one streamed response down.** No WebSocket, no new crate.
+   - A change is a signed `POST …/designs/{d}/changes`: per-request signature and single-use nonce
+     (`sessions.rs`), capability from `grants::authorise_account` in the transaction that writes
+     it. Needs `draw`; a `read` holder cannot send.
+   - The feed is a signed `GET …/designs/{d}/live?since=N` whose body streams (fetch with a reader;
+     `EventSource` cannot sign). Needs `read`.
+   - One stream per design per browser: the tab holding a Web Lock on the design opens it and
+     shares it over `BroadcastChannel`; another tab takes over when it closes. The shipped server
+     is HTTP/1.1 behind the operator's proxy (RUNNING-IT), so a stream per tab would exhaust the
+     browser's six connections per host.
+   - Heartbeat every 25 s and `X-Accel-Buffering: no`, so proxies neither buffer nor idle-close it.
+   - Across server processes, `NOTIFY` carries only `(design, version)`; each process reads the row.
+     One task per process holds `LISTEN` and drains it continuously, so the queue cannot back up.
+2. **The unit is a change: one batch** (add node, add edge, set field, tombstone, revive, with the
+   values and provenance), as a `fathom-change 1` canonical JSON document.
+3. **The server applies every change to the design's head before accepting it.** Under the design's
+   row lock it brings its head `Graph` to the current version (from the latest checkpoint or whole
+   version plus the changes after it), applies the batch through `fathom-graph`'s own write path,
+   and refuses whatever that path refuses: undeclared fields (rule 3), bad values, missing or
+   wrong-kind endpoints, a second `MountedIn`, cycles, reused ids. It also refuses a credential in
+   `Capture.text` or `Note.text` (the save gate's lines), any provenance or `by` naming anyone but
+   the signed-in account, and a `reverses` naming another person's batch. Only then does the change
+   take `version + 1`, a `change` chain entry, and an encrypted row in a new `design_change` table.
+   The change is applied to a copy, swapped in only after commit. Heads are keyed by version and
+   the tip chain seal, and rebuilt from storage on a miss or mismatch. They live on a few worker
+   threads sharded by design (`Graph` is not `Send`), so a cold rebuild stalls only its own
+   design, capped by bytes and evicted least recently used.
+   The current version is the highest across `design_payload` and `design_change`.
+4. **Ordering: the server's version is the only clock.** Clients never compare clocks. Every
+   accepted change applies cleanly to the head, so every client applying them in version order
+   converges. A gap makes the client re-ask from its last version.
+5. **Merge, field by field.** Different fields always merge; on the same field the later version
+   wins. The client keeps the confirmed document plus its pending changes replayed on top. A pending
+   change the server refuses (its thing was removed, or it would break a rule above) is dropped and
+   the person is told. History keeps every value.
+6. **"Sam changed X just after you."** When a remote change overwrites a field you set in this
+   sitting within the last 10 minutes, you see it at once with *Keep theirs* / *Put mine back*. Put
+   mine back is a new change restoring your value. Undo skips any part another person has since
+   changed, and says so.
+7. **Rules across things are Checks.** Two devices in one U, or duplicate port labels, both apply
+   and show as a Check. Graph rules (item 3) still refuse; local gestures still refuse as today.
+8. **Checkpoints are written by the server, from its head.** After 100 changes, or when the last
+   stream on a design closes, the server writes, under the account whose change or leaving
+   triggered it, the head as a full face at version N into
+   `design_checkpoint` (sealed, not a version, no chain entry: it is derived from chained data, and
+   verify replays to check it). Open reads the newest checkpoint or whole version plus later
+   changes, falling back to an older one if the newest will not load. `?version=N` replays to N.
+   History lists every change with its author. Rotation re-encrypts changes and checkpoints in
+   bounded batches under the audit spool limit.
+9. **Idempotency.** `design_change` records `(design, batch_id, version, body digest)`, looked up
+   only after authorisation. The same batch id with the same digest returns the stored version, so
+   a lost answer never applies twice; with a different digest it is refused.
+10. **Offline and rejoin.** Pending changes wait in memory, never in browser storage. On reconnect
+    the client streams from its last version, replays, then sends. Arrival order decides; the
+    overwritten person gets the notice. Closing a tab with pending changes warns as today.
+11. **Without a live connection** a whole save names its base and is refused if anything landed
+    since (ADR-0054). An accepted whole save replaces the head and streams as a reload; clients
+    load it and replay their pending changes on top. A `read` holder receives every change, as `open` gives them the whole design.
+12. **Presence: an initials dot, scoped to the view.** A signed `POST …/presence` needing `read`,
+    with a view id of at most 64 bytes, at most 2 a second, expiring when the stream closes. A
+    subscriber receives only the people in its own view. Changes reach everyone and carry their
+    author.
+13. **Authorization on the stream.** Any change to authority state, and a session's sign-out,
+    revocation or disabling (not its per-request touch), sends a `NOTIFY`. After a `LISTEN`
+    reconnect every stream re-checks, since notifications are lost while disconnected. Before every delivery the stream compares the organisation's authority head with the
+    one it last checked and re-authorises if it moved; it closes on failure, so revocation, sign-out,
+    disabling or suspension stop delivery at once (tested). Amends ADR-0054 §5 for streams: the
+    check is per delivery against the authority head, not in the same transaction. A 15 s re-check
+    backs it up. Streams end after 10 minutes and reopen signed. Background requests (stream, reopen,
+    presence) do not refresh `last_seen_at`; the idle limit still ends an unattended session.
+14. **Limits.** Per account: 2 streams per design, 8 in total; 20 changes a second, burst 30 (under
+    the 32-nonce window). Per design: 50 streams. A change body of at most 4 MiB, parsed only after
+    the signature verifies. A subscriber more than 8 MiB behind is closed and resyncs with `since`.
+    Change writes count against the audit spool bound like any write; the rate limit keeps one
+    person from filling it.
 
 ## Consequences
 
-Each change costs a nonce round trip and a short transaction; fine at field-commit rate, not per
-keystroke, so text is sent on commit (Enter or leaving the field). A hostile `draw` holder can
-write a checkpoint that differs from the deltas, which is no more than a whole save can do today;
-a server-side Rust replay that checks checkpoints is deferred until something server-side needs
-the head. One streamed response holds one HTTP/1.1 connection per open design tab.
+Each change costs a nonce round trip and a short locked transaction, so text sends on commit, not
+per keystroke. The server holds decrypted heads in memory while a design is being edited, as it
+already holds payloads briefly on open and save. A cold head costs one load and replay. One HTTP/1.1
+connection per browser per open design.
