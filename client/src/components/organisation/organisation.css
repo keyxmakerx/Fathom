@@ -271,3 +271,13 @@
   gap: var(--s2);
   flex-wrap: wrap;
 }
+
+/* The reset collapses radios and ticks to nothing; restore the native control. */
+.org input[type='radio'],
+.org input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0 var(--s1) 0 0;
+  flex-shrink: 0;
+}
