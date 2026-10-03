@@ -198,11 +198,17 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0030_design_names.sql",
         sql: include_str!("../migrations/0030_design_names.sql"),
     },
-    // ADR-0063: live co-editing storage and its NOTIFY triggers.
+    // ADR-0061 round 10: files on docs, sealed under the design key.
     Migration {
         version: 31,
-        name: "0031_live_co_editing.sql",
-        sql: include_str!("../migrations/0031_live_co_editing.sql"),
+        name: "0031_design_files.sql",
+        sql: include_str!("../migrations/0031_design_files.sql"),
+    },
+    // ADR-0063: live co-editing storage and its NOTIFY triggers.
+    Migration {
+        version: 32,
+        name: "0032_live_co_editing.sql",
+        sql: include_str!("../migrations/0032_live_co_editing.sql"),
     },
 ];
 

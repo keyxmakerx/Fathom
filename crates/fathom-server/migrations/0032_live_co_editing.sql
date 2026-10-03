@@ -1,4 +1,4 @@
--- 0031 -- live co-editing storage (ADR-0063).
+-- 0032 -- live co-editing storage (ADR-0063).
 --
 -- `design_change` holds one accepted change per row, sealed like a payload
 -- (same key, a different associated-data tag). `design_checkpoint` holds the

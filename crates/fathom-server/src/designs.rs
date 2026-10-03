@@ -47,6 +47,15 @@ const AAD_CHECKPOINT: &[u8] = b"fathom/checkpoint/v1";
 /// The domain tag in a design name's seal (ADR-0060 step 3b).
 const AAD_NAME: &[u8] = b"fathom/design-name/v1";
 
+/// The domain tag in a doc file's seal (ADR-0061 round 10).
+const AAD_FILE: &[u8] = b"fathom/design-file/v1";
+
+/// Largest file attached to a doc: 25 MiB, enforced here and not only in the browser.
+pub const MAX_FILE_BYTES: usize = 25 * 1024 * 1024;
+/// What one design may hold in doc files: a count and sealed bytes (rotation reseals them all).
+pub const MAX_DESIGN_FILES: i64 = 500;
+pub const MAX_DESIGN_FILE_BYTES: i64 = 256 * 1024 * 1024;
+
 /// Longest design name, in characters.
 pub const MAX_NAME_CHARS: usize = 100;
 
@@ -153,6 +162,16 @@ pub enum DesignError {
     PayloadTooLarge {
         bytes: usize,
     },
+    /// A doc file larger than [`MAX_FILE_BYTES`].
+    FileTooLarge {
+        bytes: usize,
+    },
+    /// A design already holds as many doc files, or as many bytes of them, as it may.
+    FileQuota,
+    /// A doc file that is not a PDF, an image or text, by what its bytes are.
+    FileTypeRefused,
+    /// No such file on this design.
+    NoSuchFile,
     /// **The audit spool is past one of §9's bounds, so design writes stop and
     /// reads continue.**
     ///
@@ -244,6 +263,17 @@ impl fmt::Display for DesignError {
             Self::NoSuchDesign => f.write_str("no such design in this organisation"),
             Self::NoSuchVersion => f.write_str("no such version of this design"),
             Self::NoSuchScope => f.write_str("no such scope in this organisation"),
+            Self::FileTooLarge { bytes } => write!(
+                f,
+                "that file is {bytes} bytes; a doc file may be at most {MAX_FILE_BYTES}"
+            ),
+            Self::FileQuota => write!(
+                f,
+                "this design already holds {MAX_DESIGN_FILES} files or {} MB of them",
+                MAX_DESIGN_FILE_BYTES / (1024 * 1024)
+            ),
+            Self::FileTypeRefused => f.write_str("a doc file must be a PDF, an image or text"),
+            Self::NoSuchFile => f.write_str("no such file on this design"),
             Self::PayloadTooLarge { bytes } => write!(
                 f,
                 "that payload is {bytes} bytes; one design version may be at most \
@@ -1205,6 +1235,55 @@ pub async fn rotate_design_under(
 
         versions += 1;
         entries += 1;
+    }
+
+    // Files sealed under the old key move to the new one (all rows loaded at once; the per-design quota bounds that).
+    let file_rows = tx
+        .query(
+            "SELECT file_id, ciphertext, nonce, key_epoch FROM design_files \
+             WHERE design_id = $1 AND organisation_id = $2",
+            &[&design_text, &tenant_text],
+        )
+        .await?;
+    for row in file_rows {
+        let file: String = row.get(0);
+        let old_ciphertext: Vec<u8> = row.get(1);
+        let old_nonce: Vec<u8> = row.get(2);
+        let old_epoch: i32 = row.get(3);
+        if old_epoch != rotation.previous.epoch {
+            return Err(DesignError::Corrupt("file key epoch"));
+        }
+        let old_nonce: [u8; crypto::NONCE_LEN] = old_nonce
+            .try_into()
+            .map_err(|_| DesignError::Corrupt("file nonce"))?;
+        let plain = crypto::open(
+            &rotation.previous.key,
+            &old_nonce,
+            &old_ciphertext,
+            &file_aad(&tenant_text, &design_text, &file, old_epoch),
+        )
+        .map_err(|_| DesignError::Refused)?;
+        let nonce = crypto::random_nonce()?;
+        let ciphertext = crypto::seal(
+            &rotation.current.key,
+            &nonce,
+            &plain,
+            &file_aad(&tenant_text, &design_text, &file, rotation.current.epoch),
+        )?;
+        tx.execute(
+            "UPDATE design_files SET ciphertext = $4, nonce = $5, key_epoch = $6 \
+             WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3",
+            &[
+                &design_text,
+                &tenant_text,
+                &file,
+                &ciphertext,
+                &nonce.to_vec(),
+                &rotation.current.epoch,
+            ],
+        )
+        .await?;
+        keys::count_write_under_key(&tx, design, rotation.current.epoch).await?;
     }
 
     // ADR-0063 #8: live changes and checkpoints, in pages, with the spool
@@ -2714,5 +2793,200 @@ mod tests {
         // which version, and how big.
         assert!(rendered.contains("version: 4"), "{rendered}");
         assert!(rendered.contains("59 bytes"), "{rendered}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Files on docs (ADR-0061 round 10)
+// ---------------------------------------------------------------------------
+
+/// What a file's own bytes say it is. Never the name, never a client-declared type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileMedia {
+    Text,
+    Pdf,
+    Image,
+}
+
+impl FileMedia {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Pdf => "pdf",
+            Self::Image => "image",
+        }
+    }
+}
+
+/// Sniff a file by content: PDF and image by signature, text when it is valid UTF-8 with no NUL
+/// and no control character beyond tab, newline, carriage return and form feed. `None` for
+/// anything else, and for an empty file.
+pub fn sniff_file(bytes: &[u8]) -> Option<FileMedia> {
+    if bytes.is_empty() {
+        return None;
+    }
+    if bytes.starts_with(b"%PDF-") {
+        return Some(FileMedia::Pdf);
+    }
+    let image = bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
+        || bytes.starts_with(&[0xff, 0xd8, 0xff])
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP");
+    if image {
+        return Some(FileMedia::Image);
+    }
+    let text = core::str::from_utf8(bytes).ok()?;
+    let clean = text
+        .chars()
+        .all(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r' | '\u{c}'));
+    clean.then_some(FileMedia::Text)
+}
+
+fn file_aad(tenant: &str, design: &str, file: &str, key_epoch: i32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    crypto::lp(&mut aad, AAD_FILE);
+    crypto::lp(&mut aad, tenant.as_bytes());
+    crypto::lp(&mut aad, design.as_bytes());
+    crypto::lp(&mut aad, file.as_bytes());
+    crypto::u32_le(&mut aad, key_epoch as u32);
+    aad
+}
+
+/// Seal and store one file for a design, drawing rights required. Returns its id.
+/// The caller has already run the content check ([`sniff_file`]) and any text scan.
+pub async fn store_file_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    bytes: &[u8],
+) -> Result<String, DesignError> {
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(DesignError::FileTooLarge { bytes: bytes.len() });
+    }
+    grants::authorise_account(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    let tenant_text = auth.ctx.tenant().to_string();
+    let design_text = design.to_string();
+    lock_design(tx, &design_text, &tenant_text).await?;
+    let held = tx
+        .query_one(
+            "SELECT count(*), COALESCE(sum(octet_length(ciphertext)), 0)::bigint \
+             FROM design_files WHERE design_id = $1 AND organisation_id = $2",
+            &[&design_text, &tenant_text],
+        )
+        .await
+        .map_err(DesignError::Db)?;
+    let (count, total): (i64, i64) = (held.get(0), held.get(1));
+    if count >= MAX_DESIGN_FILES || total + bytes.len() as i64 > MAX_DESIGN_FILE_BYTES {
+        return Err(DesignError::FileQuota);
+    }
+    let key = keys::design_key(tx, auth.ring, auth.ctx, design).await?;
+
+    let id = {
+        let a = crypto::random_nonce()?;
+        let b = crypto::random_nonce()?;
+        let mut raw = a.to_vec();
+        raw.extend_from_slice(&b[..4]);
+        hex(&raw)
+    };
+    let nonce = crypto::random_nonce()?;
+    let aad = file_aad(&tenant_text, &design_text, &id, key.epoch);
+    let ciphertext = crypto::seal(&key.key, &nonce, bytes, &aad)?;
+    tx.execute(
+        "INSERT INTO design_files \
+             (design_id, organisation_id, file_id, ciphertext, nonce, key_epoch, wrap_version, \
+              aead_alg_id, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        &[
+            &design_text,
+            &tenant_text,
+            &id,
+            &ciphertext,
+            &nonce.to_vec(),
+            &key.epoch,
+            &crypto::WRAP_VERSION,
+            &crypto::AEAD_ALG_CHACHA20POLY1305_IETF,
+            &auth.ctx.actor().to_string(),
+        ],
+    )
+    .await?;
+    keys::count_write_under_key(tx, design, key.epoch).await?;
+    Ok(id)
+}
+
+/// Open one stored file, read rights required.
+pub async fn read_file_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    file: &str,
+) -> Result<Vec<u8>, DesignError> {
+    grants::authorise_account(tx, auth, scope, Capability::Read)
+        .await
+        .map_err(DesignError::Authority)?;
+    let tenant_text = auth.ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let row = tx
+        .query_opt(
+            "SELECT ciphertext, nonce, key_epoch FROM design_files \
+             WHERE design_id = $1 AND organisation_id = $2 AND file_id = $3",
+            &[&design_text, &tenant_text, &file],
+        )
+        .await?
+        .ok_or(DesignError::NoSuchFile)?;
+    let ciphertext: Vec<u8> = row.get(0);
+    let nonce: Vec<u8> = row.get(1);
+    let epoch: i32 = row.get(2);
+    let key = design_key_at_epoch(tx, auth.ring, auth.ctx, design, epoch).await?;
+    let nonce: [u8; crypto::NONCE_LEN] = nonce
+        .try_into()
+        .map_err(|_| DesignError::Corrupt("file nonce"))?;
+    let aad = file_aad(&tenant_text, &design_text, file, epoch);
+    crypto::open(&key.key, &nonce, &ciphertext, &aad).map_err(|_| DesignError::Refused)
+}
+
+#[cfg(test)]
+mod file_sniff_tests {
+    use super::*;
+
+    #[test]
+    fn sniffs_by_content_not_by_name() {
+        assert_eq!(sniff_file(b"%PDF-1.7\n%..."), Some(FileMedia::Pdf));
+        assert_eq!(
+            sniff_file(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0]),
+            Some(FileMedia::Image)
+        );
+        assert_eq!(
+            sniff_file(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some(FileMedia::Image)
+        );
+        assert_eq!(sniff_file(b"GIF89a.."), Some(FileMedia::Image));
+        assert_eq!(
+            sniff_file(b"RIFF\x00\x00\x00\x00WEBPVP8 "),
+            Some(FileMedia::Image)
+        );
+        assert_eq!(
+            sniff_file(b"hostname core-01\nset x y\n"),
+            Some(FileMedia::Text)
+        );
+        assert_eq!(
+            sniff_file("naïve – unicode".as_bytes()),
+            Some(FileMedia::Text)
+        );
+    }
+
+    #[test]
+    fn refuses_what_is_not_one_of_the_three() {
+        assert_eq!(sniff_file(b""), None);
+        assert_eq!(sniff_file(b"MZ\x90\x00\x03"), None); // an executable
+        assert_eq!(sniff_file(b"PK\x03\x04"), None); // a zip, also docx
+        assert_eq!(sniff_file(b"\x7fELF\x02"), None);
+        assert_eq!(sniff_file(b"text with a nul\x00inside"), None);
+        assert_eq!(sniff_file(&[0xc3, 0x28]), None); // invalid UTF-8
+        assert_eq!(sniff_file(b"escape \x1b[31m"), None);
     }
 }

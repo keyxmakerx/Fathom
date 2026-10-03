@@ -20,8 +20,8 @@ use fathom_graph::{
 };
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{
-    CaptureField, ChassisField, EdgeKind, MountedInFace, MountedInField, NodeKind, NoteField,
-    PremisesField, RackField, RackUnitNumbering,
+    CaptureField, ChassisField, DocField, DocLinkField, EdgeKind, MountedInFace, MountedInField,
+    NodeKind, NoteField, PremisesField, RackField, RackUnitNumbering,
 };
 use fathom_ir::scalar::Text;
 use fathom_workspace::{
@@ -813,6 +813,40 @@ fn reversing_another_persons_batch_is_refused() {
     assert!(matches!(
         refused(&g, &c2),
         ChangeError::ReversesUnknown { .. }
+    ));
+}
+
+#[test]
+fn a_credential_in_a_doc_or_a_link_title_is_refused() {
+    let body = add_node(NodeKind::Doc, 950, 950)
+        .text(
+            node(NodeKind::Doc, 950).into(),
+            DocField::Body.key(),
+            "# Edge router\n\nwifi psk=Str0ngP@ssw0rd!\n",
+            951,
+        )
+        .build(1);
+    assert!(matches!(
+        refused(&base(), &body),
+        ChangeError::Credential {
+            kind: "Doc",
+            line: 3
+        }
+    ));
+    let title = add_node(NodeKind::DocLink, 960, 960)
+        .text(
+            node(NodeKind::DocLink, 960).into(),
+            DocLinkField::Title.key(),
+            "pre-shared-key=Str0ngP@ssw0rd!",
+            961,
+        )
+        .build(2);
+    assert!(matches!(
+        refused(&base(), &title),
+        ChangeError::Credential {
+            kind: "DocLink",
+            line: 1
+        }
     ));
 }
 

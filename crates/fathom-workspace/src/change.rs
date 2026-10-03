@@ -22,8 +22,10 @@ use fathom_graph::{
     StoredPresence, WriteError,
 };
 use fathom_ir::canon::CanonError;
-use fathom_ir::generated::accessors::{capture, note, slot_from_canon};
-use fathom_ir::generated::ir_types::{CaptureField, NodeKind, NoteField, SCHEMA_VERSION};
+use fathom_ir::generated::accessors::slot_from_canon;
+use fathom_ir::generated::ir_types::{
+    CaptureField, DocField, DocLinkField, NodeKind, NoteField, SCHEMA_VERSION,
+};
 use fathom_ir::scalar::Text;
 
 use crate::{
@@ -439,25 +441,40 @@ fn made_only_by(graph: &Graph, batch: &Batch, actor: Actor) -> bool {
 // ---------------------------------------------------------------------------
 // The credential check on stored text (ADR-0049 #2, ADR-0054 #4)
 
-/// Every `Capture.text` and `Note.text` in the graph, line by line, so a
-/// refusal names which one. `Some((kind, line))` on the first hit.
+/// The text fields the credential check reads: kind, field, label, and whether
+/// bare adjacency counts (`looks_like_credential_bare`).
 ///
 /// `Capture` is never hand-typed, so it is always pasted device output and
-/// bare adjacency is the right aggression. `Note.text` may be prose, so it
-/// stays on the delimiter-only check (ADR-0053 §5).
+/// bare adjacency is the right aggression. Note and doc text may be prose, so
+/// it stays on the delimiter-only check (ADR-0053 §5). A link's address is
+/// stored as typed: ordinary ones carry long ids this check reads as secrets.
+fn gated_fields() -> [(NodeKind, fathom_ir::bag::FieldKey, &'static str, bool); 5] {
+    [
+        (NodeKind::Capture, CaptureField::Text.key(), "Capture", true),
+        (NodeKind::Note, NoteField::Text.key(), "Note", false),
+        (NodeKind::Doc, DocField::Title.key(), "Doc", false),
+        (NodeKind::Doc, DocField::Body.key(), "Doc", false),
+        (
+            NodeKind::DocLink,
+            DocLinkField::Title.key(),
+            "DocLink",
+            false,
+        ),
+    ]
+}
+
+/// Every gated text field in the graph ([`gated_fields`]), line by line, so a
+/// refusal names which one. `Some((kind, line))` on the first hit.
 ///
 /// Superseded values count too: the history of those fields is stored and
 /// streamed with the face, so a secret there is as stored as one in the value.
 pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
-    for kind in [NodeKind::Capture, NodeKind::Note] {
+    for (kind, key, _, _) in gated_fields() {
         for node in graph.nodes_of_kind(kind) {
-            if let Some(hit) = credential_in_node(graph, node.id) {
+            let value = fathom_ir::bag::typed::<Text, _>(node, key).ok();
+            if let Some(hit) = value.and_then(|t| credential_in_text(kind, key, &t.0)) {
                 return Some(hit);
             }
-            let key = match kind {
-                NodeKind::Capture => CaptureField::Text.key(),
-                _ => NoteField::Text.key(),
-            };
             let Some(history) = graph.history(node.id.into(), key) else {
                 continue;
             };
@@ -473,37 +490,28 @@ pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
 }
 
 /// The credential check for one value written to `key` of a `kind` node:
-/// `None` unless it is `Capture.text` or `Note.text`.
+/// `None` unless that field is gated ([`gated_fields`]).
 fn credential_in_text(
     kind: NodeKind,
     key: fathom_ir::bag::FieldKey,
     text: &str,
 ) -> Option<(&'static str, usize)> {
-    match kind {
-        NodeKind::Capture if key == CaptureField::Text.key() => {
-            credential_line(text, true).map(|l| ("Capture", l))
-        }
-        NodeKind::Note if key == NoteField::Text.key() => {
-            credential_line(text, false).map(|l| ("Note", l))
-        }
-        _ => None,
-    }
+    gated_fields()
+        .into_iter()
+        .find(|(k, f, _, _)| *k == kind && *f == key)
+        .and_then(|(_, _, label, bare)| credential_line(text, bare).map(|l| (label, l)))
 }
 
-/// [`find_credential`] for one node; `None` for any kind but `Capture`/`Note`.
+/// [`find_credential`] for one node's current values; `None` for an ungated kind.
 pub fn credential_in_node(graph: &Graph, id: NodeId) -> Option<(&'static str, usize)> {
     let node = graph.node(id)?;
-    match id.kind {
-        NodeKind::Capture => capture::text(node)
-            .ok()
-            .and_then(|t| credential_line(&t.0, true))
-            .map(|line| ("Capture", line)),
-        NodeKind::Note => note::text(node)
-            .ok()
-            .and_then(|t| credential_line(&t.0, false))
-            .map(|line| ("Note", line)),
-        _ => None,
-    }
+    gated_fields()
+        .into_iter()
+        .filter(|(k, ..)| *k == id.kind)
+        .find_map(|(kind, key, _, _)| {
+            let text = fathom_ir::bag::typed::<Text, _>(node, key).ok()?;
+            credential_in_text(kind, key, &text.0)
+        })
 }
 
 /// The 1-based line in `text` that first looks like a credential. `bare`

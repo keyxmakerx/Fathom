@@ -93,15 +93,38 @@ impl FieldHistory {
     }
 
     pub(crate) fn push(&mut self, entry: HistoryEntry, origin: Origin) {
-        self.entries.push(entry);
-        self.origins.push(origin.discriminant());
-        self.prune();
+        self.push_discriminant(entry, origin.discriminant());
     }
 
-    fn prune(&mut self) {
+    /// Returns which entries (the new one last) survived the pruning, when any was dropped.
+    pub(crate) fn push_discriminant(
+        &mut self,
+        entry: HistoryEntry,
+        origin: u8,
+    ) -> Option<Vec<bool>> {
+        self.entries.push(entry);
+        self.origins.push(origin);
+        self.prune()
+    }
+
+    /// The same history with every value left out: presence, provenance, origins, truncation.
+    pub(crate) fn meta_copy(&self) -> FieldHistory {
+        let entries = self
+            .entries
+            .iter()
+            .map(|e| HistoryEntry {
+                presence: e.presence,
+                value: None,
+                prov: e.prov,
+            })
+            .collect();
+        FieldHistory::install(entries, self.origins.clone(), self.truncated)
+    }
+
+    fn prune(&mut self) -> Option<Vec<bool>> {
         let n = self.entries.len();
         if n <= RECENT {
-            return;
+            return None;
         }
         let mut keep = vec![false; n];
         for k in keep.iter_mut().skip(n - RECENT) {
@@ -117,13 +140,14 @@ impl FieldHistory {
         }
         let dropped = keep.iter().filter(|k| !**k).count();
         if dropped == 0 {
-            return;
+            return None;
         }
         let mut it = keep.iter();
         self.entries.retain(|_| *it.next().expect("index-aligned"));
         let mut it = keep.iter();
         self.origins.retain(|_| *it.next().expect("index-aligned"));
         self.truncated += u32::try_from(dropped).unwrap_or(u32::MAX);
+        Some(keep)
     }
 }
 

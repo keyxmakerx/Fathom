@@ -18,6 +18,8 @@ import { buildPrintJob, type PrintJob, type PrintOptions, type PrintWhat } from 
 import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
+import { DocsOverlay } from '../docs/DocsOverlay';
+import { DocsContext, useDocsApi } from '../docs/useDocsApi';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
@@ -344,6 +346,17 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  // Docs on things, models and the design (ADR-0061 round 7): the panels read them through context.
+  const docs = useDocsApi({
+    organisationId,
+    designId,
+    doc: session.doc,
+    canDraw: session.canDraw,
+    accountId,
+    applyDocChange: session.applyDocChange,
+    ensureEngine,
+  });
+
   const tagsOfCallback = useCallback((ownerId: string) => (session.doc ? tagsOfDoc(session.doc, ownerId) : []), [session.doc]);
   const allTagsCallback = useCallback(() => (session.doc ? listTags(session.doc) : []), [session.doc]);
 
@@ -478,6 +491,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
+    onDocs: doc != null ? () => docs.setView({ kind: 'list' }) : undefined,
     // Offered to stewards only; the server refuses anyone else regardless.
     onShare: capability === 'steward' ? () => setSharing(true) : undefined,
   };
@@ -529,9 +543,14 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <>
-      <div className="print-hide-under-preview" inert={printMode === 'preview'}>
-        {place}
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
+        <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
       </div>
+      {docs.view != null && printMode === 'closed' && (
+        <DocsContext.Provider value={docs.api}>
+          <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
+        </DocsContext.Provider>
+      )}
       {printMode === 'panel' && printView && (
         <PrintPanel
           activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}

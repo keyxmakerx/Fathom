@@ -1,0 +1,296 @@
+/* Docs: ink only, tokens from design/tokens.css. */
+
+.docs-overlay {
+  position: fixed;
+  inset: 44px 0 0 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  color: var(--ink);
+  border-top: var(--rule-mast) solid var(--ink);
+  font-size: var(--t-body);
+  overflow: hidden;
+}
+
+.docs-overlay:focus-visible {
+  outline: none;
+}
+
+.docs-overlay__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--s2) var(--s5);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-tab);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.docs-overlay__close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--t-title);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.docs-overlay__body {
+  padding: var(--s5);
+  overflow-y: auto;
+  max-width: var(--sheet);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.docs-title {
+  margin: 0;
+  font-size: var(--t-title);
+  line-height: 1.2;
+}
+
+.docs-page__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s4);
+}
+
+.docs-meta,
+.docs-note {
+  margin: var(--s2) 0 var(--s3);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.docs-meta {
+  font-family: var(--mono);
+}
+
+.docs-problem {
+  margin: var(--s2) 0;
+  font-weight: 700;
+}
+
+.docs-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.docs-danger {
+  font-weight: 700;
+  border: 2px solid var(--ink);
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.docs-table th {
+  text-align: left;
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--ink);
+}
+
+.docs-table td {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.docs-table__when {
+  font-family: var(--mono);
+}
+
+.docs-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin: var(--s3) 0;
+  font-size: var(--t-small);
+}
+
+.docs-field--grow {
+  flex: 1;
+  margin-top: 0;
+}
+
+.docs-field input,
+.docs-field textarea,
+.docs-links__add input {
+  font: inherit;
+  color: inherit;
+  background: var(--page);
+  border: 1px solid var(--ink);
+  padding: var(--s1) var(--s2);
+}
+
+.docs-field textarea {
+  font-family: var(--mono);
+  resize: vertical;
+}
+
+.docs-about {
+  border: 0;
+  padding: 0;
+  margin: var(--s3) 0;
+  display: flex;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  font-size: var(--t-small);
+}
+
+.docs-actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.docs-section__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.docs-section__tag {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.docs-links {
+  margin-top: var(--s5);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.docs-links h2 {
+  font-size: var(--t-tab);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.docs-links ul {
+  list-style: none;
+  padding: 0;
+}
+
+.docs-links li {
+  padding: var(--s1) 0;
+}
+
+.docs-links__host {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-small);
+}
+
+.docs-links__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+}
+
+/* The Markdown subset. Paragraph line breaks are kept; nothing here sets a colour. */
+.doc-md {
+  max-width: var(--measure);
+  line-height: 1.5;
+}
+
+.doc-md p {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.doc-md h2,
+.doc-md h3,
+.doc-md h4,
+.doc-md h5,
+.doc-md h6 {
+  margin: var(--s4) 0 var(--s2);
+  line-height: 1.25;
+}
+
+.doc-md pre {
+  overflow-x: auto;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.doc-md code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.doc-md table {
+  border-collapse: collapse;
+}
+
+.doc-md th,
+.doc-md td {
+  border: 1px solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  text-align: left;
+}
+
+.doc-md th {
+  border-bottom: 2px solid var(--ink);
+}
+
+.doc-md__host {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.doc-md__image {
+  color: var(--muted);
+}
+
+/* tokens.css collapses a radio to nothing; restore the native control. */
+.docs-about input {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin-right: var(--s1);
+}
+
+.docs-files__table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.docs-files__table th {
+  text-align: left;
+  font-size: var(--t-small);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.docs-files__table th,
+.docs-files__table td {
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.docs-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

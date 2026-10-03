@@ -25,7 +25,7 @@ import {
   findNode,
   parseEdgeId,
   parseNodeId,
-  pushHistory,
+  appendHistory,
   withBatch,
   withEdge,
   withNode,
@@ -272,7 +272,7 @@ export function applyChange(doc: Document, change: Change): Document {
           fields[op.key] = entry;
         } else {
           delete fields[op.key];
-          d = pushHistory(d, op.element, op.key, { presence: 'unknown', prov: op.prov });
+          d = appendHistory(d, op.element, op.key, { presence: 'unknown', prov: op.prov });
         }
         d = replaceFields(d, op.element, fields);
         break;
