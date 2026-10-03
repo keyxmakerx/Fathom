@@ -319,10 +319,26 @@ button.shell-search {
   color: var(--muted);
 }
 
-.shell-bar__presence {
+.shell-bar__people {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+}
+
+/* A person in this view: an initials dot, ink on the page's own hairline. The one round thing in the bar, so it cannot be mistaken for a control. */
+.shell-person {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  font-size: var(--t-micro);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
 }
 
 .shell-chip {

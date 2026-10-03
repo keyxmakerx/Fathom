@@ -24,6 +24,7 @@
 use core::any::{Any, TypeId};
 use core::fmt;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use fathom_id::Ulid;
 use fathom_ir::bag::{FieldBag, FieldKey};
@@ -38,15 +39,18 @@ use crate::prov::{Actor, Origin, ProvenanceId, ProvenanceRecord, Timestamp};
 
 /// One stored field. `Unknown` is not representable here: it *is* the absence
 /// of a slot (`11` §5.2).
+#[derive(Clone)]
 pub(crate) struct Slot {
     pub(crate) presence: StoredPresence,
-    pub(crate) value: Option<Box<dyn Any>>,
+    // Shared, never mutated in place: this is what makes `Graph::clone` cheap.
+    pub(crate) value: Option<Rc<dyn Any>>,
     pub(crate) prov: ProvenanceId,
 }
 
 /// A node. Field slots are private: presence and provenance are read through
 /// `Graph::presence`, and typed values through the generated accessors over
 /// the `FieldBag` impl below.
+#[derive(Clone)]
 pub struct Node {
     pub id: NodeId,
     pub existence: ProvenanceId,
@@ -56,6 +60,7 @@ pub struct Node {
 }
 
 /// An edge. First-class: stable id, kind, typed fields (ADR-0007).
+#[derive(Clone)]
 pub struct Edge {
     pub id: EdgeId,
     pub from: NodeId,
@@ -335,7 +340,9 @@ impl fmt::Display for ReadError {
     }
 }
 
-/// The in-memory typed graph.
+/// The in-memory typed graph. `Clone` copies the structure and shares the
+/// immutable field values, so a trial write can run on a copy.
+#[derive(Clone)]
 pub struct Graph {
     pub(crate) nodes: BTreeMap<NodeId, Node>,
     pub(crate) edges: BTreeMap<EdgeId, Edge>,
@@ -791,7 +798,7 @@ impl Graph {
             key,
             Slot {
                 presence: StoredPresence::Set,
-                value: Some(Box::new(value)),
+                value: Some(Rc::new(value)),
                 prov: id,
             },
         );
@@ -844,7 +851,7 @@ impl Graph {
             key,
             Slot {
                 presence: StoredPresence::Set,
-                value: Some(value),
+                value: Some(Rc::from(value)),
                 prov: id,
             },
         );
@@ -1049,6 +1056,28 @@ impl Graph {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Tombstone exactly `element`: no cascade, one op. For replaying a
+    /// recorded batch, which already lists the cascade element by element.
+    pub fn tombstone_exact(
+        &mut self,
+        element: ElementId,
+        at: Timestamp,
+        by: Actor,
+    ) -> Result<(), WriteError> {
+        self.require_batch()?;
+        let slot = match element {
+            ElementId::Node(id) => self.nodes.get_mut(&id).map(|n| &mut n.absent_since),
+            ElementId::Edge(id) => self.edges.get_mut(&id).map(|e| &mut e.absent_since),
+        };
+        let slot = slot.ok_or(WriteError::UnknownElement { element })?;
+        if slot.is_some() {
+            return Err(WriteError::AlreadyTombstoned { element });
+        }
+        *slot = Some(at);
+        self.record(Op::Tombstone { element, at, by });
         Ok(())
     }
 

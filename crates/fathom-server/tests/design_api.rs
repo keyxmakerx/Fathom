@@ -438,12 +438,22 @@ async fn app(
         ring: Arc::clone(&ring),
         client_address: ClientAddress::header(TEST_SOURCE_HEADER),
     };
+    // ADR-0063: the stream hub, and the one connection that listens for commits
+    // and authority changes.
+    let live = fathom_server::live::Live::new(1, 64 * 1024 * 1024);
+    let app_url = support::test_database_url();
+    let app_config = fathom_server::config::Config::from_lookup(|k| {
+        (k == "DATABASE_URL").then(|| app_url.clone())
+    })
+    .expect("a DATABASE_URL-only config must always parse");
+    live.listen(fathom_server::db::listener_config(&app_config).expect("a listener config"));
     let design_state = DesignApiState {
         sessions,
         watch,
         ring,
         catalogue: Arc::new(catalogue),
         client_address: fathom_server::client_address::ClientAddress::peer(),
+        live,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }
@@ -614,6 +624,18 @@ async fn call_full(
     path: &str,
     body: &[u8],
 ) -> (String, String, Vec<u8>) {
+    let headers = sign_request(addr, person, method, path, body).await;
+    raw_request_full(addr, method, path, &headers, body).await
+}
+
+/// Sign in, take a nonce and sign one request: the headers that carry it.
+async fn sign_request(
+    addr: SocketAddr,
+    person: &Person,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Vec<(&'static str, String)> {
     let session_key = SoftwareKey::random().unwrap();
     let pubkey = session_key.public_key();
     let source = a_source_of_its_own();
@@ -686,20 +708,13 @@ async fn call_full(
         counter,
     );
     let signature = session_key.sign(&message);
-    raw_request_full(
-        addr,
-        method,
-        path,
-        &[
-            (HEADER_SESSION, session_id),
-            (HEADER_NONCE, hex(nonce)),
-            (HEADER_TIMESTAMP, unix_ms.to_string()),
-            (HEADER_COUNTER, counter.to_string()),
-            (HEADER_SIGNATURE, hex(signature)),
-        ],
-        body,
-    )
-    .await
+    vec![
+        (HEADER_SESSION, session_id),
+        (HEADER_NONCE, hex(nonce)),
+        (HEADER_TIMESTAMP, unix_ms.to_string()),
+        (HEADER_COUNTER, counter.to_string()),
+        (HEADER_SIGNATURE, hex(signature)),
+    ]
 }
 
 /// [`call`], but with the last byte of the signature flipped after it is
@@ -2934,4 +2949,774 @@ async fn naming_a_design_in_another_organisation_or_one_that_does_not_exist_is_r
     );
     let (status, _) = call(addr, &estate.steward, "POST", &path, b"x").await;
     assert_eq!(status, "404");
+}
+
+// ---------------------------------------------------------------------------
+// Live co-editing (ADR-0063)
+// ---------------------------------------------------------------------------
+
+mod live {
+    use super::*;
+    use fathom_graph::{NodeId, Op};
+    use fathom_ir::generated::ir_types::EdgeKind;
+    use std::time::Duration;
+    use tokio::io::AsyncReadExt;
+
+    const AT: u64 = 1_700_000_000_000;
+    const PREMISES: u128 = 1;
+    const RACK: u128 = 3;
+    const HAS_RACK: u128 = 5;
+    const DEVICE: u128 = 10;
+    const CHASSIS: u128 = 12;
+    const HAS_CHASSIS: u128 = 14;
+
+    fn u(n: u128) -> Ulid {
+        Ulid::from_parts(AT, n).expect("48-bit timestamp")
+    }
+
+    fn node(kind: NodeKind, n: u128) -> NodeId {
+        NodeId { kind, ulid: u(n) }
+    }
+
+    fn prov_of(n: u128, by: AccountId) -> ProvenanceRecord {
+        ProvenanceRecord {
+            id: ProvenanceId(u(1_000_000 + n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(AT + n as u64),
+            asserted_by: Actor::User(UserId(by.0)),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        }
+    }
+
+    /// A premises with a rack, and a device with one chassis.
+    fn a_base(by: AccountId) -> Graph {
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(u(2_000_000)), "base").unwrap();
+        let premises = g
+            .insert_node(NodeKind::Premises, u(PREMISES), prov_of(1, by))
+            .unwrap();
+        let rack = g
+            .insert_node(NodeKind::Rack, u(RACK), prov_of(2, by))
+            .unwrap();
+        g.insert_edge(
+            EdgeKind::HasRack,
+            u(HAS_RACK),
+            premises,
+            rack,
+            prov_of(3, by),
+        )
+        .unwrap();
+        let device = g
+            .insert_node(NodeKind::Device, u(DEVICE), prov_of(4, by))
+            .unwrap();
+        let chassis = g
+            .insert_node(NodeKind::Chassis, u(CHASSIS), prov_of(5, by))
+            .unwrap();
+        g.insert_edge(
+            EdgeKind::HasChassis,
+            u(HAS_CHASSIS),
+            device,
+            chassis,
+            prov_of(6, by),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        g
+    }
+
+    /// The wire body of the batch `after` last recorded: the schema prefix,
+    /// then the change document (batch, its provenance, no values).
+    fn body_of(after: &Graph) -> Vec<u8> {
+        let batch = after.log().last().expect("a batch").clone();
+        let mut ids: Vec<ProvenanceId> = Vec::new();
+        for op in &batch.ops {
+            match op {
+                Op::AddNode { prov, .. } | Op::AddEdge { prov, .. } => ids.push(*prov),
+                other => panic!("this helper writes no {other:?}"),
+            }
+        }
+        ids.sort();
+        ids.dedup();
+        let provenance = ids
+            .iter()
+            .map(|id| after.provenance(*id).expect("recorded").clone())
+            .collect();
+        let change = fathom_workspace::Change {
+            batch,
+            provenance,
+            values: Vec::new(),
+        };
+        save_body(
+            CURRENT_SCHEMA_WIRE_VERSION,
+            &fathom_workspace::write_change(&change),
+        )
+    }
+
+    /// Add a rack under the premises: batch `n`.
+    fn add_rack(local: &mut Graph, by: AccountId, n: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(3_000_000 + n)), "add a rack")
+            .unwrap();
+        let rack = local
+            .insert_node(NodeKind::Rack, u(100 + n), prov_of(10 * n, by))
+            .unwrap();
+        local
+            .insert_edge(
+                EdgeKind::HasRack,
+                u(200 + n),
+                node(NodeKind::Premises, PREMISES),
+                rack,
+                prov_of(10 * n + 1, by),
+            )
+            .unwrap();
+        local.end_batch().unwrap();
+        body_of(local)
+    }
+
+    /// Mount the chassis in the rack: batch `n`, edge `edge`.
+    fn mount(local: &mut Graph, by: AccountId, n: u128, edge: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(4_000_000 + n)), "mount")
+            .unwrap();
+        local
+            .insert_edge(
+                EdgeKind::MountedIn,
+                u(edge),
+                node(NodeKind::Chassis, CHASSIS),
+                node(NodeKind::Rack, RACK),
+                prov_of(10 * n, by),
+            )
+            .unwrap();
+        local.end_batch().unwrap();
+        body_of(local)
+    }
+
+    struct World {
+        pool: Pool,
+        ring: Arc<KeyRing>,
+        estate: Estate,
+        design: DesignId,
+        addr: SocketAddr,
+        base: Graph,
+    }
+
+    /// An estate with a design saved at version 1 from `a_base`, served.
+    async fn world() -> World {
+        let pool = support::migrated_pool().await;
+        let ring = ring();
+        let estate = bootstrap(&pool, &ring).await;
+        let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+        let base = a_base(estate.steward.account);
+        let version = designs::write_version(
+            &pool,
+            &ring,
+            estate.organisation,
+            estate.steward.account,
+            design,
+            &fathom_workspace::write_plain(&base).expect("writes"),
+            CURRENT_SCHEMA_WIRE_VERSION as i32,
+        )
+        .await
+        .expect("version 1");
+        assert_eq!(version, 1);
+        let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+        World {
+            pool,
+            ring,
+            estate,
+            design,
+            addr,
+            base,
+        }
+    }
+
+    impl World {
+        fn path(&self, tail: &str) -> String {
+            format!(
+                "/organisations/{}/designs/{}/{tail}",
+                self.estate.organisation, self.design
+            )
+        }
+
+        fn root(&self) -> String {
+            format!(
+                "/organisations/{}/designs/{}",
+                self.estate.organisation, self.design
+            )
+        }
+
+        async fn post_change(&self, who: &Person, body: &[u8], after: i64) -> (String, Vec<u8>) {
+            call(
+                self.addr,
+                who,
+                "POST",
+                &self.path(&format!("changes?after={after}")),
+                body,
+            )
+            .await
+        }
+
+        async fn latest(&self) -> i64 {
+            designs::read_version(
+                &self.pool,
+                &self.ring,
+                self.estate.organisation,
+                self.estate.steward.account,
+                self.design,
+                None,
+            )
+            .await
+            .expect("the head")
+            .version
+        }
+    }
+
+    enum Next {
+        Frame(u8, u64, Vec<u8>),
+        Quiet,
+        Closed,
+    }
+
+    /// An open `GET …/live`, read frame by frame.
+    struct Feed {
+        stream: tokio::net::TcpStream,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        closed: bool,
+    }
+
+    async fn open_feed(w: &World, who: &Person, since: i64) -> Feed {
+        use tokio::io::AsyncWriteExt;
+        let path = w.path(&format!("live?since={since}"));
+        let headers = sign_request(w.addr, who, "GET", &path, b"").await;
+        let mut stream = tokio::net::TcpStream::connect(w.addr)
+            .await
+            .expect("connect");
+        let mut head = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n");
+        for (name, value) in &headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        head.push_str("\r\n");
+        stream.write_all(head.as_bytes()).await.expect("write");
+        let mut raw = Vec::new();
+        let split = loop {
+            let mut buf = [0u8; 4096];
+            let n = tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buf))
+                .await
+                .expect("headers in time")
+                .expect("read");
+            assert!(n > 0, "the stream closed before its headers");
+            raw.extend_from_slice(&buf[..n]);
+            if let Some(i) = raw.windows(4).position(|x| x == b"\r\n\r\n") {
+                break i;
+            }
+        };
+        let head = String::from_utf8_lossy(&raw[..split]).to_lowercase();
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(head.contains("x-accel-buffering: no"), "{head}");
+        assert!(head.contains("cache-control: no-store"), "{head}");
+        let rest = raw[split + 4..].to_vec();
+        let mut feed = Feed {
+            stream,
+            raw: rest,
+            body: Vec::new(),
+            closed: false,
+        };
+        feed.dechunk();
+        feed
+    }
+
+    impl Feed {
+        fn dechunk(&mut self) {
+            loop {
+                let Some(eol) = self.raw.windows(2).position(|x| x == b"\r\n") else {
+                    return;
+                };
+                let size = usize::from_str_radix(
+                    std::str::from_utf8(&self.raw[..eol]).expect("ascii").trim(),
+                    16,
+                )
+                .expect("a chunk size");
+                if size == 0 {
+                    self.closed = true;
+                    return;
+                }
+                let end = eol + 2 + size + 2;
+                if self.raw.len() < end {
+                    return;
+                }
+                self.body
+                    .extend_from_slice(&self.raw[eol + 2..eol + 2 + size]);
+                self.raw.drain(..end);
+            }
+        }
+
+        fn take_frame(&mut self) -> Option<(u8, u64, Vec<u8>)> {
+            if self.body.len() < 13 {
+                return None;
+            }
+            let len = u32::from_le_bytes(self.body[9..13].try_into().unwrap()) as usize;
+            if self.body.len() < 13 + len {
+                return None;
+            }
+            let kind = self.body[0];
+            let version = u64::from_le_bytes(self.body[1..9].try_into().unwrap());
+            let bytes = self.body[13..13 + len].to_vec();
+            self.body.drain(..13 + len);
+            Some((kind, version, bytes))
+        }
+
+        async fn next(&mut self, within: Duration) -> Next {
+            let deadline = tokio::time::Instant::now() + within;
+            loop {
+                if let Some((k, v, b)) = self.take_frame() {
+                    return Next::Frame(k, v, b);
+                }
+                if self.closed {
+                    return Next::Closed;
+                }
+                let mut buf = [0u8; 8192];
+                match tokio::time::timeout_at(deadline, self.stream.read(&mut buf)).await {
+                    Err(_) => return Next::Quiet,
+                    Ok(Ok(0)) | Ok(Err(_)) => {
+                        self.closed = true;
+                        return Next::Closed;
+                    }
+                    Ok(Ok(n)) => {
+                        self.raw.extend_from_slice(&buf[..n]);
+                        self.dechunk();
+                    }
+                }
+            }
+        }
+
+        async fn change_at(&mut self, version: u64) {
+            match self.next(Duration::from_secs(10)).await {
+                Next::Frame(1, v, doc) => {
+                    assert_eq!(v, version);
+                    assert!(doc.starts_with(b"fathom-change 1\n"));
+                }
+                Next::Frame(k, v, _) => {
+                    panic!("expected a change at {version}, got type {k} at {v}")
+                }
+                Next::Quiet => panic!("expected a change at {version}, got silence"),
+                Next::Closed => panic!("expected a change at {version}, the stream closed"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_read_holder_cannot_send_a_change() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+
+        let mut local = w.base.clone();
+        let body = add_rack(&mut local, reader.account, 1);
+        let (status, answer) = w.post_change(&reader, &body, 1).await;
+        assert_eq!(status, "403", "{}", String::from_utf8_lossy(&answer));
+        assert_eq!(w.latest().await, 1, "nothing was stored");
+
+        // The same body from someone who may draw is accepted, so the refusal
+        // above was the capability and not the body.
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+        let mut local = w.base.clone();
+        let body = add_rack(&mut local, drawer.account, 1);
+        let (status, answer) = w.post_change(&drawer, &body, 1).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+        assert_eq!(answer, b"2\n");
+    }
+
+    #[tokio::test]
+    async fn revoking_a_grant_closes_an_open_stream_before_the_next_delivery() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+        let (reader, grant) =
+            a_member_with_revocable_grant(&w.pool, &w.ring, &w.estate, "reader", Capability::Read)
+                .await;
+
+        let mut revoked = open_feed(&w, &reader, 1).await;
+        let mut steady = open_feed(&w, &w.estate.steward, 1).await;
+
+        let mut local = w.base.clone();
+        let first = add_rack(&mut local, drawer.account, 1);
+        let (status, _) = w.post_change(&drawer, &first, 1).await;
+        assert_eq!(status, "200");
+        revoked.change_at(2).await;
+        steady.change_at(2).await;
+
+        revoke(&w.pool, &w.ring, &w.estate, &grant).await;
+
+        let second = add_rack(&mut local, drawer.account, 2);
+        let (status, _) = w.post_change(&drawer, &second, 2).await;
+        assert_eq!(status, "200");
+
+        // The control still hears it; the revoked reader's stream ends
+        // without a frame for version 3.
+        steady.change_at(3).await;
+        loop {
+            match revoked.next(Duration::from_secs(10)).await {
+                Next::Closed => break,
+                Next::Frame(1, v, _) => panic!("a change at {v} reached a revoked reader"),
+                Next::Frame(..) => {}
+                Next::Quiet => panic!("the revoked reader's stream stayed open"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_second_mounted_in_for_a_chassis_is_refused_and_stores_nothing() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        let first = mount(&mut w.base.clone(), drawer.account, 1, 910);
+        let second = mount(&mut w.base.clone(), drawer.account, 2, 911);
+        let (status, answer) = w.post_change(&drawer, &first, 1).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+        let (status, answer) = w.post_change(&drawer, &second, 2).await;
+        assert_eq!(status, "422", "{}", String::from_utf8_lossy(&answer));
+        assert!(
+            String::from_utf8_lossy(&answer).contains("refused"),
+            "{}",
+            String::from_utf8_lossy(&answer)
+        );
+        assert_eq!(w.latest().await, 2, "the refused change took no version");
+    }
+
+    #[tokio::test]
+    async fn a_retried_batch_returns_the_same_version_and_applies_once() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        let mut local = w.base.clone();
+        let body = add_rack(&mut local, drawer.account, 1);
+        let (status, first) = w.post_change(&drawer, &body, 1).await;
+        assert_eq!((status.as_str(), first.as_slice()), ("200", &b"2\n"[..]));
+        let (status, again) = w.post_change(&drawer, &body, 1).await;
+        assert_eq!((status.as_str(), again.as_slice()), ("200", &b"2\n"[..]));
+        assert_eq!(w.latest().await, 2, "the retry took no version of its own");
+
+        // The same batch id with different content is refused, not merged.
+        let mut other = w.base.clone();
+        other
+            .begin_batch(BatchId(u(3_000_000 + 1)), "a different change")
+            .unwrap();
+        let rack = other
+            .insert_node(NodeKind::Rack, u(777), prov_of(7770, drawer.account))
+            .unwrap();
+        other
+            .insert_edge(
+                EdgeKind::HasRack,
+                u(778),
+                node(NodeKind::Premises, PREMISES),
+                rack,
+                prov_of(7771, drawer.account),
+            )
+            .unwrap();
+        other.end_batch().unwrap();
+        let (status, answer) = w.post_change(&drawer, &body_of(&other), 1).await;
+        assert_eq!(status, "409", "{}", String::from_utf8_lossy(&answer));
+
+        // One change entry on the chain, and the head holds the rack once.
+        let (status, history) =
+            call(w.addr, &w.estate.steward, "GET", &w.path("history"), b"").await;
+        assert_eq!(status, "200");
+        let history = String::from_utf8_lossy(&history);
+        assert_eq!(
+            history.matches("\"entry_type\":\"change\"").count(),
+            1,
+            "{history}"
+        );
+        let head = designs::read_version(
+            &w.pool,
+            &w.ring,
+            w.estate.organisation,
+            w.estate.steward.account,
+            w.design,
+            None,
+        )
+        .await
+        .expect("the head");
+        let graph = fathom_workspace::read_plain(&head.payload).expect("reads");
+        assert_eq!(
+            graph
+                .log()
+                .iter()
+                .filter(|b| b.id == BatchId(u(3_000_001)))
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn a_whole_save_after_live_changes_takes_the_right_version() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        let mut local = w.base.clone();
+        for n in 1..=2u128 {
+            let body = add_rack(&mut local, drawer.account, n);
+            let (status, answer) = w.post_change(&drawer, &body, n as i64).await;
+            assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+            assert_eq!(answer, format!("{}\n", n + 1).into_bytes());
+        }
+        assert_eq!(w.latest().await, 3);
+
+        // A save based on the version before the changes is stale.
+        let payload = a_plain_face_payload(2);
+        let versions = w.path("versions");
+        let (status, _, _) = call_full(
+            w.addr,
+            &drawer,
+            "POST",
+            &format!("{versions}?base=1"),
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+        )
+        .await;
+        assert_eq!(status, "409");
+
+        let (status, answer) = call(
+            w.addr,
+            &drawer,
+            "POST",
+            &format!("{versions}?base=3"),
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+        )
+        .await;
+        assert_eq!(status, "200");
+        assert_eq!(answer, b"4\n", "the changes took versions 2 and 3");
+        assert_eq!(w.latest().await, 4);
+
+        let (status, opened) = call(w.addr, &w.estate.steward, "GET", &w.root(), b"").await;
+        assert_eq!(status, "200");
+        assert_eq!(opened, payload);
+
+        // The chain still verifies end to end, changes and all.
+        let (status, report) = call(
+            w.addr,
+            &w.estate.steward,
+            "GET",
+            &w.path("verify?deep=true"),
+            b"",
+        )
+        .await;
+        assert_eq!(status, "200");
+        let report = String::from_utf8_lossy(&report);
+        assert!(report.contains("\"outcome\":\"verified\""), "{report}");
+    }
+
+    #[tokio::test]
+    async fn a_change_reaches_a_stream_and_presence_shows_only_the_same_view() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        let mut steward_feed = open_feed(&w, &w.estate.steward, 1).await;
+        let mut drawer_feed = open_feed(&w, &drawer, 1).await;
+        for (who, view) in [(&w.estate.steward, "view-a"), (&drawer, "view-a")] {
+            let (status, _) = call(w.addr, who, "POST", &w.path("presence"), view.as_bytes()).await;
+            assert_eq!(status, "200");
+        }
+        let mut seen = false;
+        for _ in 0..4 {
+            if let Next::Frame(3, _, json) = steward_feed.next(Duration::from_secs(10)).await {
+                let json = String::from_utf8_lossy(&json);
+                if json.contains("\"initials\":\"DR\"") {
+                    seen = true;
+                    break;
+                }
+            }
+        }
+        assert!(seen, "the steward was told the drawer is in the same view");
+
+        let mut local = w.base.clone();
+        let body = add_rack(&mut local, drawer.account, 1);
+        let (status, _) = w.post_change(&drawer, &body, 1).await;
+        assert_eq!(status, "200");
+        for feed in [&mut steward_feed, &mut drawer_feed] {
+            loop {
+                match feed.next(Duration::from_secs(10)).await {
+                    Next::Frame(1, 2, _) => break,
+                    Next::Frame(3, ..) => {}
+                    Next::Frame(k, v, _) => panic!("unexpected frame {k} at {v}"),
+                    Next::Quiet | Next::Closed => panic!("the change did not arrive"),
+                }
+            }
+        }
+
+        // A stream that starts behind catches up from storage.
+        let mut late = open_feed(&w, &w.estate.steward, 1).await;
+        late.change_at(2).await;
+
+        // A read holder's presence is accepted; a body over 64 bytes is not.
+        let (status, _) = call(w.addr, &drawer, "POST", &w.path("presence"), &[b'x'; 65]).await;
+        assert_eq!(status, "400");
+    }
+
+    /// Rows of `table` for the design, as `(version, key_epoch)`, read in a
+    /// tenant context.
+    async fn sealed_rows(w: &World, table: &str) -> Vec<(i64, i32)> {
+        let mut client = w.pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        repo::open_tenant_context(&tx, w.estate.organisation, w.estate.steward.account)
+            .await
+            .expect("tenant context");
+        let rows = tx
+            .query(
+                &format!(
+                    "SELECT design_version, key_epoch FROM {table} \
+                      WHERE design_id = $1 ORDER BY design_version"
+                ),
+                &[&w.design.to_string()],
+            )
+            .await
+            .expect("rows");
+        rows.iter().map(|r| (r.get(0), r.get(1))).collect()
+    }
+
+    #[tokio::test]
+    async fn a_checkpoint_is_written_when_the_last_stream_closes_and_rotation_covers_it() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+
+        let mut local = w.base.clone();
+        for n in 1..=2u128 {
+            let body = add_rack(&mut local, drawer.account, n);
+            let (status, _) = w.post_change(&drawer, &body, n as i64).await;
+            assert_eq!(status, "200");
+        }
+        assert!(sealed_rows(&w, "design_checkpoint").await.is_empty());
+
+        // Open a stream and drop it: the last one closing writes a checkpoint.
+        let feed = open_feed(&w, &drawer, 3).await;
+        drop(feed);
+        let mut found = Vec::new();
+        for _ in 0..50 {
+            found = sealed_rows(&w, "design_checkpoint").await;
+            if !found.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert_eq!(
+            found,
+            vec![(3, 1)],
+            "a checkpoint at the head, under the first key"
+        );
+
+        // Open reads the checkpoint (and any changes after it); the bytes are
+        // what replaying every change from version 1 gives.
+        let (status, before) = call(w.addr, &w.estate.steward, "GET", &w.root(), b"").await;
+        assert_eq!(status, "200");
+        assert_eq!(
+            before,
+            fathom_workspace::write_plain(&local).expect("writes")
+        );
+
+        // Rotation re-encrypts whole saves, changes and checkpoints.
+        let report = designs::rotate_design(
+            &w.pool,
+            &w.ring,
+            w.estate.organisation,
+            w.estate.steward.account,
+            w.design,
+            "test rotation",
+        )
+        .await
+        .expect("rotates");
+        assert_eq!(report.versions_reencrypted, 3);
+        assert_eq!(report.checkpoints_reencrypted, 1);
+        assert_eq!(sealed_rows(&w, "design_change").await, vec![(2, 2), (3, 2)]);
+        assert_eq!(sealed_rows(&w, "design_checkpoint").await, vec![(3, 2)]);
+
+        let (status, after) = call(w.addr, &w.estate.steward, "GET", &w.root(), b"").await;
+        assert_eq!(status, "200");
+        assert_eq!(after, before, "the same design after the key changed");
+        let (status, report) = call(
+            w.addr,
+            &w.estate.steward,
+            "GET",
+            &w.path("verify?deep=true"),
+            b"",
+        )
+        .await;
+        assert_eq!(status, "200");
+        let report = String::from_utf8_lossy(&report);
+        assert!(report.contains("\"outcome\":\"verified\""), "{report}");
+
+        // A past version replays to what it was.
+        let (status, v2) = call(
+            w.addr,
+            &w.estate.steward,
+            "GET",
+            &format!("{}?version=2", w.root()),
+            b"",
+        )
+        .await;
+        assert_eq!(status, "200");
+        let graph = fathom_workspace::read_plain(&v2).expect("reads");
+        assert_eq!(graph.log().len(), 2, "the base and the first change");
+    }
 }

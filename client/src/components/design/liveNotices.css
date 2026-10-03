@@ -1,0 +1,42 @@
+/* The live design's notices: hairline boxes in ink, no colour (UI-SPEC "Look"). */
+.live-notices {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s4);
+  transform: translateX(-50%);
+  z-index: var(--z-egress);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  max-width: calc(100vw - var(--s6));
+}
+
+.live-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+.live-notice--quiet {
+  border-color: var(--hairline);
+  color: var(--muted);
+}
+
+.live-notice__close {
+  background: none;
+  border: none;
+  padding: 0 var(--s1);
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.live-notice__close:hover {
+  color: var(--ink);
+}

@@ -1,0 +1,5 @@
+{
+  "name": "set-over-existing-value",
+  "description": "Rack.label R1 becomes Core rack: the old value moves into history and the new provenance record supersedes the old one.",
+  "actor": "01HF7YAT000000000000000007"
+}

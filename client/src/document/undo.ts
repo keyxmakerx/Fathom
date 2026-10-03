@@ -14,6 +14,7 @@ import {
   findEdge,
   findNode,
   parseEdgeId,
+  pushHistory,
   readMountedInFields,
   replaceEdge,
   replaceNode,
@@ -107,7 +108,7 @@ export type UndoConflict =
  * element is (or was) an edge — its two endpoints, so a colleague's edit to
  * either end of an edge this batch added or removed still counts as
  * touching what the batch touched. */
-function touchedElements(doc: Document, batch: Batch): Set<string> {
+function touchedElements(doc: Document, batch: Batch, withoutFieldWrites = false): Set<string> {
   const out = new Set<string>();
   const addEdgeAndEndpoints = (edgeId: string, from?: string, to?: string): void => {
     out.add(edgeId);
@@ -131,7 +132,7 @@ function touchedElements(doc: Document, batch: Batch): Set<string> {
         addEdgeAndEndpoints(op.edge, op.from, op.to);
         break;
       case 'set_field':
-        addEdgeAndEndpoints(op.element);
+        if (!withoutFieldWrites) addEdgeAndEndpoints(op.element);
         break;
       case 'tombstone':
       case 'revive':
@@ -157,7 +158,13 @@ function ulidTimestampMs(id: string): number {
  * skipped — a caller that has not settled who is asking (or is checking a
  * batch's OWN standing, not a specific request to reverse it) gets the
  * older, ownership-blind answer. */
-export function conflict(doc: Document, batchId: string, requestingActor?: string): UndoConflict | undefined {
+export function conflict(
+  doc: Document,
+  batchId: string,
+  requestingActor?: string,
+  /** Live sessions: another person's later field write does not refuse the undo; that field is skipped instead. */
+  opts?: { skipChangedFields?: boolean },
+): UndoConflict | undefined {
   const batch = doc.batches.find((b) => b.id === batchId);
   if (!batch) throw new UnknownReferenceError(batchId, 'a batch');
 
@@ -175,7 +182,7 @@ export function conflict(doc: Document, batchId: string, requestingActor?: strin
   for (const later of doc.batches.slice(index + 1)) {
     const laterActor = batchActor(doc, later);
     if (laterActor === undefined || laterActor === actor) continue;
-    const laterTouched = touchedElements(doc, later);
+    const laterTouched = touchedElements(doc, later, opts?.skipChangedFields === true);
     let hit = false;
     for (const el of laterTouched) {
       if (touched.has(el)) {
@@ -295,6 +302,8 @@ function reverseSetField(
     const rest: Record<string, FieldEntry> = { ...fields };
     delete rest[op.key];
     newFields = rest;
+    // The engine records the clear itself in the history (`clear_field`).
+    working = pushHistory(working, op.element, op.key, { presence: 'unknown', prov: prov.id });
   } else {
     const entry: FieldEntry =
       restoredPresence === 'set'
@@ -393,24 +402,43 @@ function refuseIfReviveConflicts(doc: Document, edgeId: string): UndoConflict | 
   return undefined;
 }
 
+/** Whether a later batch by someone else wrote this field. */
+function changedByOther(doc: Document, target: Batch, actor: string, op: Extract<Op, { type: 'set_field' }>): boolean {
+  return doc.batches.slice(doc.batches.indexOf(target) + 1).some((later) => {
+    const by = batchActor(doc, later);
+    if (by === undefined || by === actor) return false;
+    return later.ops.some((o) => o.type === 'set_field' && o.element === op.element && o.key === op.key);
+  });
+}
+
+export interface SkippedField {
+  element: string;
+  key: string;
+}
+
 function reverseBatch(
   doc: Document,
   batchId: string,
   opts: { actor: string; now: number },
   prefix: 'undo' | 'redo',
+  skipped?: SkippedField[],
 ): Document {
   const target = doc.batches.find((b) => b.id === batchId);
   if (!target) throw new UnknownReferenceError(batchId, 'a batch');
 
   const { actor, now } = opts;
 
-  const c = conflict(doc, batchId, actor);
+  const c = conflict(doc, batchId, actor, { skipChangedFields: skipped !== undefined });
   if (c) throw new UndoConflictError(c);
 
   let working = doc;
   const ops: Op[] = [];
   const revivedEdgeIds: string[] = [];
   for (const op of [...target.ops].reverse()) {
+    if (skipped && op.type === 'set_field' && changedByOther(doc, target, actor, op)) {
+      skipped.push({ element: op.element, key: op.key });
+      continue;
+    }
     const r = reverseOp(working, actor, now, op);
     working = r.doc;
     ops.push(r.op);
@@ -425,6 +453,7 @@ function reverseBatch(
     if (revived) throw new UndoConflictError(revived);
   }
 
+  if (skipped && ops.length === 0) return doc; // every part was someone else's now
   const label = truncateUtf8(`${prefix} of ${target.label}`, LABEL_MAX_BYTES);
   const batch: Batch = { id: newUlid(now), label, ops, reverses: target.id };
   return withBatch(working, batch);
@@ -444,4 +473,25 @@ export function undo(doc: Document, batchId: string, opts: { actor: string; now:
 /** Redo: the undo of the undo — same mechanism, labelled "redo of <label>". */
 export function redo(doc: Document, undoBatchId: string, opts: { actor: string; now: number }): Document {
   return reverseBatch(doc, undoBatchId, opts, 'redo');
+}
+
+/** `undo` for a live design: a field another person has written since is left
+ * as it is and named in `skipped`. `doc` comes back unchanged when nothing was
+ * left to undo. */
+export function undoSkipping(
+  doc: Document,
+  batchId: string,
+  opts: { actor: string; now: number },
+): { doc: Document; skipped: SkippedField[] } {
+  const skipped: SkippedField[] = [];
+  return { doc: reverseBatch(doc, batchId, opts, 'undo', skipped), skipped };
+}
+
+export function redoSkipping(
+  doc: Document,
+  undoBatchId: string,
+  opts: { actor: string; now: number },
+): { doc: Document; skipped: SkippedField[] } {
+  const skipped: SkippedField[] = [];
+  return { doc: reverseBatch(doc, undoBatchId, opts, 'redo', skipped), skipped };
 }

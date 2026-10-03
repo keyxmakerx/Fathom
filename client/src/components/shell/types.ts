@@ -19,9 +19,10 @@ export interface ShellSearch {
   choose: (selection: SearchHit['selection']) => void;
 }
 
-/** One name chip in "who else is here". */
+/** One person in "who else is here", drawn as an initials dot. */
 export interface PresenceUser {
   id: string;
+  /** Their initials, and nothing else. */
   name: string;
 }
 
@@ -55,8 +56,8 @@ export interface ShellProps {
   lens: Lens;
   onLensChange: (lens: Lens) => void;
 
-  /** Who else is here, as name chips. Empty renders no chips — never a
-   * placeholder name. */
+  /** Who else is in this view, as initials dots. Empty renders nothing —
+   * never a placeholder name. */
   presence: PresenceUser[];
 
   /** The zoom percentage shown between the sign buttons, e.g. `100`. */

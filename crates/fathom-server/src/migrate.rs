@@ -198,6 +198,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0030_design_names.sql",
         sql: include_str!("../migrations/0030_design_names.sql"),
     },
+    // ADR-0063: live co-editing storage and its NOTIFY triggers.
+    Migration {
+        version: 31,
+        name: "0031_live_co_editing.sql",
+        sql: include_str!("../migrations/0031_live_co_editing.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

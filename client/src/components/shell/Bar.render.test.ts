@@ -77,6 +77,15 @@ describe('Bar — what is present where', () => {
   });
 });
 
+describe('Bar — who else is here', () => {
+  it('shows an initials dot per person, with the initials as the only title, and nothing when alone', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, presence: [{ id: 'a', name: 'SK' }, { id: 'b', name: 'AB' }] }));
+    expect(markup).toContain('<span class="shell-person" title="SK">SK</span>');
+    expect(markup).toContain('<span class="shell-person" title="AB">AB</span>');
+    expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-person');
+  });
+});
+
 describe('Bar — the search box', () => {
   it('is absent where there is nothing to search', () => {
     expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-search');

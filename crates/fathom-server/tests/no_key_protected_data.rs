@@ -231,6 +231,25 @@ const TABLES: &[TableClaim] = &[
               below exists for.",
     },
     TableClaim {
+        name: "design_change",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "one accepted live change per row (ADR-0063), sealed like a payload under a \
+              different associated-data tag. `body_digest` is a keyed digest used only to \
+              recognise a retried batch.",
+    },
+    TableClaim {
+        name: "design_checkpoint",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, wrapped under the tenant key, wrapped under the master key",
+        },
+        why: "the design's head as a full face at a version, written by the server \
+              (ADR-0063). Derived from chained data, so it has no chain entry of its own.",
+    },
+    TableClaim {
         name: "chain_entries",
         protection: Protection::KeyProtected {
             columns: &["metadata"],

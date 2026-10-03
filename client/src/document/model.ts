@@ -301,12 +301,16 @@ function pruneHistoryEntries(doc: Document, entries: HistoryEntry[]): { entries:
  * written, so a value is never simply gone the moment it is edited. Entries
  * are oldest first, matching `FieldHistory::entries`'s own doc comment. */
 export function archiveField(doc: Document, element: string, field: string, replaced: FieldEntry): Document {
+  return pushHistory(doc, element, field, { presence: replaced.presence, prov: replaced.prov, value: replaced.value });
+}
+
+/** Appends `entry` to a field's history, pruned as `archiveField` says. A clear
+ * pushes its own `unknown` entry too, since no slot remains to carry it
+ * (`graph.rs`'s `clear_field`). */
+export function pushHistory(doc: Document, element: string, field: string, entry: HistoryEntry): Document {
   const idx = doc.history.findIndex((h) => h.element === element && h.field === field);
   const prior = idx >= 0 ? doc.history[idx] : undefined;
-  const appended: HistoryEntry[] = [
-    ...(prior?.entries ?? []),
-    { presence: replaced.presence, prov: replaced.prov, value: replaced.value },
-  ];
+  const appended: HistoryEntry[] = [...(prior?.entries ?? []), entry];
   const { entries, dropped } = pruneHistoryEntries(doc, appended);
   const record: HistoryRecord = { element, field, entries, truncated: (prior?.truncated ?? 0) + dropped };
   const history =

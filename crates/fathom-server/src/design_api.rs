@@ -57,7 +57,7 @@
 //! `POST .../scopes/{scope}/designs` an unauthenticated caller can still make the
 //! process buffer 64 MiB, since the signature covers the whole body's digest and
 //! cannot be checked before the read. Worse, [`validate_payload`] parses a full
-//! [`Graph`] and runs [`find_credential`] BEFORE `signed.verify`, so such a caller
+//! [`Graph`] and runs [`fathom_workspace::find_credential`] BEFORE `signed.verify`, so such a caller
 //! also spends CPU. Not fixed here: it needs a session lookup before the body read
 //! (a shape this crate lacks) or `api.rs`'s source rate-limit bucket.
 //!
@@ -84,9 +84,6 @@ use deadpool_postgres::Transaction;
 
 use fathom_canon::Json;
 use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
-use fathom_graph::Graph;
-use fathom_ir::generated::accessors::{capture, note};
-use fathom_ir::generated::ir_types::NodeKind;
 
 use crate::api;
 use crate::audit;
@@ -96,6 +93,7 @@ use crate::crypto;
 use crate::designs::{self, DesignError};
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::KeyRing;
+use crate::live::{self, Live};
 use crate::repo::{self, DesignId, OrganisationId, ScopeId, TenantContext};
 use crate::sessions::{
     self, PendingRequest, SessionError, SessionStore, SignedRequest, VerifiedSession,
@@ -117,6 +115,8 @@ pub struct DesignApiState {
     /// (`src/client_address.rs`): design payload and vault ciphertext are what §4.1
     /// clause (b) protects, so this plane is checked too.
     pub client_address: crate::client_address::ClientAddress,
+    /// Live co-editing (ADR-0063): the design heads, the stream hub, the limits.
+    pub live: Arc<Live>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -176,6 +176,18 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/designs/{design}/versions",
             post(save_design_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/changes",
+            post(post_change_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/live",
+            get(live_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/presence",
+            post(presence_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}/history",
@@ -260,6 +272,33 @@ impl Signed {
 /// doc.
 pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
 
+/// The change route reads at [`designs::MAX_CHANGE_BYTES`] (plus the schema prefix).
+fn is_change_route(method: &str, path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    method == "POST"
+        && matches!(
+            segments.as_slice(),
+            [
+                "organisations",
+                _organisation,
+                "designs",
+                _design,
+                "changes"
+            ]
+        )
+}
+
+/// A live stream or a presence post: the person is not necessarily there, so
+/// the request does not refresh `last_seen_at` (ADR-0063 #13).
+fn is_background_route(method: &str, path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    match segments.as_slice() {
+        ["organisations", _organisation, "designs", _design, "live"] => method == "GET",
+        ["organisations", _organisation, "designs", _design, "presence"] => method == "POST",
+        _ => false,
+    }
+}
+
 /// True for exactly the two `POST` routes whose legitimate body may run to
 /// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`) and a
 /// create (`.../scopes/{scope}/designs`). Every other route, including any `GET`,
@@ -329,6 +368,8 @@ impl FromRequest<DesignApiState> for Signed {
         // trusted) name one of the two large-body routes. See [`is_large_body_route`].
         let cap = if is_large_body_route(&method, &route_path) {
             MAX_SIGNED_BODY
+        } else if is_change_route(&method, &route_path) {
+            designs::MAX_CHANGE_BYTES + 4
         } else {
             api::MAX_SIGNED_BODY
         };
@@ -349,6 +390,11 @@ impl FromRequest<DesignApiState> for Signed {
                 signature,
             })
             .await?;
+        let pending = if is_background_route(&method, &route_path) {
+            pending.background()
+        } else {
+            pending
+        };
 
         Ok(Self {
             pending,
@@ -399,6 +445,8 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 pub enum RouteError {
     Session(SessionError),
     Design(DesignError),
+    /// A per-account limit (ADR-0063 #14): answered 429.
+    Limited(&'static str),
 }
 
 impl From<SessionError> for RouteError {
@@ -420,6 +468,12 @@ impl IntoResponse for RouteError {
             // fixed sentence.
             Self::Session(e) => api::Refusal::from(e).into_response(),
             Self::Design(e) => design_error_response(e),
+            Self::Limited(why) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(axum::http::header::RETRY_AFTER, "1")],
+                format!("{why}\n"),
+            )
+                .into_response(),
         }
     }
 }
@@ -468,6 +522,34 @@ fn design_error_response(e: DesignError) -> Response {
                      destination accepts the backlog, or an operator raises the bound having \
                      understood that the window of unwitnessed history grows with it.\n"
                 ),
+            )
+                .into_response()
+        }
+        // ADR-0063 #3: the head refused the change. The reason is one sentence for
+        // the person; a 4xx other than 401/408/429, so the client drops the change.
+        DesignError::ChangeRefused(reason) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("that change was refused: {reason}\n"),
+        )
+            .into_response(),
+        DesignError::BatchIdUsed => (
+            StatusCode::CONFLICT,
+            "that batch id was already used by a different change\n",
+        )
+            .into_response(),
+        DesignError::ChangeAhead { after, current } => {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "fathom-design-version",
+                current
+                    .to_string()
+                    .parse()
+                    .expect("a decimal integer is a valid header value"),
+            );
+            (
+                StatusCode::CONFLICT,
+                headers,
+                format!("that change follows version {after}; the design is at {current}\n"),
             )
                 .into_response()
         }
@@ -724,14 +806,16 @@ async fn list_designs_handler(
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, extract(epoch FROM d.created_at)::bigint, d.created_by, \
-                    coalesce(max(p.design_version), 0), \
+                    greatest( \
+                        coalesce((SELECT max(p.design_version) FROM design_payload p \
+                                   WHERE p.design_id = d.id \
+                                     AND p.organisation_id = d.organisation_id), 0), \
+                        coalesce((SELECT max(c.design_version) FROM design_change c \
+                                   WHERE c.design_id = d.id \
+                                     AND c.organisation_id = d.organisation_id), 0)), \
                     d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              FROM designs d \
-             LEFT JOIN design_payload p \
-               ON p.design_id = d.id AND p.organisation_id = d.organisation_id \
              WHERE d.organisation_id = $1 \
-             GROUP BY d.id, d.scope_id, d.created_at, d.created_by, \
-                      d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              ORDER BY d.created_at",
             &[&ctx.tenant().to_string()],
         )
@@ -1181,7 +1265,15 @@ async fn open_design_handler(
         watch: &state.watch,
     };
 
-    let stored = designs::read_version_in_tx(&tx, &auth, design_id, scope, version).await?;
+    let stored = designs::read_version_in_tx(
+        &tx,
+        &auth,
+        Some(&state.live.heads),
+        design_id,
+        scope,
+        version,
+    )
+    .await?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     let mut headers = HeaderMap::new();
@@ -1290,6 +1382,7 @@ async fn save_design_handler(
     .await?;
 
     tx.commit().await.map_err(SessionError::Db)?;
+    state.live.hub.wake_design(&design_id.to_string());
 
     Ok((
         StatusCode::OK,
@@ -1324,7 +1417,7 @@ async fn save_design_handler(
 /// the gate or a hostile one that skipped it: the write is refused, naming field
 /// kind and line, before anything is stored.
 ///
-/// [`find_credential`] uses `fathom_ingest::redact::looks_like_credential_bare` for
+/// [`fathom_workspace::find_credential`] uses `fathom_ingest::redact::looks_like_credential_bare` for
 /// `Capture.text`, not a second detector: the gate's `looks_like_credential` plus
 /// its `raw_walk`/`gate_unshaped` bare-adjacency rule, restated because this caller
 /// has no lexed token list. Plain `looks_like_credential` needs a `:`/`=` beside a
@@ -1358,58 +1451,11 @@ fn validate_payload(body: &[u8]) -> Result<(u32, &[u8]), RouteError> {
         .into());
     }
 
-    if let Some((kind, line)) = find_credential(&graph) {
+    if let Some((kind, line)) = fathom_workspace::find_credential(&graph) {
         return Err(DesignError::CredentialInPayload { kind, line }.into());
     }
 
     Ok((schema_version, payload))
-}
-
-/// Every `Capture.text` and `Note.text` in the plain face, line by line, so the
-/// refusal names which one. `Some((kind, line))` on the first hit (node order
-/// within a kind, line order within a node); `None` when nothing trips the gate's
-/// own sketch predicate.
-fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
-    // `Capture` is never hand-typed (its node id is the weld's `CaptureId`, minted
-    // only by a parse), so it is always pasted device output and bare adjacency is
-    // the right aggression. `Note.text` may be EITHER pasted (through the same gate)
-    // OR hand-typed prose (ADR-0053 §5: "Fathom does not redact what you type, only
-    // what you paste"), and the plain-face payload cannot say which, so it stays on
-    // the delimiter-only check, which is prose-safe, rather than risk refusing a
-    // real sentence like "replaced the key switch". A credential a hostile client
-    // typed into a `Note` with no delimiter is the residual.
-    for node in graph.nodes_of_kind(NodeKind::Capture) {
-        if let Ok(text) = capture::text(node) {
-            if let Some(line) = credential_line(&text.0, true) {
-                return Some(("Capture", line));
-            }
-        }
-    }
-    for node in graph.nodes_of_kind(NodeKind::Note) {
-        if let Ok(text) = note::text(node) {
-            if let Some(line) = credential_line(&text.0, false) {
-                return Some(("Note", line));
-            }
-        }
-    }
-    None
-}
-
-/// The 1-based line in one field's text that first looks like a credential, run
-/// per line because a multi-line `Capture.text` is a whole configuration file and
-/// the refusal names the line. `bare` selects `looks_like_credential_bare` over
-/// `looks_like_credential`; see [`find_credential`].
-fn credential_line(text: &str, bare: bool) -> Option<usize> {
-    text.lines()
-        .enumerate()
-        .find(|(_, line)| {
-            if bare {
-                fathom_ingest::redact::looks_like_credential_bare(line)
-            } else {
-                fathom_ingest::redact::looks_like_credential(line)
-            }
-        })
-        .map(|(idx, _)| idx + 1)
 }
 
 fn read_u32_le(bytes: &[u8]) -> Option<(u32, &[u8])> {
@@ -1442,6 +1488,256 @@ fn schema_version_as_u32(declared: &str) -> Option<u32> {
     declared
         .strip_prefix("0.")
         .and_then(|minor| minor.parse().ok())
+}
+
+// ---- Live co-editing (ADR-0063) ----
+
+/// The schema minor a change document declares on its second line.
+fn change_schema_line(doc: &[u8]) -> Option<&str> {
+    doc.split(|&b| b == b'\n')
+        .nth(1)
+        .and_then(|line| core::str::from_utf8(line).ok())
+        .and_then(|line| line.strip_prefix("schema "))
+}
+
+/// `POST /organisations/{organisation}/designs/{design}/changes?after=N`: one
+/// change, applied to the design's head and stored as the next version. Needs
+/// `draw`. Body: `u32_le(schema minor) ‖ change document`. Answers `version\n`.
+///
+/// The size is bounded at the read (4 MiB) and the document is parsed only
+/// inside the transaction, after the signature and the grant, by
+/// [`designs::write_change_in_tx`]. The head learns of the commit only after
+/// it: a copy applied before is swapped in, or dropped.
+async fn post_change_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let after: i64 = signed
+        .query_param("after")
+        .ok_or(SessionError::Malformed("after"))?
+        .parse()
+        .map_err(|_| SessionError::Malformed("after"))?;
+    let (schema_version, doc) =
+        read_u32_le(&signed.body).ok_or(SessionError::Malformed("change body"))?;
+    if doc.len() > designs::MAX_CHANGE_BYTES {
+        return Err(DesignError::PayloadTooLarge { bytes: doc.len() }.into());
+    }
+    let declared = change_schema_line(doc).ok_or(SessionError::Malformed("change body"))?;
+    if schema_version_as_u32(declared) != Some(schema_version) {
+        return Err(DesignError::SchemaVersionPrefixMismatch {
+            prefix: schema_version,
+            declared: declared.to_owned(),
+        }
+        .into());
+    }
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    if !state.live.hub.allow_change(&ctx.actor().to_string()) {
+        return Err(RouteError::Limited("too many changes; slow down"));
+    }
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+
+    let written = designs::write_change_in_tx(
+        &tx,
+        &auth,
+        &state.live.heads,
+        design_id,
+        scope,
+        doc,
+        schema_version as i32,
+        after,
+        &audit::SpoolBounds::from_env(),
+    )
+    .await?;
+
+    let design_text = design_id.to_string();
+    match tx.commit().await {
+        Ok(()) => {
+            if let Some(applied) = written.applied {
+                state
+                    .live
+                    .heads
+                    .commit(&design_text, applied.ticket, written.version, applied.tip);
+                state.live.hub.wake_design(&design_text);
+            }
+        }
+        Err(e) => {
+            if let Some(applied) = written.applied {
+                state.live.heads.abort(&design_text, applied.ticket);
+            }
+            return Err(SessionError::Db(e).into());
+        }
+    }
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        format!("{}\n", written.version),
+    )
+        .into_response())
+}
+
+/// `GET /organisations/{organisation}/designs/{design}/live?since=N`: the feed.
+/// Needs `read`. Frames are `u8 type ‖ u64_le version ‖ u32_le length ‖ bytes`
+/// (see `live.rs`); the body stays open until the stream is ended (ten
+/// minutes, a failed authority check, a resync, or the client going away).
+async fn live_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let since: i64 = signed
+        .query_param("since")
+        .ok_or(SessionError::Malformed("since"))?
+        .parse()
+        .ok()
+        .filter(|v| *v >= 0)
+        .ok_or(SessionError::Malformed("since"))?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx =
+        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    if scope.is_none() {
+        return Err(DesignError::NoSuchDesign.into());
+    }
+    let head: Vec<u8> = tx
+        .query_opt(
+            "SELECT head_seal FROM organisation_auth_head WHERE organisation_id = $1",
+            &[&ctx.tenant().to_string()],
+        )
+        .await
+        .map_err(SessionError::Db)?
+        .map(|r| r.get(0))
+        .ok_or(SessionError::Corrupt("authority head"))?;
+    let account = ctx.actor().to_string();
+    tx.commit().await.map_err(SessionError::Db)?;
+    drop(client);
+
+    let tail = live::open(live::Opening {
+        state: state.clone(),
+        tenant,
+        design: design_id,
+        scope,
+        session,
+        account,
+        since,
+        head,
+    })
+    .map_err(|refusal| {
+        RouteError::Limited(match refusal {
+            live::Refusal::Account => "too many live streams for this account",
+            live::Refusal::AccountDesign => "too many live streams on this design for this account",
+            live::Refusal::Design => "too many live streams on this design",
+        })
+    })?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        "application/octet-stream"
+            .parse()
+            .expect("a static content type is a valid header value"),
+    );
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store"
+            .parse()
+            .expect("a static cache-control is a valid header value"),
+    );
+    // So the operator's proxy neither buffers nor idles the stream.
+    headers.insert(
+        "x-accel-buffering",
+        "no".parse()
+            .expect("a static header value is a valid header value"),
+    );
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(tail));
+    Ok((StatusCode::OK, headers, body).into_response())
+}
+
+/// `POST /organisations/{organisation}/designs/{design}/presence`: where the
+/// signed-in person is. Needs `read`. Body: a view id, UTF-8, 1 to 64 bytes. Held
+/// only while the person has a stream on this design.
+async fn presence_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    if signed.body.is_empty() || signed.body.len() > live::VIEW_ID_MAX {
+        return Err(SessionError::Malformed("view id").into());
+    }
+    let view = core::str::from_utf8(&signed.body)
+        .map_err(|_| SessionError::Malformed("view id"))?
+        .to_owned();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx =
+        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
+    let account = ctx.actor().to_string();
+    let design_text = design_id.to_string();
+    if !state.live.hub.allow_presence(&account, &design_text) {
+        return Err(RouteError::Limited("too many presence updates; slow down"));
+    }
+    let initials = match tx
+        .query_opt(
+            "SELECT display_name FROM accounts WHERE id = $1",
+            &[&account],
+        )
+        .await
+    {
+        Ok(Some(row)) => live::initials_of(&row.get::<_, String>(0)),
+        _ => "-".to_owned(),
+    };
+    tx.commit().await.map_err(SessionError::Db)?;
+    state
+        .live
+        .hub
+        .set_presence(&design_text, &account, &view, &initials);
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "ok\n",
+    )
+        .into_response())
 }
 
 // ---- History ----
@@ -1484,9 +1780,17 @@ async fn history_handler(
 
     let rows = tx
         .query(
-            "SELECT seq, entry_type, chain_key_epoch, design_version FROM chain_entries \
-             WHERE chain_kind = 'design' AND design_id = $1 AND organisation_id = $2 \
-             ORDER BY seq",
+            "SELECT e.seq, e.entry_type, e.chain_key_epoch, e.design_version, \
+                    coalesce(c.created_by, p.created_by) \
+             FROM chain_entries e \
+             LEFT JOIN design_change c \
+               ON c.design_id = e.design_id AND c.organisation_id = e.organisation_id \
+              AND c.design_version = e.design_version AND e.entry_type = 'change' \
+             LEFT JOIN design_payload p \
+               ON p.design_id = e.design_id AND p.organisation_id = e.organisation_id \
+              AND p.design_version = e.design_version AND e.entry_type IN ('create', 'update') \
+             WHERE e.chain_kind = 'design' AND e.design_id = $1 AND e.organisation_id = $2 \
+             ORDER BY e.seq",
             &[&design_id.to_string(), &ctx.tenant().to_string()],
         )
         .await
@@ -1498,6 +1802,7 @@ async fn history_handler(
         let entry_type_text: String = row.get(1);
         let chain_key_epoch: i32 = row.get(2);
         let design_version: Option<i64> = row.get(3);
+        let actor: Option<String> = row.get(4);
         let entry_type = chain::StoredEntryType::from_column(&entry_type_text);
 
         let mut map = BTreeMap::new();
@@ -1517,6 +1822,7 @@ async fn history_handler(
                 None => Json::Null,
             },
         );
+        map.insert("actor".to_string(), actor.map_or(Json::Null, Json::Str));
         out.push(Json::Obj(map));
     }
 

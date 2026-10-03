@@ -20,6 +20,7 @@
 //! entries and miscount `truncated`.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use fathom_canon::Json;
 use fathom_ir::bag::FieldKey;
@@ -315,7 +316,7 @@ impl Loader<'_> {
                         key: f.key,
                     })
                 }
-                (StoredPresence::Set, Some(j)) => Some(slot_from_canon(f.key, j)?),
+                (StoredPresence::Set, Some(j)) => Some(Rc::from(slot_from_canon(f.key, j)?)),
                 (StoredPresence::Absent, None) => None,
                 _ => {
                     return Err(SnapshotError::ValuePresenceMismatch {
@@ -446,7 +447,7 @@ impl Graph {
             for entry in &h.entries {
                 loader.require_prov(entry.prov)?;
                 let value = match (entry.presence, &entry.value) {
-                    (StoredPresence::Set, Some(j)) => Some(slot_from_canon(h.key, j)?),
+                    (StoredPresence::Set, Some(j)) => Some(Rc::from(slot_from_canon(h.key, j)?)),
                     (StoredPresence::Set, None) | (_, Some(_)) => {
                         return Err(SnapshotError::ValuePresenceMismatch {
                             element: h.element,
