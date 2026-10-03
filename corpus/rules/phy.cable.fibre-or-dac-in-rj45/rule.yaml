@@ -1,0 +1,24 @@
+id: phy.cable.fibre-or-dac-in-rj45
+rule_version: 1.0.0
+status: active
+severity: refuse
+category: correctness
+title: "A fibre lead or direct-attach cable is plugged into an RJ45 port"
+why: >
+  An RJ45 port is a twisted-pair jack. A fibre lead ends in LC or SC connectors and a direct-attach cable ends in SFP-style plugs; neither fits the jack, and neither carries the signal an RJ45 port expects.
+fix: >
+  Use a twisted-pair lead (Cat5e or better) in the RJ45 port, or move the cable to an SFP cage.
+concept: check.phy.cage-media
+acceptable_when: >
+  Never; the connector shapes do not match.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources_note: >
+  Definitional: the connector on the lead and the port do not mate. No standard needed to say so.
+applies_to:
+  kind: Cable
+  with:
+    ports: { via: [{ role: Terminates, kind: PhysicalPort }], card: many }
+condition: >
+  has(media) && media in ["twinax", "smf", "mmf"] && ports.exists(p, enum_is(p.connector, "rj45"))
+involves: [ports]

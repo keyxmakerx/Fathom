@@ -1,0 +1,21 @@
+# Dual-supply switch with only supply 0 plugged into PDU A.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: junos-ex, role: switch } }
+  - { id: ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: ps1, kind: PowerSupply, set: { slot: "0" } }
+  - { id: ps2, kind: PowerSupply, set: { slot: "1" } }
+  - { id: i1, kind: PhysicalPort, set: { label: "AC 0", connector: c14, service: power } }
+  - { id: i2, kind: PhysicalPort, set: { label: "AC 1", connector: c14, service: power } }
+  - { id: o1, kind: PhysicalPort, set: { label: "PDU A 4", connector: c13, service: power } }
+  - { id: o2, kind: PhysicalPort, set: { label: "PDU B 4", connector: c13, service: power } }
+  - { id: w1, kind: Cable, set: { media: power } }
+edges:
+  - { kind: HasChassis, from: d1, to: ch }
+  - { kind: FittedIn, from: ch, to: ps1 }
+  - { kind: FittedIn, from: ch, to: ps2 }
+  - { kind: HasPort, from: ps1, to: i1 }
+  - { kind: HasPort, from: ps2, to: i2 }
+  - { kind: Terminates, from: w1, to: i1, set: { end: a } }
+  - { kind: Terminates, from: w1, to: o1, set: { end: b } }
+anchor: ch
+involves: [w1]

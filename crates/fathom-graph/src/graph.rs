@@ -349,7 +349,10 @@ pub struct Graph {
     pub(crate) history: BTreeMap<(ElementId, FieldKey), FieldHistory>,
     pub(crate) log: Vec<Batch>,
     pub(crate) open: Option<Batch>,
+    instance: u64,
 }
+
+static NEXT_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl Default for Graph {
     fn default() -> Self {
@@ -372,7 +375,14 @@ impl Graph {
             history: BTreeMap::new(),
             log: Vec::new(),
             open: None,
+            instance: NEXT_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
+    }
+
+    /// Which graph this is, process-wide: a caller caching work against `log().len()`
+    /// uses it to tell a replaced graph from a grown one.
+    pub fn instance(&self) -> u64 {
+        self.instance
     }
 
     // ---- batches ----------------------------------------------------------

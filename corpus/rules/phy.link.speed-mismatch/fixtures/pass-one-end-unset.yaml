@@ -1,0 +1,22 @@
+# One end has no fixed speed, so nothing is claimed.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: junos-ex, role: switch } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p1, kind: PhysicalPort, set: { label: "Te1/0/1", connector: sfp_plus, service: ethernet }, present: [transceiver] }
+  - { id: d2, kind: Device, set: { hostname: dist-sw-02, platform: junos-ex, role: switch } }
+  - { id: d2_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p2, kind: PhysicalPort, set: { label: "xe-0/1/0", connector: sfp_plus, service: ethernet }, present: [transceiver] }
+  - { id: i1, kind: Interface, set: { name: Te1/0/1, form: ethernet, speed: 10000000000 } }
+  - { id: i2, kind: Interface, set: { name: xe-0/1/0, form: ethernet } }
+  - { id: c1, kind: Cable, set: { media: mmf } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+  - { kind: HasPort, from: d1_ch, to: p1 }
+  - { kind: HasChassis, from: d2, to: d2_ch }
+  - { kind: HasPort, from: d2_ch, to: p2 }
+  - { kind: HasInterface, from: d1, to: i1 }
+  - { kind: Occupies, from: i1, to: p1 }
+  - { kind: HasInterface, from: d2, to: i2 }
+  - { kind: Occupies, from: i2, to: p2 }
+  - { kind: Terminates, from: c1, to: p1, set: { end: a } }
+  - { kind: Terminates, from: c1, to: p2, set: { end: b } }

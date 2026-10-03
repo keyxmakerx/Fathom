@@ -1,0 +1,24 @@
+id: phy.link.speed-over-media
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "A 5 Gbit/s or faster link is on a Cat5e lead"
+why: >
+  Cat5e carries up to 2.5 Gbit/s (IEEE 802.3bz). 5 Gbit/s needs Category 6 and 10GBASE-T needs Category 6A, so a faster link over Cat5e will not come up reliably.
+fix: >
+  Use a Category 6A lead for 10 Gbit/s over copper, or lower the interface speed to 2.5 Gbit/s or less.
+concept: check.phy.link-speed
+acceptable_when: >
+  A run short enough that Cat5e happens to carry it. Even so it is outside the specification.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "IEEE", doc: "IEEE 802.3bz-2016 (2.5GBASE-T and 5GBASE-T) and IEEE 802.3an-2006 (10GBASE-T, now Clause 55), cabling classes", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    ifaces: { via: [Terminates, { role: Occupies, reverse: true }], card: many }
+condition: >
+  has(media) && enum_is(media, "cat5e") && ifaces.exists(i, has(i.speed) && i.speed >= 5000000000)
+involves: [ifaces]
