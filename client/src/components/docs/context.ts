@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { DocHow, DocTarget, DocView } from '../../document/docs';
+import type { DocFileView, DocHow, DocTarget, DocView } from '../../document/docs';
 
 export type Refused = { refused: string };
 
@@ -18,6 +18,10 @@ export interface DocsApi {
   remove(id: string): Refused | void;
   addLink(id: string, input: { title: string; url: string; pasted: boolean }): Promise<Refused | void>;
   removeLink(linkId: string): Refused | void;
+  /** Checks (text goes through the gate), uploads and records a file on a doc. */
+  addFile(docId: string, file: File): Promise<Refused | { note: string }>;
+  removeFile(fileNodeId: string): Refused | void;
+  download(file: DocFileView): Promise<Refused | void>;
   open(view: DocsView): void;
 }
 

@@ -1,5 +1,14 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
-import { MAX_BODY, MAX_LINKS, MAX_TITLE, safeUrl, type DocTarget, type DocView } from '../../document/docs';
+import {
+  MAX_BODY,
+  MAX_FILES,
+  MAX_LINKS,
+  MAX_TITLE,
+  safeUrl,
+  type DocFileView,
+  type DocTarget,
+  type DocView,
+} from '../../document/docs';
 import { DocsContext, type DocsApi, type DocsView } from './context';
 import { Markdown } from './markdown';
 import './docs.css';
@@ -408,6 +417,7 @@ function DocPage({
         </>
       )}
       <LinksBlock api={api} d={d} />
+      <FilesBlock api={api} d={d} />
     </div>
   );
 }
@@ -492,6 +502,108 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
           </button>
           {refusal != null ? <p className="docs-problem">{refusal}</p> : null}
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+function size(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function checkedWords(f: DocFileView): string {
+  if (f.checked === 'clean') return 'No passwords found';
+  if (f.checked === 'removed') return `${f.removed} password${f.removed === 1 ? '' : 's'} removed`;
+  return f.media === 'image' ? "Image, can't be read" : "Can't be read";
+}
+
+function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file || busy) return;
+    setBusy(true);
+    setMessage(null);
+    const r = await api.addFile(d.id, file);
+    setBusy(false);
+    if (input.current) input.current.value = '';
+    setMessage('refused' in r ? { text: r.refused, bad: true } : { text: r.note, bad: false });
+  }
+  async function get(f: DocFileView) {
+    setMessage(null);
+    const r = await api.download(f);
+    if (r?.refused) setMessage({ text: r.refused, bad: true });
+  }
+
+  return (
+    <section className="docs-links docs-files" aria-label="Files">
+      <h2>Files</h2>
+      {d.files.length === 0 ? <p className="docs-note">None.</p> : null}
+      {d.files.length > 0 ? (
+        <table className="docs-files__table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Size</th>
+              <th>Checked</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {d.files.map((f) => (
+              <tr key={f.id}>
+                <td>{f.name}</td>
+                <td>{size(f.size)}</td>
+                <td>{checkedWords(f)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="docs-link"
+                    onClick={() => void get(f)}
+                    aria-label={`Download ${f.name}`}
+                  >
+                    Download
+                  </button>
+                  {api.canEdit ? (
+                    <button
+                      type="button"
+                      className="docs-link"
+                      onClick={() => api.removeFile(f.id)}
+                      aria-label={`Remove file ${f.name}`}
+                    >
+                      {' '}
+                      remove
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {api.canEdit && d.files.length < MAX_FILES ? (
+        <div className="docs-links__add">
+          <input
+            ref={input}
+            type="file"
+            aria-label="Add a file"
+            disabled={busy}
+            onChange={(e) => void pick(e.target.files?.[0])}
+          />
+          <p className="docs-note">
+            PDF, image or text, up to 25 MB. Text is checked for passwords before it is uploaded; images and PDFs can't
+            be read, so they are stored without a check. Files open as downloads, never inside Fathom.
+          </p>
+        </div>
+      ) : null}
+      {message != null ? (
+        <p className={message.bad ? 'docs-problem' : 'docs-note'} role={message.bad ? 'alert' : 'status'}>
+          {message.text}
+        </p>
       ) : null}
     </section>
   );

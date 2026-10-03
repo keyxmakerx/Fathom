@@ -22,16 +22,17 @@ import {
   requireFieldName,
   text,
   token,
+  uint,
   withBatch,
   withEdge,
   withNode,
   type Batch,
-  type CanonValue,
   type Document,
   type FieldEntry,
   type NodeKind,
   type Op,
 } from './model';
+import type { CanonValue } from './canon';
 import { newUlid } from './ulid';
 
 interface Actor {
@@ -49,11 +50,21 @@ const DOCABLE_KINDS: readonly NodeKind[] = ['Device', 'PassiveNode', 'PhysicalPo
 export const MAX_TITLE = 120;
 export const MAX_BODY = 50_000;
 export const MAX_LINKS = 20;
+export const MAX_FILES = 20;
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_URL = 2048;
 
 const DOC_PREFIX = `${kebab('Doc')}:`;
 
-export type DocRefusalCode = 'empty-title' | 'too-long' | 'too-many-links' | 'bad-url' | 'not-docable' | 'not-a-doc';
+export type DocRefusalCode =
+  | 'empty-title'
+  | 'too-long'
+  | 'too-many-links'
+  | 'too-many-files'
+  | 'bad-file'
+  | 'bad-url'
+  | 'not-docable'
+  | 'not-a-doc';
 
 export class DocRefusalError extends Error {
   readonly code: DocRefusalCode;
@@ -74,6 +85,20 @@ export interface DocLinkView {
   url: string;
 }
 
+export type FileMedia = 'text' | 'pdf' | 'image';
+export type FileChecked = 'clean' | 'removed' | 'unread';
+
+export interface DocFileView {
+  id: string;
+  name: string;
+  size: number;
+  media: FileMedia;
+  checked: FileChecked;
+  removed: number;
+  fileId: string;
+  sha256: string;
+}
+
 export interface DocView {
   id: string;
   title: string;
@@ -86,6 +111,7 @@ export interface DocView {
   /** It was about a thing that has since been removed. */
   ownerGone: boolean;
   links: DocLinkView[];
+  files: DocFileView[];
   /** Who last changed the title or body, and when. */
   who: string;
   when: number;
@@ -270,8 +296,9 @@ export function removeDoc(doc: Document, docId: string, opts?: Actor): Document 
   const { actor, now } = resolve(opts);
   const links = edgesOut(doc, docId, 'HasDocLink');
   const on = edgesOut(doc, docId, 'DocOn');
-  const nodeIds = new Set([docId, ...links.map((e) => e.to)]);
-  const edgeIds = new Set([...links, ...on].map((e) => e.id));
+  const files = edgesOut(doc, docId, 'HasDocFile');
+  const nodeIds = new Set([docId, ...links.map((e) => e.to), ...files.map((e) => e.to)]);
+  const edgeIds = new Set([...links, ...files, ...on].map((e) => e.id));
   const working: Document = {
     ...doc,
     nodes: doc.nodes.map((n) => (nodeIds.has(n.id) ? { ...n, absentSince: now } : n)),
@@ -344,6 +371,82 @@ export function removeDocLink(doc: Document, linkId: string, opts?: Actor): Docu
   return withBatch(working, { id: newUlid(now), label: 'remove link', ops });
 }
 
+/** Adds a stored file to a doc. The bytes are already with the server; this records what the person sees. */
+export function addDocFile(
+  doc: Document,
+  docId: string,
+  input: {
+    name: string;
+    size: number;
+    media: FileMedia;
+    checked: FileChecked;
+    removed: number;
+    fileId: string;
+    sha256: string;
+  },
+  opts?: Actor,
+): Document {
+  liveDocNode(doc, docId);
+  if (!/^[0-9a-f]{32}$/.test(input.fileId) || !/^[0-9a-f]{64}$/.test(input.sha256))
+    throw new DocRefusalError('bad-file', 'That file was not stored properly.');
+  if (!Number.isInteger(input.size) || input.size < 1 || input.size > MAX_FILE_BYTES)
+    throw new DocRefusalError('bad-file', 'A file is at most 25 MB.');
+  if (edgesOut(doc, docId, 'HasDocFile').length >= MAX_FILES)
+    throw new DocRefusalError('too-many-files', `A doc has at most ${MAX_FILES} files.`);
+  const name = cleanTitle(input.name, 'A file name');
+  const { actor, now } = resolve(opts);
+  const existence = assertHand(doc, { assertedAt: now, assertedBy: actor });
+  let working = existence.doc;
+  const id = formatNodeId('DocFile', newUlid(now));
+  const fields: Record<string, FieldEntry> = {};
+  const fieldOps: Op[] = [];
+  const values: [string, CanonValue][] = [
+    ['DocFile.name', text(name)],
+    ['DocFile.size', uint(input.size, 32)],
+    ['DocFile.media', token(input.media)],
+    ['DocFile.checked', token(input.checked)],
+    ['DocFile.file_id', identifier(input.fileId)],
+    ['DocFile.sha256', text(input.sha256)],
+  ];
+  if (input.checked === 'removed') values.push(['DocFile.removed', uint(input.removed, 32)]);
+  for (const [key, value] of values) {
+    const f = newField(working, now, actor, id, key, value);
+    working = f.doc;
+    fields[key] = f.entry;
+    fieldOps.push(f.op);
+  }
+  working = withNode(working, { id, existence: existence.id, fields });
+  const edgeProv = assertHand(working, { assertedAt: now, assertedBy: actor });
+  const edgeId = formatEdgeId('HasDocFile', newUlid(now));
+  working = withEdge(edgeProv.doc, { id: edgeId, from: docId, to: id, prov: edgeProv.id, fields: {} });
+  const ops: Op[] = [
+    { type: 'add_node', node: id, prov: existence.id },
+    ...fieldOps,
+    { type: 'add_edge', edge: edgeId, from: docId, to: id, prov: edgeProv.id },
+  ];
+  return withBatch(working, { id: newUlid(now), label: 'add file', ops });
+}
+
+export function removeDocFile(doc: Document, fileNodeId: string, opts?: Actor): Document {
+  const edge = edgesIn(doc, fileNodeId, 'HasDocFile')[0];
+  if (!edge) throw new UnknownReferenceError(fileNodeId, 'a file on a doc in this design');
+  const { actor, now } = resolve(opts);
+  const working: Document = {
+    ...doc,
+    nodes: doc.nodes.map((n) => (n.id === fileNodeId ? { ...n, absentSince: now } : n)),
+    edges: doc.edges.map((e) => (e.id === edge.id ? { ...e, absentSince: now } : e)),
+  };
+  const ops: Op[] = [
+    { type: 'tombstone', element: fileNodeId, at: now, by: actor },
+    { type: 'tombstone', element: edge.id, at: now, by: actor },
+  ];
+  return withBatch(working, { id: newUlid(now), label: 'remove file', ops });
+}
+
+function num(v: unknown): number {
+  return typeof v === 'number' ? v : typeof v === 'bigint' ? Number(v) : 0;
+}
+
 function readDoc(doc: Document, id: string): DocView | undefined {
   const node = findNode(doc, id);
   if (!node || node.absentSince !== undefined) return undefined;
@@ -367,6 +470,23 @@ function readDoc(doc: Document, id: string): DocView | undefined {
       url: str(fieldValue(ln.fields, 'DocLink.url')),
     });
   }
+  const files: DocFileView[] = [];
+  for (const e of edgesOut(doc, id, 'HasDocFile')) {
+    const fn = findNode(doc, e.to);
+    if (!fn || fn.absentSince !== undefined) continue;
+    const media = str(fieldValue(fn.fields, 'DocFile.media'));
+    const checked = str(fieldValue(fn.fields, 'DocFile.checked'));
+    files.push({
+      id: fn.id,
+      name: str(fieldValue(fn.fields, 'DocFile.name')),
+      size: num(fieldValue(fn.fields, 'DocFile.size')),
+      media: media === 'pdf' || media === 'image' ? media : 'text',
+      checked: checked === 'clean' || checked === 'removed' ? checked : 'unread',
+      removed: num(fieldValue(fn.fields, 'DocFile.removed')),
+      fileId: str(fieldValue(fn.fields, 'DocFile.file_id')),
+      sha256: str(fieldValue(fn.fields, 'DocFile.sha256')),
+    });
+  }
   return {
     id,
     title: str(fieldValue(node.fields, 'Doc.title')),
@@ -376,6 +496,7 @@ function readDoc(doc: Document, id: string): DocView | undefined {
     ownerId: on ? on.to : null,
     ownerGone: on !== undefined && (!owner || owner.absentSince !== undefined),
     links,
+    files,
     who: latest?.assertedBy ?? LOCAL_ACTOR,
     when: latest?.assertedAt ?? 0,
   };

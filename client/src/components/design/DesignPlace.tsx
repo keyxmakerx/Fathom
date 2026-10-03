@@ -332,6 +332,8 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   // Docs on things, models and the design (ADR-0061 round 7): the panels read them through context.
   const docs = useDocsApi({
+    organisationId,
+    designId,
     doc: session.doc,
     canDraw: session.canDraw,
     accountId,

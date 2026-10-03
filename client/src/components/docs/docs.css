@@ -266,3 +266,22 @@
   height: 14px;
   margin-right: var(--s1);
 }
+
+.docs-files__table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.docs-files__table th {
+  text-align: left;
+  font-size: var(--t-small);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.docs-files__table th,
+.docs-files__table td {
+  padding: var(--s1) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}

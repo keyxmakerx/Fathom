@@ -207,6 +207,26 @@ try {
   const saved = await page.evaluate(() => window.__requests__.filter((r) => r.method === 'POST').map((r) => r.bodyLatin1).join('\n'));
   check('no save carries the pasted key', !saved.includes('EXAMPLEnotARealKey01234'));
   await page.screenshot({ path: SHOTS + 'docs-04-gated.png' });
+
+  // 5b - files: text goes through the gate before upload, an image says it cannot be read, a
+  // download is the stored bytes, a refused type says so.
+  const upload = (name, buffer) => page.setInputFiles('input[aria-label="Add a file"]', { name, mimeType: 'application/octet-stream', buffer });
+  await upload('ike.conf', Buffer.from('set system host-name acc-01\n' + SECRET_LINE + '\n'));
+  await page.waitForSelector('.docs-files__table tbody tr', { timeout: 5_000 });
+  const upl = await page.evaluate(() => window.__uploads__);
+  check('exactly one upload, and the key never left the browser', upl.length === 1 && !upl[0].includes('EXAMPLEnotARealKey01234') && upl[0].includes('host-name acc-01'), upl.join('|').slice(0, 200));
+  check('the table says passwords were removed', /\d+ passwords? removed/.test(await page.locator('.docs-files__table').innerText()));
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  await upload('rack.png', png);
+  await page.waitForFunction(() => document.querySelectorAll('.docs-files__table tbody tr').length === 2);
+  check('an image says it cannot be read', (await page.locator('.docs-files__table').innerText()).includes("Image, can't be read"));
+  await upload('tool.exe', Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03]));
+  await page.waitForSelector('[role="alert"]');
+  check('a program is refused by content', (await page.locator('[role="alert"]').innerText()).includes('not a PDF, an image or a text file'));
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download rack.png' }).click()]);
+  check('the download keeps the name', dl.suggestedFilename() === 'rack.png');
+  check('the upload dialog says images cannot be checked', (await page.locator('.docs-files').innerText()).includes("can't be read, so they are stored without a check"));
+  await page.screenshot({ path: SHOTS + 'docs-04b-files.png' });
   await page.keyboard.press('Escape');
 
   // 6 - the design Docs list shows every doc; dark mode too.

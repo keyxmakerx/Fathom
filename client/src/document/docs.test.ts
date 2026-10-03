@@ -5,6 +5,7 @@ import {
   DocRefusalError,
   MAX_LINKS,
   addDoc,
+  addDocFile,
   addDocLink,
   designDocs,
   docView,
@@ -13,6 +14,7 @@ import {
   modelDocs,
   modelKey,
   removeDoc,
+  removeDocFile,
   removeDocLink,
   safeUrl,
   thingLabel,
@@ -212,5 +214,46 @@ describe('docs on the wire', () => {
       ownerId: deviceId,
       links: [{ title: 'V', url: 'https://example.com/' }],
     });
+  });
+});
+
+describe('doc files', () => {
+  const file = {
+    name: 'runbook.txt',
+    size: 120,
+    media: 'text' as const,
+    checked: 'removed' as const,
+    removed: 2,
+    fileId: 'a'.repeat(32),
+    sha256: 'b'.repeat(64),
+  };
+
+  it('records a file on a doc, lists it, removes it with the doc, undo brings it back', () => {
+    const { doc: base } = deviceDoc();
+    const { doc, id } = addDoc(base, { kind: 'design' }, { title: 'T', body: '', how: 'typed' }, { now: NOW });
+    const withFile = addDocFile(doc, id, file, { actor: ACTOR, now: NOW });
+    const f = docView(withFile, id)!.files;
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ name: 'runbook.txt', size: 120, checked: 'removed', removed: 2, media: 'text' });
+    const gone = removeDocFile(withFile, f[0]!.id, { actor: ACTOR, now: NOW + 1 });
+    expect(docView(gone, id)!.files).toHaveLength(0);
+    expect(
+      docView(undo(gone, gone.batches[gone.batches.length - 1]!.id, { actor: ACTOR, now: NOW + 2 }), id)!.files,
+    ).toHaveLength(1);
+    const noDoc = removeDoc(withFile, id, { now: NOW });
+    expect(noDoc.nodes.every((n) => n.absentSince !== undefined || !n.id.includes('doc-file'))).toBe(true);
+  });
+
+  it('refuses a bad id, hash, size or a missing doc, and caps the count', () => {
+    const { doc: base } = deviceDoc();
+    const { doc, id } = addDoc(base, { kind: 'design' }, { title: 'T', body: '', how: 'typed' }, { now: NOW });
+    expect(() => addDocFile(doc, id, { ...file, fileId: 'zz' })).toThrow(DocRefusalError);
+    expect(() => addDocFile(doc, id, { ...file, sha256: 'x' })).toThrow(DocRefusalError);
+    expect(() => addDocFile(doc, id, { ...file, size: 0 })).toThrow(DocRefusalError);
+    expect(() => addDocFile(doc, id, { ...file, size: 26 * 1024 * 1024 })).toThrow(DocRefusalError);
+    expect(() => addDocFile(doc, 'doc:nope', file)).toThrow(DocRefusalError);
+    let d = doc;
+    for (let i = 0; i < 20; i += 1) d = addDocFile(d, id, file, { now: NOW + i });
+    expect(() => addDocFile(d, id, file)).toThrow(/at most 20/);
   });
 });
