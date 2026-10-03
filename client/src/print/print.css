@@ -509,3 +509,13 @@
   background: var(--ink);
   color: var(--page);
 }
+
+/* Every page is a fixed-size block that carries its own margins. */
+@page {
+  margin: 0;
+}
+@media print {
+  .print-previewing .print-hide-under-preview {
+    display: none !important;
+  }
+}

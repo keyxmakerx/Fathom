@@ -174,15 +174,11 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
     setFinalPages(buildFinalPages(job, heights));
   }, [job, finalPages]);
 
-  // Page margin and hiding the live drawing from print apply only while
-  // this preview is mounted — another screen's own print is never affected.
+  // Hides the live app from print while this preview is mounted, by a class on <html> that
+  // print.css (an external sheet, allowed by the CSP) reacts to — a runtime <style> element is refused.
   useLayoutEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = '@page { margin: 0; } @media print { .print-hide-under-preview { display: none !important; } }';
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
+    document.documentElement.classList.add('print-previewing');
+    return () => document.documentElement.classList.remove('print-previewing');
   }, []);
 
   // A window-level capture listener, ahead of everything else the page owns

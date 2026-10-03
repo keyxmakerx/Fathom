@@ -3,7 +3,7 @@
 // drawer, panels or editor chrome — and always in the light theme, on paper white.
 
 /** Left out of the copy: selection frames and every handle (edit affordances). */
-const OMIT = '.react-flow__handle, .react-flow__nodesselection, .react-flow__selection, .react-flow__resize-control, .react-flow__edgeupdater, [data-print-omit]';
+const OMIT = '.react-flow__handle, .react-flow__nodesselection, .react-flow__selection, .react-flow__resize-control, .react-flow__edgeupdater, [data-print-omit], .free-square--grip, .drawing-shelf__grip, .free-label__input';
 const MAX_SIDE_PX = 8000;
 
 function loadImage(src: string): Promise<HTMLImageElement> {

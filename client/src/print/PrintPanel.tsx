@@ -243,7 +243,7 @@ export function PrintPanel({
         <input type="checkbox" checked={hideSensitive} onChange={(e) => setHideSensitive(e.target.checked)} data-testid="print-hide-sensitive" />
         <span>
           Leave out serial numbers and management addresses
-          <span className="print-panel__hint-block">printed as a dash, with a note saying so</span>
+          <span className="print-panel__hint-block">on the rack pages, as a dash with a note saying so</span>
         </span>
       </label>
       <label className="print-panel__check">
