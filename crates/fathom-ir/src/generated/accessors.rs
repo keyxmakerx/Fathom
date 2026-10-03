@@ -627,7 +627,7 @@ mod body {
     /// Typed reads for `PolicySet` fields.
     pub mod policy_set {
         /// `PolicySet.scope` — `PolicyScope`, card `1`, emit `R`.
-        /// ZonePair / InterfaceDirection / Global / Vsys. Registered contains_reference.
+        /// ZonePair / InterfaceDirection / Global (Vsys is not shaped). Registered contains_reference.
         pub fn scope<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PolicyScope, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(113))
         }
@@ -666,6 +666,11 @@ mod body {
         pub fn match_any_destination<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(120))
         }
+        /// `SecurityPolicy.match_any_application` — `bool`, card `0..1`, emit `R`.
+        /// Set(true) means the vendor's any keyword for applications (Junos match application any).
+        pub fn match_any_application<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(381))
+        }
         /// `SecurityPolicy.log_init` — `bool`, card `0..1`, emit `O`.
         pub fn log_init<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(121))
@@ -699,7 +704,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(127))
         }
         /// `AddressObject.value` — `AddressValue`, card `1`, emit `R`.
-        /// Prefix / Range / Dns / Wildcard.
+        /// Prefix / Range / Host / Fqdn / Any.
         pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::AddressValue, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(128))
         }
@@ -2218,6 +2223,7 @@ mod body {
             361 => Some((core::any::TypeId::of::<u32>(), "u32")),
             362 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             363 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            381 => Some((core::any::TypeId::of::<bool>(), "bool")),
             _ => None,
         }
     }
@@ -2589,6 +2595,7 @@ mod body {
             361 => crate::canon::slot_to::<u32>(361, "u32", value),
             362 => crate::canon::slot_to::<crate::scalar::Identifier>(362, "crate::scalar::Identifier", value),
             363 => crate::canon::slot_to::<crate::scalar::Text>(363, "crate::scalar::Text", value),
+            381 => crate::canon::slot_to::<bool>(381, "bool", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2958,6 +2965,7 @@ mod body {
             361 => crate::canon::slot_from::<u32>(j),
             362 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             363 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            381 => crate::canon::slot_from::<bool>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

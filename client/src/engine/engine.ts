@@ -216,10 +216,9 @@ export interface InsidePolicy {
 
 /** One `FACE_IN_SET` row, with its `FACE_IN_POLICY` children already in
  * device order — "a policy set is a stack with an ordinal rail — a rack of
- * rules" (UI-SPEC "Inside a box"). `scope` is empty in this build:
- * `tests/inside.rs`'s `a_policy_set_cannot_name_the_zone_pair_it_governs`,
- * `PolicyScope` has no shape yet, so this client draws nothing rather than
- * inventing one. */
+ * rules" (UI-SPEC "Inside a box"). `scope` is the zone pair in the device's words
+ * ("from trust to untrust"), empty where the set records none (an OPNsense rules
+ * paste), so this client draws nothing rather than inventing one. */
 export interface InsidePolicySet {
   id: string;
   scope: string;

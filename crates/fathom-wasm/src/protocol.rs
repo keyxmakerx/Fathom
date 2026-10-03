@@ -299,13 +299,13 @@ pub const FACE_IN_IFACE: u8 = 21;
 pub const FACE_IN_UNIT: u8 = 22;
 /// One zone: display id · name · member units.
 pub const FACE_IN_ZONE: u8 = 23;
-/// One policy set: display id · what the graph can say about the zone pair it
-/// governs, **empty on every estate this build can produce** · policy count.
+/// One policy set: display id · the zone pair it governs (`from trust to
+/// untrust`), **empty where the set records none** · policy count.
 ///
 /// Slot 1's emptiness is the honest half of `57` §6.3
-/// (`fathom_inventory::SetBand::scope`): `PolicyScope` is a unit struct, so a
-/// `PolicySet` cannot name its pair. The page says so in words and draws no edge
-/// into this band.
+/// (`fathom_inventory::SetBand::scope`): an OPNsense rules paste cannot name
+/// its interface, so its set records no scope. The page says so in words and
+/// draws no edge into this band.
 pub const FACE_IN_SET: u8 = 24;
 /// One security policy: display id · its set's display id · ordinal · name ·
 /// action · `1`/`0`/empty for enabled · description.

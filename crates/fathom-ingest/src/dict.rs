@@ -466,6 +466,34 @@ pub(crate) enum ValueSpec {
     Secret {
         label: SecretLabel,
     },
+    /// `PolicySet.scope` for a zone pair: the two captured zone names, each
+    /// resolved to the `Zone` node of that name in the fragment (created if
+    /// the paste says nothing else about it). A scope holds node ids, so it
+    /// is the one value a dictionary cannot spell with `scalar:`.
+    ZonePair {
+        from: String,
+        to: String,
+    },
+    /// `AddressObject.value` as a prefix, from one captured `a.b.c.d/n`.
+    AddressPrefix {
+        from: String,
+    },
+    /// One `StaticRoute.next_hop` from a captured token: an address, or
+    /// `name.unit` of an interface unit in the same paste. Appends.
+    NextHopFrom {
+        from: String,
+    },
+    /// The next hops with no argument (`discard`, `reject`). Appends.
+    NextHopConst {
+        token: NextHopConst,
+    },
+}
+
+/// The argument-less next hops (`11` §6.5's `NextHop::Discard` / `Reject`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NextHopConst {
+    Discard,
+    Reject,
 }
 
 #[derive(Debug, Clone)]
@@ -496,8 +524,14 @@ pub(crate) struct NodeSpec {
 
 #[derive(Debug, Clone)]
 pub(crate) enum EdgeTarget {
-    ByName { kind: NodeKind, from: String },
-    InterfaceUnit { from: String },
+    ByName {
+        kind: NodeKind,
+        from: String,
+        also: Option<NodeKind>,
+    },
+    InterfaceUnit {
+        from: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1590,7 +1624,21 @@ fn load_edge(
                     format!("`{id}`: `by_name` has no `from`"),
                 )
             })?;
-        EdgeTarget::ByName { kind, from }
+        // `also:` — a second kind the name may belong to (`match source-address
+        // NAME` names an address object or an address set; the namespace is
+        // shared, so one of the two resolves).
+        let also = match by_name.get("also").and_then(|n| n.as_str()) {
+            None => None,
+            Some(name) => Some(NodeKind::from_name(name).ok_or_else(|| {
+                err(
+                    file,
+                    by_name.line,
+                    DictGate::KindUnknown,
+                    format!("`{id}`: `{name}` is not a NodeKind"),
+                )
+            })?),
+        };
+        EdgeTarget::ByName { kind, from, also }
     } else if let Some(unit) = to_node.get("interface_unit") {
         let text = unit.as_str().unwrap_or("");
         let name = text.strip_prefix('$').ok_or_else(|| {
@@ -1714,6 +1762,52 @@ fn load_field(
         return Ok(FieldSpec {
             field,
             value: ValueSpec::ConstBool { value },
+        });
+    }
+    if let Some(pair) = spec.get("zone_pair") {
+        let from = capture_ref(file, id, line, pair, "from", path)?;
+        let to = capture_ref(file, id, line, pair, "to", path)?;
+        return match (from, to) {
+            (Some(from), Some(to)) => Ok(FieldSpec {
+                field,
+                value: ValueSpec::ZonePair { from, to },
+            }),
+            _ => Err(err(
+                file,
+                line,
+                DictGate::CaptureArity,
+                format!("`{id}`: `zone_pair` needs `from` and `to`"),
+            )),
+        };
+    }
+    if let Some(from) = capture_ref(file, id, line, spec, "address_prefix", path)? {
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::AddressPrefix { from },
+        });
+    }
+    if let Some(from) = capture_ref(file, id, line, spec, "next_hop", path)? {
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::NextHopFrom { from },
+        });
+    }
+    if let Some(token) = spec.get("next_hop_const").and_then(|n| n.as_str()) {
+        let token = match token {
+            "discard" => NextHopConst::Discard,
+            "reject" => NextHopConst::Reject,
+            other => {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::TypeUnknown,
+                    format!("`{id}`: `next_hop_const: {other}` is not discard or reject"),
+                ))
+            }
+        };
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::NextHopConst { token },
         });
     }
     if let Some(text) = spec.get("const_enum").and_then(|n| n.as_str()) {
@@ -2162,7 +2256,11 @@ mod tests {
         // +4 on 2026-08-28 — `security policies`: the bare stanza, `match
         // source-address any`, `match destination-address any`, `then
         // permit`. See `corpus/dict/junos-srx/security-policies.yaml`.
-        assert_eq!(d.entry_count(), 90);
+        //
+        // +14 on 2026-10-03 — path trace (schema 0.17): `security policies` grows to
+        // ten (scope on every entry, `match … address`/`application`, `then deny`
+        // and `reject`), the global address book five, static routes three.
+        assert_eq!(d.entry_count(), 104);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside
@@ -2249,13 +2347,12 @@ mod tests {
             }
         );
         // `routing-options` became a known segment on 2026-08-15, when
-        // `routing-options router-id` landed. The static route is still
-        // unmapped — nothing in the dictionary reaches `static` — but the
-        // reported prefix is now 1 rather than 0, which is the point of the
-        // number: it tells the reader how far Fathom followed before it lost
-        // the path, and it followed one segment further than it used to.
+        // `routing-options router-id` landed. `autonomous-system` is still
+        // unmapped, but the reported prefix is 1 rather than 0, which is the
+        // point of the number: it tells the reader how far Fathom followed before
+        // it lost the path. (This used to be a static route; schema 0.17 binds those.)
         assert_eq!(
-            d.lookup(&["routing-options", "static", "route", "10.2.0.0/16"])
+            d.lookup(&["routing-options", "autonomous-system", "65001"])
                 .0,
             Match {
                 entry: None,

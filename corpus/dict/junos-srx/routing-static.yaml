@@ -1,0 +1,61 @@
+# corpus/dict/junos-srx/routing-static.yaml — static routes (schema 0.17):
+# `set routing-options static route PREFIX next-hop ADDRESS|UNIT`, `discard`,
+# `reject`. Read off the worked example this repo already cites
+# (docs/archive/60-content/66-junos-coverage-measurement.md §10: Juniper, "Configure
+# an IPsec VPN", Step 2 of the SRX300 guided setup), as it appears in
+# `crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt` lines 40-42,
+# read 2026-08-15 (ADR-0034). The `static` statement's own reference page is NOT
+# cited anywhere in this repo, so `preference`, `metric`, `qualified-next-hop`,
+# `resolve`, `no-readvertise`, `next-table`, and the `reject` form (not in the
+# example) are not bound.
+#
+# The route belongs to the one default `RoutingInstance`, the same unnamed node
+# `routing-options.yaml` gives `router_id` (66 §9 item 1 is still open: what the
+# default instance is called). `next-hop st0.0` names an interface unit; it is
+# resolved after the whole paste is read and dropped, with a diagnostic, if the
+# paste never defines that unit.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+source: { cite: "Juniper, Configure an IPsec VPN (SRX300 guided setup, Step 2) as used in docs/archive/60-content/66-junos-coverage-measurement.md §10", read_on: "2026-08-15" }
+reviewed_by: <named human>
+entries:
+  - id: junos-srx/routing-options.static.route
+    path: [routing-options, static, route, "$dest"]
+    partial: true
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - { as: route, kind: StaticRoute, owner: ri, key: "$dest", fields: [ { field: destination, from: "$dest", scalar: IpPrefix } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/routing-options.static.route.next-hop
+    path: [routing-options, static, route, "$dest", next-hop, "$nh"]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - as: route
+          kind: StaticRoute
+          owner: ri
+          key: "$dest"
+          fields:
+            - { field: destination, from: "$dest", scalar: IpPrefix }
+            - { field: next_hop, next_hop: "$nh" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/routing-options.static.route.discard
+    path: [routing-options, static, route, "$dest", discard]
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance }
+        - as: route
+          kind: StaticRoute
+          owner: ri
+          key: "$dest"
+          fields:
+            - { field: destination, from: "$dest", scalar: IpPrefix }
+            - { field: next_hop, next_hop_const: discard }
+    versions: "*"
+    reviewed_by: <named human>

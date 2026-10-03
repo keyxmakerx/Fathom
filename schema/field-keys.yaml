@@ -456,3 +456,5 @@ fields:
   DocFile.removed: 361
   DocFile.file_id: 362
   DocFile.sha256: 363
+  # ADR-0061 path trace (schema 0.17, 2026-10-03). Key 381 skips 364-380, held by #98; final key set at landing.
+  SecurityPolicy.match_any_application: 381

@@ -167,8 +167,11 @@ fn schema_version_is_the_trees() {
     // kinds (`HasLabel`, `HasLine`, `LineEnd`), seven new field keys (344-350); all MINOR.
     //
     // 0.13 -> 0.14: ADR-0061 round 7. Two node kinds (`Doc`, `DocLink`), three edge kinds
-    // (`HasDoc`, `DocOn`, `HasDocLink`), six field keys (351-356), then ADR-0061 round 10's `DocFile` (kind, `HasDocFile`, 357-363); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.14");
+    // (`HasDoc`, `DocOn`, `HasDocLink`), six field keys (351-356), then ADR-0061 round 10's `DocFile` (kind, `HasDocFile`, 357-363); all MINOR. 0.14 -> 0.17 adds `SecurityPolicy.match_any_application` (364).
+    //
+    // 0.14 -> 0.17: ADR-0061 path trace, part 1. No kind, edge, field or key; five structured
+    // value types get shapes; all MINOR (0.15 and 0.16 belong to other PRs).
+    assert_eq!(SCHEMA_VERSION, "0.17");
 }
 
 #[test]
@@ -278,11 +281,6 @@ fn exemplar_round_trips_per_family() {
     law(value::IkeId);
     law(value::Dpd);
     law(value::OspfArea);
-    law(value::PolicyScope);
-    law(value::AddressValue);
-    law(value::L4Spec);
-    law(value::NatScope);
-    law(value::NatAction);
     law(value::VpnMonitor);
     law(value::PortPosition);
     law(value::Transceiver);
@@ -692,7 +690,7 @@ fn dispatch_names_every_registry_key() {
     //
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
     // `AttachedTo.address`.
-    assert_eq!(FIELD_KEYS.len(), 363, "the registry grew or shrank");
+    assert_eq!(FIELD_KEYS.len(), 364, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
@@ -724,4 +722,69 @@ fn dispatch_names_every_registry_key() {
         back.downcast_ref::<scalar::Identifier>(),
         Some(&scalar::Identifier("srx-b".to_owned()))
     );
+}
+
+/// ADR-0061 path trace: the shapes that were unit structs round trip, and the
+/// wire spellings are pinned (a stored design holds these bytes).
+#[test]
+fn policy_address_and_l4_shapes_round_trip() {
+    let a = fathom_id::NodeId(ulid(1));
+    let b = fathom_id::NodeId(ulid(2));
+    law(value::PolicyScope::ZonePair { from: a, to: b });
+    law(value::PolicyScope::InterfaceDirection {
+        unit: a,
+        direction: value::PolicyDirection::In,
+    });
+    law(value::PolicyScope::InterfaceDirection {
+        unit: b,
+        direction: value::PolicyDirection::Out,
+    });
+    law(value::PolicyScope::Global);
+    assert_eq!(
+        value::PolicyScope::Global.to_canon().expect("writes"),
+        Json::Str("global".to_owned())
+    );
+
+    let ip = |t: &str| scalar::IpAddr::parse(t).expect("parses");
+    law(value::AddressValue::Prefix(
+        scalar::IpPrefix::parse("192.168.2.0/24").expect("parses"),
+    ));
+    law(value::AddressValue::Range(
+        scalar::IpRange::parse("192.168.20.10-192.168.20.100").expect("parses"),
+    ));
+    law(value::AddressValue::Host(ip("2001:db8::1")));
+    law(value::AddressValue::Fqdn(scalar::Fqdn(
+        "ntp.example.com".to_owned(),
+    )));
+    law(value::AddressValue::Any);
+
+    law(value::L4Spec::Any);
+    law(value::L4Spec::Protocol {
+        protocol: scalar::IpProtocol::parse("6").expect("parses"),
+        source_ports: vec![],
+        destination_ports: vec![
+            scalar::PortRange::parse("445-445").expect("parses"),
+            scalar::PortRange::parse("8000-8080").expect("parses"),
+        ],
+    });
+
+    law(value::NatScope::Zone(a));
+    law(value::NatScope::Interface(a));
+    law(value::NatScope::RoutingInstance(b));
+    law(value::NatAction::Interface);
+    law(value::NatAction::Off);
+    law(value::NatAction::Pool(scalar::Identifier(
+        "pool-1".to_owned(),
+    )));
+    law(value::NatAction::Static(
+        scalar::IpPrefix::parse("203.0.113.0/24").expect("parses"),
+    ));
+}
+
+#[test]
+fn unknown_tags_are_refused() {
+    assert!(value::PolicyScope::from_canon(&Json::Str("vsys".to_owned())).is_err());
+    assert!(value::PolicyScope::from_canon(&Json::Obj(BTreeMap::new())).is_err());
+    assert!(value::L4Spec::from_canon(&Json::Str("tcp".to_owned())).is_err());
+    assert!(value::AddressValue::from_canon(&Json::Str("everything".to_owned())).is_err());
 }

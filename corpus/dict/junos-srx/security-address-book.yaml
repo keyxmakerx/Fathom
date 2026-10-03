@@ -1,0 +1,70 @@
+# corpus/dict/junos-srx/security-address-book.yaml — the global address book
+# (schema 0.17): `set security address-book global address NAME PREFIX` and
+# `address-set`. Read off the worked example this repo already cites
+# (docs/archive/60-content/66-junos-coverage-measurement.md §10: Juniper,
+# "Understanding Address Books", and the Secure Local Branch Connectivity step),
+# as it appears in `crates/fathom-ingest/tests/fixtures/junos-srx-branch-documented.txt`
+# lines 55-60, read 2026-08-15 (ADR-0034). The statement reference page for
+# `address-book` is NOT cited anywhere in this repo, so only the forms the
+# worked example shows are bound.
+#
+# NOT bound, left as residue: `dns-name`, `range-address`, `wildcard-address`
+# (no cited page), zone-scoped books (`security zones security-zone Z
+# address-book …`, the InAddressBook edge), nested `address-set` members.
+# A name written with one of those forms still makes a name-only
+# `AddressObject`/`AddressSet` (the bare entries), so a policy that names it
+# resolves; its value is simply unset.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+source: { cite: "Juniper, Understanding Address Books (worked examples) as used in docs/archive/60-content/66-junos-coverage-measurement.md §10", read_on: "2026-08-15" }
+reviewed_by: <named human>
+entries:
+  - id: junos-srx/security.address-book.global.address
+    path: [security, address-book, global, address, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: obj, kind: AddressObject, key: "$n", fields: [ { field: name, from: "$n", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.address-book.global.address.prefix
+    path: [security, address-book, global, address, "$n", "$prefix"]
+    binds:
+      nodes:
+        - as: obj
+          kind: AddressObject
+          key: "$n"
+          fields:
+            - { field: name, from: "$n", scalar: Identifier }
+            - { field: value, address_prefix: "$prefix" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.address-book.global.address-set
+    path: [security, address-book, global, address-set, "$s"]
+    partial: true
+    binds:
+      nodes:
+        - { as: set, kind: AddressSet, key: "$s", fields: [ { field: name, from: "$s", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.address-book.global.address-set.address
+    path: [security, address-book, global, address-set, "$s", address, "$m"]
+    binds:
+      nodes:
+        - { as: set, kind: AddressSet, key: "$s", fields: [ { field: name, from: "$s", scalar: Identifier } ] }
+      edges:
+        - { kind: Contains, from: set, to: { by_name: { kind: AddressObject, also: AddressSet, from: "$m" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.address-book.global.address-set.description
+    path: [security, address-book, global, address-set, "$s", description, "$d"]
+    binds:
+      nodes:
+        - { as: set, kind: AddressSet, key: "$s", fields: [ { field: name, from: "$s", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>

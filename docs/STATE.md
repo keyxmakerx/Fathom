@@ -253,6 +253,13 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   hostname, platform, interfaces, what the gate destroyed by kind (never values), and attach to the
   same-named device or add a new one. Nothing is stored until the choice. Not built: replacing a device's
   capture, an import page; a cable to a free box is not drawn on the full canvas (the look switch's stubs).
+- **What a pasted Junos SRX config now records for the path trace** (ADR-0061 item 9, schema 0.17).
+  Each policy set holds its zone pair (`PolicyScope::ZonePair`, zones as node ids), policies keep
+  `then permit/deny/reject` and `match` any/names (address objects and sets from the global address
+  book, applications by name), and static routes (`next-hop` address, interface unit, `discard`) hang
+  off the one unnamed default routing instance. Not recorded: an OPNsense rule's interface and
+  direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
+  application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
   named after the organisation.

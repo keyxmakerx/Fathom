@@ -43,11 +43,11 @@ const ENTROPY_3: u128 = 0x0000_0000_0000_0000_8000_0000;
 
 /// Route-based IPsec on an SRX, in the set form a `show configuration
 /// | display set` produces. Deliberately mixed: statements the dictionary
-/// knows, one it does not at all (the routing options), one it only half
+/// knows, one it does not at all (`autonomous-system`), one it only half
 /// understands (the policy's `match source-address any` binds, its
-/// `match application any` does not — `SecurityPolicy` has no
-/// `match_any_application` field, see `corpus/dict/junos-srx/security-policies.yaml`),
-/// and one pre-shared key, which must never survive the call.
+/// `then log session-init` does not — see
+/// `corpus/dict/junos-srx/security-policies.yaml`), and one pre-shared key,
+/// which must never survive the call.
 const PASTE: &str = "\
 set system host-name srx-branch-01
 set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
@@ -67,9 +67,9 @@ set security ipsec vpn hq-vpn ike ipsec-policy ipsec-pol
 set security ipsec vpn hq-vpn bind-interface st0.0
 set security zones security-zone trust interfaces ge-0/0/0.0
 set security zones security-zone vpn interfaces st0.0
-set routing-options static route 10.10.0.0/16 next-hop st0.0
+set routing-options autonomous-system 65001
 set security policies from-zone trust to-zone vpn policy allow match source-address any
-set security policies from-zone trust to-zone vpn policy allow match application any
+set security policies from-zone trust to-zone vpn policy allow then log session-init
 ";
 
 /// The wire frame. 25 bytes of prefix since 2026-08-21: the clock, the
@@ -196,8 +196,8 @@ fn the_pre_shared_key_never_comes_back() {
 
 /// `14`'s governing rule at the reply boundary: a line the parser did not bind
 /// is *named*, not dropped. The routing statement is entirely outside the
-/// dictionary; the `match application any` policy line is only PARTIALLY
-/// understood (the policy it names is real, its application match is not) —
+/// dictionary; the `then log` policy line is only PARTIALLY
+/// understood (the policy it names is real, its logging is not) —
 /// both must still be visible as residue.
 #[test]
 fn what_was_not_understood_is_named() {
@@ -229,7 +229,7 @@ fn what_was_not_understood_is_named() {
     );
     assert!(
         text.iter().any(|t| t.contains("security policies")),
-        "the policy's unmodelled `match application` tail must be named: {text:?}"
+        "the policy's unmodelled `then log` tail must be named: {text:?}"
     );
 }
 

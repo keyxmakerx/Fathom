@@ -84,7 +84,7 @@ fn shipped_tree_declaration_counts_hold() {
     assert_eq!(tree.classes.len(), 7, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 363, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 364, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -154,7 +154,7 @@ fn shipped_tree_declaration_counts_hold() {
     // (`Tag`, 58 -> 59), +2 edges (`HasTag`, `TaggedWith`, 106 -> 108), +1 class
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343). Scalars, enum
     // FILE count and import scopes are unmoved -- `Tag.name` reuses `Text`.
-    assert_eq!(tree.version.as_deref(), Some("0.14"));
+    assert_eq!(tree.version.as_deref(), Some("0.17"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

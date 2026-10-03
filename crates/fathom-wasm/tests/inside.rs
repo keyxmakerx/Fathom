@@ -387,17 +387,13 @@ fn a_disabled_rule_says_so_and_is_still_a_row() {
 
 /// **Property 5, and the honest half of `57` §6.3.**
 ///
-/// `PolicySet.scope` is typed `PolicyScope`, and `fathom_ir::value::PolicyScope`
-/// is a unit struct — so a policy set **cannot say which zone pair it
-/// governs**, on any platform, in this build. The reply says nothing rather
-/// than saying `(no renderer)`, which is a defect marker aimed at a developer
-/// reading the inventory and would read to an operator as "Fathom is broken".
-///
-/// This test is the tripwire on the schema gap: the day `PolicyScope` grows a
-/// shape and the projection starts carrying one, this fails and somebody
-/// reads the two lines above.
+/// An OPNsense rules paste names an interface (`lan`) that is not an
+/// `Interface`/`LogicalUnit` node, so its `PolicySet` records no scope and the
+/// reply says nothing rather than `(no renderer)` — a defect marker aimed at a
+/// developer that would read to an operator as "Fathom is broken". A junos-srx
+/// paste does record its zone pair (`a_junos_policy_set_names_its_zone_pair`).
 #[test]
-fn a_policy_set_cannot_name_the_zone_pair_it_governs() {
+fn an_opnsense_policy_set_records_no_zone_pair() {
     let (mut shell, device) = pasted(RULES_CSV, ENTROPY_2);
     let rows = inside(&mut shell, &device);
     let set = rows_of(&rows, FACE_IN_SET)
@@ -406,15 +402,36 @@ fn a_policy_set_cannot_name_the_zone_pair_it_governs() {
         .expect("the set");
     assert_eq!(
         set.strings[1], "",
-        "if this is no longer empty, `PolicyScope` has grown a shape and the \
-         page's standing sentence about the missing middle clause is now wrong"
+        "if this is no longer empty, an OPNsense rule has learned its interface and the page's \
+         standing sentence about the missing middle clause is now wrong"
     );
 }
 
-/// A junos-srx paste builds zones and no policy set, because
-/// `corpus/dict/junos-srx` has no `security policies` entry — the coverage
-/// measurement in `66` lists it on the residue. The band is therefore empty on
-/// a real SRX config, and the view has to be able to say so.
+/// Schema 0.17: a Junos policy set carries `PolicyScope::ZonePair`, and the page
+/// reads it in the words the device does, with the zone names looked up in the
+/// design (never in the policy's own name).
+#[test]
+fn a_junos_policy_set_names_its_zone_pair() {
+    let paste = format!(
+        "{SRX}set security policies from-zone trust to-zone untrust policy out match source-address any\n\
+         set security policies from-zone trust to-zone untrust policy out then permit\n\
+         set security policies from-zone untrust to-zone trust policy in then deny\n"
+    );
+    let (mut shell, device) = pasted(&paste, ENTROPY);
+    let rows = inside(&mut shell, &device);
+    let mut scopes: Vec<String> = rows_of(&rows, FACE_IN_SET)
+        .into_iter()
+        .map(|r| r.strings[1].clone())
+        .collect();
+    scopes.sort();
+    assert_eq!(
+        scopes,
+        vec!["from trust to untrust", "from untrust to trust"]
+    );
+}
+
+/// A junos-srx paste with no `security policies` lines builds zones and no
+/// policy set, and the view has to be able to say so.
 #[test]
 fn an_srx_paste_builds_zones_and_no_policy_set() {
     let (mut shell, device) = pasted(SRX, ENTROPY);
@@ -423,7 +440,7 @@ fn an_srx_paste_builds_zones_and_no_policy_set() {
     assert_eq!(
         head(&rows).strings[5],
         "0",
-        "and no policy set — nothing in this build parses `set security policies`"
+        "and no policy set — this paste has no `set security policies` lines"
     );
     assert!(rows_of(&rows, FACE_IN_SET).is_empty());
     assert!(rows_of(&rows, FACE_IN_POLICY).is_empty());
@@ -487,4 +504,22 @@ fn the_same_estate_projects_the_same_bands() {
         assert_eq!(x.role, y.role);
         assert_eq!(x.strings, y.strings);
     }
+}
+
+/// The zone pair is a field holding node ids; it must survive the plain face
+/// (what a save writes) and read back to the same words on a fresh shell.
+#[test]
+fn a_zone_pair_survives_the_plain_face() {
+    let paste = format!(
+        "{SRX}set security policies from-zone trust to-zone untrust policy out then permit\n"
+    );
+    let (mut shell, device) = pasted(&paste, ENTROPY);
+    let exported = shell.handle(fathom_wasm::OP_EXPORT_PLAIN, &[]);
+    let mut fresh = common::booted_shell();
+    let loaded = face(&fresh.handle(fathom_wasm::OP_LOAD_PLAIN, &exported));
+    assert!(!loaded.is_empty());
+    let rows = inside(&mut fresh, &device);
+    let sets = rows_of(&rows, FACE_IN_SET);
+    assert_eq!(sets.len(), 1);
+    assert_eq!(sets[0].strings[1], "from trust to untrust");
 }

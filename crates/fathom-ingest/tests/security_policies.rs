@@ -1,17 +1,16 @@
 //! `set security policies from-zone X to-zone Y policy NAME …` — WO's
 //! Family 1 widening, 2026-08-28.
 //!
-//! Four things are under test and each is a way the composite-key /
-//! ordinal-on-create mechanism could get quietly wrong: that a `PolicySet`
-//! is keyed on the zone PAIR and stays fieldless; that each `SecurityPolicy`
-//! carries the right flags; that `ordinal` reflects creation order across
-//! separate statement lines rather than line number or entry order; and that
-//! `match application …`, which the schema has nowhere to hold, stays
-//! residue rather than being silently dropped.
+//! Each is a way the composite-key / ordinal-on-create mechanism could get
+//! quietly wrong: that a `PolicySet` is keyed on the zone PAIR and carries it
+//! (schema 0.17, `PolicyScope::ZonePair`); that each `SecurityPolicy` carries
+//! the right flags; that `ordinal` reflects creation order across separate
+//! statement lines rather than line number or entry order; and that matches
+//! bind to the address book and applications of the same paste.
 
 use std::path::{Path, PathBuf};
 
-use fathom_ingest::bind::BoundValue;
+use fathom_ingest::bind::{BoundScope, BoundValue, FragNodeId};
 use fathom_ingest::dict::Dictionary;
 use fathom_ingest::frame::LineOutcome;
 use fathom_ingest::{ingest, IngestOutput};
@@ -71,37 +70,57 @@ fn policy_node(out: &IngestOutput, name: &str) -> usize {
         .unwrap_or_else(|| panic!("no SecurityPolicy named {name}"))
 }
 
-/// (a) One `PolicySet` per zone PAIR, not per zone. The fixture's four
-/// policies span four pairs that share zones — three source `trust`, two
-/// destination `untrust` — so a single-zone key would have collapsed two or
-/// three of these into one.
+/// (a) One `PolicySet` per zone PAIR, not per zone, and each carries its pair
+/// as zone nodes of the fragment. The fixture's four policies span four pairs
+/// that share zones — three source `trust`, two destination `untrust` — so a
+/// single-zone key would have collapsed two or three of these into one.
 #[test]
-fn one_fieldless_policy_set_per_zone_pair() {
+fn one_policy_set_per_zone_pair_and_it_names_the_pair() {
     let out = fixture();
-    let sets: Vec<_> = out
+    let zone_name = |at: FragNodeId| -> String {
+        let n = &out.fragment.nodes[at.0 as usize];
+        assert_eq!(n.kind, NodeKind::Zone);
+        let key = fathom_ir::generated::ir_types::FIELD_KEYS
+            .iter()
+            .find(|(n, _)| *n == "Zone.name")
+            .map(|(_, k)| fathom_ir::bag::FieldKey(*k))
+            .unwrap();
+        match n.fields.iter().find(|f| f.key == key).map(|f| &f.value) {
+            Some(BoundValue::Identifier(i)) => i.0.clone(),
+            other => panic!("a zone without its name: {other:?}"),
+        }
+    };
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for set in out
         .fragment
         .nodes
         .iter()
         .filter(|n| n.kind == NodeKind::PolicySet)
-        .collect();
-    assert_eq!(
-        sets.len(),
-        4,
-        "trust->untrust, guests->untrust, trust->contractors, trust->vpn"
-    );
-    for set in &sets {
-        assert!(
-            set.fields.is_empty(),
-            "PolicyScope is an empty struct and evaluation is not sourced this pass — \
-             a PolicySet asserts nothing, same as the OPNsense precedent"
-        );
+    {
+        assert_eq!(set.fields.len(), 1, "the scope and nothing else");
+        match &set.fields[0].value {
+            BoundValue::Scope(BoundScope::ZonePair { from, to }) => {
+                pairs.push((zone_name(*from), zone_name(*to)))
+            }
+            other => panic!("a policy set without a zone pair: {other:?}"),
+        }
     }
+    pairs.sort();
+    let want: Vec<(String, String)> = [
+        ("guests", "untrust"),
+        ("trust", "contractors"),
+        ("trust", "untrust"),
+        ("trust", "vpn"),
+    ]
+    .iter()
+    .map(|(a, b)| (a.to_string(), b.to_string()))
+    .collect();
+    assert_eq!(pairs, want);
 }
 
 /// (b) Every policy in the fixture: correct name, both `any` flags, and
 /// `permit`. The fixture carries no `deny`/`reject` and no real (non-`any`)
-/// address, so this is what the four required entries can prove on their
-/// own.
+/// address.
 #[test]
 fn four_policies_bind_their_matches_and_action() {
     let out = fixture();
@@ -145,12 +164,6 @@ fn four_policies_bind_their_matches_and_action() {
 /// not line-number arithmetic and not entry-iteration order, since here each
 /// policy's first-seen line is its own `then permit` statement.
 ///
-/// (`then deny` is deliberately not used for `p2`: this pass's required
-/// entries cover only `then permit`, per the dictionary file's own residue
-/// list, so a `then deny` line would still create the node — via the
-/// bare-stanza partial match, same as any unmodelled tail — but leave
-/// `action` unset. Using `permit` for both keeps this test about ordering,
-/// not about a form nobody claimed to bind.)
 #[test]
 fn ordinal_reflects_creation_order_within_one_policy_set() {
     let out = run(
@@ -190,16 +203,15 @@ fn ordinal_reflects_creation_order_within_one_policy_set() {
 }
 
 /// The bare-stanza partial match still creates the node (and assigns its
-/// ordinal) even when a later segment of the SAME line names a verb this
-/// pass does not bind — `deny` here — because binding happens before the
-/// "said more than the entry modelled" check that demotes the LINE to
-/// residue. The node is real; only the unmodelled tail is residue. This is
-/// the one place `ordinal_on_create` has to be exercised through a partial
-/// match rather than a full one, since every required entry that reaches
-/// `then` is literal on `permit`.
+/// ordinal) even when a later segment of the SAME line names a statement the
+/// dictionary does not bind — `then log` here — because binding happens before
+/// the "said more than the entry modelled" check that demotes the LINE to
+/// residue. The node is real; only the unmodelled tail is residue.
 #[test]
 fn a_partially_matched_line_still_creates_its_node_and_ordinal() {
-    let out = run("set security policies from-zone trust to-zone untrust policy p1 then deny\n");
+    let out = run(
+        "set security policies from-zone trust to-zone untrust policy p1 then log session-init\n",
+    );
     let p1 = policy_node(&out, "p1");
     assert_eq!(
         field(&out, p1, "SecurityPolicy.ordinal"),
@@ -208,52 +220,133 @@ fn a_partially_matched_line_still_creates_its_node_and_ordinal() {
     assert_eq!(
         field(&out, p1, "SecurityPolicy.action"),
         None,
-        "`then deny` is not a modelled form this pass — action stays unset"
+        "`then log` is not bound, so the action stays unset"
     );
     assert!(
         out.residue
             .iter()
             .any(|r| matches!(r.outcome, LineOutcome::Unmapped { .. })),
-        "the unmodelled `then deny` tail must still be visible on the residue list"
+        "the unmodelled tail must still be visible on the residue list"
     );
 }
 
-/// (d) `match application …` has nowhere to bind — `SecurityPolicy` has no
-/// `match_any_application` flag mirroring the source/destination pair, and a
-/// real application name would need a `MatchApplication` edge this pass does
-/// not build. All 9 such lines in the fixture must be named residue
-/// individually, never silently dropped.
+/// `then deny` and `then reject` bind the same field `then permit` does.
 #[test]
-fn match_application_lines_stay_residue() {
-    let out = fixture();
-    let text = out.capture.text();
+fn deny_and_reject_bind_the_action() {
+    let out = run(
+        "set security policies from-zone trust to-zone untrust policy d then deny\n\
+         set security policies from-zone trust to-zone untrust policy r then reject\n",
+    );
+    assert_eq!(
+        field(&out, policy_node(&out, "d"), "SecurityPolicy.action"),
+        Some(&BoundValue::PolicyAction(PolicyAction::Deny))
+    );
+    assert_eq!(
+        field(&out, policy_node(&out, "r"), "SecurityPolicy.action"),
+        Some(&BoundValue::PolicyAction(PolicyAction::Reject))
+    );
+}
 
-    let residue_lines: Vec<String> = out
+/// (d) `match application …`: `any` sets the flag, a name makes a MatchApplication
+/// edge to an `Application` of that name (one node per name, however many
+/// policies list it). The fixture has nine such lines; none is residue.
+#[test]
+fn match_application_lines_bind() {
+    let out = fixture();
+    let residue_apps = out
         .residue
         .iter()
-        .filter(|r| matches!(r.outcome, LineOutcome::Unmapped { .. }))
-        .map(|r| {
-            text.get(r.span.start as usize..r.span.end as usize)
+        .filter(|r| {
+            let t = out.capture.text();
+            t.get(r.span.start as usize..r.span.end as usize)
                 .unwrap_or_default()
-                .to_owned()
+                .contains("match application")
         })
-        .collect();
+        .count();
+    assert_eq!(residue_apps, 0);
 
-    let expected = [
-        "set security policies from-zone trust to-zone untrust policy trust-to-untrust match application any",
-        "set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-http",
-        "set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-https",
-        "set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-dns-udp",
-        "set security policies from-zone guests to-zone untrust policy guests-to-untrust match application junos-ping",
-        "set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-http",
-        "set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-https",
-        "set security policies from-zone trust to-zone contractors policy trust-to-contractors match application junos-ping",
-        "set security policies from-zone trust to-zone vpn policy trust-to-vpn match application any",
-    ];
-    for line in expected {
-        assert!(
-            residue_lines.iter().any(|r| r == line),
-            "expected on the residue list, byte-for-byte: {line}"
+    for any in ["trust-to-untrust", "trust-to-vpn"] {
+        assert_eq!(
+            field(
+                &out,
+                policy_node(&out, any),
+                "SecurityPolicy.match_any_application"
+            ),
+            Some(&BoundValue::Bool(true)),
+            "{any}"
         );
     }
+    let apps = out
+        .fragment
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Application)
+        .count();
+    assert_eq!(apps, 4, "junos-http, -https, -dns-udp and -ping");
+    let edges = out
+        .fragment
+        .edges
+        .iter()
+        .filter(|e| e.kind == fathom_ir::generated::ir_types::EdgeKind::MatchApplication)
+        .count();
+    assert_eq!(
+        edges, 7,
+        "four on guests-to-untrust, three on trust-to-contractors"
+    );
+}
+
+/// A name in `match source-address` finds the address object or the address set
+/// of that name; one the paste never defines becomes a name-only object, so the
+/// policy never holds a smaller match than the device has, and its line is residue.
+#[test]
+fn match_address_names_resolve_in_the_paste() {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    let out = run(
+        "set security address-book global address branch-lan 192.168.2.0/24\n\
+         set security address-book global address-set site-nets address branch-lan\n\
+         set security policies from-zone trust to-zone untrust policy a match source-address branch-lan\n\
+         set security policies from-zone trust to-zone untrust policy a match destination-address site-nets\n\
+         set security policies from-zone trust to-zone untrust policy a match destination-address elsewhere\n",
+    );
+    let kinds_of = |k: EdgeKind| -> Vec<NodeKind> {
+        out.fragment
+            .edges
+            .iter()
+            .filter(|e| e.kind == k)
+            .map(|e| out.fragment.nodes[e.to.0 as usize].kind)
+            .collect()
+    };
+    assert_eq!(
+        kinds_of(EdgeKind::MatchSource),
+        vec![NodeKind::AddressObject]
+    );
+    assert_eq!(
+        kinds_of(EdgeKind::MatchDestination),
+        vec![NodeKind::AddressSet, NodeKind::AddressObject]
+    );
+    assert_eq!(kinds_of(EdgeKind::Contains), vec![NodeKind::AddressObject]);
+    assert_eq!(out.fragment.pending.len(), 0);
+    let valueless = out
+        .fragment
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::AddressObject)
+        .filter(|n| {
+            !n.fields
+                .iter()
+                .any(|f| matches!(&f.value, BoundValue::Address(_)))
+        })
+        .count();
+    assert_eq!(valueless, 1, "`elsewhere` is defined nowhere: name only");
+    assert_eq!(out.residue.len(), 1, "only the undefined name is residue");
+    let object = out
+        .fragment
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::AddressObject)
+        .expect("the address object");
+    assert!(object.fields.iter().any(|f| matches!(
+        &f.value,
+        BoundValue::Address(fathom_ir::value::AddressValue::Prefix(_))
+    )));
 }
