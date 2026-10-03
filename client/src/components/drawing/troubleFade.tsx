@@ -2,7 +2,7 @@
 // The store is read only; the panel writes it. The camera follows the panel's token.
 import { useEffect, useMemo } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import type { Edge, Node } from '@xyflow/react';
+import type { Edge, FitViewOptions, Node } from '@xyflow/react';
 
 import type { Canon } from '../checks/checksModel';
 import { useChecksApi, useChecksShow } from '../checks/checksStore';
@@ -31,7 +31,10 @@ export function TroubleCanvasBridge() {
   useEffect(() => {
     if (chain.size === 0 || token === 0) return;
     const { nodeIds } = matchShown(rf.getNodes(), rf.getEdges(), chain, api?.store.get().canon ?? IDENTITY);
-    if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.4, maxZoom: 1.25, duration: 400 });
+    // At phone width the panel sits along the bottom over 55% of the canvas: fit the chain into what is left.
+    const phone = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+    const padding: FitViewOptions['padding'] = phone ? { top: '8%', left: '8%', right: '8%', bottom: '58%' } : 0.4;
+    if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding, maxZoom: 1.25, duration: 400 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per token
   }, [token]);
   return null;

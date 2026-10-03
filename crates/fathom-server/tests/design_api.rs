@@ -2727,10 +2727,10 @@ async fn a_reader_cannot_save_an_issue_and_a_credential_in_its_note_refuses_the_
         "{latest:?}"
     );
 
-    // A credential typed into a step note is refused naming the kind, with nothing stored.
+    // A pasted, shaped credential in a step note is refused naming the kind, with nothing stored.
     let leaky = a_payload_with_issue(
         402,
-        "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234",
+        "set security ike policy IKE-POL pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234",
     );
     let (status, body) = call(
         addr,
@@ -2757,6 +2757,26 @@ async fn a_reader_cannot_save_an_issue_and_a_credential_in_its_note_refuses_the_
     let open_path = format!("/organisations/{}/designs/{}", estate.organisation, design);
     let (status, _) = call(addr, &reader, "GET", &open_path, b"").await;
     assert_eq!(status, "200");
+
+    // Pinned gap (ADR-0053 section 5): the server scan is delimiter-only, so a secret typed as plain words,
+    // with no delimiter or shape, is stored as typed. The client says so beside the field.
+    let unscanned = a_payload_with_issue(
+        403,
+        "The pre shared key on the switch reads hunter2tangerine",
+    );
+    let next_path = format!(
+        "/organisations/{}/designs/{}/versions?base=1",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &next_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &unscanned),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
 }
 
 // ---------------------------------------------------------------------------

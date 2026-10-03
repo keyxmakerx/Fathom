@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Answer } from '../../document/issues';
-import { POINT_DONE, POINT_NOTE, POINT_OK, outcomeText, pointing, type PointStep } from './pointing';
+import { POINT_DONE, POINT_NOTE, POINT_NOTE_ONE, POINT_OK, outcomeText, pointing, type PointStep } from './pointing';
 
 const step = (ordinal: number, answer: Answer, suspects: string[] = [], tests: string[] = []): PointStep => ({
   ordinal,
@@ -31,6 +31,13 @@ describe('pointing', () => {
     expect(p.note).toBe(POINT_NOTE);
     expect(p.tests).toEqual(['Try nas-01 on a free port (sw-02 has 4)']);
     expect(p.suspects.map((s) => s.label)).toEqual(['the cable', 'port 23 on sw-02']);
+  });
+
+  it('does not say "tell them apart" for a single suspect', () => {
+    const p = pointing([step(0, 'not_ok', ['what powers nas-01'], ['Try another outlet'])])!;
+    expect(p.note).toBe(POINT_NOTE_ONE);
+    expect(p.note).not.toMatch(/decide|apart/);
+    expect(pointing([step(0, 'not_ok', ['what powers nas-01'])])!.note).toBe('');
   });
 
   it('is nearest first: an earlier Not OK wins over a later one', () => {

@@ -188,6 +188,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
    * open — nothing is pre-selected just because a design loaded. */
   initialFocus?: Selection | null;
+  /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
+  initialIssue?: { id: string } | null;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
    * beside the editor for a selected chassis. Omitted (no button at all)
    * where no caller supplies it, the same "no action, not a disabled one"
@@ -229,6 +231,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     session,
     onZoomChange,
     initialFocus,
+    initialIssue,
     onOpenInventory,
     accountId,
     notesActions,
@@ -381,7 +384,15 @@ export function RacksPlace(props: RacksPlaceProps) {
       plans.openPlan(id);
       plans.setPanelOpen(true);
     },
+    foldPlans: () => plans.setPanelOpen(false),
   });
+  const issueHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialIssue == null || doc == null || issueHandled.current === initialIssue) return;
+    issueHandled.current = initialIssue;
+    trouble.openIssue(initialIssue.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialIssue, doc]);
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -1171,7 +1182,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
-      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} /> : null}
+      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} /> : null}
       </TroubleContext.Provider>
       </PlansContext.Provider>
       </ChecksContext.Provider>

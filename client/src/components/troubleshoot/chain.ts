@@ -236,8 +236,8 @@ function powerStep(n: Names, deviceId: string, dev: string): ChainStep {
   if (feeds.length === 0) {
     return {
       topic: 'power',
-      question: `Fathom doesn't know what powers ${dev}`,
-      detail: inlets.length === 0 ? `Is ${dev} plugged in and switched on?` : `${dev} has a power inlet with no cable recorded. Is it plugged in and switched on?`,
+      question: `Is ${dev} getting power?`,
+      detail: `Fathom doesn't know what powers ${dev}. ${inlets.length === 0 ? `Is it plugged in and switched on?` : `It has a power inlet with no cable recorded. Is it plugged in and switched on?`}`,
       targets: unique([deviceId, ...inlets]),
       why,
       known: false,
@@ -352,8 +352,8 @@ export function buildChain(doc: Document, deviceId: string): Chain {
   if (up === null) {
     steps.push({
       topic: 'link',
-      question: `Fathom doesn't know what ${dev} is cabled to`,
-      detail: `Is there a cable in ${dev}'s network port, with a light on?`,
+      question: `Is there a link light on ${dev}'s network port?`,
+      detail: `Fathom doesn't know what ${dev} is cabled to. Is there a cable in its network port?`,
       targets: [deviceId],
       why: [FIXED.link],
       known: false,
@@ -429,8 +429,8 @@ export function buildChain(doc: Document, deviceId: string): Chain {
   if (address === '') {
     steps.push({
       topic: 'address',
-      question: `Fathom doesn't know ${dev}'s address`,
-      detail: `Does ${dev} answer at the address you use for it?`,
+      question: `Does ${dev} answer?`,
+      detail: `Fathom doesn't know ${dev}'s address. Try the address you use for it.`,
       targets: [deviceId],
       why: [FIXED.address, WHY_RULES['ip.address.same-on-link']],
       known: false,
@@ -465,8 +465,8 @@ export function buildChain(doc: Document, deviceId: string): Chain {
   } else {
     steps.push({
       topic: 'gateway',
-      question: `Fathom doesn't know ${dev}'s gateway`,
-      detail: `Can ${dev} reach anything off its own network?`,
+      question: `Can ${dev} reach other networks?`,
+      detail: `Fathom doesn't know ${dev}'s gateway. Can it reach anything off its own network?`,
       targets: [deviceId],
       why: [FIXED.gateway],
       known: false,

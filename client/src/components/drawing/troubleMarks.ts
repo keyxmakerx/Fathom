@@ -8,7 +8,7 @@ import { chassisIdsOf, matchShown, type Canon } from '../checks/checksModel';
 import type { TroubleState } from '../troubleshoot/troubleStore';
 import { addClass, cssString, withFade } from './plansMarks';
 
-export const SUSPECT_WORD = 'POINTS HERE';
+export const SUSPECT_WORD = 'YOUR ANSWERS POINT HERE';
 
 export interface TroubleCanvasInput {
   nodes: Node[];

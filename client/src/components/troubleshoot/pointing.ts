@@ -23,6 +23,7 @@ export interface Pointing {
 export const POINT_OK = 'Everything Fathom can check looks fine so far.';
 export const POINT_DONE = 'Everything Fathom can check looks fine. What is left is outside what Fathom records.';
 export const POINT_NOTE = "Fathom doesn't decide which; these would tell them apart:";
+export const POINT_NOTE_ONE = 'These would tell you more:';
 
 /** Null while nothing is answered. */
 export function pointing(steps: readonly PointStep[]): Pointing | null {
@@ -33,7 +34,8 @@ export function pointing(steps: readonly PointStep[]): Pointing | null {
     const suspects = [...firstBad.suspects];
     const sentence = suspects.length > 0 ? `Your answers point at ${orList(suspects.map((s) => s.label))}.` : 'Your answers point at this step, which Fathom has nothing recorded about.';
     const tests = [...firstBad.tests];
-    return { sentence, note: suspects.length > 1 || tests.length > 0 ? POINT_NOTE : '', tests, suspects };
+    const note = suspects.length > 1 ? POINT_NOTE : tests.length > 0 ? POINT_NOTE_ONE : '';
+    return { sentence, note, tests, suspects };
   }
   const unsure = answered.filter((s) => s.answer === 'cant_tell');
   const fine = answered.filter((s) => s.answer === 'ok');

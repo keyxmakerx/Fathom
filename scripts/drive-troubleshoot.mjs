@@ -140,6 +140,14 @@ try {
   const focusNotBody = (page) => page.evaluate(() => document.activeElement !== document.body && document.activeElement != null);
   const SECRET = 'Zq7xK2mPv9Lw4NcR8tYb3HdF6gJs0AeU1oXiV5nQzM2kWp7RyT4uB8cD';
   const JUNOS = `set security ike policy ike-pol pre-shared-key ascii-text ${SECRET}`;
+  // A short key, as a real device takes (Junos 8 to 63 characters): the gate must hold for it too.
+  const SHORT = 'Sk7q2Zr9';
+  const JUNOS_SHORT = `set security ike policy ike-pol pre-shared-key ascii-text ${SHORT}`;
+  // The cable strokes on the canvas: [colour channel spread] per drawn cable path, halos and washes left out.
+  const cableStrokes = (page) => page.evaluate(() => [...document.querySelectorAll('.drawing-cable path:not(.drawing-cable__halo):not(.plan-mark__wash)')].map((p) => {
+    const m = /rgba?\(([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)/.exec(getComputedStyle(p).stroke);
+    return m ? Math.max(+m[1], +m[2], +m[3]) - Math.min(+m[1], +m[2], +m[3]) : 0;
+  }));
   const step = (page, state) => page.locator(`[data-testid=trouble-step][data-state=${state}]`);
   const answers = (page) => page.locator('[data-testid=trouble-step]').evaluateAll((els) => els.map((e) => e.getAttribute('data-answer')));
   const opened = async (page, host = 'fw-01') => {
@@ -177,25 +185,30 @@ try {
   {
     const { context, page, pageErrors } = await open();
     check('[flow] no panel before it is asked for', (await T(page, 'trouble-panel').count()) === 0);
+    const before = await cableStrokes(page);
+    check('[canvas] before a session the cables carry their sheath colours', before.some((d) => d > 40), before.join(','));
     await opened(page);
     const title = (await T(page, 'trouble-title').innerText()).replace(/\s+/g, ' ');
     check('[flow] right-click It\'s down opens the panel with the header', /^fw-01 is down . 1 of \d+$/i.test(title), title);
     const total = await page.locator('[data-testid=trouble-step]').count();
     check('[flow] the checklist has the chain steps, one open', total >= 4 && (await step(page, 'current').count()) === 1, String(total));
     const first = (await step(page, 'current').innerText()).replace(/\s+/g, ' ');
-    check("[flow] with no power link recorded, step 1 says Fathom doesn't know what powers fw-01", /Fathom doesn't know what powers fw-01/.test(first), first);
+    check("[flow] with no power link recorded, step 1 asks a question and says Fathom doesn't know in its detail", /^1 . Is fw-01 getting power\?/.test(first) && /Fathom doesn't know what powers fw-01/.test(first), first);
     check('[flow] focus is inside the panel, not on the body', await page.evaluate(() => document.activeElement?.closest('[data-testid=trouble-panel]') != null));
     const fadedAtStart = await page.locator('.react-flow__node.checks-faded').count();
     const fullAtStart = await page.locator('.react-flow__node:not(.checks-faded)').count();
-    check('[flow] the canvas fades to the chain', fadedAtStart >= 0 && fullAtStart >= 1, `${fadedAtStart} faded, ${fullAtStart} full`);
-    check('[flow] the cables draw in ink while it runs', (await page.locator('.react-flow__edge').count()) >= 1);
-    check('[flow] the footer says nothing is kept until saved', /Until then, nothing is kept/.test(await T(page, 'trouble-panel').innerText()));
-    check('[flow] Plan a fix is disabled with its reason before any answer', (await T(page, 'trouble-plan').getAttribute('aria-disabled')) === 'true' && /Nothing is suspect yet/.test(await T(page, 'trouble-panel').innerText()));
+    check('[flow] the canvas fades what is off the chain and keeps the chain', fadedAtStart > 0 && fullAtStart >= 1, `${fadedAtStart} faded, ${fullAtStart} full`);
+    const strokes = await cableStrokes(page);
+    check('[canvas] every cable draws in ink while it runs', strokes.length >= 1 && strokes.every((d) => d <= 12), strokes.join(','));
+    check('[canvas] a chain cable carries the lit halo', (await page.locator('.drawing-cable__halo').count()) >= 1);
+    check('[flow] nothing to save or plan before an answer: no footer, no hint', (await T(page, 'trouble-plan').count()) === 0 && (await T(page, 'trouble-save').count()) === 0 && (await page.locator('.trouble-hint').count()) === 0);
+    check('[flow] later rows carry their own Why?', (await page.locator('[data-testid=trouble-step][data-state=later] .trouble-why-btn').count()) >= 3);
+    check('[flow] the note is behind a link, not an open field', (await page.getByRole('button', { name: 'Add what you saw' }).count()) === 1 && (await page.locator('.trouble-input').count()) === 0);
     await ink(page, '[flow] opened');
     await shot(page, '01-opened');
 
     // Why? opens the card, Esc closes the card then the panel folds.
-    await page.getByRole('button', { name: 'Why?' }).click();
+    await page.locator('[data-testid=trouble-step][data-state=current] .trouble-why-btn').click();
     await settle(page, 300);
     check('[why] Why? opens the card with text', (await T(page, 'trouble-why').count()) === 1 && (await T(page, 'trouble-why').innerText()).length > 20);
     await shot(page, '02-why');
@@ -212,6 +225,7 @@ try {
     await page.keyboard.press('3');
     await settle(page, 300);
     check("[keys] 3 answers Can't tell", (await answers(page))[1] === 'cant_tell');
+    check('[footer] the footer appears with the first answer, Plan a fix off with its reason', (await T(page, 'trouble-plan').getAttribute('aria-disabled')) === 'true' && /Nothing is suspect yet/.test(await T(page, 'trouble-panel').innerText()));
     const point1 = await T(page, 'trouble-point').innerText();
     check('[point] with only OK and Can\'t tell it says everything looks fine so far, naming no cause', /Everything Fathom can check looks fine so far/.test(point1) && !/the problem is/i.test(point1), point1.replace(/\s+/g, ' '));
     // Tab reaches the buttons, Enter answers.
@@ -228,6 +242,12 @@ try {
     check('[point] a Not OK points at suspects and says Fathom does not decide', /Your answers point at/.test(point2) && /doesn't decide/.test(point2) && !/the problem is/i.test(point2), point2);
     check('[point] tests that would tell them apart are listed', (await page.locator('.trouble-test').count()) >= 1);
     check('[point] the header says narrowed', /narrowed/i.test(await T(page, 'trouble-title').innerText()), await T(page, 'trouble-title').innerText());
+    check('[point] once narrowed no further card opens by itself', (await step(page, 'current').count()) === 0);
+    // A key on a later row is not an answer to anything.
+    await page.locator('[data-testid=trouble-step][data-state=later] .trouble-step__head').first().focus();
+    await page.keyboard.press('1');
+    await settle(page, 300);
+    check('[keys] 1 on a later row answers nothing', (await answers(page)).filter((a) => a === 'ok').length === 1, (await answers(page)).join(','));
     check('[glyph] answered steps show as glyphs, not colours', /✓/.test(await T(page, 'trouble-steps').innerText()) && /✗/.test(await T(page, 'trouble-steps').innerText()));
     check('[canvas] the suspect carries a word, not colour alone', (await page.locator('.react-flow__node.trouble-suspect').count()) >= 1);
     check('[plan] Plan a fix is live once something is suspect', (await T(page, 'trouble-plan').getAttribute('aria-disabled')) === 'false');
@@ -239,6 +259,8 @@ try {
     await page.locator('[data-testid=trouble-step][data-state=current] button', { hasText: 'Why?' }).first().focus().catch(() => {});
     await T(page, 'trouble-steps').locator('.trouble-step__head').first().click();
     await settle(page, 300);
+    check('[keys] clicking row 1 opens it and the header says 1 of', /\b1 of \d/i.test(await T(page, 'trouble-title').innerText()), await T(page, 'trouble-title').innerText());
+    await page.getByRole('button', { name: 'Add what you saw' }).click();
     const note = page.getByLabel('What you saw (optional)');
     await note.fill('Light is off. Rotate the pre-shared key later.\n');
     check('[note] the field says typed text is stored as typed', /does not redact what you type, only what you paste/.test(await T(page, 'trouble-panel').innerText()));
@@ -247,12 +269,17 @@ try {
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Control+V');
     check('[note] the paste landed in the field', (await note.inputValue()).includes(SECRET));
+    await page.evaluate((t) => navigator.clipboard.writeText(t), '\n' + JUNOS_SHORT);
+    await page.keyboard.press('Control+End');
+    await page.keyboard.press('Control+V');
+    check('[note] a short key pasted too', (await note.inputValue()).includes(SHORT));
     await page.keyboard.press('Escape');
     await settle(page, 300);
     check('[note] Esc leaves the note and keeps the panel', (await T(page, 'trouble-panel').count()) === 1);
     // A note that was only typed is kept exactly as typed.
     await T(page, 'trouble-steps').locator('.trouble-step__head').nth(1).click();
     await settle(page, 300);
+    await page.getByRole('button', { name: 'Add what you saw' }).click();
     await page.getByLabel('What you saw (optional)').fill('Cable looked fine. Rotate the pre-shared key later.');
 
     // Plan a fix: saves the issue, makes the plan, links it, opens it.
@@ -268,6 +295,7 @@ try {
     check('[plan] the saves were made', (await page.evaluate(() => window.__saveCount__)) > savesBefore);
     const posted = await page.evaluate(() => window.__requests__.filter((r) => r.method === 'POST').map((r) => r.bodyLatin1));
     check('[gate] no saved document contains the pasted secret', posted.every((b) => !b.includes(SECRET) && !b.includes('Zq7xK2mPv9Lw4N')));
+    check('[gate] nor the short pasted key', posted.every((b) => !b.includes(SHORT)), SHORT);
     check('[gate] a note that was only typed is stored as typed', posted.some((b) => b.includes('Cable looked fine. Rotate the pre-shared key later.')));
     check('[gate] every save loads through the engine', (await page.evaluate(() => window.__saveLoadFailures__)).length === 0, (await page.evaluate(() => window.__saveLoadFailures__)).join(' | '));
     await shot(page, '04-plan-opened');
@@ -302,6 +330,26 @@ try {
     await settle(page, 800);
     check('[history] Mark closed closes it', /closed/.test(await T(page, 'trouble-saved-head').innerText()), await T(page, 'trouble-saved-head').innerText());
     check('[history] Mark closed is gone once closed', (await T(page, 'trouble-close-issue').count()) === 0);
+    await T(page, 'trouble-close').click();
+    await settle(page, 300);
+
+    // The Issue page in the Inventory: rows open it, keyboard too; Show on canvas goes back with it open.
+    await page.getByText('Inventory', { exact: true }).first().click();
+    await page.getByRole('button', { name: /^Issues/ }).click();
+    await settle(page, 500);
+    const row = page.locator('[data-testid=issues-list] tbody tr').first();
+    check('[inventory] the Issues list has a keyboard-reachable row', (await row.getAttribute('tabindex')) === '0');
+    await row.focus();
+    await page.keyboard.press('Enter');
+    await settle(page, 400);
+    const ip = (await T(page, 'issue-page').innerText()).replace(/\s+/g, ' ');
+    check('[inventory] Enter opens the Issue page: heading, Opened line, table, notes', /fw-01 is down/.test(ip) && /Opened .* · closed/i.test(ip) && /CHECK/i.test(ip) && /ANSWER/i.test(ip) && /NOTES/i.test(ip), ip.slice(0, 300));
+    check('[inventory] the table has a row per check', (await page.locator('.issue-page__table tbody tr').count()) >= 4);
+    await shot(page, '06-issue-page');
+    await T(page, 'issue-show-on-canvas').click();
+    await page.waitForSelector('[data-testid=trouble-panel]', { timeout: 10_000 });
+    await settle(page, 600);
+    check('[inventory] Show on canvas opens the saved issue on the canvas', (await T(page, 'trouble-saved-head').count()) === 1 && (await page.locator('.react-flow__node-chassis').count()) >= 1);
     await context.close();
 
     check('[save] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
@@ -319,9 +367,16 @@ try {
     await page.getByRole('button', { name: 'Keep going' }).click();
     await settle(page, 300);
     check('[close] Keep going keeps the panel and the answer', (await T(page, 'trouble-panel').count()) === 1 && (await answers(page))[0] === 'ok');
+    // Esc with focus on the canvas is the canvas's own: the panel stays.
+    await page.locator('.react-flow__pane').click({ position: { x: 20, y: 300 } });
+    await page.keyboard.press('Escape');
+    await settle(page, 300);
+    check("[close] Esc with focus on the canvas does not touch the panel", (await T(page, 'trouble-panel').count()) === 1);
+    await T(page, 'trouble-step').first().focus();
     await page.keyboard.press('Escape');
     await settle(page, 400);
-    check('[close] Esc folds the panel and keeps the session', (await T(page, 'trouble-folded').count()) === 1 && (await T(page, 'trouble-panel').count()) === 0);
+    check('[close] Esc inside the panel folds it and keeps the session', (await T(page, 'trouble-folded').count()) === 1 && (await T(page, 'trouble-panel').count()) === 0);
+    check('[close] the fold leaves focus on the Open button', await page.evaluate(() => document.activeElement?.textContent?.startsWith('Open') === true && document.activeElement.closest('[data-testid=trouble-folded]') != null));
     await T(page, 'trouble-folded').getByRole('button', { name: /^Open/ }).click();
     await settle(page, 400);
     check('[close] opening it again finds the answer where it was', (await answers(page))[0] === 'ok');
@@ -330,6 +385,18 @@ try {
     await settle(page, 400);
     check('[close] Close anyway drops the session and nothing was saved', (await T(page, 'trouble-panel').count()) === 0 && (await page.evaluate(() => window.__saveCount__)) === 0);
     check('[close] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // ---------------------------------------------------------------- 3b. an open plan panel is folded when a session starts
+  {
+    const { context, page, pageErrors } = await open();
+    await page.locator('.react-flow__node-chassis', { hasText: 'fw-01' }).click({ button: 'right' });
+    await page.locator('.drawing-context-menu__item', { hasText: 'Plan a change' }).click();
+    await page.waitForSelector('[data-testid=plans-panel]', { timeout: 10_000 });
+    await opened(page, 'sw-02');
+    check('[plans] starting a session folds the open plan panel, so the two never overlap', (await T(page, 'plans-panel').count()) === 0 && (await T(page, 'trouble-panel').count()) === 1);
+    check('[plans] no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 
@@ -375,6 +442,10 @@ try {
     });
     check(`[${tag}] the panel does not overflow sideways`, overflow === '', overflow);
     const box = await T(page, 'trouble-panel').boundingBox();
+    if (opts.w === 390) {
+      const lit = await page.locator('.react-flow__node-chassis:not(.checks-faded)').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
+      check(`[${tag}] the lit chain is above the panel, not under it`, lit.length > 0 && box != null && lit.every((b) => b <= box.y + 4), `${lit.map(Math.round).join(',')} vs panel top ${box?.y}`);
+    }
     check(`[${tag}] the panel is on screen`, box != null && box.x >= -1 && box.x + box.width <= opts.w + 1, JSON.stringify(box));
     await ink(page, `[${tag}]`);
     await shot(page, `05-${tag}-panel`);

@@ -77,13 +77,10 @@ export function pointOf(draft: Pick<Draft, 'steps'>): Pointing | null {
   return pointing(pointSteps(draft));
 }
 
-/** "nas-01 is down · 3 of 6", or "· narrowed" once an answer points somewhere, "· answered" when all are. */
-export function headerText(draft: Draft): string {
-  const total = draft.steps.length;
-  const at = firstOpen(draft.steps);
-  const p = pointOf(draft);
-  const bad = draft.steps.some((s) => s.answer === 'not_ok');
-  const where = bad && p !== null ? 'narrowed' : at === -1 ? 'all answered' : `${at + 1} of ${total}`;
+/** "nas-01 is down · 3 of 6" counting the open step; with none open, "· narrowed" or "· all answered". */
+export function headerText(draft: Draft, open: number): string {
+  const bad = draft.steps.some((s) => s.answer === 'not_ok') && pointOf(draft) !== null;
+  const where = open >= 0 && open < draft.steps.length ? `${open + 1} of ${draft.steps.length}` : bad ? 'narrowed' : 'all answered';
   return `${draft.deviceName} is down · ${where}`;
 }
 
@@ -139,8 +136,9 @@ export function canvasKeys(draft: Draft, current: number, canon: Canon): { chain
   return { chain, current: now, suspects };
 }
 
-/** Esc closes the Why? card first, then the panel. */
-export function troubleEscTarget(open: { why: boolean; panel: boolean }): 'why' | 'panel' | null {
+/** Esc closes the Why? card first, then the panel, and only while focus is inside the panel. */
+export function troubleEscTarget(open: { why: boolean; panel: boolean; inside: boolean }): 'why' | 'panel' | null {
+  if (!open.inside) return null;
   if (open.why) return 'why';
   if (open.panel) return 'panel';
   return null;

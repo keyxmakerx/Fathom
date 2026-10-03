@@ -40,9 +40,9 @@ describe('buildChain', () => {
     const l = lab({ power: false });
     const [power] = buildChain(l.doc, l.nas.device).steps;
     expect(power.topic).toBe('power');
-    expect(power.question).toBe("Fathom doesn't know what powers nas-01");
+    expect(power.question).toBe('Is nas-01 getting power?');
+    expect(power.detail).toContain("Fathom doesn't know what powers nas-01.");
     expect(power.known).toBe(false);
-    expect(power.detail).not.toBe('');
     expect(power.suspects.length).toBeGreaterThan(0);
   });
 
@@ -50,7 +50,8 @@ describe('buildChain', () => {
     const l = lab({ uplink: false });
     const chain = buildChain(l.doc, l.nas.device);
     const link = chain.steps.find((s) => s.topic === 'link')!;
-    expect(link.question).toBe("Fathom doesn't know what nas-01 is cabled to");
+    expect(link.question).toBe("Is there a link light on nas-01's network port?");
+    expect(link.detail).toContain("Fathom doesn't know what nas-01 is cabled to.");
     expect(link.known).toBe(false);
     expect(chain.steps.map((s) => s.topic)).not.toContain('neighbours');
     expect(chain.steps.map((s) => s.topic)).not.toContain('port');
@@ -59,8 +60,13 @@ describe('buildChain', () => {
   it("says Fathom doesn't know the address or the gateway when the graph holds neither", () => {
     const l = lab({ network: false });
     const chain = buildChain(l.doc, l.nas.device);
-    expect(chain.steps.find((s) => s.topic === 'address')!.question).toBe("Fathom doesn't know nas-01's address");
-    expect(chain.steps.find((s) => s.topic === 'gateway')!.question).toBe("Fathom doesn't know nas-01's gateway");
+    const at = (t: string) => chain.steps.find((s) => s.topic === t)!;
+    expect(at('address').question).toBe('Does nas-01 answer?');
+    expect(at('address').detail).toContain("Fathom doesn't know nas-01's address.");
+    expect(at('gateway').question).toBe('Can nas-01 reach other networks?');
+    expect(at('gateway').detail).toContain("Fathom doesn't know nas-01's gateway.");
+    // No step is a statement: every title is a question.
+    for (const s of chain.steps) expect(s.question.endsWith('?')).toBe(true);
     // The port step still asks, and says it holds no VLAN for it.
     const port = chain.steps.find((s) => s.topic === 'port')!;
     expect(port.question).toBe('Is port 23 on sw-02 enabled?');

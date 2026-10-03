@@ -88,11 +88,13 @@ interface Inputs {
   canEdit: boolean;
   /** Opens a maintenance plan in the plans controller (Plan a fix). */
   openPlan: (id: string) => void;
+  /** Starting a session folds an open plan panel so the two never stand on each other. */
+  foldPlans?: () => void;
 }
 
 const IDENTITY: Canon = (id) => id;
 
-export function useTroubleController({ doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan }: Inputs): TroubleController {
+export function useTroubleController({ doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, foldPlans }: Inputs): TroubleController {
   const [store] = useState(createTroubleStore);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -103,8 +105,8 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
   const [confirmingClose, setConfirmingClose] = useState(false);
   const whyTrigger = useRef<HTMLElement | null>(null);
   const tokenRef = useRef(0);
-  const latest = useRef({ doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, draft });
-  latest.current = { doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, draft };
+  const latest = useRef({ doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, foldPlans, draft });
+  latest.current = { doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, foldPlans, draft };
 
   const canon = useMemo<Canon>(() => (doc ? buildCanon(doc) : IDENTITY), [doc]);
   const issues = useMemo(() => (doc ? listIssues(doc) : []), [doc]);
@@ -160,14 +162,16 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
     setConfirmingClose(false);
   }, []);
 
-  // Esc closes the Why? card, then the panel. Not while typing or in a dialog.
+  // Esc closes the Why? card, then folds the panel, only while focus is inside the panel: anywhere else Esc is the
+  // canvas's own or Checks'. Not while typing or in a dialog.
   useEffect(() => {
     if (draft == null && viewingId == null) return undefined;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (isTypingTarget(e.target as HTMLElement | null) || isTypingTarget(document.activeElement)) return;
       if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]') != null) return;
-      const which = troubleEscTarget({ why: why != null, panel: panelOpen });
+      const inside = document.activeElement?.closest('.trouble-panel') != null;
+      const which = troubleEscTarget({ why: why != null, panel: panelOpen, inside });
       if (which == null) return;
       e.preventDefault();
       if (which === 'why') closeWhy();
@@ -259,6 +263,7 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
         setNotice("That is not a device Fathom can ask about.");
         return false;
       }
+      latest.current.foldPlans?.();
       setViewingId(null);
       setDraft(made);
       setFocus(firstOpen(made.steps));
@@ -269,6 +274,7 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
       return true;
     },
     openIssue: (id) => {
+      latest.current.foldPlans?.();
       setDraft(null);
       setFocus(-1);
       setViewingId(id);
@@ -287,13 +293,10 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
       const next = withAnswer(d, index, answer, Date.now());
       setDraft(next);
       setWhy(null);
-      setFocus(nextOpen(next.steps, index));
+      // Once an answer is Not OK it is narrowed: no further card opens by itself, the point block says the rest.
+      setFocus(next.steps.some((s) => s.answer === 'not_ok') ? -1 : nextOpen(next.steps, index));
     },
-    setNote: (index, note, pasted) => {
-      const d = latest.current.draft;
-      if (d == null) return;
-      setDraft(withNote(d, index, note, pasted));
-    },
+    setNote: (index, note, pasted) => setDraft((cur) => (cur == null ? cur : withNote(cur, index, note, pasted))),
     save: async () => {
       const d = latest.current.draft;
       if (d == null || d.savedId !== null) return false;

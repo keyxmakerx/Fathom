@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createElement } from 'react';
+import { isPasteInput } from '../plans/PlanParts';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
@@ -10,7 +11,7 @@ import { createIssue, readIssue, TYPED_AS_WRITTEN } from '../../document/issues'
 import { buildCanon } from '../checks/checksModel';
 import { applyTrouble } from '../drawing/troubleMarks';
 import { DeviceIssues } from './DeviceIssues';
-import { IssuesList } from './IssuesList';
+import { IssuePage, IssuesList } from './IssuesList';
 import { TroublePanel } from './TroublePanel';
 import { buildChain } from './chain';
 import { lab } from './fixtures';
@@ -95,13 +96,15 @@ describe('the draft', () => {
 
   it('answers a step, moves on, and reads "3 of 6" then "narrowed"', () => {
     let { draft } = drafted();
-    expect(headerText(draft)).toBe('nas-01 is down · 1 of 6');
+    expect(headerText(draft, 0)).toBe('nas-01 is down · 1 of 6');
     draft = withAnswer(draft, 0, 'ok', NOW);
     draft = withAnswer(draft, 1, 'ok', NOW);
-    expect(headerText(draft)).toBe('nas-01 is down · 3 of 6');
+    expect(headerText(draft, 2)).toBe('nas-01 is down · 3 of 6');
+    // It counts the step that is open, not the first unanswered: step 4 opened by a click is "4 of 6".
+    expect(headerText(draft, 3)).toBe('nas-01 is down · 4 of 6');
     expect(nextOpen(draft.steps, 1)).toBe(2);
     draft = withAnswer(draft, 2, 'not_ok', NOW);
-    expect(headerText(draft)).toBe('nas-01 is down · narrowed');
+    expect(headerText(draft, -1)).toBe('nas-01 is down · narrowed');
     expect(answered(draft.steps)).toBe(3);
     expect(pointOf(draft)!.sentence).toBe('Your answers point at the cable or port 23 on sw-02.');
     expect(pointOf(draft)!.note).toBe(POINT_NOTE);
@@ -110,7 +113,7 @@ describe('the draft', () => {
   it('says all answered when nothing points anywhere', () => {
     let { draft } = drafted();
     for (let i = 0; i < draft.steps.length; i += 1) draft = withAnswer(draft, i, 'ok', NOW);
-    expect(headerText(draft)).toBe('nas-01 is down · all answered');
+    expect(headerText(draft, -1)).toBe('nas-01 is down · all answered');
     expect(nextOpen(draft.steps, 5)).toBe(5);
   });
 
@@ -178,9 +181,14 @@ describe('words and keys', () => {
   });
 
   it('closes the Why? card first, then the panel', () => {
-    expect(troubleEscTarget({ why: true, panel: true })).toBe('why');
-    expect(troubleEscTarget({ why: false, panel: true })).toBe('panel');
-    expect(troubleEscTarget({ why: false, panel: false })).toBeNull();
+    expect(troubleEscTarget({ why: true, panel: true, inside: true })).toBe('why');
+    expect(troubleEscTarget({ why: false, panel: true, inside: true })).toBe('panel');
+    expect(troubleEscTarget({ why: false, panel: false, inside: true })).toBeNull();
+  });
+
+  it('claims no Esc at all while focus is outside the panel, so the canvas and Checks keep theirs', () => {
+    expect(troubleEscTarget({ why: true, panel: true, inside: false })).toBeNull();
+    expect(troubleEscTarget({ why: false, panel: true, inside: false })).toBeNull();
   });
 
   it('shows a date as "3 Oct 21:40" and an issue as one line of its history', () => {
@@ -229,6 +237,10 @@ describe('the panel', () => {
     expect(html).toContain('Plan a fix');
     expect(html).toContain('Save as an issue');
     expect(html).toContain('Nothing is suspect yet');
+    // Later rows carry a Why? too, and the note is behind a link, not an open field.
+    expect(html.match(/trouble-why-btn/g)!.length).toBeGreaterThanOrEqual(4);
+    expect(html).toContain('Add what you saw</button>');
+    expect(html).not.toContain('<textarea');
     // Exactly one step is open.
     expect(html.match(/data-state="current"/g)).toHaveLength(1);
     expect(html).toContain('aria-current="step"');
@@ -237,10 +249,12 @@ describe('the panel', () => {
   it('shows where the answers point, the tests, and a live Plan a fix after a Not OK', () => {
     let { draft } = drafted();
     draft = withAnswer(draft, 2, 'not_ok', NOW);
-    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 3 }), besideChecks: false }));
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: -1 }), besideChecks: false }));
     expect(html).toContain('Your answers point at the cable or port 23 on sw-02.');
     expect(html).toContain('Try nas-01 on a free port');
     expect(html).toContain('nas-01 is down · narrowed');
+    // Narrowed: no further card is open as the current step.
+    expect(html).not.toContain('data-state="current"');
     expect(html).toContain('✗');
     expect(html).not.toContain('Nothing is suspect yet');
     expect(html).toMatch(/data-testid="trouble-plan"/);
@@ -253,11 +267,30 @@ describe('the panel', () => {
     expect(html).toContain('A device with no power shows no lights and answers nothing');
   });
 
-  it('puts a note field with the typed sentence on the open step', () => {
+  it('puts the note behind "Add what you saw", and shows the field with the typed sentence once there is one', () => {
+    const { draft } = drafted();
+    const shut = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0 }), besideChecks: false }));
+    expect(shut).toContain('Add what you saw</button>');
+    expect(shut).not.toContain('Stored as typed');
+    const noted = withNote(draft, 0, 'the plug was loose', false);
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft: noted, focus: 0 }), besideChecks: false }));
+    expect(html).toContain('What you saw (optional)');
+    expect(html).toContain('Stored as typed. Fathom does not redact what you type, only what you paste.');
+  });
+
+  it('shows no footer and no hint until something is answered', () => {
     const { draft } = drafted();
     const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0 }), besideChecks: false }));
-    expect(html).toContain('Add what you saw');
-    expect(html).toContain('Stored as typed. Fathom does not redact what you type, only what you paste.');
+    expect(html).not.toContain('Plan a fix');
+    expect(html).not.toContain('Save as an issue');
+    expect(html).not.toContain('Until then');
+    expect(html).not.toContain('trouble-hint');
+  });
+
+  it('sits beside an open plan panel', () => {
+    const { draft } = drafted();
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0 }), besideChecks: false, besidePlans: true }));
+    expect(html).toContain('trouble-panel--beside-plans');
   });
 
   it('leaves out Save and Plan a fix for someone who cannot edit, and locks the answers', () => {
@@ -270,7 +303,8 @@ describe('the panel', () => {
 
   it('locks the steps once saved and offers Mark closed', () => {
     const { draft } = drafted();
-    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft: { ...draft, savedId: 'issue:X' }, focus: 0 }), besideChecks: false }));
+    const answeredDraft = withAnswer(draft, 0, 'ok', NOW);
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft: { ...answeredDraft, savedId: 'issue:X' }, focus: 1 }), besideChecks: false }));
     expect(html).toContain("Saved to nas-01&#x27;s history.");
     expect(html).toContain('Mark closed');
     expect(html).not.toContain('Save as an issue');
@@ -301,6 +335,7 @@ describe('the panel', () => {
     expect(html).toContain('nas-01 is down');
     expect(html).toContain('✗');
     expect(html).toContain('light is off');
+    expect(html).toContain('Cable 0412, red, to nas-01 eth0');
     expect(html).toContain('Your answers point at the cable or port 23 on sw-02.');
     expect(html).not.toContain('Mark closed');
     expect(html).not.toMatch(/data-answer="ok"[^>]*>OK/);
@@ -367,7 +402,7 @@ describe('the canvas', () => {
     for (const e of out.edges) expect((e.data as { troubleInk?: boolean }).troubleInk).toBe(true);
     // The suspect device wears the tag.
     expect(cls(out.nodes[1])).toContain('trouble-suspect');
-    expect(String((out.nodes[1].style as Record<string, unknown>)['--trouble-word'])).toContain('POINTS HERE');
+    expect(String((out.nodes[1].style as Record<string, unknown>)['--trouble-word'])).toContain('YOUR ANSWERS POINT HERE');
   });
 
   it('draws nothing and returns the same arrays when no session runs, and leaves the fade to a Checks Show', () => {
@@ -399,5 +434,45 @@ describe('the chain of the lab, for a sanity read', () => {
   it('has the six steps the mockup shows', () => {
     const l = lab();
     expect(buildChain(l.doc, l.nas.device).steps).toHaveLength(6);
+  });
+});
+
+describe('a drop reaches the gate like a paste', () => {
+  it('marks insertFromPaste and insertFromDrop, not typing', () => {
+    expect(isPasteInput({ inputType: 'insertFromPaste' })).toBe(true);
+    expect(isPasteInput({ inputType: 'insertFromDrop' })).toBe(true);
+    expect(isPasteInput({ inputType: 'insertText' })).toBe(false);
+    expect(isPasteInput(undefined)).toBe(false);
+  });
+});
+
+describe('the Issue page', () => {
+  function saved() {
+    const { draft, l } = drafted();
+    let d = withAnswer(withAnswer(draft, 0, 'ok', NOW), 2, 'not_ok', NOW);
+    d = withNote(d, 2, 'light is off', false);
+    const made = createIssue(l.doc, { deviceId: d.deviceId, title: 'nas-01 is down', author: 'KM', steps: toDraftSteps(d), outcome: pointOf(d)!.sentence, gate: TYPED_AS_WRITTEN, now: NOW });
+    return { doc: made.doc, issue: readIssue(made.doc, made.id) };
+  }
+
+  it('shows the heading, the Opened line, a # / Check / Answer table, the notes and Show on canvas', () => {
+    const { issue } = saved();
+    const html = renderToStaticMarkup(createElement(IssuePage, { issue, onBack: () => {}, onShowOnCanvas: () => {} }));
+    expect(html).toContain('<h2 class="issue-page__title">nas-01 is down</h2>');
+    expect(html).toMatch(/Opened \d+ \w+ \d\d:\d\d · KM · open/);
+    for (const h of ['#', 'Check', 'Answer']) expect(html).toContain(`>${h}</th>`);
+    expect(html).toContain('Link light on sw-02 port 23?');
+    expect(html).toContain('Cable 0412, red, to nas-01 eth0');
+    expect(html).toContain('>Not OK<');
+    expect(html).toContain('light is off');
+    expect(html).toContain('Your answers point at the cable or port 23 on sw-02.');
+    expect(html).toContain('Show on canvas');
+  });
+
+  it('has rows that are keyboard reachable and open the page', () => {
+    const { doc } = saved();
+    const html = renderToStaticMarkup(createElement(IssuesList, { doc, onShowOnCanvas: () => {} }));
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('aria-label="Open nas-01 is down"');
   });
 });

@@ -78,6 +78,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
    * Racks with `selection` already chosen and the camera asked to the
    * faceplate stop (`RacksPlace`'s own `initialFocus`). */
   onShowOnRack: (selection: Selection) => void;
+  /** An Inventory issue page's "Show on canvas": the Canvas place with that issue open. */
+  onShowIssue?: (issueId: string) => void;
   /** ADR-0053 §5/§6 — Notes, the same three doors `RacksPlace.tsx`
    * receives, built once by `DesignPlace.tsx` and threaded straight into
    * this place's own `EditorFor` call: "the one editor" holds for Notes
@@ -98,7 +100,7 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
  * unbuilt rather than a grid with nothing behind it.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, tagsActions, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, notesActions, tagsActions, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
@@ -263,7 +265,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             {kind === 'networks' ? (
               doc != null ? <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} /> : null
             ) : kind === 'issues' ? (
-              doc != null ? <IssuesList doc={doc} /> : null
+              doc != null ? <IssuesList doc={doc} onShowOnCanvas={onShowIssue} /> : null
             ) : kind !== 'devices' ? (
               <div className="inventory-place__unbuilt">This list is not built yet.</div>
             ) : (

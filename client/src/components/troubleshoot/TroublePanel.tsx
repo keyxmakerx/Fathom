@@ -2,12 +2,12 @@
 // answered OK / Not OK / Can't tell; the current one is open with its question, detail, a Why? card and a note;
 // later ones are dimmed. Below: where the answers point, what else is affected, and Plan a fix / Save as an issue.
 // Drawn in ink: the answers are the glyphs ✓ ✗ ? ○, never colours.
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import type { Answer, Issue } from '../../document/issues';
 import { isTypingTarget } from '../checks/checksModel';
-import { TypedSentence, usePasteMark } from '../plans/PlanParts';
+import { TypedSentence, isPasteInput, usePasteMark } from '../plans/PlanParts';
 import { ANSWER_WORD, GLYPH, answerForKey, answered, headerText, planFixState, pointOf, whenText, type Draft, type DraftStepState } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import '../plans/plans.css';
@@ -81,20 +81,39 @@ function AnswerButtons({ step, index, controller }: { step: DraftStepState; inde
 function Note({ step, index, controller }: { step: DraftStepState; index: number; controller: TroubleController }) {
   const id = useId();
   const paste = usePasteMark();
+  const area = useRef<HTMLTextAreaElement>(null);
+  const [open, setOpen] = useState(step.note !== '');
   const locked = !controller.canEdit || controller.draft?.savedId != null;
   if (locked && step.note === '') return null;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="trouble-link trouble-add-note"
+        onClick={() => {
+          setOpen(true);
+          requestAnimationFrame(() => area.current?.focus());
+        }}
+      >
+        Add what you saw
+      </button>
+    );
+  }
   return (
     <div className="trouble-note">
       <label htmlFor={id} className="trouble-label">
         What you saw (optional)
       </label>
       <textarea
+        ref={area}
         id={id}
         className="trouble-input"
         value={step.note}
         disabled={locked}
         placeholder="Add what you saw…"
-        onChange={(e) => controller.setNote(index, e.target.value, paste.pasted)}
+        autoFocus
+        onChange={(e) => controller.setNote(index, e.target.value, paste.pasted || isPasteInput(e.nativeEvent as { inputType?: string }))}
+        onInput={paste.onInput}
         onPaste={(e) => {
           paste.onPaste(e);
           controller.setNote(index, step.note, true);
@@ -153,12 +172,25 @@ function Step({ step, index, controller }: { step: DraftStepState; index: number
         </>
       ) : (
         <>
-          <button type="button" className="trouble-step__head" onClick={() => controller.focusStep(index)} aria-label={`Step ${index + 1}, ${ANSWER_WORD[step.answer]}: ${step.question}`}>
-            <span className="trouble-glyph" aria-hidden="true">
-              {glyph}
-            </span>{' '}
-            <span className="trouble-step__no">{index + 1} ·</span> {step.question}
-          </button>
+          <div className="trouble-step__row">
+            <button type="button" className="trouble-step__head" onClick={() => controller.focusStep(index)} aria-label={`Step ${index + 1}, ${ANSWER_WORD[step.answer]}: ${step.question}`}>
+              <span className="trouble-glyph" aria-hidden="true">
+                {glyph}
+              </span>{' '}
+              <span className="trouble-step__no">{index + 1} ·</span> {step.question}
+            </button>
+            <button
+              type="button"
+              className="trouble-link trouble-why-btn"
+              aria-label={`Why? Step ${index + 1}`}
+              onClick={(e) => {
+                controller.focusStep(index);
+                controller.openWhy(index, e.currentTarget);
+              }}
+            >
+              Why?
+            </button>
+          </div>
           {step.note !== '' && <p className="trouble-step__noted">{step.note}</p>}
         </>
       )}
@@ -190,7 +222,7 @@ function PointBlock({ draft }: { draft: Draft }) {
 function Footer({ draft, controller }: { draft: Draft; controller: TroubleController }) {
   const plan = planFixState(draft, controller.canEdit);
   const reasonId = useId();
-  if (!controller.canEdit) return null;
+  if (!controller.canEdit || answered(draft.steps) === 0) return null;
   return (
     <>
       <div className="trouble-footer">
@@ -223,7 +255,6 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
 }
 
 function DraftBody({ draft, controller }: { draft: Draft; controller: TroubleController }) {
-  const done = answered(draft.steps);
   return (
     <>
       <ol className="trouble-steps" data-testid="trouble-steps">
@@ -231,7 +262,6 @@ function DraftBody({ draft, controller }: { draft: Draft; controller: TroubleCon
           <Step key={`${draft.openedAt}|${i}`} step={s} index={i} controller={controller} />
         ))}
       </ol>
-      {done === 0 && <p className="trouble-hint">Answer from the nearest step. Fathom says where your answers point; it does not decide.</p>}
       <PointBlock draft={draft} />
       <Footer draft={draft} controller={controller} />
       <h3 className="trouble-label">Also affected</h3>
@@ -260,6 +290,7 @@ function SavedBody({ issue, controller }: { issue: Issue; controller: TroubleCon
               </span>{' '}
               <span className="trouble-step__no">{s.ordinal + 1} ·</span> {s.question} <span className="trouble-sr">{ANSWER_WORD[s.answer]}</span>
             </p>
+            {s.detail !== '' && <p className="trouble-step__detail">{s.detail}</p>}
             {s.note !== '' && <p className="trouble-step__noted">{s.note}</p>}
           </li>
         ))}
@@ -280,7 +311,7 @@ function SavedBody({ issue, controller }: { issue: Issue; controller: TroubleCon
   );
 }
 
-export function TroublePanel({ controller, besideChecks }: { controller: TroubleController; besideChecks: boolean }) {
+export function TroublePanel({ controller, besideChecks, besidePlans = false }: { controller: TroubleController; besideChecks: boolean; besidePlans?: boolean }) {
   const { draft, viewing } = controller;
   const body = useRef<HTMLDivElement>(null);
   const first = useRef(true);
@@ -293,21 +324,33 @@ export function TroublePanel({ controller, besideChecks }: { controller: Trouble
       target?.focus({ preventScroll: true });
     }
   }, []);
+  // Folded with focus inside (Esc): the bar's Open button takes it, so focus is never left on the body.
+  const openBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!controller.panelOpen && (document.activeElement == null || document.activeElement === document.body)) openBtn.current?.focus();
+  }, [controller.panelOpen]);
+  // The open step closed on a Not OK: the card it held is gone, so the panel's body keeps focus.
+  useEffect(() => {
+    if (controller.focus === -1 && controller.panelOpen && (document.activeElement == null || document.activeElement === document.body)) body.current?.focus({ preventScroll: true });
+  }, [controller.focus, controller.panelOpen]);
   // 1, 2, 3 answer the open step, anywhere in the panel but a typing field.
   const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
     if (draft == null || !controller.canEdit || draft.savedId !== null || controller.focus < 0) return;
     if (e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target as HTMLElement)) return;
+    // A key on a later row is not an answer to the open step.
+    const row = (e.target as HTMLElement).closest('li');
+    if (row != null && row.getAttribute('aria-current') !== 'step') return;
     const a = answerForKey(e.key);
     if (a === null) return;
     e.preventDefault();
     controller.answer(controller.focus, a);
   };
-  const title = draft ? headerText(draft) : viewing ? `${viewing.title}` : '';
-  const placed = `trouble-panel${besideChecks ? ' trouble-panel--beside-checks' : ''}`;
+  const title = draft ? headerText(draft, controller.focus) : viewing ? `${viewing.title}` : '';
+  const placed = `trouble-panel${besideChecks ? ' trouble-panel--beside-checks' : ''}${besidePlans ? ' trouble-panel--beside-plans' : ''}`;
   if (!controller.panelOpen) {
     return (
       <div className="trouble-folded" data-testid="trouble-folded">
-        <button type="button" className="trouble-btn trouble-btn--ink" onClick={() => controller.setPanelOpen(true)}>
+        <button ref={openBtn} type="button" className="trouble-btn trouble-btn--ink" onClick={() => controller.setPanelOpen(true)}>
           Open "{title}"
         </button>
         <button type="button" className="trouble-btn" onClick={() => controller.close()}>
