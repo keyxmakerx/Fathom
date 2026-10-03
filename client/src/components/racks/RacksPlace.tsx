@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { captureOf } from '../../document/capture';
-import { connectPorts, disconnect, type Sheath } from '../../document/cables';
+import { connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
   createBoard,
+  addSketchPort,
   addSketchPortRange,
   createSketchDevice,
   createSurface,
@@ -22,6 +23,10 @@ import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
+import { JotView } from '../jot/JotView';
+import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
+import { PasteCard, type PasteState } from '../paste/PasteCard';
+import { previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
@@ -31,7 +36,7 @@ import { layerWords } from '../drawing/layerLabels';
 import { loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
-import type { ShellProps } from '../shell/types';
+import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
@@ -201,6 +206,12 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
  * session's one `SaveQueue`, so a save already running is never joined by a
  * second one for the same design.
  */
+/** An engine refusal as a sentence: no code quoting, a capital to start. */
+function tidySentence(text: string): string {
+  const plain = text.replace(/`/g, '').trim();
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+}
+
 const NO_ROOM_ADD = 'No room in this rack for another device.';
 
 export function RacksPlace(props: RacksPlaceProps) {
@@ -630,6 +641,112 @@ export function RacksPlace(props: RacksPlaceProps) {
       }),
     [freeWrite],
   );
+  // ADR-0060 decision 10: Open goes into a device ("jot mode"). Drawing stays mounted beneath, so its camera is
+  // where it was on the way back; the way out is Esc, the bar's path, or the Back button.
+  const [jot, setJot] = useState<{ id: string; origin: { x: number; y: number } | null; inside: boolean } | null>(null);
+  const handleOpenDevice = useCallback((id: string, inside: boolean, at: { x: number; y: number } | null) => {
+    setSelection({ kind: 'chassis', id });
+    setJot({ id, origin: at, inside });
+  }, []);
+  const leaveJot = useCallback(() => setJot(null), []);
+
+  // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
+  // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
+  const [pasteState, setPasteState] = useState<PasteState | null>(null);
+  const openSpot = useCallback(() => {
+    const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
+    return nextFreeSpot(taken);
+  }, [realView.free, realView.labels]);
+  const startPaste = useCallback(
+    (text: string) => {
+      if (doc == null || !canDraw) return;
+      setPasteState({ kind: 'reading' });
+      withMirror()
+        .then((mirror) => {
+          const at = openSpot();
+          const preview = previewPaste(mirror, doc, text, at, actorOpts(accountId));
+          // The module now holds the scratch design the preview was read from.
+          mirrorLoadedDocRef.current = null;
+          setPasteState({ kind: 'card', preview, base: doc });
+        })
+        .catch((error: unknown) => {
+          mirrorLoadedDocRef.current = null;
+          setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
+        });
+    },
+    [doc, canDraw, withMirror, openSpot, accountId],
+  );
+  const handlePasteConfig = useCallback(() => {
+    // A right-click is a gesture, so the browser may let the page read the clipboard; if not, the card has a box.
+    const read = navigator.clipboard?.readText?.bind(navigator.clipboard);
+    if (read === undefined) return setPasteState({ kind: 'ask' });
+    read().then(
+      (text) => (worthReading(text) ? startPaste(text) : setPasteState({ kind: 'ask' })),
+      () => setPasteState({ kind: 'ask' }),
+    );
+  }, [startPaste]);
+  const handlePasteChoice = useCallback(
+    (choice: 'attach' | 'add') => {
+      if (pasteState?.kind !== 'card') return;
+      const { preview } = pasteState;
+      if (pasteState.base !== doc) {
+        // The design moved on while the card was open; applying the preview would undo that.
+        setPasteState({ kind: 'refused', message: 'The design changed while this was open. Paste it again.' });
+        return;
+      }
+      const next = choice === 'attach' && preview.attachDoc != null ? preview.attachDoc : preview.addDoc;
+      const chassisId = choice === 'attach' ? (preview.match?.chassisId ?? null) : preview.addChassisId;
+      applyDocChange(next);
+      if (chassisId !== null) setSelection({ kind: 'chassis', id: chassisId });
+      setPasteState(null);
+    },
+    [pasteState, doc, applyDocChange],
+  );
+  useEffect(() => {
+    if (!canDraw || doc == null) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const el = event.target instanceof HTMLElement ? event.target : null;
+      if (el !== null && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName))) return;
+      const text = event.clipboardData?.getData('text/plain') ?? '';
+      if (!worthReading(text)) return;
+      event.preventDefault();
+      startPaste(text);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [canDraw, doc, startPaste]);
+
+  const jotOrigin = useMemo(() => (jot ? originOf(realView, jot.id, jot.origin) : { x: 0, y: 0 }), [jot, realView]);
+  const jotPlateList = useMemo(() => (jot ? jotPlates(realView, jot.id, jotOrigin) : null), [jot, realView, jotOrigin]);
+  // The device went away (an undo, a remove from elsewhere): back out rather than leave an empty room.
+  useEffect(() => {
+    if (jot != null && doc != null && jotPlateList === null) setJot(null);
+  }, [jot, doc, jotPlateList]);
+  const handleJotConnect = useCallback(
+    (fromPortId: string, toPortId: string) => {
+      if (doc == null) return;
+      try {
+        applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath: 'grey' }, actorOpts(accountId)));
+      } catch (e) {
+        if (e instanceof IncompatibleConnectorError) setCanvasNotice(`Those two ports can't be cabled together: ${e.reason}`);
+        else if (e instanceof PortAlreadyTerminatedError) setCanvasNotice('One of those ports already has a cable. A port takes one.');
+        else setCanvasNotice(refusalFor(e)?.refused ?? 'That cable could not be made.');
+      }
+    },
+    [doc, applyDocChange, accountId],
+  );
+  const handleJotAddPort = useCallback(
+    (chassisId: string) => {
+      const chassis = deviceChassis(realView, chassisId);
+      if (!chassis) return;
+      const taken = new Set(chassis.ports.map((p) => p.label));
+      let n = chassis.ports.length + 1;
+      while (taken.has(String(n))) n += 1;
+      void freeWrite((d, o) => ({ doc: addSketchPort(d, chassisId, { label: String(n), connector: 'rj45', face: 'front' }, o), out: null }));
+    },
+    [realView, freeWrite],
+  );
+
   // ADR-0060 decision 4: a click in the equipment list adds the item where there
   // is room, the rack in use first; a backboard goes on the first wall.
   const handlePick = useCallback(
@@ -645,10 +762,14 @@ export function RacksPlace(props: RacksPlaceProps) {
         }
         return;
       }
+      if (jot != null && jotPlateList != null) {
+        const at = jotSpot(jotPlateList);
+        handleAddFreeBox(item.role ?? null, jotOrigin.x + at.x, jotOrigin.y + at.y);
+        return;
+      }
       if (displayView.racks.length === 0) {
         // Only free boxes so far: the pick lands on the next open spot of the canvas.
-        const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
-        const at = nextFreeSpot(taken);
+        const at = openSpot();
         handleAddFreeBox(item.role ?? null, at.x, at.y);
         return;
       }
@@ -660,7 +781,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         }
       }
     },
-    [doc, realView.surfaces, realView.free, realView.labels, displayView.racks, selection, handlePlace, handleAddFreeBox, applyDocChange, accountId],
+    [doc, realView.surfaces, openSpot, displayView.racks, selection, handlePlace, handleAddFreeBox, applyDocChange, accountId, jot, jotPlateList, jotOrigin],
   );
 
   const handleMove = useCallback(
@@ -888,8 +1009,19 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
+  // The bar's path gains the open device; the part before it leads back out.
+  const jotDevice = jot != null ? deviceChassis(realView, jot.id) : undefined;
+  const jotPath: PathPart[] =
+    jotDevice != null && shellProps.path.length > 0
+      ? [
+          ...shellProps.path.slice(0, -1),
+          { ...shellProps.path[shellProps.path.length - 1]!, onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
+          { label: jotDevice.hostname || 'unnamed' },
+        ]
+      : shellProps.path;
+
   return (
-    <Shell {...shellProps} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -905,7 +1037,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : (
         <Drawing
           view={displayView}
-          selected={selection}
+          selected={jot ? null : selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
@@ -918,6 +1050,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddDevice={canDraw ? handleAddDevice : undefined}
           onAddRack={canDraw ? handleAddRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
+          onPasteConfig={canDraw ? handlePasteConfig : undefined}
+          onOpenDevice={handleOpenDevice}
           onAddFreeBox={canDraw ? handleAddFreeBox : undefined}
           onAddDeviceAt={canDraw ? handleAddDeviceAt : undefined}
           onMoveFree={canDraw ? handleMoveFree : undefined}
@@ -929,7 +1063,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           onCalloutChange={setCalloutId}
-          canDraw={canDraw}
+          canDraw={canDraw && jot === null}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
@@ -941,6 +1075,35 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRedo={shellProps.onRedo}
         />
       )}
+      {jot != null && jotPlateList != null ? (
+        <JotView
+          key={jot.id}
+          view={realView}
+          deviceId={jot.id}
+          origin={jotOrigin}
+          canDraw={canDraw}
+          selected={selection}
+          litPortLabel={litPortLabel}
+          startInside={jot.inside}
+          onSelect={setSelection}
+          onBack={leaveJot}
+          onAddBox={handleAddFreeBox}
+          onMoveBox={(id, x, y) => handleMoveFree([{ id, x, y }])}
+          onConnect={handleJotConnect}
+          onDisconnect={handleDisconnect}
+          onRemoveBox={(id) => handleRemoveFree([id])}
+          onAddPort={handleJotAddPort}
+          onUndo={shellProps.onUndo}
+          onRedo={shellProps.onRedo}
+          fitRequest={fitRequest}
+          paused={pasteState != null}
+          renderConfigDrawer={renderConfigDrawer}
+          renderInsideStop={renderInsideStop}
+        />
+      ) : null}
+      {pasteState != null ? (
+        <PasteCard state={pasteState} onText={startPaste} onChoose={handlePasteChoice} onCancel={() => setPasteState(null)} />
+      ) : null}
       {canvasNotice != null ? (
         <div className="racks-place__notice" role="status" data-testid="canvas-notice">
           {canvasNotice}

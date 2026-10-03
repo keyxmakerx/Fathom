@@ -1156,7 +1156,8 @@ function cableEnd(doc: Document, edge: GraphEdge): CableEnd | undefined {
   if (!hasPort) return undefined;
   const chassisId = hasPort.from;
   const placement = placementOf(doc, chassisId);
-  if (placement.kind === 'none') return undefined;
+  // A free box (no rack, but a place on the canvas) is placed: step 8's open-device view cables to it.
+  if (placement.kind === 'none' && pinOf(doc, chassisId) === null) return undefined;
   return { portId, chassisId, rackId: rackIdOfPlacement(doc, placement) };
 }
 
