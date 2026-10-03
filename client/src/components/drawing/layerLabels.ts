@@ -4,6 +4,9 @@
 import type { Document } from '../../document/model';
 import { deriveNetworks } from '../../document/networks-derive';
 import { docsOf } from '../../document/docs';
+import { listPlans } from '../../document/plans';
+import { buildCanon } from '../checks/checksModel';
+import { touchedDevices } from '../plans/plansModel';
 import { tagsOf } from '../../document/tags';
 import type { ClosetView } from './contract';
 import { layerOn, type LayerSet } from './layers';
@@ -42,7 +45,8 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
   const wantVlan = layerOn(layers, 'vlans');
   const wantTags = layerOn(layers, 'tags');
   const wantDocs = layerOn(layers, 'docs');
-  if (!wantAddr && !wantVlan && !wantTags && !wantDocs) return EMPTY;
+  const wantMaint = layerOn(layers, 'maintenance');
+  if (!wantAddr && !wantVlan && !wantTags && !wantDocs && !wantMaint) return EMPTY;
   const cables = new Map<string, CableWords>();
   const devices = new Map<string, string[]>();
 
@@ -81,9 +85,22 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
     }
   }
 
-  if (wantTags || wantDocs) {
+  // Devices an unrecorded plan touches: 'doing' wins over 'planned'.
+  const planned = new Map<string, string>();
+  if (wantMaint) {
+    const canon = buildCanon(doc);
+    for (const plan of listPlans(doc)) {
+      if (plan.stage === 'recorded') continue;
+      const word = plan.stage === 'doing' ? 'doing' : 'planned';
+      for (const d of touchedDevices(doc, canon, plan)) if (planned.get(d.id) !== 'doing') planned.set(d.id, word);
+    }
+  }
+
+  if (wantTags || wantDocs || wantMaint) {
     for (const ch of view.racks.flatMap((r) => r.chassis)) {
       const words: string[] = [];
+      const plan = planned.get(ch.deviceId);
+      if (plan != null) words.push(plan);
       if (wantDocs && docsOf(doc, ch.deviceId, ch.model).length > 0) words.push('docs');
       if (wantTags) words.push(...tagsOf(doc, ch.deviceId).map((t) => t.name));
       if (words.length > 0) devices.set(ch.id, words);

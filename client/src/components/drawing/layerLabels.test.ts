@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createSketchDevice } from '../../document/commands';
 import { emptyDocument, parseNodeId } from '../../document/model';
+import { addStep, createPlan, startPlan, TYPED_AS_WRITTEN } from '../../document/plans';
 import { tagObject } from '../../document/tags';
 import type { ClosetView } from './contract';
 import { cableCandidates, vlanWord, layerWords, placeLabels, type Candidate } from './layerLabels';
@@ -61,5 +62,23 @@ describe('layerWords', () => {
     doc = tagObject(doc, deviceId, 'core', { now: 2 });
     const w = layerWords(doc, view(deviceId), { ...defaultLayers(), tags: true });
     expect(w.devices.get('ch1')).toEqual(['core']);
+  });
+  it('tags a device an open plan touches, doing over planned', () => {
+    let doc = createSketchDevice(emptyDocument(), { now: 1 });
+    const deviceId = doc.nodes.find((n) => parseNodeId(n.id).kind === 'Device')!.id;
+    const made = createPlan(doc, { title: 'Rename', gate: TYPED_AS_WRITTEN, now: 2 });
+    const step = addStep(made.doc, made.id, {
+      kind: 'other',
+      change: 'rename it',
+      targets: [deviceId],
+      gate: TYPED_AS_WRITTEN,
+      now: 3,
+    });
+    doc = step.doc;
+    const on = { ...defaultLayers(), maintenance: true };
+    expect(layerWords(doc, view(deviceId), on).devices.get('ch1')).toEqual(['planned']);
+    expect(layerWords(doc, view(deviceId), defaultLayers()).devices.size).toBe(0);
+    doc = startPlan(doc, made.id, { now: 4 });
+    expect(layerWords(doc, view(deviceId), on).devices.get('ch1')).toEqual(['doing']);
   });
 });

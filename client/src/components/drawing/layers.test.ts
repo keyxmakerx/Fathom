@@ -26,10 +26,10 @@ describe('layers', () => {
     expect(loadLayers('a1', 'd1')).toEqual(defaultLayers());
     expect(() => saveLayers('a1', 'd1', defaultLayers())).not.toThrow();
   });
-  it('Checks and Docs are listed; Maintenance waits on its data', () => {
+  it('Checks, Docs and Maintenance are listed', () => {
     expect(layerOn(defaultLayers(), 'checks')).toBe(true);
     expect(layerOn({ ...defaultLayers(), docs: true }, 'docs')).toBe(true);
-    expect(layerOn({ ...defaultLayers(), maintenance: true }, 'maintenance')).toBe(false);
+    expect(layerOn({ ...defaultLayers(), maintenance: true }, 'maintenance')).toBe(true);
     expect(layerOn({ ...defaultLayers(), checks: false }, 'checks')).toBe(false);
   });
 });
