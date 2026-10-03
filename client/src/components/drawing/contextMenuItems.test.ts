@@ -14,6 +14,7 @@ function actions(): Required<MenuActions> {
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
     onPasteConfig: vi.fn(),
+    onAddInRack: vi.fn(),
     onAddBoxHere: vi.fn(),
     onAddLabelHere: vi.fn(),
     onDuplicateFree: vi.fn(),
@@ -74,5 +75,15 @@ describe('menuItemsFor', () => {
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'cable', id: 'k1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'pane' }, reader)).toEqual([]);
+  });
+
+  it('offers Add here only when the click landed on a free unit of a rack', () => {
+    const a = actions();
+    const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
+    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device']);
+    items[1].onSelect();
+    expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
   });
 });

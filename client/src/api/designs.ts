@@ -8,11 +8,8 @@
 // entry. This client draws no such state either: there is nothing to draw
 // for a design the caller was never told exists.
 //
-// Note what the row does NOT carry: no display name, no closet name, and no
-// rack/device counts. `designs` has no name column at all (`repo.rs`'s own
-// doc on `DesignId`), and `scope_id` is an opaque ULID with no label this
-// route resolves. Any screen wanting a human name for a design or its scope
-// has nothing here to read it from yet.
+// `name` is the design's own name (ADR-0060 step 3b), or null while it is
+// untitled. The row carries no closet name and no rack/device counts.
 //
 // `createDesign` below is `POST /organisations/{organisation}/scopes/{scope}/designs`
 // — ADR-0054 §2, "draw creates a design": the route takes the scope in the
@@ -39,6 +36,16 @@ export interface DesignSummary {
   createdBy: string;
   capability: DesignCapability;
   latestVersion: number;
+  /** The design's own name, or `null` while untitled. */
+  name: string | null;
+}
+
+/** What an untitled design is called everywhere. */
+export const UNTITLED_DESIGN = 'Untitled design';
+
+/** The name to show for a design. */
+export function designTitle(design: Pick<DesignSummary, 'name'>): string {
+  return design.name ?? UNTITLED_DESIGN;
 }
 
 const REQUIRED_STRING_FIELDS = ['design_id', 'scope_id', 'created_by', 'capability'] as const;
@@ -73,6 +80,7 @@ export function parseDesignSummary(entry: unknown, label: string): DesignSummary
     createdBy: record.created_by as string,
     capability: record.capability as string,
     latestVersion: record.latest_version,
+    name: typeof record.name === 'string' ? record.name : null,
   };
 }
 
@@ -148,6 +156,13 @@ export async function createDesign(
     throw new Error('malformed create-design response: body is not JSON');
   }
   return parseDesignSummary(parsed, 'the create response');
+}
+
+/** `POST .../designs/{design}/name`: the body is the name in UTF-8; empty
+ * clears it back to untitled. The server trims it and allows 100 characters. */
+export async function renameDesign(organisationId: string, designId: string, name: string): Promise<void> {
+  const path = `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}/name`;
+  await signedFetch('POST', path, new TextEncoder().encode(name));
 }
 
 /** The designs the signed-in account may see within `organisationId` — a

@@ -465,6 +465,7 @@ export function SecondFactorStep({
           </label>
           <input
             id="signin-code"
+            name="totp"
             className="signin__input signin__input--mono"
             type="text"
             inputMode="text"

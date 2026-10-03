@@ -66,6 +66,26 @@ fn assert_refused_by_the_trigger(err: &tokio_postgres::Error, what: &str) {
     );
 }
 
+/// Run a `TRUNCATE` that must be refused. It takes the heaviest table lock, so
+/// next to the other test binaries on this shared database Postgres may pick it
+/// as a deadlock victim (40P01); the statement did not run, so ask again. Any
+/// other outcome, including the statement succeeding, is returned as it is.
+async fn truncate_refused(client: &Client, sql: &str) -> tokio_postgres::Error {
+    for _ in 0..8 {
+        match client.batch_execute(sql).await {
+            Err(e) if e.code() == Some(&SqlState::T_R_DEADLOCK_DETECTED) => {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(e) => return e,
+            Ok(()) => panic!(
+                "{sql}: TRUNCATE fires no row-level trigger, so without its own statement-level \
+                 trigger one statement erases the audit trail"
+            ),
+        }
+    }
+    panic!("{sql}: deadlocked on every attempt");
+}
+
 /// A site-chain entry exists to be attacked. Written through the real append
 /// path rather than by an `INSERT` here, so what these tests fail to delete is
 /// a genuinely sealed row.
@@ -144,13 +164,7 @@ async fn a_superuser_cannot_truncate_the_chain() {
     let client = migrated_then_superuser().await;
     let _ = a_site_entry(&client).await;
 
-    let err = client
-        .batch_execute("TRUNCATE chain_entries")
-        .await
-        .expect_err(
-            "TRUNCATE fires no row-level trigger, so without its own statement-level trigger \
-             one statement erases the entire audit trail",
-        );
+    let err = truncate_refused(&client, "TRUNCATE chain_entries").await;
     assert_refused_by_the_trigger(&err, "TRUNCATE");
 }
 
@@ -763,13 +777,7 @@ async fn a_superuser_cannot_rewrite_erase_or_truncate_any_authority_table() {
         assert_refused_by_the_trigger(&err, &format!("DELETE {table}"));
 
         // TRUNCATE -- the route a row-level trigger does not cover at all.
-        let err = client
-            .batch_execute(&format!("TRUNCATE {table} CASCADE"))
-            .await
-            .expect_err(&format!(
-                "{table}: TRUNCATE fires no row-level trigger, so without its own \
-                 statement-level trigger one statement erases the authority of every tenant"
-            ));
+        let err = truncate_refused(&client, &format!("TRUNCATE {table} CASCADE")).await;
         assert_refused_by_the_trigger(&err, &format!("TRUNCATE {table}"));
     }
 

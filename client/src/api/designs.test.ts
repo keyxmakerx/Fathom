@@ -6,7 +6,7 @@ vi.mock('./signedFetch', () => ({
 
 import { SCHEMA_VERSION } from '../document/plain';
 import { signedFetch } from './signedFetch';
-import { createDesign, parseDesignSummary, parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
+import { createDesign, designTitle, parseDesignSummary, parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
 
 const mockedSignedFetch = vi.mocked(signedFetch);
 const EXPECTED_MINOR = Number.parseInt(SCHEMA_VERSION.slice('0.'.length), 10);
@@ -43,6 +43,7 @@ describe('parseDesigns', () => {
         createdBy: ROW_A.created_by,
         capability: 'read',
         latestVersion: 3,
+        name: null,
       },
       {
         designId: ROW_B.design_id,
@@ -51,6 +52,7 @@ describe('parseDesigns', () => {
         createdBy: ROW_B.created_by,
         capability: 'steward',
         latestVersion: 1,
+        name: null,
       },
     ]);
   });
@@ -92,6 +94,7 @@ describe('parseDesignSummary', () => {
       createdBy: ROW_A.created_by,
       capability: 'read',
       latestVersion: 3,
+      name: null,
     });
   });
 
@@ -115,6 +118,7 @@ describe('createDesign', () => {
       createdBy: ROW_B.created_by,
       capability: 'steward',
       latestVersion: 1,
+      name: null,
     });
 
     const [method, path, sentBody] = mockedSignedFetch.mock.calls[0];
@@ -134,25 +138,35 @@ describe('createDesign', () => {
 
 describe('sortDesignsByRecency', () => {
   it('orders most-recent-first', () => {
-    const oldest: DesignSummary = { designId: 'a', scopeId: 's', createdAtUnix: 1, createdBy: 'x', capability: 'read', latestVersion: 1 };
-    const newest: DesignSummary = { designId: 'b', scopeId: 's', createdAtUnix: 3, createdBy: 'x', capability: 'read', latestVersion: 1 };
-    const middle: DesignSummary = { designId: 'c', scopeId: 's', createdAtUnix: 2, createdBy: 'x', capability: 'read', latestVersion: 1 };
+    const oldest: DesignSummary = { designId: 'a', scopeId: 's', createdAtUnix: 1, createdBy: 'x', capability: 'read', latestVersion: 1, name: null };
+    const newest: DesignSummary = { designId: 'b', scopeId: 's', createdAtUnix: 3, createdBy: 'x', capability: 'read', latestVersion: 1, name: null };
+    const middle: DesignSummary = { designId: 'c', scopeId: 's', createdAtUnix: 2, createdBy: 'x', capability: 'read', latestVersion: 1, name: null };
     expect(sortDesignsByRecency([oldest, newest, middle]).map((d) => d.designId)).toEqual(['b', 'c', 'a']);
   });
 
   it('is stable — equal timestamps keep the server-given order', () => {
-    const first: DesignSummary = { designId: 'first', scopeId: 's', createdAtUnix: 5, createdBy: 'x', capability: 'read', latestVersion: 1 };
-    const second: DesignSummary = { designId: 'second', scopeId: 's', createdAtUnix: 5, createdBy: 'x', capability: 'read', latestVersion: 1 };
+    const first: DesignSummary = { designId: 'first', scopeId: 's', createdAtUnix: 5, createdBy: 'x', capability: 'read', latestVersion: 1, name: null };
+    const second: DesignSummary = { designId: 'second', scopeId: 's', createdAtUnix: 5, createdBy: 'x', capability: 'read', latestVersion: 1, name: null };
     expect(sortDesignsByRecency([first, second]).map((d) => d.designId)).toEqual(['first', 'second']);
   });
 
   it('does not mutate its input', () => {
     const input: DesignSummary[] = [
-      { designId: 'a', scopeId: 's', createdAtUnix: 1, createdBy: 'x', capability: 'read', latestVersion: 1 },
-      { designId: 'b', scopeId: 's', createdAtUnix: 2, createdBy: 'x', capability: 'read', latestVersion: 1 },
+      { designId: 'a', scopeId: 's', createdAtUnix: 1, createdBy: 'x', capability: 'read', latestVersion: 1, name: null },
+      { designId: 'b', scopeId: 's', createdAtUnix: 2, createdBy: 'x', capability: 'read', latestVersion: 1, name: null },
     ];
     const copy = [...input];
     sortDesignsByRecency(input);
     expect(input).toEqual(copy);
+  });
+});
+
+describe('design names', () => {
+  it('reads a name, and calls an unnamed design untitled', () => {
+    const named = parseDesignSummary({ ...ROW_A, name: 'Core switches' }, 'row');
+    expect(named.name).toBe('Core switches');
+    expect(designTitle(named)).toBe('Core switches');
+    const bare = parseDesignSummary({ ...ROW_A, name: null }, 'row');
+    expect(designTitle(bare)).toBe('Untitled design');
   });
 });
