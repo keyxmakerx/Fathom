@@ -139,7 +139,7 @@ export function useDocsApi(opts: {
         }
       },
       removeLink: (linkId) => run((d) => removeDocLink(d, linkId, actor)),
-      async addFile(docId, file) {
+      async addFile(docId, file, confirmed) {
         if (!canDraw) return READ_ONLY;
         if (doc == null) return { refused: 'No design is open.' };
         try {
@@ -154,6 +154,9 @@ export function useDocsApi(opts: {
           const kind = sniffFile(raw);
           if (kind === 'refused')
             return { refused: `${file.name} is not a PDF, an image or a text file, so Fathom will not keep it.` };
+          // Photos, scans and PDFs cannot be checked: the person says, per file, that they hold nothing secret.
+          if ((kind === 'image' || kind === 'pdf') && confirmed !== true)
+            return { confirm: kind === 'pdf' ? 'PDF' : 'image' };
           let bytes = raw;
           let checked: 'clean' | 'removed' | 'unread' = 'unread';
           let removed = 0;

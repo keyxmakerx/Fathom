@@ -527,14 +527,17 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
 
-  async function pick(file: File | undefined) {
+  const [pending, setPending] = useState<{ file: File; kind: string } | null>(null);
+  async function pick(file: File | undefined, confirmed = false) {
     if (!file || busy) return;
     setBusy(true);
     setMessage(null);
-    const r = await api.addFile(d.id, file);
+    setPending(null);
+    const r = await api.addFile(d.id, file, confirmed);
     setBusy(false);
     if (input.current) input.current.value = '';
-    setMessage('refused' in r ? { text: r.refused, bad: true } : { text: r.note, bad: false });
+    if ('confirm' in r) setPending({ file, kind: r.confirm });
+    else setMessage('refused' in r ? { text: r.refused, bad: true } : { text: r.note, bad: false });
   }
   async function get(f: DocFileView) {
     setMessage(null);
@@ -658,6 +661,19 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+      {pending != null ? (
+        <div role="group" aria-label={`Add ${pending.file.name}?`} className="docs-links__add">
+          <p className="docs-note">
+            Fathom can't check {pending.kind === 'PDF' ? 'a PDF' : 'an image'} for passwords. It will say "Not checked".
+          </p>
+          <button type="button" onClick={() => void pick(pending.file, true)}>
+            Add {pending.file.name}, it shows no passwords
+          </button>
+          <button type="button" className="docs-link" onClick={() => setPending(null)}>
+            Cancel
+          </button>
         </div>
       ) : null}
       {busy ? (

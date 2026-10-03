@@ -218,6 +218,7 @@ try {
   check('the table says passwords were removed', /\d+ passwords? removed/.test(await page.locator('.docs-files__table').innerText()));
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
   await upload('rack.png', png);
+  await page.getByRole('button', { name: 'Add rack.png, it shows no passwords' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.docs-files__table tbody tr').length === 2);
   check('an image says Not checked', (await page.locator('.docs-files__table').innerText()).includes("Not checked · image"));
   await upload('tool.exe', Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03]));
