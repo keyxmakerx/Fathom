@@ -4,6 +4,8 @@ import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
+import { describeRestore, outlineSelectors } from '../../document/historyDiff';
+import { newUlid } from '../../document/ulid';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
@@ -21,6 +23,8 @@ import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
+import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
+import { useHistory } from '../history/useHistory';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
@@ -98,6 +102,28 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
   const [sharing, setSharing] = useState(false);
+
+  // History beside the canvas: a picked save is shown read-only with what it changed outlined.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useHistory(organisationId, designId, historyOpen);
+  const pickedSave = historyOpen ? history.picked : null;
+  const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
+  useEffect(() => {
+    if (outlineKey === '') return undefined;
+    const selector = outlineSelectors(outlineKey.split('\n')).join(',');
+    // Only touch an element that lacks the class, so the observer never loops on its own edit.
+    const apply = () =>
+      document.querySelectorAll(selector).forEach((el) => {
+        if (!el.classList.contains('history-changed')) el.classList.add('history-changed');
+      });
+    apply();
+    const observer = new MutationObserver(apply); // nodes mount lazily and React Flow rewrites classes on selection
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    return () => {
+      observer.disconnect();
+      document.querySelectorAll('.history-changed').forEach((el) => el.classList.remove('history-changed'));
+    };
+  }, [outlineKey]);
 
   // A design has no name of its own — the deepest scope stands in; the path is what sits between the organisation and it, never repeating either end.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
@@ -459,12 +485,14 @@ export function DesignPlace(props: DesignPlaceProps) {
     trail,
     trailOpen,
     onTrailOpenChange: setTrailOpen,
-    canUndo: session.canDraw && undoCandidates.length > 0,
-    canRedo: session.canDraw && redoCandidate != null,
+    canUndo: session.canDraw && undoCandidates.length > 0 && !historyOpen,
+    canRedo: session.canDraw && redoCandidate != null && !historyOpen,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
-    onDocs: doc != null ? () => docs.setView({ kind: 'list' }) : undefined,
+    onDocs: doc != null && pickedSave == null ? () => docs.setView({ kind: 'list' }) : undefined,
+    onHistory: doc != null ? () => toggleHistory() : undefined,
+    historyOpen,
     // Offered to stewards only; the server refuses anyone else regardless.
     onShare: capability === 'steward' ? () => setSharing(true) : undefined,
   };
@@ -482,12 +510,53 @@ export function DesignPlace(props: DesignPlaceProps) {
   // either is actually open, never on every render of the place itself.
   const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
 
+  const toggleHistory = () => {
+    if (historyOpen) {
+      setHistoryOpen(false);
+      return;
+    }
+    if (props.place !== 'racks') onPlaceChange('racks');
+    setHistoryOpen(true);
+  };
+  const restorePicked = () => {
+    if (pickedSave == null || !session.canDraw) return;
+    // A new save of the old content, with one batch saying so; the old saves stay in the chain.
+    const when = whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0);
+    session.applyDocChange({
+      ...pickedSave.doc,
+      batches: [...pickedSave.doc.batches, { id: newUlid(), label: `Restored the save from ${when}`, ops: [] }],
+    });
+    setHistoryOpen(false);
+  };
+  const historyView = historyOpen
+    ? {
+        panel: (
+          <HistoryPanel
+            history={history}
+            accountId={accountId}
+            accountAddress={accountAddress}
+            canDraw={session.canDraw}
+            restoreText={pickedSave != null && doc != null ? describeRestore(doc, pickedSave.doc) : ''}
+            onRestore={restorePicked}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ),
+        banner:
+          pickedSave != null
+            ? `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`
+            : null,
+      }
+    : undefined;
+  // A past save is a read-only copy: nothing drawn on it is saved.
+  const racksSession = pickedSave != null ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} } : session;
+
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
+        historyView={historyView}
         onPlaceChange={onPlaceChange}
-        session={session}
+        session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
         onOpenInventory={openInInventory}
