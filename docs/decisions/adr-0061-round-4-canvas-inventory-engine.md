@@ -102,4 +102,22 @@ Reverses parts of round 5:
   saved to each device's history. Drawn in ink, sheath colours dropped while it runs; colour only
   where it means something. Comes right after maintenance plans; path trace extends it later.
 
+## Round 9, answered 2026-10-03 (the all-in-one review)
+
+- **IP and VLAN tables:** Prefixes and VLANs are Inventory kinds; each prefix's page lists its
+  addresses (what they're on, where they came from, next free) under a grid of the range. They
+  read the drawing, so nothing is keyed twice; clashes come from Checks. After troubleshooting,
+  before Docs.
+- **Bringing a network in:** one file importer (CSV, NetBox export, Proxmox JSON, nmap XML): match
+  columns, preview new / match / differ, one Undo. Read in the browser through the redaction gate;
+  no stored tokens, no live connections. Same bundle as IP and VLAN tables.
+- **Read-only:** a "View" choice on the existing read grant, plus PNG and PDF export. No public link.
+- **Same device, same moment:** merge field by field; on the same field the later change wins and
+  the other person is told at once and can put theirs back; history keeps both. No locks. Other
+  people show as a small dot with their initials, not a cursor. Live co-editing comes before beta.
+- **Not cards, in scope:** paste for Junos EX and EdgeOS; Checks load only what changed; PNG
+  export joins print.
+- **Later, so nothing designs them out:** an API; monitoring, using checks that need no device
+  credentials (ping, TCP, HTTP).
+
 Still open: private custom fields (#93 builds shared fields only).
