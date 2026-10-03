@@ -1535,3 +1535,9 @@
     transform: translate(-100%, -50%) scaleX(1);
   }
 }
+
+/* Rail numbers of the units a drag would cover. */
+.drawing-rack__u-number--lit {
+  font-weight: 700;
+  color: var(--ink);
+}

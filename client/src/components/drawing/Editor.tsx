@@ -51,6 +51,29 @@ import { describePorts, faceplateLayoutFor } from './faceplate';
 // and waits for a new `view` prop, the same contract `DrawingActions`
 // already keeps.
 
+/** A whole number, edited in place; a refusal from the engine shows beside it. */
+function NumberField({ label, value, onCommit }: { label: string; value: number; onCommit: ((n: number) => { refused: string } | void) | undefined }) {
+  return (
+    <div className="drawing-editor__field">
+      <div className="drawing-editor__field-label">{label}</div>
+      <EditableValue
+        value={String(value)}
+        placeholder={ABSENT}
+        editorKind="text"
+        onCommit={
+          onCommit
+            ? (v) => {
+                const n = Number(v);
+                if (v === null || !Number.isInteger(n) || n < 1) return { refused: 'Type a whole number, 1 or more.' };
+                return onCommit(n);
+              }
+            : undefined
+        }
+      />
+    </div>
+  );
+}
+
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="drawing-editor__field">
@@ -1513,6 +1536,56 @@ export function EditorFor(
     );
   }
 
+  // ADR-0060 step 7: a text label or area, and a line between two boxes.
+  if (selection.kind === 'label') {
+    const label = view.labels.find((l) => l.id === selection.id);
+    if (label == null) return null;
+    const area = label.form === 'area';
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">{area ? 'Area' : 'Label'}</div>
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Text</div>
+          <EditableValue
+            value={label.text}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'label', id: label.id, field: 'text', value: v ?? '' }) : undefined}
+          />
+        </div>
+        {area && (
+          <>
+            <NumberField label="Width" value={Math.round(label.w)} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'area-size', id: label.id, w: n, h: label.h }) : undefined} />
+            <NumberField label="Height" value={Math.round(label.h)} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'area-size', id: label.id, w: label.w, h: n }) : undefined} />
+          </>
+        )}
+        <SupplyAction label={area ? 'Remove area' : 'Remove label'} onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: label.id }) : undefined} />
+      </div>
+    );
+  }
+
+  if (selection.kind === 'line') {
+    const line = view.lines.find((l) => l.id === selection.id);
+    if (line == null) return null;
+    const name = (id: string): string => view.free.find((f) => f.id === id)?.hostname || UNNAMED_HOSTNAME;
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">Line</div>
+        <Field label="Joins" value={`${name(line.aId)} and ${name(line.bId)}`} />
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Label</div>
+          <EditableValue
+            value={line.label ?? ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'line', id: line.id, field: 'label', value: v }) : undefined}
+          />
+        </div>
+        <SupplyAction label="Remove line" onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: line.id }) : undefined} />
+      </div>
+    );
+  }
+
   // ADR-0051 §1 — a shelf itself (as opposed to one of its occupants,
   // `'occupant'` below): its own name, editable (`PassiveNode.label` is
   // schema card "1", so the plate has something to show instead of the
@@ -1535,7 +1608,12 @@ export function EditorFor(
         <TypedNote shown={shelf.label.length > 0} />
 
         <Field label="Rack" value={`${rack.label} · U${shelf.positionU}`} />
-        <Field label="Height" value={`${shelf.heightU}U`} />
+        <NumberField label="Height (U)" value={shelf.heightU} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'shelf-size', id: shelf.id, heightU: n }) : undefined} />
+        <NumberField
+          label="Slots"
+          value={shelf.slots ?? Math.max(0, ...shelf.occupants.map((o) => o.slot))}
+          onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'shelf-size', id: shelf.id, slots: n }) : undefined}
+        />
 
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Occupants · by slot</div>

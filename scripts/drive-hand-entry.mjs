@@ -235,7 +235,7 @@ try {
     for (let i = 0; i < 15; i += 1) {
       const stop = await page.locator('.drawing').getAttribute('data-camera-stop');
       if (stop === 'faceplate') break;
-      await page.mouse.wheel(0, -240);
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, -240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms
       await page.waitForTimeout(50);
     }
   }
