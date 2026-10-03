@@ -227,6 +227,10 @@ fn errors() -> Vec<Entry> {
             name: "ERR_PLAIN_REFUSED",
             code: p::ERR_PLAIN_REFUSED as u32,
         },
+        Entry {
+            name: "ERR_PLATFORM_CHOICE",
+            code: p::ERR_PLATFORM_CHOICE as u32,
+        },
     ]
 }
 

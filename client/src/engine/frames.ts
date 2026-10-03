@@ -118,19 +118,31 @@ export function packDict(platform: string): Uint8Array {
   return concatBytes(parts);
 }
 
+/** The platforms a paste can name, in the order `protocol.rs`'s `PASTE_PLATFORMS`
+ * lists them (a test holds the two together). The flag byte carries confirm in bit
+ * 0 and the 1-based index here in bits 1-3; no platform means the engine detects. */
+export const PASTE_PLATFORMS = ['junos-srx', 'junos-ex', 'edgeos', 'opnsense'] as const;
+export type PastePlatform = (typeof PASTE_PLATFORMS)[number];
+
 /** `OP_PASTE`'s frame (`shell.rs`'s `Shell::paste`): an 8-byte little-endian
  * clock, 16 bytes of entropy, one confirm byte, then the pasted text
  * verbatim and un-decoded. `nonce` must be 16 bytes from the host's CSPRNG
  * (`crypto.getRandomValues`) — the module has neither a clock nor entropy of
  * its own and must not acquire either (`wasmbin`'s empty import allowlist),
  * so both travel in the frame exactly once, per call, from here. */
-export function pasteFrame(text: string, confirm: boolean, now: number | bigint, nonce: Uint8Array): Uint8Array {
+export function pasteFrame(
+  text: string,
+  confirm: boolean,
+  now: number | bigint,
+  nonce: Uint8Array,
+  platform?: PastePlatform,
+): Uint8Array {
   if (nonce.length !== 16) {
     throw new Error(`pasteFrame needs 16 bytes of entropy, got ${nonce.length}`);
   }
   const at = new Uint8Array(8);
   new DataView(at.buffer).setBigUint64(0, BigInt(now), true);
-  const confirmByte = new Uint8Array([confirm ? 1 : 0]);
+  const confirmByte = new Uint8Array([(confirm ? 1 : 0) | (platform ? (PASTE_PLATFORMS.indexOf(platform) + 1) << 1 : 0)]);
   const textBytes = new TextEncoder().encode(text);
   return concatBytes([at, nonce, confirmByte, textBytes]);
 }

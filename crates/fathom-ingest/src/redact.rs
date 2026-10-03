@@ -1051,6 +1051,16 @@ fn pre_redacted(text: &str) -> bool {
     if text == "<PSK>" {
         return true;
     }
+    // The gate's own marker (`<REDACTED:label>`): a later pass over already-gated
+    // text (`OP_REDACT_TEXT` runs one pass per dictionary) must not redact it again.
+    if let Some(label) = text
+        .strip_prefix("<REDACTED:")
+        .and_then(|t| t.strip_suffix('>'))
+    {
+        if !label.is_empty() && label.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+            return true;
+        }
+    }
     let inner = text.strip_prefix('<').and_then(|t| t.strip_suffix('>'));
     match inner {
         Some(i) => {

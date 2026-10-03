@@ -107,6 +107,7 @@ export const ERRORS = {
   ERR_CABLE_END: 19,
   ERR_NO_CABLE: 20,
   ERR_PLAIN_REFUSED: 21,
+  ERR_PLATFORM_CHOICE: 22,
 } as const;
 
 /** The FDLT reply header (`protocol.rs`'s `header()`, `HEADER_LEN`). */

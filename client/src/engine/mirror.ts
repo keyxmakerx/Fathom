@@ -15,6 +15,7 @@
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
 import { Engine, EngineError, ERRORS, type InsideFaces, type PasteResult } from './engine';
+import type { PastePlatform } from './frames';
 import { errorName } from './protocol.constants';
 import { readPlain, writePlain } from '../document/plain';
 import type { Document } from '../document/model';
@@ -44,8 +45,12 @@ export class Mirror {
    * derive the drawer's gutter straight back off it. `result` is the raw
    * paste reply, for the summary numbers and the refusal text a caller
    * wants immediately, without waiting on a second read of `doc`. */
-  pasteInto(deviceId: string, text: string): { doc: Document; result: PasteResult } {
-    const result = this.engine.pasteInto(deviceId, text);
+  pasteInto(
+    deviceId: string,
+    text: string,
+    platform?: PastePlatform,
+  ): { doc: Document; result: PasteResult } {
+    const result = this.engine.pasteInto(deviceId, text, false, Date.now(), platform);
     const doc = readPlain(this.engine.exportPlain());
     return { doc, result };
   }
@@ -94,6 +99,8 @@ export function refusalSentence(error: unknown): string {
         return 'This device already carries a live capture. Fathom will not paste a second one over it — export what is here, or wait for reconciliation, before trying again.';
       }
       return `Fathom refused this paste: ${error.detail}`;
+    case ERRORS.ERR_PLATFORM_CHOICE:
+      return `Fathom cannot tell which kind of device this is from (${error.detail.split(',').join(' or ')}). Say which, and paste again.`;
     case ERRORS.ERR_BAD_UTF8:
       return 'This paste is not text Fathom can read — it is not valid UTF-8.';
     case ERRORS.ERR_PASTE_FRAME:
