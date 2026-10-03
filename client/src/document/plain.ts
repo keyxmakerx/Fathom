@@ -18,6 +18,10 @@
 import { toCanonicalBytes, parseCanonical, type CanonValue } from './canon';
 import { SCHEMA_VERSION, type NodeKind, type EdgeKind } from '../../../schema/generated/ir_types';
 import {
+  compareEdgeId,
+  compareHistoryRecord,
+  compareNodeId,
+  isNodeId,
   parseNodeId,
   parseEdgeId,
   type Batch,
@@ -39,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.14 move is additive, so a payload declared at an older
+// Every 0.10-to-0.16 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -68,26 +72,32 @@ const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedW
 const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
 const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
 
-// Kinds 0.14 (custom-field values) added. A payload declared at any older version
-// cannot legitimately hold one, `NODE_KINDS_SINCE_0_11`'s own reasoning. Mirrors
-// `fathom_workspace::{NODE_KINDS_SINCE_0_14, EDGE_KINDS_SINCE_0_14}`.
-const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['FieldValue']);
-const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
+// Kinds 0.14 (ADR-0061 round 7, docs) added; same reasoning, for 0.10 to 0.13.
+const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
+const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
+
+// Kinds 0.15 (ADR-0061 round 7, maintenance plans) added; same reasoning, for 0.10 to 0.14.
+const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
+const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
+
+// Kinds 0.16 (custom-field values) added; same reasoning, for 0.10 to 0.15.
+const NODE_KINDS_SINCE_0_16: ReadonlySet<NodeKind> = new Set(['FieldValue']);
+const EDGE_KINDS_SINCE_0_16: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
   if (!ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) return;
   // Each `since` set is too new for every declared version older than it.
-  const tooNew = (n14: boolean, n13: boolean, n12: boolean, n11: boolean): boolean =>
-    n14 ||
-    (declared !== '0.13' && n13) ||
-    (declared !== '0.12' && declared !== '0.13' && n12) ||
-    (declared === '0.10' && n11);
+  const minor = Number(declared.slice(2));
+  const tooNew = (n16: boolean, n15: boolean, n14: boolean, n13: boolean, n12: boolean, n11: boolean): boolean =>
+    [[16, n16], [15, n15], [14, n14], [13, n13], [12, n12], [11, n11]].some(([m, hit]) => hit && minor < (m as number));
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
     if (
       tooNew(
+        NODE_KINDS_SINCE_0_16.has(kind),
+        NODE_KINDS_SINCE_0_15.has(kind),
         NODE_KINDS_SINCE_0_14.has(kind),
         NODE_KINDS_SINCE_0_13.has(kind),
         NODE_KINDS_SINCE_0_12.has(kind),
@@ -101,6 +111,8 @@ function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): v
     const kind = parseEdgeId(e.id).kind;
     if (
       tooNew(
+        EDGE_KINDS_SINCE_0_16.has(kind),
+        EDGE_KINDS_SINCE_0_15.has(kind),
         EDGE_KINDS_SINCE_0_14.has(kind),
         EDGE_KINDS_SINCE_0_13.has(kind),
         EDGE_KINDS_SINCE_0_12.has(kind),
@@ -155,7 +167,7 @@ function plainErrorMessage(r: PlainErrorReason): string {
   }
 }
 
-function shapeErr(path: string, expected: string): PlainError {
+export function shapeErr(path: string, expected: string): PlainError {
   return new PlainError({ kind: 'shape', path, expected });
 }
 
@@ -168,6 +180,105 @@ export function writePlain(doc: Document): Uint8Array {
     `${PLAIN_MAGIC} ${PLAIN_FACE_VERSION}\n${PLAIN_WARNING}\nschema ${SCHEMA_VERSION}\n\n`,
   );
   const body = toCanonicalBytes(documentToJson(doc));
+  const out = new Uint8Array(header.length + body.length);
+  out.set(header, 0);
+  out.set(body, header.length);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Delta — `fathom_workspace::write_delta`'s format: the batches a holder has not seen, and the
+// state they need to be applied (the ops carry no values). Four header lines, then the plain
+// face's own snapshot object holding only that fragment:
+//
+//   fathom-delta 1
+//   schema <SCHEMA_VERSION>
+//   base <ulid of the last batch the holder has | none>
+//   (empty)
+//   <fragment as canonical JSON>
+//
+// Only the batches are instructions; the nodes, edges, provenance and history are evidence the
+// module checks against them (`fathom-graph/src/sync.rs`). A fragment that is short or wrong is
+// refused there, not repaired here.
+
+export const DELTA_MAGIC = 'fathom-delta';
+export const DELTA_FACE_VERSION = 1;
+
+function findSorted<T>(arr: readonly T[], compare: (x: T) => number): T | undefined {
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const c = compare(arr[mid]);
+    if (c === 0) return arr[mid];
+    if (c < 0) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return undefined;
+}
+
+/** The delta for a holder of `doc.batches[0..held]`: the rest of the log and what it touched.
+ * The caller has checked that `held` batches are a prefix of `doc.batches`. */
+export function writeDelta(doc: Document, held: number): Uint8Array {
+  const batches = doc.batches.slice(held);
+  const elements = new Set<string>();
+  const provs = new Set<string>();
+  const sets = new Map<string, { element: string; field: string }>();
+  for (const batch of batches) {
+    for (const op of batch.ops) {
+      switch (op.type) {
+        case 'add_node':
+          elements.add(op.node);
+          provs.add(op.prov);
+          break;
+        case 'add_edge':
+          elements.add(op.edge);
+          provs.add(op.prov);
+          break;
+        case 'set_field':
+          elements.add(op.element);
+          provs.add(op.prov);
+          sets.set(`${op.element}\u0000${op.key}`, { element: op.element, field: op.key });
+          break;
+        case 'tombstone':
+        case 'revive':
+          elements.add(op.element);
+          break;
+      }
+    }
+  }
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  for (const id of elements) {
+    if (isNodeId(id)) {
+      const n = findSorted(doc.nodes, (x) => compareNodeId(x.id, id));
+      if (n) nodes.push(n);
+    } else {
+      const e = findSorted(doc.edges, (x) => compareEdgeId(x.id, id));
+      if (e) edges.push(e);
+    }
+  }
+  const provenance: ProvenanceRecord[] = [];
+  for (const id of provs) {
+    const p = findSorted(doc.provenance, (x) => (x.id < id ? -1 : x.id > id ? 1 : 0));
+    if (p) provenance.push(p);
+  }
+  const history: HistoryRecord[] = [];
+  for (const s of sets.values()) {
+    const h = findSorted(doc.history, (x) => compareHistoryRecord(x, s));
+    if (h) history.push(h);
+  }
+  const base = held > 0 ? doc.batches[held - 1].id : 'none';
+  const header = new TextEncoder().encode(
+    `${DELTA_MAGIC} ${DELTA_FACE_VERSION}\nschema ${SCHEMA_VERSION}\nbase ${base}\n\n`,
+  );
+  const body = toCanonicalBytes({
+    batches: batches.map(batchToJson),
+    edges: edges.map(edgeToJson),
+    history: history.map(historyToJson),
+    nodes: nodes.map(nodeToJson),
+    provenance: provenance.map(provenanceToJson),
+  });
   const out = new Uint8Array(header.length + body.length);
   out.set(header, 0);
   out.set(body, header.length);
@@ -302,7 +413,7 @@ function originToJson(o: Origin): CanonValue {
   };
 }
 
-function provenanceToJson(r: ProvenanceRecord): CanonValue {
+export function provenanceToJson(r: ProvenanceRecord): CanonValue {
   const out: { [key: string]: CanonValue } = {
     asserted_at: r.assertedAt,
     asserted_by: { user: r.assertedBy },
@@ -346,7 +457,7 @@ function opToJson(op: Op): CanonValue {
   }
 }
 
-function batchToJson(b: Batch): CanonValue {
+export function batchToJson(b: Batch): CanonValue {
   const out: { [key: string]: CanonValue } = { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
   // ADR-0053 §4: both optional, written only when present.
   if (b.comment !== undefined) out.comment = b.comment;
@@ -367,14 +478,14 @@ function documentToJson(doc: Document): CanonValue {
 // ---------------------------------------------------------------------------
 // canonical JSON -> Document
 
-function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
+export function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     throw shapeErr(path, 'a JSON object');
   }
   return v;
 }
 
-function isArr(v: CanonValue, path: string): CanonValue[] {
+export function isArr(v: CanonValue, path: string): CanonValue[] {
   if (!Array.isArray(v)) throw shapeErr(path, 'a JSON array');
   return v;
 }
@@ -389,7 +500,7 @@ function isNum(v: CanonValue, path: string): number {
   return v;
 }
 
-function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
+export function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
   if (!(key in m)) throw shapeErr(`${path}.${key}`, 'a required key');
   return m[key];
 }
@@ -462,7 +573,7 @@ function readOrigin(v: CanonValue, path: string): Origin {
   };
 }
 
-function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
+export function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
   const m = isObj(v, path);
   const actor = isObj(req(m, 'asserted_by', path), path);
   if (!('user' in actor) || Object.keys(actor).length !== 1) {
@@ -553,7 +664,7 @@ function readOp(v: CanonValue, path: string): Op {
   }
 }
 
-function readBatch(v: CanonValue, path: string): Batch {
+export function readBatch(v: CanonValue, path: string): Batch {
   const m = isObj(v, path);
   const ops = isArr(req(m, 'ops', path), `${path}.ops`).map((o, i) => readOp(o, `${path}.ops[${i}]`));
   const batch: Batch = { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };

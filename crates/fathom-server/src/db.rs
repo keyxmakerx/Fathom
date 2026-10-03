@@ -125,6 +125,20 @@ pub fn pool(config: &Config) -> Result<Pool, DbError> {
 /// startup; this function only reports whether there is anything to connect
 /// with. Used once, briefly, and then dropped — `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
 /// §15.0: "used once at startup and then not held."
+/// The settings for the one connection that holds `LISTEN` (ADR-0063): the
+/// runtime URL, with the password file's value winning as it does for the pool.
+pub fn listener_config(config: &Config) -> Result<tokio_postgres::Config, DbError> {
+    let mut pg: tokio_postgres::Config = config
+        .database_url
+        .expose()
+        .parse()
+        .map_err(|_| DbError::UnparseableUrl)?;
+    if let Some(password) = config.database_password.as_ref() {
+        pg.password(password.expose().as_str());
+    }
+    Ok(pg)
+}
+
 pub fn migration_pool(config: &Config) -> Result<Option<Pool>, DbError> {
     match &config.migrate_database_url {
         None => Ok(None),

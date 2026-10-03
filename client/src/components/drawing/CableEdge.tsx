@@ -6,6 +6,8 @@ import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cab
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
+import { PlanEdgeTag } from './PlanGhostEdge';
+import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
 import { StubTags } from './StubTags';
 import type { StubEnd } from './stubs';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
@@ -13,6 +15,8 @@ import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 export interface CableEdgeData extends Record<string, unknown> {
   /** Set by Checks' Show on an edge it fades. */
   checksFaded?: boolean;
+  /** Set while an open plan touches this cable: its stage colour and tag. */
+  planMark?: PlanEdgeMark;
   cable: CableView;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
@@ -30,6 +34,11 @@ export interface CableEdgeData extends Record<string, unknown> {
   /** Far apart: each end draws a short fading run and a tag naming the far end. */
   stub?: [StubEnd, StubEnd];
   onPanTo?: (chassisId: string) => void;
+  /** A ticked VLAN group's own trunk member, drawn dashed while that group
+   * is on and no other ticked VLAN group also carries it untagged
+   * (`cableGroups.ts`'s own `computeCableDraw`); drawn here as a stroke,
+   * never a colour (UI-SPEC "Plastic is a line"). */
+  dashed?: boolean;
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -63,7 +72,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const litCableId = useLive((s) => s.litCableId);
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
-  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
   const dimmed = data.checksFaded !== true && litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
@@ -72,6 +81,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const leads = ends != null ? leadsFor(ends[0], ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
   const d = leads != null ? cableLeadPath(leads, cable.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
   const opacity = dimmed ? 'var(--phantom)' : 1;
+  const dashArray = dashed ? 'var(--cable-dash)' : undefined;
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
 
@@ -121,6 +131,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           className="drawing-cable__halo"
         />
       )}
+      {data.planMark != null && (
+        <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__wash" strokeLinecap="round" />
+      )}
       {needsHairlineOutline(sheath) && (
         <path
           d={d}
@@ -132,17 +145,21 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       )}
       {cable.kind === 'fibre' ? (
         <>
-          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" />
-          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" />
+          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} />
         </>
       ) : (
-        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
       )}
       {/* A fatter, invisible stroke widens the click/hover target beyond the
           cable's own thin line — the same reasoning UI-SPEC gives a port
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
+      {data.planMark != null && data.planMark.dashed && (
+        <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__dash" strokeDasharray="5 3" strokeLinecap="round" pointerEvents="none" />
+      )}
+      {data.planMark != null && <PlanEdgeTag x={midX} y={midY - 14} mark={data.planMark} />}
       <CableCheckBadge id={cable.id} x={midX} y={midY} />
       {portPairLabel != null && (
         // UI-SPEC #2: "each with its own sheath and its port pair

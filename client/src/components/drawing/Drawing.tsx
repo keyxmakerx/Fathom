@@ -5,6 +5,7 @@ import {
   ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useReactFlow,
   type ConnectionLineComponentProps,
   type Edge,
@@ -21,19 +22,21 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
+import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
+import { PlanGhostEdge } from './PlanGhostEdge';
+import { PlansCanvasBridge, usePlansFade } from './plansFade';
+import type { PortTarget } from './plansMarks';
 import { Callout } from './Callout';
-import { CablesViewControl } from './CablesViewControl';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
-import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
@@ -69,7 +72,7 @@ import { PortalTrayNode, type PortalTrayNodeType } from './PortalTrayNode';
 import { RowLabelNode, type RowLabelNodeType } from './RowLabelNode';
 import { ShelfPlate, type ShelfPlateNodeType } from './ShelfPlate';
 import { SurfaceNode, type SurfaceNodeType } from './SurfaceNode';
-import { chassisNodeId, parseNodeId, rackNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { chassisNodeId, parseNodeId, rackNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, type PortalGroup } from './portals';
@@ -87,7 +90,9 @@ import {
   rowKey,
   type RowLayout,
 } from './rows';
-import { buildDrawingNodes } from './buildDrawingNodes';
+import type { Person } from '../../api/live';
+import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
+import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 
 const NODE_TYPES = {
@@ -98,7 +103,7 @@ const NODE_TYPES = {
   surface: SurfaceNode,
   shelf: ShelfPlate,
 };
-const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
+const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
 const PAN_BUTTONS = [1];
@@ -213,12 +218,16 @@ function centreAboveDrawer(centre: { x: number; y: number }, zoomLevel: number, 
 
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
+  /** Others in this view; each gets an initials dot on the thing they have selected. */
+  peers?: readonly Person[];
   selected: Selection | null;
   /** The bar's zoom percentage, e.g. `100` — `Shell`'s own `zoom` prop
    * convention. Kept in agreement with React Flow's viewport: this
    * component is the one place that converts between the two. */
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** Right-click "Plan a change" on a device (ADR-0061 round 7). Absent, or a reader: no menu item. */
+  onPlanChange?: (elementId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
@@ -263,6 +272,13 @@ export interface DrawingProps extends DrawingActions {
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
   /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
   onCalloutChange?: (id: string | null) => void;
+  /** The Cables list's own draw rule, already computed once by the caller
+   * (`racks/RacksPlace.tsx`, which holds the `Document` a VLAN or a tag
+   * group needs — this drawing never imports it, and never runs the draw
+   * rule itself). `undefined` means "All": every cable draws, nothing
+   * dashed. */
+  drawnCableIds?: ReadonlySet<string>;
+  dashedCableIds?: ReadonlySet<string>;
 }
 
 type AnyRackNode = RackNodeType;
@@ -297,13 +313,21 @@ interface LiveLitPathProps {
   portalGroups: readonly PortalGroup[];
   selected: Selection | null;
   liveStore: LiveStore;
+  /** `undefined` means every cable draws — nothing to exclude. Present, a
+   * selected or hovered cable outside it lights nothing and dims nothing
+   * ("the lit path only reads drawn cables"): the raw id is dropped to
+   * `null` before it ever reaches `litPathFor`, the same as no selection at
+   * all, rather than asking that function for a path through a cable it was
+   * never given. */
+  drawnCableIds?: ReadonlySet<string>;
 }
 
 /** Subscribed to `liveStore.ts`'s own `hoveredCableId`, written there
  * directly by a hover — recomputes the lit path and writes it back, so only this re-renders on a hover, never the node-building loop below it. */
-function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathProps) {
+function LiveLitPath({ view, portalGroups, selected, liveStore, drawnCableIds }: LiveLitPathProps) {
   const hoveredCableId = useLive((s) => s.hoveredCableId);
-  const litCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
+  const rawLitCableId = selected?.kind === 'cable' ? selected.id : hoveredCableId;
+  const litCableId = rawLitCableId != null && drawnCableIds != null && !drawnCableIds.has(rawLitCableId) ? null : rawLitCableId;
   const litPath = useMemo(() => (litCableId ? litPathFor(view, litCableId, portalGroups) : null), [view, litCableId, portalGroups]);
   const litCableIdSet = useMemo(() => new Set(litPath?.cableIds ?? []), [litPath]);
   const litTrayKeySet = useMemo(() => new Set(litPath?.trayKeys ?? []), [litPath]);
@@ -315,6 +339,7 @@ function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathPro
 
 function DrawingInner({
   view,
+  peers,
   selected,
   zoom,
   onZoomChange,
@@ -330,6 +355,7 @@ function DrawingInner({
   onAddRack,
   onAddWall,
   onPasteConfig,
+  onPlanChange,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -349,6 +375,8 @@ function DrawingInner({
   emptyHint,
   openRequest,
   onCalloutChange,
+  drawnCableIds,
+  dashedCableIds,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -439,7 +467,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -504,16 +532,6 @@ function DrawingInner({
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
   const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId }), [liveStore]);
-  // This session's brief item 1 — the cables view control: "the choice is
-  // per browser (localStorage, wrapped in try/catch) and never saved to the
-  // document." Read once, lazily, on mount (`useState`'s own initialiser
-  // form) rather than in an effect, so the very first render already draws
-  // whatever this browser last chose instead of flashing "all" for a frame.
-  const [cableVisibility, setCableVisibilityState] = useState<CableVisibility>(() => loadCableVisibility());
-  const handleCableVisibilityChange = useCallback((next: CableVisibility) => {
-    setCableVisibilityState(next);
-    saveCableVisibility(next);
-  }, []);
   // This session's brief items 3/4 — the selected cable's two ports (a
   // hairline ring) and the port a refused cable drop landed on (a shake),
   // both toggled as a DOM class on the SAME `data-port-id` element
@@ -565,30 +583,32 @@ function DrawingInner({
     [view, dragFromPortId],
   );
 
-  // This session's brief item 1 — "hiding a kind removes those cables and
-  // bundles from the drawing and their fill from ports, never a box." The
-  // one filtered list everything below draws from; the boxes themselves
-  // (chassis, shelf, surface, portal tray) are built from the real `view`,
-  // never this one, so a hidden kind never removes anything but a cable, a
-  // bundle and a port's own sheath fill.
-  const visibleCables = useMemo(
-    () => filterCablesByVisibility(view.cables ?? [], cableVisibility),
-    [view.cables, cableVisibility],
+  // The draw rule itself runs once, in the caller (`racks/RacksPlace.tsx`,
+  // which holds the `Document` a VLAN or a tag group needs); this only
+  // filters the real `view.cables` down to the ids it was handed.
+  // `drawnCableIds` absent means "All": every cable draws. The boxes
+  // themselves (chassis, shelf, surface, portal tray) are built from the
+  // real `view`, never this filtered list, so a hidden cable never removes
+  // anything but itself, its bundle and nothing at all off a port's own
+  // fill.
+  const drawnCables = useMemo(
+    () => (drawnCableIds ? (view.cables ?? []).filter((c) => drawnCableIds.has(c.id)) : (view.cables ?? [])),
+    [view.cables, drawnCableIds],
   );
 
-  // UI-SPEC "Cables": "the port a cable fills takes the sheath colour" —
-  // built once per view change rather than have every `ChassisNode` search
-  // the whole cable list for its own ports.
+  // Decision 7 — "Port fill comes from every cable, not only the drawn
+  // ones": unlike `drawnCables` above, this reads the full `view.cables`,
+  // so a hidden or filtered-out cable's two ports keep their fill.
   const freshPortSheath = useMemo(() => {
     const map = new Map<string, Sheath>();
-    for (const cable of visibleCables) {
+    for (const cable of view.cables ?? []) {
       if (cable.sheath == null) continue;
       for (const end of cable.ends) {
         if ('portId' in end) map.set(end.portId, cable.sheath);
       }
     }
     return map;
-  }, [visibleCables]);
+  }, [view.cables]);
   // The previous map when no entry changed, so an edit that touches no cable
   // colour leaves every chassis, shelf and surface node as it was.
   const portSheath = caches.portSheath.get('portSheath', freshPortSheath, portSheathEqual);
@@ -1050,6 +1070,14 @@ function DrawingInner({
     return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h, row: box.row };
   }
   type RealEnd = { portId: string; chassisId: string; rackId: string | null };
+  // Where a planned cable's end lands: the node and handle a real cable to that port would use.
+  const resolvePlanPort = (portId: string): PortTarget | null => {
+    const at = locatePort(view, portId);
+    if (at == null) return null;
+    const end: RealEnd = at.place === 'chassis' ? { portId, chassisId: at.chassis.id, rackId: at.rack.id } : { portId, chassisId: '', rackId: null };
+    const target = resolveEnd(end);
+    return target == null ? null : { ...target, box: portBox(end) };
+  };
   const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
 
   // Far-apart cables draw as stubs with a tag naming the far end (ADR-0061 round 7).
@@ -1085,7 +1113,7 @@ function DrawingInner({
   const endLabels = new Map<string, { text: string; dx: number; dy: number }>();
   if (splitBundles) {
     const items: LabelItem[] = [];
-    for (const cable of visibleCables) {
+    for (const cable of drawnCables) {
       const real = realEndsOf(cable);
       if (real.length !== 2) continue;
       const boxes = [portBox(real[0]!), portBox(real[1]!)] as const;
@@ -1104,10 +1132,10 @@ function DrawingInner({
 
   // UI-SPEC "Keeping it readable at forty cables" #1: cables sharing both
   // ends (and the same lane/kind, `bundles.ts`'s own doc) draw as one band.
-  // Built off `visibleCables` (this session's brief item 1) — a bundle with
-  // every member hidden by the cables view control is a bundle nobody
-  // should see either.
-  const bundles = useMemo(() => groupBundles(visibleCables), [visibleCables]);
+  // Decision 7 — "Bundles and the lit path count only drawn cables": built
+  // off `drawnCables`, never the full `view.cables`, so a bundle with every
+  // member hidden or filtered out is a bundle nobody should see either.
+  const bundles = useMemo(() => groupBundles(drawnCables), [drawnCables]);
 
   function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
     const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
@@ -1137,6 +1165,7 @@ function DrawingInner({
       endLabels: l0 != null && l1 != null ? [l0, l1] : undefined,
       stub: real.length === 2 ? stubFor(cable.id, real[0]!, real[1]!, boxes[0], boxes[1]) : undefined,
       onPanTo: handlePanTo,
+      dashed: dashedCableIds?.has(cable.id) ?? false,
     };
     return {
       id: cable.id,
@@ -1206,7 +1235,7 @@ function DrawingInner({
     }
   }
 
-  for (const cable of visibleCables) {
+  for (const cable of drawnCables) {
     if (bundledCableIds.has(cable.id)) continue; // drawn above, as the bundle's band and (when fanned) its members
     const built = buildCableEdge(cable);
     if (built) edges.push(built);
@@ -1545,12 +1574,22 @@ function DrawingInner({
   }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
+  const marks = useMemo(
+    () =>
+      peerMarks(allNodes, peers ?? [], (id) => {
+        const owner = ownerNodeIdForPort(view, id);
+        return [chassisNodeId(id), rackNodeId(id), shelfNodeId(id), surfaceNodeId(id), ...(owner != null ? [owner] : [])];
+      }),
+    [allNodes, peers, view],
+  );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
-  const shown = useChecksFade(allNodes, allEdges);
+  // An open plan's marks and focus first; a Checks Show then fades on top and wins.
+  const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
+  const shown = useChecksFade(planned.nodes, planned.edges);
 
   return (
     <LiveStoreProvider value={liveStore}>
-    <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} />
+    <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} drawnCableIds={drawnCableIds} />
     <div
       className="drawing"
       ref={containerRef}
@@ -1616,15 +1655,26 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
         {free.portal}
+        {marks.length > 0 && (
+          <ViewportPortal>
+            {marks.map((m) => (
+              <div
+                key={m.account}
+                className="drawing-peer"
+                style={{ transform: `translate(${m.x}px, ${m.y}px)`, width: PEER_DOT_PX, height: PEER_DOT_PX }}
+                role="img"
+                aria-label={`${m.name} has this selected`}
+                title={m.name}
+              >
+                {m.initials}
+              </div>
+            ))}
+          </ViewportPortal>
+        )}
       </ReactFlow>
       {free.overlay}
-      {/* This session's brief item 1 — "a cables view control: a small
-          control on the canvas near the lens row... a view control, not a
-          lens." An overlay sibling of the canvas, like `ColourPicker` below
-          — never part of the React Flow pane, so it survives a pan or zoom
-          untouched. */}
-      <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
       <ChecksCanvasBridge />
+      <PlansCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}

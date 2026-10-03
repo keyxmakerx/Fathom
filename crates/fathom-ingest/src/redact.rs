@@ -660,9 +660,22 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         .iter()
         .map(|t| lex::interned_text(capture, t, &lex::JUNOS_SET))
         .collect();
+    // Detection reads WORDS: a quoted token (`'snmp community X'`) is one lexer token but
+    // the leaf-name walk and the shape detectors work on whitespace-separated words,
+    // so each token's words are laid out flat. The sketch below still uses the tokens.
+    let words: Vec<String> = texts
+        .iter()
+        .flat_map(|t| {
+            let mut w: Vec<String> = t.split_whitespace().map(str::to_owned).collect();
+            if w.is_empty() {
+                w.push(t.clone());
+            }
+            w
+        })
+        .collect();
     let mut detectors = 0u8;
     let mut label = RedactLabel::Unknown;
-    for (at, text) in texts.iter().enumerate() {
+    for (at, text) in words.iter().enumerate() {
         if text.starts_with("-----BEGIN") {
             detectors |= DetectorSet::PEM_ARMOUR;
             label = RedactLabel::CertKey;
@@ -712,7 +725,7 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         // one preceding token is enough for it to have something to read — and
         // at `>= 2` the shape `key-string <secret>` was missed outright, which
         // is a live secret form on Arista, Omada and Sodola.
-        if at >= 1 && raw_walk(&texts, at) {
+        if at >= 1 && raw_walk(&words, at) {
             detectors |= DetectorSet::LEAF_NAME;
         }
     }
@@ -849,7 +862,13 @@ fn adjacent_secret_word(text: &str) -> bool {
         if ch != '=' && ch != ':' {
             continue;
         }
-        let before = text[..idx].trim_end();
+        // A name worth matching is short; looking back further made a long line without
+        // spaces cost the square of its length (a 25 MiB upload held a thread for hours).
+        let mut from = idx.saturating_sub(64);
+        while !text.is_char_boundary(from) {
+            from += 1;
+        }
+        let before = text[from..idx].trim_end();
         let word = before.rsplit(char::is_whitespace).next().unwrap_or("");
         let after = text[idx + ch.len_utf8()..].trim_start();
         if !word.is_empty() && !after.is_empty() && key_names_a_secret(word) {
@@ -1050,6 +1069,16 @@ fn pre_redacted(text: &str) -> bool {
     }
     if text == "<PSK>" {
         return true;
+    }
+    // The gate's own marker (`<REDACTED:label>`): a later pass over already-gated
+    // text (`OP_REDACT_TEXT` runs one pass per dictionary) must not redact it again.
+    if let Some(label) = text
+        .strip_prefix("<REDACTED:")
+        .and_then(|t| t.strip_suffix('>'))
+    {
+        if !label.is_empty() && label.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+            return true;
+        }
     }
     let inner = text.strip_prefix('<').and_then(|t| t.strip_suffix('>'));
     match inner {

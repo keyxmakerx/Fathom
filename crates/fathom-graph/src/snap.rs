@@ -20,15 +20,15 @@
 //! entries and miscount `truncated`.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use fathom_canon::Json;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::{slot_from_canon, slot_to_canon};
-use fathom_ir::generated::ir_types::EdgeClass;
 
 use crate::field::{FieldHistory, HistoryEntry, StoredPresence};
-use crate::graph::{declares, insert_sorted, Edge, Graph, Node, Slot, WriteError};
+use crate::graph::{declares, Edge, Graph, Node, Slot, WriteError};
 use crate::id::{EdgeId, ElementId, NodeId};
 use crate::op::{Batch, BatchId, Op};
 use crate::prov::{ProvenanceId, ProvenanceRecord, Timestamp};
@@ -315,7 +315,7 @@ impl Loader<'_> {
                         key: f.key,
                     })
                 }
-                (StoredPresence::Set, Some(j)) => Some(slot_from_canon(f.key, j)?),
+                (StoredPresence::Set, Some(j)) => Some(Rc::from(slot_from_canon(f.key, j)?)),
                 (StoredPresence::Absent, None) => None,
                 _ => {
                     return Err(SnapshotError::ValuePresenceMismatch {
@@ -338,6 +338,22 @@ impl Loader<'_> {
 }
 
 impl Graph {
+    /// Would [`Graph::from_snapshot`] take this store's edges? The loader runs each effective
+    /// edge through the write ladder in `EdgeId` order against the effective edges before it, so
+    /// a store the write path built in time order (say, a node revived with its edges) can be
+    /// one the loader refuses. An ineffective edge gets only the structural rungs. This runs
+    /// the same, in place, with each edge's own id as the horizon.
+    pub fn check_loadable(&self) -> Result<(), WriteError> {
+        for e in self.edges.values() {
+            if self.edge_is_effective(e) {
+                self.check_edge_l0_at(e.id.kind, e.from, e.to, Some(e.id))?;
+            } else {
+                self.check_edge_shape(e.id.kind, e.from, e.to)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Rebuild a store from a snapshot, refusing everything the write path
     /// would have refused and everything only a file can get wrong.
     pub fn from_snapshot(s: &Snapshot) -> Result<Graph, SnapshotError> {
@@ -405,32 +421,36 @@ impl Graph {
             if e.id.kind.symmetric() && e.to < e.from {
                 return Err(SnapshotError::SymmetricNotNormalised { edge: e.id });
             }
-            let (from, to) = loader.graph.check_edge_l0(e.id.kind, e.from, e.to)?;
+            // Bounds, containment and cycles are over *effective* edges, as the
+            // write path counts them: an edge that is itself tombstoned, or
+            // sits on a tombstoned node, is structurally checked and counted
+            // by nobody (a tombstone-then-replace history must load).
+            let effective = e.absent_since.is_none()
+                && [e.from, e.to].iter().all(|n| {
+                    loader
+                        .graph
+                        .nodes
+                        .get(n)
+                        .is_some_and(|n| n.absent_since.is_none())
+                });
+            let (from, to) = if effective {
+                loader.graph.check_edge_l0(e.id.kind, e.from, e.to)?
+            } else {
+                loader.graph.check_edge_shape(e.id.kind, e.from, e.to)?
+            };
             if (from, to) != (e.from, e.to) {
                 return Err(SnapshotError::SymmetricNotNormalised { edge: e.id });
             }
             loader.require_prov(e.prov)?;
             let fields = loader.slots(ElementId::Edge(e.id), &e.fields, "edge fields")?;
-            loader.graph.edges.insert(
-                e.id,
-                Edge {
-                    id: e.id,
-                    from,
-                    to,
-                    prov: e.prov,
-                    absent_since: e.absent_since,
-                    fields,
-                },
-            );
-            loader
-                .graph
-                .by_ulid
-                .insert(e.id.ulid, ElementId::Edge(e.id));
-            insert_sorted(loader.graph.out.entry((from, e.id.kind)).or_default(), e.id);
-            insert_sorted(loader.graph.inn.entry((to, e.id.kind)).or_default(), e.id);
-            if e.id.kind.class() == EdgeClass::Containment {
-                loader.graph.owner_edge.insert(to, e.id);
-            }
+            loader.graph.place_edge(Edge {
+                id: e.id,
+                from,
+                to,
+                prov: e.prov,
+                absent_since: e.absent_since,
+                fields,
+            });
         }
 
         // History, verbatim. Its per-entry origin is the origin of the entry's
@@ -446,7 +466,7 @@ impl Graph {
             for entry in &h.entries {
                 loader.require_prov(entry.prov)?;
                 let value = match (entry.presence, &entry.value) {
-                    (StoredPresence::Set, Some(j)) => Some(slot_from_canon(h.key, j)?),
+                    (StoredPresence::Set, Some(j)) => Some(Rc::from(slot_from_canon(h.key, j)?)),
                     (StoredPresence::Set, None) | (_, Some(_)) => {
                         return Err(SnapshotError::ValuePresenceMismatch {
                             element: h.element,

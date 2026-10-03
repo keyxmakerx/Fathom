@@ -1,0 +1,5 @@
+{
+  "name": "clear-field",
+  "description": "Rack.height_u is cleared: the slot goes, history gains the value and then an unknown entry carrying the clear's provenance.",
+  "actor": "01HF7YAT000000000000000007"
+}

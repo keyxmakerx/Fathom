@@ -58,19 +58,19 @@ function resolve(opts: Actor | undefined): { actor: string; now: number } {
 }
 
 /** Accumulates one batch: every helper returns nothing and mutates `b.doc`/`b.ops`. */
-interface Build {
+export interface Build {
   doc: Document;
   ops: Op[];
   now: number;
   actor: string;
 }
 
-function begin(base: Document, opts: Actor | undefined): Build {
+export function begin(base: Document, opts: Actor | undefined): Build {
   const { actor, now } = resolve(opts);
   return { doc: base, ops: [], now, actor };
 }
 
-function finish(b: Build, label: string): Document {
+export function finish(b: Build, label: string): Document {
   if (b.ops.length === 0) return b.doc;
   const batch: Batch = { id: newUlid(b.now), label, ops: b.ops };
   return withBatch(b.doc, batch);
@@ -84,7 +84,7 @@ function entry(b: Build, id: string, key: string, value: FieldEntry['value'], ex
   return { presence: 'set', prov: prov.id, value };
 }
 
-function addNode(b: Build, kind: Parameters<typeof formatNodeId>[0], fields: Record<string, FieldEntry['value']>): string {
+export function addNode(b: Build, kind: Parameters<typeof formatNodeId>[0], fields: Record<string, FieldEntry['value']>): string {
   const existence = assertHand(b.doc, { assertedAt: b.now, assertedBy: b.actor });
   b.doc = existence.doc;
   const id = formatNodeId(kind, newUlid(b.now));
@@ -95,7 +95,7 @@ function addNode(b: Build, kind: Parameters<typeof formatNodeId>[0], fields: Rec
   return id;
 }
 
-function addEdge(
+export function addEdge(
   b: Build,
   kind: Parameters<typeof formatEdgeId>[0],
   from: string,
@@ -112,14 +112,14 @@ function addEdge(
   return id;
 }
 
-function setNodeField(b: Build, id: string, key: string, value: FieldEntry['value']): void {
+export function setNodeField(b: Build, id: string, key: string, value: FieldEntry['value']): void {
   const node = b.doc.nodes.find((n) => n.id === id);
   if (!node) throw new UnknownReferenceError(id, parseNodeId(id).kind);
   const next = entry(b, id, key, value, node.fields[key]);
   b.doc = { ...b.doc, nodes: b.doc.nodes.map((n) => (n.id === id ? { ...n, fields: { ...n.fields, [key]: next } } : n)) };
 }
 
-function tombstone(b: Build, nodeIds: Set<string>, edgeIds: Set<string>): void {
+export function tombstone(b: Build, nodeIds: Set<string>, edgeIds: Set<string>): void {
   b.doc = {
     ...b.doc,
     nodes: b.doc.nodes.map((n) => (nodeIds.has(n.id) ? { ...n, absentSince: b.now } : n)),
