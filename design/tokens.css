@@ -64,7 +64,7 @@
   --sheath-erika:  #C99AC7;    /* OM4, some makers */
 
   /* --- cable construction. Type is the line, never the hue. ------------- */
-  --cable-copper:  1.8px;      /* one stroke */
+  --cable-copper:  1.2px;      /* one stroke */
   --cable-fibre:   3.2px;      /* a pair: this width, with --fibre-core over it */
   --fibre-core:    var(--page);
   --fibre-core-w:  1.1px;

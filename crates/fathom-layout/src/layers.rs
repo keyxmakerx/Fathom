@@ -375,7 +375,11 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0059: a tag is a name with no geometry, drawn UNTABLED
         //     like `Note` above -- the client draws no tag box.
         | NodeKind::Tag
-        //     Custom fields (0.13): a value is text with no geometry,
+        //     ADR-0060 step 7: a label and a line are drawn by the client's own canvas,
+        //     not by this layout, so they stay UNTABLED like `Tag`.
+        | NodeKind::Label
+        | NodeKind::Line
+        //     Custom fields (0.14): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue
         // (f) `56` §1.3 puts learned routes out of scope as runtime state, and

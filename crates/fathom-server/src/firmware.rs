@@ -1,98 +1,68 @@
-//! Firmware staging: Fathom accepts an image, proves it is whole, and serves
-//! it **once** to a network device that comes and fetches it.
+//! Firmware staging: Fathom accepts an image, proves it is whole, and serves it
+//! **once** to a network device that comes and fetches it.
 //!
-//! `docs/decisions/adr-0045-firmware-moves-by-the-device-pulling-not-fathom-pushing.md`
-//! is the brief — §4 the decision, §6 the traps, §8 the consequences.
-//! `docs/UPGRADING-A-JUNIPER.md` is the operator-facing procedure whose steps
-//! this module renders back with the real hash substituted in.
-//! `migrations/0017_firmware_staging.sql` holds the tables and the reasoning
-//! about them. `src/design_api.rs` is the module shape this follows: its own
-//! state, its own `Signed`, its own router, and `api::router` untouched.
+//! Brief: `docs/decisions/adr-0045-firmware-moves-by-the-device-pulling-not-fathom-pushing.md`
+//! (§4 decision, §6 traps, §8 consequences). `docs/UPGRADING-A-JUNIPER.md` is the
+//! operator procedure this module renders with the real hash substituted.
+//! `migrations/0017_firmware_staging.sql` holds the tables. Shape as
+//! `src/design_api.rs`: own state, `Signed` and router; `api::router` untouched.
 //!
 //! # The line this module does not cross
 //!
-//! **Fathom never connects to a device, never holds a device credential, never
-//! runs an upgrade and never modifies a device's configuration.** There is no
-//! outbound socket in this file, no column in `0017` a credential could arrive
-//! in, and no code path that names a device at all. The device is on the other
-//! end of one inbound `GET`, and what it collects is a public vendor artefact.
-//! CLAUDE.md rule 4 is untouched: no credential arrives, so none is stored.
+//! **Fathom never connects to a device, holds a device credential, runs an upgrade
+//! or modifies a device's configuration.** There is no outbound socket, no column
+//! in `0017` a credential could arrive in, and no code path naming a device. The
+//! device makes one inbound `GET` for a public vendor artefact (CLAUDE.md rule 4).
 //!
-//! # Why this is four routes and not one upload
+//! # Why four routes and not one upload
 //!
-//! A Junos image is one to two gigabytes, and a per-request signature covers a
-//! digest of the body — so a signed upload would have to buffer the whole
-//! image in memory before the signature that might refuse it had been checked.
-//! That is not acceptable, so the act is split:
+//! A signature covers a digest of the body, so a signed upload of a one-to-two
+//! gigabyte Junos image would buffer it whole before the signature could refuse it.
 //!
-//! 1. **Declare** (signed, `steward`): the filename, the byte length and the
-//!    SHA-256 the caller says the image has. Small, signed, and it mints a
-//!    single-use upload token.
-//! 2. **Send the bytes** (the upload token, no signature): streamed straight to
-//!    disk, hashed as it is written, never held whole in memory. At the end the
-//!    computed hash and the byte count are compared against the declaration,
-//!    and **on any mismatch the partial file is deleted and the upload is
-//!    refused** — trap 2 of `docs/UPGRADING-A-JUNIPER.md`, and the whole reason
-//!    this feature exists.
-//! 3. **Issue a fetch URL** (signed, `steward`): a 256-bit, single-use,
-//!    short-lived URL bound to one image, with a sealed entry when it is issued
-//!    and another when it is redeemed.
-//! 4. **Read back** (signed, `read`): what is staged, with the hash Fathom
-//!    computed, and the operator commands with that hash already in them.
+//! 1. **Declare** (signed, `steward`): filename, byte length and the claimed
+//!    SHA-256. Mints a single-use upload token.
+//! 2. **Send the bytes** (upload token, no signature): streamed to disk, hashed as
+//!    written. The computed hash and length are compared with the declaration;
+//!    **on any mismatch the partial file is deleted and the upload refused** (trap
+//!    2 of `docs/UPGRADING-A-JUNIPER.md`, the reason this feature exists).
+//! 3. **Issue a fetch URL** (signed, `steward`): 256-bit, single-use, short-lived,
+//!    bound to one image, sealed on issue and on redemption.
+//! 4. **Read back** (signed, `read`): what is staged, the hash Fathom computed, and
+//!    the operator commands with it.
 //!
-//! # The hash this server reports is never the one it was told
+//! # The hash reported is never the one it was told
 //!
-//! `firmware_images.declared_sha256` is the claim and is never rendered to
-//! anybody. `computed_sha256` is written by exactly one statement, in
-//! [`finish_upload`], from a `Sha256` that was fed the bytes as they went to
-//! disk. A declaration that lies therefore cannot produce a staged image at
-//! all: the comparison fails, the file is deleted and the row goes to `failed`.
-//! `tests/firmware.rs` proves it with a declaration that lies.
+//! `firmware_images.declared_sha256` is a claim and is never rendered.
+//! `computed_sha256` is written by one statement, in [`finish_upload`], from a
+//! `Sha256` fed the bytes as they went to disk. A lying declaration cannot produce
+//! a staged image (`tests/firmware.rs`).
 //!
-//! # The fetch URL is a credential, and is treated as one
+//! # The fetch URL is a credential
 //!
-//! A switch cannot sign a request. ADR-0045 §4.2 therefore makes the URL the
-//! authorisation, so it is 256 bits from the kernel CSPRNG, single-use,
-//! short-lived, bound to one image, stored only as `H(LP(tag) ‖ LP(token))`,
-//! and **never written to a log line** — the rule the bootstrap token already
-//! has. Nothing in this file passes the token, or a path containing it, to
-//! `tracing`; the redemption is logged by image id and byte count.
+//! A switch cannot sign a request, so the URL is the authorisation (ADR-0045
+//! §4.2): 256 bits from the kernel CSPRNG, single-use, short-lived, bound to one
+//! image, stored only as `H(LP(tag) ‖ LP(token))`, and **never written to a log
+//! line**. Nothing here passes the token, or a path containing it, to `tracing`;
+//! redemption is logged by image id and byte count.
 //!
 //! # No range requests, deliberately
 //!
-//! This version serves the whole file or nothing. It sends no `Accept-Ranges`
-//! header and it ignores `Range`, which under RFC 9110 §14.2 a server is
-//! permitted to do — a range request on a single-use token raises questions
-//! (does a partial read spend it? may a resumed transfer re-present it?) that
-//! ADR-0045 does not answer, and half-answering them here would produce a
-//! token that is single-use except when it is not. Junos's `file copy` fetches
-//! whole files. If resumption is wanted later it is a decision, not a patch.
+//! The whole file or nothing: no `Accept-Ranges`, and `Range` is ignored (RFC 9110
+//! §14.2 permits it). ADR-0045 does not say whether a partial read spends a
+//! single-use token, and half-answering would make it single-use except when not.
 //!
-//! # Nothing here holds an image in memory — NOT ON EITHER PATH
+//! # Nothing holds an image in memory
 //!
-//! Both directions stream. The upload writes to disk as the bytes arrive
-//! ([`stream_to_disk`]); the download reads from disk as the socket drains
-//! ([`fetch_handler`], `tokio_util::io::ReaderStream` over a
-//! [`tokio::fs::File`], served as `axum::body::Body::from_stream`). What a
-//! fetch holds at once is [`FETCH_CHUNK`] bytes, not `max_image_bytes`, and
-//! that is the whole reason `tokio-util` is a direct dependency —
-//! `deps/decisions/tokio-util.md`, owner-approved 2026-09-14 for exactly one
-//! item.
+//! Upload writes to disk as bytes arrive ([`stream_to_disk`]); download streams
+//! from disk ([`fetch_handler`], `ReaderStream` over a [`tokio::fs::File`]). A fetch
+//! holds [`FETCH_CHUNK`] bytes, not `max_image_bytes` (hence `tokio-util` as a
+//! direct dependency, `deps/decisions/tokio-util.md`). This matters because the
+//! fetch is the one route an unauthenticated caller reaches: a per-caller
+//! gibibyte would be a denial-of-service surface for anyone holding one URL.
 //!
-//! **Why that matters more here than anywhere else in the server:** this is the
-//! one route an unauthenticated caller can reach, because a switch cannot sign
-//! a request and the URL is therefore the credential (ADR-0045 §4.2). A route
-//! with no session behind it that allocated a gibibyte per caller would be a
-//! denial-of-service surface reachable by anybody holding one handed-out URL.
-//! It no longer allocates one, so the process-wide `FetchBudget` that used to
-//! admit one fetch at a time — and refuse the second with `503` — is gone with
-//! the allocation it existed to bound. Concurrency here is now bounded by the
-//! same thing that bounds every other route: connections and file handles.
-//!
-//! Two properties survive that change and are load-bearing, both restated at
-//! [`fetch_handler`] where the code makes them: the redemption is **sealed and
-//! committed before the first byte is written to the socket**, and the token is
-//! spent **exactly once** whether or not the transfer completes.
+//! Two properties are load-bearing (restated at [`fetch_handler`]): redemption is
+//! **sealed and committed before the first byte reaches the socket**, and the token
+//! is spent **exactly once** whether or not the transfer completes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -122,76 +92,56 @@ use crate::sessions::{
     self, PendingRequest, SessionError, SessionStore, SignedRequest, VerifiedSession,
 };
 
-// ---------------------------------------------------------------------------
-// Constants that are this module's own
-// ---------------------------------------------------------------------------
+// ---- Constants that are this module's own ----
 
-/// How long a declaration's upload token is good for.
-///
-/// An hour, because the thing it authorises is a one-to-two-gigabyte transfer
-/// over whatever link the operator has, and a token that expires mid-upload
-/// costs the whole transfer. It is spent at the START of the upload, so the
-/// window bounds when the transfer may BEGIN, not how long it may take.
+/// How long a declaration's upload token is good for. An hour, because a
+/// one-to-two-gigabyte transfer over the operator's link can be slow and a token
+/// expiring mid-upload costs the whole transfer. It is spent at the START of the
+/// upload, so the window bounds when the transfer may BEGIN.
 pub const UPLOAD_TOKEN_LIFETIME_SECONDS: i64 = 60 * 60;
 
-/// How long a fetch URL is good for.
-///
-/// Fifteen minutes: the operator issues it, pastes one `file copy` command and
-/// watches it run. ADR-0045 §4.2 asks for short-lived and does not put a number
-/// on it; this is the number, stated here rather than left implicit, and it is
-/// the obvious thing to promote to configuration if a real maintenance window
-/// disagrees with it.
+/// How long a fetch URL is good for. Fifteen minutes: the operator issues it,
+/// pastes one `file copy` command and watches it run. ADR-0045 §4.2 asks for
+/// short-lived without a number; promote this to configuration if a real
+/// maintenance window disagrees.
 pub const FETCH_TOKEN_LIFETIME_SECONDS: i64 = 15 * 60;
 
-/// The header the upload's bytes carry their token in.
-///
-/// A header and not a query parameter: a token in a URL is in the proxy log,
-/// the browser history and the `Referer`. The fetch URL has no choice about
-/// this — a switch can only be given a URL — which is exactly why it is
-/// single-use and expires in minutes.
+/// The header the upload's bytes carry their token in. A header, not a query
+/// parameter: a token in a URL reaches proxy logs, browser history and
+/// `Referer`. The fetch URL has no choice (a switch can only be given a URL),
+/// which is why it is single-use and expires in minutes.
 pub const HEADER_UPLOAD_TOKEN: &str = "fathom-firmware-upload-token";
 
-/// How much of a signed body this module's routes accept.
-///
-/// The routes that take a signature here carry a declaration, which is a
-/// filename and forty bytes. `api::MAX_SIGNED_BODY`'s mebibyte is already
-/// generous; this is smaller still, because nothing here has any reason to be
-/// large and the image does not travel on a signed route at all.
+/// How much of a signed body this module's routes accept. They carry a filename
+/// and forty bytes; the image never travels on a signed route, so this is
+/// smaller than `api::MAX_SIGNED_BODY`.
 pub const MAX_SIGNED_BODY: usize = 64 * 1024;
 
-/// How much is held in memory between the socket and the disk on the upload
-/// path. Four mebibytes, flushed through `spawn_blocking` — see
-/// [`stream_to_disk`].
+/// Memory held between socket and disk on upload: four mebibytes, flushed
+/// through `spawn_blocking` ([`stream_to_disk`]).
 const UPLOAD_CHUNK: usize = 4 * 1024 * 1024;
 
-/// How much is held in memory between the disk and the socket on the fetch
-/// path: **this, and not the size of the image.**
+/// Memory held between disk and socket on fetch: **this, not the image size.**
 ///
-/// 256 KiB. `ReaderStream`'s own default is 4 KiB, which for a two-gibibyte
-/// image is over five hundred thousand round trips through `spawn_blocking`;
-/// this is the same order as the upload's chunk without matching it, because
-/// the two are bounded by different things — the upload accumulates before one
-/// blocking write, the download allocates one of these per chunk in flight.
-/// The number that matters is that it is a constant, so a fetch's memory does
-/// not depend on `max_image_bytes` and a hundred concurrent fetches cost a
-/// hundred of these rather than a hundred images.
+/// 256 KiB. `ReaderStream`'s 4 KiB default means over five hundred thousand
+/// `spawn_blocking` round trips for two gibibytes. What matters is that it is a
+/// constant, so a hundred concurrent fetches cost a hundred of these rather than
+/// a hundred images.
 const FETCH_CHUNK: usize = 256 * 1024;
 
-/// The domain separator for a firmware token's stored hash. A new use of a
-/// hash gets a label of its own, as `sessions::token_hash`'s does.
+/// The domain separator for a firmware token's stored hash; a new use of a hash
+/// gets its own label, as `sessions::token_hash`'s does.
 const TAG_FIRMWARE_TOKEN: &[u8] = b"fathom/firmware/token/v1";
 
 /// Where an image lands on a Junos device. `docs/UPGRADING-A-JUNIPER.md` step 3
-/// uses `/var/tmp/`, and §6's trap 4 is that `/var` is what fills.
+/// uses `/var/tmp/`; §6's trap 4 is that `/var` is what fills.
 const DEVICE_STAGING_DIRECTORY: &str = "/var/tmp/";
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
+// ---- State ----
 
-/// Everything this module's routes need. Deliberately not [`api::ApiState`]
-/// and not `design_api::DesignApiState`: three builders have added routes to
-/// this server, and a shared state type is how two of them collide.
+/// Everything this module's routes need. Deliberately not [`api::ApiState`] or
+/// `design_api::DesignApiState`: a shared state type is how parallel builders
+/// collide.
 #[derive(Clone)]
 pub struct FirmwareState {
     pub sessions: Arc<SessionStore>,
@@ -200,14 +150,11 @@ pub struct FirmwareState {
     pub store: Arc<FirmwareStore>,
 }
 
-/// The directory images live in, and the few numbers around it.
+/// The directory images live in, and a few numbers around it.
 ///
-/// **Checked at startup, not at first upload.** [`FirmwareStore::open`] proves
-/// the directory exists and can be written to by writing a probe file and
-/// removing it. A deployment that mounted the volume read-only, or did not
-/// mount it at all, therefore fails at start with a message naming the path —
-/// rather than three weeks later, in the middle of the first two-gigabyte
-/// transfer anybody tried.
+/// **Checked at startup, not at first upload.** [`FirmwareStore::open`] writes
+/// and removes a probe file, so a read-only or missing volume fails at start with
+/// the path named, not in the middle of the first two-gigabyte transfer.
 pub struct FirmwareStore {
     directory: PathBuf,
     max_image_bytes: u64,
@@ -216,14 +163,12 @@ pub struct FirmwareStore {
 }
 
 impl FirmwareStore {
-    /// Open the staging directory, or refuse with a message that says what to
-    /// fix.
+    /// Open the staging directory, or refuse with a message saying what to fix.
     ///
-    /// `fetch_base_url` is the origin a NETWORK DEVICE can reach this server
-    /// at — not what the browser used, which may be an internal name or a
-    /// tunnel. It is rendered into the `file copy` command, so getting it
-    /// wrong produces a command that does not work rather than a security
-    /// problem, and there is no way for this server to discover it.
+    /// `fetch_base_url` is the origin a NETWORK DEVICE can reach this server at, not
+    /// what the browser used. It is rendered into the `file copy` command, so a wrong
+    /// value gives a command that does not work, not a security problem. The server
+    /// cannot discover it.
     pub fn open(
         directory: PathBuf,
         max_image_bytes: u64,
@@ -266,29 +211,25 @@ impl FirmwareStore {
         self.max_image_bytes
     }
 
-    /// Where the bytes of one image live. **The only place in this server that
-    /// builds a path out of anything**, and it builds it out of an id this
-    /// server minted, never out of a name a caller sent.
+    /// Where one image's bytes live. **The only place in this server that builds a
+    /// path**, and from an id this server minted, never a caller's name.
     fn image_path(&self, image: FirmwareImageId) -> PathBuf {
         self.directory.join(storage_name(image))
     }
 
-    /// Where the bytes go while they are arriving. A `.part` file is never
-    /// served, so a `.img` file only ever exists complete.
+    /// Where the bytes go while arriving. A `.part` file is never served, so a `.img`
+    /// file only exists complete.
     fn partial_path(&self, image: FirmwareImageId) -> PathBuf {
         self.directory.join(format!("{}.part", ulid_text(image)))
     }
 }
 
-/// What a staged image is called on disk.
-///
-/// The id and nothing else. A ULID encodes to twenty-six characters of
-/// Crockford base32 — the digits and the capitals minus `I`, `L`, `O` and `U` —
-/// so it can contain no separator, no `.` and no `..`. This function re-checks
-/// that alphabet and panics on anything else, because the only way to reach it
-/// with a bad value is for [`repo::FirmwareImageId`] or `0017`'s `CHECK` to
-/// have stopped meaning what they say, and continuing from there would mean
-/// joining an unknown string to a directory.
+/// What a staged image is called on disk: the id and nothing else. A ULID is 26
+/// characters of Crockford base32 (digits and capitals minus `I`, `L`, `O`, `U`),
+/// so it holds no separator, `.` or `..`. This re-checks the alphabet and panics
+/// otherwise: the only way to get a bad value here is for
+/// [`repo::FirmwareImageId`] or `0017`'s `CHECK` to have stopped meaning what they
+/// say, and continuing would join an unknown string to a directory.
 fn storage_name(image: FirmwareImageId) -> String {
     format!("{}.img", ulid_text(image))
 }
@@ -305,8 +246,7 @@ fn ulid_text(image: FirmwareImageId) -> String {
     text
 }
 
-/// The staging directory cannot be used, said at startup rather than at the
-/// first upload.
+/// The staging directory cannot be used; said at startup, not at first upload.
 #[derive(Debug)]
 pub struct StoreUnusable {
     pub directory: PathBuf,
@@ -327,14 +267,10 @@ impl core::fmt::Display for StoreUnusable {
 
 impl std::error::Error for StoreUnusable {}
 
-// ---------------------------------------------------------------------------
-// The router
-// ---------------------------------------------------------------------------
+// ---- The router ----
 
-/// This module's routes, ready to `merge` into the main router.
-///
-/// Nothing here is added to `api::router` or to `design_api::router`; see the
-/// module doc.
+/// This module's routes, to `merge` into the main router. Nothing is added to
+/// `api::router` or `design_api::router`.
 pub fn router(state: FirmwareState) -> Router {
     Router::new()
         .route(
@@ -350,9 +286,7 @@ pub fn router(state: FirmwareState) -> Router {
         .with_state(state)
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+// ---- Errors ----
 
 /// Everything a route here can refuse with.
 pub enum FirmwareError {
@@ -368,11 +302,10 @@ pub enum FirmwareError {
     NoSuchScope,
     /// No image with that id in this organisation.
     NoSuchImage,
-    /// The image exists but has not been staged, so there is nothing whole to
-    /// serve or to issue a URL for.
+    /// The image exists but is not staged, so there is nothing whole to serve or
+    /// issue a URL for.
     NotStaged,
-    /// A declaration was made for this image already, and its bytes have
-    /// arrived or are arriving.
+    /// A declaration was already made and its bytes have arrived or are arriving.
     AlreadyUploaded,
 
     /// The declared length is beyond this deployment's configured maximum.
@@ -393,20 +326,17 @@ pub enum FirmwareError {
         hash_matched: bool,
     },
 
-    /// The token was never issued, has already been spent, or has expired.
-    /// **All three are one variant**, for the same reason
-    /// `SessionError::NonceNotFresh` covers four: they are the same fact from
-    /// this side — the caller holds no fresh single-use authorisation — and
-    /// telling them apart tells a caller which guess was closer.
+    /// The token was never issued, already spent, or expired. **One variant for all
+    /// three**, as `SessionError::NonceNotFresh` does: telling them apart tells a
+    /// caller which guess was closer.
     TokenNotFresh,
 
     /// Something about the filesystem. Never rendered to the caller in detail.
     Storage(std::io::Error),
 }
 
-/// Written for an operator reading a log line, never for the network — the
-/// same split `SessionError` makes, and [`IntoResponse`] below is where the
-/// network's fixed sentence per status lives.
+/// For an operator reading a log line, never the network; [`IntoResponse`] below
+/// holds the network's fixed sentence per status.
 impl core::fmt::Display for FirmwareError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -461,9 +391,7 @@ impl core::fmt::Display for FirmwareError {
 
 impl core::fmt::Debug for FirmwareError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // The same sentence. There is nothing in this type a `Debug` derive
-        // would add except the inner types' own noise, and a test failure
-        // reads better with the operator's sentence.
+        // The same sentence; a `Debug` derive would add only noise.
         write!(f, "{self}")
     }
 }
@@ -514,11 +442,9 @@ impl From<grants::AuthorityError> for FirmwareError {
 impl IntoResponse for FirmwareError {
     fn into_response(self) -> Response {
         match self {
-            // Reuses `api::Refusal`'s tested mapping rather than a second copy
-            // of the same match — in particular, every authorisation refusal
-            // becomes the identical `403 not authorised` body, which is what
-            // makes "a `draw` caller cannot tell a real organisation from one
-            // that does not exist" true rather than hoped for.
+            // Reuses `api::Refusal`'s tested mapping: every authorisation refusal becomes
+            // the identical `403 not authorised` body, so a `draw` caller cannot tell a real
+            // organisation from one that does not exist.
             Self::Session(e) => api::Refusal::from(e).into_response(),
             Self::Repo(e) => api::Refusal::from(SessionError::Repo(e)).into_response(),
             Self::Keys(e) => api::Refusal::from(SessionError::Keys(e)).into_response(),
@@ -564,10 +490,9 @@ impl IntoResponse for FirmwareError {
             )
                 .into_response(),
 
-            // The one refusal that explains itself in full, and deliberately:
-            // the caller is the operator who declared this image, the fact is
-            // about their own bytes, and trap 2 exists because this failure is
-            // normally SILENT.
+            // The one refusal that explains itself, deliberately: the caller is the operator
+            // who declared the image, the fact concerns their own bytes, and trap 2 exists
+            // because this failure is normally SILENT.
             Self::DeclarationNotMet {
                 declared_bytes,
                 received_bytes,
@@ -598,8 +523,7 @@ impl IntoResponse for FirmwareError {
             }
 
             Self::TokenNotFresh => {
-                // No detail, no log of the token, and one message for all
-                // three causes.
+                // No detail, no token in the log, one message for all three causes.
                 tracing::info!(
                     "a firmware token was refused: not issued, already spent, or expired"
                 );
@@ -614,17 +538,14 @@ impl IntoResponse for FirmwareError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// The signed extractor — `api::Signed`'s shape, once more, for this state
-// ---------------------------------------------------------------------------
+// ---- The signed extractor: `api::Signed`'s shape for this state ----
 
-/// A request whose single-use nonce has been spent and which is waiting to be
-/// verified inside the handler's own transaction.
+/// A request whose single-use nonce has been spent and which awaits verification
+/// inside the handler's own transaction.
 ///
-/// See `api::Signed` and `design_api::Signed`: verification and the
-/// authorisation that follows it share one database snapshot, so this is
-/// deliberately a third implementation of that shape rather than a shortcut
-/// back to a shared one.
+/// Verification and the authorisation after it share one database snapshot (see
+/// `api::Signed`, `design_api::Signed`), so this is deliberately a third
+/// implementation, not a shortcut to a shared one.
 pub struct Signed {
     pending: PendingRequest,
     body: Bytes,
@@ -646,10 +567,9 @@ impl Signed {
         Ok(session)
     }
 
-    /// As [`Signed::verify`], but commits `tx` regardless of the outcome and
-    /// hands it back on success. `verify` only borrows `tx`; without this,
-    /// an ending it makes on `tx` is undone the moment the route refuses
-    /// the very request that found it.
+    /// As [`Signed::verify`], but commits `tx` whatever the outcome and hands it back
+    /// on success. `verify` only borrows `tx`, so an ending it makes there would be
+    /// undone when the route refuses the request that found it.
     async fn verify_and_commit<'a>(
         &self,
         state: &FirmwareState,
@@ -756,11 +676,9 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The stored form of a firmware token: `H(LP(tag) ‖ LP(token))`.
-///
-/// The same construction `sessions::token_hash` uses, under a label of its
-/// own, so that a token from one surface cannot be presented at the other even
-/// if both hashes were somehow compared.
+/// The stored form of a firmware token: `H(LP(tag) ‖ LP(token))`, as
+/// `sessions::token_hash` does under its own label, so one surface's token cannot
+/// be presented at the other.
 pub fn token_hash(token: &[u8]) -> [u8; 32] {
     let mut msg = Vec::with_capacity(96);
     crypto::lp(&mut msg, TAG_FIRMWARE_TOKEN);
@@ -768,8 +686,7 @@ pub fn token_hash(token: &[u8]) -> [u8; 32] {
     Sha256::digest(&msg).into()
 }
 
-/// 256 bits from the kernel CSPRNG, for a token that is the whole
-/// authorisation.
+/// 256 bits from the kernel CSPRNG, for a token that is the whole authorisation.
 fn fresh_token() -> Result<[u8; 32], CryptoError> {
     Ok(*crypto::Key32::random()?.expose())
 }
@@ -781,26 +698,21 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-// ---------------------------------------------------------------------------
-// Filenames, which never become paths
-// ---------------------------------------------------------------------------
+// ---- Filenames, which never become paths ----
 
 /// Whether this is a filename this server will carry.
 ///
-/// **Two separate reasons, and neither is "to build a path from it".** No path
-/// is ever built from this value — [`FirmwareStore::image_path`] uses the id.
+/// **Two reasons, neither "to build a path from it"** ([`FirmwareStore::image_path`]
+/// uses the id):
 ///
-/// 1. It is rendered back to an operator INSIDE a command they paste into a
-///    switch (`file checksum sha-256 /var/tmp/<filename>`). A name containing
-///    a space, a quote, a newline or a `;` turns one command into two.
-/// 2. A name containing `/` or `..` is a caller trying something, and storing
-///    it teaches the next reader of the table that such values are normal.
+/// 1. It is rendered inside a command an operator pastes into a switch
+///    (`file checksum sha-256 /var/tmp/<filename>`); a space, quote, newline or
+///    `;` turns one command into two.
+/// 2. A name with `/` or `..` is a caller trying something; storing it makes such
+///    values look normal.
 ///
-/// Letters, digits, `.`, `-` and `_`; not starting with `.`; 1 to 255 bytes.
-/// Real Junos image names — `junos-install-ex-x86-64-21.4R3-S5.5.tgz` — are
-/// inside it with room to spare, which is CLAUDE.md rule 2's test: the gate is
-/// measured against what a real device accepts, not against what is easy to
-/// check.
+/// Letters, digits, `.`, `-`, `_`; not starting with `.`; 1 to 255 bytes. Real names
+/// such as `junos-install-ex-x86-64-21.4R3-S5.5.tgz` fit (CLAUDE.md rule 2).
 pub fn safe_filename(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 255
@@ -810,16 +722,13 @@ pub fn safe_filename(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_')
 }
 
-// ---------------------------------------------------------------------------
-// Authorisation, shared by the routes that take a session
-// ---------------------------------------------------------------------------
+// ---- Authorisation, shared by the routes that take a session ----
 
 /// Open the tenant context and authorise `needed` on `scope`, in `tx`.
 ///
-/// A caller who is not a member of the organisation, and a caller who names an
-/// organisation that does not exist, both come out of `repo::open_tenant_context`
-/// as `RepoError::NotAMember` and both render as the same `403 not authorised`.
-/// That is the property the refusal tests assert byte for byte.
+/// A non-member and a caller naming a nonexistent organisation both come out of
+/// `repo::open_tenant_context` as `RepoError::NotAMember` and render as the same
+/// `403 not authorised`, which the refusal tests assert byte for byte.
 async fn authorise_in(
     tx: &Transaction<'_>,
     state: &FirmwareState,
@@ -855,23 +764,15 @@ fn parse_image(text: &str) -> Result<FirmwareImageId, FirmwareError> {
         .map_err(|_| FirmwareError::Malformed("image id"))
 }
 
-// ---------------------------------------------------------------------------
-// 1. Declare
-// ---------------------------------------------------------------------------
+// ---- 1. Declare ----
 
-/// `POST /organisations/{organisation}/scopes/{scope}/firmware` — declare an
-/// image and take a one-time upload token for it. **Requires `steward`.**
+/// `POST /organisations/{organisation}/scopes/{scope}/firmware`: declare an image
+/// and take a one-time upload token. **Requires `steward`.**
 ///
-/// Body, length-prefixed as everything on `api.rs`'s surface is:
+/// Body (length-prefixed): `LP(filename) ‖ LP(byte_length, 8 bytes LE) ‖ LP(sha256)`
 ///
-/// ```text
-/// LP(filename) ‖ LP(byte_length as 8 bytes little-endian) ‖ LP(sha256)
-/// ```
-///
-/// Answers canonical JSON: the image id, where to send the bytes, the token,
-/// and when the token stops working. **The declared hash is not echoed** — it
-/// is a claim, and this server has nothing to say about it until it has
-/// computed its own.
+/// Answers canonical JSON: image id, where to send the bytes, the token, and its
+/// expiry. **The declared hash is not echoed**: it is a claim.
 async fn declare_handler(
     State(state): State<FirmwareState>,
     PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
@@ -905,10 +806,9 @@ async fn declare_handler(
     .await?;
 
     let image = FirmwareImageId::new();
-    // `WHERE EXISTS` against `scopes`, exactly as `designs::create_design`
-    // does: a scope id from another organisation inserts nothing, and the row
-    // count is checked, because an insert that quietly matched nothing and
-    // still returned an id would hand a caller an image that does not exist.
+    // `WHERE EXISTS` against `scopes`, as `designs::create_design` does: a scope id
+    // from another organisation inserts nothing, and the row count is checked so an
+    // insert that matched nothing cannot hand back an id for a nonexistent image.
     let inserted = tx
         .execute(
             "INSERT INTO firmware_images \
@@ -948,10 +848,9 @@ async fn declare_handler(
 
     tx.commit().await?;
 
-    // **No chain entry here.** A declaration stages nothing: there is a row
-    // and no bytes, and an entry per declaration would let a steward grow the
-    // sealed audit at will with acts that did not happen. The sealed record
-    // starts when an image is actually staged.
+    // **No chain entry here.** A declaration stages nothing; an entry per
+    // declaration would let a steward grow the sealed audit with acts that did not
+    // happen. The sealed record starts when an image is staged.
     let mut map = BTreeMap::new();
     map.insert("image_id".to_string(), Json::Str(image.to_string()));
     map.insert("filename".to_string(), Json::Str(filename));
@@ -993,21 +892,14 @@ fn parse_declaration(body: &[u8]) -> Result<(String, u64, [u8; 32]), FirmwareErr
     Ok((filename, u64::from_le_bytes(length), digest))
 }
 
-// ---------------------------------------------------------------------------
-// 2. The bytes
-// ---------------------------------------------------------------------------
+// ---- 2. The bytes ----
 
-/// `POST /firmware/uploads/{image}` — the image itself, streamed to disk.
+/// `POST /firmware/uploads/{image}`: the image itself, streamed to disk.
 ///
-/// **Not signed, and the module doc says why**: a signature covers a digest of
-/// the body, and computing that over two gigabytes means holding two gigabytes.
-/// The authorisation is the single-use token from the declaration, presented in
-/// [`HEADER_UPLOAD_TOKEN`], and what it can do is exactly one thing: fill in
-/// the image its own declaration named, at the length and hash that declaration
-/// named.
-///
-/// The body is never held whole: it is read frame by frame, written through a
-/// four-mebibyte buffer, and hashed as it is written.
+/// **Not signed**: a signature covers a digest of the body, which means holding two
+/// gigabytes. The authorisation is the single-use token from the declaration, in
+/// [`HEADER_UPLOAD_TOKEN`], good for one thing: filling in the image its
+/// declaration named, at that length and hash. The body is never held whole.
 async fn upload_handler(
     State(state): State<FirmwareState>,
     PathExtractor(image): PathExtractor<String>,
@@ -1019,7 +911,7 @@ async fn upload_handler(
         .filter(|t| t.len() == 32)
         .ok_or(FirmwareError::TokenNotFresh)?;
 
-    // --- spend the token, and read the declaration it belongs to -----------
+    // -- spend the token, and read the declaration it belongs to --
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
     enter_upload_custody(&tx).await?;
@@ -1036,10 +928,9 @@ async fn upload_handler(
         .ok_or(FirmwareError::TokenNotFresh)?;
     let organisation: String = spent.get(0);
 
-    // The tenant comes OFF THE ROW this server just read, never off the
-    // request — `repo::set_custody_tenant`'s whole purpose, and the same shape
-    // `grants::suspend_grant_by_operator` uses for the other act that has no
-    // membership to pin from.
+    // The tenant comes OFF THE ROW just read, never the request
+    // (`repo::set_custody_tenant`; `grants::suspend_grant_by_operator` does the
+    // same for the other act with no membership to pin from).
     repo::set_custody_tenant(&tx, &organisation).await?;
 
     let row = tx
@@ -1063,7 +954,7 @@ async fn upload_handler(
 
     let declared_length = declared_length as u64;
 
-    // --- the bytes ---------------------------------------------------------
+    // -- the bytes --
     let partial = state.store.partial_path(image);
     let outcome = stream_to_disk(&partial, body, declared_length).await;
 
@@ -1078,8 +969,8 @@ async fn upload_handler(
 
     let hash_matched = computed.as_slice() == declared_digest.as_slice();
     if received != declared_length || !hash_matched {
-        // **Delete first, then record.** A partial file that outlived its
-        // refusal is the thing trap 2 is about.
+        // **Delete first, then record.** A partial file outliving its refusal is what
+        // trap 2 is about.
         remove_quietly(&partial).await;
         mark_failed(
             &state,
@@ -1113,19 +1004,14 @@ async fn upload_handler(
     .await
 }
 
-/// Read the body frame by frame, write it through a bounded buffer, and hash
-/// it on the way past.
+/// Read the body frame by frame, write through a bounded buffer, hash on the way.
 ///
-/// **`std::fs` inside `spawn_blocking`, not `tokio::fs`**: this crate's tokio
-/// carries `rt-multi-thread`, `net`, `macros`, `signal` and `time` and not
-/// `fs`, and turning a feature on is a dependency decision. A blocking write
-/// on a blocking pool is what `tokio::fs` does internally anyway; what this
-/// gives up is per-call efficiency, which is why the buffer is four mebibytes
-/// and not four kilobytes.
+/// **`std::fs` inside `spawn_blocking`, not `tokio::fs`**: this crate's tokio has no
+/// `fs` feature, and enabling one is a dependency decision. The cost is per-call
+/// efficiency, hence a four-mebibyte buffer.
 ///
-/// Refuses as soon as the body runs past the declared length rather than at
-/// the end, so a caller cannot make this server write an unbounded file by
-/// declaring a small one.
+/// Refuses as soon as the body passes the declared length, so a small declaration
+/// cannot make the server write an unbounded file.
 async fn stream_to_disk(
     partial: &Path,
     mut body: Body,
@@ -1149,7 +1035,7 @@ async fn stream_to_disk(
         let Some(frame) = frame else { break };
         let frame = frame.map_err(|_| FirmwareError::Malformed("request body"))?;
         let Ok(data) = frame.into_data() else {
-            // A trailer, which this route has no use for.
+            // A trailer, which this route does not use.
             continue;
         };
 
@@ -1189,8 +1075,8 @@ struct Sink {
     written: u64,
 }
 
-/// One buffer, written and hashed on the blocking pool, with both halves moved
-/// back so the allocation is reused for the next four mebibytes.
+/// One buffer, written and hashed on the blocking pool, both halves moved back so
+/// the allocation is reused.
 async fn flush(mut sink: Sink, mut buffer: Vec<u8>) -> Result<(Sink, Vec<u8>), FirmwareError> {
     let (sink, buffer) = tokio::task::spawn_blocking(move || {
         use std::io::Write;
@@ -1217,9 +1103,9 @@ async fn remove_quietly(path: &Path) {
 
 /// Record that an upload did not produce what was declared.
 ///
-/// No chain entry: nothing was staged. The row is the record, and it is the
-/// reason the image id cannot be reused for a second attempt — a retry is a
-/// new declaration, so a caller cannot try repeatedly against one hash.
+/// No chain entry: nothing was staged. The row is the record, and it stops the
+/// image id being reused: a retry is a new declaration, so a caller cannot try
+/// repeatedly against one hash.
 async fn mark_failed(
     state: &FirmwareState,
     organisation: &str,
@@ -1239,10 +1125,10 @@ async fn mark_failed(
     Ok(())
 }
 
-/// The bytes matched: move the file into place, seal the fact, and mark the
-/// row staged.
+/// The bytes matched: move the file into place, seal the fact, mark the row
+/// staged.
 ///
-/// **The rename happens before the database write.** A `.img` file with a
+/// **The rename comes before the database write.** A `.img` file with a
 /// `declared` row serves nothing and is the safe disagreement (`0017` §A); a
 /// `staged` row with no file would be the dangerous one, and this order cannot
 /// produce it.
@@ -1290,8 +1176,8 @@ async fn finish_upload(
     )
     .await?;
 
-    // `computed_sha256` is written HERE and from this variable. Nothing in
-    // this module reads `declared_sha256` into it.
+    // `computed_sha256` is written HERE from this variable; nothing reads
+    // `declared_sha256` into it.
     let updated = tx
         .execute(
             "UPDATE firmware_images \
@@ -1325,16 +1211,14 @@ async fn finish_upload(
     Ok(json_response(Json::Obj(map)))
 }
 
-// ---------------------------------------------------------------------------
-// 3. A fetch URL
-// ---------------------------------------------------------------------------
+// ---- 3. A fetch URL ----
 
-/// `POST /organisations/{organisation}/firmware/{image}/fetch-urls` — mint a
+/// `POST /organisations/{organisation}/firmware/{image}/fetch-urls`: mint a
 /// single-use URL a device can collect this image from. **Requires `steward`.**
 ///
-/// ADR-0045 §8: this is the act that publishes bytes to anything that can reach
-/// this server holding the token, so it is `steward`, it is sealed, and the
-/// answer is the only time the URL exists anywhere outside the caller's screen.
+/// ADR-0045 §8: this publishes bytes to anything holding the token, so it is
+/// `steward`, sealed, and the answer is the only time the URL exists outside the
+/// caller's screen.
 async fn issue_fetch_url_handler(
     State(state): State<FirmwareState>,
     PathExtractor((organisation, image)): PathExtractor<(String, String)>,
@@ -1347,10 +1231,9 @@ async fn issue_fetch_url_handler(
     let tx = client.transaction().await?;
     let (session, tx) = signed.verify_and_commit(&state, tx).await?;
 
-    // Authorised against the image's own scope when the image exists, and
-    // against the ORGANISATION's scope when it does not — `design_api`'s
-    // "absent, not forbidden" rule, so a caller who lacks `steward` cannot use
-    // this route to find out which image ids are real.
+    // Authorised against the image's own scope when it exists, else the
+    // ORGANISATION's (`design_api`'s "absent, not forbidden" rule), so a caller
+    // without `steward` cannot learn which image ids are real.
     let scope = image_scope(&tx, tenant, image).await?;
     let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
 
@@ -1410,9 +1293,8 @@ async fn issue_fetch_url_handler(
     .await?;
     tx.commit().await?;
 
-    // Logged by token ID, never by token. The id is in the sealed entry too,
-    // so an operator can tie a log line to a chain entry without either
-    // carrying the credential.
+    // Logged by token ID, never the token. The id is in the sealed entry too, tying
+    // a log line to a chain entry without carrying the credential.
     tracing::info!(
         image = %image,
         fetch_token_id = %token_id,
@@ -1445,19 +1327,16 @@ async fn issue_fetch_url_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-/// The image's own scope, or `None` if no image with this id exists in this
-/// tenant. See [`issue_fetch_url_handler`] on why `None` rather than a refusal.
+/// The image's own scope, or `None` if no such image exists in this tenant; see
+/// [`issue_fetch_url_handler`].
 async fn image_scope(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
     image: FirmwareImageId,
 ) -> Result<Option<ScopeId>, FirmwareError> {
-    // Read through the tenant's own policy needs a tenant context, which is
-    // not open yet — so this is deliberately a read that returns nothing until
-    // `authorise_in` has run. It is called before the context exists and
-    // therefore always sees zero rows under `FORCE ROW LEVEL SECURITY`, which
-    // is the safe direction: `None` means "authorise against the organisation",
-    // which is the stricter of the two.
+    // Runs before a tenant context is open, so under `FORCE ROW LEVEL SECURITY` it
+    // always sees zero rows. That is the safe direction: `None` means "authorise
+    // against the organisation", the stricter choice.
     let row = tx
         .query_opt(
             "SELECT scope_id FROM firmware_images WHERE id = $1 AND organisation_id = $2",
@@ -1475,55 +1354,30 @@ async fn image_scope(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 4. The device's fetch
-// ---------------------------------------------------------------------------
+// ---- 4. The device's fetch ----
 
-/// `GET /firmware/fetch/{token}` — the one route in this server a network
-/// device talks to, and the one route whose URL is itself the authorisation.
+/// `GET /firmware/fetch/{token}`: the one route a network device talks to, and the
+/// one whose URL is itself the authorisation.
 ///
-/// What happens, in order, and the order is the design:
+/// In order (the order is the design):
 ///
-/// 1. **Spend the token** with one guarded `UPDATE ... RETURNING`, atomic
-///    against a second caller presenting the same URL.
-/// 2. **Take the tenant off the row that was just read**, never off the
-///    request.
-/// 3. **Seal `firmware_fetch_redeemed` and commit** — before a single byte is
-///    written to the socket, so a transfer that dies half way still leaves the
-///    record that the bytes left.
-/// 4. Serve exactly the staged bytes, **streamed**, a [`FETCH_CHUNK`] at a
-///    time.
+/// 1. **Spend the token** with one guarded `UPDATE ... RETURNING`, atomic against a
+///    second caller presenting the same URL.
+/// 2. **Take the tenant off the row just read**, never off the request.
+/// 3. **Seal `firmware_fetch_redeemed` and commit** before a single byte is written
+///    to the socket, so a transfer that dies halfway still leaves the record.
+/// 4. Serve exactly the staged bytes, **streamed**, a [`FETCH_CHUNK`] at a time.
 ///
-/// # Streaming does not weaken step 3, and the code says so twice
+/// **Streaming does not weaken step 3.** `tx.commit().await?` **returns before
+/// `File::open` is called**, and hyper cannot poll the body before this function
+/// returns the response holding it (`tests/firmware.rs`).
 ///
-/// With a buffered body the ordering was obvious because the bytes did not
-/// exist until after `tx.commit()`. Streaming makes it less obvious — the body
-/// is a lazily-polled object — so it is stated here and again at the line that
-/// builds it: `tx.commit().await?` **returns before `File::open` is called**,
-/// and hyper cannot poll the body before this function has returned the
-/// response that holds it. There is no path on which a byte reaches the socket
-/// with the redemption uncommitted. `tests/firmware.rs` holds the test for it.
-///
-/// # The token is spent exactly once, including when the transfer dies
-///
-/// Spending is the `UPDATE ... WHERE redeemed_at IS NULL` in step 1, and it is
-/// committed in step 3. Nothing after that point can give it back: an error
-/// opening the file, a length that disagrees with the row, a read error mid
-/// stream and a device that hangs up at forty per cent all leave the row
-/// redeemed. That is ADR-0045 §4.2's single use taken literally — a URL that
-/// published bytes is spent whether or not the bytes all arrived — and it is
-/// the same behaviour the buffered version had.
-///
-/// The old code reserved a process-wide buffer budget *before* spending the
-/// token, so that a refusal under load cost a retry rather than the URL. That
-/// concern was specific to the allocation: the refusal it protected against
-/// was transient and retrying would have worked. With the allocation gone
-/// there is no transient refusal left on this route — every remaining failure
-/// after the commit is an integrity fault (the staged file is missing, or is
-/// not the length its row records) that a retry would hit again — so there is
-/// nothing left to reserve ahead of the spend.
-///
-/// No range support: see the module doc.
+/// **The token is spent exactly once, including when the transfer dies.** After step
+/// 3 a file error, length mismatch, mid-stream read error or a device hanging up at
+/// forty per cent all leave the row redeemed (ADR-0045 §4.2: a URL that published
+/// bytes is spent whether or not they all arrived). Every failure after the commit
+/// is an integrity fault a retry would hit again, so nothing is reserved ahead of
+/// the spend. No range support: see the module doc.
 async fn fetch_handler(
     State(state): State<FirmwareState>,
     PathExtractor(token): PathExtractor<String>,
@@ -1600,8 +1454,8 @@ async fn fetch_handler(
     .await?;
     tx.commit().await?;
 
-    // **The token is not in this line and must never be.** The token id is,
-    // which names the sealed entry without being redeemable.
+    // **The token is not in this line and must never be.** The token id is; it names
+    // the sealed entry without being redeemable.
     tracing::info!(
         image = %image,
         fetch_token_id = %token_id,
@@ -1610,20 +1464,16 @@ async fn fetch_handler(
         "firmware image served"
     );
 
-    // **Everything above this line is committed.** `tx.commit()` has already
-    // returned, so the redemption is durable before the file is so much as
-    // opened, let alone read — step 3 of the order above, restated at the line
-    // that would otherwise make it hard to see.
+    // **Everything above is committed.** `tx.commit()` returned, so the redemption
+    // is durable before the file is opened (step 3 above).
     let path = state.store.image_path(image);
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(FirmwareError::Storage)?;
 
-    // The row said how long it is; disagreeing with the disk means the file
-    // was changed underneath this server, which is an integrity alarm and not
-    // a transfer to complete. Checked from the metadata of the OPEN handle, so
-    // it is the length of the file this response will actually read from and
-    // not of whatever is at that path a moment later.
+    // The row says how long the file is; a disagreement means it was changed under
+    // this server, an integrity alarm rather than a transfer to complete. Checked on
+    // the OPEN handle, so it is the length of the file this response will read.
     let on_disk = file.metadata().await.map_err(FirmwareError::Storage)?.len();
     if on_disk as i64 != byte_length {
         tracing::error!(
@@ -1635,10 +1485,9 @@ async fn fetch_handler(
         return Err(FirmwareError::NotStaged);
     }
 
-    // One `FETCH_CHUNK` in flight, never the image. The handle lives as long
-    // as the response body does: when the device hangs up, hyper drops the
-    // body, which drops the `ReaderStream`, which drops the `File` and closes
-    // the descriptor. Nothing here has to notice the disconnect.
+    // One `FETCH_CHUNK` in flight, never the image. When the device hangs up, hyper
+    // drops the body, which drops the `ReaderStream` and `File`, closing the
+    // descriptor; nothing has to notice the disconnect.
     let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
         file,
         FETCH_CHUNK,
@@ -1657,12 +1506,10 @@ async fn fetch_handler(
             .parse()
             .expect("a checked filename is a valid header value"),
     );
-    // A streamed body has no length of its own, so hyper would frame this
-    // response with `Transfer-Encoding: chunked`. It is stated instead, from
-    // the length that was just checked against the open handle, because a
-    // device copying a two-gigabyte image should be able to see how far it has
-    // got and to know a truncated transfer was truncated. `Content-Length` and
-    // the body length cannot disagree: both come from `on_disk`.
+    // A streamed body has no length, so hyper would use chunked framing. Stated
+    // instead, from the length just checked against the open handle, so a device
+    // copying two gigabytes can see progress and know a truncated transfer was
+    // truncated. `Content-Length` and the body both come from `on_disk`.
     headers.insert(
         axum::http::header::CONTENT_LENGTH,
         on_disk
@@ -1670,17 +1517,15 @@ async fn fetch_handler(
             .parse()
             .expect("a decimal integer is a valid header value"),
     );
-    // What a device should compare against, in the response itself, so a
-    // transfer's own record carries the hash Fathom holds.
+    // What a device should compare against, so a transfer's own record carries the
+    // hash Fathom holds.
     headers.insert(
         "fathom-firmware-sha256",
         hex(&computed).parse().expect("hex is a valid header value"),
     );
-    // `no-store`, like every other answer this server builds. The URL is the
-    // credential here — a switch cannot sign a request — so a copy of this
-    // image sitting in a shared cache is a copy of the one secret the route
-    // has, and a staging that replaces an image must not be answered from a
-    // proxy holding the one before it.
+    // `no-store`, as everywhere. The URL is the credential, so an image in a shared
+    // cache is a copy of the route's one secret, and a restaged image must not be
+    // answered from a proxy holding the old one.
     headers.insert(
         axum::http::header::CACHE_CONTROL,
         "no-store"
@@ -1690,10 +1535,9 @@ async fn fetch_handler(
     Ok((StatusCode::OK, headers, body).into_response())
 }
 
-/// The request's address as the store's policy decides it, the one rule
-/// every route shares (`crate::client_address`), which also caps the string
-/// at 255 characters because it is stored. Until 2026-09-20 this was a copy
-/// that read the header's FIRST entry, the one a client can write.
+/// The request's address as the shared policy decides it
+/// (`crate::client_address`), which also caps the string at 255 characters
+/// because it is stored.
 fn source_of(
     state: &FirmwareState,
     headers: &HeaderMap,
@@ -1702,26 +1546,17 @@ fn source_of(
     state.store.client_address.of(headers, extensions)
 }
 
-// ---------------------------------------------------------------------------
-// 5. Read back
-// ---------------------------------------------------------------------------
+// ---- 5. Read back ----
 
-/// `GET /organisations/{organisation}/scopes/{scope}/firmware` — what is staged
-/// for this scope, with the hash Fathom computed and the commands to use it.
-/// **Requires `read`.**
+/// `GET /organisations/{organisation}/scopes/{scope}/firmware`: what is staged for
+/// this scope, with the computed hash and the commands to use it. **Requires
+/// `read`.**
 ///
-/// # Why the commands here have a placeholder where the URL goes
-///
-/// Every command is rendered with the real filename and the real hash. The
-/// `file copy` line is not, and cannot be: this server keeps only
-/// `H(LP(tag) ‖ LP(token))` of a fetch URL, so it *cannot* reproduce one it
-/// issued — which is the property that makes the token safe at rest. A route
-/// that could show you the URL again would be a route that stored it.
-///
-/// The URL arrives, once, in the answer to `POST .../fetch-urls`, which is a
-/// `steward` act with a sealed entry. That is deliberate: issuing is what
-/// publishes the bytes, and a `GET` that minted a credential would make reading
-/// a list into an act of publication.
+/// Commands carry the real filename and hash but a placeholder where the `file copy`
+/// URL goes: the server keeps only `H(LP(tag) ‖ LP(token))`, so it *cannot*
+/// reproduce an issued URL, which is what makes the token safe at rest. The URL
+/// arrives once, in `POST .../fetch-urls`, a sealed `steward` act; a `GET` that
+/// minted a credential would turn reading a list into publication.
 async fn list_handler(
     State(state): State<FirmwareState>,
     PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
@@ -1796,9 +1631,8 @@ async fn list_handler(
                 None => Json::Null,
             },
         );
-        // **The hash Fathom computed, or nothing at all.** `declared_sha256`
-        // is never rendered anywhere: a hash this server was told is not a
-        // hash this server can stand behind.
+        // **The hash Fathom computed, or nothing.** `declared_sha256` is never rendered:
+        // a hash this server was told is not one it can stand behind.
         match &computed {
             Some(digest) => {
                 let sha256 = hex(digest);
@@ -1816,28 +1650,21 @@ async fn list_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-// ---------------------------------------------------------------------------
-// The commands an operator actually runs
-// ---------------------------------------------------------------------------
+// ---- The commands an operator actually runs ----
 
-/// `docs/UPGRADING-A-JUNIPER.md` steps 2 to 7 and ADR-0045 §6's traps, with
-/// this image's own filename, hash and — when there is one — fetch URL
-/// substituted in.
+/// `docs/UPGRADING-A-JUNIPER.md` steps 2 to 7 and ADR-0045 §6's traps, with this
+/// image's filename, hash and (when there is one) fetch URL substituted in.
 ///
-/// **The order is a control, not a listing.** Trap 1 is that `request system
-/// storage cleanup` deletes the image you just copied, so cleanup is before the
-/// copy here and a reader who works down the list cannot hit it. Trap 5 is the
-/// second snapshot, so there are two.
+/// **The order is a control, not a listing.** Trap 1: `request system storage
+/// cleanup` deletes the image just copied, so cleanup comes before the copy. Trap
+/// 5 is the second snapshot, so there are two.
 ///
-/// **Fathom runs none of these** (ADR-0045 §4.4). `note` says so where it
-/// matters, because a list of commands with no warning on the install step is
-/// how a list of commands becomes a tool that installs.
+/// **Fathom runs none of these** (ADR-0045 §4.4); `note` says so where it matters,
+/// since a command list with no warning on the install step is how a list becomes a
+/// tool that installs.
 ///
-/// Every one of these is a *summary* of Juniper's documentation rather than a
-/// verbatim read — `juniper.net` was unreachable on 2026-09-14, which
-/// `docs/UPGRADING-A-JUNIPER.md`'s own header states — so the answer carries
-/// `"sourced": "summary"` and says where to check it. ADR-0034 is the rule
-/// that requires the marking to survive into the API and not only the prose.
+/// These are a *summary* of Juniper's documentation, not a verbatim read, so the
+/// answer carries `"sourced": "summary"` and says where to check (ADR-0034).
 fn commands(filename: &str, sha256: &str, url: Option<&str>) -> Json {
     let device_path = format!("{DEVICE_STAGING_DIRECTORY}{filename}");
     let copy_source = match url {
@@ -1935,9 +1762,7 @@ fn commands(filename: &str, sha256: &str, url: Option<&str>) -> Json {
     Json::Obj(envelope)
 }
 
-// ---------------------------------------------------------------------------
-// Sealed metadata
-// ---------------------------------------------------------------------------
+// ---- Sealed metadata ----
 
 fn staged_metadata(
     organisation: &str,
@@ -1985,9 +1810,8 @@ fn fetch_issued_metadata(
         "organisation".to_string(),
         Json::Str(organisation.to_string()),
     );
-    // The token's ID. **Never the token**: this metadata is decryptable by
-    // anyone holding the chain key, and a credential in an audit trail is a
-    // credential with a second home.
+    // The token's ID. **Never the token**: this metadata is decryptable by anyone
+    // holding the chain key, and a credential in an audit trail has a second home.
     map.insert("token_id".to_string(), Json::Str(token_id.to_string()));
     Json::Obj(map).to_canonical_bytes()
 }
@@ -2020,17 +1844,14 @@ fn fetch_redeemed_metadata(
     Json::Obj(map).to_canonical_bytes()
 }
 
-// ---------------------------------------------------------------------------
-// The two transaction-local capabilities
-// ---------------------------------------------------------------------------
+// ---- The two transaction-local capabilities ----
 
 /// Turn on `app.firmware_upload_custody` (`0017` §D).
 ///
-/// The upload path has a token and no session, exactly as `0015`'s enrolment
-/// redemption does, and gets its own capability for the same reason: an
-/// unauthenticated caller must reach one table and no more. `app.design_capability`
-/// is set to its refusal first, so this transaction cannot read a design
-/// payload whatever else it does.
+/// The upload path has a token and no session, like `0015`'s enrolment
+/// redemption, and gets its own capability so an unauthenticated caller reaches
+/// one table and no more. `app.design_capability` is set to its refusal first, so
+/// this transaction cannot read a design payload.
 async fn enter_upload_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
@@ -2046,7 +1867,7 @@ async fn enter_upload_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError>
 }
 
 /// Turn on `app.firmware_fetch_custody` (`0017` §D). The device's door, and the
-/// narrowest capability in this schema: exactly one table names it.
+/// narrowest capability in this schema: one table names it.
 async fn enter_fetch_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
@@ -2061,15 +1882,11 @@ async fn enter_fetch_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> 
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Response framing
-// ---------------------------------------------------------------------------
+// ---- Response framing ----
 
-/// `Cache-Control: no-store` on every one of them, the rule `api::bytes_response`
-/// states and the 2026-09-22 review found this module outside: nothing here is
-/// a document. It is one caller's answer under one caller's authority, and a
-/// cache between the browser and this server holding it is either stale or one
-/// caller's bytes offered to the next.
+/// `Cache-Control: no-store` on all of them, per `api::bytes_response`. Nothing
+/// here is a document: it is one caller's answer under one caller's authority,
+/// and a shared cache would hold it stale or offer it to the next caller.
 fn json_response(j: Json) -> Response {
     (
         StatusCode::OK,
@@ -2082,9 +1899,7 @@ fn json_response(j: Json) -> Response {
         .into_response()
 }
 
-// ---------------------------------------------------------------------------
-// Tests that need no database: the rules that are pure functions
-// ---------------------------------------------------------------------------
+// ---- Tests that need no database: the rules that are pure functions ----
 
 #[cfg(test)]
 mod tests {
@@ -2094,8 +1909,8 @@ mod tests {
         String::from_utf8(j.to_canonical_bytes()).expect("canonical JSON is UTF-8")
     }
 
-    /// CLAUDE.md rule 2: the gate is measured against what a real device
-    /// accepts. These are the shapes Juniper actually ships.
+    /// CLAUDE.md rule 2: measured against what a real device accepts; these are the
+    /// shapes Juniper ships.
     #[test]
     fn a_real_junos_image_name_is_accepted() {
         for name in [
@@ -2108,8 +1923,8 @@ mod tests {
         }
     }
 
-    /// A filename never becomes a path, and it never becomes a second command
-    /// either — it is rendered inside a line an operator pastes into a switch.
+    /// A filename never becomes a path or a second command (it is rendered inside a
+    /// line pasted into a switch).
     #[test]
     fn a_filename_that_could_escape_a_directory_or_a_command_is_refused() {
         for name in [
@@ -2136,8 +1951,8 @@ mod tests {
         );
     }
 
-    /// The on-disk name is the id and nothing else, so there is no input to it
-    /// that could contain a separator.
+    /// The on-disk name is the id and nothing else, so no input can contain a
+    /// separator.
     #[test]
     fn the_on_disk_name_is_the_id_and_carries_no_separator() {
         let id = FirmwareImageId::new();
@@ -2167,8 +1982,7 @@ mod tests {
         assert_eq!(path.components().count(), 5, "{}", path.display());
     }
 
-    /// The declaration parser accepts exactly its own framing and nothing
-    /// adjacent to it.
+    /// The declaration parser accepts exactly its own framing.
     #[test]
     fn the_declaration_framing_round_trips_and_rejects_anything_else() {
         let mut body = Vec::new();
@@ -2190,9 +2004,8 @@ mod tests {
         );
     }
 
-    /// The one-hash rule, as a property of the rendering: what a caller reads
-    /// back is the computed hash under the name `sha256`, and the declaration
-    /// has no name at all in any answer this module produces.
+    /// The one-hash rule: a caller reads back the computed hash under the name
+    /// `sha256`, and the declaration appears under no name in any answer.
     #[test]
     fn the_commands_carry_the_hash_they_were_given_and_the_traps_are_in_order() {
         let sha = "a".repeat(64);
@@ -2217,8 +2030,8 @@ mod tests {
         );
     }
 
-    /// With a URL, the copy line is the real one; without, it says why it
-    /// cannot be and does not invent one.
+    /// With a URL the copy line is the real one; without, it says why and invents
+    /// none.
     #[test]
     fn the_copy_line_holds_the_real_url_when_there_is_one_and_never_a_fake_one() {
         let sha = "b".repeat(64);
@@ -2237,8 +2050,7 @@ mod tests {
         assert!(without.contains("cannot show you one"), "{without}");
     }
 
-    /// The token hash is domain-separated from every other token hash in this
-    /// server, so one surface's token is not the other's.
+    /// The token hash is domain-separated from every other in this server.
     #[test]
     fn a_firmware_token_hashes_differently_from_a_session_token() {
         let token = [9u8; 32];

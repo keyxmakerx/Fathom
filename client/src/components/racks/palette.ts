@@ -103,3 +103,16 @@ export const COMMON_PALETTE_ITEMS: readonly PaletteItem[] = [
   role,
   group: 'Common',
 }));
+
+/** The default faceplate a common device is placed with, as runs of hand-typed
+ * ports (`addSketchPortRange`); the user can edit them in the details panel. */
+export const DEFAULT_FACEPLATES: Readonly<Record<string, readonly { labelPrefix: string; first: number; last: number; connector: string }[]>> = {
+  switch: [
+    { labelPrefix: '', first: 1, last: 24, connector: 'rj45' },
+    { labelPrefix: '', first: 25, last: 28, connector: 'sfp_plus' },
+  ],
+  router: [
+    { labelPrefix: 'ge-0/0/', first: 0, last: 3, connector: 'rj45' },
+    { labelPrefix: 'xe-0/0/', first: 0, last: 1, connector: 'sfp_plus' },
+  ],
+};

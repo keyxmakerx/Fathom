@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type MouseEvent } from 'react';
+import { useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import '../../styles/shelf.css';
@@ -16,6 +16,7 @@ import { U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
 import { SHEATH_VAR } from './sheath';
+import { ShelfGrips, type ResizeShelf } from './ShelfGrips';
 
 /** Static, per element — CSS reads the live zoom half itself. */
 const OCCUPANT_LABEL_BASE_PX = 9;
@@ -50,6 +51,9 @@ export interface ShelfPlateNodeData extends Record<string, unknown> {
    * one, which draws occupants only, no gap invented for a capacity nobody
    * stated. */
   slotCount: number | null;
+  /** Present when the shelf can be resized by its grips (a writer). */
+  rackId?: string;
+  onResize?: ResizeShelf;
   onSelectShelf: () => void;
   onSelectOccupant: (occupantId: string) => void;
   onSelectPort: (portId: string) => void;
@@ -315,10 +319,11 @@ export function shelfPlateMode(heightU: number): 'compact' | 'full' {
 }
 
 export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
-  const { shelf, elevation, slotCount, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
+  const { shelf, elevation, slotCount, rackId, onResize, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
   const { occupantIds, myCableIds } = useMyIds(shelf);
   const { selected, selectedOccupantId, litCableId, liveDrag, cameraStop } = useShelfLiveData(shelf.id, occupantIds, myCableIds);
   const height = shelf.heightU * U_PX;
+  const [slotPreview, setSlotPreview] = useState<number | null>(null);
 
   const items = shelfOccupantFaceplateItems(shelf, elevation);
   const bySlot = new Map(items.map((item) => [item.occupant.slot, item]));
@@ -326,8 +331,8 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
   // catalogue gives one, else occupants only — see
   // `ShelfPlateNodeData.slotCount`'s own doc.
   const slotNumbers: number[] =
-    slotCount != null && slotCount > 0
-      ? Array.from({ length: slotCount }, (_, i) => i + 1)
+    (slotPreview ?? slotCount) != null && (slotPreview ?? slotCount)! > 0
+      ? Array.from({ length: (slotPreview ?? slotCount)! }, (_, i) => i + 1)
       : items.map((i) => i.occupant.slot);
 
   const openOccupant =
@@ -347,6 +352,17 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
   // faceplate-stop inset below opens beside them exactly as it would beside
   // the full layout's occupant boxes.
   const mode = shelfPlateMode(shelf.heightU);
+
+  const grips =
+    selected && onResize && rackId !== undefined ? (
+      <ShelfGrips
+        shelf={shelf}
+        rackId={rackId}
+        slotsNow={slotCount ?? Math.max(1, ...items.map((i) => i.occupant.slot))}
+        onResize={onResize}
+        onSlotsPreview={setSlotPreview}
+      />
+    ) : null;
 
   const bundleHandle = (
     // A bundle band's one shared anchor per shelf, the same trick
@@ -414,6 +430,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
           />
         )}
         {bundleHandle}
+        {grips}
       </div>
     );
   }
@@ -468,6 +485,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         />
       )}
       {bundleHandle}
+      {grips}
     </div>
   );
 }

@@ -30,7 +30,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
 | Decisions already made | `docs/decisions/` |
-| Questions waiting on the owner | New ones go on the sign-off page (ADR-0060, decision 9); older ones are in `docs/OPEN-QUESTIONS.md` |
+| Questions waiting on the owner | The sign-off page (ADR-0060, decision 9). `docs/OPEN-QUESTIONS.md` is closed: it records answers the code cites by letter |
 
 **`docs/archive/` is history. Do not read it unless a task names a specific file in it.** It holds
 the reasoning behind everything above, written mostly about a version of the product that no
@@ -61,7 +61,7 @@ Decided 2026-09-11. See `docs/REBUILD-PLAN.md` for reasoning.
 
 - **Engine and server:** Rust. Unchanged.
 - **Client:** React + Vite, plain CSS. No Tailwind.
-- **Diagram:** React Flow. The interface is rack-first — see `docs/UI-SPEC.md`.
+- **Diagram:** React Flow. One canvas, detail added by degrees (ADR-0060) — see `docs/UI-SPEC.md`.
 - **Storage:** PostgreSQL, encrypted, with a tamper-evident change history.
 - **Redaction gate:** stays in Rust, compiled for the browser. Never reimplemented in JavaScript.
 

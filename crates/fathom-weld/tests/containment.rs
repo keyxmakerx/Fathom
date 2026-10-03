@@ -134,11 +134,14 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // for `MountedIn`'s reason: `Tag` is a `reference` target, never a
     // containment one, from every `Taggable` kind.
     //
-    // 116 -> 126 (custom-field values, schema 0.13), +10: `Notable` widened, so `HasNote`
+    // 116 -> 118 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` read `from: [root]`, +0;
+    // `Label` and `Line` join `Placeable`, +2 (their pins). `LineEnd` is a reference.
+    //
+    // 118 -> 128 (custom-field values, schema 0.14), +10: `Notable` widened, so `HasNote`
     // adds (Cable, Note), (Vlan, Note), (ContainerNetwork, Note) -- +3; `HasFieldValue`
     // adds one pair per `Fieldable` member to `FieldValue` -- +6; joining `Placeable`
     // adds (FieldValue, LayoutPin) through `HasLayoutPin` -- +1.
-    assert_eq!(resolved, 126, "the containment pair set moved");
+    assert_eq!(resolved, 128, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -165,8 +168,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `ParentUnit` are REFERENCE and do not count here.
     // 52 (ADR-0059, schema 0.12): `HasTag` (root -> Tag). `TaggedWith` is
     // REFERENCE and does not count here.
-    // 53 (custom-field values, schema 0.13): `HasFieldValue` (Fieldable -> FieldValue).
-    assert_eq!(containment, 53);
+    // 54 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` (root -> Label, Line).
+    // 55 (custom-field values, schema 0.14): `HasFieldValue` (Fieldable -> FieldValue).
+    assert_eq!(containment, 55);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -190,7 +194,10 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // reads `from: [root]` — root is not a `NodeKind`, so no owner in
             // `NodeKind::ALL` ever resolves to it, `Tenant`'s and
             // `ServiceType`'s own reason.
-            "Tag"
+            "Tag",
+            // ADR-0060 step 7, schema 0.13: `HasLabel`/`HasLine` read `from: [root]`.
+            "Label",
+            "Line"
         ],
         "the set of kinds no node kind contains moved"
     );

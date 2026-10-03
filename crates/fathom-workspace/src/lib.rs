@@ -54,10 +54,10 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.13 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.14 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12"];
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13"];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
 /// legitimately hold one — its editor never had the kind — so finding one
@@ -87,52 +87,67 @@ const NODE_KINDS_SINCE_0_12: &[NodeKind] = &[NodeKind::Tag];
 /// [`NODE_KINDS_SINCE_0_12`].
 const EDGE_KINDS_SINCE_0_12: &[EdgeKind] = &[EdgeKind::HasTag, EdgeKind::TaggedWith];
 
-/// Node kinds `0.13` (custom-field values) added. A payload declared at `0.10`,
-/// `0.11` or `0.12` cannot legitimately hold one, [`NODE_KINDS_SINCE_0_11`]'s
-/// own reasoning.
-const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::FieldValue];
+/// Kinds `0.13` (ADR-0060 step 7) added; same reasoning, now for `0.10` to `0.12`.
+const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::Label, NodeKind::Line];
+const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
+    &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
 
-/// Edge kinds `0.13` (custom-field values) added. Same reasoning as
-/// [`NODE_KINDS_SINCE_0_13`].
-const EDGE_KINDS_SINCE_0_13: &[EdgeKind] = &[EdgeKind::HasFieldValue];
+/// Node kinds `0.14` (custom-field values) added. A payload declared at any
+/// older version cannot legitimately hold one, [`NODE_KINDS_SINCE_0_11`]'s
+/// own reasoning.
+const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::FieldValue];
+
+/// Edge kinds `0.14` (custom-field values) added. Same reasoning as
+/// [`NODE_KINDS_SINCE_0_14`].
+const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[EdgeKind::HasFieldValue];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11`, `0.12` or `0.13` added, `0.11` nothing `0.12` or `0.13`
-/// added, `0.12` nothing `0.13` added.
+/// anything `0.11` to `0.14` added, `0.11` nothing `0.12` to `0.14` added,
+/// `0.12` nothing `0.13` or `0.14` added, `0.13` nothing `0.14` added.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.13`, everything is
+    // Nothing to check for the current version (`0.14`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
-    if !matches!(declared, "0.10" | "0.11" | "0.12") {
+    if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());
     }
+    // Each `since` set is too new for every declared version older than it.
+    let too_new = |n14: bool, n13: bool, n12: bool, n11: bool| {
+        n14 || (declared != "0.13" && n13)
+            || (!matches!(declared, "0.12" | "0.13") && n12)
+            || (declared == "0.10" && n11)
+    };
     for n in &snapshot.nodes {
-        let kind = n.id.kind;
-        let too_new = NODE_KINDS_SINCE_0_13.contains(&kind)
-            || (declared != "0.12" && NODE_KINDS_SINCE_0_12.contains(&kind))
-            || (declared == "0.10" && NODE_KINDS_SINCE_0_11.contains(&kind));
-        if too_new {
+        let k = n.id.kind;
+        if too_new(
+            NODE_KINDS_SINCE_0_14.contains(&k),
+            NODE_KINDS_SINCE_0_13.contains(&k),
+            NODE_KINDS_SINCE_0_12.contains(&k),
+            NODE_KINDS_SINCE_0_11.contains(&k),
+        ) {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: kind.name(),
+                element_kind: k.name(),
             });
         }
     }
     for e in &snapshot.edges {
-        let kind = e.id.kind;
-        let too_new = EDGE_KINDS_SINCE_0_13.contains(&kind)
-            || (declared != "0.12" && EDGE_KINDS_SINCE_0_12.contains(&kind))
-            || (declared == "0.10" && EDGE_KINDS_SINCE_0_11.contains(&kind));
-        if too_new {
+        let k = e.id.kind;
+        if too_new(
+            EDGE_KINDS_SINCE_0_14.contains(&k),
+            EDGE_KINDS_SINCE_0_13.contains(&k),
+            EDGE_KINDS_SINCE_0_12.contains(&k),
+            EDGE_KINDS_SINCE_0_11.contains(&k),
+        ) {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: kind.name(),
+                element_kind: k.name(),
             });
         }
     }

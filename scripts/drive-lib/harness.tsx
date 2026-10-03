@@ -15,6 +15,7 @@ import { Engine } from './engine/engine';
 import { setSession } from './state/sessionState';
 import {
   catalogueFrom,
+  seedCanvasScene,
   seedConflictingChange,
   seedConnectedDevices,
   seedDockerScene,
@@ -114,6 +115,7 @@ async function main() {
 
   let doc;
   if (scene === 'trail') doc = seedConnectedDevices(catalogue, ME);
+  else if (scene === 'canvas') doc = seedCanvasScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
@@ -134,7 +136,7 @@ async function main() {
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
-  // scene's nodes is still legal at 0.13), the same substitution
+  // scene's nodes is still legal at 0.14), the same substitution
   // `plain.test.ts`'s "opens a 0.10 vector" tests make.
   if (scene === 'networks-010') {
     const text = new TextDecoder().decode(bytes);

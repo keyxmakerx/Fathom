@@ -34,6 +34,7 @@ import {
   RackOverlapError,
   RackRangeError,
   SketchOnCatalogueChassisError,
+  ShelfResizeError,
   SlotTakenError,
 } from '../../document/commands';
 import { FieldValueError } from '../../document/edit';
@@ -79,7 +80,8 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
     error instanceof InvalidPortRangeError ||
     error instanceof PortRangeTooLargeError ||
     error instanceof DuplicatePortLabelError ||
-    error instanceof ModelMismatchError
+    error instanceof ModelMismatchError ||
+    error instanceof ShelfResizeError
   ) {
     return { refused: error.message };
   }

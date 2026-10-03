@@ -30,6 +30,8 @@ import {
   placeOnShelf,
   removeChassis,
   removeSketchPort,
+  ShelfResizeError,
+  resizeShelf,
 } from './commands';
 import { connectPorts } from './cables';
 import {
@@ -1205,5 +1207,59 @@ describe('setField archives the replaced value into doc.history', () => {
     const next = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: NOW });
     const portId = edgesOut(next, chassisId, 'HasPort')[0].to;
     expect(next.history.find((h) => h.element === portId)).toBeUndefined();
+  });
+});
+
+describe('resizeShelf', () => {
+  function shelfWithSitter() {
+    const { doc, rackId } = rackOf(10);
+    let working = createShelf(doc, rackId, { label: 'shelf-1', positionU: 5, now: NOW });
+    const shelfId = edgesIn(working, rackId, 'MountedIn')[0]!.from;
+    const known = new Set(working.nodes.map((n) => n.id));
+    working = createSketchDevice(working, { now: NOW, hostname: 'nuc-01' });
+    const chassis = working.nodes.find((n) => !known.has(n.id) && n.id.startsWith('chassis:'))!.id;
+    working = placeOnShelf(working, chassis, shelfId, 3, { now: NOW });
+    return { doc: working, rackId, shelfId };
+  }
+  const mountedOf = (doc: Document, rackId: string, shelfId: string) =>
+    readMountedInFields(edgesIn(doc, rackId, 'MountedIn').find((e) => e.from === shelfId)!);
+
+  it('grows downward from the top edge, in one undo step', () => {
+    const { doc, rackId, shelfId } = shelfWithSitter();
+    const next = resizeShelf(doc, shelfId, { heightU: 3 }, { now: NOW });
+    expect(mountedOf(next, rackId, shelfId)).toMatchObject({ positionU: 3, heightU: 3 });
+    expect(next.batches).toHaveLength(doc.batches.length + 1);
+  });
+
+  it('refuses to grow into a device and names it', () => {
+    const { doc, rackId, shelfId } = shelfWithSitter();
+    const blocked = placeChassis(doc, rackId, MODEL_1U, 4, 'front', { now: NOW });
+    expect(() => resizeShelf(blocked, shelfId, { heightU: 2 }, { now: NOW })).toThrow(ShelfResizeError);
+    expect(() => resizeShelf(blocked, shelfId, { heightU: 2 }, { now: NOW })).toThrow(/in the way of shelf-1/);
+  });
+
+  it('refuses to grow past the bottom of the rack', () => {
+    const { doc, shelfId } = shelfWithSitter();
+    expect(() => resizeShelf(doc, shelfId, { heightU: 6 }, { now: NOW })).toThrow(/bottom of the rack/);
+  });
+
+  it('shrinks back, but not below a device that needs the height', () => {
+    const { doc, rackId, shelfId } = shelfWithSitter();
+    const grown = resizeShelf(doc, shelfId, { heightU: 3 }, { now: NOW });
+    expect(mountedOf(resizeShelf(grown, shelfId, { heightU: 1 }, { now: NOW }), rackId, shelfId)).toMatchObject({ positionU: 5, heightU: 1 });
+    const tall: CatalogueModel = { ...MODEL_1U, model: 'tall-2u', rackUnits: 2 };
+    const sitter = findNode(grown, edgesIn(grown, shelfId, 'SitsOn')[0]!.from)!;
+    const withModel = {
+      ...grown,
+      nodes: grown.nodes.map((n) => (n.id === sitter.id ? { ...n, fields: { ...n.fields, 'Chassis.model': { presence: 'set' as const, prov: n.existence, value: 'tall-2u' } } } : n)),
+    };
+    expect(() => resizeShelf(withModel, shelfId, { heightU: 1 }, { now: NOW, catalogue: [tall] })).toThrow(/nuc-01 needs 2U/);
+  });
+
+  it('sets slots, and refuses fewer than the highest slot taken, naming the device', () => {
+    const { doc, shelfId } = shelfWithSitter();
+    const next = resizeShelf(doc, shelfId, { slots: 5 }, { now: NOW });
+    expect(readPassiveNodeFields(findNode(next, shelfId)!).slots).toBe(5);
+    expect(() => resizeShelf(next, shelfId, { slots: 2 }, { now: NOW })).toThrow(/nuc-01 sits in slot 3/);
   });
 });

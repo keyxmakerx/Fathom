@@ -163,13 +163,16 @@ fn schema_version_is_the_trees() {
     // existing moved. Decision 9: the reader still opens a 0.11 payload and the
     // writer always writes 0.12.
     //
-    // 0.12 -> 0.13: custom-field values. One new node kind, `FieldValue` (joins
+    // 0.12 -> 0.13: ADR-0060 step 7. Two new node kinds (`Label`, `Line`), three new edge
+    // kinds (`HasLabel`, `HasLine`, `LineEnd`), seven new field keys (344-350); all MINOR.
+    //
+    // 0.13 -> 0.14: custom-field values. One new node kind, `FieldValue` (joins
     // `Placeable`), two fields, one new class `Fieldable`, `Notable` widened to Cable,
     // Vlan and ContainerNetwork, one new edge kind (`HasFieldValue`) and two new field
-    // keys, 344-345. The definitions live on the server, not in the graph. All MINOR;
-    // nothing existing moved. The reader still opens 0.10-0.12 payloads and the writer
-    // always writes 0.13.
-    assert_eq!(SCHEMA_VERSION, "0.13");
+    // keys, 351-352. The definitions live on the server, not in the graph. All MINOR;
+    // nothing existing moved. The reader still opens 0.10-0.13 payloads and the writer
+    // always writes 0.14.
+    assert_eq!(SCHEMA_VERSION, "0.14");
 }
 
 #[test]
@@ -694,9 +697,11 @@ fn dispatch_names_every_registry_key() {
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
     // `AttachedTo.address`.
     //
-    // 343 -> 345: custom-field values' two keys -- `FieldValue.value` (344) and
-    // `FieldValue.definition` (345).
-    assert_eq!(FIELD_KEYS.len(), 345, "the registry grew or shrank");
+    // 343 -> 350: ADR-0060 step 7's seven keys (344-350).
+    //
+    // 350 -> 352: custom-field values' two keys -- `FieldValue.value` (351) and
+    // `FieldValue.definition` (352).
+    assert_eq!(FIELD_KEYS.len(), 352, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

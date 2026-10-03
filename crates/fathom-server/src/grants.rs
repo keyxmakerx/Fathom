@@ -1,42 +1,34 @@
 //! The authority layer's database side: the keyring, genesis, grants, their
 //! secondings, suspensions and revocations, the head that says which are live,
-//! and `authorise_account` — the seven steps of §3.4, run at **every** use.
+//! and `authorise_account` (the seven steps of §3.4, run at **every** use).
 //!
 //! `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §§3.2–3.5, §6.1 and §7.2;
 //! `migrations/0011_authority.sql` is the schema and carries the reasoning for
-//! every constraint. `authority.rs` holds the bytes; this file holds the SQL
-//! and the order things happen in. The split is `chain.rs`/`chains.rs`', for
-//! the same reason.
+//! each constraint. `authority.rs` holds the bytes; this file holds the SQL and
+//! the order of events (the `chain.rs`/`chains.rs` split).
 //!
 //! # Two rules that shape every function here
 //!
 //! **Every signed act writes its sealed organisation-chain entry in the same
-//! transaction** (§7.2, through `chains::append_org`). An act that cannot
-//! record itself does not commit — which is what makes *"stopping the log
-//! stops the act"* mechanical rather than aspirational.
+//! transaction** (§7.2, via `chains::append_org`). An act that cannot record
+//! itself does not commit, so "stopping the log stops the act" is mechanical.
 //!
 //! **Every act advances the head** (§3.4). A grant row proves who wrote it; the
-//! head proves what the set currently says and which rows are still in it.
-//! Without the second, deleting a `grant_revocations` row restores a revoked
-//! grant, and editing `capability` on a live one changes what it grants. With
-//! it, both are caught at the next use, because the head's `live_digest`
-//! covers each live grant's own row seal.
+//! head proves what the set currently says. Without the head, deleting a
+//! `grant_revocations` row restores a revoked grant, and editing `capability`
+//! changes what a live one grants. With it both are caught at the next use,
+//! because the head's `live_digest` covers each live grant's row seal.
 //!
 //! # What is not here
 //!
-//! - **No memoised live set across calls.** §3.4 permits one, keyed by
-//!   `(organisation, auth_epoch)` in process memory. It is an optimisation and
-//!   it is not built: the brief for this layer is *nothing cached that a
-//!   database write could poison*, and the cheapest way to hold that line is
-//!   to have nowhere to put a stale answer. The one memo that exists,
-//!   `QuorumPass`, lives on the stack **inside a single authorisation** and is
-//!   dropped with it — it is what makes the seconding walk linear rather than
-//!   exponential, and no second use can see it.
-//! - **No verdict is ever stored**, and there is no column that could hold
-//!   one.
-//! - **No hardware factor** (§15.1). Keys are software ES256 keys and
-//!   `account_keys.key_source` records that as a fact rather than leaving it
-//!   to be assumed.
+//! - **No memoised live set across calls** (§3.4 permits one). Nothing is cached
+//!   that a database write could poison, and the cheapest way to hold that line
+//!   is to have nowhere to put a stale answer. The one memo, `QuorumPass`, lives
+//!   on the stack inside a single authorisation; it keeps the seconding walk
+//!   linear and no second use can see it.
+//! - **No verdict is ever stored**, and no column could hold one.
+//! - **No hardware factor** (§15.1). Keys are software ES256, and
+//!   `account_keys.key_source` records that as fact.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{LazyLock, Mutex};
@@ -54,23 +46,17 @@ use crate::repo::{self, AccountId, OrganisationId, RepoError, ScopeId, TenantCon
 
 /// §3.5's delay on a sole steward appointing a second, in seconds.
 ///
-/// *"A sole steward may appoint a second alone, with a 24-hour delay."* The
-/// delay is the part of that sentence a database can enforce; the banner, the
-/// mailed notice and the cancel button need a surface that does not exist yet
-/// and are named in `0011`'s own comment as unbuilt.
+/// Only the delay is enforced here. The banner, mailed notice and cancel button
+/// need a surface that does not exist yet (named as unbuilt in `0011`).
 pub const SOLE_STEWARD_DELAY_SECONDS: i64 = 24 * 60 * 60;
 
-/// How far into the past a proposal's `effective_from` may have drifted by the
-/// time the signed grant comes back (§3.3, and the two-step split below).
+/// How far into the past a proposal's `effective_from` may have drifted when the
+/// signed grant comes back (§3.3).
 ///
-/// **Two minutes.** The window has to cover a human reading what they are
-/// signing and a software key producing the signature, plus clock drift
-/// between the browser and the server; it must not be long enough for a
-/// proposal captured off the wire to be replayed into a materially different
-/// authority state. Two minutes is generous for the first and short enough
-/// that the epoch check — which is exact, not fuzzy — is what actually carries
-/// the freshness guarantee. The epoch is the control; this is a bound on
-/// staleness for the one field the epoch does not pin.
+/// Two minutes covers a human reading, a software key signing and clock drift,
+/// and is too short for a captured proposal to be replayed into a materially
+/// different authority state. The exact epoch check is the freshness control;
+/// this bounds staleness for the one field the epoch does not pin.
 pub const PROPOSAL_SKEW_SECONDS: i64 = 120;
 
 // ---------------------------------------------------------------------------
@@ -79,9 +65,8 @@ pub const PROPOSAL_SKEW_SECONDS: i64 = 120;
 
 /// Everything the authority layer refuses, and why.
 ///
-/// **`AuthorityUnverifiable` is deliberately not a permission error** (§3.4
-/// step 2): *"never 'no grants found', which would render as an ordinary
-/// permission error and teach nobody anything."*
+/// **`Unverifiable` is deliberately not a permission error** (§3.4 step 2): it
+/// must never read as "no grants found".
 #[derive(Debug)]
 pub enum AuthorityError {
     Db(tokio_postgres::Error),
@@ -213,21 +198,17 @@ impl From<SignatureRefused> for AuthorityError {
 
 /// The in-process high-water mark of each organisation's `auth_epoch`.
 ///
-/// §3.4 step 3: *"a head whose epoch is LOWER than one this container has
-/// already seen is a rollback: fail closed."* Each seal binds backwards only,
-/// so restoring last month's tables produces an authority that verifies
-/// perfectly — nothing inside the database can notice, which is why the
-/// memory holding this is the one place a tier-2 attacker cannot write.
+/// §3.4 step 3: a head whose epoch is lower than one already seen is a rollback;
+/// fail closed. Seals bind backwards only, so restored old tables give an
+/// authority that verifies perfectly and nothing inside the database can notice.
+/// This memory is the one place a tier-2 attacker cannot write.
 ///
-/// **It is owned, not global.** A process-wide static would be poisoned by any
-/// transaction that advanced the head and then rolled back, which is a shape
-/// tests use constantly and deployments use on every failed request. The
-/// server will hold one per process when there is a request layer to hold it;
-/// until then the caller passes the one it means.
+/// **Owned, not global.** A process-wide static would be poisoned by any
+/// transaction that advanced the head and then rolled back (routine in tests and
+/// on failed requests). The caller passes the one it means.
 ///
-/// **What it does NOT do**, stated so it is not over-read: it detects a
-/// rollback only within one process lifetime. A restart forgets everything,
-/// which is exactly why §7.6's anchors exist and why they are still deferred.
+/// **Limit:** it detects rollback only within one process lifetime. A restart
+/// forgets everything, which is why §7.6's anchors exist (still deferred).
 #[derive(Default)]
 pub struct EpochWatch {
     seen: Mutex<BTreeMap<String, i32>>,
@@ -260,13 +241,11 @@ impl EpochWatch {
 
 /// The keys, the pinned tenant and the rollback watch, carried together.
 ///
-/// **Not tidiness.** These four travel as a set because every one of them is a
-/// control: `ring` is the only source of the chain key a seal recomputes
-/// under, `ctx` is §4's pinned tenant (`repo::TenantContext` is the one type
-/// that can carry it and it cannot be built from a row), `tenant_key` is what
-/// the organisation chain's metadata is sealed under, and `watch` is §3.4 step
-/// 3's high-water mark. Passing them as one value means a new act cannot be
-/// written that quietly omits one.
+/// Each is a control. `ring` is the only source of the chain key a seal
+/// recomputes under. `ctx` is §4's pinned tenant (`repo::TenantContext` cannot be
+/// built from a row). `tenant_key` seals the organisation chain's metadata.
+/// `watch` is §3.4 step 3's high-water mark. One value means a new act cannot
+/// quietly omit one.
 pub struct Authority<'a> {
     pub ring: &'a KeyRing,
     pub ctx: &'a TenantContext,
@@ -298,31 +277,26 @@ pub struct AccountKey {
     pub enrolled_seq: i64,
     pub row_version: i32,
     pub superseded_by: Option<String>,
-    /// When this key left service — `0` for "still in service".
+    /// When this key left service; `0` means still in service.
     ///
-    /// **A timestamp rather than a boolean, because §3.3 resolves a key *as of*
-    /// a grant's `effective_from`.** A key retired last week must still verify
-    /// the grants it signed last year; a boolean cannot say that, and reading
-    /// one meant a rotation silently invalidated history or silently validated
-    /// it, depending on which way the check was written.
+    /// **A timestamp, not a boolean:** §3.3 resolves a key *as of* a grant's
+    /// `effective_from`, so a key retired last week must still verify grants it
+    /// signed last year.
     pub retired_at_unix: i64,
 }
 
 impl AccountKey {
     /// Whether this key was in service at `at_unix` (§3.3, §8.4).
     ///
-    /// Retirement and supersession both take a key out of service, and both
-    /// are recorded with the same timestamp by [`supersede_key`], so one
-    /// comparison answers both.
+    /// Retirement and supersession both take a key out of service and are
+    /// recorded with the same timestamp by [`supersede_key`], so one comparison
+    /// answers both.
     ///
-    /// **The boundary is inclusive, and that is deliberate.** A key is in
-    /// service up to and including the instant it is retired; retirement bites
-    /// after that instant. The exclusive reading breaks the ordinary case —
-    /// a grant signed and a key superseded within the same second, which this
-    /// repository's own succession test does — by retrospectively invalidating
-    /// a grant that was signed before the retirement was even requested. What
-    /// the check is for is a grant claiming to be effective *after* a key left
-    /// service, and `<=` refuses that exactly.
+    /// **The boundary is inclusive, deliberately.** A key is in service up to and
+    /// including the instant it is retired. An exclusive check would invalidate a
+    /// grant signed before the retirement was requested (e.g. both within one
+    /// second). The check exists to refuse a grant effective *after* the key left
+    /// service, which `<=` does exactly.
     pub fn in_service_at(&self, at_unix: i64) -> bool {
         self.retired_at_unix == 0 || at_unix <= self.retired_at_unix
     }
@@ -377,26 +351,19 @@ fn row_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
     authority::row_key(&chain_key)
 }
 
-/// `K_row_site` — the subkey **`account_keys` rows are sealed under**.
+/// `K_row_site`: the subkey **`account_keys` rows are sealed under**.
 ///
-/// § The keyring is account-scoped and the seal was not (fixed here). An
-/// account may belong to two organisations. Sealing its keyring row under the
-/// current organisation's row key meant the row verified in whichever
-/// organisation happened to enrol it and nowhere else: the second
-/// organisation recomputed the seal under its own key, got a different value,
-/// and refused the account with `Unverifiable` — an integrity alarm naming a
-/// forgery that had not happened, which is worse than a permission error
-/// because it sends someone looking for an attacker.
+/// The keyring is account-scoped, and an account may belong to two
+/// organisations. Sealing under one organisation's row key would make the row
+/// verify only there; the other would recompute a different seal and refuse the
+/// account as `Unverifiable`, an integrity alarm for a forgery that never
+/// happened. The site chain key is the one key the same for every organisation,
+/// so account-scoped rows are sealed under it. The label is unchanged (see
+/// `authority::row_key`).
 ///
-/// The site chain key is the one key in this deployment that is the same for
-/// every organisation, so it is what an account-scoped row must be sealed
-/// under. The label does not change — see `authority::row_key`.
-///
-/// `pub(crate)` since `0013`: a session row is account-scoped in exactly the
-/// way a keyring row is — it belongs to a principal, not to an organisation,
-/// and its verifier holds no tenant context — so `sessions.rs` seals under
-/// this same subkey rather than deriving a second one. Nothing outside this
-/// crate gains a way to reach it.
+/// `pub(crate)` because session rows are account-scoped the same way and
+/// `sessions.rs` seals under this same subkey. Nothing outside this crate can
+/// reach it.
 pub(crate) async fn site_row_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -404,18 +371,14 @@ pub(crate) async fn site_row_key(
     Ok(authority::row_key(&site_chain_key(tx, ring).await?))
 }
 
-/// **The site chain key itself** — the one key in this deployment that is the
-/// same for every organisation, and the input every site-scoped subkey is
-/// expanded from.
+/// **The site chain key itself**: the one key the same for every organisation,
+/// and the input every site-scoped subkey is expanded from.
 ///
-/// `pub(crate)` since `0014`: `sessions.rs` expands a second subkey from it,
-/// for the keyed hash of a claimed sign-in address, in exactly the shape
-/// [`authority::row_key`] expands `K_row_site`. It needs the key and not the
-/// row subkey, because a KDF label separates uses of ONE key and hashing an
-/// address is not a row seal.
+/// `pub(crate)` because `sessions.rs` expands a second subkey from it (the keyed
+/// hash of a claimed sign-in address). It needs the key, not the row subkey: a
+/// KDF label separates uses of ONE key, and hashing an address is not a row seal.
 ///
-/// Nothing outside this crate gains a way to reach it, and nothing inside it
-/// may return it to a caller who has not already been trusted with
+/// Nothing inside this crate may return it to a caller not already trusted with
 /// `chain_master`.
 pub(crate) async fn site_chain_key(
     tx: &Transaction<'_>,
@@ -449,9 +412,9 @@ fn hex(bytes: &[u8]) -> String {
 /// The canonical state of a grant row, for its seal.
 ///
 /// **One function, used on write and on read**, so the seal cannot depend on
-/// which side computed it. Every field the signature does not already cover is
-/// in here — including `is_genesis` and `sole_steward_appointment`, which
-/// decide how the row is treated at use and are not inside `grant_bytes`.
+/// which side computed it. It includes every field the signature does not
+/// cover, notably `is_genesis` and `sole_steward_appointment`, which decide
+/// treatment at use and are not in `grant_bytes`.
 fn grant_row_state(grant: &Grant) -> Vec<u8> {
     let mut map = BTreeMap::new();
     map.insert(
@@ -557,11 +520,10 @@ fn as_32(bytes: &[u8], what: &'static str) -> Result<[u8; 32], AuthorityError> {
 
 /// Enrol a software ES256 key for the acting account.
 ///
-/// §15.1's downgrade, made concrete: `key_source = 'software'`, no
-/// `credential_id`, and the row says so rather than leaving a reader to infer
-/// it from a NULL. §6.4's *"there is no way to grant access to a phantom
-/// account"* rests on this table — a grant names a subject's key fingerprint,
-/// and a fingerprint that is in no keyring resolves to nothing.
+/// §15.1's downgrade, made explicit: `key_source = 'software'`, no
+/// `credential_id`. §6.4's "no way to grant access to a phantom account" rests
+/// on this table: a grant names a subject's key fingerprint, and one in no
+/// keyring resolves to nothing.
 pub async fn enrol_software_key(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -593,31 +555,23 @@ pub async fn enrol_software_key(
     insert_account_key(tx, ring, &id, &account, public_key, appended.seq).await
 }
 
-/// Enrol an account's **first** software key, on the site chain, at the moment
-/// an enrolment token is redeemed (§1.1, §5.1, §6.2, migration `0015`).
+/// Enrol an account's **first** software key on the site chain, when an
+/// enrolment token is redeemed (§1.1, §5.1, §6.2, migration `0015`).
 ///
-/// # Why this exists beside [`enrol_software_key`], which does not change
+/// # Why this exists beside [`enrol_software_key`]
 ///
-/// [`enrol_software_key`] files `account_key_enrolled` on an ORGANISATION's
-/// chain, and needs an [`Authority`] to do it — which needs a
-/// [`repo::TenantContext`], which needs a membership row. That is right for a
-/// key enrolled by somebody who is already in an organisation, and impossible
-/// for the case this build is about: **§6.4 says a steward may only grant to a
-/// subject who already has a registered key, and §6.2 says an organisation
-/// shell is redeemed by an account that already has one.** So the first key of
-/// an invited person is enrolled before any organisation knows their name, and
-/// there is no organisation chain it could be filed on.
+/// [`enrol_software_key`] files on an ORGANISATION's chain and needs an
+/// [`Authority`] (so a membership row). That cannot work for a first key: §6.4
+/// lets a steward grant only to a subject with a registered key, and §6.2 has an
+/// organisation shell redeemed by an account that already has one. So no
+/// organisation chain exists to file it on.
 ///
-/// §7.1 answers what to do with it: *"the site chain covers everything
-/// organisation-independent."* §7.2 already names the type —
-/// `authenticator_registered` — on the site chain, which is where this files
-/// it.
+/// §7.1: "the site chain covers everything organisation-independent". §7.2 names
+/// the type `authenticator_registered` on the site chain.
 ///
-/// **The row, its seal and the keyring's shape are identical.** Both paths go
-/// through `insert_account_key`, so a key enrolled at invitation and one
-/// enrolled inside an organisation are the same row sealed the same way, and
-/// `live_signing_key` cannot tell them apart — which is the property that
-/// makes sign-in work for both.
+/// **The row, its seal and the keyring's shape are identical.** Both paths use
+/// `insert_account_key`, so `live_signing_key` cannot tell them apart, which is
+/// what lets sign-in work for both.
 pub async fn enrol_software_key_at_invitation(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -651,11 +605,9 @@ pub async fn enrol_software_key_at_invitation(
 
 /// The row every enrolment path writes, sealed the one way.
 ///
-/// **One function, so the two chains cannot drift into two row shapes.** The
-/// seal is `authority::row_seal` under the site-scoped row key, which is what
-/// `verify_key_row` recomputes at every use — an account's keyring is
-/// account-scoped, not organisation-scoped, and `site_row_key`'s own doc
-/// carries that argument.
+/// One function, so the two chains cannot drift into two row shapes. The seal is
+/// `authority::row_seal` under the site-scoped row key, which `verify_key_row`
+/// recomputes at every use (see `site_row_key`).
 async fn insert_account_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -708,8 +660,8 @@ async fn insert_account_key(
 /// Record that `old` named `new` its successor (§8.4).
 ///
 /// The **old key** signs [`authority::succession_bytes`]; this verifies that
-/// signature before storing it, because a succession nobody checked is a way
-/// to point an account's authority at a key its holder never approved.
+/// signature before storing it. An unchecked succession could point an account's
+/// authority at a key its holder never approved.
 pub async fn supersede_key(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -726,12 +678,10 @@ pub async fn supersede_key(
         .await?
         .ok_or(AuthorityError::NoSigningKey)?;
 
-    // **The successor must belong to the same account.** Without this, a key
-    // holder could name somebody else's key their successor, and every grant
-    // naming the old fingerprint would carry forward onto an account that
-    // never asked for it -- authority moved by one signature from a key whose
-    // holder is entitled to retire it and not to redirect it. §8.4's
-    // succession is a statement about one account's own keyring.
+    // **The successor must belong to the same account.** Otherwise one signature
+    // could name somebody else's key as successor and carry every grant naming
+    // the old fingerprint onto an account that never asked. A key's holder may
+    // retire it, not redirect it (§8.4).
     if new.account_id != old.account_id {
         return Err(AuthorityError::Unverifiable(
             "key succession across accounts",
@@ -775,10 +725,9 @@ pub async fn supersede_key(
         },
     );
 
-    // `retired_at` is the signed `at_unix`, not `now()`: the seal covers the
-    // value and a verifier resolving a key as of a grant's `effective_from`
-    // compares against it, so the row and the signature must agree on when
-    // the key left service.
+    // `retired_at` is the signed `at_unix`, not `now()`: the seal covers it, and
+    // verifiers resolve a key as of a grant's `effective_from` against it. Row
+    // and signature must agree on when the key left service.
     let updated = tx
         .execute(
             "UPDATE account_keys \
@@ -805,28 +754,22 @@ pub async fn supersede_key(
 
 /// Retire a key: take it out of service **without** naming a successor.
 ///
-/// # A name that was pretending to be a control
-///
-/// `0011` put `account_key_retired` in `chain_entries`' entry-type `CHECK` and
-/// `account_keys.retired_at` in the keyring, and **nothing wrote either**. A
-/// column and an entry type that no code path produces read, to anyone
-/// auditing the schema, as a retirement mechanism that exists. This is that
-/// mechanism.
+/// `0011` created `account_key_retired` and `account_keys.retired_at`, but
+/// nothing wrote either; a schema element no code produces reads as a mechanism
+/// that exists. This is that mechanism.
 ///
 /// # Who may sign it
 ///
-/// §8.4's succession shape, with the one extension it forces: the key's own
-/// holder, **or a steward of the organisation**. Succession needs the old key,
-/// because only its holder can prove the successor is theirs. Retirement is
-/// the case where the holder is gone — the dropped laptop, the departure §6.4
-/// describes — so restricting it to the key's own holder would mean the keys
-/// that most need retiring are the ones that cannot be. A steward already
-/// holds revocation over every grant the key names, so this grants them
-/// nothing they did not have; what it adds is that the keyring says so.
+/// The key's own holder, **or a steward of the organisation** (§8.4's succession
+/// shape plus one extension). Succession needs the old key. Retirement is the
+/// case where the holder is gone (the dropped laptop, §6.4's departure), so
+/// holder-only would leave the keys that most need retiring unretirable. A
+/// steward already holds revocation over every grant the key names, so this
+/// grants nothing new; it makes the keyring say so.
 ///
 /// The signer's own fingerprint is inside [`authority::retire_bytes`], so a
-/// steward's retirement of somebody else's key is not readable as that
-/// person's own act.
+/// steward's retirement of someone else's key is not readable as that person's
+/// act.
 pub async fn retire_key(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -844,9 +787,9 @@ pub async fn retire_key(
         return Err(AuthorityError::Unverifiable("key already retired"));
     }
 
-    // The signer: the holder, or a steward. A steward is established the same
-    // way every other authority act establishes one -- through the seven steps
-    // -- so there is no second, weaker notion of "is a steward" in this file.
+    // The signer: the holder, or a steward established through the same seven
+    // steps as every other authority act, so there is no second, weaker notion of
+    // "is a steward" here.
     let signer = signing_key_of(tx, &actor)
         .await?
         .ok_or(AuthorityError::NoSigningKey)?;
@@ -956,15 +899,13 @@ pub async fn signing_key_of(
     }
 }
 
-/// The account's key **as `sign_in` must resolve it**: the live one, its own
-/// keyring row seal verified, and in service at `at_unix`.
+/// The account's key **as `sign_in` must resolve it**: the live one, its keyring
+/// row seal verified, and in service at `at_unix`.
 ///
-/// [`signing_key_of`] answers "which row would this account sign with" and
-/// verifies nothing, which is right for a caller that is about to hand the
-/// bytes to a human. A caller that is about to accept a signature as proof of
-/// identity needs the seal checked, because a keyring row whose `public_key`
-/// was edited is exactly how an administrator would sign in as somebody else.
-/// This is that caller's function, added for `sessions.rs` (§4.2).
+/// [`signing_key_of`] verifies nothing, which suits a caller handing bytes to a
+/// human. A caller accepting a signature as proof of identity needs the seal
+/// checked: an edited `public_key` is how an administrator would sign in as
+/// somebody else. Added for `sessions.rs` (§4.2).
 pub async fn live_signing_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -979,26 +920,18 @@ pub async fn live_signing_key(
 }
 
 // ---- ADR-0055 stream (a): any live key of the account, not the newest ------
-//
-// Added in a labelled block so the other two ADR-0055 streams' additions land
-// beside it and the merge is mechanical.
 
 /// **Every** key this account could sign with today: neither superseded nor
 /// retired, newest first.
 ///
-/// [`signing_key_of`] answers the same question with `LIMIT 1`, and that was
-/// right while an account had exactly one key — a browser enrolled at an
-/// invitation, and a rotation that superseded the old row. ADR-0055 decision 6
-/// ends that: *"Any browser, no pairing"*, and the lead's resolution 1 of the
-/// build contracts makes it concrete — the client registers a per-browser key
-/// through `POST /credentials/key` after every password sign-in, so one person
-/// on a laptop and a desktop has two live keys and neither supersedes the
-/// other. With `LIMIT 1` the older browser signs in and is refused, which
-/// reads as a stolen key rather than as a second machine.
+/// [`signing_key_of`] uses `LIMIT 1`, right while an account had one key.
+/// ADR-0055 decision 6 ("Any browser, no pairing") registers a per-browser key
+/// after each password sign-in, so a person on two machines has two live keys and
+/// neither supersedes the other. `LIMIT 1` would refuse the older browser, which
+/// reads as a stolen key rather than a second machine.
 ///
-/// **`ORDER BY enrolled_seq DESC` is kept**, so that when only one key is live
-/// this returns exactly what `signing_key_of` returns, in the same order, and
-/// the single-key path is unchanged.
+/// `ORDER BY enrolled_seq DESC` is kept so the single-key case returns exactly
+/// what `signing_key_of` does.
 pub async fn live_signing_keys(
     tx: &Transaction<'_>,
     account: &str,
@@ -1025,13 +958,12 @@ pub async fn live_signing_keys(
 /// keys, and say which one verified.
 ///
 /// Each candidate's own row seal is checked before its public key is believed,
-/// exactly as [`live_signing_key`] checks the single one: a keyring row whose
-/// `public_key` was edited is how an administrator would sign as somebody else,
-/// and that is no less true when there are two rows.
+/// as [`live_signing_key`] does: an edited `public_key` is how an administrator
+/// would sign as somebody else.
 ///
-/// [`AuthorityError::NoSigningKey`] when the account has no live key at all —
-/// which is the expected state for a password-only person and must not be read
-/// as a refusal by a caller that has another factor.
+/// [`AuthorityError::NoSigningKey`] when the account has no live key: the
+/// expected state for a password-only person, which a caller with another factor
+/// must not read as a refusal.
 pub async fn verify_by_any_live_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -1046,10 +978,9 @@ pub async fn verify_by_any_live_key(
     }
     let mut refused: Option<AuthorityError> = None;
     for key in candidates {
-        // An UNVERIFIABLE row is an integrity alarm and is not swallowed by
-        // trying the next key: §3.4 step 2 is explicit that an alarm must not
-        // render as a permission error, and a keyring with one edited row is
-        // an incident whichever key the caller happened to use.
+        // An UNVERIFIABLE row is an integrity alarm; do not swallow it by trying
+        // the next key (§3.4 step 2). A keyring with one edited row is an
+        // incident whichever key was used.
         verify_key_row(tx, ring, &key, at_unix).await?;
         match authority::verify_es256(&key.public_key, message, signature) {
             Ok(()) => return Ok(key),
@@ -1061,11 +992,10 @@ pub async fn verify_by_any_live_key(
 
 /// One keyring row by id, seal verified, in service at `at_unix`.
 ///
-/// A session records **which** key proved it, not merely that some key did, so
-/// that the session dies with that key (§8.4's retirement, checked at every
-/// request). Resolving the account's *current* key instead would mean a
-/// retired key's session surviving on its successor's authority, which nobody
-/// authorised.
+/// A session records **which** key proved it, so the session dies with that key
+/// (§8.4's retirement, checked every request). Resolving the account's *current*
+/// key would let a retired key's session survive on its successor's authority,
+/// which nobody authorised.
 pub async fn signing_key_by_id(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -1113,25 +1043,23 @@ async fn verify_key_row(
     Ok(())
 }
 
-/// Resolve a key by fingerprint **as of `at_unix`**, verifying the keyring
-/// row's own seal (§3.4 step 4, §3.3, §8.4).
+/// Resolve a key by fingerprint **as of `at_unix`**, verifying the keyring row's
+/// own seal (§3.4 step 4, §3.3, §8.4).
 ///
 /// # Why this takes a time
 ///
-/// §3.3: *"verification uses the keyring entry live at `effective_from`"*, and
-/// §8.4 turns that into the reason a key rotation does not invalidate a year
-/// of grants. A key that was retired or superseded **after** a grant was
-/// signed still verifies that grant; one retired **before** it verifies
-/// nothing, because at the moment the grant claims to have been signed that
-/// key was already out of service.
+/// §3.3: verification uses the keyring entry live at `effective_from`; that is
+/// why a rotation does not invalidate a year of grants. A key retired or
+/// superseded **after** a grant was signed still verifies it; one retired
+/// **before** verifies nothing.
 ///
-/// Reading `retired_at` and `superseded_by` as booleans — "is this key retired
-/// *now*" — gets both halves wrong at once: it invalidates history on every
-/// rotation, and it accepts a grant backdated to before a key existed. The
-/// comparison is against the grant's own `effective_from`, which is inside the
-/// signed bytes and therefore not the attacker's to choose.
-/// `pub(crate)`: `operators::redeem_organisation_claim` also calls this,
-/// to check a genesis grant's key at the door rather than downstream.
+/// Reading these as booleans ("retired *now*") gets both wrong: it invalidates
+/// history on every rotation and accepts a grant backdated to before the key
+/// existed. The comparison is against the grant's own `effective_from`, which is
+/// inside the signed bytes and not the attacker's to choose.
+///
+/// `pub(crate)`: `operators::redeem_organisation_claim` also calls this, to
+/// check a genesis grant's key at the door.
 pub(crate) async fn key_by_fingerprint(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -1201,31 +1129,24 @@ pub struct Genesis {
 ///
 /// The creator's side generates an organisation root keypair, derives the
 /// organisation id from the public half and a 16-byte salt, signs one or two
-/// genesis steward grants with the private half, and **discards the private
-/// key**. This function is the server half: it recomputes the derivation
-/// before storing anything, verifies every genesis signature under the root
-/// public key, writes `org_genesis` and one `grant_signed` entry per grant,
-/// and opens the head at epoch 1.
+/// genesis steward grants, and **discards the private key**. This function is
+/// the server half: it recomputes the derivation, verifies every genesis
+/// signature under the root public key, writes `org_genesis` and one
+/// `grant_signed` entry per grant, and opens the head at epoch 1.
 ///
-/// # What §15.2 defers, precisely
+/// # What §15.2 defers
 ///
-/// §6.1 step 3 — *"Shamir-splits the root private key t-of-n (default 2-of-3),
-/// wraps each share to a named recovery holder's account key, renders each as
-/// a printable artefact"* — **is not built, and neither is its replacement.**
-/// §15.2 stages Shamir last and reconsiders its shape: with software keys the
-/// root private key can instead be wrapped to each named recovery holder's
-/// account key, *"weaker on paper and it must be said so"*. Neither mechanism
-/// is chosen here, so this function takes no shares and no recovery holders,
+/// §6.1 step 3 (Shamir-splitting the root private key to recovery holders) is
+/// **not built, and neither is its replacement** (wrapping it to each holder's
+/// account key, "weaker on paper"). So this takes no shares or recovery holders,
 /// and `recovery_holders` is not a table yet.
 ///
-/// **The consequence, stated rather than implied: whatever the caller does
-/// with the root private key after genesis is outside this system.** If it is
-/// kept, it can sign a recovery grant later — §8.2's controls on that are not
-/// built either. If it is discarded, break-glass is unavailable for that
-/// organisation and nothing here will say so. The one control that *is* real
-/// today is the trigger `0011` installs: after genesis the root key can write
-/// no further genesis grant, at any privilege level, because the head's epoch
-/// is past 0.
+/// **Whatever the caller does with the root private key after genesis is outside
+/// this system.** If kept, it can sign a recovery grant later (§8.2's controls
+/// on that are not built). If discarded, break-glass is unavailable for that
+/// organisation and nothing says so. The one real control is the `0011` trigger:
+/// after genesis the root key can write no further genesis grant at any
+/// privilege level, because the head's epoch is past 0.
 pub async fn bootstrap_organisation(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -1245,13 +1166,12 @@ pub async fn bootstrap_organisation(
     let ctx = repo::open_tenant_context(tx, organisation, creator).await?;
     let tenant_key = keys::tenant_key(tx, ring, &ctx).await?;
 
-    // **The genesis grants are named in the sealed entry, before any of them
-    // is written.** §6.1 and the note in `0012`'s header: no `CHECK` can read
-    // another table, so no constraint can say "there is no genesis after
-    // creation". The organisation's own chain can. Each grant's id is minted
-    // here, listed in `org_genesis`, and then used as the row's primary key,
-    // so a genesis row that this entry does not name is refused at use — and
-    // a late genesis row cannot be named by an entry sealed before it existed.
+    // **The genesis grants are named in the sealed entry before any is written**
+    // (§6.1, `0012`'s header). No `CHECK` can read another table, so no constraint
+    // can say "no genesis after creation"; the organisation's chain can. Each id
+    // is minted here, listed in `org_genesis`, then used as the row's primary key,
+    // so a genesis row this entry does not name is refused at use, and a late one
+    // cannot be named by an earlier-sealed entry.
     let mut ids_for: Vec<String> = Vec::with_capacity(grants.len());
     for _ in grants {
         ids_for.push(ids::new_ulid().to_string());
@@ -1338,17 +1258,15 @@ pub async fn bootstrap_organisation(
             granter_key_fpr: &root_fpr,
             effective_from_unix: request.effective_from_unix,
             expires_at_unix: request.expires_at_unix,
-            // A genesis grant is root-signed and needs no seconding for a
-            // reason of its own (§6.1); it is not §3.5's sole-steward path and
-            // does not claim the flag.
+            // Root-signed, so needs no seconding for its own reason (§6.1). Not
+            // §3.5's sole-steward path, so no flag.
             sole_steward_appointment: false,
             auth_epoch: 1,
         };
         let message = authority::grant_bytes(&facts);
-        // **Verified before it is stored, and verified again at every use.**
-        // This call is not the control; §3.4's is. It is here so that a
-        // signature that could never verify is refused at the door rather
-        // than becoming a row that fails confusingly later.
+        // **Verified before it is stored, and again at every use.** This call is
+        // not the control (§3.4's is); it refuses a signature that could never
+        // verify at the door.
         authority::verify_es256(root_pubkey, &message, &request.signature)?;
 
         let grant = Grant {
@@ -1387,23 +1305,13 @@ pub async fn bootstrap_organisation(
 // ---------------------------------------------------------------------------
 // Signing a grant — §3.3, §3.5
 //
-// TWO STEPS, AND WHY THE ONE-STEP SHAPE COULD NOT WORK
-//
-// `sign_grant` used to take a finished signature and then choose, itself,
-// three of the values that signature had to cover: the `auth_epoch`, the
-// wall-clock `now`, and the `effective_from` derived from it. The client could
-// not have signed those bytes, because they did not exist until after the
-// client signed. It worked only while the server's second and the client's
-// second happened to be the same one — and this repository's own suite flaked
-// on exactly that, refusing a correct signature with `DoesNotVerify` whenever
-// the clock ticked between the two.
-//
-// So: `propose_grant` fixes every server-chosen value and returns exactly the
-// bytes to sign. `sign_grant` verifies over those bytes AS ISSUED and never
-// recomputes them. What it re-checks at commit is whether the proposal is
-// still current -- and if it is not, it refuses and says to propose again. The
-// server may not quietly adjust bytes somebody has signed; that is the whole
-// point of the signature.
+// Two steps. `propose_grant` fixes every server-chosen value (`auth_epoch`,
+// `now`, `effective_from`) and returns exactly the bytes to sign. `sign_grant`
+// verifies over those bytes AS ISSUED and never recomputes them. At commit it
+// only re-checks that the proposal is still current, and otherwise refuses and
+// says to propose again. A one-step shape cannot work: the client cannot sign
+// bytes that do not exist until after it signed. The server may not quietly
+// adjust bytes somebody has signed.
 // ---------------------------------------------------------------------------
 
 /// What a steward is asking to grant.
@@ -1416,9 +1324,8 @@ pub struct GrantRequest {
 }
 
 /// A proposal: every server-chosen value fixed, and the exact bytes to sign.
-///
-/// Handed to the granter, signed by them, and handed back to [`sign_grant`]
-/// unchanged. Nothing in here is recomputed on the way back.
+/// Signed by the granter and handed back to [`sign_grant`] unchanged; nothing is
+/// recomputed on the way back.
 #[derive(Clone, Debug)]
 pub struct GrantProposal {
     pub organisation: String,
@@ -1435,38 +1342,35 @@ pub struct GrantProposal {
     /// Server-chosen. Re-checked at [`sign_grant`], never re-derived.
     pub auth_epoch: i32,
     /// §3.5's sole-steward path: server-chosen, **inside the signed bytes**
-    /// (`fathom/grant/v2`), and re-derived at [`sign_grant`] rather than
-    /// believed. All three, because this one bool decides whether a `steward`
-    /// grant is live on one signature.
+    /// (`fathom/grant/v2`), and re-derived at [`sign_grant`], not believed. It
+    /// decides whether a `steward` grant is live on one signature.
     pub sole_steward_appointment: bool,
-    /// **Exactly the bytes to sign** — `authority::grant_bytes` over the
-    /// facts above, built once so that the two steps cannot disagree.
+    /// **Exactly the bytes to sign**: `authority::grant_bytes` over the facts
+    /// above, built once so the two steps cannot disagree.
     pub bytes: Vec<u8>,
 }
 
 /// Step one: fix the server's choices and produce the bytes to sign (§3.3).
 ///
 /// The granter must already hold `steward` at or above the scope, **verified
-/// through `authorise_account`** — so the seven steps run before a grant is
-/// proposed as well as before a design is opened.
+/// through `authorise_account`**.
 ///
 /// # §3.5's quorum, and the sole-steward path
 ///
 /// Granting `read` or `draw` needs one steward. Granting `steward` needs
-/// `min(2, live distinct stewards of the organisation)`:
+/// `min(2, live distinct stewards)`:
 ///
-/// - **Two or more live stewards** → the grant is written and is **not usable
-///   until a second steward seconds it** ([`second_grant`]). That is the
-///   quorum, enforced at use by `authorise_account`.
-/// - **Exactly one live steward** → §3.5's sole-steward path: the grant is
-///   marked `sole_steward_appointment`, its `effective_from` is pushed 24
-///   hours out, and it needs no seconding.
+/// - **Two or more live stewards**: the grant is not usable until a second
+///   steward seconds it ([`second_grant`]), enforced at use by
+///   `authorise_account`.
+/// - **Exactly one live steward**: §3.5's sole-steward path. The grant is marked
+///   `sole_steward_appointment`, its `effective_from` is pushed 24 hours out, and
+///   it needs no seconding.
 ///
-/// The count is [`AuthorityState::steward_count`], which counts a suspended
-/// steward and does not count an expired one — see its own note for the two
-/// attacks that turned on those choices. And the sole path is closed outright
-/// while a single-steward act that weakens another steward is still inside its
-/// delay, so suspending your co-steward does not make you sole.
+/// The count is [`AuthorityState::steward_count`] (see its note on suspended and
+/// expired stewards). The sole path is closed while a single-steward act that
+/// weakens another steward is still in its delay, so suspending your co-steward
+/// does not make you sole.
 pub async fn propose_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -1517,16 +1421,11 @@ pub async fn propose_grant(
 }
 
 /// Every value the **server** picks for a grant, derived from the authority
-/// state as it is at `now`.
+/// state at `now`.
 ///
-/// # One function, called twice, and that is the point
-///
-/// [`propose_grant`] calls it to fix the values a granter is about to sign;
-/// [`sign_grant`] calls it again at commit and refuses if the answer has
-/// changed. Two spellings of "is this a sole-steward appointment" — one at
-/// each end — is how the two ends come to disagree, and the disagreement that
-/// mattered was the one where the proposal's own copy of the flag was simply
-/// believed.
+/// Called by both [`propose_grant`] and [`sign_grant`] (which refuses if the
+/// answer changed). Two spellings of "is this a sole-steward appointment" is how
+/// the two ends come to disagree.
 struct ServerChoices {
     sole_steward_appointment: bool,
     effective_from_unix: i64,
@@ -1555,10 +1454,9 @@ fn server_choices(
 
 /// The bytes a proposal's own fields say it is.
 ///
-/// **`GrantProposal`'s fields are all `pub` and it crosses a process
-/// boundary**, so `bytes` and the fields beside it are two statements of one
-/// thing and nothing made them agree. [`sign_grant`] recomputes this and
-/// refuses a proposal whose `bytes` are not what its fields spell out.
+/// `GrantProposal`'s fields are all `pub` and it crosses a process boundary, so
+/// `bytes` and the fields beside it are two statements of one thing.
+/// [`sign_grant`] recomputes this and refuses a proposal whose `bytes` differ.
 fn proposal_bytes(proposal: &GrantProposal) -> Vec<u8> {
     authority::grant_bytes(&GrantFacts {
         organisation: &proposal.organisation,
@@ -1578,55 +1476,41 @@ fn proposal_bytes(proposal: &GrantProposal) -> Vec<u8> {
 
 /// Step two: verify the signature **over the bytes as issued**, and commit.
 ///
-/// # What is checked here, and what is deliberately not
+/// The signature is verified over `proposal.bytes` exactly as [`propose_grant`]
+/// produced them, never over bytes rebuilt for verification: that would let the
+/// server verify something other than what was signed.
 ///
-/// The signature is verified over `proposal.bytes` exactly as
-/// [`propose_grant`] produced them. The bytes are not *rebuilt for
-/// verification* — a server that verifies a signature over something it
-/// assembled itself has given itself the ability to verify something other
-/// than what was signed, and rebuilding them at that point is what made the
-/// one-step version fail.
+/// # Every other field IS re-derived
 ///
-/// # But every field beside them IS re-derived, and this is the defect that
-/// taught it
-///
-/// `GrantProposal` crosses a process boundary with all its fields `pub`, and
-/// this function used to copy `sole_steward_appointment` off it onto the row.
-/// Nothing bound the flag to the signature and nothing re-derived it, so a
-/// steward could sign an honest proposal, flip the flag on the way back, and
-/// mint a `steward` grant that needed no seconding and waited no 24 hours —
-/// §3.5's whole quorum, defeated by setting a `bool` on a struct. Three
-/// things close it, and each closes it alone:
+/// `GrantProposal` crosses a process boundary with `pub` fields. Copying
+/// `sole_steward_appointment` off it would let a steward sign an honest
+/// proposal, flip the flag on the way back, and mint a `steward` grant needing no
+/// seconding or 24-hour wait, defeating §3.5's quorum. Three things each close it
+/// alone:
 ///
 /// 1. **The flag is inside `grant_bytes`** (`fathom/grant/v2`), so flipping it
-///    invalidates the granter's signature and the seconder's with it.
-/// 2. **The bytes are recomputed from the proposal's own fields** and must be
-///    the bytes presented. A proposal whose fields and bytes disagree is not a
-///    stale proposal, it is a forged one, and it is refused as
+///    invalidates the granter's and seconder's signatures.
+/// 2. **The bytes are recomputed from the proposal's fields** and must equal
+///    those presented. A mismatch is a forged proposal, refused as
 ///    [`AuthorityError::Unverifiable`].
-/// 3. **Every server-chosen value is re-derived from the state as it is at
-///    commit** and must match exactly: the epoch, the sole-steward
-///    determination, the `effective_from` that determination implies, the
+/// 3. **Every server-chosen value is re-derived at commit** and must match: the
+///    epoch, the sole-steward determination, its implied `effective_from`, the
 ///    organisation root fingerprint and the subject's key fingerprint.
 ///
-/// The freshness checks, each exact rather than fuzzy:
+/// Freshness checks, each exact:
 ///
-/// - **The epoch must still be the head's next.** If another transaction
-///   advanced the authority in between, the signed `auth_epoch` is stale and
-///   the grant would take its place in a state its signer never saw.
+/// - **The epoch must still be the head's next.** Otherwise the grant lands in a
+///   state its signer never saw.
 /// - **The sole-steward determination must still hold.** A second steward
-///   appearing between the two steps turns a one-signature appointment into
-///   one that needs a seconding; a proposal signed under the old answer is
-///   refused rather than committed under the new one.
+///   appearing between the steps turns a one-signature appointment into one
+///   needing seconding.
 /// - **`effective_from` must be the one the flag implies**, within
-///   [`PROPOSAL_SKEW_SECONDS`] of it — `now` for an ordinary grant, `now +
-///   `[`SOLE_STEWARD_DELAY_SECONDS`] for a sole appointment. A grant that says
-///   it took effect an hour ago is backdated, and backdating is how a grant is
-///   made to look older than the revocation that should have caught it.
+///   [`PROPOSAL_SKEW_SECONDS`]: `now` for an ordinary grant, `now +`
+///   [`SOLE_STEWARD_DELAY_SECONDS`] for a sole appointment. Backdating makes a
+///   grant look older than the revocation that should have caught it.
 ///
-/// Any of those is [`AuthorityError::Stale`], which says to propose again. The
-/// server does not adjust and re-sign, because it cannot: it holds no
-/// steward's private key, which is the property §3.3 is built on.
+/// Any failure is [`AuthorityError::Stale`]: propose again. The server cannot
+/// adjust and re-sign because it holds no steward's private key (§3.3).
 pub async fn sign_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -1640,26 +1524,23 @@ pub async fn sign_grant(
         return Err(AuthorityError::Stale("it was issued for another actor"));
     }
 
-    // The proposal's bytes must be the bytes its fields spell out. Every field
-    // below is read off the proposal, and this is what makes reading them
-    // safe: what the signature covers and what the row is built from are one
-    // statement, not two.
+    // The bytes must be what the fields spell out. Every field below is read off
+    // the proposal, so this makes what the signature covers and what the row is
+    // built from one statement.
     if proposal_bytes(proposal) != proposal.bytes {
         return Err(AuthorityError::Unverifiable(
             "the proposal's fields are not the bytes it carries",
         ));
     }
 
-    // The granter's authority again, at commit: a proposal is not a permit,
-    // and a granter revoked between the two steps grants nothing.
+    // The granter's authority again at commit: a proposal is not a permit, and a
+    // granter revoked between the steps grants nothing.
     let scope = proposal.scope.as_deref().map(parse_scope).transpose()?;
     authorise_account(tx, auth, scope, Capability::Steward).await?;
 
-    // Every server-chosen value, re-derived from the state as it is now.
-    //
-    // The sole-steward determination is checked BEFORE the epoch, so that a
-    // proposal overtaken by a second steward's arrival says which fact moved.
-    // Both refusals are the same typed re-propose error.
+    // Every server-chosen value, re-derived from current state. The sole-steward
+    // determination is checked BEFORE the epoch, so an overtaken proposal says
+    // which fact moved.
     let now = now_unix();
     let state = read_authority_state(tx, &organisation).await?;
     let choices = server_choices(&state, proposal.capability, now)?;
@@ -1668,10 +1549,9 @@ pub async fn sign_grant(
             "the sole-steward determination has changed",
         ));
     }
-    // `effective_from` must be the value the flag implies, allowing only for
-    // the time the signer took. Not "not too old": a sole appointment's
-    // `effective_from` is a day in the FUTURE, and a one-sided staleness test
-    // against `now` passed it trivially.
+    // `effective_from` must be the value the flag implies, allowing for signing
+    // time. Not "not too old": a sole appointment's is a day in the FUTURE, which
+    // a one-sided test against `now` passed trivially.
     let drift = choices.effective_from_unix - proposal.effective_from_unix;
     if !(0..=PROPOSAL_SKEW_SECONDS).contains(&drift) {
         return Err(AuthorityError::Stale(
@@ -1681,9 +1561,8 @@ pub async fn sign_grant(
     if next_epoch(tx, &organisation).await? != proposal.auth_epoch {
         return Err(AuthorityError::Stale("the authority head has moved"));
     }
-    // The two fingerprints the server resolved for the signer, resolved again.
-    // A key rotated between the two steps means the bytes name a key the
-    // organisation no longer points at, which is a re-propose and not a
+    // Re-resolve the two fingerprints. A key rotated between the steps means the
+    // bytes name a key the organisation no longer points at: re-propose, not
     // silent substitution.
     if organisation_root_fpr(tx, ring, &organisation).await? != proposal.root_pubkey_fpr {
         return Err(AuthorityError::Stale("the organisation root has moved"));
@@ -1719,9 +1598,8 @@ pub async fn sign_grant(
         granter_sig: signature.to_vec(),
         is_genesis: false,
         is_recovery: false,
-        // The RE-DERIVED flag, not the proposal's copy of it. They are equal
-        // by the check above; taking the derived one means that if the check
-        // is ever loosened, the row still says what the state says.
+        // The RE-DERIVED flag, not the proposal's copy. Equal by the check above;
+        // if that is ever loosened, the row still says what the state says.
         sole_steward_appointment: choices.sole_steward_appointment,
         auth_epoch: proposal.auth_epoch,
         effective_from_unix: proposal.effective_from_unix,
@@ -1832,11 +1710,10 @@ async fn insert_grant(
 
 /// §3.5's second signature.
 ///
-/// The seconder must hold `steward`, must not be the subject or the granter
-/// (`0011` refuses both through a three-column foreign key and a `CHECK`), and
-/// signs [`authority::second_bytes`] — which binds `LP(H(grant_bytes)) ‖
-/// LP(granter_key_fpr)` and **never** the granter's signature, per the
-/// correction at the head of §3.
+/// The seconder must hold `steward` and must not be the subject or granter
+/// (`0011` refuses both via a three-column foreign key and a `CHECK`). It signs
+/// [`authority::second_bytes`], which binds `LP(H(grant_bytes)) ‖
+/// LP(granter_key_fpr)` and **never** the granter's signature (§3's correction).
 pub async fn second_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -1862,11 +1739,9 @@ pub async fn second_grant(
         &grant_bytes_of(tx, ring, &grant).await?,
         &grant.granter_key_fpr,
     );
-    // ADR-0055 stream (a): any live key of the seconder, not the newest —
-    // `verify_by_any_live_key`'s own doc carries the argument. It also checks
-    // the keyring row's own seal, which `signing_key_of` did not. The key that
-    // VERIFIED is the one whose fingerprint goes on the seconding row below,
-    // so the record names what actually signed.
+    // ADR-0055 stream (a): any live key of the seconder (see
+    // `verify_by_any_live_key`), with its row seal checked. The key that VERIFIED
+    // goes on the seconding row, so the record names what actually signed.
     let seconder_key =
         verify_by_any_live_key(tx, ring, &seconder, &message, signature, now_unix()).await?;
 
@@ -1966,9 +1841,8 @@ pub async fn set_suspension(
     } else {
         authority::unsuspend_bytes(&organisation, &grant.id, &grant_bytes, at_unix)
     };
-    // ADR-0055 stream (a): any live key of the actor, not the newest. The key
-    // that VERIFIED is the one whose fingerprint goes on the suspension row
-    // below, so the record names what actually signed.
+    // ADR-0055 stream (a): any live key of the actor. The key that VERIFIED goes
+    // on the suspension row, so the record names what actually signed.
     let key = verify_by_any_live_key(tx, ring, &actor, &message, signature, at_unix).await?;
 
     let takes_effect = weakening_act_takes_effect_at(&grant, &actor, suspend, at_unix);
@@ -1989,33 +1863,29 @@ pub async fn set_suspension(
     .await
 }
 
-/// When an act against a grant takes effect — now, or after §3.5's delay.
+/// When an act against a grant takes effect: now, or after §3.5's delay.
 ///
 /// # The sequence this exists to refuse
 ///
-/// One steward suspends the other; the organisation now looks
-/// single-stewarded; the survivor appoints a third **alone**, as a "sole
-/// steward" appointment; then lifts the suspension. Two signatures' worth of
-/// authority manufactured out of one, and every individual step permitted by
-/// the rules as they stood.
+/// One steward suspends the other, the organisation now looks single-stewarded,
+/// the survivor appoints a third **alone** as a sole-steward appointment, then
+/// lifts the suspension: two signatures' worth of authority from one, each step
+/// permitted.
 ///
 /// [`AuthorityState::steward_count`] closes it from one side by counting a
-/// suspended steward. This closes it from the other, and is the general
-/// statement: **a single-steward act that removes or weakens another steward
-/// waits out the same 24 hours a sole appointment does.** For the 24 hours it
-/// is pending it is visible, it is on the organisation chain marked as what it
-/// is, and the sole-steward path is closed while it stands.
+/// suspended steward. This closes it from the other: **a single-steward act that
+/// removes or weakens another steward waits out the same 24 hours a sole
+/// appointment does.** While pending it is visible, marked on the organisation
+/// chain, and the sole-steward path is closed.
 ///
-/// Three acts are immediate, because none of them weakens anybody else:
-/// revoking or suspending a `read` or `draw` grant, acting on your own grant,
-/// and lifting a suspension.
+/// Three acts are immediate because none weakens anybody else: revoking or
+/// suspending a `read` or `draw` grant, acting on your own grant, and lifting a
+/// suspension.
 ///
-/// **The cost, stated rather than buried:** offboarding a steward now takes a
-/// day to bite. §3.5 already accepts that cost for the mirror-image act, and
-/// the alternative is that the same single signature that cannot appoint a
-/// steward immediately can remove one immediately — which is the asymmetry the
-/// attack walks through. An organisation that needs a steward stopped *now*
-/// has suspension by an operator (§1.1), which is a different fence.
+/// **Cost:** offboarding a steward takes a day to bite. §3.5 accepts that for the
+/// mirror-image act; otherwise one signature that cannot appoint a steward
+/// immediately could remove one immediately. An organisation needing a steward
+/// stopped *now* has operator suspension (§1.1).
 fn weakening_act_takes_effect_at(grant: &Grant, actor: &str, weakening: bool, at_unix: i64) -> i64 {
     let weakens_another_steward =
         weakening && grant.capability == Capability::Steward && grant.subject_id != actor;
@@ -2026,20 +1896,10 @@ fn weakening_act_takes_effect_at(grant: &Grant, actor: &str, weakening: bool, at
     }
 }
 
-/// **§1.1's operator suspend verb is schema-only, and this is where its caller
-/// would be.**
+/// Write one suspension row and its sealed entry, then advance the head.
 ///
-/// `0011`'s `grant_suspensions` admits `actor_kind = 'operator'` — with a
-/// `CHECK` that refuses `unsuspend` for one, so an operator can stop a grant
-/// and cannot restore it (*"any steward of that organisation may lift it"*).
-/// **No function writes that row**, because the operator surface it belongs to
-/// does not exist: §15.6 stages the admin surface after sessions, and §1.3's
-/// admin pool is read-only, so the write has to come from an application
-/// endpoint that has not been built. Writing one now would mean a path with no
-/// authentication in front of it that mutates authority in every tenant.
-///
-/// The schema carries the shape so that the surface, when it lands, has a
-/// constraint to land against rather than a column to add.
+/// Shared by steward suspend/unsuspend and [`suspend_grant_by_operator`] (§1.1).
+/// An operator row carries no signature or key fingerprint.
 #[allow(clippy::too_many_arguments)]
 async fn write_suspension(
     tx: &Transaction<'_>,
@@ -2076,8 +1936,8 @@ async fn write_suspension(
                 ("at", Json::Int(at_unix)),
                 ("takes_effect_at", Json::Int(takes_effect_unix)),
                 // §3.5: a single-steward act that weakens another steward is
-                // *recorded as such* on the organisation chain, not merely
-                // delayed. A reader of the trail can see why it waited.
+                // *recorded as such* on the organisation chain, not merely delayed,
+                // so a reader can see why it waited.
                 (
                     "single_steward_act",
                     Json::Bool(takes_effect_unix > at_unix),
@@ -2098,9 +1958,8 @@ async fn write_suspension(
         row_seal: Vec::new(),
     };
 
-    // The seal names the chain sequence, which is unique per organisation
-    // chain, so it is the row's identity here: `grant_suspensions.seq` is an
-    // identity column the database assigns after this is computed.
+    // The seal's row identity is the chain sequence (unique per organisation
+    // chain): `grant_suspensions.seq` is database-assigned, after this is computed.
     let seal = authority::row_seal(
         &row_key_for(ring, &organisation),
         &RowFacts {
@@ -2138,52 +1997,37 @@ async fn write_suspension(
     Ok(())
 }
 
-/// **§1.1's operator suspend verb, made real.**
+/// **§1.1's operator suspend verb.**
 ///
-/// *"Suspend a scope grant (immediate) | operator session; any steward of that
-/// organisation may lift it; if no steward is live, the recovery key lifts
-/// it."* This is the one authority-adjacent act the operator plane has, and it
-/// is deliberately one-way: there is no operator unsuspend here, and `0011`'s
-/// own `CHECK` refuses `action = 'unsuspend'` for an `actor_kind = 'operator'`
-/// row, so a second opinion is needed to restore what one operator stopped.
+/// The one authority-adjacent act the operator plane has, and deliberately
+/// one-way: `0011`'s `CHECK` refuses `action = 'unsuspend'` for
+/// `actor_kind = 'operator'`, so restoring what an operator stopped needs a
+/// steward (or the recovery key if none is live).
 ///
-/// # What an operator does NOT gain by holding this
+/// # What an operator does NOT gain
 ///
-/// * **No capability anywhere.** Suspension only ever removes a grant from the
-///   live set; `authorise_account` skips a suspended grant and nothing about
-///   this act can add one. An operator who suspends every grant in an
-///   organisation has locked its stewards out and has still read nothing.
+/// * **No capability.** Suspension only removes a grant from the live set. An
+///   operator who suspends every grant has locked stewards out and read nothing.
 /// * **No design payload.** `repo::enter_operator_tenant_scope` sets
-///   `app.design_capability` to its refusal and never to anything else.
-/// * **No signature.** `actor_sig` is `NULL` for an operator, because there is
-///   nothing an operator could sign that a steward would honour — their
-///   authority for this act is the operator session, and the session is what
-///   the site chain records. The organisation's own chain records the act with
-///   `actor_kind = 'operator'`, so a steward reading their own trail can see
-///   that the machine side did this and who to ask.
-/// * **No immediacy against a steward's own protections.** §3.5's delay on a
-///   weakening act is a rule about a *steward* acting alone; §1.1 makes the
-///   operator's suspension immediate on purpose, because the case it exists
-///   for is a steward who must be stopped now. That asymmetry is the design's,
-///   is written down there, and is why the act is one-way and loudly recorded.
+///   `app.design_capability` to its refusal and never anything else.
+/// * **No signature.** `actor_sig` is `NULL`: the operator's authority is the
+///   operator session, which the site chain records. The organisation chain
+///   records the act with `actor_kind = 'operator'`, so stewards can see the
+///   machine side did it.
+/// * **No delay.** §3.5's delay is about one steward weakening another. §1.1
+///   makes this immediate because it exists to stop a steward now; that
+///   asymmetry is why the act is one-way and loudly recorded.
 ///
-/// # Why this takes an organisation id, which §4's pinning rule would rather it
-/// did not
+/// # Why this takes an organisation id
 ///
-/// `scope_grants` is behind `organisation_id = app.tenant_id`, so the grant row
-/// cannot be read until a tenant is named — and the tenant cannot be read off
-/// the grant row that cannot be read. An earlier draft of this function took
-/// only a grant id for exactly the reason §4 gives, and it could not read
-/// anything.
-///
-/// So the caller names both, and **the pair is checked**: the organisation
-/// scopes the transaction, the grant is read inside that scope, and a grant
-/// whose own `organisation_id` is not the one named is refused. An operator who
-/// guesses a grant id from another tenant gets `NotAuthorised` rather than a
-/// suspension in the organisation they named. The alternative — widening
-/// `scope_grants`' read policy to any transaction that sets
-/// `app.operator_custody` — would give the application role a way to read every
-/// grant in the estate, which is a larger door than this one.
+/// `scope_grants` is behind `organisation_id = app.tenant_id`, so the grant
+/// cannot be read until a tenant is named, and the tenant cannot be read off the
+/// unreadable grant (§4's pinning rule). So the caller names both and **the pair
+/// is checked**: the grant is read inside the organisation's scope and refused
+/// unless its own `organisation_id` matches. A guessed grant id from another
+/// tenant gets `NotAuthorised`. Widening `scope_grants`' read policy to any
+/// transaction setting `app.operator_custody` was rejected: it would let the
+/// application role read every grant in the estate.
 pub async fn suspend_grant_by_operator(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -2215,9 +2059,8 @@ pub async fn suspend_grant_by_operator(
         None,
         None,
         at_unix,
-        // Immediate, which is the whole point of the verb (§1.1). §3.5's delay
-        // is a rule about one steward weakening another, and an operator is
-        // not a steward.
+        // Immediate, the point of the verb (§1.1). §3.5's delay is about one
+        // steward weakening another, and an operator is not a steward.
         at_unix,
     )
     .await?;
@@ -2258,8 +2101,8 @@ pub async fn revoke_grant(
     let _ = &key;
 
     // §3.5, as amended: revoking another steward's grant on one signature is a
-    // single-steward act that weakens a steward, and waits out the same delay
-    // a sole appointment does. See `weakening_act_takes_effect_at`.
+    // single-steward weakening act and waits out the sole-appointment delay. See
+    // `weakening_act_takes_effect_at`.
     let takes_effect = weakening_act_takes_effect_at(&grant, &actor, true, at_unix);
 
     let appended = chains::append_org(
@@ -2346,15 +2189,14 @@ pub async fn advance_head(
     .await
 }
 
-/// The half of [`advance_head`] that takes the organisation and the actor
-/// directly, for §1.1's operator suspend verb — which has no tenant context
-/// because an operator can never be a member (`0004`).
+/// The half of [`advance_head`] taking the organisation and actor directly, for
+/// §1.1's operator suspend verb (an operator is never a member, `0004`, so has no
+/// tenant context).
 ///
-/// **The head MUST advance for every act that changes the authority state**,
-/// operator acts included: §3.4 step 4 recomputes the digest over the whole
-/// state and refuses the organisation outright if it disagrees with the head.
-/// An operator suspension that skipped this would not weaken one grant, it
-/// would make every authorisation in that organisation an integrity alarm.
+/// **The head MUST advance for every act that changes authority state**,
+/// operator acts included: §3.4 step 4 recomputes the digest over the whole state
+/// and refuses the organisation if it disagrees with the head. Skipping it would
+/// make every authorisation in that organisation an integrity alarm.
 pub(crate) async fn advance_head_as(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -2439,11 +2281,9 @@ async fn next_epoch(tx: &Transaction<'_>, organisation: &str) -> Result<i32, Aut
 
 /// The **whole authority state** of one organisation, read once per act.
 ///
-/// §3.4's head covered the live grants and nothing else, which left every
-/// seconding, suspension and revocation outside every seal and outside the
-/// head. This is the set the head now covers, and the set every verdict is
-/// computed from — read once, so that two checks in one authorisation cannot
-/// disagree about what the database said.
+/// The head covers every seconding, suspension and revocation as well as live
+/// grants. Every verdict is computed from this one read, so two checks in one
+/// authorisation cannot disagree about what the database said.
 struct AuthorityState {
     organisation: String,
     grants: Vec<Grant>,
@@ -2568,10 +2408,9 @@ async fn read_authority_state(
     let mut suspensions = Vec::new();
     for row in tx
         .query(
-            // ORDER BY the identity column, so "the latest suspension" does
-            // not depend on a clock anybody can set. `seq` is not carried on
-            // the struct: the row's identity inside its seal is the chain
-            // sequence, and two statements of one identity is one too many.
+            // ORDER BY the identity column, so "the latest suspension" does not
+            // depend on a clock anybody can set. `seq` is not carried on the
+            // struct: the row's identity inside its seal is the chain sequence.
             "SELECT grant_id, action, actor_kind, actor_id, \
                     EXTRACT(EPOCH FROM at)::bigint, \
                     EXTRACT(EPOCH FROM takes_effect_at)::bigint, chain_seq, row_seal \
@@ -2626,23 +2465,19 @@ async fn read_authority_state(
 }
 
 impl AuthorityState {
-    /// Every row the head's digest covers, keyed `"<table>/<row identity>"`
-    /// and carrying its **recomputed** seal.
+    /// Every row the head's digest covers, keyed `"<table>/<row identity>"` and
+    /// carrying its **recomputed** seal.
     ///
-    /// The seal in the digest is recomputed, never the stored one: a head
-    /// built from stored seals would carry an edited row's own lie forward.
-    /// The stored seal is compared separately, at use, for every row an answer
-    /// actually rests on — the two checks catch different things, and a
-    /// seconding with a valid signature but a forged stored seal is caught
-    /// only by the second.
+    /// The digest uses recomputed seals, never stored ones: a head built from
+    /// stored seals would carry an edited row's own lie forward. The stored seal
+    /// is compared separately at use (see [`AuthorityState::verify_stored_seals`]);
+    /// the two checks catch different things.
     ///
-    /// **Grants with a revocation row drop out of the grant portion**, and
-    /// their revocation row is in the set instead, so a revocation that is
-    /// deleted changes the digest twice over. Whether that revocation has yet
-    /// *taken effect* is a question for use, not for the digest: folding time
-    /// into the set would mean the head has to be resealed as clocks pass,
-    /// which nothing triggers, so the head would go stale and every
-    /// authorisation in the organisation would fail.
+    /// **Grants with a revocation row drop out of the grant portion** and their
+    /// revocation row is in the set instead, so deleting a revocation changes the
+    /// digest twice over. Whether a revocation has *taken effect* is a question
+    /// for use, not the digest: folding time in would require resealing the head
+    /// as clocks pass, which nothing triggers, so every authorisation would fail.
     fn digest_entries(&self, row_key: &Key32) -> Vec<(String, [u8; 32])> {
         let revoked: BTreeSet<&str> = self
             .revocations
@@ -2685,10 +2520,10 @@ impl AuthorityState {
             ));
         }
         for s in &self.suspensions {
-            // `seq` is an identity column the database assigns, so the seal
-            // names the grant and the chain sequence -- which is unique per
-            // organisation chain -- and the digest key is zero-padded so that
-            // string ordering and numeric ordering agree.
+            // The seal names the grant and the chain sequence (`seq` is
+            // database-assigned; the chain sequence is unique per organisation
+            // chain). The digest key is zero-padded so string and numeric
+            // ordering agree.
             entries.push((
                 format!("grant_suspensions/{:020}", s.chain_seq),
                 authority::row_seal(
@@ -2723,19 +2558,15 @@ impl AuthorityState {
 
     /// Every authority row's **stored** seal recomputes.
     ///
-    /// # Why this is a second check and not the same one
-    ///
-    /// [`AuthorityState::digest_entries`] puts the *recomputed* seal into the
-    /// head's digest, which is what makes an edited row change the digest and
-    /// fail against the sealed head. But a row whose stored seal is forged and
-    /// whose content is untouched produces the same recomputed seal, so it
-    /// sails through the digest comparison. The stored seal has to be compared
-    /// against the recomputation as well, and this is where.
+    /// [`AuthorityState::digest_entries`] puts the *recomputed* seal in the head's
+    /// digest, which catches an edited row. A row with a forged stored seal and
+    /// untouched content yields the same recomputed seal and passes the digest
+    /// comparison, so the stored seal must be compared too.
     ///
     /// Across the whole state, not only the rows an answer rests on: the head
-    /// is a statement about the whole authority, and a store that is lying
-    /// about one row of it is not a store to take a permission from. §3.4's
-    /// posture, unchanged — `Unverifiable`, never "no grants found".
+    /// speaks for the whole authority, and a store lying about one row is not one
+    /// to take a permission from. §3.4's posture: `Unverifiable`, never "no grants
+    /// found".
     fn verify_stored_seals(&self, row_key: &Key32) -> Result<(), AuthorityError> {
         let check = |stored: &[u8], facts: &RowFacts<'_>, what: &'static str| {
             if stored != authority::row_seal(row_key, facts) {
@@ -2802,19 +2633,18 @@ impl AuthorityState {
 
     /// Whether a revocation has taken effect against this grant by `at_unix`.
     ///
-    /// §3.5, as amended: a single-steward act that removes or weakens another
-    /// steward waits out the same 24 hours a sole appointment does, so the
-    /// existence of a revocation row and its taking effect are two different
-    /// moments.
+    /// §3.5, as amended: a single-steward weakening act waits out the
+    /// sole-appointment delay, so a revocation row existing and taking effect are
+    /// two different moments.
     fn revoked_by(&self, grant_id: &str, at_unix: i64) -> bool {
         self.revocations
             .iter()
             .any(|r| r.grant_id == grant_id && r.takes_effect_unix <= at_unix)
     }
 
-    /// As [`AuthorityState::revoked_by`], but only counting revocations
-    /// written by chain position `as_of_seq` — the historical question a
-    /// seconding asks about its seconder.
+    /// As [`AuthorityState::revoked_by`], counting only revocations written by
+    /// chain position `as_of_seq`: the historical question a seconding asks about
+    /// its seconder.
     fn revoked_as_of(&self, grant_id: &str, at_unix: i64, as_of_seq: i64) -> bool {
         self.revocations.iter().any(|r| {
             r.grant_id == grant_id && r.takes_effect_unix <= at_unix && r.chain_seq <= as_of_seq
@@ -2835,10 +2665,9 @@ impl AuthorityState {
 
     /// Is any single-steward weakening act still inside its delay?
     ///
-    /// §3.5: *"the sole-steward path cannot be taken while such an act is
-    /// pending."* Otherwise one steward suspends the other, waits for the
-    /// count to fall to one, and appoints a third alone — which is the
-    /// sequence this clause exists to refuse.
+    /// §3.5: the sole-steward path cannot be taken while one is pending.
+    /// Otherwise one steward suspends the other, waits for the count to fall to
+    /// one, and appoints a third alone.
     fn a_weakening_act_is_pending(&self, at_unix: i64) -> bool {
         self.revocations
             .iter()
@@ -2849,22 +2678,19 @@ impl AuthorityState {
                 .any(|s| s.action == "suspend" && s.takes_effect_unix > at_unix)
     }
 
-    /// §3.5's `min(2, live distinct stewards)` — the count.
-    ///
-    /// # What counts, and the two ways this was wrong
+    /// §3.5's `min(2, live distinct stewards)`: the count.
     ///
     /// **Expired grants do not count.** `0011` requires every steward grant to
-    /// carry an expiry, and the old count ignored expiry entirely — so an
-    /// organisation whose co-steward's grant had lapsed had one steward who
-    /// could do nothing and one who was not sole, and could never appoint
-    /// anybody again. Every organisation deadlocked eventually.
+    /// expire. Counting lapsed ones would leave an organisation whose co-steward
+    /// lapsed with one steward who is not sole and can never appoint anyone: a
+    /// permanent deadlock.
     ///
-    /// **Suspended grants DO count.** A suspension is reversible by any
-    /// steward, so treating a suspended steward as absent let one steward
-    /// suspend the other, become "sole" on the strength of it, appoint a third
-    /// alone, and lift the suspension — manufacturing a steward out of one
-    /// signature. Suspension stops a steward acting; it does not remove them
-    /// from the count that decides whether a second signature is required.
+    /// **Suspended grants DO count.** A suspension is reversible by any steward,
+    /// so treating a suspended steward as absent would let one steward suspend the
+    /// other, become "sole", appoint a third alone and lift the suspension: a
+    /// steward manufactured from one signature. Suspension stops a steward acting;
+    /// it does not remove them from the count that decides whether a second
+    /// signature is required.
     fn steward_count(&self, at_unix: i64) -> usize {
         let mut subjects = BTreeSet::new();
         for grant in &self.grants {
@@ -3007,34 +2833,25 @@ async fn organisation_root_fpr(
 /// Check that the organisation's `is_genesis` rows are exactly the ones its
 /// sealed `org_genesis` chain entry names (§6.1).
 ///
-/// # What this replaces, and what it does not claim
+/// # Why a chain entry, not a constraint
 ///
-/// `0011` carried a `BEFORE INSERT` trigger meant to refuse a genesis grant
-/// once the head had moved past epoch 0. It refused nothing. The function was
-/// `SECURITY DEFINER`, so its read of `organisation_auth_head` ran as the
-/// table's owner; that table is `FORCE ROW LEVEL SECURITY`, so the owner is
-/// subject to its policies too; the policy compares `organisation_id` against
-/// `current_setting('app.tenant_id', true)`, which with no tenant context set
-/// is `NULL`. The `EXISTS` was therefore false in exactly the session a second
-/// genesis would be written from, and the trigger returned `NEW`.
+/// A `CHECK` cannot read another table, so no constraint can say "there is no
+/// genesis after creation". It can only say what a genesis row looks like, and an
+/// attacker writing one picks `auth_epoch = 1` freely. (`0012`'s
+/// `CHECK (NOT is_genesis OR auth_epoch = 1)` is belt-and-braces, not the fence.
+/// `0011`'s trigger refused nothing: under `SECURITY DEFINER` plus `FORCE ROW
+/// LEVEL SECURITY` and no tenant context, its `EXISTS` was false in exactly the
+/// session a second genesis would be written from.)
 ///
-/// `0012` drops it and adds `CHECK (NOT is_genesis OR auth_epoch = 1)`, which
-/// binds at every privilege level. **That `CHECK` is belt-and-braces and not
-/// the fence**: a `CHECK` cannot read another table, so no constraint can
-/// express *"there is no genesis after creation"* — it can only say what a
-/// genesis row must look like, and an attacker writing one directly picks
-/// `auth_epoch = 1` freely.
+/// The fence is this function, resting on the chain. `bootstrap_organisation`
+/// mints each genesis grant's id, names it in the `org_genesis` entry with its
+/// subject and subject key fingerprint, and seals that entry before writing any
+/// grant row. A later genesis row is not in the list and cannot be added: the
+/// entry was sealed first, and re-sealing needs the organisation content key. So
+/// a late genesis grant is **unusable**, not merely late.
 ///
-/// The fence is this function, and it rests on the chain. `bootstrap_organisation`
-/// mints each genesis grant's id, names it in the `org_genesis` entry together
-/// with its subject and subject key fingerprint, and seals that entry before
-/// writing a single grant row. A genesis row added later is not in that list —
-/// and it cannot be added to it, because the entry was sealed before the row
-/// existed and re-sealing it needs the organisation content key. So a late
-/// genesis grant is **unusable**, not merely late.
-///
-/// **It is not unconstructible at the SQL level and must not be described as
-/// if it were.** The row inserts. What it does not do is authorise anybody.
+/// **It is not unconstructible at the SQL level.** The row inserts; it just
+/// authorises nobody.
 async fn verify_genesis_set(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -3159,9 +2976,9 @@ async fn verify_grant_row(
         return Err(AuthorityError::Unverifiable("grant row seal"));
     }
 
-    // The subject's key, resolved as of the grant's own `effective_from`
-    // (§3.3), with the keyring row's seal verified inside
-    // `key_by_fingerprint`, and bound to the subject named on the row.
+    // The subject's key, resolved as of the grant's `effective_from` (§3.3; the
+    // keyring row seal is verified inside `key_by_fingerprint`), and bound to the
+    // row's subject.
     let subject_key =
         key_by_fingerprint(tx, ring, &grant.subject_key_fpr, grant.effective_from_unix).await?;
     if subject_key.account_id != grant.subject_id {
@@ -3179,8 +2996,8 @@ async fn verify_grant_row(
         granter_key_fpr: &grant.granter_key_fpr,
         effective_from_unix: grant.effective_from_unix,
         expires_at_unix: grant.expires_at_unix,
-        // v2: the flag is inside the signature, so an edited flag on a stored
-        // row fails the granter's signature as well as the row seal.
+        // v2: the flag is inside the signature, so an edited flag fails the
+        // granter's signature as well as the row seal.
         sole_steward_appointment: grant.sole_steward_appointment,
         auth_epoch: grant.auth_epoch,
     });
@@ -3190,21 +3007,19 @@ async fn verify_grant_row(
             let key =
                 key_by_fingerprint(tx, ring, &grant.granter_key_fpr, grant.effective_from_unix)
                     .await?;
-            // **The granter's key must belong to the granter's account.**
-            // This is the same binding §3.3 argues for on the subject side and
-            // it was checked only there. Without it, a row naming account A as
-            // granter and account B's key fingerprint verifies happily under
-            // B's key -- so a grant reads, in the audit trail and on the
-            // permission screen, as A's act, and B is who actually signed it.
+            // **The granter's key must belong to the granter's account** (§3.3's
+            // subject-side binding, applied here too). Otherwise a row naming
+            // account A as granter with B's fingerprint verifies under B's key,
+            // reading in the audit trail as A's act when B signed it.
             if key.account_id != *granter_id {
                 return Err(AuthorityError::Unverifiable("granter key binding"));
             }
             key.public_key
         }
         None => {
-            // Root-signed: genesis or recovery. The fingerprint in the row
-            // must be the root's own, or the signature would be checked
-            // against whatever key the keyring happens to hold.
+            // Root-signed (genesis or recovery). The row's fingerprint must be the
+            // root's own, or the signature would be checked against whatever key
+            // the keyring holds.
             if grant.granter_key_fpr != *root_fpr {
                 return Err(AuthorityError::Unverifiable("root grant fingerprint"));
             }
@@ -3223,47 +3038,35 @@ async fn verify_grant_row(
 /// Does this grant carry the signatures §3.5 requires of it?
 ///
 /// **Quorum is met when at least one QUALIFYING seconding exists.** A
-/// qualifying seconding is one whose stored seal recomputes, whose signature
-/// over `second_bytes` verifies under the key that was in service when it was
-/// made, whose seconder is neither the granter nor the subject, and whose
-/// seconder held a verified live `steward` grant covering this grant's scope
-/// **at the seconding's own chain position** — not now. A seconding is a
-/// statement made at a moment; a seconder whose stewardship was revoked
-/// afterwards still seconded it, and one who never held stewardship never did.
+/// qualifying seconding has a stored seal that recomputes, a signature over
+/// `second_bytes` that verifies under the key in service when it was made, a
+/// seconder who is neither granter nor subject, and a seconder who held a
+/// verified live `steward` grant covering this grant's scope **at the
+/// seconding's own chain position**, not now. A seconder revoked afterwards
+/// still seconded; one who never held stewardship never did.
 ///
-/// # A seconding that does not qualify is NOT COUNTED, and is not an alarm
+/// # A non-qualifying seconding is NOT COUNTED, and is not an alarm
 ///
-/// This is the correction. Every check above used to return
-/// [`AuthorityError::Unverifiable`] for the whole grant, so **one bad
-/// seconding failed the grant it was attached to** — and since anybody who
-/// holds `steward` can second any grant, one steward could brick another's
-/// stewardship permanently by adding a seconding that fails to qualify. Not
-/// counting it loses nothing: a forged seal is caught for the whole
-/// organisation by [`AuthorityState::verify_stored_seals`], which runs over
-/// every authority row at every use and is where a store that is lying about
-/// itself is refused. What is left here is a question about one signature's
-/// standing, and the answer to "this signature does not count" is that it does
-/// not count.
+/// Anybody holding `steward` can second any grant. If one bad seconding failed
+/// the grant it was attached to, one steward could brick another's stewardship
+/// permanently. Not counting it loses nothing: a forged seal is caught for the
+/// whole organisation by [`AuthorityState::verify_stored_seals`], which runs at
+/// every use. What remains is a question about one signature's standing.
 ///
 /// # The cycle, and why the recursion terminates
 ///
-/// Step 4 recurses: the seconder's own steward grant may itself have needed
-/// seconding. **The termination argument in the superseded comment was false.**
-/// It claimed each step moves strictly backwards through `chain_seq`; it does
-/// not, because a grant may be seconded long after it was written, so
-/// `A seconds B` and `B seconds A` is constructible and the walk between them
-/// does not descend. What was there instead was a depth limit of eight, which
-/// turned a cycle into [`AuthorityError::Unverifiable`] for everyone in it —
-/// permanently, since a seconding cannot be withdrawn — and refused generation
-/// nine of an ordinary appointment chain along with it.
+/// Step 4 recurses: the seconder's own steward grant may itself need seconding.
+/// A grant may be seconded long after it was written, so chain positions do not
+/// strictly descend, and `A seconds B` plus `B seconds A` is constructible. A
+/// depth limit would turn a cycle into a permanent
+/// [`AuthorityError::Unverifiable`] for everyone in it (a seconding cannot be
+/// withdrawn) and refuse an ordinary long appointment chain.
 ///
-/// The argument that is true: [`QuorumPass::on_path`] holds the grant ids on
-/// the path under evaluation, so **every path is simple** — a seconder whose
-/// stewardship depends, transitively, on the grant being evaluated does not
-/// qualify, and the walk cannot revisit a grant it is already inside. And
-/// [`QuorumPass::settled`] memoises each grant's answer, so **every grant is
-/// evaluated once** per pass. Cost is linear in grants plus secondings, and
-/// the depth limit is gone.
+/// Instead [`QuorumPass::on_path`] holds the grant ids on the current path, so
+/// **every path is simple**: a seconder whose stewardship depends transitively
+/// on the grant under evaluation does not qualify. [`QuorumPass::settled`]
+/// memoises each grant's answer, so **every grant is evaluated once** per pass.
+/// Cost is linear in grants plus secondings.
 fn grant_quorum_met<'a>(
     tx: &'a Transaction<'a>,
     ring: &'a KeyRing,
@@ -3274,12 +3077,11 @@ fn grant_quorum_met<'a>(
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, AuthorityError>> + Send + 'a>>
 {
     Box::pin(async move {
-        // §3.5: genesis and recovery grants are root-signed and have their own
-        // controls; a sole-steward appointment is §3.5's answer to a quorum
-        // that cannot be met, and pays for it with the delay instead. All
-        // three are facts the granter's signature covers -- `is_genesis` and
-        // `is_recovery` through the row seal, the sole flag through
-        // `grant_bytes` itself since `fathom/grant/v2`.
+        // §3.5: genesis and recovery grants are root-signed with their own
+        // controls; a sole-steward appointment answers an unmeetable quorum and
+        // pays with the delay. All three are covered by the granter's signature
+        // (`is_genesis`/`is_recovery` via the row seal, the sole flag via
+        // `grant_bytes` since `fathom/grant/v2`).
         if grant.capability != Capability::Steward
             || grant.is_genesis
             || grant.is_recovery
@@ -3293,7 +3095,7 @@ fn grant_quorum_met<'a>(
         }
         if !pass.lock().expect(POISON).on_path.insert(grant.id.clone()) {
             // Already under evaluation further up this path. **Not memoised**:
-            // it is an answer about this path, not about this grant.
+            // it is an answer about this path, not this grant.
             return Ok(false);
         }
 
@@ -3311,29 +3113,23 @@ fn grant_quorum_met<'a>(
 
 /// What a poisoned pass lock would mean, said once.
 ///
-/// It cannot happen: the mutex is created inside one authorisation, is locked
-/// only for the length of a map lookup or insert with no `await` in between,
-/// and nothing inside those sections can panic. The `expect` is here rather
-/// than an `unwrap` so that if it ever did, the message says which lock.
+/// It cannot happen: the mutex is created inside one authorisation, locked only
+/// for one map operation with no `await` held, and nothing in those sections can
+/// panic. `expect` rather than `unwrap` so the message names the lock.
 const POISON: &str = "the quorum pass lock is never held across an await and never poisoned";
 
 /// One pass's working memory: the path being walked, and what it has settled.
 ///
-/// **A `Mutex`, not a `RefCell`, and the reason is the HTTP boundary.**
-/// `&RefCell<T>` is not `Send`, so an authorisation that held one across an
-/// `await` produced a future axum will not accept — which is to say: with a
-/// `RefCell` here, **no route in this server could ever authorise anybody**.
-/// The change is mechanical (the lock is taken for one map operation at a
-/// time, never across an `await`, and there is exactly one thread in the
-/// walk), and it is the alternative to a borrow that works everywhere except
-/// where the product needs it.
+/// **A `Mutex`, not a `RefCell`,** because `&RefCell<T>` is not `Send`: held
+/// across an `await` it yields a future axum will not accept, so no route could
+/// ever authorise anybody. The lock is taken for one map operation at a time and
+/// never across an `await`.
 ///
-/// **Created inside one authorisation question and dropped with it.** §3.4
-/// permits a memo *"of the live set within a use"* and forbids a stored
-/// verdict; this is the first and cannot become the second. It lives on the
-/// stack, every value in it is derived from rows read inside the same
-/// transaction, and no second use can see it — so the property the test
-/// `no_verdict_is_cached_between_two_uses_in_one_process` asserts is untouched.
+/// **Created inside one authorisation and dropped with it.** §3.4 permits a memo
+/// "of the live set within a use" and forbids a stored verdict; this is the
+/// first and cannot become the second. It lives on the stack, holds only values
+/// derived from rows read in the same transaction, and no second use can see it,
+/// so `no_verdict_is_cached_between_two_uses_in_one_process` is unaffected.
 #[derive(Default)]
 struct QuorumPass {
     /// The grant ids on the path currently under evaluation. What makes every
@@ -3341,24 +3137,20 @@ struct QuorumPass {
     on_path: BTreeSet<String>,
     /// Grant id → does this grant carry the signatures §3.5 requires.
     settled: BTreeMap<String, bool>,
-    /// Grant id → did [`verify_grant_row`] accept it, in the soft sense this
-    /// walk asks it (a grant that does not verify is not a steward's; it is
-    /// not an alarm raised from inside somebody else's authorisation).
+    /// Grant id → did [`verify_grant_row`] accept it, in the soft sense this walk
+    /// asks (a non-verifying grant is not a steward's; it is not an alarm raised
+    /// inside somebody else's authorisation).
     rows: BTreeMap<String, bool>,
 }
 
-/// A refusal that makes a seconding or a supporting grant **not count**,
-/// rather than one that makes the store untrustworthy.
+/// A refusal that makes a seconding or supporting grant **not count**, rather
+/// than making the store untrustworthy.
 ///
-/// The distinction is the whole of the correction above. `Unverifiable` and
-/// `Signature` mean *this row does not say what it claims*; asked about the
-/// grant an answer is being given for, that is an alarm, and asked about some
-/// other account's grant several steps away it is simply a row that supports
-/// nothing. `NoSigningKey` means a fingerprint resolves to no live keyring
-/// entry, which is the same kind of answer.
-///
-/// A database error, a corrupt column or a rollback is none of those and
-/// propagates.
+/// `Unverifiable` and `Signature` mean *this row does not say what it claims*:
+/// an alarm for the grant an answer is being given for, but for some other
+/// account's grant several steps away, just a row that supports nothing.
+/// `NoSigningKey` (a fingerprint resolving to no live keyring entry) is the same
+/// kind of answer. A database error, a corrupt column or a rollback propagates.
 fn is_a_disqualification(error: &AuthorityError) -> bool {
     matches!(
         error,
@@ -3413,9 +3205,8 @@ async fn seconding_qualifies<'a>(
     pass: &'a Mutex<QuorumPass>,
 ) -> Result<bool, AuthorityError> {
     // 1. The stored seal. The head's digest carries the RECOMPUTED seal, so a
-    //    forged stored seal passes the head; `verify_stored_seals` is what
-    //    refuses the organisation over it. Here it only stops the row
-    //    counting.
+    //    forged stored seal passes the head and `verify_stored_seals` refuses the
+    //    organisation over it. Here it only stops the row counting.
     let recomputed = authority::row_seal(
         &row_key_for(ring, &state.organisation),
         &RowFacts {
@@ -3430,10 +3221,9 @@ async fn seconding_qualifies<'a>(
         return Ok(false);
     }
 
-    // 2. Neither the granter nor the subject. `0011` binds this with a
-    //    three-column foreign key and a `CHECK`, and it is restated here
-    //    because a constraint that is the only statement of a rule is a rule
-    //    that disappears the day the constraint is relaxed.
+    // 2. Neither the granter nor the subject. `0011` binds this with a foreign
+    //    key and a `CHECK`; it is restated because a rule stated only by a
+    //    constraint disappears when the constraint is relaxed.
     if Some(&seconding.seconded_by) == grant.granted_by.as_ref()
         || seconding.seconded_by == grant.subject_id
     {
@@ -3480,11 +3270,10 @@ async fn seconding_qualifies<'a>(
 /// Did `account` hold a fully verified, live `steward` grant covering one of
 /// `covering`, at `at_unix` and as of chain position `as_of_seq`?
 ///
-/// A grant that fails [`verify_grant_row`] is passed over rather than raised:
-/// this is a question about somebody else's grant, asked from inside a third
-/// party's authorisation, and the whole-state seal check is what refuses a
-/// store that is lying. The result is memoised per pass, so a grant is
-/// verified once however many secondings lean on it.
+/// A grant failing [`verify_grant_row`] is passed over, not raised: this is about
+/// somebody else's grant, asked inside a third party's authorisation, and the
+/// whole-state seal check is what refuses a lying store. Memoised per pass, so
+/// each grant is verified once.
 #[allow(clippy::too_many_arguments)]
 async fn steward_held_at<'a>(
     tx: &'a Transaction<'a>,
@@ -3551,17 +3340,15 @@ async fn row_verifies<'a>(
     Ok(verdict)
 }
 
-/// Steps 2-5 of [`authorise_account`]'s seven, done once: the head and its
-/// seal, the rollback watch, the whole authority state digested against the
-/// head, and the genesis set. None of this depends on the scope or the
-/// capability being asked for -- only on the organisation -- so a caller
-/// that is about to ask the same organisation the same question for many
-/// rows (a list route, one row per design or per scope) calls this once and
-/// [`authorise_in_verified_state`] per row, rather than re-reading the head,
-/// re-digesting the whole authority state and re-verifying genesis for every
-/// row in the list. `authorise_account` itself is unchanged in behaviour: it
-/// still does all seven steps, every time, by calling this and then that in
-/// sequence, for every caller that authorises a single act.
+/// Steps 2-5 of [`authorise_account`]'s seven, done once: the head and its seal,
+/// the rollback watch, the whole authority state digested against the head, and
+/// the genesis set.
+///
+/// None of this depends on the scope or capability asked for, only the
+/// organisation. A caller asking about many rows (a list route) calls this once
+/// and [`authorise_in_verified_state`] per row, instead of re-reading the head,
+/// re-digesting the state and re-verifying genesis per row. `authorise_account`
+/// still does all seven steps every time, by calling both in sequence.
 pub(crate) struct VerifiedAuthorityState {
     organisation: String,
     auth_epoch: i32,
@@ -3569,16 +3356,14 @@ pub(crate) struct VerifiedAuthorityState {
     state: AuthorityState,
 }
 
-/// Test-only instrumentation, always compiled (an integration test binary
-/// does not see `#[cfg(test)]` items in the library it links, so this cannot
-/// be gated behind one): how many times [`verify_authority_state`] has run
-/// to completion for `organisation`, this process's lifetime. Keyed by
-/// organisation, not one process-wide total, so that a test asserting "ran
-/// once" is not made flaky by every *other* test's own authorisations
-/// running concurrently against their own, different, organisations — each
-/// test in `tests/design_api.rs` bootstraps a fresh organisation, so its own
-/// count is its own. Read nowhere outside tests; carries no secret (an
-/// organisation id and a count).
+/// Test-only instrumentation, always compiled (an integration test binary cannot
+/// see `#[cfg(test)]` items in the library it links): how many times
+/// [`verify_authority_state`] has run to completion for `organisation` in this
+/// process.
+///
+/// Keyed by organisation so a test asserting "ran once" is not made flaky by
+/// other tests authorising concurrently against their own organisations. Carries
+/// no secret.
 static VERIFY_AUTHORITY_STATE_CALLS: LazyLock<Mutex<HashMap<String, u64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -3630,11 +3415,10 @@ pub(crate) async fn verify_authority_state(
     // 3. The rollback check.
     watch.observe(&organisation, auth_epoch)?;
 
-    // 4. The whole authority state as the database says it is now, and the
-    //    digest over it. If the head's digest disagrees, a row has been added,
-    //    removed or edited somewhere in the authority since the head was
-    //    sealed -- the hand-inserted grant, the edited capability, the deleted
-    //    revocation, and the seconding nobody was entitled to make.
+    // 4. The whole authority state as the database says it is now, and the digest
+    //    over it. A disagreement with the head means a row was added, removed or
+    //    edited since it was sealed: the hand-inserted grant, edited capability,
+    //    deleted revocation, or a seconding nobody was entitled to make.
     let state = read_authority_state(tx, &organisation).await?;
     let entries = state.digest_entries(&row_key_for(ring, &organisation));
     let recomputed_digest = authority::live_digest(
@@ -3646,17 +3430,14 @@ pub(crate) async fn verify_authority_state(
     if stored_digest != recomputed_digest {
         return Err(AuthorityError::Unverifiable("authority state"));
     }
-    // `live_count` is a second, independent statement of the same fact, and a
-    // statement nobody checks is a statement that can be false. §3.2 stores
-    // it; this is where it has to agree.
+    // `live_count` is a second statement of the same fact; one nobody checks can
+    // be false. §3.2 stores it and it must agree here.
     if stored_live_count as usize != entries.len() {
         return Err(AuthorityError::Unverifiable("authority head live_count"));
     }
-    // Then the row-level statement. The digest above carries the RECOMPUTED
-    // seals, so a row whose content is untouched and whose STORED seal is
-    // forged passes it; this is what catches that. Head first, rows second:
-    // the head is the statement about the whole authority, and a disagreement
-    // there is the more general fact.
+    // Then the row-level check. The digest carries the RECOMPUTED seals, so
+    // untouched content with a forged STORED seal passes it; this catches that.
+    // Head first: it is the statement about the whole authority.
     state.verify_stored_seals(&row_key_for(ring, &organisation))?;
 
     // 5. The organisation id, recomputed from its root key, and the genesis
@@ -3678,11 +3459,9 @@ pub(crate) async fn verify_authority_state(
     })
 }
 
-/// §3.4 steps 1, 6 and 7, against a [`VerifiedAuthorityState`] steps 2-5
-/// already settled. Scope-dependent (step 1's ancestors) and
-/// capability-dependent (step 6's `covers` and quorum checks), so this is
-/// the part a list route still runs once per row -- see
-/// [`VerifiedAuthorityState`]'s doc.
+/// §3.4 steps 1, 6 and 7, against a [`VerifiedAuthorityState`] that steps 2-5
+/// already settled. Scope- and capability-dependent, so a list route still runs
+/// this once per row.
 pub(crate) async fn authorise_in_verified_state(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -3705,10 +3484,9 @@ pub(crate) async fn authorise_in_verified_state(
     // 6. The candidates.
     let now = now_unix();
     let mut best: Option<Capabilities> = None;
-    // Whether any candidate was refused for want of a seconding, so that the
-    // refusal can say so. §3.5's quorum not being met is a different fact from
-    // holding no grant at all, and both are permission answers -- neither is
-    // an integrity alarm.
+    // Whether any candidate was refused for want of a seconding, so the refusal
+    // can say so. A missing quorum differs from holding no grant, and both are
+    // permission answers, not integrity alarms.
     let mut short_of_quorum = false;
     for grant in &state.grants {
         if grant.subject_id != account {
@@ -3728,20 +3506,18 @@ pub(crate) async fn authorise_in_verified_state(
         if grant.effective_from_unix > now {
             continue;
         }
-        // **Expiry, evaluated at use.** Every steward grant carries one
-        // (`0011`), so a layer that ignored expiry here would have let a
-        // lapsed grant keep working.
+        // **Expiry, evaluated at use.** Every steward grant carries one (`0011`);
+        // ignoring it here would let a lapsed grant keep working.
         if grant.expires_at_unix != 0 && grant.expires_at_unix <= now {
             continue;
         }
 
-        // The row: a hard question, because this is the grant the answer
-        // would rest on. `Unverifiable` here is the alarm §3.4 asks for.
+        // The row: a hard question, because the answer would rest on this grant;
+        // `Unverifiable` is the alarm §3.4 asks for.
         verify_grant_row(tx, ring, root_fpr, grant).await?;
-        // The quorum: a soft one. A `steward` grant with no qualifying
-        // seconding is not a broken store, it is a grant that is not yet
-        // usable -- so it is passed over and another candidate may still
-        // answer. Each candidate gets its own pass, discarded with it.
+        // The quorum: a soft one. A `steward` grant with no qualifying seconding
+        // is not a broken store, just not yet usable, so it is passed over and
+        // another candidate may answer. Each candidate gets its own pass.
         let pass = Mutex::new(QuorumPass::default());
         if !grant_quorum_met(tx, ring, state, root_fpr, grant, &pass).await? {
             short_of_quorum = true;
@@ -3786,26 +3562,22 @@ pub(crate) async fn authorise_in_verified_state(
 ///    does not qualify;
 /// 7. only then the answer.
 ///
-/// Step 4 is why a hand-inserted grant grants nothing, why editing
-/// `capability` on a real one grants nothing, why deleting a revocation row
-/// does not restore the grant, and — since the digest covers the whole state
-/// rather than the grants alone — why a seconding nobody was entitled to make
-/// does not make a steward.
+/// Step 4 is why a hand-inserted grant grants nothing, why editing `capability`
+/// on a real one grants nothing, why deleting a revocation row does not restore
+/// the grant, and why a seconding nobody was entitled to make does not make a
+/// steward (the digest covers the whole state).
 ///
 /// Steps 2-5 live in [`verify_authority_state`] and steps 1, 6 and 7 in
-/// [`authorise_in_verified_state`]; this function is the two of them in
-/// sequence, for every caller that authorises one act at a time.
+/// [`authorise_in_verified_state`]; this is the two in sequence.
 /// [`list_designs_handler`](crate::design_api) and
-/// [`list_scopes_handler`](crate::design_api) call the two separately
-/// instead, once and many times, for the reason given on
-/// [`VerifiedAuthorityState`].
+/// [`list_scopes_handler`](crate::design_api) call them separately (see
+/// [`VerifiedAuthorityState`]).
 ///
-/// # Nothing is cached, and there is nowhere to put a verdict
+/// # Nothing is cached
 ///
-/// §3.4: *"no verdict is ever stored"*. Every value this function rests on is
-/// read inside the call and recomputed from sealed rows. Two authorisations in
-/// one process, one second apart, do the same work — which is what makes
-/// tampering between them visible.
+/// §3.4: no verdict is ever stored. Everything here is read inside the call and
+/// recomputed from sealed rows, so tampering between two authorisations is
+/// visible.
 pub async fn authorise_account(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -3820,40 +3592,33 @@ pub async fn authorise_account(
 // ADR-0055 fix (S3)
 // ---------------------------------------------------------------------------
 
-/// **Retire the oldest live keys of one account until `cap` are left**, and
-/// say which ones went.
+/// **Retire the oldest live keys of one account until `cap` are left**, and say
+/// which ones went.
 ///
-/// `POST /credentials/key` (`credentials::CredentialStore::register_key`) had
-/// no cap: every call inserted a row and appended a sealed entry, and
-/// [`verify_by_any_live_key`] walks the whole live ring at every signed
-/// sign-in, verifying each row seal. `credentials::LIVE_ACCOUNT_KEYS_MAX`
-/// carries the number and the argument for it; this is the eviction.
+/// `POST /credentials/key` had no cap, and [`verify_by_any_live_key`] walks the
+/// whole live ring at every signed sign-in, verifying each row seal.
+/// `credentials::LIVE_ACCOUNT_KEYS_MAX` carries the number and argument; this is
+/// the eviction.
 ///
-/// **Oldest by `enrolled_seq`**, which is the site chain's own order and not a
-/// clock: two keys registered in one second still have an order, and it is the
-/// order the sealed chain records.
+/// **Oldest by `enrolled_seq`**, the site chain's own order rather than a clock,
+/// so two keys registered in one second still have an order.
 ///
 /// # Why this is not [`retire_key`]
 ///
-/// That one is §8.4's verb: a steward or the holder signs
-/// [`authority::retire_bytes`] and the act is filed on the ORGANISATION chain
-/// as `account_key_retired`. Neither half fits here. There is no signature —
-/// the act is the person registering an eleventh browser, and they have
-/// already proved themselves to the session this runs under — and a
-/// password-only account need belong to no organisation at all, so there may
-/// be no org chain to file it on. **The record is therefore the row itself**:
-/// `retired_at` is inside `account_key_row_state`, so the retirement is under
-/// the row seal at version + 1 and a writer who clears it leaves an
-/// unverifiable row, which is the same property `0018` §D states for a spent
-/// token. The site-chain record of the act is the `authenticator_registered`
-/// entry of the key that caused the eviction, appended in this same
-/// transaction by the caller.
+/// That is §8.4's verb: a signed act filed on the ORGANISATION chain as
+/// `account_key_retired`. Neither half fits here. There is no signature (the
+/// person registering an eleventh browser has already proved themselves to the
+/// session), and a password-only account may belong to no organisation, so there
+/// may be no org chain. **The record is the row itself**: `retired_at` is inside
+/// `account_key_row_state`, so the retirement is under the row seal at the
+/// next version and clearing it leaves an unverifiable row (as `0018` §D states for a
+/// spent token). The site-chain record is the `authenticator_registered` entry of
+/// the key that caused the eviction, appended in the same transaction by the
+/// caller.
 ///
-/// **Reported, not hidden**: there is no site-chain entry type for retiring an
-/// account key (`0018` §F files `account_key_retired` on an org chain only),
-/// and adding one means editing `chain_entries_type_belongs_to_kind`, which
-/// every migration that touches it must re-list whole. That is a merge hazard
-/// while three streams are in flight, so it is left for the lead — the
+/// **No site-chain entry type exists for retiring an account key** (`0018` §F
+/// files `account_key_retired` on an org chain only). Adding one means re-listing
+/// `chain_entries_type_belongs_to_kind` in a migration, so it is not built; the
 /// eviction is sealed either way.
 pub async fn retire_oldest_over_cap(
     tx: &Transaction<'_>,
@@ -3882,9 +3647,9 @@ pub async fn retire_oldest_over_cap(
         let Some(key) = read_account_key(tx, &id).await? else {
             continue;
         };
-        // The seal before the change, as every other path here checks it: a
-        // ring with one edited row is an incident, and evicting a row is not
-        // the moment to stop noticing.
+        // The seal before the change, as every other path checks it: a ring with
+        // one edited row is an incident, and evicting is not the moment to stop
+        // noticing.
         let stored: Vec<u8> = tx
             .query_one("SELECT row_seal FROM account_keys WHERE id = $1", &[&id])
             .await?

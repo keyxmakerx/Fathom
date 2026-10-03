@@ -55,3 +55,17 @@ describe('Bar — ADR-0052 §5 "view only" chip', () => {
     expect(markup).toContain('aria-label="view only"');
   });
 });
+
+describe('Bar — the amber Admin pill', () => {
+  it('is absent unless asked for', () => {
+    expect(renderToStaticMarkup(createElement(Bar, BASE_PROPS))).not.toContain('shell-admin-pill');
+  });
+
+  it('is a button when it can be pressed and a plain mark when current', () => {
+    const pressable = renderToStaticMarkup(createElement(Bar, { ...BASE_PROPS, adminPill: { onSelect: () => {} } }));
+    expect(pressable).toContain('<button type="button" class="shell-admin-pill"');
+    const current = renderToStaticMarkup(createElement(Bar, { ...BASE_PROPS, adminPill: { current: true } }));
+    expect(current).toContain('<span class="shell-admin-pill"');
+    expect(current).toContain('aria-current="page"');
+  });
+});

@@ -66,12 +66,12 @@ function frontRj45(doc: Document, catalogue: CatalogueModel[], hostname: string)
   return { deviceId: chassis.deviceId, portId: ports[0].id };
 }
 
-function oneRack(catalogue: CatalogueModel[], actor: string): { doc: Document; rackId: string; premisesId: string } {
+function oneRack(catalogue: CatalogueModel[], actor: string, heightU = 42): { doc: Document; rackId: string; premisesId: string } {
   let doc = emptyDocument();
   const premises = createPremises(doc, { actor });
   doc = createRack(premises.doc, premises.premisesId, {
     label: 'A-04',
-    heightU: 42,
+    heightU,
     unitNumbering: 'ascending',
     actor,
   });
@@ -555,6 +555,34 @@ export function seedShelfScene(catalogue: CatalogueModel[], me: string): Documen
   const box = newSketchDevice(withShelf, 'box-01', me);
   let working = placeOnShelf(box.doc, box.chassisId, shelfId, 1, { actor: me });
   working = addSketchPort(working, box.chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  return working;
+}
+
+/** Three catalogued devices in one rack, a bundle of three cables between the
+ * two switches, an SFP+ link and one to the firewall: the canvas-looks-right scene. */
+export function seedCanvasScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me, 12);
+  const find = (model: string) => {
+    const m = catalogue.find((c) => c.model === model);
+    if (!m) throw new Error(`the drive catalogue fixture has no ${model}`);
+    return m;
+  };
+  let working = place(doc, catalogue, rackId, find('SRX340'), 3, 'fw-01', me);
+  working = place(working, catalogue, rackId, find('USW-48-PoE'), 6, 'core-sw-01', me);
+  working = place(working, catalogue, rackId, find('USW-24-PoE'), 8, 'sw-02', me);
+  const portsOf = (host: string, connector: string) =>
+    firstRack(working, catalogue)
+      .chassis.find((c) => c.hostname === host)!
+      .ports.filter((p) => p.face === 'front' && p.connector.toLowerCase() === connector)
+      .sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const link = (a: string, b: string, sheath: Sheath) => {
+    working = connectPorts(working, a, b, { sheath }, { actor: me });
+  };
+  const coreRj = portsOf('core-sw-01', 'rj45');
+  const accRj = portsOf('sw-02', 'rj45');
+  for (let i = 0; i < 3; i += 1) link(coreRj[i]!.id, accRj[i]!.id, 'blue');
+  link(portsOf('core-sw-01', 'sfp_plus')[0]!.id, portsOf('sw-02', 'sfp_plus')[0]!.id, 'yellow');
+  link(coreRj[10]!.id, portsOf('fw-01', 'rj45')[0]!.id, 'green');
   return working;
 }
 

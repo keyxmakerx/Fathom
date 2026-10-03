@@ -4,64 +4,57 @@
 //! binds it, single-use nonces, and a signature on every request that reaches
 //! design payload or vault ciphertext.
 //!
-//! `migrations/0013_sessions.sql` is the schema and carries the reasoning for
-//! every constraint and every departure from §4.3's SQL. This file holds the
-//! bytes and the order things happen in; `api.rs` is the HTTP surface over it.
+//! `migrations/0013_sessions.sql` carries the reasoning for every constraint
+//! and every departure from §4.3's SQL. This file holds the bytes and the order
+//! things happen in; `api.rs` is the HTTP surface.
 //!
 //! # The one sentence everything else rests on
 //!
-//! §13 item 1: **`actor` comes from a session, never from the caller.** That
-//! is made structural here rather than asserted:
+//! §13 item 1: **`actor` comes from a session, never from the caller.** Made
+//! structural:
 //!
-//! * [`VerifiedSession`] has private fields and no public constructor. The
-//!   only thing that produces one is [`SessionStore::verify_pending`], which
-//!   recomputes the row MAC, checks that the session has not been recorded as
-//!   signed out, re-resolves the evidence key and verifies an ES256 signature
-//!   over the request's own method, path, body digest, nonce and time before
-//!   it returns — all of it inside the caller's transaction, so that whatever
-//!   the caller authorises next sees the same snapshot.
-//!   [`SessionStore::begin_request`] spends the single-use nonce first, in a
-//!   transaction of its own that commits whatever the handler then does, and
-//!   [`SessionStore::verify_request`] is the two together for a caller with
-//!   nothing else to do.
-//! * It does **not** expose an `AccountId`. It exposes
-//!   [`VerifiedSession::principal_id`], a string for logging and for tests,
-//!   and that is not a type the repository layer accepts.
+//! * [`VerifiedSession`] has private fields and no public constructor. Only
+//!   [`SessionStore::verify_pending`] produces one: it recomputes the row MAC,
+//!   checks the session has not been recorded as signed out, re-resolves the
+//!   evidence key and verifies an ES256 signature over the request's own
+//!   method, path, body digest, nonce and time, all inside the caller's
+//!   transaction so whatever the caller authorises next sees the same
+//!   snapshot. [`SessionStore::begin_request`] spends the single-use nonce
+//!   first, in its own transaction that commits whatever the handler then does;
+//!   [`SessionStore::verify_request`] is the two together.
+//! * It does **not** expose an `AccountId`, only
+//!   [`VerifiedSession::principal_id`], a string for logging and tests that the
+//!   repository layer does not accept.
 //! * [`open_tenant_context`] is the only way to turn a session into a
-//!   [`repo::TenantContext`], and it takes `&VerifiedSession`. So a handler
-//!   that wants to read a design has exactly one route to the tenant context
-//!   the key hierarchy demands, and that route begins at a verified
-//!   signature.
+//!   [`repo::TenantContext`], and takes `&VerifiedSession`, so a handler's one
+//!   route to the tenant context begins at a verified signature.
 //!
-//! `tests/sessions.rs` holds the test that the HTTP surface names no other
-//! source of an actor, because the type system cannot stop a handler parsing
-//! a ULID out of a header and calling `repo::open_tenant_context` itself.
+//! `tests/sessions.rs` tests that the HTTP surface names no other source of an
+//! actor, because the type system cannot stop a handler parsing a ULID from a
+//! header and calling `repo::open_tenant_context` itself.
 //!
 //! # What is NOT here
 //!
-//! * **No password, for anyone** (§4.5, §5.1, `docs/OPEN-QUESTIONS.md` C2).
-//!   There is no password column, no reset path, no "forgot" flow and no
-//!   field in any message this module parses that a password could arrive in.
+//! * **No password, for anyone** (§4.5, §5.1, `docs/OPEN-QUESTIONS.md` C2): no
+//!   password column, reset path or "forgot" flow in this module's original
+//!   design, and no field in any message it parses that a password could arrive
+//!   in. ADR-0055 later reopened this for people; see `credentials.rs`.
 //! * **No WebAuthn** (§15.4). Sign-in is a signature by a software ES256 key
 //!   enrolled in `account_keys` (§15.1's deliberate downgrade). The challenge
-//!   derivation is the one §4.2 specifies, so the WebAuthn path lands on the
-//!   same bytes when it is built.
+//!   derivation is §4.2's, so WebAuthn lands on the same bytes.
 //! * **No operator password, and no operator anything-but-a-key.** §4.5 is
-//!   kept exactly: an operator session is `A1` or it does not exist. Since
-//!   `migrations/0015` there IS a table an operator's key is enrolled in
-//!   (`operator_keys`), so the operator branch of sign-in now resolves a key
-//!   and verifies a signature over the same challenge an account signs —
-//!   **the same mechanism, on the other plane**, which is what §4.5 asks for.
-//!   An operator with no key enrolled is refused with the same message an
-//!   unknown address gets; there is no weaker factor to fall back to and
-//!   there must never be one.
+//!   kept: an operator session is `A1` or it does not exist. Since
+//!   `migrations/0015` an operator's key is enrolled in `operator_keys`, and the
+//!   operator branch of sign-in verifies a signature over the same challenge an
+//!   account signs: **the same mechanism, on the other plane**. An operator with
+//!   no key enrolled is refused with the same message an unknown address gets;
+//!   there is no weaker factor to fall back to and there must never be one.
 //! * **No verdict is cached.** Every request re-reads the row, re-verifies the
 //!   MAC, re-resolves the evidence key and re-verifies a fresh signature.
-//! * **No background task.** `migrations/0014_session_hardening.sql` §C's
-//!   sweep of expired rows runs on the write path of each of the three tables
-//!   it is about, because this deployment is two interchangeable containers
-//!   with no scheduler and a sweeper that runs in one of them stops when that
-//!   one is rescheduled.
+//! * **No background task.** `migrations/0014_session_hardening.sql` §C's sweep
+//!   of expired rows runs on the write path of each of its three tables: this
+//!   deployment is two interchangeable containers with no scheduler, and a
+//!   sweeper in one stops when that one is rescheduled.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -107,21 +100,16 @@ const KDF_SESSION_ADDRESS: &[u8] = b"fathom/session/kdf/address/v1";
 const TAG_SESSION_ADDRESS: &[u8] = b"fathom/session/address/v1";
 
 /// **Every label this module introduces, for `PHASE-2-STORAGE-DESIGN.md`
-/// §12.2's table, which owns them.**
-///
-/// Same contract as [`crate::authority::LABELS`]: the table wins over this
-/// file, a unit test at the bottom asserts that every label the code uses is
-/// listed here, and the list is what a reader reconciles against §12.2 in one
-/// read.
+/// §12.2's table, which owns them.** Same contract as
+/// [`crate::authority::LABELS`]: the table wins, and a unit test asserts every
+/// label the code uses is listed.
 ///
 /// **Two labels §4.3 specifies are deliberately NOT here**, because nothing
-/// derives them: `fathom/session/mac/v1` (a `K_sess` subkey from
-/// `chain_master`) and `fathom/session/row/v1` (a session-specific row MAC).
-/// A session row is account-scoped exactly as a keyring row is, so it is
-/// sealed under the site-scoped row key `0012` §D already established, with
-/// `authority::row_seal`'s construction and its `fathom/row/v1` tag. A label
-/// separates uses of one key; this is not a new use. `0013`'s departure 2
-/// carries the full argument.
+/// derives them: `fathom/session/mac/v1` (a `K_sess` subkey from `chain_master`)
+/// and `fathom/session/row/v1`. A session row is account-scoped like a keyring
+/// row, so it is sealed under the site-scoped row key `0012` §D established,
+/// with `authority::row_seal` and its `fathom/row/v1` tag. A label separates
+/// uses of one key; this is not a new use (`0013`'s departure 2).
 pub const LABELS: &[(&str, &str)] = &[
     (
         "fathom/session/bind/v1",
@@ -156,25 +144,23 @@ pub const LABELS: &[(&str, &str)] = &[
     ),
 ];
 
-/// **The decoy an unresolved address is verified against**, so that a sign-in
+/// **The decoy an unresolved address is verified against**, so a sign-in
 /// attempt carrying a credential costs one argon2id whether or not the address
-/// it named belongs to anybody.
+/// belongs to anybody.
 ///
-/// A real PHC string, produced by [`crate::credentials::hash_password`] at the
-/// shipped parameters (`m=19456, t=2, p=1`, from the OWASP Password Storage
-/// Cheat Sheet as `credentials.rs` read it on 2026-09-21) and compiled in, so
-/// the decoy verification does the same memory-hard work the real one does. A
-/// unit test below re-reads the parameters out of this string and fails if
-/// [`crate::credentials::ARGON2_M_COST`] and its two neighbours ever move
-/// without it — a decoy at cheaper parameters would be the oracle again,
-/// quieter.
+/// A real PHC string from [`crate::credentials::hash_password`] at the shipped
+/// parameters (`m=19456, t=2, p=1`, OWASP Password Storage Cheat Sheet as read
+/// by `credentials.rs` on 2026-09-21), compiled in, so the decoy does the same
+/// memory-hard work. A unit test re-reads the parameters from this string and
+/// fails if [`crate::credentials::ARGON2_M_COST`] and its neighbours move
+/// without it: a cheaper decoy would be the oracle again, quieter.
 ///
-/// **Its plaintext is not a secret and does not need to be.** The result of
-/// the verification is discarded; what is used is the time it took. Nothing
-/// here is anybody's credential, and this is the one string in this module
-/// that looks like a stored one.
+/// **Its plaintext is not a secret.** The verification result is discarded;
+/// only the time it took is used. This is the one string in the module that
+/// looks like a stored credential and is nobody's.
 ///
-/// OWASP ASVS 5.0.0 6.3.8, quoted by ADR-0055 and read on 2026-09-21: *"no
+/// OWASP ASVS 5.0.0 6.3.8: *"no account enumeration through messages, codes or
+/// timing."*
 /// account enumeration through messages, codes or timing."*
 const A_DECOY_HASH: &str =
     "$argon2id$v=19$m=19456,t=2,p=1$H6t0pl1ZRNOBUXtZVBUtmw$EDIOwbfMpXv4IFQnmYcq+jCx6acuYc+rXo0Vt88yhGM";
@@ -185,12 +171,11 @@ const A_DECOY_HASH: &str =
 
 /// How long a session lives before it must be established again.
 ///
-/// **§4 gives no number.** Twelve hours is a working day plus the evening: long
-/// enough that a network engineer documenting a rack is not signed out
-/// mid-task, short enough that a laptop left open overnight is not a live
-/// session in the morning. It is a constant rather than a setting because a
-/// deployment that wants a different one should say so in the register, and
-/// nothing yet reads that register.
+/// **§4 gives no number.** Twelve hours: a working day plus the evening, long
+/// enough that an engineer documenting a rack is not signed out mid-task, short
+/// enough that a laptop left open overnight is not live in the morning. A
+/// constant, not a setting: a deployment wanting another should say so in the
+/// register, which nothing yet reads.
 pub const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// ADR-0057 decision 2: how old the account session's own TOTP proof may be
@@ -201,9 +186,9 @@ pub const SECOND_FACTOR_FRESHNESS: Duration = Duration::from_secs(15 * 60);
 /// verified request before it is treated as dead, even inside its absolute
 /// [`SESSION_LIFETIME`].
 ///
-/// NIST SP 800-63B-4, the session table: at AAL2 the idle timeout SHOULD be
-/// no more than one hour. `docs/OPERATING.md` carries this number and its
-/// basis for ASVS 5.0.0 7.1.1's *"document the reasoning"*.
+/// NIST SP 800-63B-4, session table: at AAL2 the idle timeout SHOULD be no more
+/// than one hour. `docs/OPERATING.md` carries this number and its basis (ASVS
+/// 5.0.0 7.1.1: *"document the reasoning"*).
 pub const ACCOUNT_IDLE_LIMIT: Duration = Duration::from_secs(60 * 60);
 
 /// ADR-0057 decision 4: the operator plane's idle limit — fifteen minutes,
@@ -243,33 +228,27 @@ pub const MAX_OUTSTANDING_NONCES: i64 = 32;
 ///
 /// **Without an upper bound the counter is a brick.** `request_counter` is
 /// stored as `GREATEST(request_counter, $counter)`, so one signed request
-/// carrying `i64::MAX` set the high-water mark to `i64::MAX` and no later
-/// nonce could ever satisfy `counter > issued_counter` again. The session was
-/// dead for the rest of its twelve hours and nothing but a sign-out could
-/// clear it — a self-inflicted denial of service a stolen bearer token could
-/// trigger against the person it was stolen from.
+/// carrying `i64::MAX` would set the mark there and no later nonce could
+/// satisfy `counter > issued_counter`: the session dead until sign-out, a
+/// self-inflicted denial of service a stolen bearer token could cause.
 ///
-/// The window is [`MAX_OUTSTANDING_NONCES`] because that is exactly how many
-/// requests one browser may legitimately have in flight against one mark: all
-/// of them share an `issued_counter` and each picks the next value of its own
-/// tally, so `issued + 1 ..= issued + 32` is the whole legitimate range and
-/// anything beyond it is a client that has lost count or an attacker.
+/// The window is [`MAX_OUTSTANDING_NONCES`]: all of one browser's in-flight
+/// requests share an `issued_counter` and each takes the next of its own tally,
+/// so `issued + 1 ..= issued + 32` is the whole legitimate range.
 pub const COUNTER_WINDOW: i64 = MAX_OUTSTANDING_NONCES;
 
 /// The absolute range a client-supplied millisecond timestamp must be inside
 /// **before any arithmetic touches it** (`0014`, finding 5).
 ///
-/// `fathom-timestamp: -9223372036854775808` parsed cleanly as an `i64` and
-/// reached `now * 1000 - unix_ms`, which overflows — and the server profile
-/// sets `overflow-checks = true`, so that is a panic, and `.abs()` on
-/// `i64::MIN` panics on the same line for a second reason. A header panicked
-/// the request task.
+/// `fathom-timestamp: -9223372036854775808` parsed as an `i64` and reached
+/// `now * 1000 - unix_ms`, which overflows; the server profile sets
+/// `overflow-checks = true`, so that panicked the request task (`.abs()` on
+/// `i64::MIN` panics too).
 ///
-/// The bound is the honest one rather than the one the arithmetic needs: a
-/// request timestamp is a wall clock in milliseconds, so it is at or after the
-/// epoch and before the end of the four-digit years. Checked arithmetic
-/// follows anyway, because a bound that is later widened must not quietly
-/// re-open the panic.
+/// The bound is the honest one, not what the arithmetic needs: a wall clock in
+/// milliseconds is at or after the epoch and before the end of the four-digit
+/// years. Checked arithmetic follows anyway, so a later-widened bound cannot
+/// quietly re-open the panic.
 pub const MIN_UNIX_MS: i64 = 0;
 
 /// The upper half of [`MIN_UNIX_MS`]'s range: `9999-12-31T23:59:59.999Z`.
@@ -277,31 +256,26 @@ pub const MAX_UNIX_MS: i64 = 253_402_300_799_999;
 
 /// How many expired rows one write sweeps (`0014` §C).
 ///
-/// **A sweep on the write path, not a background task**: this deployment is
-/// two interchangeable containers with no scheduler, and a sweeper that runs
-/// in one of them stops when that one is rescheduled. Bounded so that one
-/// unlucky request does not pay for a year of accumulated rows, and large
-/// enough that the steady state is bounded by the arrival rate — every write
-/// clears far more than the one row it adds.
+/// **A sweep on the write path, not a background task**: this deployment is two
+/// interchangeable containers with no scheduler, and a sweeper in one stops
+/// when that one is rescheduled. Bounded so one request does not pay for a year
+/// of rows, and large enough that every write clears far more than the one row
+/// it adds.
 pub const SWEEP_BATCH: i64 = 256;
 
 /// How many times one source may ask `GET /setup/state` in a
 /// [`SignInLimits::window`].
 ///
-/// **Six hundred a window, per source, and it is not the sign-in number.** The
-/// route is a page load — see [`SessionStore::check_setup_state_budget`] for
-/// why it has a bucket of its own — and a *source* is an address, which
-/// behind one office's egress is everybody in the office (a checker's point,
-/// 2026-09-22, against the first value of 120 that had been sized for one
-/// person's reloads). Forty people opening the app once a minute for a
-/// quarter of an hour is 600; an unauthenticated flood wants orders of
-/// magnitude more, and the answer behind it is one process-wide cached bit
-/// (`credentials::SETUP_STATE_CACHE`), so what this bounds is the request and
-/// not the database.
+/// **Six hundred a window, per source, not the sign-in number.** The route is a
+/// page load (see [`SessionStore::check_setup_state_budget`] for why it has its
+/// own bucket), and a *source* is an address, which behind one office's egress
+/// is everybody in it. Forty people opening the app once a minute for a quarter
+/// hour is 600; a flood wants orders of magnitude more, and the answer is one
+/// process-wide cached bit (`credentials::SETUP_STATE_CACHE`), so this bounds
+/// the request, not the database.
 ///
-/// Not configurable: `FATHOM_SIGNIN_MAX_PER_SOURCE` is about sign-ins, and a
-/// deployment that needs to raise this one has not been seen. Give it its own
-/// variable when one is.
+/// Not configurable: `FATHOM_SIGNIN_MAX_PER_SOURCE` is about sign-ins. Give it
+/// its own variable when a deployment needs one.
 pub const SETUP_STATE_MAX_PER_SOURCE: i32 = 600;
 
 /// §13 item 7's shape, which the design does not specify. See
@@ -329,43 +303,33 @@ impl SignInLimits {
     ///
     /// # Both numbers are rate limits. Neither is a lockout
     ///
-    /// **Decided 2026-09-14, and `0014` §0 carries the whole argument.** This
-    /// doc comment used to read *"the account number is a lockout and the
-    /// source number is a rate limit"*, and `0013` §D said either bucket
-    /// refuses. Neither was true of the code: [`SessionStore::sign_in`] checks
-    /// the source bucket before it attempts anything and reads the account
-    /// bucket only on a path that has already failed, so a caller whose
-    /// signature is good has never been refused by the account bucket however
-    /// many failures that identity has collected.
+    /// **Decided 2026-09-14; `0014` §0 carries the argument.**
+    /// [`SessionStore::sign_in`] checks the source bucket before it attempts
+    /// anything and reads the account bucket only on a path that has already
+    /// failed, so a caller with a good signature is never refused by the account
+    /// bucket however many failures that identity has collected.
     ///
     /// It stays that way. On an unauthenticated surface a lockout hands an
     /// attacker a denial of service against a named person for the price of
-    /// eleven bad signatures, and there is no password here to brute force —
-    /// the factor is a signature by a key enrolled in `account_keys`, and the
-    /// only way past it is the private half. What the account bucket buys is a
-    /// bound on how much work and how much sealed audit one claimed identity
-    /// can cause inside a window, which is worth having and is all it claims.
+    /// eleven bad signatures, and the signature factor can only be passed with
+    /// the private key. What the account bucket buys is a bound on the work and
+    /// sealed audit one claimed identity can cause in a window, and that is all
+    /// it claims.
     ///
-    /// The two numbers still differ, for the reason they always did: a
-    /// legitimate person fails a signature a handful of times at most (a wrong
-    /// profile, a stale key), while a legitimate office behind one address
-    /// signs in all morning.
+    /// The numbers differ because a legitimate person fails a signature a
+    /// handful of times at most (wrong profile, stale key), while an office
+    /// behind one address signs in all morning.
     ///
-    /// **Forty-five per source is fifteen complete sign-ins**, and the two
-    /// numbers are the whole of why this one moved on 2026-09-22. `0014`
-    /// counts the challenge route, so a sign-in cost two; ADR-0056 makes
-    /// sign-in two steps, and the 2026-09-22 review found the probe between
-    /// them free and repeatable — forty argon2id verifications on one
-    /// challenge for one unit of budget. The probe is charged now (see
-    /// [`SessionStore::sign_in_with_credentials`]), so an ordinary two-step
-    /// sign-in costs **three**: challenge, probe, completion. Thirty would
-    /// therefore have been ten sign-ins per window where it used to be
-    /// fifteen, which is a rate limit tightened on ordinary people by a change
-    /// aimed at an attacker. **45 ÷ 3 = 15**: what a shared source may do in a
-    /// window is exactly what it could do before.
+    /// **Forty-five per source is fifteen complete sign-ins.** `0014` counts the
+    /// challenge route, and ADR-0056's two-step sign-in (challenge, probe,
+    /// completion) costs **three** now that the probe is charged (see
+    /// [`SessionStore::sign_in_with_credentials`]; it was free and repeatable:
+    /// forty argon2id verifications for one unit of budget). Thirty would have
+    /// tightened ordinary people to ten sign-ins. **45 ÷ 3 = 15**: what a shared
+    /// source may do is what it could do before.
     ///
-    /// A deployment behind a single NAT should raise it; that is what
-    /// `FATHOM_SIGNIN_MAX_PER_SOURCE` is for.
+    /// A deployment behind a single NAT should raise it:
+    /// `FATHOM_SIGNIN_MAX_PER_SOURCE`.
     pub fn defaults() -> Self {
         Self {
             window: Duration::from_secs(15 * 60),
@@ -427,13 +391,11 @@ impl Default for SignInLimits {
 
 /// ADR-0057 decision 7: `FATHOM_SESSION_ADDRESS_CHECK`, which planes a
 /// changed request address ends a session on.
-///
-/// OWASP Session Management Cheat Sheet, "Binding the Session ID to Other
-/// User Properties": binding a session to the client address detects
-/// hijacking but is "not... trustworthy" on its own — a shared NAT or proxy
-/// defeats it. That is why an account session is never ended by it (laptops,
-/// VPNs and phones change address in the ordinary course of things) while
-/// the operator plane, the more sensitive one, is by default.
+/// OWASP Session Management Cheat Sheet, "Binding the Session ID to Other User
+/// Properties": address binding detects hijacking but is "not... trustworthy"
+/// alone, since a shared NAT or proxy defeats it. So an account session is never
+/// ended by it (laptops, VPNs and phones change address normally) while the more
+/// sensitive operator plane is by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AddressCheckMode {
     /// Default. Only the operator plane ends on a changed address; an
@@ -479,17 +441,15 @@ impl AddressCheckMode {
 ///                       ‖ LP(server_nonce) ‖ LP(deployment_id))
 /// ```
 ///
-/// **The tag is length-prefixed, where §4.2 writes it bare** — the same
-/// deviation `authority::key_fingerprint` records for §3.2's fingerprint, for
-/// the same reason: storage §11.2's rule is *"length-prefix every
-/// variable-length field"* and every construction in this codebase already
-/// prefixes its tag. Two spellings of one rule inside one codebase is how a
-/// signature stops verifying the day somebody unifies them.
+/// **The tag is length-prefixed, where §4.2 writes it bare**, as
+/// `authority::key_fingerprint` records for §3.2: storage §11.2 says
+/// *"length-prefix every variable-length field"* and every construction here
+/// prefixes its tag. Two spellings of one rule is how a signature stops
+/// verifying when somebody unifies them.
 ///
-/// The nonce is single-use and is deleted at verification, so **the same
-/// evidence signature cannot bind a second public key** (§4.2). The
-/// deployment id is in it so a challenge from one deployment is not a
-/// challenge anywhere else.
+/// The nonce is single-use and deleted at verification, so **the same evidence
+/// signature cannot bind a second public key** (§4.2). The deployment id is in
+/// it so a challenge from one deployment is not one anywhere else.
 pub fn session_challenge(
     session_pubkey: &[u8],
     server_nonce: &[u8; 32],
@@ -513,30 +473,28 @@ pub fn session_challenge(
 ///
 /// # The departure, which is the whole control
 ///
-/// §4.2 writes this message **without the nonce**: tag, session id, method,
-/// path, body digest, time, counter. §4.1 and this build's brief both require
-/// a single-use nonce per request. A nonce that is not inside the signed bytes
-/// is not bound to the signature at all: an observer who captures one signed
-/// request can present it again with a *different* fresh nonce, and every
-/// check but the counter passes. So `LP(nonce)` sits between the body digest
-/// and the times, and the label stays `v1` because v1 never shipped — nothing
-/// has ever produced or stored one of these messages.
+/// §4.2 writes this message **without the nonce**, but §4.1 requires a
+/// single-use nonce per request. A nonce outside the signed bytes is not bound
+/// to the signature: an observer who captures one signed request can present it
+/// again with a *different* fresh nonce and every check but the counter passes.
+/// So `LP(nonce)` sits between the body digest and the times. The label stays
+/// `v1` because v1 never shipped: nothing has produced or stored one of these
+/// messages.
 ///
 /// # What each field is for
 ///
-/// * `session_id` — so a signature made for one session is not a signature for
-///   another, even if the same browser holds both keys.
-/// * `method` and `path` — so a signed `GET` of a scope tree is not a signed
-///   `DELETE` of a design, and a signature over one path is not a signature
-///   over another. **`path` is the path AND the query**, because a query
-///   string that is not signed is a query string an intermediary may rewrite.
-/// * `H(body)` — the body itself is not signed, so a large upload is hashed
-///   once rather than copied.
-/// * `unix_ms` — bounds how long a captured message is worth presenting, and
-///   is checked against [`CLOCK_SKEW`].
-/// * `request_counter` — §4.3's, and §4.3's own sentence about it is repeated
-///   in `0013` §B: it is anti-replay against a network observer and **not**
-///   against the database attacker, who owns the column it is compared with.
+/// * `session_id`: a signature for one session is not one for another, even if
+///   one browser holds both keys.
+/// * `method` and `path`: a signed `GET` of a scope tree is not a signed
+///   `DELETE` of a design. **`path` is the path AND the query**, because an
+///   unsigned query string is one an intermediary may rewrite.
+/// * `H(body)`: the body itself is not signed, so a large upload is hashed once
+///   rather than copied.
+/// * `unix_ms`: bounds how long a captured message is worth presenting, checked
+///   against [`CLOCK_SKEW`].
+/// * `request_counter`: §4.3's. Anti-replay against a network observer and
+///   **not** against the database attacker, who owns the column it is compared
+///   with (`0013` §B).
 pub fn request_bytes(
     session_id: &str,
     method: &str,
@@ -567,11 +525,10 @@ pub fn body_digest(body: &[u8]) -> [u8; 32] {
 
 /// The stored form of the bearer token: `H(LP(tag) ‖ LP(token))`.
 ///
-/// **The token is deliberately weak and this is where to say so.** On its own
-/// it buys exactly one thing — a fresh single-use nonce — and nothing that
-/// reaches design payload or vault ciphertext, because those need a signature
-/// under a key the server has never seen. It is hashed at rest so that a
-/// database read does not hand an attacker even that.
+/// **The token is deliberately weak.** On its own it buys one thing, a fresh
+/// single-use nonce, and nothing that reaches design payload or vault
+/// ciphertext, which need a signature under a key the server has never seen. It
+/// is hashed at rest so a database read does not hand over even that.
 pub fn token_hash(token: &[u8]) -> [u8; 32] {
     let mut msg = Vec::with_capacity(64);
     crypto::lp(&mut msg, TAG_SESSION_TOKEN);
@@ -582,11 +539,10 @@ pub fn token_hash(token: &[u8]) -> [u8; 32] {
 /// §4.2's stored assurance evidence, in the software-key shape:
 /// `H(LP(tag) ‖ LP(session_challenge) ‖ LP(evidence_sig))`.
 ///
-/// §4.2 settles what the evidence IS — *"a signature by the account's
-/// registered key over the same `session_challenge`"* — and §4.3 stores a
-/// digest of a WebAuthn assertion. This is the same digest for the factor
-/// §15.1 actually ships. The signature itself is stored beside it, because a
-/// digest is not something a later reader can re-verify.
+/// §4.2 settles what the evidence IS (*"a signature by the account's registered
+/// key over the same `session_challenge`"*); §4.3 stores a digest of a WebAuthn
+/// assertion. This is the same digest for the factor §15.1 ships. The signature
+/// is stored beside it, because a digest cannot be re-verified later.
 pub fn evidence_digest(challenge: &[u8; 32], evidence_sig: &[u8]) -> [u8; 32] {
     let mut msg = Vec::with_capacity(160);
     crypto::lp(&mut msg, TAG_SESSION_EVIDENCE);
@@ -606,30 +562,26 @@ pub fn evidence_digest(challenge: &[u8; 32], evidence_sig: &[u8]) -> [u8; 32] {
 ///
 /// # Why the table may not hold the address
 ///
-/// The defect this closes is an account oracle: the account bucket used to be
-/// counted only when the consumed bind nonce carried a principal, so an
-/// address belonging to nobody never crossed the cap and always answered `401`
-/// while a real one answered `429`. Counting both closes it — but the bucket
-/// key is stored, and storing the addresses that are NOT accounts means
-/// storing whatever people type into a sign-in box, which is their address at
-/// some other service often enough to matter and occasionally a password typed
-/// into the wrong field. A keyed hash groups attempts per address for as long
-/// as the window lasts and is not a list of addresses to anybody holding the
-/// database, because `K_addr` is derived from the chain master and the chain
-/// master is not in PostgreSQL.
+/// This closes an account oracle: the account bucket was counted only when the
+/// consumed bind nonce carried a principal, so an address belonging to nobody
+/// never crossed the cap and answered `401` while a real one answered `429`.
+/// Counting both closes it, but the bucket key is stored, and storing
+/// non-account addresses means storing whatever people type into a sign-in box,
+/// often their address at another service and occasionally a password typed
+/// into the wrong field. A keyed hash groups attempts per address for the
+/// window and is not a list of addresses to anybody holding the database:
+/// `K_addr` derives from the chain master, which is not in PostgreSQL.
 ///
-/// # Derived from the site chain key, exactly as `authority::row_key` is
+/// # Derived from the site chain key, as `authority::row_key` is
 ///
-/// The site chain key is the one key in this deployment that is the same for
-/// every organisation, and a sign-in is not organisation-scoped. The label is
-/// new because this is a new USE of that key, which is the rule
-/// `PHASE-2-STORAGE-DESIGN.md` §12.2 states for when a label is and is not
-/// warranted.
+/// The site chain key is the same for every organisation, and a sign-in is not
+/// organisation-scoped. The label is new because this is a new USE of that key
+/// (`PHASE-2-STORAGE-DESIGN.md` §12.2's rule).
 ///
-/// **The address is hashed exactly as it was typed.** No case folding and no
-/// trimming, because `account_by_address` matches exactly too: a variant
-/// spelling resolves to no account, lands in its own bucket, and is refused
-/// for the same reason any other unknown address is.
+/// **The address is hashed exactly as typed**: no case folding or trimming,
+/// because `account_by_address` matches exactly too. A variant spelling
+/// resolves to no account, lands in its own bucket, and is refused as any
+/// unknown address is.
 pub fn claimed_address_key(site_chain_key: &Key32, address: &str) -> [u8; 32] {
     let subkey = crypto::hkdf_expand(site_chain_key, KDF_SESSION_ADDRESS);
     let mut msg = Vec::with_capacity(96);
@@ -674,12 +626,10 @@ impl PrincipalKind {
 
 /// Which key a failed sign-in is counted against in the account bucket
 /// (`0014` §A).
-///
-/// **Both variants are counted and both land in the same bucket kind**, which
-/// is the whole point: an address that resolves to an account and one that
-/// resolves to nothing must cross the cap at the same attempt and change the
-/// answer in the same way, or the rate limiter is an oracle over the
-/// deployment's user list.
+/// **Both variants land in the same bucket kind**: an address that resolves to
+/// an account and one that resolves to nothing must cross the cap at the same
+/// attempt and change the answer the same way, or the rate limiter is an oracle
+/// over the deployment's user list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum AccountBucket {
     /// The account id the consumed bind nonce named.
@@ -710,16 +660,16 @@ enum Latch {
 /// §4.3's assurance, with `0018` §B2's third value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Assurance {
-    /// **A password and nothing else.** Reached since ADR-0055 decision 10 by
-    /// an account that has a password, no app code and no operator custody —
-    /// a steward who may sign in and change its own password (design §5.1) —
-    /// and by an account that holds the operator custody and has not finished
-    /// its setup, which is refused everywhere but `/credentials/*`.
+    /// **A password and nothing else.** Reached since ADR-0055 decision 10 by an
+    /// account with a password, no app code and no operator custody (a steward
+    /// who may sign in and change its own password, design §5.1), and by an
+    /// account holding the operator custody that has not finished setup, which
+    /// is refused everywhere but `/credentials/*`.
     A0,
-    /// **A password and a verified app code**, no long-term key. `0018` §B2:
-    /// filing this as `A0` would let a reader mistake a two-factor sign-in for
-    /// the unauthenticated placeholder `A0` names, and filing it as `A1` would
-    /// claim a long-term-key attestation that never happened.
+    /// **A password and a verified app code**, no long-term key (`0018` §B2).
+    /// Filing this as `A0` would let a reader mistake a two-factor sign-in for
+    /// the unauthenticated placeholder, and filing it as `A1` would claim a
+    /// long-term-key attestation that never happened.
     A0T,
     /// The session's holder signed a server challenge with an enrolled key.
     A1,
@@ -747,14 +697,12 @@ impl Assurance {
 /// Everything `POST /session` carries, since ADR-0055 decision 10 widened it
 /// from four fields to six.
 ///
-/// **A struct rather than six positional arguments**, and for
-/// `grants::Authority`'s reason: each field is a factor or a bucket key, and
-/// passing them as one value means a new caller cannot be written that
-/// quietly omits one or swaps two `&[u8]`s that happen to have the same type.
+/// **A struct, not six positional arguments**, as `grants::Authority`: each
+/// field is a factor or a bucket key, and one value means a new caller cannot
+/// quietly omit one or swap two same-typed `&[u8]`s.
 ///
-/// `password` and `totp_code` are `&str` and not `&[u8]` deliberately: both are
-/// things a person types, both are compared as text, and a byte slice here
-/// would invite a caller to pass a hash.
+/// `password` and `totp_code` are `&str` deliberately: both are typed by a
+/// person and compared as text, and a byte slice would invite passing a hash.
 pub struct SignInAttempt<'a> {
     pub kind: PrincipalKind,
     pub session_pubkey: &'a [u8],
@@ -772,25 +720,23 @@ pub struct SignInAttempt<'a> {
     /// rather than against the operator.
     pub totp_code: &'a str,
     pub source: &'a str,
-    /// ADR-0057 decision 2. On the operator plane, the id of a live session
-    /// of the operator's own bound account. Empty on the steward plane and
-    /// on every sign-in this build made before this decision, which the
-    /// operator branch now refuses for exactly that reason.
+    /// ADR-0057 decision 2. On the operator plane, the id of a live session of
+    /// the operator's own bound account. Empty on the steward plane; the
+    /// operator branch refuses an empty one.
     pub account_session_id: &'a str,
     /// A signature by that account session's own key over this attempt's own
     /// challenge (`session_challenge`), binding the two together. Empty on
     /// the steward plane.
     pub account_session_sig: &'a [u8],
-    /// ADR-0057 decision 6. On the operator plane, the memory-only grace
-    /// token a previous password-and-code sign-in of `account_session_id`
-    /// returned, empty if this browser holds none (never written to
-    /// storage, so a reload starts empty). Checked in
-    /// [`SessionStore::verify_account_endorsement`]; a mismatch only falls
-    /// back to asking for a live code, not a refusal on its own.
+    /// ADR-0057 decision 6. On the operator plane, the memory-only grace token
+    /// a previous password-and-code sign-in of `account_session_id` returned
+    /// (empty if none; never stored, so a reload starts empty). Checked in
+    /// [`SessionStore::verify_account_endorsement`]; a mismatch only falls back
+    /// to asking for a live code.
     pub grace_token: &'a [u8],
-    /// ADR-0057 decision 8. The `User-Agent` header of the sign-in request,
-    /// as it arrived, never stored itself — `attempt_sign_in` reduces it
-    /// through `browser_label::label` before this field goes out of scope.
+    /// ADR-0057 decision 8. The `User-Agent` header as it arrived, never stored
+    /// itself: `attempt_sign_in` reduces it through `browser_label::label`
+    /// first.
     pub user_agent: &'a str,
 }
 
@@ -810,19 +756,14 @@ pub struct SignedRequest<'a> {
 
 /// A request whose single-use nonce has been spent and which is waiting to be
 /// verified — inside the transaction that will also authorise it (`0014`,
-/// finding 8).
-///
-/// **This is not an actor and cannot become one by itself.** Holding it proves
-/// only that a nonce issued to some session id was fresh a moment ago; every
-/// check that matters — the row's MAC, the account, the evidence key, the
-/// clock, the counter and the signature — is still ahead of it, and
-/// [`VerifiedSession`] is still what nothing but
-/// [`SessionStore::verify_pending`] produces. It exists because a transaction
-/// cannot be carried across an axum extractor, so the request has to be
-/// carried instead.
-///
-/// It owns its fields rather than borrowing the request, for the same reason:
-/// the `Request` it came from is gone by the time a handler runs.
+/// **This is not an actor and cannot become one by itself.** It proves only
+/// that a nonce issued to some session id was fresh a moment ago; the row's MAC,
+/// account, evidence key, clock, counter and signature are all still ahead of
+/// it, and only [`SessionStore::verify_pending`] produces a
+/// [`VerifiedSession`]. It exists because a transaction cannot be carried
+/// across an axum extractor, so the request is carried instead. It owns its
+/// fields because the `Request` it came from is gone by the time a handler
+/// runs.
 pub struct PendingRequest {
     session_id: String,
     method: String,
@@ -856,14 +797,13 @@ impl VerifiedSession {
     }
 
     /// The principal, as text. **Deliberately not an `AccountId`**: the
-    /// repository layer takes `AccountId`, and the only ways to hand it one
-    /// derived from a session are [`open_tenant_context`] and
-    /// [`account_without_tenant`] — named functions, so that every place a
-    /// session becomes an actor is greppable.
+    /// repository layer takes `AccountId`, and the only ways to derive one from
+    /// a session are [`open_tenant_context`] and [`account_without_tenant`],
+    /// named so every place a session becomes an actor is greppable.
     ///
-    /// This returns text for logging, comparison and audit entries. Parsing
-    /// it back into an `AccountId` is exactly the bypass those two functions
-    /// exist to prevent; call one of them instead.
+    /// This is for logging, comparison and audit entries. Parsing it back into
+    /// an `AccountId` is exactly the bypass those two functions exist to
+    /// prevent.
     pub fn principal_id(&self) -> String {
         self.actor.to_string()
     }
@@ -898,21 +838,18 @@ pub struct SignedIn {
     /// actor on every change it makes, so undo can tell its own batches from
     /// a colleague's.
     pub account_id: String,
-    /// ADR-0057 decision 6. `Some` exactly when this sign-in verified a
-    /// fresh TOTP code on the steward plane, the one moment a grace token is
-    /// minted. Held in memory only, never storage, and presented as
-    /// [`SignInAttempt::grace_token`] on a later sign-in within
-    /// [`SECOND_FACTOR_FRESHNESS`]. `None` otherwise.
+    /// ADR-0057 decision 6. `Some` exactly when this sign-in verified a fresh
+    /// TOTP code on the steward plane, the one moment a grace token is minted.
+    /// Memory-only; presented as [`SignInAttempt::grace_token`] on a later
+    /// sign-in within [`SECOND_FACTOR_FRESHNESS`].
     pub grace_token: Option<[u8; 32]>,
 }
 
 impl core::fmt::Debug for SignedIn {
-    /// **Neither secret is printed**, by the same rule `secret.rs` exists for
-    /// and that `SoftwareKey`'s own `Debug` already follows: a type that can
-    /// be formatted into a log line is a type whose `Debug` decides what ends
-    /// up in one, and `{:?}` is reached for in a hurry. The grace token is a
-    /// bearer credential exactly as the session token is, for the fifteen
-    /// minutes it is good.
+    /// **Neither secret is printed**, by the rule `secret.rs` exists for:
+    /// `{:?}` is reached for in a hurry and a `Debug` impl decides what ends up
+    /// in a log line. The grace token is a bearer credential like the session
+    /// token, for the fifteen minutes it is good.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SignedIn")
             .field("session_id", &self.session_id)
@@ -960,51 +897,43 @@ pub struct SessionSummary {
 /// Everything this layer refuses, and why.
 ///
 /// **[`SessionError::SignInRefused`] is deliberately one variant for several
-/// causes**: an address that belongs to no account, an account with no
-/// enrolled key, a nonce that was never issued or has already been used, a
-/// signature that does not verify, and a challenge bound to a different public
-/// key all produce it. A caller who could tell those apart could enumerate
-/// accounts. The sealed `account_signin_failed` entry carries the real reason,
-/// where an operator can read it and an attacker cannot.
+/// causes**: an address that belongs to no account, an account with no enrolled
+/// key, a nonce never issued or already used, a signature that does not verify,
+/// and a challenge bound to a different public key. A caller who could tell
+/// them apart could enumerate accounts. The sealed `account_signin_failed`
+/// entry carries the real reason, where an operator can read it and an attacker
+/// cannot.
 ///
-/// **One variant was not enough on its own, and `0014` §A is the fix.** The
-/// uniform message was undone one layer up by [`SessionError::RateLimited`],
-/// which only a real address could ever reach: the account bucket was counted
-/// only for an address that resolved, so an unknown one answered the uniform
-/// refusal for ever while a known one changed to a `429` with a `Retry-After`
-/// header at the eleventh attempt. A refusal is uniform only if *every*
-/// refusal this surface can produce is uniform, at every attempt, which is now
-/// what `tests/sessions.rs` asserts rather than assuming from one try.
+/// **One variant was not enough alone (`0014` §A).**
+/// [`SessionError::RateLimited`], which only a real address could reach, undid
+/// the uniform message: the account bucket was counted only for an address that
+/// resolved, so an unknown one answered the uniform refusal for ever while a
+/// known one changed to `429` with `Retry-After` at the eleventh attempt. A
+/// refusal is uniform only if *every* refusal this surface can produce is
+/// uniform at every attempt, which `tests/sessions.rs` asserts.
 ///
-/// **What is closed and what is not, stated narrowly.** What is closed is the
-/// answer: status, headers and body are identical for a known and an unknown
-/// address at every attempt, below the cap and above it, tested over the wire.
+/// **What is closed, narrowly.** The answer: status, headers and body are
+/// identical for a known and an unknown address at every attempt, below the cap
+/// and above it, tested over the wire.
 ///
-/// **And, since the 2026-09-21 review, the dominant part of how long the
-/// answer takes.** The paragraph that stood here said the timing gap was "not
-/// measured and not defended against"; it was then measured, on a running
-/// server, at 85 to 1 — a known address with a wrong credential took a median
-/// 498 ms and an unknown one 5.9 ms, because the argon2id verification ran
-/// only when the address resolved to a row with a stored hash. One
-/// verification is now run on **every** refused attempt that presented a
-/// credential at all, against [`A_DECOY_HASH`], so the memory-hard step is
-/// paid for an address that belongs to nobody exactly as it is for one that
-/// does. `tests/sessions.rs` asserts the two medians rather than asserting a
-/// sentence about them.
+/// **Since the 2026-09-21 review, also the dominant part of the timing.**
+/// Measured on a running server, a known address with a wrong credential took a
+/// median 498 ms against 5.9 ms for an unknown one (85 to 1), because argon2id
+/// ran only when the address resolved to a stored hash. One verification now
+/// runs on **every** refused attempt that presented a credential, against
+/// [`A_DECOY_HASH`]. `tests/sessions.rs` asserts the two medians.
 ///
 /// **This is still not a claim that sign-in is constant time.** What is
-/// equalised is the one operation that costs hundreds of milliseconds beside
-/// database work that costs single-figure ones; the residue — a keyring read,
-/// an ES256 verification — is real, is smaller than the noise of a network
-/// hop, and is not defended against. An attempt that presents **no**
-/// credential is fast on both sides, which is the same property by the other
-/// route: the empty-credential branch short-circuits before any hash for a
+/// equalised is the one operation costing hundreds of milliseconds; the residue
+/// (a keyring read, an ES256 verification) is smaller than network noise and
+/// not defended against. An attempt presenting **no** credential is fast on
+/// both sides: the empty-credential branch short-circuits before any hash for a
 /// known address too.
 ///
-/// **[`SessionError::Unverifiable`] is NOT a permission error**, on §3.4's
-/// argument: a row MAC that does not recompute means the store is not telling
-/// the truth about itself, and rendering that as "please sign in again" would
-/// teach nobody anything.
+/// **[`SessionError::Unverifiable`] is NOT a permission error** (§3.4): a row
+/// MAC that does not recompute means the store is not telling the truth about
+/// itself, and rendering that as "please sign in again" would teach nobody
+/// anything.
 #[derive(Debug)]
 pub enum SessionError {
     Db(tokio_postgres::Error),
@@ -1020,14 +949,12 @@ pub enum SessionError {
     /// Sign-in did not succeed. One variant for every cause, on purpose.
     ///
     /// **`OperatorHasNoAuthenticator` was a variant here until `0015` and is
-    /// deliberately gone.** It said, to an unauthenticated caller, that the
-    /// operator plane had no key enrolled — which was harmless while no
-    /// operator could exist at all and became an oracle the moment one could:
-    /// an attacker walking operator ids would learn which of them have
-    /// enrolled and which are still holding a token. §4.5 is unchanged and is
-    /// kept by the code rather than by the error type: an operator session is
-    /// `A1` or it does not exist, and there is no password path to fall back
-    /// to.
+    /// deliberately gone.** It told an unauthenticated caller that the operator
+    /// plane had no key enrolled: harmless while no operator could exist, an
+    /// oracle once one could (an attacker walking operator ids would learn which
+    /// have enrolled). §4.5 is kept by the code, not the error type: an operator
+    /// session is `A1` or it does not exist, and there is no password path to
+    /// fall back to.
     SignInRefused,
     /// Too many attempts in this window (§13 item 7).
     RateLimited {
@@ -1038,18 +965,16 @@ pub enum SessionError {
     /// This session id is in `session_revocations`: it was signed out, and the
     /// row presenting itself now is one a restore put back (`0014` §D).
     ///
-    /// **Rendered exactly as [`SessionError::NoSuchSession`]** — a signed-out
-    /// session and an unknown one are one answer from outside — but kept as
-    /// its own variant so that the log line an operator reads says which of
-    /// the two it was, and so that a test can tell them apart.
+    /// **Rendered exactly as [`SessionError::NoSuchSession`]** (a signed-out and
+    /// an unknown session are one answer from outside) but its own variant so
+    /// the operator's log line and tests can tell them apart.
     SessionRevoked,
     /// The request carried no signature at all, or one this layer could not
     /// even parse.
     ///
-    /// **Not [`SessionError::Malformed`]**: a caller who presented nothing is
-    /// not a caller who got the protocol wrong, and the answer they need is
-    /// "authenticate", not "your bytes are bad". A caller who presented
-    /// something unparseable gets the same answer, because telling the two
+    /// **Not [`SessionError::Malformed`]**: a caller who presented nothing did
+    /// not get the protocol wrong, and needs "authenticate", not "your bytes are
+    /// bad". Something unparseable gets the same answer, because telling the two
     /// apart tells an attacker which header they got right.
     NotSigned,
     /// The session's own lifetime has run out.
@@ -1059,10 +984,9 @@ pub enum SessionError {
     /// The key that proved this session's assurance is no longer in service:
     /// retired or superseded. The session stops at its next request.
     EvidenceKeyNotInService,
-    /// The nonce was never issued, has already been consumed, has expired, or
-    /// belongs to another session. **All four are one variant**: they are the
-    /// same fact from the verifier's side — this request carries no fresh,
-    /// single-use proof of liveness.
+    /// The nonce was never issued, has been consumed, has expired, or belongs to
+    /// another session. **All four are one variant**: the same fact from the
+    /// verifier's side, no fresh single-use proof of liveness.
     NonceNotFresh,
     /// The request's own timestamp is outside [`CLOCK_SKEW`].
     ClockSkew {
@@ -1071,9 +995,8 @@ pub enum SessionError {
     /// The counter did not advance past the value recorded when the nonce was
     /// issued, or it ran further than [`COUNTER_WINDOW`] past it.
     ///
-    /// **Both directions are one variant.** They are the same fact from the
-    /// verifier's side — this request's counter is not the next one — and
-    /// telling them apart would tell a caller what the stored mark is.
+    /// **Both directions are one variant**: the same fact from the verifier's
+    /// side, and telling them apart would reveal the stored mark.
     CounterNotFresh,
     /// The per-request signature was refused, with `authority`'s reason.
     Signature(SignatureRefused),
@@ -1092,59 +1015,53 @@ pub enum SessionError {
     /// The sign-in presented a password this account's stored hash does not
     /// verify.
     ///
-    /// **Rendered exactly as [`SessionError::SignInRefused`]** — decision 7 and
-    /// OWASP ASVS 5.0.0 6.3.8 as ADR-0055 read them on 2026-09-21: no account
-    /// enumeration through message, code or timing — but kept as its own
-    /// variant so the sealed `account_signin_failed` entry and the log line an
-    /// operator reads say which of the causes it was.
+    /// **Rendered exactly as [`SessionError::SignInRefused`]** (decision 7, OWASP
+    /// ASVS 5.0.0 6.3.8: no account enumeration through message, code or timing)
+    /// but its own variant so the sealed `account_signin_failed` entry and the
+    /// operator's log line say which cause it was.
     PasswordRefused,
     /// This session's account holds the operator custody and has not set up its
     /// authenticator app, so the session is a **setup session**: accepted on
     /// `/credentials/*` and refused everywhere else.
     ///
     /// ADR-0055 decision 10 (*"such an account is taken to the enrolment screen
-    /// before anything else until it has one"*) and the lead's resolution 1,
-    /// which makes it a typed refusal rather than a redirect so a client that
-    /// ignores it gets nothing.
+    /// before anything else until it has one"*); a typed refusal rather than a
+    /// redirect, so a client that ignores it gets nothing.
     ///
-    /// **Not `AccountDisabled` and not `NotSigned`**: the holder is who they
-    /// say they are and the session is real. What is missing is the second
-    /// factor, and the client has to be told that precisely, because the only
-    /// way out is the screen that enrols it.
+    /// **Not `AccountDisabled` and not `NotSigned`**: the holder is who they say
+    /// they are and the session is real. The second factor is missing, and the
+    /// client must be told precisely because the only way out is the screen that
+    /// enrols it.
     TotpRequired,
 
     // ---- ADR-0056 decision 3 ------------------------------------------
     /// The address and the credential verify, the account holds a confirmed
     /// authenticator, and no verification code was presented. **Step one of a
-    /// two-step sign-in**, and not a refusal of anything the caller got wrong.
+    /// two-step sign-in**, not a refusal of anything the caller got wrong.
     ///
-    /// **Its own variant and not [`SessionError::SignInRefused`]**, because
-    /// the client has to know which of the two screens to draw next and a
-    /// uniform sentence cannot tell it. ADR-0056 decision 3 names what that
-    /// gives up in one paragraph — the second step tells whoever typed the
-    /// right password that it was right — and why every surveyed product
-    /// makes the same trade: it is not ASVS 6.3.8's rule, which is about
-    /// deducing a *valid user* from a *failed* challenge, and a wrong address
-    /// or a wrong credential still gets the one generic sentence here.
+    /// **Its own variant, not [`SessionError::SignInRefused`]**, because the
+    /// client must know which screen to draw next. ADR-0056 decision 3 names what
+    /// this gives up (the second step tells whoever typed the right password that
+    /// it was right) and why every surveyed product makes the same trade: it is
+    /// not ASVS 6.3.8's rule, which is about deducing a *valid user* from a
+    /// *failed* challenge, and a wrong address or credential still gets the one
+    /// generic sentence.
     ///
     /// **It costs one source unit and nothing else** (2026-09-22). The
-    /// transaction that produced it is rolled back — nothing is sealed,
-    /// nothing is counted against the account, and **the challenge nonce is
-    /// left unconsumed**, so step two re-posts the same challenge with the
-    /// verification code — and then one count for the request is committed on
-    /// its own against the source bucket.
+    /// transaction that produced it is rolled back: nothing is sealed, nothing is
+    /// counted against the account, and **the challenge nonce is left
+    /// unconsumed**, so step two re-posts the same challenge with the code. Then
+    /// one count for the request is committed on its own against the source
+    /// bucket.
     ///
-    /// **Why the source count is not rolled back with the rest.** The build
-    /// that rolled back everything made this answer free and repeatable: one
-    /// challenge, one budget unit, and as many argon2id verifications as a
-    /// password holder cared to ask for, measured at forty on one nonce. The
-    /// account bucket still must not move — a person signing in correctly
-    /// passes through here — but the request itself has to cost the source
-    /// something, and one unit per request is what every other unauthenticated
-    /// route here costs. So a two-step sign-in costs **three** source units
-    /// (challenge, probe, completion) and
-    /// [`SignInLimits::defaults`] carries fifteen of them per window, as it
-    /// did before.
+    /// **Why the source count is not rolled back.** Rolling back everything made
+    /// this answer free and repeatable: one challenge, one budget unit, and as
+    /// many argon2id verifications as a password holder asked for (measured at
+    /// forty on one nonce). The account bucket must still not move, since a
+    /// person signing in correctly passes through here, but the request must cost
+    /// the source one unit, as every other unauthenticated route does. A two-step
+    /// sign-in costs **three** source units (challenge, probe, completion) and
+    /// [`SignInLimits::defaults`] carries fifteen of them per window.
     SecondFactorNeeded,
 }
 
@@ -1273,9 +1190,9 @@ impl From<SignatureRefused> for SessionError {
 // The store
 // ---------------------------------------------------------------------------
 
-/// Everything the session layer needs, carried together for the same reason
-/// `grants::Authority` is: each field is a control, and passing them as one
-/// value means a new path cannot be written that quietly omits one.
+/// Everything the session layer needs, carried together as `grants::Authority`
+/// is: each field is a control, and one value means no path can quietly omit
+/// one.
 pub struct SessionStore {
     pool: Pool,
     ring: Arc<KeyRing>,
@@ -1285,8 +1202,8 @@ pub struct SessionStore {
     limits: SignInLimits,
     lifetime: Duration,
     /// ADR-0057 decision 7. `FATHOM_SESSION_ADDRESS_CHECK`, defaulted to
-    /// [`AddressCheckMode::Site`] so that every deployment built before this
-    /// existed keeps its operator plane bound without a config change.
+    /// [`AddressCheckMode::Site`] so a deployment built before this keeps its
+    /// operator plane bound without a config change.
     address_check: AddressCheckMode,
 }
 
@@ -1304,12 +1221,10 @@ impl SessionStore {
 
     /// As [`SessionStore::new`], with a lifetime other than
     /// [`SESSION_LIFETIME`].
-    ///
-    /// **The lifetime is a property of the store rather than a constant read
-    /// at the point of use**, because otherwise the only way to observe an
-    /// expiry is to move `expires_at` in SQL — which breaks the row MAC, so
-    /// the test proves the MAC and never the expiry. Two separate claims need
-    /// two separate ways to reach them.
+    /// **A property of the store, not a constant read at the point of use**:
+    /// otherwise the only way to observe an expiry is to move `expires_at` in
+    /// SQL, which breaks the row MAC, so the test would prove the MAC and never
+    /// the expiry.
     pub fn with_lifetime(
         pool: Pool,
         ring: Arc<KeyRing>,
@@ -1328,9 +1243,8 @@ impl SessionStore {
     }
 
     /// `FATHOM_SESSION_ADDRESS_CHECK`, set once at startup (`main.rs`). A
-    /// builder rather than a `new` parameter, so every existing caller keeps
-    /// compiling unchanged and gets the same default a deployment that never
-    /// sets the variable gets.
+    /// builder rather than a `new` parameter, so existing callers compile
+    /// unchanged with the default.
     pub fn with_address_check(mut self, mode: AddressCheckMode) -> Self {
         self.address_check = mode;
         self
@@ -1356,27 +1270,24 @@ impl SessionStore {
     /// browser is asking to register.
     ///
     /// **The answer is the same shape for an address that belongs to no
-    /// account.** A nonce row is written either way — with no principal, which
-    /// the composite foreign key permits because it is not enforced when a
-    /// column of it is NULL — so the response cannot be used to enumerate
-    /// accounts. The refusal happens at [`SessionStore::sign_in`], after the
-    /// attempt has been counted.
+    /// account.** A nonce row is written either way, with no principal (the
+    /// composite foreign key is not enforced when a column of it is NULL), so
+    /// the response cannot enumerate accounts. The refusal happens at
+    /// [`SessionStore::sign_in`], after the attempt has been counted.
     ///
     /// # Two things `0014` changed here
     ///
-    /// 1. **The route is rate limited against the source bucket.** It was not,
-    ///    and it writes a row: one anonymous POST was one permanent
-    ///    `session_nonces` row, since nothing swept and the only deletes
-    ///    matched one exact nonce. It costs one count, so a one-shot sign-in
-    ///    costs two against `max_per_source` and a two-step one three — see
-    ///    [`SignInLimits::defaults`].
+    /// 1. **The route is rate limited against the source bucket.** It writes a
+    ///    row and nothing swept: one anonymous POST was one permanent
+    ///    `session_nonces` row. It costs one count, so a one-shot sign-in costs
+    ///    two against `max_per_source` and a two-step one three
+    ///    ([`SignInLimits::defaults`]).
     /// 2. **The claimed address's keyed hash travels on the nonce row**
-    ///    ([`claimed_address_key`], `0014` §A), for every bind nonce and not
-    ///    only for the ones that resolve to nothing. §4.2 deliberately keeps
+    ///    ([`claimed_address_key`], `0014` §A), for every bind nonce. §4.2 keeps
     ///    the address out of the sign-in message, so this is the only place it
     ///    is known; without it the account bucket cannot be counted for an
-    ///    address that belongs to nobody, and that asymmetry was an oracle
-    ///    over the deployment's user list.
+    ///    address that belongs to nobody, and that asymmetry was an oracle over
+    ///    the user list.
     pub async fn issue_challenge(
         &self,
         kind: PrincipalKind,
@@ -1408,16 +1319,14 @@ impl SessionStore {
         }
 
         // **What an operator types in the address box is their operator id**,
-        // and the resolution is the same shape either way: a string that names
-        // nobody produces a nonce with no principal, byte-identical to one
-        // that does, and the refusal happens at sign-in after the attempt has
-        // been counted.
+        // resolved in the same shape either way: a string naming nobody produces
+        // a nonce with no principal, byte-identical to one that does, and the
+        // refusal happens at sign-in after the attempt is counted.
         //
-        // §4.5 gives an operator no address of record — there is no reset path
-        // to send anything to — so there is nothing else to resolve them by.
-        // The id is not a secret and is not treated as one: it is the operator
-        // plane's equivalent of an address, and possession of the enrolled
-        // private key is the whole of the factor.
+        // §4.5 gives an operator no address of record, so there is nothing else
+        // to resolve them by. The id is not a secret: it is the operator plane's
+        // equivalent of an address, and possession of the enrolled private key is
+        // the whole of the factor.
         let principal = match kind {
             PrincipalKind::Steward => account_by_address(&tx, address).await?,
             PrincipalKind::Operator => operator_by_id(&tx, address).await?,
@@ -1456,20 +1365,18 @@ impl SessionStore {
     ///
     /// # The order, and why it is not arbitrary
     ///
-    /// 1. **The source bucket is counted first**, before anything is looked
-    ///    up, so an attacker who sends nothing but rubbish is still rate
-    ///    limited.
-    /// 2. **The nonce is consumed next**, by `DELETE ... RETURNING`. Consumed
-    ///    means consumed: a failed attempt burns it, which is the fail-closed
-    ///    direction. The one thing that does not burn it is the second-factor
-    ///    probe, and only because the whole transaction is rolled back — the
-    ///    delete is undone with everything else rather than skipped, so no
-    ///    path can reach a session on a nonce that has been spent.
+    /// 1. **The source bucket is counted first**, before anything is looked up,
+    ///    so rubbish is still rate limited.
+    /// 2. **The nonce is consumed next**, by `DELETE ... RETURNING`. A failed
+    ///    attempt burns it: fail-closed. The one exception is the second-factor
+    ///    probe, and only because the whole transaction is rolled back (the
+    ///    delete is undone with everything else), so no path reaches a session
+    ///    on a spent nonce.
     /// 3. The account, its disabled flag, its live signing key and that key's
     ///    own row seal.
-    /// 4. The evidence signature, over the challenge recomputed from the
-    ///    stored nonce and the public key the caller is asking to register —
-    ///    **never from anything the caller sent alongside it**.
+    /// 4. The evidence signature, over the challenge recomputed from the stored
+    ///    nonce and the public key the caller is asking to register: **never
+    ///    from anything the caller sent alongside it**.
     /// 5. The sealed `account_signin` entry, and only then the row, whose MAC
     ///    covers that entry's `seq`. No entry, no session.
     ///
@@ -1477,12 +1384,10 @@ impl SessionStore {
     /// and written to the site chain with its real reason.
     ///
     /// **There is no address in this message.** The account is the one the
-    /// consumed nonce names, and the nonce was issued against an address the
-    /// caller gave at [`SessionStore::issue_challenge`]. Taking the address
-    /// again here would be a second, unbound statement of who is signing in —
-    /// exactly the shape §3.8 item 7 calls out for grant proposals, where
-    /// anything the client returns that is not inside the signed bytes must be
-    /// re-derived rather than believed.
+    /// consumed nonce names. Taking the address again would be a second, unbound
+    /// statement of who is signing in: the shape §3.8 item 7 calls out for grant
+    /// proposals, where anything the client returns outside the signed bytes
+    /// must be re-derived rather than believed.
     pub async fn sign_in(
         &self,
         kind: PrincipalKind,
@@ -1510,49 +1415,45 @@ impl SessionStore {
     /// [`SessionStore::sign_in`] **widened by ADR-0055 decision 10**: the same
     /// act, with a password and an app code beside the evidence signature.
     ///
-    /// # The two branches, and which one is which
+    /// # The two branches
     ///
-    /// The branch is chosen by **the stored `accounts.password_hash`**, never
-    /// by which fields the caller filled in — a caller who could pick the
-    /// branch could pick the weaker one.
+    /// The branch is chosen by **the stored `accounts.password_hash`**, never by
+    /// which fields the caller filled in: a caller who could pick the branch
+    /// could pick the weaker one.
     ///
-    /// 1. **`password_hash IS NULL`** — today's path, byte for byte. An
-    ///    enrolled long-term key signs the challenge, `A1` or nothing, and
-    ///    every existing account and every existing test goes through here
-    ///    unchanged. The operator plane is always this branch: ADR-0055
-    ///    resolution 8 keeps `kind = 'operator'` a key sign-in, and the
-    ///    operator custody is exercised through `/admin`.
-    /// 2. **`password_hash IS NOT NULL`** — the password is **required**, and
-    ///    the evidence signature is optional. Then:
+    /// 1. **`password_hash IS NULL`**: today's path. An enrolled long-term key
+    ///    signs the challenge, `A1` or nothing. The operator plane is always this
+    ///    branch (ADR-0055 resolution 8; the operator custody is exercised
+    ///    through `/admin`).
+    /// 2. **`password_hash IS NOT NULL`**: the password is **required**, the
+    ///    evidence signature optional. Then:
     ///    * a valid evidence signature by any live key → `A1`;
     ///    * otherwise a verified app code → `A0T`;
-    ///    * otherwise `A0`, which is a full session for a steward with no app
-    ///      code and a **setup session** for an account holding the operator
-    ///      custody — refused by [`SessionStore::verify_request`] on every path
-    ///      but `/credentials/*` until the code is enrolled.
+    ///    * otherwise `A0`: a full session for a steward with no app code, and a
+    ///      **setup session** for an account holding the operator custody,
+    ///      refused by [`SessionStore::verify_request`] on every path but
+    ///      `/credentials/*` until the code is enrolled.
     ///
     /// **`live_signing_key` is not called when no evidence signature was
     /// presented.** `AuthorityError::NoSigningKey` is the expected state for a
-    /// password-only person and must not be treated as a refusal.
+    /// password-only person, not a refusal.
     ///
-    /// # The rate limits are the ones that already exist
+    /// # The rate limits are the existing ones
     ///
-    /// The lead's resolution 12: the password budget is `sign_in_attempts`'
-    /// existing per-address counter — ten failures per fifteen minutes, a rate
-    /// limit and **not** a lockout, [`SignInLimits::defaults`] carries the
-    /// argument — plus the per-source bucket counted before anything is looked
-    /// up. A refused password goes through [`SessionStore::refuse`] exactly as
-    /// a refused signature does, so it costs the same and answers the same.
+    /// The password budget is `sign_in_attempts`' existing per-address counter
+    /// (ten failures per fifteen minutes, a rate limit and **not** a lockout;
+    /// [`SignInLimits::defaults`]) plus the per-source bucket counted before
+    /// anything is looked up. A refused password goes through
+    /// [`SessionStore::refuse`] as a refused signature does, so it costs and
+    /// answers the same.
     ///
-    /// # It costs the same in time, too, and that is new
+    /// # It costs the same in time, too
     ///
-    /// The 2026-09-21 review measured this route as an account-enumeration
-    /// oracle by the clock: 498 ms for a known address with a wrong credential
-    /// against 5.9 ms for an unknown one, because the argon2id verification
-    /// happened only on the branch that had a stored hash to verify against.
-    /// Every refusal below that did **not** already run one now runs one
-    /// against [`A_DECOY_HASH`], so the memory-hard step is paid either way.
-    /// The result is discarded; the time is the point.
+    /// The 2026-09-21 review measured an account-enumeration oracle by the
+    /// clock: 498 ms for a known address with a wrong credential against 5.9 ms
+    /// for an unknown one, because argon2id ran only on the branch with a stored
+    /// hash. Every refusal that did **not** already run one now runs one against
+    /// [`A_DECOY_HASH`]. The result is discarded; the time is the point.
     pub async fn sign_in_with_credentials(
         &self,
         attempt: &SignInAttempt<'_>,
@@ -1566,42 +1467,38 @@ impl SessionStore {
             ..
         } = *attempt;
         check_public_key(session_pubkey)?;
-        // **The length check moved behind "was one presented at all"**, and
-        // that is the whole of what branch 2 needs from it: an empty field is
-        // "no signature", which branch 2 allows and branch 1 refuses a few
-        // lines later as `SignInRefused`. A NON-empty field that is the wrong
-        // length is still malformed on either branch.
+        // **The length check sits behind "was one presented at all"**: an empty
+        // field is "no signature", which branch 2 allows and branch 1 refuses
+        // later as `SignInRefused`. A NON-empty field of the wrong length is
+        // malformed on either branch.
         if !evidence_sig.is_empty() && evidence_sig.len() != authority::SIGNATURE_LEN {
             return Err(SessionError::Malformed("evidence signature"));
         }
 
-        // (1) The source bucket counts every attempt, not only the failures,
-        // and **it is charged before the sign-in transaction opens, in a
-        // committed transaction of its own** (ADR-0056 decision 3, second
-        // amendment, 2026-09-22). Two reasons, both found by a checker on the
-        // first shape of this: the second-factor probe rolls the sign-in
-        // transaction back, so a count taken inside it vanished and one
-        // challenge bought unbounded password verifications; and a charge
-        // taken AFTER the verification, on a second pool connection while the
-        // first was still held, was both cancellable by hanging up and a
-        // deadlock once `pool_size` probes arrived together. Charging first,
-        // on a connection that is returned before the next one is taken,
-        // closes all three: the count survives the rollback, is paid before
-        // the argon2id work it buys, and never holds two connections.
+        // (1) The source bucket counts every attempt, not only failures, and **is
+        // charged before the sign-in transaction opens, in a committed
+        // transaction of its own** (ADR-0056 decision 3, second amendment,
+        // 2026-09-22). Otherwise: the second-factor probe rolls the sign-in
+        // transaction back, so a count taken inside it vanished and one challenge
+        // bought unbounded password verifications; and a charge taken AFTER
+        // verification on a second pool connection was cancellable by hanging up
+        // and a deadlock once `pool_size` probes arrived together. Charging
+        // first, on a connection returned before the next is taken, means the
+        // count survives the rollback, is paid before the argon2id work it buys,
+        // and never holds two connections.
         //
-        // **Both buckets are rate limits and neither is a lockout** — `0014`
-        // §0 carries the decision and [`SignInLimits::defaults`] carries the
-        // argument. What differs is not their nature but when they are
-        // consulted: the source bucket before anything is looked up, the
-        // account bucket on a path that has already failed.
+        // **Both buckets are rate limits, neither a lockout** (`0014` §0;
+        // [`SignInLimits::defaults`]). They differ in when they are consulted:
+        // the source bucket before anything is looked up, the account bucket on a
+        // path that has already failed.
         let source_count = self.charge_source(source).await?;
 
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
         enter_session_custody(&tx).await?;
 
-        // Expired rows first — this call writes to all three session tables
-        // and each pays for its own growth (`0014` §C).
+        // Expired rows first: this call writes to all three session tables and
+        // each pays for its own growth (`0014` §C).
         sweep_expired_nonces(&tx).await?;
         sweep_expired_sessions(&tx).await?;
 
@@ -1616,48 +1513,36 @@ impl SessionStore {
 
         let outcome = self.attempt_sign_in(&tx, attempt).await;
 
-        // **ADR-0056 decision 3: the second-factor probe is a ROLLBACK and not
-        // a refusal — and it costs one source unit** (the 2026-09-22 review,
-        // second round).
+        // **ADR-0056 decision 3: the second-factor probe is a ROLLBACK, not a
+        // refusal, and costs one source unit.**
         //
-        // It is a protocol step. The client has the address and the credential
-        // right and is asking which screen to draw; the sealed sign-in that
-        // follows a moment later is the record of it, and a `*_signin_failed`
-        // entry here would relabel a person who is signing in correctly as a
-        // failure. So nothing this transaction did is kept:
+        // It is a protocol step: the client has the address and credential right
+        // and is asking which screen to draw. A `*_signin_failed` entry here
+        // would relabel a person signing in correctly as a failure. So nothing
+        // this transaction did is kept:
         //
-        // * **the nonce stays unconsumed**, which is what makes step two the
-        //   SAME challenge — one `/session/challenge` for the whole two-step
-        //   sign-in;
-        // * **the account bucket does not move**, because a person signing in
-        //   correctly passes through here and would otherwise spend their own
-        //   window on their own successful sign-ins;
+        // * **the nonce stays unconsumed**, so step two is the SAME challenge:
+        //   one `/session/challenge` for the whole two-step sign-in;
+        // * **the account bucket does not move**, or a person would spend their
+        //   own window on their own successful sign-ins;
         // * **no entry is written**, so an unauthenticated caller cannot choose
-        //   how fast this deployment's sealed audit grows by probing.
+        //   how fast the sealed audit grows by probing.
         //
         // **What is NOT rolled back is one count against the source bucket**,
-        // committed below in a transaction of its own. The first round rolled
-        // back the count at (1) along with everything else, and that made this
-        // answer free and repeatable: the review drove forty probes on one
-        // nonce for one unit of budget, which is unlimited argon2id for
-        // anybody holding a password. A separate short transaction is how the
-        // count survives a rollback; giving it back by arithmetic on the row
-        // would be a second decision about a row another transaction may have
-        // moved.
+        // committed before this transaction opened (above). Rolling it back made
+        // the probe free and repeatable (forty probes on one nonce for one unit
+        // of budget: unlimited argon2id for anybody holding a password). A
+        // separate short transaction is how a count survives a rollback; giving
+        // it back by arithmetic would be a second decision about a row another
+        // transaction may have moved. A caller who hangs up mid-verification has
+        // already paid.
         //
-        // **The probe is a rollback.** The source unit it cost was committed
-        // before this transaction opened (above), so the rollback undoes the
-        // nonce delete, any entry and any account count and nothing else:
-        // step two re-posts the same challenge, and a caller who hangs up
-        // mid-verification has already paid.
+        // The decoy verification is not run either: the real one has happened,
+        // and a second would add half a second to every ordinary sign-in.
         //
-        // The decoy verification below is not run either: the real one has
-        // already happened, and a second would put half a second on the path
-        // the client takes to every ordinary sign-in.
-        //
-        // **A wrong credential on the same account is untouched** — it never
-        // reaches this arm, and it is still sealed, counted, generic, and it
-        // still consumes the nonce.
+        // **A wrong credential on the same account is untouched**: it never
+        // reaches this arm, and is still sealed, counted, generic, and consumes
+        // the nonce.
         if matches!(outcome, Err((_, _, SessionError::SecondFactorNeeded))) {
             tx.rollback().await?;
             return Err(SessionError::SecondFactorNeeded);
@@ -1665,9 +1550,9 @@ impl SessionStore {
 
         let result = match outcome {
             Ok(signed_in) => {
-                // A success clears this window's failures for the account, so
-                // a person who mistypes twice and then succeeds is not one
-                // mistake away from a lockout for the next quarter of an hour.
+                // A success clears this window's failures for the account, so a
+                // person who mistypes twice then succeeds is not left near the
+                // cap.
                 tx.execute(
                     "UPDATE sign_in_attempts SET attempts = 0 \
                       WHERE bucket_kind = 'account' AND bucket_key = $1 \
@@ -1681,30 +1566,24 @@ impl SessionStore {
                 let counted = self
                     .refuse(&tx, bucket.as_ref(), source, reason, kind)
                     .await;
-                // **One argon2id per refused attempt that carried a
-                // credential, whichever branch refused it.**
-                // `SessionError::PasswordRefused` is exactly the set of
-                // refusals that already ran a real verification — the gate
-                // itself, and the app code beyond it, which is only reached
-                // once the gate has passed. Every other refusal — an address
-                // that belongs to nobody, a disabled account, an account with
-                // no stored hash, a nonce that was never issued — arrives here
+                // **One argon2id per refused attempt that carried a credential,
+                // whichever branch refused it.** `SessionError::PasswordRefused`
+                // is exactly the set of refusals that already ran a real
+                // verification (the gate, and the app code beyond it). Every other
+                // refusal (an address that belongs to nobody, a disabled account,
+                // an account with no stored hash, a nonce never issued) arrives
                 // having done single-figure milliseconds of database work, and
-                // that difference was the oracle the 2026-09-21 review
-                // measured at 85 to 1.
+                // that difference was the oracle measured at 85 to 1.
                 //
-                // **The variant and not a string**: a reason string is a label
-                // on a sealed entry and could be renamed by somebody who does
-                // not know this reads it; the typed refusal is the fact.
+                // **The variant, not a string**: a reason string is a label on a
+                // sealed entry and could be renamed by somebody who does not know
+                // this reads it.
                 //
-                // **Nothing is burnt when the field was empty**, and that is
-                // not a hole: an empty credential short-circuits before the
-                // verification on the known-address branch too
-                // (`password.is_empty() ||` at the gate below), so both sides
-                // are fast and both sides are equal. It also keeps every
-                // key-only sign-in — the whole of the pre-ADR-0055 path, and
-                // the rate-limit suites that drive dozens of failures — at the
-                // cost it had.
+                // **Nothing is burnt when the field was empty**, and that is not a
+                // hole: an empty credential short-circuits before the verification
+                // on the known-address branch too (`password.is_empty() ||` at the
+                // gate below), so both sides are fast and equal. It also keeps
+                // key-only sign-ins and the rate-limit suites at the cost they had.
                 if !matches!(error, SessionError::PasswordRefused) && !password.is_empty() {
                     let _ = credentials::verify_password(A_DECOY_HASH, password);
                 }
@@ -1722,29 +1601,24 @@ impl SessionStore {
         result
     }
 
-    /// Count one attempt against the source bucket §13 item 7 already keeps —
-    /// the same `sign_in_attempts` rows, the same window, the same cap — and
-    /// refuse over it exactly as [`SessionStore::issue_challenge`] and
-    /// [`SessionStore::sign_in`] do: the same [`SessionError::RateLimited`],
-    /// carrying the same `Retry-After`.
+    /// Count one attempt against the source bucket §13 item 7 keeps (the same
+    /// `sign_in_attempts` rows, window and cap) and refuse over it as
+    /// [`SessionStore::issue_challenge`] and [`SessionStore::sign_in`] do: the
+    /// same [`SessionError::RateLimited`] with the same `Retry-After`.
     ///
     /// **For a caller with no session to compose [`sign_in`](Self::sign_in)
-    /// with** — `admin.rs`'s two enrolment-redemption routes, which by
-    /// necessity serve an unauthenticated caller (the module header says why)
-    /// and so had no rate limit and no lockout at all. This is not a second
-    /// limiter: it is `count_attempt`/`refuse`, the ones §13 item 7 already
-    /// built, reached from a caller that is not a sign-in. A source that has
-    /// spent its budget guessing addresses at `/session` has spent it here
-    /// too, and one that has spent it here has that much less left for
-    /// `/session`.
+    /// with**: `admin.rs`'s two enrolment-redemption routes, which serve an
+    /// unauthenticated caller and had no rate limit at all. This is not a second
+    /// limiter: it is `count_attempt`/`refuse`. A source that has spent its
+    /// budget guessing addresses at `/session` has spent it here too, and the
+    /// reverse.
     ///
-    /// `kind` picks which of the two site-chain types the cap's own sealed
-    /// entry is filed under when it fires — [`EntryType::AccountSigninFailed`]
-    /// or [`EntryType::OperatorSigninFailed`] — matching which redemption
-    /// route the caller reached, not because a redemption IS a sign-in but
-    /// because §13 item 7's *"one entry per (source, window)"* latch already
-    /// lives on those two types and a third type would need a migration this
-    /// change does not make.
+    /// `kind` picks which site-chain type the cap's own sealed entry is filed
+    /// under when it fires ([`EntryType::AccountSigninFailed`] or
+    /// [`EntryType::OperatorSigninFailed`]), matching the redemption route
+    /// reached. A redemption is not a sign-in; these types are used because §13
+    /// item 7's *"one entry per (source, window)"* latch lives on them and a
+    /// third type would need a migration.
     ///
     /// [`EntryType::AccountSigninFailed`]: crate::chain::EntryType::AccountSigninFailed
     /// [`EntryType::OperatorSigninFailed`]: crate::chain::EntryType::OperatorSigninFailed
@@ -1776,32 +1650,25 @@ impl SessionStore {
     }
 
     /// **`GET /setup/state`'s own per-source budget**, counted in the same
-    /// window and the same table as the sign-in one and in a bucket of its
-    /// own: the key is `setup-state:` + the source, under the `source` kind
-    /// `0013` §D already has (the column's `CHECK` names two kinds, and the
-    /// `reset:` prefix on the account bucket is the precedent for a third
-    /// budget without a migration).
+    /// window and table as the sign-in one but in a bucket of its own: the key is
+    /// `setup-state:` + the source, under the `source` kind `0013` §D has (the
+    /// `reset:` prefix on the account bucket is the precedent for another budget
+    /// without a migration).
     ///
-    /// **Why it is not the sign-in bucket** (2026-09-22). The state route is a
-    /// page load: the client asks it before it knows whether to draw the setup
-    /// flow or the sign-in door, and a browser asks it again on every reload.
-    /// Charged against the sign-in bucket, an office behind one address that
-    /// reloaded enough had its sign-ins refused by its own page loads — and,
-    /// worse, a 429 on this route takes the FIRST-RUN screen away, so a
-    /// deployment that is still pending looks finished to everyone behind that
-    /// address. Two buckets keep each fault inside its own route: a spent
-    /// state budget costs nobody a sign-in, and a spent sign-in budget costs
-    /// nobody the screen that tells them which door they are at.
+    /// **Why it is not the sign-in bucket.** The state route is a page load,
+    /// asked before the client knows whether to draw the setup flow or the
+    /// sign-in door, and again on every reload. Charged to the sign-in bucket,
+    /// an office behind one address that reloaded enough had its sign-ins refused
+    /// by its own page loads, and a 429 here takes the FIRST-RUN screen away, so
+    /// a pending deployment looks finished to everyone behind that address. Two
+    /// buckets keep each fault inside its own route.
     ///
-    /// The cap is [`SETUP_STATE_MAX_PER_SOURCE`] and the refusal is the
-    /// ordinary [`SessionError::RateLimited`], so the answer carries the same
-    /// `Retry-After` every other capped route here sends and the client can
-    /// wait and ask again rather than guess.
+    /// The cap is [`SETUP_STATE_MAX_PER_SOURCE`] and the refusal is the ordinary
+    /// [`SessionError::RateLimited`] with the usual `Retry-After`.
     ///
-    /// **It writes no sealed entry.** The sign-in cap's entry exists because a
-    /// sign-in failure is a fact an operator wants; a browser reloading a page
-    /// is not, and an unauthenticated caller choosing how fast the sealed audit
-    /// grows is the amplifier `0014` §B is written against.
+    /// **It writes no sealed entry.** A sign-in failure is a fact an operator
+    /// wants; a page reload is not, and an unauthenticated caller choosing how
+    /// fast the sealed audit grows is the amplifier `0014` §B is written against.
     pub async fn check_setup_state_budget(&self, source: &str) -> Result<(), SessionError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -1812,8 +1679,8 @@ impl SessionStore {
         tx.commit().await?;
 
         if count > SETUP_STATE_MAX_PER_SOURCE {
-            // The line names the bucket and not the person: it is a source
-            // address, which is what an operator needs to see a flood by.
+            // The line names the bucket, not the person: a source address is what
+            // an operator needs to see a flood by.
             tracing::info!(
                 bucket = %key,
                 "a source has spent its setup-state budget for this window"
@@ -1825,22 +1692,18 @@ impl SessionStore {
         Ok(())
     }
 
-    /// **Commit one count against the source bucket, on its own.**
+    /// **The source bucket's count for one sign-in request, committed on its own
+    /// before the sign-in transaction opens**, and the count it reached.
     ///
-    /// **The source bucket's count for one sign-in request, committed on its
-    /// own before the sign-in transaction opens**, and the count it reached.
+    /// Its own transaction because the sign-in's may be rolled back (the
+    /// second-factor probe, ADR-0056 decision 3) and a count that vanished with
+    /// it made the probe free (forty password verifications on one challenge,
+    /// 2026-09-22). Its own *connection*, returned before the sign-in takes one,
+    /// because holding two at once would deadlock `pool_size` concurrent probes.
     ///
-    /// Its own transaction because the sign-in's may be rolled back — the
-    /// second-factor probe of ADR-0056 decision 3 is exactly that — and a
-    /// count that vanished with the rollback made the probe free (a checker
-    /// measured forty password verifications on one challenge, 2026-09-22).
-    /// Its own *connection*, returned before the sign-in takes one, because
-    /// the first fix held two at once and `pool_size` concurrent probes would
-    /// have waited on each other for ever.
-    ///
-    /// **It counts and it does not refuse.** The caller compares the count it
-    /// returns against the cap and refuses inside the sign-in transaction, as
-    /// it always did, so the sealed `rate_limited_source` entry is unchanged.
+    /// **It counts and does not refuse.** The caller compares the count against
+    /// the cap and refuses inside the sign-in transaction, so the sealed
+    /// `rate_limited_source` entry is unchanged.
     async fn charge_source(&self, source: &str) -> Result<i32, SessionError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -1854,33 +1717,28 @@ impl SessionStore {
         Ok(count)
     }
 
-    /// **The per-address budget for "forgot my password"**, counted against
-    /// the claimed-address bucket `0014` §A already keeps and under the
-    /// `reset:` prefix `0018` §D already names.
+    /// **The per-address budget for "forgot my password"**, counted against the
+    /// claimed-address bucket `0014` §A keeps under the `reset:` prefix `0018` §D
+    /// names.
     ///
-    /// ADR-0055 decision 7 asks for *"per-account and per-source rate limits
-    /// that already exist"*; the per-source one was wired up and the
-    /// per-account one was not, and the 2026-09-21 review drove ten requests
-    /// for one address from one source and found ten simultaneously live
-    /// 24-hour tokens and ten sealed entries for one person. Distributed, it
-    /// was unbounded per victim. Once stream 5 mails these links, that is a
-    /// mail-bomb aimed at a named address; today it is an unauthenticated
-    /// caller choosing how fast the sealed audit grows, which is the amplifier
-    /// `0014` §B and `0015` §F are written against.
+    /// ADR-0055 decision 7 asks for per-account and per-source limits; only the
+    /// per-source one was wired, and the 2026-09-21 review found ten requests for
+    /// one address from one source gave ten simultaneously live 24-hour tokens
+    /// and ten sealed entries. Distributed, it was unbounded per victim: a
+    /// mail-bomb aimed at a named address once these links are mailed, and today
+    /// an unauthenticated caller choosing how fast the sealed audit grows
+    /// (`0014` §B, `0015` §F).
     ///
-    /// **Returns whether the request is within the budget, and never an
-    /// error a caller could tell one address from another by.** `false` means
-    /// the route does nothing and answers exactly as it always does — decision
-    /// 7's *"the same answer and timing for every address"* — so this is not
-    /// [`SessionError::RateLimited`]: a 429 here would say "this address has
-    /// asked recently", which is the enumeration the uniform 200 exists to
+    /// **Returns whether the request is within budget, never an error a caller
+    /// could tell addresses apart by.** `false` means the route does nothing and
+    /// answers as always (decision 7: *"the same answer and timing for every
+    /// address"*). It is not [`SessionError::RateLimited`]: a 429 would say "this
+    /// address has asked recently", the enumeration the uniform 200 exists to
     /// prevent.
     ///
-    /// **The bucket key is the keyed hash and not the address**, exactly as
-    /// the sign-in path's is and for [`claimed_address_key`]'s own reason: the
-    /// table must not become a list of the addresses people type into a
-    /// forgot-password box. An address that belongs to nobody is counted
-    /// identically to one that does.
+    /// **The bucket key is the keyed hash, not the address**, for
+    /// [`claimed_address_key`]'s reason. An address that belongs to nobody is
+    /// counted identically.
     pub async fn check_reset_budget(&self, address: &str) -> Result<bool, SessionError> {
         let mut client = self.pool.get().await?;
         let tx = client.transaction().await?;
@@ -1895,9 +1753,8 @@ impl SessionStore {
 
         let within = count <= self.limits.max_per_account;
         if !within {
-            // The log line says a bucket closed and names no address: the
-            // keyed hash groups the attempts for the window and is not a name
-            // to anybody holding the log either.
+            // The log line says a bucket closed and names no address: the keyed
+            // hash is not a name to anybody holding the log either.
             tracing::info!(bucket = %key, "a reset bucket has spent its budget for this window");
         }
         Ok(within)
@@ -2039,9 +1896,9 @@ impl SessionStore {
             account_session_sig,
             ..
         } = *attempt;
-        // (2) Consume the nonce. `DELETE ... RETURNING` is the whole of
-        // "single use": no row back means it was never issued, has already
-        // been used, or has expired, and those are one fact from here.
+        // (2) Consume the nonce. `DELETE ... RETURNING` is the whole of "single
+        // use": no row back means never issued, already used, or expired: one
+        // fact from here.
         let consumed = tx
             .query_opt(
                 "DELETE FROM session_nonces \
@@ -2052,18 +1909,17 @@ impl SessionStore {
             .await
             .map_err(|e| (None, "database", SessionError::Db(e)))?;
         let Some(consumed) = consumed else {
-            // **No bucket, and that is not a hole.** A nonce that was never
-            // issued names no claimed identity at all, so there is nothing to
-            // count it against — and a known address and an unknown one reach
-            // this branch identically, which is the property that matters.
-            // The source bucket has already counted the attempt.
+            // **No bucket, and that is not a hole.** A nonce never issued names
+            // no claimed identity, so there is nothing to count it against, and a
+            // known and an unknown address reach this branch identically, which
+            // is what matters. The source bucket has already counted the attempt.
             return Err((None, "nonce_not_fresh", SessionError::SignInRefused));
         };
 
         // Which bucket this attempt belongs to, decided before anything can
-        // fail: the account the nonce named, or — when it named none — the
-        // keyed hash of the address that was claimed (`0014` §A). **Both are
-        // counted.** Counting only the first was the account oracle.
+        // fail: the account the nonce named or, when none, the keyed hash of the
+        // claimed address (`0014` §A). **Both are counted**; counting only the
+        // first was the account oracle.
         let principal: Option<String> = consumed.get(1);
         let claimed: Option<Vec<u8>> = consumed.get(3);
         let bucket = match (&principal, &claimed) {
@@ -2072,11 +1928,10 @@ impl SessionStore {
             (None, None) => None,
         };
 
-        // The challenge is derived over the key the nonce was issued for. A
-        // caller who asks to register a different key than the one they asked
-        // a challenge for is refused here, which is §4.2's *"the assertion is
-        // accepted only if the challenge inside it recomputes from the
-        // session_pubkey the client is asking to register"*.
+        // The challenge is derived over the key the nonce was issued for.
+        // Registering a different key than the one challenged is refused here:
+        // §4.2's *"the assertion is accepted only if the challenge inside it
+        // recomputes from the session_pubkey the client is asking to register"*.
         let bound_pubkey: Vec<u8> = consumed.get(0);
         if bound_pubkey != session_pubkey {
             return Err((
@@ -2088,9 +1943,9 @@ impl SessionStore {
 
         let principal_kind: Option<String> = consumed.get(2);
         let Some(account) = principal else {
-            // The claimed identity — an address on the account plane, an
-            // operator id on the operator plane — resolved to nobody. One
-            // answer for both planes and for both reasons.
+            // The claimed identity (an address on the account plane, an operator
+            // id on the operator plane) resolved to nobody. One answer for both
+            // planes and reasons.
             return Err((bucket, "no_such_principal", SessionError::SignInRefused));
         };
         if principal_kind.as_deref() != Some(kind.as_str()) {
@@ -2101,18 +1956,16 @@ impl SessionStore {
             ));
         }
 
-        // (3) The principal, whether it may sign in at all, and the key it
-        // signs with. **Two planes, one shape.** An account has a disabled
-        // flag and a keyring row; an operator has a disabled flag, a keyring
-        // row of its own, and one check an account does not need — that the
-        // register row itself verifies. Every refusal below is the refusal the
-        // other plane gives, so the two cannot be told apart from outside.
+        // (3) The principal, whether it may sign in at all, and the key it signs
+        // with. **Two planes, one shape.** An account has a disabled flag and a
+        // keyring row; an operator has the same plus a check that the register
+        // row itself verifies. Every refusal below is the other plane's refusal,
+        // so the two cannot be told apart from outside.
         let now = now_unix();
         // **ADR-0055 stream (a): the credential branch, chosen by the STORED
-        // hash and never by which fields the caller filled in.** `None` on
-        // the operator plane always (resolution 8 keeps `kind = 'operator'` a
-        // key sign-in) and on any account with no password set, which is
-        // every account that existed before this build.
+        // hash, never by which fields the caller filled in.** `None` on the
+        // operator plane always (resolution 8) and on any account with no
+        // password set (every account that existed before this build).
         let credentials = match kind {
             PrincipalKind::Steward => credentials::read_credentials(tx, &self.ring, &account)
                 .await
@@ -2130,10 +1983,9 @@ impl SessionStore {
             .and_then(|c| c.password_hash.clone())
             .is_some();
 
-        // Derived here rather than at step (4) because the account plane now
-        // verifies the evidence signature WHILE resolving the key: `0055`
-        // resolution 1 accepts any live key of the account, so "which key" and
-        // "does it verify" are one question and cannot be two steps.
+        // Derived here because the account plane verifies the evidence signature
+        // WHILE resolving the key: `0055` resolution 1 accepts any live key of
+        // the account, so "which key" and "does it verify" are one question.
         let challenge = session_challenge(session_pubkey, nonce, &self.deployment);
 
         let key: Option<SignInKey> = match kind {
@@ -2169,26 +2021,25 @@ impl SessionStore {
                     }
                 }
 
-                // `account_keys` is read through a policy that shows an account
-                // its own rows when `app.account_id` names it. Sign-in is
-                // exactly that case: the account is the one the consumed nonce
-                // named, never one the caller supplied.
+                // `account_keys` is read through a policy showing an account its
+                // own rows when `app.account_id` names it. Sign-in is exactly that
+                // case: the account is the one the consumed nonce named, never one
+                // the caller supplied.
                 set_account_id(tx, &account)
                     .await
                     .map_err(|e| (Some(AccountBucket::Account(account.clone())), "database", e))?;
 
                 // **The keyring is NOT read on the credential branch when no
-                // signature was presented.** `NoSigningKey` is the expected
-                // state for a password-only person, and treating it as a
-                // refusal would lock out exactly the people ADR-0055 decision
-                // 6 is for.
+                // signature was presented.** `NoSigningKey` is the expected state
+                // for a password-only person, and refusing it would lock out
+                // exactly the people ADR-0055 decision 6 is for.
                 if evidence_sig.is_empty() {
                     if by_password {
                         None
                     } else {
-                        // Branch 1 with nothing presented at all. The same
-                        // uniform refusal a wrong signature gets: telling the
-                        // two apart tells a caller which field they got right.
+                        // Branch 1 with nothing presented at all. The same uniform
+                        // refusal a wrong signature gets: telling the two apart
+                        // tells a caller which field they got right.
                         return Err((
                             Some(AccountBucket::Account(account)),
                             "no_evidence",
@@ -2196,12 +2047,11 @@ impl SessionStore {
                         ));
                     }
                 } else {
-                    // **Any live key of the account, not the newest** — the
-                    // lead's resolution 1, and `grants::verify_by_any_live_key`
-                    // carries the argument: the client registers a per-browser
-                    // key after every password sign-in, so one person on two
-                    // machines has two live keys and neither supersedes the
-                    // other.
+                    // **Any live key of the account, not the newest** (resolution
+                    // 1; `grants::verify_by_any_live_key` carries the argument):
+                    // the client registers a per-browser key after every password
+                    // sign-in, so one person on two machines has two live keys and
+                    // neither supersedes the other.
                     match grants::verify_by_any_live_key(
                         tx,
                         &self.ring,
@@ -2218,9 +2068,9 @@ impl SessionStore {
                         }),
                         Err(AuthorityError::NoSigningKey) if by_password => None,
                         Err(AuthorityError::Signature(_)) if by_password => {
-                            // The password still has to be right, and it is
-                            // checked below. A signature that did not verify
-                            // costs the session its `A1` and nothing else.
+                            // The password is still checked below. A signature
+                            // that did not verify costs the session its `A1` and
+                            // nothing else.
                             None
                         }
                         Err(AuthorityError::NoSigningKey) => {
@@ -2258,10 +2108,10 @@ impl SessionStore {
             }
             PrincipalKind::Operator => {
                 // **The register row is verified, not merely read.**
-                // `operators::verify_operator_row` recomputes its seal AND
-                // checks the site-chain entry that created it — §5.4's
-                // interlock applied to the register itself, so an operator row
-                // minted by whoever holds the database cannot sign in.
+                // `operators::verify_operator_row` recomputes its seal AND checks
+                // the site-chain entry that created it (§5.4's interlock applied
+                // to the register), so an operator row minted by whoever holds the
+                // database cannot sign in.
                 let row = match operators::verify_operator_row(tx, &self.ring, &account).await {
                     Ok(row) => row,
                     Err(operators::OperatorError::Unverifiable(what)) => {
@@ -2287,11 +2137,11 @@ impl SessionStore {
                     ));
                 }
 
-                // ADR-0057 decision 2: Site needs the account. The operator
-                // key alone no longer opens a session — a live session of
-                // the operator's own bound account must also endorse this
-                // attempt, over its own challenge, or it is refused exactly
-                // as a bad operator key is.
+                // ADR-0057 decision 2: Site needs the account. The operator key
+                // alone no longer opens a session: a live session of the
+                // operator's own bound account must also endorse this attempt,
+                // over its own challenge, or it is refused as a bad operator key
+                // is.
                 let endorsing_account = operators::account_of_operator(tx, &self.ring, &account)
                     .await
                     .map_err(|e| match e {
@@ -2324,18 +2174,16 @@ impl SessionStore {
                         )
                     })?;
 
-                // Freshness: a stale, or absent, TOTP proof on the endorsing
-                // session needs a current code beside it — the same typed
-                // answer ADR-0056 decision 3's two-step sign-in gives, so
-                // the caller learns to ask for one rather than being refused
-                // outright.
+                // Freshness: a stale or absent TOTP proof on the endorsing session
+                // needs a current code beside it, answered with the typed
+                // `SecondFactorNeeded` of ADR-0056 decision 3 so the caller learns
+                // to ask for one rather than being refused outright.
                 //
-                // **ADR-0057 decision 6.** Time alone is not enough: the
-                // browser must also present the grace token that same
-                // sign-in minted, matching the hash the endorsing row holds
-                // — a value that lives only in that tab's memory, never
-                // IndexedDB, so a reload or a copied profile cannot produce
-                // it.
+                // **ADR-0057 decision 6.** Time alone is not enough: the browser
+                // must also present the grace token that same sign-in minted,
+                // matching the hash the endorsing row holds, a value that lives
+                // only in that tab's memory (never IndexedDB), so a reload or
+                // copied profile cannot produce it.
                 let fresh = match (freshness.totp_verified_at_unix, freshness.grace_token_hash) {
                     (Some(at), Some(hash)) => {
                         now.saturating_sub(at) <= SECOND_FACTOR_FRESHNESS.as_secs() as i64
@@ -2385,17 +2233,16 @@ impl SessionStore {
 
                 match operators::live_operator_keys(tx, &self.ring, &account, now).await {
                     Ok(keys) if !keys.is_empty() => {
-                        // **The operator plane verifies here**, where the
-                        // account plane now does too: resolution 8 keeps
-                        // `kind = 'operator'` a key sign-in, so there is one
-                        // signature and no password to fall back to. `§4.5`:
-                        // an operator session is `A1` or it does not exist.
+                        // **The operator plane verifies here**, as the account
+                        // plane now does: resolution 8 keeps `kind = 'operator'` a
+                        // key sign-in, so there is one signature and no password to
+                        // fall back to (§4.5: an operator session is `A1` or it
+                        // does not exist).
                         //
-                        // **Any live key, not the newest** (ADR-0055 decision
-                        // 6 and the lead's resolution 1): an operator who
-                        // registered a second browser's key keeps the first
-                        // browser's. The signature names which one by
-                        // verifying under it.
+                        // **Any live key, not the newest** (ADR-0055 decision 6,
+                        // resolution 1): an operator who registered a second
+                        // browser's key keeps the first's. The signature names
+                        // which one by verifying under it.
                         let Some(key) = keys.into_iter().find(|key| {
                             authority::verify_es256(&key.public_key, &challenge, evidence_sig)
                                 .is_ok()
@@ -2412,9 +2259,8 @@ impl SessionStore {
                         })
                     }
                     Ok(_) => {
-                        // §4.5: an operator session is `A1` or it does not
-                        // exist. No key, no session, and no weaker factor to
-                        // fall back to.
+                        // §4.5: `A1` or no session. No key, no session, and no
+                        // weaker factor to fall back to.
                         return Err((
                             Some(AccountBucket::Account(account)),
                             "no_signing_key",
@@ -2429,9 +2275,8 @@ impl SessionStore {
                         ))
                     }
                     Err(_) => {
-                        // §4.5: an operator session is `A1` or it does not
-                        // exist. No key, no session, and no weaker factor to
-                        // fall back to.
+                        // §4.5: `A1` or no session. No key, no session, and no
+                        // weaker factor to fall back to.
                         return Err((
                             Some(AccountBucket::Account(account)),
                             "no_signing_key",
@@ -2442,16 +2287,15 @@ impl SessionStore {
             }
         };
 
-        // (4) The factors. **The password first when there is one**, so that
-        // no later check can be reached without it — decision 10's "the
-        // password is required" is a gate and not one of several ways in.
+        // (4) The factors. **The password first when there is one**, so no later
+        // check is reachable without it: decision 10's "the password is
+        // required" is a gate, not one of several ways in.
         //
-        // The evidence signature has already been verified, above, by whichever
-        // of the account's live keys it was made with: `key` is `Some` exactly
-        // when one of them verified it.
+        // The evidence signature was already verified above by whichever live
+        // key made it: `key` is `Some` exactly when one verified it.
         let mut assurance = Assurance::A1;
-        // ADR-0057 decision 2: when this sign-in itself verified a TOTP
-        // code, for the row's own `totp_verified_at`.
+        // ADR-0057 decision 2: whether this sign-in itself verified a TOTP code,
+        // for the row's `totp_verified_at`.
         let mut totp_verified_now = false;
 
         if by_password {
@@ -2471,22 +2315,19 @@ impl SessionStore {
             }
 
             // The app code, when one is enrolled. Six digits is a TOTP code;
-            // anything else is tried as a backup code (the lead's resolution
-            // 3), which is what makes a lost phone recoverable without a
-            // second field on the form nobody would fill in.
+            // anything else is tried as a backup code (resolution 3), so a lost
+            // phone is recoverable without a second form field.
             if row.totp_confirmed() {
-                // **ADR-0056 decision 3, step one.** An empty code on an
-                // account that holds a confirmed authenticator is the client
-                // asking which screen to draw next, not a failed attempt: it
-                // has the address and the credential right and has nothing
-                // left to guess. Answered before `check_second_factor`, so no
-                // step is spent and no backup code is tried against an empty
-                // string — and the caller rolls this transaction back, so the
-                // nonce consumed at (2) is still there for step two to use.
+                // **ADR-0056 decision 3, step one.** An empty code on an account
+                // with a confirmed authenticator is the client asking which screen
+                // to draw, not a failed attempt: it has the address and credential
+                // right and nothing left to guess. Answered before
+                // `check_second_factor`, so no step is spent and no backup code is
+                // tried against an empty string; the caller rolls this transaction
+                // back, so the nonce consumed at (2) is still there for step two.
                 //
-                // An account with NO confirmed authenticator falls through to
-                // the branch below and still gets its `A0` session on an empty
-                // code, exactly as it did before this ADR.
+                // An account with NO confirmed authenticator falls through to the
+                // branch below and still gets its `A0` session on an empty code.
                 if totp_code.is_empty() {
                     return Err((
                         Some(AccountBucket::Account(account)),
@@ -2508,29 +2349,26 @@ impl SessionStore {
                 assurance = Assurance::A0T;
                 totp_verified_now = true;
             } else {
-                // No app code yet. A steward with no operator custody gets a
-                // full `A0` session — design §5.1, and it is how they reach
-                // the screen that sets one up. An account that HOLDS the
-                // operator custody gets the same `A0` value, and
-                // `verify_inside` refuses it everywhere but `/credentials/*`:
-                // decision 10's "taken to the enrolment screen before anything
-                // else", expressed as a refusal rather than a redirect so a
-                // client that ignores it gets nothing.
+                // No app code yet. A steward with no operator custody gets a full
+                // `A0` session (design §5.1) and reaches the screen that sets one
+                // up. An account that HOLDS the operator custody gets the same
+                // `A0`, and `verify_inside` refuses it everywhere but
+                // `/credentials/*` (decision 10): a refusal rather than a redirect,
+                // so a client that ignores it gets nothing.
                 assurance = Assurance::A0;
             }
 
-            // A verified evidence signature still outranks both: decision 6
-            // keeps the browser-held key as the strongest factor, and
-            // resolution 1 says a valid one means `A1`.
+            // A verified evidence signature still outranks both: decision 6 keeps
+            // the browser-held key as the strongest factor, and resolution 1 says
+            // a valid one means `A1`.
             if key.is_some() {
                 assurance = Assurance::A1;
             }
         }
 
         // The key is recorded on the row only when it is what established the
-        // session. `0013`'s
-        // `CHECK ((assurance = 'A1') = (evidence_sig IS NOT NULL))` is
-        // untouched and still holds — `A0` and `A0T` carry neither.
+        // session. `0013`'s `CHECK ((assurance = 'A1') = (evidence_sig IS NOT
+        // NULL))` still holds: `A0` and `A0T` carry neither.
         let key = match assurance {
             Assurance::A1 => key,
             Assurance::A0 | Assurance::A0T => None,
@@ -2544,8 +2382,8 @@ impl SessionStore {
         let digest = key
             .as_ref()
             .map(|_| evidence_digest(&challenge, evidence_sig));
-        // §7.2 names both, and which one this is is the one fact a reader of
-        // the site chain can group by without holding the metadata key.
+        // §7.2 names both; which one this is is the one fact a reader of the site
+        // chain can group by without the metadata key.
         let entry_type = match kind {
             PrincipalKind::Steward => EntryType::AccountSignin,
             PrincipalKind::Operator => EntryType::OperatorSignin,
@@ -2588,18 +2426,16 @@ impl SessionStore {
             )
         })?;
 
-        // Not a client-supplied number — the clock and a constant — and
-        // checked anyway, because the audit that found the timestamp panic
-        // looked for every addition on this path and a reader doing that again
-        // should not have to work out which ones are safe.
+        // Not a client-supplied number (the clock and a constant), and checked
+        // anyway, so a reader auditing every addition on this path need not work
+        // out which are safe.
         let expires_at_unix = now.saturating_add(self.lifetime.as_secs() as i64);
 
         // ADR-0057 decision 6: minted only when this sign-in just verified a
-        // fresh TOTP code on the steward plane. The browser holds it in
-        // memory alone, never storage; this deployment keeps only its hash,
-        // under the row MAC like `totp_verified_at`, so a disk copy of the
-        // session never carries the fact that lets a later operator sign-in
-        // skip the code.
+        // fresh TOTP code on the steward plane. The browser holds it in memory
+        // alone; this deployment keeps only its hash, under the row MAC like
+        // `totp_verified_at`, so a disk copy of the session never carries the
+        // fact that lets a later operator sign-in skip the code.
         let grace_token = if totp_verified_now {
             Some(
                 random_32()
@@ -2611,14 +2447,13 @@ impl SessionStore {
         let grace_token_hash = grace_token.map(|t| Sha256::digest(t).into());
 
         // ADR-0057 decision 7: the class this session is bound to, from the
-        // address the source bucket above already counted this attempt
-        // against. `None` when it could not be classed — unknown peer or an
-        // unparseable address — so it is never compared and never wrongly
-        // ended.
+        // address the source bucket already counted. `None` when it could not be
+        // classed (unknown peer, unparseable address), so it is never compared
+        // and never wrongly ended.
         let bound_address_class = crate::client_address::address_class(attempt.source);
 
-        // ADR-0057 decision 8: derived once, here — there is no stored
-        // header to re-derive it from later.
+        // ADR-0057 decision 8: derived once, here; there is no stored header to
+        // re-derive it from later.
         let browser_label = Some(crate::browser_label::label(attempt.user_agent));
 
         let row = SessionRow {
@@ -2641,9 +2476,10 @@ impl SessionStore {
             grace_token_hash,
             bound_address_class: bound_address_class.clone(),
             browser_label: browser_label.clone(),
-            // A row just minted is zero seconds idle by definition; the real
-            // value only ever matters on a row `read_session` reads back.
+            // A row just minted is zero seconds idle; the real value matters only
+            // on a row `read_session` reads back.
             idle_seconds: 0,
+            stored_row_mac: Vec::new(),
         };
         let mac = self
             .row_mac(tx, &row)
@@ -2651,9 +2487,8 @@ impl SessionStore {
             .map_err(|e| (Some(AccountBucket::Account(account.clone())), "row mac", e))?;
 
         // §5.5's *"the seconder has an independent sign-in on record"*, taken
-        // once, on the operator plane only. It is recorded here rather than at
-        // the console because what §5.5 is asking about is a sign-in, and this
-        // is the only place one happens.
+        // once, on the operator plane only, here because this is the only place a
+        // sign-in happens.
         if kind == PrincipalKind::Operator {
             operators::mark_first_independent_signin(tx, &self.ring, &account)
                 .await
@@ -2666,12 +2501,11 @@ impl SessionStore {
                 })?;
         }
 
-        // **One value, two columns, two foreign keys** (`0015` §B2). The key
-        // that proved this session is in `account_keys` or in `operator_keys`,
-        // never both, and referential integrity is the only mechanism that
-        // answers "does it exist" the same way for every caller — a trigger
-        // reading either keyring answers "is it visible to me", which is a
-        // different question and was the wrong one.
+        // **One value, two columns, two foreign keys** (`0015` §B2). The key that
+        // proved this session is in `account_keys` or `operator_keys`, never
+        // both, and referential integrity is the only mechanism that answers
+        // "does it exist" the same way for every caller (a trigger reading either
+        // keyring answers "is it visible to me", the wrong question).
         //
         // `row.evidence_key_id` is still the single value the MAC covers, so
         // `session_row_state` and its pinned vectors are untouched.
@@ -2733,22 +2567,22 @@ impl SessionStore {
         ))
     }
 
-    /// ADR-0057 decision 2: the account session endorsing an operator
-    /// sign-in. Checked before the operator's own key, so a stolen operator
-    /// key alone stops here.
+    /// ADR-0057 decision 2: the account session endorsing an operator sign-in.
+    /// Checked before the operator's own key, so a stolen operator key alone
+    /// stops here.
     ///
-    /// Live (not expired, not idle-dead, not signed out, its row MAC intact),
-    /// naming `account`, and signing `challenge` — the operator sign-in's
-    /// challenge digest — with the key that session was issued. Returns when
-    /// that session last verified a TOTP code and the hash of its decision-6
-    /// grace token, for the caller to weigh against
-    /// [`SECOND_FACTOR_FRESHNESS`] and a presented grace token.
+    /// Live (not expired, not idle-dead, not signed out, row MAC intact), naming
+    /// `account`, and signing `challenge` (the operator sign-in's challenge
+    /// digest) with the key that session was issued. Returns when that session
+    /// last verified a TOTP code and the hash of its decision-6 grace token, for
+    /// the caller to weigh against [`SECOND_FACTOR_FRESHNESS`] and a presented
+    /// grace token.
     ///
-    /// **Also checked against decision 7's address binding**, under the same
-    /// rules a live request on this session faces: recorded under `site`,
-    /// ended under `all`. An ended endorsing session refuses like any other
-    /// reason this returns; the ending runs on `tx`, which
-    /// `attempt_sign_in`'s caller commits regardless of outcome.
+    /// **Also checked against decision 7's address binding**, under the rules a
+    /// live request on this session faces: recorded under `site`, ended under
+    /// `all`. An ended endorsing session refuses like any other reason; the
+    /// ending runs on `tx`, which `attempt_sign_in`'s caller commits regardless
+    /// of outcome.
     async fn verify_account_endorsement(
         &self,
         tx: &Transaction<'_>,
@@ -2771,11 +2605,10 @@ impl SessionStore {
         if row.expires_at_unix <= now_unix() {
             return Err(SessionError::SignInRefused);
         }
-        // ADR-0057 decision 4: an idle-dead session endorses nothing, exactly
-        // as one past its absolute lifetime does not. Not deleted here —
-        // this row is not the one this request is signed with; the next
-        // request actually made under it, through `verify_inside`, is where
-        // its idle death belongs.
+        // ADR-0057 decision 4: an idle-dead session endorses nothing, as one past
+        // its absolute lifetime does not. Not deleted here (this row is not the
+        // one this request is signed with); its idle death belongs to the next
+        // request made under it, through `verify_inside`.
         if row.idle_seconds >= idle_limit_seconds(PrincipalKind::Steward) {
             return Err(SessionError::SignInRefused);
         }
@@ -2799,33 +2632,28 @@ impl SessionStore {
     /// for one.
     ///
     /// **Six digits is a TOTP code; anything else is tried as a backup code**
-    /// (the lead's resolution 3). A single field on the form, so a person whose
-    /// phone is in the other room types what they have and it works.
+    /// (resolution 3). One form field, so a person whose phone is in the other
+    /// room types what they have and it works.
     ///
     /// **The replay refusal is the guarded `UPDATE`, not the `<=` in
-    /// `credentials::verify_totp`.** It was the `<=` until the 2026-09-21
-    /// review, and under concurrency that was not a refusal at all: the mark
-    /// is read by a plain `SELECT` in `credentials::read_credentials`, so
-    /// sign-ins running at the same moment all decide against the same stale
-    /// high-water mark and all advance it afterwards. Three simultaneous
-    /// `POST /session` calls carrying **one** six-digit code opened three
-    /// sessions. What had been masking it was the per-source row lock in
-    /// `sign_in_attempts`, which serialises attempts from one address and does
-    /// nothing at all about three.
+    /// `credentials::verify_totp`.** The `<=` alone was no refusal under
+    /// concurrency (2026-09-21 review): the mark is read by a plain `SELECT` in
+    /// `credentials::read_credentials`, so simultaneous sign-ins all decide
+    /// against the same stale high-water mark and all advance it. Three
+    /// simultaneous `POST /session` calls with **one** six-digit code opened
+    /// three sessions. The per-source row lock in `sign_in_attempts` had masked
+    /// it, but it serialises attempts from one address only.
     ///
-    /// So the advance **is** the guard, in the shape
-    /// `credentials::spend_backup_code` already used: the `WHERE` clause
-    /// carries the comparison, and a row count of zero means another
-    /// transaction took this step first and this code is spent. `READ
-    /// COMMITTED` is what makes it true — the loser blocks on the winner's row
-    /// lock and re-evaluates the `WHERE` against the committed row, which is
-    /// PostgreSQL 17 §13.2.1's documented behaviour for a blocked `UPDATE`
-    /// (read 2026-09-21).
+    /// So the advance **is** the guard, as in `credentials::spend_backup_code`:
+    /// the `WHERE` clause carries the comparison and a row count of zero means
+    /// another transaction took this step first. `READ COMMITTED` makes it true:
+    /// the loser blocks on the winner's row lock and re-evaluates the `WHERE`
+    /// against the committed row (PostgreSQL 17 §13.2.1, read 2026-09-21).
     ///
-    /// It is still committed in **this** transaction, not a later one: `0018`
-    /// §B is explicit that `totp_last_step` moves inside the sign-in
-    /// transaction so that a request which crashed after verifying but before
-    /// advancing cannot leave a code spendable twice.
+    /// It is committed in **this** transaction: `0018` §B requires
+    /// `totp_last_step` to move inside the sign-in transaction so a request that
+    /// crashed after verifying but before advancing cannot leave a code
+    /// spendable twice.
     async fn check_second_factor(
         &self,
         tx: &Transaction<'_>,
@@ -2856,10 +2684,9 @@ impl SessionStore {
         else {
             return Ok(false);
         };
-        // ADR-0055 decision 10, *"a code accepted once"*: the comparison the
-        // read-then-decide above already made, made again where it is atomic.
-        // Zero rows is a refusal and not a failure — another sign-in in flight
-        // spent this step.
+        // ADR-0055 decision 10, *"a code accepted once"*: the earlier
+        // read-then-decide comparison, made again where it is atomic. Zero rows
+        // is a refusal, not a failure: another sign-in in flight spent this step.
         let advanced = tx
             .execute(
                 "UPDATE accounts SET totp_last_step = $2 \
@@ -2870,19 +2697,19 @@ impl SessionStore {
         if advanced != 1 {
             return Ok(false);
         }
-        // The credential seal (migration 0025) covers whether the step is set,
-        // so the advance that confirms a code at sign-in is re-sealed in the
-        // same transaction; the hook checks the row really is at `step`.
+        // The credential seal (`0025`) covers whether the step is set, so the
+        // advance that confirms a code at sign-in is re-sealed in the same
+        // transaction; the hook checks the row really is at `step`.
         credentials::reseal_after_totp_step(tx, &self.ring, account, step)
             .await
             .map_err(|_| SessionError::Corrupt("credential seal"))?;
         Ok(true)
     }
 
-    /// ADR-0057 decision 8's "authenticated again": a current authenticator
-    /// code or a live backup code, reusing [`SessionStore::check_second_factor`]
-    /// rather than restating it. Charges no budget of its own — the caller
-    /// charges and refunds `account`'s existing credential budget around it.
+    /// ADR-0057 decision 8's "authenticated again": a current authenticator code
+    /// or a live backup code, reusing [`SessionStore::check_second_factor`].
+    /// Charges no budget of its own: the caller charges and refunds `account`'s
+    /// existing credential budget around it.
     pub async fn verify_current_code(
         &self,
         account: &str,
@@ -2913,27 +2740,26 @@ impl SessionStore {
     /// # Which refusals write an entry, and why not all of them
     ///
     /// `0013` §D's rule was *"once per window rather than once per refused
-    /// request"*, and the latch that implemented it was taken only when a
-    /// bucket had already closed. For an ANONYMOUS failure no account bucket
-    /// was counted at all, so nothing ever closed and an entry was appended on
-    /// every attempt: an unauthenticated caller chose how fast this
-    /// deployment's sealed audit grew, which is the amplifier the rule exists
-    /// to prevent. Counting a claimed-address bucket (`0014` §A) does not fix
-    /// it on its own — the attacker varies the address and gets a fresh
-    /// bucket, a fresh cap and a fresh run of entries.
+    /// request"*, but its latch was taken only when a bucket had already closed.
+    /// For an ANONYMOUS failure no account bucket was counted, so nothing ever
+    /// closed and an entry was appended on every attempt: an unauthenticated
+    /// caller chose how fast the sealed audit grew, the amplifier the rule
+    /// exists to prevent. Counting a claimed-address bucket (`0014` §A) does not
+    /// fix it alone: the attacker varies the address and gets a fresh bucket,
+    /// cap and run of entries.
     ///
-    /// So there are three cases, in this order:
+    /// So, in this order:
     ///
     /// 1. **The source cap itself.** `locked_entry_written` on the source row:
-    ///    one entry per (source, window), which is the fact an operator wants.
-    /// 2. **Any other anonymous failure** — no account resolved, whether the
-    ///    address was unknown or the nonce named nobody. `anon_entry_written`
-    ///    on the source row: at most one entry per (source, window) however
-    ///    many addresses are sprayed through it.
-    /// 3. **A failure against a resolved account.** One entry per attempt up
-    ///    to that account's cap, then one more when the cap closes. Bounded by
-    ///    the account bucket, and an attacker cannot inflate it without
-    ///    holding the address — which is a signal worth keeping.
+    ///    one entry per (source, window), the fact an operator wants.
+    /// 2. **Any other anonymous failure** (no account resolved: unknown address,
+    ///    or a nonce naming nobody). `anon_entry_written` on the source row: at
+    ///    most one entry per (source, window) however many addresses are
+    ///    sprayed.
+    /// 3. **A failure against a resolved account.** One entry per attempt up to
+    ///    that account's cap, then one more when it closes. Bounded by the
+    ///    account bucket, and an attacker cannot inflate it without holding the
+    ///    address, a signal worth keeping.
     async fn refuse(
         &self,
         tx: &Transaction<'_>,
@@ -2946,8 +2772,8 @@ impl SessionStore {
         let mut latched = false;
         if let Some(bucket) = bucket {
             // A counter that could not be written is not a reason to let the
-            // attempt through un-refused: the refusal below stands either way,
-            // and only the rate limit is lost.
+            // attempt through un-refused: the refusal stands either way and only
+            // the rate limit is lost.
             if let Ok(Some(count)) = self.count_attempt(tx, "account", bucket.key()).await {
                 locked = count > self.limits.max_per_account;
                 if locked {
@@ -3004,22 +2830,20 @@ impl SessionStore {
     /// One sealed `*_signin_failed` entry, in the one spelling
     /// [`SessionStore::refuse`] writes it.
     ///
-    /// **Named rather than inlined, and with one caller on purpose.** The
-    /// ADR-0056 build gave it a second — the second-factor probe sealed a
-    /// refusal of its own — and the 2026-09-22 review found that entry
-    /// relabelling successful sign-ins as failures and bypassing the
-    /// once-per-window latch above. The probe is a rollback now (see
-    /// [`SessionStore::sign_in_with_credentials`]) and writes nothing, so this
-    /// is again exactly what `refuse` decided to write, and a future second
-    /// caller has to come past that history to be added.
+    /// **Named rather than inlined, with one caller on purpose.** The ADR-0056
+    /// build gave it a second (the second-factor probe sealed a refusal of its
+    /// own) and the 2026-09-22 review found that entry relabelling successful
+    /// sign-ins as failures and bypassing the once-per-window latch. The probe
+    /// is a rollback now ([`SessionStore::sign_in_with_credentials`]) and writes
+    /// nothing, so a future second caller has to come past that history.
     ///
-    /// A failure to append is swallowed here exactly as it was inside
-    /// `refuse`: the refusal stands whether or not the record of it could be
-    /// written, and the append's own failure is logged where it happens.
+    /// A failure to append is swallowed, as it was inside `refuse`: the refusal
+    /// stands whether or not the record could be written, and the append logs
+    /// its own failure.
     ///
-    /// `claimed_address_key` is the keyed hash and never the address (`0014`
-    /// §A): an operator can group a spray by it, and it is not a list of what
-    /// people typed.
+    /// `claimed_address_key` is the keyed hash, never the address (`0014` §A): an
+    /// operator can group a spray by it, and it is not a list of what people
+    /// typed.
     async fn append_sign_in_refusal(
         &self,
         tx: &Transaction<'_>,
@@ -3072,7 +2896,7 @@ impl SessionStore {
         }
         // The table pays for its own growth (`0014` §C): one row per (bucket,
         // window) accumulated for ever, and `0013` §F had taken DELETE away on
-        // the argument that nothing would ever want it.
+        // the argument that nothing would want it.
         self.sweep_old_attempts(tx).await?;
         let row = tx
             .query_one(
@@ -3088,19 +2912,17 @@ impl SessionStore {
     }
 
     /// Take one of this window's "the entry has been written" latches. `true`
-    /// means this call took it, so this is the one refusal that records
-    /// itself.
+    /// means this call took it, so it is the one refusal that records itself.
     ///
-    /// **The column is chosen from a closed set and never interpolated from a
-    /// string a caller supplied** — [`Latch`] has two values and no `From<&str>`
-    /// — because the only reason this statement cannot take the column name as
-    /// a parameter is that SQL does not allow it, and "so we concatenated it"
-    /// is how the next injection gets written.
+    /// **The column is chosen from a closed set, never interpolated from a
+    /// caller's string** ([`Latch`] has two values and no `From<&str>`): SQL
+    /// cannot take a column name as a parameter, and "so we concatenated it" is
+    /// how the next injection gets written.
     ///
-    /// **The key goes through [`bucket_key`] and not through a copy of it.**
-    /// This function kept its own truncation until the 2026-09-22 review, which
-    /// is two places that decide which row is meant: a latch taken on one row
-    /// while the count lands on another is an entry written every time.
+    /// **The key goes through [`bucket_key`], not a copy of it.** This function
+    /// kept its own truncation until the 2026-09-22 review: two places deciding
+    /// which row is meant means a latch taken on one row while the count lands on
+    /// another, an entry written every time.
     async fn latch(
         &self,
         tx: &Transaction<'_>,
@@ -3134,9 +2956,9 @@ impl SessionStore {
 
     /// `0014` §C's sweep of `sign_in_attempts`.
     ///
-    /// A row for a window that has already closed can never be counted again —
-    /// [`window_start`] is computed from the clock — so it is dead weight from
-    /// the moment the window turns over.
+    /// A row for a window that has closed can never be counted again
+    /// ([`window_start`] is computed from the clock), so it is dead weight once
+    /// the window turns over.
     async fn sweep_old_attempts(&self, tx: &Transaction<'_>) -> Result<(), SessionError> {
         tx.execute(
             "DELETE FROM sign_in_attempts a \
@@ -3160,14 +2982,13 @@ impl SessionStore {
 
     /// Issue a single-use nonce for one live session.
     ///
-    /// **Authenticated by the bearer token and not by a signature**, because a
-    /// signature needs a nonce and the client has none yet. That is the whole
-    /// of what the token buys, and it buys nothing else: a nonce authorises
-    /// nothing on its own.
+    /// **Authenticated by the bearer token, not a signature**, because a
+    /// signature needs a nonce and the client has none yet. That is all the token
+    /// buys: a nonce authorises nothing on its own.
     ///
-    /// The nonce alone, for every caller before ADR-0057 decision 4 — see
-    /// [`SessionStore::issue_request_nonce_ex`] for the counter mark
-    /// alongside it, which is what `api.rs`'s nonce answer now also carries.
+    /// The nonce alone, for every caller before ADR-0057 decision 4;
+    /// [`SessionStore::issue_request_nonce_ex`] adds the counter mark `api.rs`'s
+    /// nonce answer now carries.
     pub async fn issue_request_nonce(
         &self,
         session_id: &str,
@@ -3179,11 +3000,10 @@ impl SessionStore {
     /// As [`SessionStore::issue_request_nonce`], and also the counter mark
     /// this nonce was issued against.
     ///
-    /// ADR-0057 decision 4: a restored tab's in-memory counter restarts at
-    /// `1`, which `verify_inside`'s `request.counter <= issued_counter`
-    /// refuses outright — the mark a row long since carried is always well
-    /// past `1`. The client's fix is to pick its next counter up from here:
-    /// `max(local, issued_counter) + 1`.
+    /// ADR-0057 decision 4: a restored tab's in-memory counter restarts at `1`,
+    /// which `verify_inside`'s `request.counter <= issued_counter` refuses
+    /// outright, since the row's mark is long past `1`. The client picks its next
+    /// counter up from here: `max(local, issued_counter) + 1`.
     pub async fn issue_request_nonce_ex(
         &self,
         session_id: &str,
@@ -3217,11 +3037,10 @@ impl SessionStore {
             tx.commit().await?;
             return Err(SessionError::Expired);
         }
-        // ADR-0057 decision 4: idle death, computed by Postgres's clock
-        // against Postgres's `last_seen_at` — the "one clock" rule a
-        // reload's restored session must be held to as tightly as a live
-        // request is in `verify_inside`. A dead session gets no nonce, and
-        // the row goes exactly as an expired one does.
+        // ADR-0057 decision 4: idle death, by Postgres's clock against Postgres's
+        // `last_seen_at` (the "one clock" rule), so a reload's restored session is
+        // held as tightly as a live request in `verify_inside`. A dead session
+        // gets no nonce, and the row goes as an expired one does.
         if row.idle_seconds >= idle_limit_seconds(row.principal_kind) {
             delete_session(&tx, &row.id).await?;
             leave_session_custody(&tx).await?;
@@ -3269,28 +3088,24 @@ impl SessionStore {
     /// # Why this is separate from the rest, since `0014`
     ///
     /// Verification used to run whole in its own committed transaction, and
-    /// `api.rs` then opened a *second* one for `open_tenant_context` and
-    /// `authorise_account`. The disabled-account check, the evidence-key check
-    /// and grant evaluation therefore never shared a snapshot: an account
-    /// disabled, or a key retired, or a grant revoked between the two commits
-    /// was checked against one state and authorised against another. §3.4's
-    /// seven steps and §4's *"before setting `app.design_capability`"* both
-    /// read as one continuous act; they were two.
+    /// `api.rs` then opened a *second* for `open_tenant_context` and
+    /// `authorise_account`, so the disabled-account check, the evidence-key check
+    /// and grant evaluation never shared a snapshot: an account disabled, a key
+    /// retired or a grant revoked between the two commits was checked against one
+    /// state and authorised against another. §3.4's seven steps and §4's *"before
+    /// setting `app.design_capability`"* read as one continuous act; they were
+    /// two.
     ///
     /// The rest of verification moved into the caller's transaction
-    /// ([`SessionStore::verify_pending`]) so that it and authorisation share a
-    /// snapshot. The nonce did **not** move, because the reason it committed
-    /// separately is still true: a request whose handler fails must not leave
-    /// a replayable nonce behind, and a handler that rolls its own transaction
-    /// back must not roll back the fact that this nonce has been spent. Nonce
-    /// freshness is an atomic claim about a single row, not a fact about a
-    /// consistent view of several tables, so it loses nothing by standing
-    /// apart.
+    /// ([`SessionStore::verify_pending`]) so it and authorisation share a
+    /// snapshot. The nonce did **not** move: a request whose handler fails must
+    /// not leave a replayable nonce behind, and a handler that rolls back must
+    /// not roll back the fact that the nonce was spent. Nonce freshness is an
+    /// atomic claim about one row, so it loses nothing by standing apart.
     ///
-    /// **The bounds come first, before the pool is even touched.** A timestamp
-    /// or counter outside [`MIN_UNIX_MS`]`..=`[`MAX_UNIX_MS`] is refused here,
-    /// so nothing further down ever arithmetics on a number a client chose to
-    /// make overflow.
+    /// **The bounds come first, before the pool is touched.** A timestamp or
+    /// counter outside [`MIN_UNIX_MS`]`..=`[`MAX_UNIX_MS`] is refused here, so
+    /// nothing below does arithmetic on a number a client chose to overflow.
     pub async fn begin_request(
         &self,
         request: &SignedRequest<'_>,
@@ -3333,14 +3148,13 @@ impl SessionStore {
         })
     }
 
-    /// **Step two: everything else, inside the transaction the caller will
-    /// also authorise in.**
+    /// **Step two: everything else, inside the transaction the caller will also
+    /// authorise in.**
     ///
-    /// `app.session_custody` is turned on at the start and off again before
-    /// this returns, so the rest of the caller's transaction — the tenant
-    /// context, the grant evaluation, whatever the handler does — reaches zero
-    /// rows in the session tables exactly as `0013` §E requires of every
-    /// transaction that is not a verification.
+    /// `app.session_custody` is turned on at the start and off before this
+    /// returns, so the rest of the caller's transaction (tenant context, grant
+    /// evaluation, the handler) reaches zero rows in the session tables, as
+    /// `0013` §E requires of every transaction that is not a verification.
     ///
     /// # What is checked, in order
     ///
@@ -3380,11 +3194,11 @@ impl SessionStore {
     }
 
     /// §4.1 clause (b) whole, for a caller with nothing else to do in the same
-    /// transaction — sign-out, and every test that verifies for its own sake.
+    /// transaction (sign-out, and tests that verify for their own sake).
     ///
     /// A route that goes on to authorise must call [`begin_request`] and
-    /// [`verify_pending`] instead, so that verification and authorisation
-    /// share one snapshot.
+    /// [`verify_pending`] instead, so verification and authorisation share one
+    /// snapshot.
     ///
     /// [`begin_request`]: SessionStore::begin_request
     /// [`verify_pending`]: SessionStore::verify_pending
@@ -3402,21 +3216,19 @@ impl SessionStore {
         result
     }
 
-    /// ADR-0057 decision 7: check `address` — as the caller's `ClientAddress`
-    /// policy decided it — against the class `session_id` was bound to at
-    /// sign-in, and act on a mismatch per
-    /// [`SessionStore::with_address_check`].
+    /// ADR-0057 decision 7: check `address` (as the caller's `ClientAddress`
+    /// policy decided it) against the class `session_id` was bound to at
+    /// sign-in, and act on a mismatch per [`SessionStore::with_address_check`].
     ///
-    /// A caller's explicit second step, not folded into
-    /// [`SessionStore::verify_inside`]: every route already holds
-    /// `session_id` and a `ClientAddress` once it has a [`VerifiedSession`],
-    /// so this reads the row fresh rather than threading one more field
-    /// through [`SignedRequest`], [`PendingRequest`], and every caller of
-    /// them.
+    /// An explicit second step, not folded into
+    /// [`SessionStore::verify_inside`]: every route already holds `session_id`
+    /// and a `ClientAddress` once it has a [`VerifiedSession`], so this reads the
+    /// row fresh rather than threading another field through [`SignedRequest`],
+    /// [`PendingRequest`] and every caller.
     ///
     /// Call this **after** the request's signature has verified: an address
-    /// mismatch is a fact about a session that is genuinely live, not a
-    /// reason to skip verifying it.
+    /// mismatch is a fact about a genuinely live session, not a reason to skip
+    /// verifying it.
     pub async fn check_session_address(
         &self,
         tx: &Transaction<'_>,
@@ -3441,23 +3253,21 @@ impl SessionStore {
         address: &str,
     ) -> Result<(), SessionError> {
         let Some(row) = read_session(tx, session_id).await? else {
-            // Gone, not "already answered for": a concurrent request on
-            // another connection can delete this row (sign-out, expiry
-            // sweep, or decision 7's ending) between `verify_inside`'s read
-            // and this one, under READ COMMITTED. A missing row here is
-            // never `Ok`: the caller is refused exactly as it would be if
-            // verification itself had found it gone.
+            // Gone, not "already answered for": a concurrent request on another
+            // connection can delete this row (sign-out, expiry sweep, decision
+            // 7's ending) between `verify_inside`'s read and this one, under READ
+            // COMMITTED. A missing row is never `Ok`: the caller is refused as if
+            // verification had found it gone.
             return Err(SessionError::Expired);
         };
         let Some(bound) = &row.bound_address_class else {
-            // Nothing to compare — a sign-in this feature could not class,
-            // or one made before it existed.
+            // Nothing to compare: a sign-in this feature could not class, or one
+            // made before it existed.
             return Ok(());
         };
-        // A bound session must keep matching by class. An address this
-        // request carries that does not even parse is not "nothing to
-        // compare" — it is not the one this session is bound to, so it is a
-        // mismatch like any other, never a free pass.
+        // A bound session must keep matching by class. An address that does not
+        // even parse is not "nothing to compare": it is not the one this session
+        // is bound to, a mismatch like any other, never a free pass.
         let class = crate::client_address::address_class(address);
         if class.as_deref() == Some(bound.as_str()) {
             return Ok(());
@@ -3471,17 +3281,15 @@ impl SessionStore {
             );
             // On `tx`, never a separate connection: a request that verified
             // successfully already updated this row's
-            // `last_seen_at`/`request_counter` on `tx` (`verify_inside` step
-            // 6), uncommitted — a `DELETE` on any other connection would
-            // block on that lock forever. Durability is the caller's job:
-            // every production call site commits `tx` regardless of
-            // outcome, exactly as `verify_request` already does for
-            // `Expired`.
+            // `last_seen_at`/`request_counter` on `tx` (`verify_inside` step 6),
+            // uncommitted, so a `DELETE` on another connection would block on that
+            // lock forever. Every production call site commits `tx` regardless of
+            // outcome, as `verify_request` does for `Expired`.
             delete_session(tx, &row.id).await?;
             return Err(SessionError::Expired);
         }
-        // Steward plane under `site` mode: recorded, not ended — laptops,
-        // VPNs and phones change address in the ordinary course of things.
+        // Steward plane under `site` mode: recorded, not ended (laptops, VPNs and
+        // phones change address normally).
         tx.execute(
             "UPDATE sessions SET address_changed_at = COALESCE(address_changed_at, now()) \
               WHERE id = $1",
@@ -3520,13 +3328,11 @@ impl SessionStore {
             return Err(SessionError::Expired);
         }
 
-        // (3a) Idle death (ADR-0057 decision 4): Postgres's idle age against
-        // this plane's limit, dead at the mark itself (`idle_seconds >=
-        // limit`, not `>`). Not a recorded sign-out — the row is deleted
-        // exactly as an expired one is, because nobody chose to end this
-        // session, time did. Durable only because the caller commits `tx`
-        // regardless of outcome, matching `verify_request`'s "committed
-        // either way".
+        // (3a) Idle death (ADR-0057 decision 4): Postgres's idle age against this
+        // plane's limit, dead at the mark itself (`idle_seconds >= limit`, not
+        // `>`). Not a recorded sign-out: the row is deleted as an expired one is,
+        // because time ended the session, not a person. Durable only because the
+        // caller commits `tx` regardless of outcome (as `verify_request`).
         if row.idle_seconds >= idle_limit_seconds(row.principal_kind) {
             delete_session(tx, &row.id).await?;
             return Err(SessionError::Expired);
@@ -3549,12 +3355,11 @@ impl SessionStore {
                     None => return Err(SessionError::NoSuchSession),
                 }
             }
-            // **A suspended operator stops at the next request**, which is the
-            // same sentence `0013` §A wrote for a disabled account and the same
-            // mechanism: a column re-read inside the transaction that will also
-            // authorise, never a flag cached in the session row. A session
-            // carrying a stored "is an operator in good standing" boolean would
-            // be one `UPDATE` from being true again.
+            // **A suspended operator stops at the next request**, as `0013` §A
+            // says of a disabled account and by the same mechanism: a column
+            // re-read inside the transaction that will also authorise, never a
+            // flag cached in the session row (a stored "operator in good standing"
+            // boolean would be one `UPDATE` from being true again).
             PrincipalKind::Operator => {
                 let disabled: Option<bool> = tx
                     .query_opt(
@@ -3571,11 +3376,11 @@ impl SessionStore {
             }
         }
 
-        // (5) The evidence key, still in service, its own seal still true —
+        // (5) The evidence key, still in service, its own seal still true,
         // **resolved from the keyring the session's own plane keeps**. The two
         // keyrings are different tables with different seals (`0015` §B), and
-        // resolving an operator's key id against `account_keys` would refuse
-        // every operator session at its second request.
+        // resolving an operator's key id against `account_keys` would refuse every
+        // operator session at its second request.
         if let Some(key_id) = &row.evidence_key_id {
             match row.principal_kind {
                 PrincipalKind::Steward => {
@@ -3591,11 +3396,11 @@ impl SessionStore {
                     match operators::live_operator_keys(tx, &self.ring, &row.principal_id, now)
                         .await
                     {
-                        // The key that proved this session must still be LIVE.
-                        // Any live key, not the newest (ADR-0055 decision 6):
-                        // registering a second browser's key does not end the
-                        // first browser's session; retiring the key that made
-                        // it does, for §8.4's reason.
+                        // The key that proved this session must still be LIVE. Any
+                        // live key, not the newest (ADR-0055 decision 6):
+                        // registering a second browser's key does not end the first
+                        // browser's session; retiring the key that made it does
+                        // (§8.4).
                         Ok(keys) if keys.iter().any(|key| &key.id == key_id) => {}
                         Ok(_) => return Err(SessionError::EvidenceKeyNotInService),
                         Err(operators::OperatorError::Unverifiable(what)) => {
@@ -3607,59 +3412,52 @@ impl SessionStore {
             }
         }
 
-        // (4a) **ADR-0055 stream (a): the setup session.** An account that
-        // holds the operator custody and has not enrolled its app code gets a
-        // session accepted on `/credentials/*` and nowhere else — decision
-        // 10's *"such an account is taken to the enrolment screen before
-        // anything else until it has one"*, and the lead's resolution 1.
+        // (4a) **ADR-0055 stream (a): the setup session.** An account that holds
+        // the operator custody and has not enrolled its app code gets a session
+        // accepted on `/credentials/*` and nowhere else (decision 10: *"such an
+        // account is taken to the enrolment screen before anything else until it
+        // has one"*).
         //
-        // **Re-read here rather than cached in the row**, which is the same
-        // discipline the disabled flag above follows and for the same reason:
+        // **Re-read here, not cached in the row**, like the disabled flag above:
         // the moment the code is enrolled the session becomes ordinary, and a
         // boolean baked into the session row would be one `UPDATE` from being
-        // wrong in either direction.
+        // wrong either way.
         //
-        // # The gate is about the ACCOUNT, not about the assurance
+        // # The gate is about the ACCOUNT, not the assurance
         //
         // It was `row.assurance == Assurance::A0` until the 2026-09-21 review,
-        // and that let the whole rule be stepped over: an account holding the
-        // operator custody with no app code enrolled, signing in with its
-        // password **and a browser key**, gets `A1` — so the check never ran,
-        // and that person reached `POST /admin/operators/self/key` and
-        // registered the key every operator act is signed with, having never
-        // enrolled the code decision 10 calls *Required for any account
-        // holding the operator custody*. The state needs no database access to
-        // reach: an existing steward with a key who is promoted to operator
-        // lands in it. A second factor that a stronger first factor turns off
-        // is not a second factor.
+        // which let the rule be stepped over: an account holding the operator
+        // custody with no app code, signing in with its password **and a browser
+        // key**, gets `A1`, so the check never ran and that person could reach
+        // `POST /admin/operators/self/key` and register the key every operator act
+        // is signed with, having never enrolled the code decision 10 requires for
+        // any account holding the operator custody. The state needs no database
+        // access to reach: an existing steward with a key who is promoted to
+        // operator lands in it. A second factor that a stronger first factor turns
+        // off is not a second factor.
         //
         // **The binding is asked first and the credentials only if there is
-        // one.** Both are indexed lookups, but the binding table holds one row
-        // per operator on a deployment whose standing shape is two (decision
-        // 4), so for every other session this is one small `SELECT` per
-        // request and nothing more.
+        // one.** The binding table holds one row per operator (standing shape:
+        // two, decision 4), so for every other session this is one small `SELECT`
+        // per request.
         //
         // # What the gate is still NOT about: an account with no password
         //
-        // The condition is *the account's credential is a password and it has
-        // no app code beside it*, which is decision 10's pairing — "the
-        // credential is a password and an app code" — rather than the literal
-        // "any account holding the operator custody". An account bound to an
-        // operator that has **no** stored hash at all signs in the way this
-        // server has always worked: a signature by a key its browser holds,
-        // `A1` or nothing (§4.5), the mechanism decision 10 itself calls the
-        // phishing-resistant one. There is no password there to phish, reuse
-        // or mail, which is the whole of what the app code stands against, and
+        // The condition is *the account's credential is a password and it has no
+        // app code beside it*, decision 10's pairing, not the literal "any account
+        // holding the operator custody". An account bound to an operator with
+        // **no** stored hash signs in as this server always has: a signature by a
+        // key its browser holds, `A1` or nothing (§4.5), the phishing-resistant
+        // mechanism decision 10 itself names. There is no password there to
+        // phish, reuse or mail, which is all the app code stands against, and
         // `operators.rs`'s invitation path produces exactly such an account.
         //
-        // **That is a narrowing of what the 2026-09-21 checker proposed** — it
-        // asked for the check regardless — and it is recorded here rather than
-        // left to be discovered: the residue is a password-less bound account
-        // with a live key reaching `/admin`, which stream (b)'s own
-        // `register_own_operator_key` check closes at the one act that
-        // matters. If the lead reads decision 10 literally, the extra clause
-        // to delete is `has_a_password`, and `tests/operators.rs`'s fixtures
-        // have to set a password and enrol a code first.
+        // **This narrows what the 2026-09-21 checker proposed** (the check
+        // regardless). The residue is a password-less bound account with a live
+        // key reaching `/admin`, which `register_own_operator_key` closes at the
+        // one act that matters. If decision 10 is read literally, delete the
+        // stored-credential clause (`a_stored_credential`) and make
+        // `tests/operators.rs`'s fixtures set a password and enrol a code first.
         if row.principal_kind == PrincipalKind::Steward
             && !is_a_credential_path(&request.path)
             && credentials::holds_operator_custody(tx, &row.principal_id)
@@ -3679,10 +3477,10 @@ impl SessionStore {
 
         let issued_counter = request.issued_counter;
 
-        // (6) Time and counter, on numbers that have already been bounded by
-        // `begin_request` and are checked again here rather than assumed —
-        // every arithmetic on this path is checked, so a later widening of the
-        // bound cannot quietly re-open the panic that `0014` closed.
+        // (6) Time and counter, on numbers already bounded by `begin_request` and
+        // checked again here rather than assumed: every arithmetic on this path is
+        // checked, so a later widening of the bound cannot re-open the panic `0014`
+        // closed.
         let skew = clock_skew_seconds(now, request.unix_ms)?;
         if skew > CLOCK_SKEW.as_secs() as i64 {
             return Err(SessionError::ClockSkew { by_seconds: skew });
@@ -3706,12 +3504,10 @@ impl SessionStore {
         );
         authority::verify_es256(&row.session_pubkey, &message, &request.signature)?;
 
-        // A concurrent request on another connection may have deleted this
-        // row (a sign-out, an expiry sweep, or decision 7's ending) between
-        // the read above and here — this transaction's read committed
-        // isolation would see it gone. Zero rows touched is that race, not a
-        // no-op: a request verified against a row that no longer exists
-        // must never be treated as verified.
+        // A concurrent request on another connection may have deleted this row
+        // (sign-out, expiry sweep, decision 7's ending) since the read above. Zero
+        // rows touched is that race, not a no-op: a request verified against a row
+        // that no longer exists must never be treated as verified.
         let touched = tx
             .query_opt(
                 "UPDATE sessions \
@@ -3740,31 +3536,28 @@ impl SessionStore {
 
     /// Sign-out. **The row is deleted AND the fact is recorded** (`0014` §D).
     ///
-    /// §4.3 has no column for it, and adding one would put a boolean between
-    /// an attacker and a live session — one `UPDATE` from being false again.
-    /// So the row still goes, and the outstanding nonces go with it through
-    /// the one `ON DELETE CASCADE` in this schema.
+    /// §4.3 has no column for it, and a boolean would put one `UPDATE` between an
+    /// attacker and a live session. So the row still goes, and its outstanding
+    /// nonces with it through the one `ON DELETE CASCADE` in this schema.
     ///
     /// # Why deleting it was not enough
     ///
-    /// `0013` argued that *"a deleted row cannot be resurrected without the
-    /// site row key, which is not in PostgreSQL"*. That is true of MINTING a
-    /// row and false of RESTORING one. [`session_row_state`] covers the row's
-    /// own fields and nothing else, and none of them changes when a session is
-    /// signed out — so last night's backup holds bytes whose MAC recomputes
-    /// for ever, and re-inserting one row silently undid the sign-out. Nothing
-    /// anywhere recorded that the id had existed.
+    /// `0013` argued that *"a deleted row cannot be resurrected without the site
+    /// row key, which is not in PostgreSQL"*. True of MINTING a row, false of
+    /// RESTORING one. [`session_row_state`] covers the row's own fields and none
+    /// changes at sign-out, so last night's backup holds bytes whose MAC
+    /// recomputes for ever, and re-inserting one row silently undid the sign-out.
     ///
-    /// An append-only `session_revocations` row closes it, in the shape the
-    /// authority tables already use for revocation: sealed under the same
-    /// site-scoped row key with `authority::row_seal`, bound by `chain_seq` to
-    /// a sealed `account_signed_out` entry appended first, and unreachable to
-    /// `fathom_app` through UPDATE or DELETE at all. [`verify_inside`] refuses
-    /// any session id that appears in it.
+    /// An append-only `session_revocations` row closes it, as the authority
+    /// tables do for revocation: sealed under the site-scoped row key with
+    /// `authority::row_seal`, bound by `chain_seq` to a sealed
+    /// `account_signed_out` entry appended first, and unreachable to `fathom_app`
+    /// through UPDATE or DELETE. [`verify_inside`] refuses any session id that
+    /// appears in it.
     ///
     /// What this does **not** close is a restore of the whole database to a
     /// point before the sign-out; nothing inside the database could, and §7.6
-    /// says so. What catches that is the off-box anchor.
+    /// says so. The off-box anchor catches that.
     ///
     /// Takes a [`VerifiedSession`], so signing another session out requires
     /// having signed this request with that session's own key.
@@ -3803,15 +3596,15 @@ impl SessionStore {
         Ok(())
     }
 
-    /// End every OTHER session of one principal, on one plane — ASVS 7.4.3,
-    /// after a password or authenticator change (ADR-0057 decision 3), or
-    /// ASVS 7.5.2's "sign out all other browsers" (ADR-0057 decision 8, `by:
-    /// None`). The caller's own session, `except_session_id`, is left alone.
+    /// End every OTHER session of one principal, on one plane: ASVS 7.4.3 after
+    /// a password or authenticator change (ADR-0057 decision 3), or ASVS 7.5.2's
+    /// "sign out all other browsers" (decision 8, `by: None`). The caller's own
+    /// session, `except_session_id`, is left alone.
     ///
-    /// Used on the account plane for the account whose credential changed,
-    /// and on the operator plane for the operator it holds the custody of,
-    /// if any — `except_session_id` is empty there, since the session doing
-    /// the changing is never an operator one.
+    /// Used on the account plane for the account whose credential changed, and
+    /// on the operator plane for the operator it holds the custody of, if any
+    /// (`except_session_id` is empty there: the session doing the changing is
+    /// never an operator one).
     ///
     /// `by`: see [`end_other_sessions`] (the free function this calls).
     pub async fn end_other_sessions(
@@ -3911,12 +3704,11 @@ impl SessionStore {
 
     /// Disable or re-enable an account, and record it on the site chain
     /// (§7.2's `account_disabled|enabled`).
-    ///
-    /// **Not reachable from any HTTP route in this build.** The operator
-    /// surface that will call it is §5's and is not built; what exists now is
-    /// the column, the capability-gated write path, and the fact that a
-    /// disabled account's live sessions stop at their next request. Listed in
-    /// `0013` §A with the policy that admits the write.
+    /// **Not reachable from any HTTP route in this build.** The operator surface
+    /// that will call it (§5) is not built; what exists is the column, the
+    /// capability-gated write path, and the fact that a disabled account's live
+    /// sessions stop at their next request (`0013` §A has the policy that admits
+    /// the write).
     pub async fn set_account_disabled(
         &self,
         account: &str,
@@ -3979,11 +3771,7 @@ impl SessionStore {
         row: &SessionRow,
     ) -> Result<(), SessionError> {
         let recomputed = self.row_mac(tx, row).await?;
-        let stored: Vec<u8> = tx
-            .query_one("SELECT row_mac FROM sessions WHERE id = $1", &[&row.id])
-            .await?
-            .get(0);
-        if stored != recomputed {
+        if row.stored_row_mac != recomputed {
             return Err(SessionError::Unverifiable("session row MAC"));
         }
         Ok(())
@@ -3995,17 +3783,14 @@ impl SessionStore {
 // ---------------------------------------------------------------------------
 
 /// Open [`repo::TenantContext`] for a **verified** session.
-///
 /// This is the only function in the server that produces a tenant context from
-/// a request, and it takes a `&VerifiedSession` — which nothing but
-/// [`SessionStore::verify_request`] can make. §13 item 1, as a shape rather
-/// than a sentence.
+/// a request, and it takes a `&VerifiedSession`, which nothing but
+/// [`SessionStore::verify_request`] can make: §13 item 1 as a shape.
 ///
 /// An operator session is refused outright: an operator principal is
 /// unrepresentable in a membership at every privilege level (§2, `0004`), so
-/// `repo::authorise` would refuse it anyway, and a typed refusal says why
-/// rather than reporting "not a member" about a principal that could never be
-/// one.
+/// `repo::authorise` would refuse it anyway, and a typed refusal says why rather
+/// than reporting "not a member".
 pub async fn open_tenant_context(
     tx: &Transaction<'_>,
     tenant: OrganisationId,
@@ -4020,27 +3805,25 @@ pub async fn open_tenant_context(
 /// The account behind a session, for the one kind of query that has no tenant
 /// to open: *"which organisations do I belong to?"*.
 ///
-/// **This is the second and last bridge from a session to an `AccountId`**,
-/// [`open_tenant_context`] being the first. It exists because that one cannot
-/// serve a caller who does not yet know which tenant it is asking about —
-/// which is the whole point of `list_organisations_for_account`, whose own
-/// doc comment says so.
+/// **The second and last bridge from a session to an `AccountId`**,
+/// [`open_tenant_context`] being the first. That one cannot serve a caller who
+/// does not yet know which tenant it is asking about, which is the point of
+/// `list_organisations_for_account`.
 ///
-/// **It opens no tenant context, and that is the danger.** `open_tenant_context`
-/// sets the row-level-security context that keeps one organisation's rows away
-/// from another's; this sets nothing. A caller may therefore use the returned
-/// `AccountId` **only** with queries whose RLS policy is satisfied by the
-/// `account_id` branch — the `organisations` and `memberships` policies of
+/// **It opens no tenant context, and that is the danger.**
+/// `open_tenant_context` sets the row-level-security context that keeps one
+/// organisation's rows from another's; this sets nothing. A caller may use the
+/// returned `AccountId` **only** with queries whose RLS policy is satisfied by
+/// the `account_id` branch: the `organisations` and `memberships` policies of
 /// `0002`, read through `repo::list_organisations_for_account_in`, which sets
 /// `app.account_id` itself. Handing it to anything tenant-scoped would read
 /// under no context at all. If a second caller ever wants this, read that
 /// caller's policy first and say in its doc comment which branch it relies on.
 ///
 /// An operator session is refused with the same
-/// [`SessionError::NotATenantPrincipal`] `open_tenant_context` gives, for the
-/// same reason: an operator principal is unrepresentable in a membership at
-/// every privilege level (§2, `0004`), so it belongs to no organisation and
-/// the honest answer is a typed refusal rather than an empty list.
+/// [`SessionError::NotATenantPrincipal`], for the same reason: an operator
+/// principal belongs to no organisation, so the honest answer is a typed
+/// refusal rather than an empty list.
 pub fn account_without_tenant(session: &VerifiedSession) -> Result<AccountId, SessionError> {
     if session.kind != PrincipalKind::Steward {
         return Err(SessionError::NotATenantPrincipal);
@@ -4068,34 +3851,32 @@ struct SessionRow {
     issued_at_unix: i64,
     expires_at_unix: i64,
     request_counter: i64,
-    /// ADR-0057 decision 2: when this session's own sign-in last verified a
-    /// TOTP code. `None` for a session that never did — a key-only sign-in,
-    /// or one made before the account had a confirmed authenticator. Not
-    /// inside the row MAC; `0027` says why.
+    /// ADR-0057 decision 2: when this session's own sign-in last verified a TOTP
+    /// code; `None` if it never did (key-only sign-in, or before the account had
+    /// a confirmed authenticator). Not inside the row MAC; `0027` says why.
     totp_verified_at_unix: Option<i64>,
     /// ADR-0057 decision 6: `SHA-256` of this session's grace token, when its
-    /// sign-in minted one — set together with `totp_verified_at_unix` and
-    /// never afterward. Inside the row MAC (`0028`'s header): a
-    /// database-only attacker must not be able to plant a hash their chosen
-    /// token matches.
+    /// sign-in minted one; set with `totp_verified_at_unix` and never afterward.
+    /// Inside the row MAC (`0028`'s header): a database-only attacker must not be
+    /// able to plant a hash their chosen token matches.
     grace_token_hash: Option<[u8; 32]>,
     /// ADR-0057 decision 7: the address class (`client_address::address_class`)
-    /// this session was bound to at sign-in, or `None` when the source could
-    /// not be classed. Inside the row MAC for the same reason
-    /// `grace_token_hash` is — a database-only attacker must not be able to
-    /// rewrite it to match wherever they are calling from.
+    /// bound at sign-in, or `None` when the source could not be classed. Inside
+    /// the row MAC, as `grace_token_hash` is: a database-only attacker must not
+    /// be able to rewrite it to match where they call from.
     bound_address_class: Option<String>,
-    /// ADR-0057 decision 8: this session's browser, as
-    /// `browser_label::label` reduced its `User-Agent` at sign-in, or
-    /// `None` for an older row. Inside the row MAC like
-    /// `bound_address_class`, so a database-only attacker cannot rewrite it.
+    /// ADR-0057 decision 8: this session's browser, as `browser_label::label`
+    /// reduced its `User-Agent` at sign-in, or `None` for an older row. Inside
+    /// the row MAC like `bound_address_class`.
     browser_label: Option<String>,
     /// Postgres's idle age of this row, `EXTRACT(EPOCH FROM (now() -
-    /// last_seen_at))`. Computed in the same `SELECT` that reads everything
-    /// else, so an idle check never compares this server's clock against
-    /// the database's. **Not part of the MAC**, for the same reason
-    /// `last_seen_at` itself is not: it changes on every verified request.
+    /// last_seen_at))`, read in the same `SELECT` as everything else so an idle
+    /// check never compares this server's clock to the database's. **Not part of
+    /// the MAC**, as `last_seen_at` is not: it changes on every verified request.
     idle_seconds: i64,
+    /// The stored `row_mac`, read in the same `SELECT` as the fields it covers.
+    /// A second read could find the row deleted by a concurrent request.
+    stored_row_mac: Vec<u8>,
 }
 
 impl SessionRow {
@@ -4125,11 +3906,10 @@ impl SessionRow {
 
 /// Everything §4.3's row MAC covers, as a public value.
 ///
-/// **Public, and shaped like `authority::RowFacts` on purpose.** A
-/// construction that can only be exercised through a transaction is a
-/// construction nobody cross-checks — `authority.rs`'s own module header makes
-/// the argument — and `tests/session_vectors.rs` pins every byte of this one
-/// against a second implementation written in plain Python from §4's text.
+/// **Public, and shaped like `authority::RowFacts` on purpose**: a construction
+/// only exercisable through a transaction is one nobody cross-checks
+/// (`authority.rs`'s header), and `tests/session_vectors.rs` pins every byte
+/// against a second implementation in plain Python from §4's text.
 pub struct SessionFacts<'a> {
     pub id: &'a str,
     pub principal_id: &'a str,
@@ -4163,10 +3943,10 @@ pub struct SessionFacts<'a> {
 ///               ‖ u64(chain_seq) ‖ u32(row_version) ‖ LP(canon(row_state)))
 /// ```
 ///
-/// `0013`'s departure 2 carries the argument for reusing the authority layer's
-/// construction rather than deriving §4.3's own `K_sess` under two new labels:
-/// a session row is account-scoped in exactly the way a keyring row is, and a
-/// label separates uses of one key, not keys.
+/// `0013`'s departure 2: reuse the authority layer's construction rather than
+/// deriving §4.3's own `K_sess` under two new labels. A session row is
+/// account-scoped as a keyring row is, and a label separates uses of one key,
+/// not keys.
 pub fn session_row_mac(row_key: &Key32, facts: &SessionFacts<'_>) -> [u8; 32] {
     authority::row_seal(
         row_key,
@@ -4182,18 +3962,14 @@ pub fn session_row_mac(row_key: &Key32, facts: &SessionFacts<'_>) -> [u8; 32] {
 
 /// The canonical state of a session row, for its MAC.
 ///
-/// **One function, used on write and on read**, so the MAC cannot depend on
-/// which side computed it — `grants::grant_row_state`'s rule. Every field
-/// §4.3's MAC lists is here, plus `token_hash`, because a bearer token an
-/// attacker chose is exactly the substitution §4.1 describes, and plus
-/// `assurance`, `evidence_key_id` and `evidence_sig` because they are what
-/// clause (a) rests on.
+/// One function, used on write and on read, so the MAC cannot depend on which side computed it
+/// (`grants::grant_row_state`'s rule). It holds every field §4.3's MAC lists, plus `token_hash`
+/// (a bearer token an attacker chose is the substitution §4.1 describes) and `assurance`,
+/// `evidence_key_id` and `evidence_sig` (clause (a) rests on them).
 ///
-/// **`last_seen_at` and `request_counter` are deliberately NOT in it.** They
-/// are the two columns the runtime role may rewrite (`0013` §F), they change
-/// on every request, and a MAC that covered them would have to be recomputed —
-/// and re-verified — on every write, which is a second place for the chain
-/// master to be needed for no gain. §4.3's own MAC covers neither.
+/// `last_seen_at` and `request_counter` are deliberately NOT in it. The runtime role may rewrite
+/// them (`0013` §F) and they change on every request; covering them would mean recomputing and
+/// re-verifying the MAC on every write. §4.3's own MAC covers neither.
 fn session_row_state(row: &SessionFacts<'_>) -> Vec<u8> {
     let mut map = BTreeMap::new();
     map.insert(
@@ -4266,9 +4042,8 @@ const SIGNED_OUT: &str = "signed_out";
 
 /// What one `session_revocations` row's seal covers (`0014` §D).
 ///
-/// **Public, and shaped like [`SessionFacts`] and `authority::RowFacts` on
-/// purpose** — same argument as `SessionFacts`': a construction that can only
-/// be exercised through a transaction is a construction nobody cross-checks.
+/// Public, and shaped like [`SessionFacts`] and `authority::RowFacts`, so the construction can be
+/// cross-checked without a transaction.
 pub struct RevocationFacts<'a> {
     pub session_id: &'a str,
     pub principal_id: &'a str,
@@ -4285,12 +4060,9 @@ pub struct RevocationFacts<'a> {
 ///               ‖ LP(canon(row_state)))
 /// ```
 ///
-/// `authority::row_seal` under the same site-scoped row key a session row is
-/// sealed under, and **no new label**: `0013`'s departure 2 carries the whole
-/// argument, and a revocation is account-scoped in exactly the way the session
-/// it revokes was. The table name is inside the seal, so a revocation row
-/// lifted into another table — or a session row filed as a revocation — does
-/// not verify where it lands.
+/// `authority::row_seal` under the same site-scoped row key a session row uses, with no new label
+/// (`0013` departure 2). The table name is inside the seal, so a revocation row lifted into
+/// another table, or a session row filed as a revocation, does not verify where it lands.
 pub fn revocation_row_mac(row_key: &Key32, facts: &RevocationFacts<'_>) -> [u8; 32] {
     authority::row_seal(
         row_key,
@@ -4318,12 +4090,11 @@ fn revocation_row_state(facts: &RevocationFacts<'_>) -> Vec<u8> {
     Json::Obj(map).to_canonical_bytes()
 }
 
-/// A free function so `credentials.rs` can end an account's other sessions
-/// inside its OWN transaction, atomically with the change that triggers it.
+/// A free function so `credentials.rs` can end an account's other sessions inside its OWN
+/// transaction, atomically with the change that triggers it.
 ///
-/// `by`: `None` when the principal ends its own other sessions (a
-/// credential change, or ASVS 7.5.2's "sign out all other browsers");
-/// `Some(admin_id)` for decision 8's admin surface ending a member's.
+/// `by` is `None` when the principal ends its own other sessions (a credential change, or ASVS
+/// 7.5.2), and `Some(admin_id)` when decision 8's admin surface ends a member's.
 pub async fn end_other_sessions(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -4349,11 +4120,9 @@ pub async fn end_other_sessions(
     Ok(())
 }
 
-/// ADR-0057 decision 8: ends every steward-plane session of `organisation`
-/// except `except_session_id` (ASVS 5.0.0 7.4.5). Sets `app.tenant_id`
-/// itself, inside its own transaction — `sessions` carries no organisation
-/// column, and `repo::require_admin`'s check ran in a transaction that has
-/// since committed.
+/// ADR-0057 decision 8: ends every steward-plane session of `organisation` except those of
+/// `caller_account` (ASVS 5.0.0 7.4.5). Sets `app.tenant_id` itself, inside its own transaction:
+/// `sessions` has no organisation column, and `repo::require_admin`'s transaction has committed.
 pub async fn end_all_in_organisation_except(
     pool: &Pool,
     ring: &KeyRing,
@@ -4402,11 +4171,11 @@ pub async fn end_all_in_organisation_except(
     Ok(())
 }
 
-/// One session, signed out: the entry, the revocation row, the delete —
-/// what [`SessionStore::sign_out_in`] and [`end_other_sessions`] reduce to.
+/// One session, signed out: the entry, the revocation row, the delete. This is what
+/// [`SessionStore::sign_out_in`] and [`end_other_sessions`] reduce to.
 ///
-/// `by` is `Some(admin_id)` when an administrator, not the session's own
-/// holder, ends it (decision 8) — added to the sealed entry's metadata.
+/// `by` is `Some(admin_id)` when an administrator ends it (decision 8); it goes into the sealed
+/// entry's metadata.
 async fn revoke_one(
     tx: &Transaction<'_>,
     ring: &KeyRing,
@@ -4468,14 +4237,12 @@ async fn revoke_one(
 
 /// Has this session id been recorded as signed out (`0014` §D)?
 ///
-/// **The row's own seal is deliberately NOT checked here, and the reason is
-/// which way each failure falls.** An unsealed or resealed revocation row
-/// refuses a session, which is the fail-closed direction and costs an attacker
-/// who can write one nothing they could not get by deleting the session row
-/// instead. Verifying the seal would mean an attacker who *corrupts* a
-/// revocation gets the session back, which is the fail-open direction and is
-/// exactly what this table exists to stop. The seal is what makes a minted
-/// revocation detectable by an auditor, not what makes it effective here.
+/// The row's own seal is deliberately NOT checked here, because of which way each failure falls.
+/// An unsealed or resealed revocation row refuses a session: fail closed, and it gives an
+/// attacker nothing they could not get by deleting the session row. Checking the seal would let
+/// an attacker who corrupts a revocation get the session back: fail open, which is what this
+/// table exists to stop. The seal lets an auditor detect a minted revocation; it is not what
+/// makes one effective.
 async fn is_revoked(tx: &Transaction<'_>, session_id: &str) -> Result<bool, SessionError> {
     let row = tx
         .query_opt(
@@ -4488,9 +4255,8 @@ async fn is_revoked(tx: &Transaction<'_>, session_id: &str) -> Result<bool, Sess
 
 /// `0014` §C's sweep of `session_nonces`, driving `session_nonces_expiry_idx`.
 ///
-/// A nonce past its `expires_at` can never be consumed — every `DELETE ...
-/// RETURNING` that spends one also requires `expires_at > now()` — so it is
-/// dead weight from the moment it expires.
+/// Every `DELETE ... RETURNING` that spends a nonce also requires `expires_at > now()`, so an
+/// expired nonce is dead weight.
 async fn sweep_expired_nonces(tx: &Transaction<'_>) -> Result<(), SessionError> {
     tx.execute(
         "DELETE FROM session_nonces \
@@ -4506,15 +4272,11 @@ async fn sweep_expired_nonces(tx: &Transaction<'_>) -> Result<(), SessionError> 
 
 /// `0014` §C's sweep of `sessions`, driving `sessions_expiry_idx`.
 ///
-/// An expired session is refused and deleted at its next use, which is where
-/// the refusal has to happen anyway — `0013`'s argument, and it is still true.
-/// What it left out is the session that has **no** next use, which is most of
-/// them: a browser closed at five o'clock never comes back, and its row and
-/// its outstanding nonces stayed for ever.
+/// An expired session is refused and deleted at its next use, but most never have one: a browser
+/// closed at five o'clock never comes back.
 ///
-/// **No revocation row is recorded for a swept session**, unlike a sign-out:
-/// `expires_at` is inside the row's own MAC, so a restored expired row is
-/// refused by the expiry check on its own bytes.
+/// No revocation row is recorded for a swept session, unlike a sign-out: `expires_at` is inside
+/// the row's own MAC, so a restored expired row is refused by the expiry check on its own bytes.
 async fn sweep_expired_sessions(tx: &Transaction<'_>) -> Result<(), SessionError> {
     tx.execute(
         "DELETE FROM sessions \
@@ -4528,9 +4290,8 @@ async fn sweep_expired_sessions(tx: &Transaction<'_>) -> Result<(), SessionError
     Ok(())
 }
 
-/// Refuse a client-supplied millisecond timestamp outside the range a wall
-/// clock can produce, **before any arithmetic touches it** (`0014`, finding
-/// 5).
+/// Refuse a client-supplied millisecond timestamp outside the range a wall clock can produce,
+/// **before any arithmetic touches it** (`0014`, finding 5).
 fn check_unix_ms(unix_ms: i64) -> Result<(), SessionError> {
     if !(MIN_UNIX_MS..=MAX_UNIX_MS).contains(&unix_ms) {
         return Err(SessionError::Malformed("request timestamp"));
@@ -4540,13 +4301,11 @@ fn check_unix_ms(unix_ms: i64) -> Result<(), SessionError> {
 
 /// `|now_seconds·1000 − unix_ms| / 1000`, with every step checked.
 ///
-/// The line this replaces was `(now * 1000 - request.unix_ms).abs() / 1000`.
-/// With `fathom-timestamp: -9223372036854775808` the subtraction overflows —
-/// and the server profile sets `overflow-checks = true`, so that is a panic —
-/// and `.abs()` on `i64::MIN` panics on the same line for a second reason.
-/// [`check_unix_ms`] already refuses that input; this is checked anyway,
-/// because the bound and the arithmetic are two statements of one rule and
-/// somebody will one day relax the first.
+/// The old `(now * 1000 - request.unix_ms).abs() / 1000` panicked on
+/// `fathom-timestamp: -9223372036854775808`: the subtraction overflows (the server profile sets
+/// `overflow-checks = true`) and `.abs()` on `i64::MIN` panics. [`check_unix_ms`] already refuses
+/// that input; this is checked anyway because the bound and the arithmetic are two statements of
+/// one rule, and someone will one day relax the first.
 fn clock_skew_seconds(now_seconds: i64, unix_ms: i64) -> Result<i64, SessionError> {
     let now_ms = now_seconds
         .checked_mul(1000)
@@ -4563,9 +4322,8 @@ fn clock_skew_seconds(now_seconds: i64, unix_ms: i64) -> Result<i64, SessionErro
 async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRow>, SessionError> {
     let row = tx
         .query_opt(
-            // `COALESCE` over the two evidence columns, and it is unambiguous
-            // because `0015` §B2's `CHECK`s let only the one matching this
-            // row's `principal_kind` be set. What comes back is the same single
+            // `COALESCE` over the two evidence columns is unambiguous: `0015` §B2's `CHECK`s
+            // let only the one matching this row's `principal_kind` be set. It yields the single
             // value `session_row_state` has always hashed.
             "SELECT id, principal_id, principal_kind, token_hash, session_pubkey, bound_nonce, \
                     COALESCE(evidence_key_id, evidence_operator_key_id), \
@@ -4574,7 +4332,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
                     EXTRACT(EPOCH FROM expires_at)::bigint, request_counter, \
                     EXTRACT(EPOCH FROM totp_verified_at)::bigint, grace_token_hash, \
                     bound_address_class, browser_label, \
-                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint \
+                    EXTRACT(EPOCH FROM (now() - last_seen_at))::bigint, row_mac \
                FROM sessions WHERE id = $1",
             &[&id],
         )
@@ -4615,6 +4373,7 @@ async fn read_session(tx: &Transaction<'_>, id: &str) -> Result<Option<SessionRo
         bound_address_class: row.get(17),
         browser_label: row.get(18),
         idle_seconds: row.get(19),
+        stored_row_mac: row.get(20),
     }))
 }
 
@@ -4678,15 +4437,12 @@ async fn account_by_address(
 
 /// Resolve what an operator typed to an operator id, for sign-in only.
 ///
-/// **§4.5 gives an operator no address of record**, because there is no reset
-/// path to send anything to, so the operator plane's equivalent of an address
-/// is the operator's own id — handed to them once at enrolment and shown on the
-/// console beside their name. It is not a secret and is not treated as one: the
-/// factor is a signature by the key `operator_keys` holds for them.
+/// §4.5 gives an operator no address of record (there is no reset path to send anything to), so
+/// the operator plane uses the operator's own id, handed over once at enrolment. It is not a
+/// secret and is not treated as one: the factor is a signature by the key `operator_keys` holds.
 ///
-/// A value that names nobody returns `None` and takes exactly the path an
-/// unknown address takes on the account plane, which is what keeps the two
-/// planes' refusals identical.
+/// A value that names nobody returns `None` and takes the path an unknown address takes on the
+/// account plane, which keeps the two planes' refusals identical.
 async fn operator_by_id(
     tx: &Transaction<'_>,
     claimed: &str,
@@ -4697,22 +4453,16 @@ async fn operator_by_id(
     Ok(row.map(|r| r.get(0)))
 }
 
-/// The one shape sign-in needs from either keyring: which key proved this
-/// session, and what verifies against it.
+/// The one shape sign-in needs from either keyring: which key proved this session, and its
+/// fingerprint.
 ///
-/// `grants::AccountKey` and `operators::OperatorKey` are different rows in
-/// different tables with different seals, and deliberately so — `0015` §B
-/// carries that argument. What sign-in needs from either is the same three
-/// fields, and this is that, so the branch below produces one value and the
-/// forty lines after it are written once.
+/// `grants::AccountKey` and `operators::OperatorKey` are different rows in different tables with
+/// different seals, deliberately (`0015` §B). Sign-in needs only these fields from either, so
+/// the branch below produces one value.
 ///
-/// **Two fields since ADR-0055 stream (a), not three.** The public key is gone
-/// because nothing downstream verifies with it any more: both planes now
-/// verify the evidence signature WHERE they resolve the key — the account
-/// plane because `grants::verify_by_any_live_key` has to try each of several
-/// live keys, and the operator plane beside it so the two read alike. What is
-/// left is what the session ROW and the sealed entry record: which key, and
-/// its fingerprint.
+/// Since ADR-0055 stream (a) there is no public key here: both planes verify the evidence
+/// signature where they resolve the key (the account plane has to try each live key, in
+/// `grants::verify_by_any_live_key`).
 struct SignInKey {
     id: String,
     fpr: [u8; 32],
@@ -4724,16 +4474,13 @@ struct SignInKey {
 
 /// Turn on `app.session_custody` for the rest of this transaction.
 ///
-/// `0013` §E carries the argument. The short version: a session is not
-/// organisation-scoped and is verified before any tenant context exists, so
-/// there is no tenant id for a policy to compare against — and the setting is
-/// scoped to one transaction, which does nothing but verify, so every other
-/// transaction in this server reaches zero rows in the three session tables.
+/// `0013` §E carries the argument. A session is not organisation-scoped and is verified before
+/// any tenant context exists, so there is no tenant id for a policy to compare against. The
+/// setting is scoped to one transaction that does nothing but verify, so every other transaction
+/// reaches zero rows in the three session tables.
 ///
-/// The mirror of `repo::enter_key_custody`, including that it sets
-/// `app.design_capability` to its refusal first: a verification transaction
-/// has no business reading a design payload, and the setting every payload
-/// policy reads is closed before the one this needs is opened.
+/// Mirrors `repo::enter_key_custody`, including setting `app.design_capability` to its refusal
+/// first, so a verification transaction cannot read a design payload.
 async fn enter_session_custody(tx: &Transaction<'_>) -> Result<(), SessionError> {
     tx.execute(
         "SELECT set_config('app.design_capability', 'no', true)",
@@ -4745,11 +4492,9 @@ async fn enter_session_custody(tx: &Transaction<'_>) -> Result<(), SessionError>
     Ok(())
 }
 
-/// Close it again before the transaction commits, so that a connection handed
-/// back to the pool mid-transaction-block carries nothing. `set_config(...,
-/// true)` already scopes it to the transaction; this is the second statement
-/// of the same rule, and it costs one round trip on a path that has already
-/// done several.
+/// Close it again before the transaction commits, so a connection handed back to the pool carries
+/// nothing. `set_config(..., true)` already scopes it to the transaction; this is a second
+/// statement of the same rule.
 async fn leave_session_custody(tx: &Transaction<'_>) -> Result<(), SessionError> {
     tx.execute("SELECT set_config('app.session_custody', 'no', true)", &[])
         .await?;
@@ -4766,24 +4511,19 @@ async fn set_account_id(tx: &Transaction<'_>, account: &str) -> Result<(), Sessi
 
 /// Is this the path of a route a setup session may reach?
 ///
-/// **The path is the SIGNED one** — it is inside the per-request message
-/// `request_bytes` covers — so a caller cannot claim `/credentials/...` for a
-/// request that went somewhere else. The comparison is against the path only,
-/// with the query stripped, because a query string is not part of which route
-/// answered.
+/// The path is the SIGNED one (inside the message `request_bytes` covers), so a caller cannot
+/// claim `/credentials/...` for a request that went elsewhere. Only the path is compared, with
+/// the query stripped, since a query string is not part of which route answered.
 ///
-/// `/credentials` itself is included so that the set is "the credentials
-/// surface" and not "anything beginning with those letters":
-/// `/credentialsomething` is not on it.
-/// **Is this account's credential the one ADR-0055 decision 10 pairs with an
-/// app code?** One stored column, read as a yes-or-no and nothing else.
+/// `/credentials` itself is included so the set is "the credentials surface" and not "anything
+/// beginning with those letters": `/credentialsomething` is not on it.
+/// **Is this account's credential the one ADR-0055 decision 10 pairs with an app code?** One
+/// stored column, read as a yes-or-no and nothing else.
 ///
-/// A function of its own rather than the expression inline, so that the gate
-/// at the bottom of this file — *the field a person's credential arrives in is
-/// named on the sign-in path and nowhere else* — keeps meaning what it says.
-/// What is named here is a **predicate on stored state**, not a field anything
-/// can arrive in: it takes a row that has already been read and returns a
-/// boolean, and no value can travel through it in either direction.
+/// A function of its own so the gate at the bottom of this file (the field a person's credential
+/// arrives in is named on the sign-in path and nowhere else) keeps its meaning. This is a
+/// predicate on stored state: it takes a row already read and returns a boolean, so no value can
+/// travel through it in either direction.
 fn a_stored_credential(row: &credentials::CredentialRow) -> bool {
     row.password_hash.is_some()
 }
@@ -4800,24 +4540,20 @@ fn check_public_key(public_key: &[u8]) -> Result<(), SessionError> {
     Ok(())
 }
 
-/// 32 bytes from the OS CSPRNG — the one generator this server draws from
-/// (`crypto::Key32::random`), never a userspace generator with its own state.
-/// The type is named for keys and this is a nonce; the draw is the same draw.
+/// 32 bytes from the OS CSPRNG, the one generator this server draws from (`crypto::Key32::random`).
+/// The type is named for keys; the draw is the same for a nonce.
 fn random_32() -> Result<[u8; 32], SessionError> {
     Ok(*Key32::random()
         .map_err(|_| SessionError::Corrupt("random source"))?
         .expose())
 }
 
-/// Compare two byte strings in constant time, with the primitives already in
-/// this crate and no hand-rolled loop.
+/// Compare two byte strings in constant time with `crypto::mac_verify` (`digest 0.11.3`'s `Mac`
+/// trait, read rather than assumed; see `crypto.rs`), the one constant-time comparison in this
+/// workspace.
 ///
-/// `crypto::mac_verify` is the one constant-time comparison this workspace has
-/// (`digest 0.11.3`'s `Mac` trait, read rather than assumed — see
-/// `crypto.rs`). Keying both sides under a fresh random value per call turns it
-/// into an equality test whose timing carries nothing about either input: an
-/// attacker who could time it learns about a MAC under a key that exists for
-/// one call and is then dropped.
+/// Both sides are MACed under a fresh random key per call, so the timing of the equality test
+/// carries nothing about either input.
 fn same_bytes(a: &[u8], b: &[u8]) -> Result<bool, SessionError> {
     let key = Key32::random().map_err(|_| SessionError::Corrupt("random source"))?;
     Ok(crypto::mac_verify(
@@ -4856,19 +4592,16 @@ fn now_unix() -> i64 {
 
 /// One bucket's key as the column holds it.
 ///
-/// A source key longer than the column allows is truncated rather than
-/// refused: the bucket is a bucket, and an oversized value is still usefully
-/// grouped by its first 128 characters. **One function, and every caller goes
-/// through it** — [`SessionStore::count_attempt`] and
-/// [`SessionStore::latch`] — so that the count and the latch cannot disagree
-/// about which row they mean.
+/// A source key longer than the column allows is truncated rather than refused: it is still
+/// grouped by its first 128 characters. Every caller goes through this
+/// ([`SessionStore::count_attempt`], [`SessionStore::latch`]) so the count and the latch cannot
+/// disagree about which row they mean.
 fn bucket_key(key: &str) -> String {
     key.chars().take(128).collect()
 }
 
-/// The start of the current fixed window, as a `timestamptz` the database can
-/// compare. Computed here rather than in SQL so that both buckets and both
-/// statements agree on one value per call.
+/// The start of the current fixed window, as a `timestamptz`. Computed here rather than in SQL so
+/// both buckets and both statements agree on one value per call.
 fn window_start(window: Duration) -> std::time::SystemTime {
     let secs = window.as_secs().max(1);
     let now = now_unix().max(0) as u64;
@@ -5032,10 +4765,8 @@ mod tests {
         assert_eq!(limits, SignInLimits::defaults());
         assert_eq!(limits.window, Duration::from_secs(900));
         assert_eq!(limits.max_per_account, 10);
-        // Forty-five since 2026-09-22, and the arithmetic is the point: a
-        // two-step sign-in costs three source units (challenge, probe,
-        // completion), so this is the same fifteen sign-ins a window thirty
-        // bought when a sign-in cost two. `SignInLimits::defaults` carries it.
+        // Forty-five: a two-step sign-in costs three source units (challenge, probe,
+        // completion), so this is fifteen sign-ins a window. `SignInLimits::defaults` carries it.
         assert_eq!(limits.max_per_source, 45);
         assert_eq!(
             limits.max_per_source / 3,
@@ -5055,19 +4786,13 @@ mod tests {
 
     #[test]
     fn exactly_two_places_in_this_module_name_the_credential_a_person_types() {
-        // **This test used to forbid the WORD, in this whole file.** §4.5 and
-        // OPEN-QUESTIONS C2 said the operator surface has no password path and
-        // this build's account surface had none either; ADR-0055 decision 10
-        // reopens exactly that, on the owner's own decision recorded in that
-        // ADR's header. So the gate becomes an allowlist rather than a ban:
-        // the field may be named on the sign-in path and nowhere else in this
-        // module, and a line that names it anywhere else still fails.
+        // This test once forbade the WORD in this whole file (§4.5, OPEN-QUESTIONS C2). ADR-0055
+        // decision 10 reopens that, so the gate is now an allowlist: the field may be named on
+        // the sign-in path and nowhere else in this module.
         //
-        // `tests/operators.rs` holds the same gate at the HTTP surface, per
-        // handler, across `api.rs`, `admin.rs` and `operators.rs`. Here the
-        // unit is coarser — this module's sign-in is one act spread over
-        // `sign_in_with_credentials`, `attempt_sign_in` and
-        // `check_second_factor` — so the allowlist is by function name.
+        // `tests/operators.rs` holds the same gate at the HTTP surface, per handler. Here the unit
+        // is coarser, because sign-in is one act spread over `sign_in_with_credentials`,
+        // `attempt_sign_in` and `check_second_factor`, so the allowlist is by function name.
         const ALLOWED: &[&str] = &[
             // The compatibility wrapper, which fills the two new fields with
             // nothing so that every existing caller is byte-identical.
@@ -5076,15 +4801,11 @@ mod tests {
             "async fn attempt_sign_in",
             "async fn check_second_factor",
             "pub struct SignInAttempt",
-            // **One four-line predicate, added 2026-09-21 and deliberately
-            // narrow.** `verify_inside`'s setup-session gate has to know
-            // whether an account's credential is the one decision 10 pairs
-            // with an app code, and the only honest way to know is to look at
-            // the stored column. What is allowed here is a function that takes
-            // a row already read and returns a boolean — nothing can arrive
-            // through it, in either direction — and NOT `verify_inside`
-            // itself, which is the per-request path and must stay unable to
-            // name the field at all.
+            // One narrow predicate. `verify_inside`'s setup-session gate must know whether an
+            // account's credential is the one decision 10 pairs with an app code, which needs
+            // the stored column. A function that takes a row already read and returns a boolean
+            // lets nothing arrive through it. `verify_inside` itself is the per-request path and
+            // must stay unable to name the field.
             "fn a_stored_credential",
         ];
 
@@ -5109,11 +4830,9 @@ mod tests {
             {
                 inside = ALLOWED.iter().find(|a| trimmed.starts_with(*a)).copied();
             }
-            // **A typed refusal is not a field.** `SessionError::PasswordRefused`
-            // carries no value at all — it is the name of an answer, and the
-            // whole point of naming it is that the answer is uniform. Removing
-            // the identifier before the scan keeps the gate about what it says
-            // it is about: a FIELD a credential could arrive in.
+            // A typed refusal is not a field. `SessionError::PasswordRefused` carries no value;
+            // it names a uniform answer. It is removed before the scan so the gate stays about
+            // a FIELD a credential could arrive in.
             let scanned = line.replace("PasswordRefused", "");
             let lower = scanned.to_ascii_lowercase();
             for forbidden in ["password", "passphrase", "passcode", "\"pin\""] {
@@ -5144,10 +4863,9 @@ mod tests {
         );
     }
 
-    /// **The decoy costs what the real thing costs.** A decoy at cheaper
-    /// parameters is the enumeration oracle again, quieter and harder to see,
-    /// so the parameters are read back out of the compiled-in string and
-    /// compared with the ones `credentials.rs` hashes under today.
+    /// The decoy costs what the real thing costs. A decoy at cheaper parameters is the
+    /// enumeration oracle again, quieter, so the parameters are read back out of the compiled-in
+    /// string and compared with those `credentials.rs` hashes under today.
     #[test]
     fn the_decoy_hash_is_at_the_parameters_this_build_hashes_under() {
         let expected = format!(
@@ -5161,10 +4879,8 @@ mod tests {
             "the decoy is {A_DECOY_HASH}, which is not at {expected}: a decoy verification that \
              costs less than the real one is the timing oracle it was added to close"
         );
-        // And it is a hash something can actually be verified against: a
-        // string that failed to parse would return `false` in microseconds
-        // and burn nothing at all, which is the failure mode that looks
-        // exactly like success.
+        // It must also be a hash something can be verified against: a string that failed to parse
+        // would return `false` in microseconds and burn no work, which looks exactly like success.
         let started = std::time::Instant::now();
         assert!(
             !credentials::verify_password(A_DECOY_HASH, "a-guess-that-is-not-the-decoy"),

@@ -11,7 +11,7 @@
   multi-select with bulk set/tag, paste from a spreadsheet (TSV/CSV, matched by Name, every cell
   through the redaction gate), filters and tag chips. Adding needs only a name.
 - Custom fields: definitions are organisation-wide, held on the server (migration 0031); values
-  live in the design payload. Schema 0.13 has only `FieldValue` (`value`, `definition`) on Device,
+  live in the design payload. Schema 0.14 has only `FieldValue` (`value`, `definition`) on Device,
   port, Cable, Rack, VLAN and container network, owned by `HasFieldValue`; `definition` is the
   definition's id. Notes widen to the same kinds.
 - A definition is `{id, kind, name, type, choices, version, createdBy, archived}`. `kind` is device,

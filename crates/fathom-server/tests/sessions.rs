@@ -2875,18 +2875,72 @@ async fn adr55_totp_secret(pool: &Pool, ring: &KeyRing, account: &str) -> Vec<u8
     secret
 }
 
-/// A code at a step that has not been spent yet.
+/// The last step this file handed out a code for, per secret.
 ///
 /// `totp_last_step` refuses a code at or below the last accepted step, and
-/// confirming the enrolment spends one — so a test that signs in afterwards
-/// waits for the step to turn over. The wait is the replay refusal doing its
-/// job.
-async fn adr55_a_fresh_code(secret: &[u8]) -> String {
+/// `verify_totp` accepts up to `TOTP_SKEW_STEPS` ahead of now. So once a
+/// secret's last step is known, the next code can be minted one step ahead
+/// instead of waited for. This used to sleep to the next 30-second step on
+/// every call, and with the site-chain lock held those waits ran one after
+/// another: most of this file's run time (2026-10-02).
+static ADR55_SPENT: std::sync::Mutex<Vec<(Vec<u8>, i64)>> = std::sync::Mutex::new(Vec::new());
+
+fn adr55_spent_step(secret: &[u8]) -> Option<i64> {
+    let spent = ADR55_SPENT.lock().unwrap_or_else(|e| e.into_inner());
+    spent
+        .iter()
+        .find(|(s, _)| s == secret)
+        .map(|(_, step)| *step)
+}
+
+fn adr55_spend(secret: &[u8], step: i64) {
+    let mut spent = ADR55_SPENT.lock().unwrap_or_else(|e| e.into_inner());
+    match spent.iter_mut().find(|(s, _)| s == secret) {
+        Some(entry) => entry.1 = entry.1.max(step),
+        None => spent.push((secret.to_vec(), step)),
+    }
+}
+
+/// A code for the current step, recorded as spent. For a confirmation that
+/// spends the secret's first code.
+fn adr55_code_now(secret: &[u8]) -> String {
     let step = credentials::totp_step(now_unix());
+    adr55_spend(secret, step);
+    credentials::totp_code(secret, step)
+}
+
+/// A code at a step that has not been spent yet.
+///
+/// For a secret this file has spent a code for, that is the step after the
+/// last one, which `verify_totp` accepts while it is at most one step ahead;
+/// further ahead, it waits for the clock. For a secret it knows nothing
+/// about (a re-enrolment's new one: the account's last step is one column,
+/// and its old secret may have spent a step ahead), it waits until the clock
+/// passes every step handed out so far. Either way the replay refusal is
+/// never bypassed: every code is for a step above the last one spent.
+async fn adr55_a_fresh_code(secret: &[u8]) -> String {
+    if adr55_spent_step(secret).is_none() {
+        let spent_ahead = {
+            let spent = ADR55_SPENT.lock().unwrap_or_else(|e| e.into_inner());
+            spent.iter().map(|(_, step)| *step).max()
+        };
+        let step = credentials::totp_step(now_unix()).max(spent_ahead.unwrap_or(i64::MIN));
+        loop {
+            let now = credentials::totp_step(now_unix());
+            if now > step {
+                adr55_spend(secret, now);
+                return credentials::totp_code(secret, now);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
     loop {
-        let now = now_unix();
-        if credentials::totp_step(now) > step {
-            return credentials::totp_code(secret, credentials::totp_step(now));
+        let current = credentials::totp_step(now_unix());
+        let last = adr55_spent_step(secret).expect("a known secret");
+        let step = (last + 1).max(current);
+        if step <= current + credentials::TOTP_SKEW_STEPS {
+            adr55_spend(secret, step);
+            return credentials::totp_code(secret, step);
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
@@ -2940,10 +2994,7 @@ async fn adr55_enrolled(
     .await
     .expect("a live session verifies its own signed request");
     creds
-        .confirm_totp(
-            &session,
-            &credentials::totp_code(&secret, credentials::totp_step(now_unix())),
-        )
+        .confirm_totp(&session, &adr55_code_now(&secret))
         .await
         .expect("a real six-digit code confirms the enrolment");
 
@@ -5279,10 +5330,7 @@ async fn d8_enrol_totp(
     .await
     .expect("a live session verifies its own signed request");
     creds
-        .confirm_totp(
-            &session,
-            &credentials::totp_code(&secret, credentials::totp_step(now_unix())),
-        )
+        .confirm_totp(&session, &adr55_code_now(&secret))
         .await
         .expect("a real six-digit code confirms the enrolment");
     D8Enrolled {
@@ -5519,7 +5567,10 @@ async fn a_missing_wrong_or_replayed_code_is_refused_and_spends_the_account_budg
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
-    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    // A window long enough that no run straddles a turn-over: the first
+    // attempt of a new window sweeps the closed window's rows, so a count
+    // read across one comes out short (main, 2026-09-28: 1 where 3 were made).
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = CredentialStore::new(
         pool.clone(),
         Arc::clone(&ring),
@@ -5811,7 +5862,10 @@ async fn an_admin_ending_route_requires_the_admins_own_current_code() {
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
     let member = a_member_with(&pool, &ring, &estate, "d8-admin-needs-code", None).await;
-    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    // A window long enough that no run straddles a turn-over: the first
+    // attempt of a new window sweeps the closed window's rows, so a count
+    // read across one comes out short (main, 2026-09-28: 1 where 3 were made).
+    let store = Arc::new(adr55_store(&pool, Arc::clone(&ring), long_window_limits()).await);
     let creds = CredentialStore::new(
         pool.clone(),
         Arc::clone(&ring),

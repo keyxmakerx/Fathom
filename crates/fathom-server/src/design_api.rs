@@ -1,159 +1,74 @@
-//! The drawing surface's HTTP endpoints: list, open, save, history and verify
-//! for a design, plus read-only access to the equipment catalogue.
+//! The drawing surface's HTTP endpoints: list, open, save, history and verify for
+//! a design, plus read-only access to the equipment catalogue.
 //!
-//! `docs/PHASE-2-STORAGE-DESIGN.md` §11.2 (verify's three outcomes), §7
-//! (tenant isolation, both layers), `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md`
-//! §3.4 (`authorise_account`'s seven steps) and §9 (the audit spool's degrade
-//! table). `src/api.rs` is the pattern this follows; `src/sessions.rs`,
-//! `src/designs.rs` and `src/grants.rs` hold the rules this translates into
-//! routes.
+//! `docs/PHASE-2-STORAGE-DESIGN.md` §11.2 (verify's three outcomes), §7 (tenant
+//! isolation); `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §3.4 (`authorise_account`'s
+//! seven steps), §9 (the audit spool's degrade table). `src/api.rs` is the
+//! pattern; `sessions.rs`, `designs.rs`, `grants.rs` hold the rules.
 //!
-//! # Its own state, its own router, by design
+//! Its own state and router: `api::router` and [`api::ApiState`] are untouched.
+//! [`DesignApiState`] has its own [`Signed`] extractor (see its doc for what
+//! `src/main.rs` must hand in).
 //!
-//! Two builders are adding routes to this server at once (the admin console,
-//! in its own module). `api::router` is not touched here, and this module
-//! does not share [`api::ApiState`] either — [`DesignApiState`] is its own
-//! type, with its own [`Signed`] extractor that verifies against it, so
-//! nothing here can collide with what the other module names. The caller that
-//! wires both into the running server (`src/main.rs`) is unaffected by
-//! either's internals; see [`DesignApiState`]'s own doc for exactly what it
-//! needs constructed and handed in.
+//! # One transaction for verification, authorisation and the act
 //!
-//! # One transaction for verification, authorisation and the act itself
+//! Every handler that acts on a design opens one transaction, calls
+//! [`Signed::verify`] in it, and passes it and the [`Authority`] to
+//! [`designs::write_version_in_tx`], [`designs::read_version_in_tx`],
+//! [`designs::verify_design_in_tx`] or
+//! [`designs::create_design_with_first_version_in_tx`]. Each re-checks the grant
+//! immediately before touching `design_payload` or `chain_entries`; the handler
+//! commits only after the act. With separate transactions, a grant revoked between
+//! check and act would change nothing (`tests/design_api.rs`).
 //!
-//! `api.rs`'s `Signed` changed shape on 2026-09-14 (`0014`, finding 8) so that
-//! a per-request signature and the authorisation that follows it share one
-//! database snapshot rather than two. This module's own [`Signed`] is a
-//! second implementation of the same shape for a second state type — not a
-//! shortcut back to the old one.
+//! # A design the caller cannot see is absent, not forbidden
 //!
-//! **This used to stop at authorisation, and that was the bug.**
-//! [`save_design_handler`], [`open_design_handler`] and
-//! [`verify_design_handler`] each opened exactly one transaction, called
-//! [`Signed::verify`] and authorised in it — then *committed*, and asked
-//! `designs.rs` to perform the write, the read or the verification in a
-//! **second**, entirely separate transaction, opened fresh off the pool. That
-//! second transaction re-opened a tenant context (membership only) but never
-//! asked `grants::authorise_account` anything at all, so a grant revoked in
-//! the gap between the two transactions changed nothing: the act still ran
-//! on the capability the first transaction had already forgotten about.
+//! [`list_designs_handler`] filters every row through `grants::authorise_account`
+//! and omits designs without capability; a `403`-flavoured entry would reveal how
+//! many exist.
 //!
-//! Every handler that acts on a design now opens exactly one transaction,
-//! calls [`Signed::verify`] in it, and hands that same transaction and the
-//! [`Authority`] it built straight to [`designs::write_version_in_tx`],
-//! [`designs::read_version_in_tx`], [`designs::verify_design_in_tx`] or
-//! [`designs::create_design_with_first_version_in_tx`] — each of which
-//! re-checks the grant itself, immediately before doing anything to
-//! `design_payload` or `chain_entries`, in that same transaction. Only after
-//! the act has actually happened does the handler commit. A grant revoked
-//! after the check this module used to make and before the act designs.rs
-//! used to perform can no longer slip through, because there is no longer a
-//! gap between the two for it to slip through in — see `tests/design_api.rs`
-//! for the case this is written against.
+//! For one design named directly, [`authorise_on_design`] checks the design's own
+//! scope when it exists and the *organisation's* (`None`) when not, so both give
+//! the identical [`grants::AuthorityError::NotAuthorised`]. Only a caller who
+//! clears it reaches `designs.rs`, where a missing design answers
+//! `DesignError::NoSuchDesign`: safe, since clearing proved standing here.
 //!
-//! # Why a design the caller cannot see is absent, not forbidden
+//! # Wire format: canonical JSON for documents, raw bytes for the payload
 //!
-//! [`list_designs_handler`] filters every row in `designs` through
-//! `grants::authorise_account` before it is ever put in the answer. A design
-//! the account holds no capability for is left out of the list entirely,
-//! never returned with a `403`-flavoured entry — the second would tell an
-//! account exactly how many designs in a scope it cannot see exist.
+//! Lists, history and the verification report are each one `fathom_canon::Json`
+//! value rendered by `to_canonical_bytes` as `application/json` (`fathom-canon`
+//! has no `serde`). **The source documents were silent on this; it is a decision
+//! recorded only here.** A design's payload is the exception: [`open_design_handler`]
+//! serves it as `application/octet-stream`, verbatim, with version and schema
+//! version in headers (storage §3: "whole payload, not per field"; an envelope
+//! would only cost a re-parse).
 //!
-//! The same property holds for one design named directly: [`authorise_on_design`]
-//! runs the capability check against the design's own scope when the design
-//! exists, and against the *organisation's* scope (`None`) when it does not —
-//! so a caller who lacks the capability either way gets the identical
-//! [`grants::AuthorityError::NotAuthorised`] refusal, and cannot use the
-//! response to learn which of the two was true. Only a caller who clears that
-//! check goes on to ask `designs.rs` for the row, where a genuinely missing
-//! design answers `DesignError::NoSuchDesign` — which is safe to disclose at
-//! that point, because clearing the check already proved the caller has some
-//! standing in this organisation.
+//! # The body size limit is per route
 //!
-//! # The wire format: canonical JSON for documents, raw bytes for the payload
+//! `api::MAX_SIGNED_BODY` is one mebibyte. [`Signed`] raises it **only for a save
+//! and a create**, matched on method and path alone ([`is_large_body_route`])
+//! before any header is trusted or body byte read. Reading everything at
+//! [`designs::MAX_PAYLOAD_BYTES`] plus four (64 MiB) let a caller with no session,
+//! only well-shaped invented headers, make the process buffer 64 MiB on a plain
+//! `GET`: `begin_request`, where the nonce is spent and the signature checked, runs
+//! after the read.
 //!
-//! `api.rs`'s bodies are length-prefixed byte fields because they carry keys,
-//! nonces and signatures — byte strings, not documents — and because adding
-//! `axum`'s `json` feature would drag `serde` into the closure for no reason
-//! at all at that layer. The routes here are different in kind: a design
-//! list, a history and a verification report are genuinely structured
-//! documents with named fields, and inventing a bespoke byte framing for each
-//! shape would spend far more review time than it saves dependencies.
-//! `fathom-canon` is already a dependency of this crate (`designs.rs` uses it
-//! for the bytes a chain seal covers) and gives deterministic, canonical
-//! JSON with no `serde` anywhere in the closure — so every structured
-//! response here is one `fathom_canon::Json` value, rendered with
-//! `to_canonical_bytes` and served as `application/json`. **The documents
-//! this repository was handed are silent on a response format for these
-//! routes; this is a decision, not a discovery, and is recorded here because
-//! nowhere else names it.**
-//!
-//! The one exception is a design's own payload: [`open_design_handler`]
-//! serves it as `application/octet-stream`, verbatim, with the version and
-//! schema version in headers rather than wrapped in a JSON envelope. §3 of
-//! the storage design already settled "whole payload, not per field" for
-//! encryption; wrapping the decrypted bytes in a second, server-invented
-//! envelope on the way back out would just be re-parsing cost for the
-//! browser, which already knows how to read the bytes it saved.
-//!
-//! # The body size limit is this module's own -- and it is per route, not
-//! # per module
-//!
-//! `api::MAX_SIGNED_BODY` is one mebibyte, and its own doc says a design
-//! payload route raises the limit deliberately, in its own commit, with its
-//! own number. This module's [`Signed`] does exactly that, but **only for
-//! the two routes that can legitimately carry a large body**: a save and a
-//! create, matched on method and path alone by [`is_large_body_route`],
-//! before any header is trusted or any byte of the body is read. Every
-//! other route -- a list, an open, history, verify, the catalogue, and any
-//! `GET` -- reads at `api::MAX_SIGNED_BODY`'s one mebibyte, same as
-//! `api.rs`'s own routes.
-//!
-//! This was not always so: this module used to read every request at
-//! [`designs::MAX_PAYLOAD_BYTES`] plus four (64 MiB), unconditionally,
-//! *before* `begin_request` ever ran -- so a caller who never held a valid
-//! session, with headers of the right shape but invented values, could make
-//! this process buffer 64 MiB on a plain `GET`. `begin_request` is where the
-//! nonce is spent and the signature checked; nothing before it is a
-//! credential check. [`is_large_body_route`]'s own doc has the rest.
-//!
-//! **This narrows the surface; it does not close it.** The two routes
-//! `is_large_body_route` names are matched on method and path alone, with no
-//! reference to authority at all, so a caller who has never held a session
-//! -- headers of the right *shape*, values free to invent -- still makes
-//! this process buffer up to 64 MiB on `POST .../versions` or `POST
-//! .../scopes/{scope}/designs`, deliberately: the signature that would
-//! prove authority covers a digest of the whole body, so it cannot be
-//! checked before the body is read. N concurrent such requests are still N
-//! times 64 MiB of heap from callers this server has not authenticated. On
-//! `save_design_handler`/`create_design_handler` specifically, this is
-//! actually worse than "buffered": [`validate_payload`] parses the body into
-//! a full [`Graph`] and runs [`find_credential`] over it BEFORE
-//! `signed.verify` ever runs (its own doc gives the reason: a malformed
-//! request should cost nothing from the database either way), so an
-//! unauthenticated caller also spends this process's CPU on a full parse of
-//! up to 64 MiB, not only its heap. Recorded here rather than fixed because
-//! closing it needs either a
-//! session lookup ahead of the body read (a shape this crate does not have:
-//! `begin_request` currently runs after) or putting these two routes behind
-//! the source rate-limit bucket `api.rs` already keeps for sign-in --
-//! either is a bigger change than this one.
+//! **This narrows the surface; it does not close it.** On `POST .../versions` and
+//! `POST .../scopes/{scope}/designs` an unauthenticated caller can still make the
+//! process buffer 64 MiB, since the signature covers the whole body's digest and
+//! cannot be checked before the read. Worse, [`validate_payload`] parses a full
+//! [`Graph`] and runs [`find_credential`] BEFORE `signed.verify`, so such a caller
+//! also spends CPU. Not fixed here: it needs a session lookup before the body read
+//! (a shape this crate lacks) or `api.rs`'s source rate-limit bucket.
 //!
 //! # The catalogue sits behind a session, and nowhere else
 //!
-//! It is public reference data — nothing here is per-tenant — so its routes
-//! open no tenant context and run no capability check. They still require a
-//! verified [`Signed`] request, exactly like every other route in this
-//! module, per the brief: *"it still sits behind a session like everything
-//! else."*
-//!
-//! [`load_catalogue`] reads `<root>/corpus/catalogue/<vendor>/*.yaml` for
-//! every vendor directory it finds, which needs `<root>/schema` alongside it
-//! (`fathom_corpus::catalogue::Catalogue::load_platform`'s own requirement).
-//! **This module does not read that path itself at startup** — `main.rs` is
-//! the lead's to wire, per the router rule this task was given — so whatever
-//! calls [`load_catalogue`] to build a [`DesignApiState`] must supply that
-//! root, e.g. the same directory `config.schema_root`'s parent names today.
+//! Public reference data: no tenant context, no capability check, but a verified
+//! [`Signed`] request is still required (*"it still sits behind a session like
+//! everything else."*). [`load_catalogue`] reads
+//! `<root>/corpus/catalogue/<vendor>/*.yaml` and needs `<root>/schema` beside it
+//! (`fathom_corpus::catalogue::Catalogue::load_platform`). Whatever builds a
+//! [`DesignApiState`] supplies the root, today `config.schema_root`'s parent.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -187,32 +102,28 @@ use crate::sessions::{
     self, PendingRequest, SessionError, SessionStore, SignedRequest, VerifiedSession,
 };
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
+// ---- State ----
 
-/// Everything this module's routes need. Deliberately not [`api::ApiState`]:
-/// see the module doc's "its own state" section.
+/// Everything this module's routes need. Not [`api::ApiState`]; see the module
+/// doc.
 #[derive(Clone)]
 pub struct DesignApiState {
     pub sessions: Arc<SessionStore>,
     pub watch: Arc<EpochWatch>,
     pub ring: Arc<KeyRing>,
-    /// The catalogue, loaded once at startup — it is read-only reference
-    /// data, and every request reads the same `Vec` rather than the
-    /// filesystem. Built by [`load_catalogue`].
+    /// The catalogue, loaded once at startup: read-only reference data, so every
+    /// request reads the same `Vec`, not the filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,
-    /// ADR-0057 decision 7. The same policy every other route's state
-    /// carries (`src/client_address.rs`) — design payload and vault
-    /// ciphertext are what §4.1 clause (b) protects, so this plane is not
-    /// left out of the check.
+    /// ADR-0057 decision 7. The same policy as every route's state
+    /// (`src/client_address.rs`): design payload and vault ciphertext are what §4.1
+    /// clause (b) protects, so this plane is checked too.
     pub client_address: crate::client_address::ClientAddress,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
-/// list of models. `root` must also have a `schema/` directory beside
-/// `corpus/`, because `Catalogue::load_platform` checks every model's vendor
-/// token against the schema tree's own declared vendor list.
+/// list of models. `root` needs a `schema/` directory beside `corpus/`, because
+/// `Catalogue::load_platform` checks each model's vendor against the schema
+/// tree's vendor list.
 pub fn load_catalogue(root: &Path) -> Result<Vec<Model>, CatalogueError> {
     let dir = root.join("corpus").join("catalogue");
     let read = std::fs::read_dir(&dir).map_err(|e| CatalogueError {
@@ -236,12 +147,10 @@ pub fn load_catalogue(root: &Path) -> Result<Vec<Model>, CatalogueError> {
     Ok(models)
 }
 
-// ---------------------------------------------------------------------------
-// The router
-// ---------------------------------------------------------------------------
+// ---- The router ----
 
-/// This module's routes, ready to `merge` into the main router. See the
-/// module doc: nothing here is added to `api::router`.
+/// This module's routes, to `merge` into the main router; nothing is added to
+/// `api::router`.
 pub fn router(state: DesignApiState) -> Router {
     Router::new()
         .route("/organisations", get(list_organisations_handler))
@@ -260,6 +169,10 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/name",
+            post(rename_design_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}/versions",
@@ -293,30 +206,22 @@ pub fn router(state: DesignApiState) -> Router {
         .with_state(state)
 }
 
-// ---------------------------------------------------------------------------
-// The extractor this module's routes compose — `api::Signed`'s pattern,
-// against `DesignApiState` rather than `api::ApiState`.
-// ---------------------------------------------------------------------------
+// ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
-/// A request that has spent its single-use nonce and is waiting to be
-/// verified inside the handler's own transaction. See `api::Signed`'s doc for
-/// the reasoning in full; this is that shape, once more, for this module's
-/// state type.
+/// A request that has spent its single-use nonce and awaits verification inside
+/// the handler's own transaction. See `api::Signed` for the reasoning.
 pub struct Signed {
     pending: PendingRequest,
     body: Bytes,
-    /// The raw query string, if any — captured here because `Signed`
-    /// consumes the whole `Request`, so a handler that also wants a query
-    /// parameter has nowhere else to read it from once this has run.
+    /// The raw query string, captured because `Signed` consumes the whole `Request`.
     query: Option<String>,
     /// ADR-0057 decision 7, captured at extraction like `api::Signed`'s.
     address: String,
 }
 
 impl Signed {
-    /// Run the rest of §4.1 clause (b) inside `tx`, so that whatever the
-    /// handler authorises next sees the same snapshot the session was
-    /// verified against.
+    /// Run the rest of §4.1 clause (b) inside `tx`, so what the handler authorises
+    /// next sees the snapshot the session was verified against.
     async fn verify(
         &self,
         state: &DesignApiState,
@@ -330,10 +235,9 @@ impl Signed {
         Ok(session)
     }
 
-    /// As [`Signed::verify`], but commits `tx` regardless of the outcome and
-    /// hands it back on success. `verify` only borrows `tx`; without this,
-    /// an ending it makes on `tx` is undone the moment the route refuses
-    /// the very request that found it.
+    /// As [`Signed::verify`], but commits `tx` whatever the outcome and hands it back
+    /// on success. `verify` only borrows `tx`, so an ending it makes there would be
+    /// undone when the route refuses the request that found it.
     async fn verify_and_commit<'a>(
         &self,
         state: &DesignApiState,
@@ -348,9 +252,8 @@ impl Signed {
         }
     }
 
-    /// One query parameter, unescaped. Every value this module reads off a
-    /// query string is a bare integer or `true`/`1`, so there is nothing here
-    /// that needs percent-decoding.
+    /// One query parameter, unescaped. Every value read here is a bare integer or
+    /// `true`/`1`, so no percent-decoding is needed.
     fn query_param(&self, key: &str) -> Option<&str> {
         let q = self.query.as_deref()?;
         q.split('&').find_map(|pair| {
@@ -365,32 +268,19 @@ impl Signed {
     }
 }
 
-/// Design payloads run up to [`designs::MAX_PAYLOAD_BYTES`] (64 MiB); this
-/// is *not* the cap every route in this module reads at -- see
-/// [`is_large_body_route`] and the module doc's "body size limit" section.
+/// Design payloads run up to [`designs::MAX_PAYLOAD_BYTES`] (64 MiB). This is
+/// *not* the cap every route reads at; see [`is_large_body_route`] and the module
+/// doc.
 pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
 
-/// True for exactly the two `POST` routes a legitimate body may run to
-/// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`)
-/// and a create (`.../scopes/{scope}/designs`). Every other route this
-/// module serves -- `list_designs_handler`, `list_scopes_handler`,
-/// `create_scope_handler`, `open_design_handler`, `history_handler`,
-/// `verify_design_handler`, the catalogue routes, and any GET, which never
-/// carries a legitimate body at all -- reads at `api::MAX_SIGNED_BODY`
-/// (one mebibyte) instead.
+/// True for exactly the two `POST` routes whose legitimate body may run to
+/// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`) and a
+/// create (`.../scopes/{scope}/designs`). Every other route, including any `GET`,
+/// reads at `api::MAX_SIGNED_BODY`'s one mebibyte.
 ///
-/// This has to be decided from the method and path alone, before the body
-/// is read at all: the credential this body would belong to is not checked
-/// until `begin_request` runs, *after* the read below, because the
-/// signature covers a digest of the whole body and cannot be verified
-/// without it (see `api::MAX_SIGNED_BODY`'s own doc). Before this function
-/// existed, every route in this module read at the 64 MiB cap regardless,
-/// so a caller who never held a valid session -- headers of the right
-/// shape are free to invent -- could make this process buffer 64 MiB on a
-/// plain `GET /organisations/{o}/designs`, once per request, before
-/// `begin_request` ever ran. Matched on the path's shape only, never on the
-/// ids inside it: this decides how many bytes `to_bytes` may buffer, never
-/// anything about the request's authority.
+/// Decided from method and path alone, before the body is read, since the
+/// signature cannot be checked until after it. Path shape only, never the ids: this
+/// decides how many bytes `to_bytes` may buffer, nothing about authority.
 fn is_large_body_route(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
@@ -430,10 +320,9 @@ impl FromRequest<DesignApiState> for Signed {
         let headers = parts.headers;
         let address = state.client_address.of(&headers, &parts.extensions);
 
-        // As `api::Signed`: a missing or unreadable header is `NotSigned`,
-        // never `Malformed`, so a caller who presented nothing is told to
-        // authenticate and a caller who presented rubbish learns nothing
-        // about which part of it was wrong.
+        // As `api::Signed`: a missing or unreadable header is `NotSigned`, never
+        // `Malformed`, so someone presenting rubbish learns nothing about which part was
+        // wrong.
         let unsigned = || SessionError::NotSigned;
         let session_id = header_text(&headers, api::HEADER_SESSION).map_err(|_| unsigned())?;
         let nonce: [u8; 32] = header_hex(&headers, api::HEADER_NONCE)
@@ -449,10 +338,8 @@ impl FromRequest<DesignApiState> for Signed {
             .try_into()
             .map_err(|_| unsigned())?;
 
-        // The finding this fixes: read at the small cap unless the method
-        // and path alone -- known before any of the header bytes above are
-        // trusted -- name one of the two routes a real payload can be large
-        // on. See [`is_large_body_route`].
+        // Read at the small cap unless method and path alone (known before any header is
+        // trusted) name one of the two large-body routes. See [`is_large_body_route`].
         let cap = if is_large_body_route(&method, &route_path) {
             MAX_SIGNED_BODY
         } else {
@@ -518,12 +405,10 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+// ---- Errors ----
 
-/// Either half of what a route here can refuse with, carried as the error
-/// type every handler's `?` converges on.
+/// Either half of what a route here can refuse with, the error type every
+/// handler's `?` converges on.
 pub enum RouteError {
     Session(SessionError),
     Design(DesignError),
@@ -544,19 +429,17 @@ impl From<DesignError> for RouteError {
 impl IntoResponse for RouteError {
     fn into_response(self) -> Response {
         match self {
-            // Reuses `api::Refusal`'s existing, tested mapping from
-            // `SessionError` to a status and a fixed sentence, rather than a
-            // second copy of the same match.
+            // Reuses `api::Refusal`'s tested mapping from `SessionError` to a status and a
+            // fixed sentence.
             Self::Session(e) => api::Refusal::from(e).into_response(),
             Self::Design(e) => design_error_response(e),
         }
     }
 }
 
-/// `DesignError` surfaced as itself — in particular
-/// [`DesignError::AuditSpoolBeyondBounds`], which must read as the
-/// operational condition it is rather than as a generic failure (the brief's
-/// own words).
+/// `DesignError` surfaced as itself, in particular
+/// [`DesignError::AuditSpoolBeyondBounds`], which must read as the operational
+/// condition it is, not a generic failure.
 fn design_error_response(e: DesignError) -> Response {
     match &e {
         DesignError::NoSuchDesign | DesignError::NoSuchVersion | DesignError::NoSuchScope => {
@@ -571,6 +454,11 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::FieldDefinitionConflict { current } => (
             StatusCode::CONFLICT,
             format!("that field is now at version {current}; reload and try again\n"),
+        )
+            .into_response(),
+        DesignError::InvalidName => (
+            StatusCode::BAD_REQUEST,
+            "a design name is at most 100 characters, without control characters\n",
         )
             .into_response(),
         DesignError::PayloadTooLarge { bytes } => (
@@ -611,9 +499,8 @@ fn design_error_response(e: DesignError) -> Response {
             tracing::error!(reason = %e, "design storage integrity check failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
         }
-        // ADR-0049 #2 and #4: a distinct, non-500 status naming the
-        // plain-face error, never a generic failure -- the payload is the
-        // caller's own bytes, not a storage fault.
+        // ADR-0049 #2 and #4: a distinct, non-500 status naming the plain-face error;
+        // the payload is the caller's own bytes, not a storage fault.
         DesignError::InvalidPlainPayload(plain_error) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
@@ -629,9 +516,9 @@ fn design_error_response(e: DesignError) -> Response {
             ),
         )
             .into_response(),
-        // ADR-0054 #1: the save precondition. The header names the version
-        // this design is actually on now, so a client that wants to reload
-        // and reapply does not have to make a second round trip to learn it.
+        // ADR-0054 #1: the save precondition. The header names the design's current
+        // version, so a client that wants to reload and reapply needs no second round
+        // trip.
         DesignError::VersionConflict { base, current } => {
             let mut headers = HeaderMap::new();
             headers.insert(
@@ -652,9 +539,8 @@ fn design_error_response(e: DesignError) -> Response {
             )
                 .into_response()
         }
-        // This session's brief, item 4: the client gates before sending, so a
-        // hit here means an old or hostile client, not a real capture or
-        // note -- refused before the write, never stored.
+        // The client gates before sending, so a hit here means an old or hostile client,
+        // not a real capture or note: refused before the write, never stored.
         DesignError::CredentialInPayload { kind, line } => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
@@ -664,11 +550,10 @@ fn design_error_response(e: DesignError) -> Response {
             ),
         )
             .into_response(),
-        // ADR-0054 #5: the re-check immediately before the act. Answered
-        // exactly as `api::Refusal` answers the same `AuthorityError`
-        // elsewhere in this crate -- see that mapping's own comment for why
-        // `NotAuthorised`/`QuorumNotMet` are a permission answer and
-        // everything else here is an integrity alarm.
+        // ADR-0054 #5: the re-check immediately before the act. Answered as
+        // `api::Refusal` answers the same `AuthorityError` (see its comment):
+        // `NotAuthorised`/`QuorumNotMet` are a permission answer, everything else an
+        // integrity alarm.
         DesignError::Authority(inner) => authority_refusal_response(inner),
         DesignError::Pool(_)
         | DesignError::Db(_)
@@ -681,12 +566,10 @@ fn design_error_response(e: DesignError) -> Response {
     }
 }
 
-/// [`DesignError::Authority`]'s mapping -- the same status and sentence
-/// `api::Refusal` gives `SessionError::Authority(_)`, kept as its own
-/// function because that impl matches on an owned `SessionError` and this
-/// site only ever holds a borrowed `AuthorityError` (`design_error_response`
-/// matches `&e`, and `AuthorityError` carries a `tokio_postgres::Error` that
-/// is not `Clone`, so there is no owned value to hand the other mapping).
+/// [`DesignError::Authority`]'s mapping: the status and sentence `api::Refusal`
+/// gives `SessionError::Authority(_)`. Its own function because that impl takes
+/// an owned `SessionError`, while this site holds a borrowed `AuthorityError`
+/// (it carries a non-`Clone` `tokio_postgres::Error`).
 fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
     match e {
         grants::AuthorityError::NotAuthorised | grants::AuthorityError::QuorumNotMet { .. } => {
@@ -700,19 +583,15 @@ fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Authorisation, shared by open/save/history/verify
-// ---------------------------------------------------------------------------
+// ---- Authorisation, shared by open/save/history/verify ----
 
-/// Verify tenant membership, then authorise `needed` on the design's own
-/// scope — all against `tx`, the one transaction the handler will also
-/// commit its bookkeeping in.
+/// Verify tenant membership, then authorise `needed` on the design's own scope,
+/// all against `tx`, the transaction the handler commits its bookkeeping in.
 ///
-/// See the module doc's "absent, not forbidden" section: when the design does
-/// not exist, this checks the ORGANISATION's own scope (`None`) instead of
-/// refusing outright, so a caller who fails either check gets the identical
-/// [`grants::AuthorityError::NotAuthorised`] refusal and cannot use it to
-/// learn which design ids are real.
+/// When the design does not exist this checks the ORGANISATION's scope (`None`)
+/// instead of refusing, so either failure gives the identical
+/// [`grants::AuthorityError::NotAuthorised`] (module doc, "absent, not
+/// forbidden").
 async fn authorise_on_design(
     tx: &Transaction<'_>,
     state: &DesignApiState,
@@ -776,32 +655,19 @@ fn parse_scope(text: &str) -> Result<ScopeId, SessionError> {
         .map_err(|_| SessionError::Malformed("scope id"))
 }
 
-// ---------------------------------------------------------------------------
-// Organisations
-// ---------------------------------------------------------------------------
+// ---- Organisations ----
 
-/// `GET /organisations` — every organisation the signed-in account belongs
-/// to, each with the account's own role in it (`admin` or `member`). The client's Home screen needs this before it can name a tenant in
-/// any of the routes below it, so it lives here rather than in `api.rs`:
-/// this module already owns the [`Signed`] extractor for non-admin session
-/// routes (see the module doc's "its own state" section), and that is the
-/// extractor this route needs too.
+/// `GET /organisations`: every organisation the signed-in account belongs to, each
+/// with the account's own role (`admin` or `member`). The Home screen needs this
+/// before it can name a tenant.
 ///
-/// **Deliberately does not call [`sessions::open_tenant_context`].** That
-/// bridge pins one tenant for the rest of a request; this route answers
-/// "which tenants" *before* any tenant is known, so there is nothing yet to
-/// pin. It authorises instead through
-/// [`repo::list_organisations_for_account_in`], the transaction half of
-/// `repo::list_organisations_for_account` -- the query the `organisations`
-/// and `memberships` RLS policies' `account_id` branch exists for. That
-/// function sets `app.account_id` and nothing else, so it reads exactly the
-/// rows RLS lets an account see about itself, no more.
+/// **Deliberately does not call [`sessions::open_tenant_context`]**, which pins one
+/// tenant; this route answers "which tenants" before any is known. It uses
+/// [`repo::list_organisations_for_account_in`], which sets `app.account_id` only,
+/// so it reads exactly the rows RLS lets an account see about itself.
 ///
-/// An operator session is refused with the same
-/// [`SessionError::NotATenantPrincipal`] `sessions::open_tenant_context`
-/// uses for the same reason: an operator principal is unrepresentable in a
-/// membership at every privilege level (`0004`), so it belongs to no
-/// organisation this route could ever answer with.
+/// An operator session is refused with [`SessionError::NotATenantPrincipal`]
+/// (operators are unrepresentable in a membership, `0004`).
 async fn list_organisations_handler(
     State(state): State<DesignApiState>,
     signed: Signed,
@@ -815,10 +681,10 @@ async fn list_organisations_handler(
     let tx = client.transaction().await.map_err(SessionError::Db)?;
 
     let (session, tx) = signed.verify_and_commit(&state, tx).await?;
-    // `sessions::account_without_tenant` is the named bridge for a route with
-    // no tenant to open; it refuses an operator session itself. Parsing
-    // `principal_id()` back into an `AccountId` here instead would be the
-    // bypass that function's doc comment exists to prevent.
+    // `sessions::account_without_tenant` is the named bridge for a route with no
+    // tenant to open, and refuses an operator session itself. Parsing
+    // `principal_id()` into an `AccountId` here would be the bypass its doc exists to
+    // prevent.
     let account = sessions::account_without_tenant(&session)?;
 
     let organisations = repo::list_organisations_for_account_in(&tx, account)
@@ -841,13 +707,11 @@ async fn list_organisations_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-// ---------------------------------------------------------------------------
-// List
-// ---------------------------------------------------------------------------
+// ---- List ----
 
-/// `GET /organisations/{organisation}/designs` — every design in scope the
-/// caller holds at least `read` on. See the module doc: a design with no
-/// capability is left out, never listed as forbidden.
+/// `GET /organisations/{organisation}/designs`: every design the caller holds at
+/// least `read` on. A design with no capability is left out, never listed as
+/// forbidden (module doc).
 async fn list_designs_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -875,9 +739,8 @@ async fn list_designs_handler(
         watch: &state.watch,
     };
 
-    // §3.4 steps 2-5, once for this whole list, not once per row: see
-    // `grants::VerifiedAuthorityState`'s doc. Each row below only runs step
-    // 1's ancestors and step 6's candidate match against this one snapshot.
+    // §3.4 steps 2-5, once for the whole list (see `grants::VerifiedAuthorityState`).
+    // Each row runs only step 1's ancestors and step 6's candidate match.
     let verified = grants::verify_authority_state(&tx, &auth)
         .await
         .map_err(SessionError::Authority)?;
@@ -885,18 +748,21 @@ async fn list_designs_handler(
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, extract(epoch FROM d.created_at)::bigint, d.created_by, \
-                    coalesce(max(p.design_version), 0) \
+                    coalesce(max(p.design_version), 0), \
+                    d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              FROM designs d \
              LEFT JOIN design_payload p \
                ON p.design_id = d.id AND p.organisation_id = d.organisation_id \
              WHERE d.organisation_id = $1 \
-             GROUP BY d.id, d.scope_id, d.created_at, d.created_by \
+             GROUP BY d.id, d.scope_id, d.created_at, d.created_by, \
+                      d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              ORDER BY d.created_at",
             &[&ctx.tenant().to_string()],
         )
         .await
         .map_err(SessionError::Db)?;
 
+    let mut names = designs::NameOpener::new(&auth);
     let mut out = Vec::new();
     for row in rows {
         let id: String = row.get(0);
@@ -904,6 +770,14 @@ async fn list_designs_handler(
         let created_at_unix: i64 = row.get(2);
         let created_by: String = row.get(3);
         let latest_version: i64 = row.get(4);
+        let sealed_name = match (
+            row.get::<_, Option<Vec<u8>>>(5),
+            row.get::<_, Option<Vec<u8>>>(6),
+            row.get::<_, Option<i32>>(7),
+        ) {
+            (Some(c), Some(n), Some(e)) => Some((c, n, e)),
+            _ => None,
+        };
 
         let scope: ScopeId = scope_text
             .parse()
@@ -923,8 +797,10 @@ async fn list_designs_handler(
             | Err(grants::AuthorityError::QuorumNotMet { .. }) => continue,
             Err(other) => return Err(SessionError::Authority(other).into()),
         };
+        let name = names.open(&tx, &id, sealed_name).await?;
 
         let mut map = BTreeMap::new();
+        map.insert("name".to_string(), name.map_or(Json::Null, Json::Str));
         map.insert("design_id".to_string(), Json::Str(id));
         map.insert("scope_id".to_string(), Json::Str(scope_text));
         map.insert("created_at_unix".to_string(), Json::Int(created_at_unix));
@@ -941,36 +817,23 @@ async fn list_designs_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-// ---------------------------------------------------------------------------
-// Scopes
-// ---------------------------------------------------------------------------
+// ---- Scopes ----
 
-/// `GET /organisations/{organisation}/scopes` — every scope in the
-/// organisation the caller holds at least `read` on, ordered by `path` (root
-/// first). Built for D11 (`docs/OPEN-QUESTIONS.md`): a design has no name of
-/// its own, so the client names it by its scope, and the shell's path control
-/// and tree pop-over need the tree this route serves.
+/// `GET /organisations/{organisation}/scopes`: every scope the caller holds at
+/// least `read` on, ordered by `path` (root first). Built for D11
+/// (`docs/OPEN-QUESTIONS.md`): a design has no name of its own, so the client names
+/// it by its scope, and the path control and tree pop-over need this tree.
 ///
-/// Filters exactly the way [`list_designs_handler`] does, row by row through
-/// `grants::authorise_account`, and for the same reason (module doc, "Why a
-/// design the caller cannot see is absent, not forbidden"): a scope the
-/// caller holds no capability on is left out of the answer entirely, never
-/// returned as a `403`-flavoured entry.
+/// Filters row by row through `grants::authorise_account`, like
+/// [`list_designs_handler`].
 ///
-/// **The consequence for navigation, spelled out because it is easy to miss:**
-/// an ancestor the caller may not read is absent even when one of its
-/// descendants is present, because each row is checked on its own scope, not
-/// on its whole ancestor chain's readability. A caller holding `read` on one
-/// rack but nothing on the building or network above it gets that rack alone
-/// — not the rack plus bare-name ancestors to make the path look complete.
-/// The client must therefore draw the path from the highest ancestor it was
-/// actually given, and the tree pop-over shows only what came back. This is
-/// "omit rather than forbid" applied to navigation, and it is deliberate:
-/// showing an unreadable ancestor's name, even without its content, would
-/// tell an account the name of a scope it holds no capability on, and
-/// `docs/OPEN-QUESTIONS.md` B4 has not decided anyone may see that. If a
-/// later decision wants ancestor names shown regardless, it changes here, in
-/// one place.
+/// **Navigation consequence:** each row is checked on its own scope, so an
+/// unreadable ancestor is absent even when a descendant is present: `read` on one
+/// rack and nothing above gives that rack alone, and the client draws the path from
+/// the highest ancestor it was given. Showing an unreadable ancestor's name would
+/// reveal a scope the account has no capability on, which
+/// `docs/OPEN-QUESTIONS.md` B4 has not decided anyone may see. If that changes, it
+/// changes here.
 async fn list_scopes_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -998,9 +861,7 @@ async fn list_scopes_handler(
         watch: &state.watch,
     };
 
-    // §3.4 steps 2-5, once for this whole list, not once per row: see
-    // `grants::VerifiedAuthorityState`'s doc, and
-    // `list_designs_handler`'s identical comment above.
+    // §3.4 steps 2-5, once for the whole list; see `list_designs_handler`.
     let verified = grants::verify_authority_state(&tx, &auth)
         .await
         .map_err(SessionError::Authority)?;
@@ -1069,29 +930,19 @@ async fn list_scopes_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-/// `POST /organisations/{organisation}/scopes` — ADR-0054 #3 /
-/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.4: **a steward of the parent
-/// creates a scope.** The body is two length-prefixed fields, `crypto::lp`'s
-/// own framing (the shape `api.rs`'s session routes already use for a
-/// request with more than one field): the parent scope id, empty for a new
-/// root network, then the display name.
+/// `POST /organisations/{organisation}/scopes`: ADR-0054 #3 /
+/// `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §6.4: **a steward of the parent creates
+/// a scope.** Body: two length-prefixed fields: the parent scope id (empty for a
+/// new root network), then the display name.
 ///
-/// The child's *kind* is not on the wire at all -- it is the one kind that
-/// fits directly under the named parent (network under nothing, building
-/// under a network, rack under a building; [`child_kind_under`]), because the
-/// scope hierarchy is exactly three fixed levels deep and a client asking to
-/// create "the next thing under this scope" has nothing else it could mean.
+/// The child's *kind* is not on the wire: it is the one kind that fits directly
+/// under the parent ([`child_kind_under`]; the hierarchy is three fixed levels).
 ///
-/// Authorises `steward` on the parent (organisation-wide, `None`, for a new
-/// root network -- §6.4's "stewardship inherits down the path, so no new
-/// signature") and only then inserts, in the one transaction that
-/// authorised it (ADR-0054 #5): a drawer, or a steward of some other
-/// subtree, is refused with the same `403` a missing or foreign parent scope
-/// gets, because `grants::authorise_account` cannot tell the two apart any
-/// more here than it can anywhere else in this module (module doc, "absent,
-/// not forbidden").
-///
-/// Answers with the shape [`list_scopes_handler`]'s own rows have.
+/// Authorises `steward` on the parent (organisation-wide for a new root network;
+/// §6.4: stewardship inherits down the path), then inserts in the same
+/// transaction (ADR-0054 #5). A drawer, or a steward elsewhere, gets the same
+/// `403` as a missing or foreign parent. Answers in the shape of
+/// [`list_scopes_handler`]'s rows.
 async fn create_scope_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -1187,10 +1038,9 @@ async fn create_scope_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-/// The one scope kind that fits directly under a parent of kind
-/// `parent_kind` — see [`create_scope_handler`]'s own doc. `None` for `Rack`,
-/// which has no child kind at all: the hierarchy is exactly three levels
-/// deep (`repo::ScopeKind`'s own doc).
+/// The one scope kind that fits directly under a parent of kind `parent_kind`
+/// (see [`create_scope_handler`]). `None` for `Rack`: the hierarchy is three
+/// levels deep.
 fn child_kind_under(parent_kind: Option<repo::ScopeKind>) -> Option<repo::ScopeKind> {
     match parent_kind {
         None => Some(repo::ScopeKind::Network),
@@ -1200,32 +1050,21 @@ fn child_kind_under(parent_kind: Option<repo::ScopeKind>) -> Option<repo::ScopeK
     }
 }
 
-// ---------------------------------------------------------------------------
-// Create a design
-// ---------------------------------------------------------------------------
+// ---- Create a design ----
 
-/// `POST /organisations/{organisation}/scopes/{scope}/designs` — ADR-0054 #2:
-/// **draw creates a design.** The body carries a save's own framing
-/// (`u32_le(payload_schema_version) ‖ payload_bytes`), validated by
-/// [`validate_payload`] -- the same function [`save_design_handler`] uses, so
-/// the two cannot drift apart on what counts as a valid payload -- carrying
-/// the client's empty document (`client/src/document/model.ts`'s
-/// `emptyDocument`, written through `fathom_workspace::write_plain`).
+/// `POST /organisations/{organisation}/scopes/{scope}/designs`: ADR-0054 #2:
+/// **draw creates a design.** The body is a save's framing
+/// (`u32_le(payload_schema_version) ‖ payload_bytes`), validated by the shared
+/// [`validate_payload`], and carries the client's empty document
+/// (`client/src/document/model.ts`'s `emptyDocument`, via
+/// `fathom_workspace::write_plain`).
 ///
-/// Authorises `draw` on `scope` (or an ancestor) and creates the design and
-/// its first version in the one transaction that authorised it
-/// (ADR-0054 #5), through [`designs::create_design_with_first_version_in_tx`]
-/// -- a bodiless design (a row in `designs` with no version behind it) is
-/// never minted, because the two inserts share this transaction and neither
-/// commits without the other.
-///
-/// A reader is refused with `403`; a foreign or missing scope answers
-/// identically, for the reason the module doc's "absent, not forbidden"
-/// section gives for a design named directly. A payload that would push the
-/// audit spool beyond its bound is refused `503`, with no design row left
-/// behind either.
-///
-/// Answers with the shape [`list_designs_handler`]'s own rows have.
+/// Authorises `draw` on `scope` (or an ancestor) and creates the design and its
+/// first version in the same transaction (ADR-0054 #5), through
+/// [`designs::create_design_with_first_version_in_tx`], so a bodiless design is
+/// never minted. A reader, or a foreign or missing scope, gets an identical `403`.
+/// A payload pushing the audit spool beyond its bound is refused `503` with no
+/// design row left. Answers in the shape of [`list_designs_handler`]'s rows.
 async fn create_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
@@ -1281,18 +1120,56 @@ async fn create_design_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-// ---------------------------------------------------------------------------
-// Open
-// ---------------------------------------------------------------------------
+// ---- Rename ----
 
-/// `GET /organisations/{organisation}/designs/{design}[?version=N]` — the
-/// decrypted payload, verbatim, plus its version numbers in headers. Requires
-/// at least `read`.
+/// `POST /organisations/{organisation}/designs/{design}/name`: the body is the
+/// new name in UTF-8; empty clears it. Needs `draw` on the design's scope.
+async fn rename_design_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let name = core::str::from_utf8(&signed.body)
+        .map_err(|_| SessionError::Malformed("design name"))?
+        .to_string();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    designs::rename_design_in_tx(&tx, &auth, design_id, scope, &name).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("design_id".to_string(), Json::Str(design_id.to_string()));
+    Ok(json_response(Json::Obj(map)))
+}
+
+// ---- Open ----
+
+/// `GET /organisations/{organisation}/designs/{design}[?version=N]`: the
+/// decrypted payload, verbatim, plus version numbers in headers. Requires at
+/// least `read`.
 ///
-/// ADR-0054 #5: opens exactly one transaction, and reads the version inside
-/// it -- see [`save_design_handler`]'s own comment on why the capability
-/// check now lives inside [`designs::read_version_in_tx`] rather than in a
-/// separate call this handler makes and commits before it.
+/// ADR-0054 #5: one transaction; the capability check lives inside
+/// [`designs::read_version_in_tx`] (see [`save_design_handler`]).
 async fn open_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1354,10 +1231,9 @@ async fn open_design_handler(
             .parse()
             .expect("a static content type is a valid header value"),
     );
-    // A design read under one person's authority is the last thing that may sit
-    // in a shared cache: the next caller through that proxy may not be allowed
-    // to read it at all. `api::bytes_response`'s rule, stated here because this
-    // response is built by hand for its two version headers.
+    // A design read under one person's authority must not sit in a shared cache; the
+    // next caller through that proxy may not be allowed to read it. `api::bytes_response`'s
+    // rule, restated because this response is built by hand.
     headers.insert(
         axum::http::header::CACHE_CONTROL,
         "no-store"
@@ -1367,32 +1243,23 @@ async fn open_design_handler(
     Ok((StatusCode::OK, headers, stored.payload).into_response())
 }
 
-// ---------------------------------------------------------------------------
-// Save
-// ---------------------------------------------------------------------------
+// ---- Save ----
 
-/// `POST /organisations/{organisation}/designs/{design}/versions?base=N` — a
-/// new version. Requires `draw`; a `read`-only caller is refused, and the
-/// refusal does not distinguish a design that exists from one that does not
-/// (module doc).
+/// `POST /organisations/{organisation}/designs/{design}/versions?base=N`: a new
+/// version. Requires `draw`; a `read`-only caller is refused, without distinguishing
+/// an existing design from a missing one (module doc).
 ///
 /// # ADR-0054 #1: a save names the version it was based on
 ///
-/// `base` is REQUIRED, in the signed query -- an optional precondition is no
-/// precondition (the ADR's own words). Missing or not a plain integer is a
-/// `400`, before the session is even verified: like every check
-/// [`validate_payload`] already runs, a malformed request costs nothing from
-/// the database either way. A present, well-formed `base` that simply
-/// disagrees with the design's current version is a different thing
-/// entirely -- not malformed, refused -- and is [`designs::write_version_in_tx`]'s
-/// job, under the row lock that also decides the next version number, so the
-/// two can never disagree with each other.
+/// `base` is REQUIRED, in the signed query: an optional precondition is no
+/// precondition. Missing or non-integer is a `400` before the session is verified.
+/// A well-formed `base` that disagrees with the current version is a refusal,
+/// decided by [`designs::write_version_in_tx`] under the row lock that also decides
+/// the next version number.
 ///
-/// Body: `u32_le(payload_schema_version) ‖ payload_bytes` — the schema
-/// version fixed at four bytes because everything after it is the payload
-/// verbatim, and a length-prefixed field here would mean copying up to 64 MiB
-/// twice for no reason. See [`validate_payload`] for everything checked
-/// about it before this handler ever opens a transaction.
+/// Body: `u32_le(payload_schema_version) ‖ payload_bytes`. The prefix is four fixed
+/// bytes because a length-prefixed field would copy up to 64 MiB twice. See
+/// [`validate_payload`] for the checks before a transaction opens.
 async fn save_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1403,8 +1270,7 @@ async fn save_design_handler(
 
     let (schema_version, payload) = validate_payload(&signed.body)?;
 
-    // ADR-0054 #1: required, and a signed query parameter -- an optional
-    // precondition is no precondition.
+    // ADR-0054 #1: required, a signed query parameter.
     let base: i64 = signed
         .query_param("base")
         .ok_or(SessionError::Malformed("base"))?
@@ -1420,13 +1286,9 @@ async fn save_design_handler(
     let tx = client.transaction().await.map_err(SessionError::Db)?;
     let (session, tx) = signed.verify_and_commit(&state, tx).await?;
 
-    // ADR-0054 #5: one transaction. `ctx`, `tenant_key` and `scope` below are
-    // exactly what `authorise_on_design` used to compute and check itself in
-    // this same transaction before committing it -- the capability check
-    // itself now lives in `write_version_in_tx`, immediately before the
-    // write it gates, rather than here, a step earlier, with a chance for
-    // something to change in between (see the module doc's "one
-    // transaction" section for what that chance used to cost).
+    // ADR-0054 #5: one transaction. The capability check lives in
+    // `write_version_in_tx`, immediately before the write it gates, so nothing can
+    // change in between (module doc, "one transaction").
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
@@ -1461,77 +1323,55 @@ async fn save_design_handler(
         .into_response())
 }
 
-/// Everything ADR-0049 and this session's brief require of a wire payload
-/// before it is written, whether by a save or by a scope's design-creation
-/// route (both call this, so the two cannot drift apart on what counts as a
-/// valid payload).
+/// Everything ADR-0049 and the brief require of a wire payload before it is
+/// written, by a save or a design-creation route (shared, so they cannot drift).
 ///
 /// # The server reads every payload back before storing it (ADR-0049 #2)
 ///
-/// `payload` is parsed with [`fathom_workspace::read_plain`] before anything
-/// else touches the database. A design payload is a `fathom-plain 1`
-/// document by decision, not by convention (ADR-0049 #1) — the one graph
-/// format the Rust engine reads — so bytes the engine itself cannot read
-/// back are refused at the door rather than stored opaque, unreadable to
-/// everything downstream that later opens this design. This runs before the
-/// session is even verified, for the same reason [`read_u32_le`] already
-/// does: a malformed request costs nothing from the database either way.
+/// `payload` is parsed with [`fathom_workspace::read_plain`] before the database is
+/// touched. A design payload is a `fathom-plain 1` document (ADR-0049 #1), the one
+/// graph format the engine reads, so unreadable bytes are refused at the door, not
+/// stored opaque. This runs before the session is verified, like [`read_u32_le`]:
+/// a malformed request costs the database nothing.
 ///
-/// ADR-0049 #4 also requires the wire prefix and the payload's own declared
-/// schema version (its line 3) to agree. `read_plain` already refused any
-/// payload whose line 3 is not this build's current schema version, so by
-/// the time it has returned `Ok`, line 3 is known; [`declared_schema_version`]
-/// reads it back out of the same bytes rather than threading a second copy
-/// of it out of `fathom_workspace`, which is deliberately bytes-in/bytes-out
-/// with no policy of its own (that crate's own module doc). There is no
-/// existing numeric form of the schema version (`SCHEMA_VERSION` is the
-/// string `"0.N"`; no major bump has happened yet) anywhere in this tree, so
-/// [`schema_version_as_u32`] is the one place that defines the wire number:
-/// strip the fixed `"0."` and parse the remainder as the minor number.
+/// ADR-0049 #4: the wire prefix and the payload's declared schema version (line 3)
+/// must agree. `read_plain` already refused a line 3 that is not this build's
+/// version, so [`declared_schema_version`] reads it back from the same bytes.
+/// [`schema_version_as_u32`] defines the wire number: strip the fixed `"0."` from
+/// `SCHEMA_VERSION` and parse the minor.
 ///
 /// # The payload's own text fields, checked once more, at the door
 ///
-/// This session's brief, item 4: the redaction gate runs client-side before a
-/// capture or a pasted note ever reaches this server (`fathom-ingest`,
-/// compiled for the browser — CLAUDE.md rule 3), so every `Capture.text` and
-/// `Note.text` this handler sees ought to have already had a credential shape
-/// destroyed at the gate. "Ought to have" is not "did": a hit here means an
-/// old client that predates the gate, or a hostile one that skipped it, never
-/// a real capture — and either way the write is refused, naming which field
-/// kind and which line, before anything is stored. [`find_credential`] calls
-/// `fathom_ingest::redact::looks_like_credential_bare` for `Capture.text`,
-/// never a second, hand-tuned detector: it is `looks_like_credential` (the
-/// gate's own safety-net predicate) plus that crate's own
-/// `raw_walk`/`gate_unshaped` bare-adjacency rule, both already used by the
-/// ingest gate itself, restated only because this caller has no lexed token
-/// list to hand it (see that function's doc). Plain `looks_like_credential`
-/// alone requires a `:`/`=` beside a secret word and so misses most real
-/// device output, which overwhelmingly writes `keyword <secret>` with a bare
-/// space — CLAUDE.md rule 2 names exactly this failure mode, and
-/// `fathom-ingest`'s own unit tests pin the space-separated Cisco/Junos
-/// forms this must catch. `Note.text` stays on plain `looks_like_credential`
-/// — [`find_credential`]'s own doc says why (ADR-0053 §5: a note may be
-/// hand-typed prose, not only pasted device output, and bare adjacency's own
-/// unit test shows it flags an ordinary sentence like "replaced the key
-/// switch"). Both halves are still a hint over unstructured text, not the
-/// dictionary-driven bound-statement path, so a keyword the crate's static
-/// list does not carry (SNMPv3's `auth`/`priv`) is not caught in either — a
-/// residual gap, not claimed closed.
+/// The redaction gate runs client-side (`fathom-ingest`, compiled for the browser;
+/// CLAUDE.md rule 3), so every `Capture.text` and `Note.text` here should already
+/// have had credential shapes destroyed. A hit means an old client that predates
+/// the gate or a hostile one that skipped it: the write is refused, naming field
+/// kind and line, before anything is stored.
+///
+/// [`find_credential`] uses `fathom_ingest::redact::looks_like_credential_bare` for
+/// `Capture.text`, not a second detector: the gate's `looks_like_credential` plus
+/// its `raw_walk`/`gate_unshaped` bare-adjacency rule, restated because this caller
+/// has no lexed token list. Plain `looks_like_credential` needs a `:`/`=` beside a
+/// secret word and misses most real device output (`keyword <secret>` with a bare
+/// space; CLAUDE.md rule 2). `Note.text` stays on the plain predicate, since a note
+/// may be hand-typed prose and bare adjacency flags "replaced the key switch"
+/// (ADR-0053 §5). Both are hints over unstructured text, not the dictionary-driven
+/// path, so a keyword missing from the static list (SNMPv3's `auth`/`priv`) is not
+/// caught: a residual gap, not claimed closed.
 fn validate_payload(body: &[u8]) -> Result<(u32, &[u8]), RouteError> {
     let (schema_version, payload) =
         read_u32_le(body).ok_or(SessionError::Malformed("design payload body"))?;
 
-    // ADR-0049 #2: refuse anything the engine cannot read, before the
-    // session is verified or the database is touched. This function is not
-    // `async`, so the `Graph` below -- `fathom_graph::Graph` boxes field
-    // values as `dyn Any` with no `Send` bound -- is built and fully scanned
-    // for a credential shape, then dropped, before this function ever
-    // returns; nothing here crosses an `.await` boundary.
+    // ADR-0049 #2: refuse anything the engine cannot read, before the session is
+    // verified or the database touched. This function is not `async`, and
+    // `fathom_graph::Graph` boxes values as `dyn Any` with no `Send` bound, so the
+    // `Graph` is built, scanned and dropped before return; nothing crosses an
+    // `.await`.
     let graph = fathom_workspace::read_plain(payload).map_err(DesignError::InvalidPlainPayload)?;
 
-    // ADR-0049 #4: the wire prefix and the payload's own declared schema
-    // version must agree. `read_plain` above already proved line 3 is a
-    // well-formed `schema <version>` line, so this only re-reads it.
+    // ADR-0049 #4: the wire prefix and the payload's declared schema version must
+    // agree. `read_plain` already proved line 3 is a well-formed `schema <version>`
+    // line.
     let declared = declared_schema_version(payload)
         .expect("read_plain already validated a well-formed line 3");
     if schema_version_as_u32(declared) != Some(schema_version) {
@@ -1549,25 +1389,19 @@ fn validate_payload(body: &[u8]) -> Result<(u32, &[u8]), RouteError> {
     Ok((schema_version, payload))
 }
 
-/// This session's brief, item 4: every `Capture.text` and `Note.text` in the
-/// plain face, line by line -- so the refusal can name which one, rather than
-/// only that the payload as a whole was refused. `Some((kind, line))` on the
-/// first hit, in node order within a kind and line order within a node;
-/// `None` when nothing in either kind trips the gate's own sketch predicate.
+/// Every `Capture.text` and `Note.text` in the plain face, line by line, so the
+/// refusal names which one. `Some((kind, line))` on the first hit (node order
+/// within a kind, line order within a node); `None` when nothing trips the gate's
+/// own sketch predicate.
 fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
-    // `Capture` is never hand-typed (its doc: "what the redaction gate let
-    // through" -- its node id is the weld's own `CaptureId`, minted only by
-    // a parse), so it is always pasted device output and the bare-adjacency
-    // check is the right aggression for it. `Note.text` is the one field
-    // ADR-0053 §5's own schema doc says may be EITHER pasted (through the
-    // same gate) OR hand-typed prose ("Fathom does not redact what you
-    // type, only what you paste"), and this handler has no way from the
-    // plain-face payload alone to tell which one a given `Note` is -- so it
-    // stays on the delimiter-only check, which is prose-safe by
-    // construction, rather than risk refusing a real, hand-typed sentence
-    // like "replaced the key switch" (`looks_like_credential_bare`'s own
-    // unit test on that exact sentence). A credential a hostile client
-    // typed into a `Note` with no delimiter is the residual this leaves.
+    // `Capture` is never hand-typed (its node id is the weld's `CaptureId`, minted
+    // only by a parse), so it is always pasted device output and bare adjacency is
+    // the right aggression. `Note.text` may be EITHER pasted (through the same gate)
+    // OR hand-typed prose (ADR-0053 §5: "Fathom does not redact what you type, only
+    // what you paste"), and the plain-face payload cannot say which, so it stays on
+    // the delimiter-only check, which is prose-safe, rather than risk refusing a
+    // real sentence like "replaced the key switch". A credential a hostile client
+    // typed into a `Note` with no delimiter is the residual.
     for node in graph.nodes_of_kind(NodeKind::Capture) {
         if let Ok(text) = capture::text(node) {
             if let Some(line) = credential_line(&text.0, true) {
@@ -1585,12 +1419,10 @@ fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
     None
 }
 
-/// The 1-based line within one field's text that first looks like a
-/// credential, run per line rather than over the whole field: a multi-line
-/// `Capture.text` is a whole configuration file, and naming the line is what
-/// this session's brief asks for. `bare` selects
-/// `looks_like_credential_bare` over plain `looks_like_credential` -- see
-/// [`find_credential`]'s doc for which caller passes which and why.
+/// The 1-based line in one field's text that first looks like a credential, run
+/// per line because a multi-line `Capture.text` is a whole configuration file and
+/// the refusal names the line. `bare` selects `looks_like_credential_bare` over
+/// `looks_like_credential`; see [`find_credential`].
 fn credential_line(text: &str, bare: bool) -> Option<usize> {
     text.lines()
         .enumerate()
@@ -1613,12 +1445,10 @@ fn read_u32_le(bytes: &[u8]) -> Option<(u32, &[u8])> {
     Some((u32::from_le_bytes(arr), rest))
 }
 
-/// Line 3 of a `fathom-plain` payload, read back out of the raw bytes rather
-/// than threaded out of `fathom_workspace::read_plain` — that crate is
-/// deliberately bytes-in/bytes-out with no policy of its own (its own module
-/// doc), and this is only ever called after `read_plain` has already
-/// accepted the same bytes, so line 3 is guaranteed well-formed
-/// (`schema <version>`) here. `None` only if that guarantee is broken.
+/// Line 3 of a `fathom-plain` payload, read from the raw bytes (`fathom_workspace`
+/// has no policy of its own). Only called after `read_plain` accepted the same
+/// bytes, so line 3 is well-formed (`schema <version>`); `None` only if that
+/// breaks.
 fn declared_schema_version(payload: &[u8]) -> Option<&str> {
     payload
         .split(|&b| b == b'\n')
@@ -1627,28 +1457,23 @@ fn declared_schema_version(payload: &[u8]) -> Option<&str> {
         .and_then(|line| line.strip_prefix("schema "))
 }
 
-/// ADR-0049 #4's wire number for `SCHEMA_VERSION` (`fathom-ir`'s generated
-/// `"0.N"` string). No numeric form of it exists anywhere else in this tree
-/// to compare the four-byte prefix against, so this defines the one used on
-/// the wire: strip the fixed `"0."` — no major bump has happened yet
-/// (`schema/schema.yaml`'s own comment on the baseline) — and parse the
-/// remainder as the minor number. Any other shape (in particular a future
-/// major bump) returns `None`, which is an unconditional refusal until
-/// someone decides what the wire form of a 1.x schema version is.
+/// ADR-0049 #4's wire number for `SCHEMA_VERSION` (`fathom-ir`'s `"0.N"` string).
+/// Nothing else in the tree has a numeric form, so this defines it: strip the
+/// fixed `"0."` (no major bump yet; `schema/schema.yaml`) and parse the minor.
+/// Any other shape, such as a future major bump, returns `None`, an unconditional
+/// refusal until the 1.x wire form is decided.
 fn schema_version_as_u32(declared: &str) -> Option<u32> {
     declared
         .strip_prefix("0.")
         .and_then(|minor| minor.parse().ok())
 }
 
-// ---------------------------------------------------------------------------
-// History
-// ---------------------------------------------------------------------------
+// ---- History ----
 
-/// `GET /organisations/{organisation}/designs/{design}/history` — every chain
+/// `GET /organisations/{organisation}/designs/{design}/history`: every chain
 /// entry for this design, in order. Requires at least `read`. A design chain
-/// stores its metadata in the clear (§7.3), so this needs no key beyond the
-/// tenant context already open in `tx`.
+/// stores its metadata in the clear (§7.3), so no key beyond the open tenant
+/// context is needed.
 async fn history_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1668,9 +1493,8 @@ async fn history_handler(
     let ctx =
         authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
 
-    // `authorise_on_design` alone does not say the design exists (see its own
-    // doc) — a caller with an organisation-wide grant clears it even for an
-    // id nothing was ever created under.
+    // `authorise_on_design` alone does not prove the design exists: an
+    // organisation-wide grant clears it for an id nothing was created under.
     let exists = tx
         .query_opt(
             "SELECT 1 FROM designs WHERE id = $1 AND organisation_id = $2",
@@ -1724,14 +1548,12 @@ async fn history_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-// ---------------------------------------------------------------------------
-// Verify
-// ---------------------------------------------------------------------------
+// ---- Verify ----
 
-/// `GET /organisations/{organisation}/designs/{design}/verify[?deep=true]` —
-/// storage design §11.2's three outcomes, by name: `verified`, `broken_at`,
-/// `cannot_verify_under_key_epoch`. Requires at least `read`. ADR-0054 #5:
-/// one transaction, see [`open_design_handler`]'s own comment.
+/// `GET /organisations/{organisation}/designs/{design}/verify[?deep=true]`:
+/// storage §11.2's three outcomes by name: `verified`, `broken_at`,
+/// `cannot_verify_under_key_epoch`. Requires at least `read`. ADR-0054 #5: one
+/// transaction (see [`open_design_handler`]).
 async fn verify_design_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -1767,8 +1589,7 @@ async fn verify_design_handler(
     Ok(json_response(json_of_report(&report)))
 }
 
-/// §11.2's three outcomes, by their names, never as a boolean — see the
-/// module doc.
+/// §11.2's three outcomes by name, never a boolean (module doc).
 fn json_of_report(report: &chain::Report) -> Json {
     let mut map = BTreeMap::new();
 
@@ -1894,12 +1715,10 @@ fn json_of_report(report: &chain::Report) -> Json {
     Json::Obj(map)
 }
 
-// ---------------------------------------------------------------------------
-// Catalogue — public reference data, behind a session and nothing else
-// ---------------------------------------------------------------------------
+// ---- Catalogue: public reference data, behind a session and nothing else ----
 
-/// `GET /catalogue/models` — every model this deployment's corpus carries,
-/// enough to populate a picker.
+/// `GET /catalogue/models`: every model this deployment's corpus carries, enough
+/// to populate a picker.
 async fn catalogue_list_handler(
     State(state): State<DesignApiState>,
     signed: Signed,
@@ -1928,10 +1747,10 @@ async fn catalogue_list_handler(
     Ok(json_response(Json::Arr(items)))
 }
 
-/// `GET /catalogue/models/{vendor}/{model}` — one model's full detail,
-/// including every faceplate's ports **already positioned and numbered**
-/// (`Faceplate::ports`), so a browser draws it without recomputing the
-/// odd/even, 12-port or uplink-right rules itself.
+/// `GET /catalogue/models/{vendor}/{model}`: one model's full detail, including
+/// every faceplate's ports **already positioned and numbered**
+/// (`Faceplate::ports`), so the browser does not recompute the odd/even, 12-port
+/// or uplink-right rules.
 async fn catalogue_model_handler(
     State(state): State<DesignApiState>,
     PathExtractor((vendor, model)): PathExtractor<(String, String)>,
@@ -1982,9 +1801,8 @@ fn json_of_model(m: &Model) -> Json {
     Json::Obj(map)
 }
 
-/// ADR-0050 §3/§4: a PSU bay is a positioned entry on a face, not a count —
-/// see `fathom_corpus::catalogue::PsuSlot`'s own doc for why it carries no
-/// connector `kind` any more.
+/// ADR-0050 §3/§4: a PSU bay is a positioned entry on a face, not a count (see
+/// `fathom_corpus::catalogue::PsuSlot`).
 fn json_of_psu_slot(s: &PsuSlot) -> Json {
     let mut map = BTreeMap::new();
     map.insert("name".to_string(), Json::Str(s.name.clone()));
@@ -2044,11 +1862,10 @@ fn json_of_faceplate(f: &fathom_corpus::catalogue::Faceplate) -> Json {
     Json::Obj(map)
 }
 
-/// `number` and `name` are the mirror-image pair `Port` itself carries
-/// (ADR-0050 §5): a numbered port sends `number` and `name: null`; a named
-/// port (`me0`, `con`) sends `number: null` and `name`. `uplink` is kept
-/// alongside the fuller `role` for the reason `Port::uplink`'s own doc
-/// comment gives.
+/// `number` and `name` are the mirror-image pair `Port` carries (ADR-0050 §5): a
+/// numbered port sends `number` and `name: null`; a named port (`me0`, `con`)
+/// sends `number: null` and `name`. `uplink` stays beside the fuller `role` (see
+/// `Port::uplink`).
 fn json_of_port(p: &Port) -> Json {
     let mut map = BTreeMap::new();
     map.insert("kind".to_string(), Json::Str(p.kind.token().to_string()));
@@ -2074,13 +1891,7 @@ fn json_of_port(p: &Port) -> Json {
     Json::Obj(map)
 }
 
-// ---------------------------------------------------------------------------
-// Response framing
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Custom-field definitions (ADR-0062)
-// ---------------------------------------------------------------------------
+// ---- Custom-field definitions (ADR-0062) ----
 //
 // Bodies are canonical JSON (sorted keys, no whitespace, one trailing LF).
 
@@ -2273,11 +2084,11 @@ async fn archive_field_definition_handler(
     Ok(json_response(def.to_json()))
 }
 
-/// `Cache-Control: no-store` on every one of them, the rule `api::bytes_response`
-/// states and the 2026-09-22 review found this module outside: nothing here is
-/// a document. It is one caller's answer under one caller's authority, and a
-/// cache between the browser and this server holding it is either stale or one
-/// caller's bytes offered to the next.
+// ---- Response framing ----
+
+/// `Cache-Control: no-store` on all of them, per `api::bytes_response`. Nothing
+/// here is a document: it is one caller's answer under one caller's authority,
+/// and a shared cache would hold it stale or offer it to the next caller.
 fn json_response(j: Json) -> Response {
     (
         StatusCode::OK,
@@ -2290,9 +2101,7 @@ fn json_response(j: Json) -> Response {
         .into_response()
 }
 
-// ---------------------------------------------------------------------------
-// Tests that need no database: the rendering rules themselves
-// ---------------------------------------------------------------------------
+// ---- Tests that need no database: the rendering rules ----
 
 #[cfg(test)]
 mod tests {
@@ -2302,8 +2111,7 @@ mod tests {
         String::from_utf8(j.to_canonical_bytes()).expect("canonical JSON is UTF-8")
     }
 
-    /// §11.2's three outcomes, named — not rendered as a boolean, and not
-    /// collapsed into each other.
+    /// §11.2's three outcomes, named: not a boolean, not collapsed together.
     #[test]
     fn verify_reports_each_of_storage_designs_11_2_three_outcomes_by_name() {
         let verified = chain::Report {
@@ -2363,10 +2171,9 @@ mod tests {
         );
     }
 
-    /// The brief's own words: a save past the audit spool's bound must
-    /// surface as itself, not as a generic failure — a different status and a
-    /// body that says what still works, never the same `500 refused` a
-    /// corrupt row gets.
+    /// A save past the audit spool's bound must surface as itself, not a generic
+    /// failure: a different status and a body saying what still works, never the
+    /// `500 refused` a corrupt row gets.
     #[tokio::test]
     async fn the_audit_spool_bound_surfaces_as_itself_not_as_a_generic_failure() {
         let spool_response = design_error_response(DesignError::AuditSpoolBeyondBounds {

@@ -28,6 +28,7 @@ function design(id: string, scopeId: string): DesignSummary {
   return {
     designId: id,
     scopeId,
+    name: null,
     createdAtUnix: 1,
     createdBy: 'acct',
     capability: 'read',

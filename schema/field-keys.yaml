@@ -434,7 +434,15 @@ fields:
   # ADR-0059 (tags, 2026-09-26). Appended at the tail with the next integer, which is the
   # only way a key is ever assigned.
   Tag.name: 343
-  # Custom-field values (0.13, 2026-10-02). Appended at the tail with the next integers. The
-  # unreleased draft's FieldDef keys (344-346) never left the PR and were dropped, not retired.
-  FieldValue.value: 344
-  FieldValue.definition: 345
+  # ADR-0060 step 7 (2026-10-02). Appended at the tail with the next integers.
+  Label.text: 344
+  Label.form: 345
+  Label.w: 346
+  Label.h: 347
+  Line.label: 348
+  LineEnd.end: 349
+  PassiveNode.slots: 350
+  # Custom-field values (0.14, 2026-10-02). Appended at the tail with the next integers. The
+  # unreleased draft's FieldDef keys never left the PR and were dropped, not retired.
+  FieldValue.value: 351
+  FieldValue.definition: 352

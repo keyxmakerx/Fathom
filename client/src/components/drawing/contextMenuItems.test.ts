@@ -5,24 +5,33 @@ import { menuItemsFor, type MenuActions } from './contextMenuItems';
 function actions(): Required<MenuActions> {
   return {
     onSelect: vi.fn(),
+    onOpen: vi.fn(),
+    onOpenInside: vi.fn(),
     onDuplicateDevice: vi.fn(),
     onRemoveDevice: vi.fn(),
     onDisconnect: vi.fn(),
     onAddDevice: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
+    onAddInRack: vi.fn(),
+    onAddBoxHere: vi.fn(),
+    onAddLabelHere: vi.fn(),
+    onDuplicateFree: vi.fn(),
+    onRemoveFree: vi.fn(),
   };
 }
 
 describe('menuItemsFor', () => {
-  it('offers a device its details, a duplicate and removal, removal marked', () => {
+  it('offers a device Open, Inside, details, a duplicate and removal, removal marked', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Duplicate', 'Remove']);
-    expect(items[2].danger).toBe(true);
-    items[1].onSelect();
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Details', 'Duplicate', 'Remove']);
+    expect(items[4].danger).toBe(true);
+    items[3].onSelect();
     expect(a.onDuplicateDevice).toHaveBeenCalledWith('c1');
     items[0].onSelect();
+    expect(a.onOpen).toHaveBeenCalledWith('c1');
+    items[2].onSelect();
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
   });
 
@@ -55,5 +64,15 @@ describe('menuItemsFor', () => {
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'cable', id: 'k1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'pane' }, reader)).toEqual([]);
+  });
+
+  it('offers Add here only when the click landed on a free unit of a rack', () => {
+    const a = actions();
+    const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
+    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device']);
+    items[1].onSelect();
+    expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
   });
 });

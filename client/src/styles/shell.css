@@ -385,6 +385,21 @@ button.shell-search {
   cursor: pointer;
 }
 
+.shell-admin-pill {
+  margin-right: 8px;
+  padding: 2px 8px;
+  background: #b45309;
+  color: #fff;
+  font-size: var(--t-micro);
+  line-height: 14px;
+  border: none;
+  font-family: inherit;
+}
+
+button.shell-admin-pill {
+  cursor: pointer;
+}
+
 .shell-account {
   width: 24px;
   height: 24px;

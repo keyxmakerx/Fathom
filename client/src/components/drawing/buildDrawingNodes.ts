@@ -78,6 +78,8 @@ export interface BuildDrawingNodesInput {
   onFlipRow: (key: string) => void;
   onFlipRack: (rackId: string) => void;
   onSelectShelf: (shelfId: string) => void;
+  /** A writer's shelf grips; absent for a reader. */
+  onResizeShelf?: (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => { refused: string } | void;
   onOpenShelfOccupant: (occupantId: string, centreX: number, centreY: number) => void;
   onHoverInlet: (cableId: string | null) => void;
   surfacesLayout: SurfacesLayout;
@@ -128,6 +130,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
     onFlipRow,
     onFlipRack,
     onSelectShelf,
+    onResizeShelf,
     onOpenShelfOccupant,
     onHoverInlet,
     surfacesLayout,
@@ -232,7 +235,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
         nodes.push(
           caches.nodeCache.get(
             shelfNodeId(shelf.id),
-            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort],
+            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort, canDraw, onResizeShelf],
             () => ({
               id: shelfNodeId(shelf.id),
               type: 'shelf',
@@ -246,7 +249,8 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
               data: {
                 shelf: shelfSnapshot,
                 elevation,
-                slotCount: null,
+                slotCount: shelf.slots ?? null,
+                ...(canDraw && onResizeShelf ? { rackId: rack.id, onResize: (change, preview) => onResizeShelf(shelf.id, change, preview) } : {}),
                 onSelectShelf: () => onSelectShelf(shelf.id),
                 onSelectOccupant: (occupantId: string) => {
                   const centreX = shelfPosition.x + RACK_INNER_PX / 2;

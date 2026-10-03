@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.13";
+export const SCHEMA_VERSION = "0.14";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -66,6 +66,8 @@ export type NodeKind =
   | "Container"
   | "PublishedPort"
   | "Tag"
+  | "Label"
+  | "Line"
   | "FieldValue";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
@@ -127,6 +129,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Container",
   "PublishedPort",
   "Tag",
+  "Label",
+  "Line",
   "FieldValue",
 ];
 
@@ -232,6 +236,9 @@ export type EdgeKind =
   | "ParentUnit"
   | "HasTag"
   | "TaggedWith"
+  | "HasLabel"
+  | "HasLine"
+  | "LineEnd"
   | "HasFieldValue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
@@ -334,6 +341,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "ParentUnit",
   "HasTag",
   "TaggedWith",
+  "HasLabel",
+  "HasLine",
+  "LineEnd",
   "HasFieldValue",
 ];
 
@@ -458,7 +468,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
   PhysicalPort: ["label", "position", "connector", "service", "face", "speed_max", "transceiver", "notes", "occupied"],
   Cable: ["label", "assembly", "media", "length_m", "installed_on", "ownership", "provider_circuit", "notes", "last_confirmed", "sheath"],
-  PassiveNode: ["label", "form", "split_ratio", "model", "serial"],
+  PassiveNode: ["label", "form", "split_ratio", "model", "serial", "slots"],
   Premises: ["label", "street", "clli", "form", "region", "coordinates", "notes"],
   Tenant: ["name", "code", "kind", "account_ref", "contact", "description"],
   Service: ["cid", "reach", "label", "in_service_on", "ceased_on", "last_confirmed", "attributes", "description"],
@@ -477,6 +487,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Container: ["name"],
   PublishedPort: ["protocol", "container_port", "host_port", "host_address"],
   Tag: ["name"],
+  Label: ["text", "form", "w", "h"],
+  Line: ["label"],
   FieldValue: ["definition", "value"],
 };
 
@@ -825,6 +837,13 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PublishedPort.host_address": 341,
   "AttachedTo.address": 342,
   "Tag.name": 343,
-  "FieldValue.value": 344,
-  "FieldValue.definition": 345,
+  "Label.text": 344,
+  "Label.form": 345,
+  "Label.w": 346,
+  "Label.h": 347,
+  "Line.label": 348,
+  "LineEnd.end": 349,
+  "PassiveNode.slots": 350,
+  "FieldValue.value": 351,
+  "FieldValue.definition": 352,
 };
