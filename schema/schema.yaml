@@ -240,7 +240,7 @@ schema:
                     # Global), AddressValue (Prefix, Range, Host, Fqdn, Any), L4Spec (Any, or a
                     # protocol with port ranges), NatScope and NatAction. A unit struct serialised
                     # as {}, and ingest never wrote one, so no stored payload holds the old form.
-                    # One optional field, SecurityPolicy.match_any_application (key 364), joins its
+                    # One optional field, SecurityPolicy.match_any_application (key 381), joins its
                     # two siblings so a policy can say "any application" (62 §16.2: minor).
                     # Whole change = MINOR; the reader opens the same older versions as before.
 
