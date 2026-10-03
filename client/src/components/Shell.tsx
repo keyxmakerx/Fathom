@@ -43,6 +43,7 @@ export function Shell({
   onUndo,
   onRedo,
   onPrint,
+  onShare,
   account,
   editor,
   notices,
@@ -88,6 +89,7 @@ export function Shell({
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
+        onShare={onShare}
         account={account}
         viewOnly={viewOnly}
         menu={menu}

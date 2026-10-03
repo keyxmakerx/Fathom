@@ -1,0 +1,72 @@
+.share-panel {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  width: 380px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  background: var(--page);
+  border: 1px solid var(--ink);
+  z-index: 60;
+  font-size: 12px;
+}
+
+.share-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.share-panel__close {
+  border: 0;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+}
+
+.share-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.share-panel__table th {
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--ink);
+}
+
+.share-panel__table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.share-panel__table select {
+  font: inherit;
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: inherit;
+}
+
+.share-panel__note,
+.share-panel__problem {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--muted);
+}
+
+.share-panel__problem {
+  color: var(--ink);
+  font-weight: 700;
+}
