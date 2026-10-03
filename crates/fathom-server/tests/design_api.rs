@@ -3987,7 +3987,7 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
 // Cable corrections from the floor
 // ---------------------------------------------------------------------------
 
-const A_CABLE: &str = "cable:01JCABLE0000000000000000AA";
+const A_CABLE: &str = "cable:01JABCDEFGHJKMNPQRSTVWXYZ0";
 
 fn correction_body(cable: &str, kind: &str, text: &str) -> Vec<u8> {
     canon(vec![
@@ -4287,7 +4287,7 @@ async fn corrections_are_capped_per_cable_per_sender_and_per_design() {
     assert_eq!(status, "429");
     // Another cable still takes some, up to 20 on the design.
     for n in 0..15 {
-        let cable = format!("cable:01JCABLE00000000000000{n:04}");
+        let cable = format!("cable:01JABCDEFGHJKMNPQRSTVW{n:04}");
         send_correction(addr, &ann, &path, &cable, "x").await;
     }
     let (status, _) = call(
@@ -4295,7 +4295,7 @@ async fn corrections_are_capped_per_cable_per_sender_and_per_design() {
         &ann,
         "POST",
         &path,
-        &correction_body("cable:01JCABLE0000000000000000ZZ", "label", "x"),
+        &correction_body("cable:01JABCDEFGHJKMNPQRSTVWZZZZ", "label", "x"),
     )
     .await;
     assert_eq!(status, "429");
@@ -4358,14 +4358,85 @@ async fn a_correction_body_is_checked_and_a_password_in_it_is_refused() {
         ("bidi override", A_CABLE, "not_here", "a\u{202e}b", "400"),
         ("cable with a space", "cable x", "label", "x", "400"),
         ("empty cable", "", "label", "x", "400"),
+        ("not a ulid", "cable:abc", "label", "x", "400"),
         (
-            "password",
+            "no cable prefix",
+            "01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "a port, not a cable",
+            "port:01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "lowercase ulid",
+            "cable:01jabcdefghjkmnpqrstvwxyz0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "with an extra space",
+            "cable:01JABCDEFGHJKMNPQRSTVWXYZ0 ",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "the delimiter form",
             A_CABLE,
             "not_here",
             "behind it, switch password: hunter2",
             "422",
         ),
-        ("secret", A_CABLE, "label", "enable secret=cisco123", "422"),
+        (
+            "enable secret",
+            A_CABLE,
+            "label",
+            "enable secret cisco123",
+            "422",
+        ),
+        (
+            "username password",
+            A_CABLE,
+            "label",
+            "username admin password 0 Cisco123!",
+            "422",
+        ),
+        (
+            "snmp community",
+            A_CABLE,
+            "not_here",
+            "snmp-server community s3cr3tR0 RO",
+            "422",
+        ),
+        (
+            "tacacs key",
+            A_CABLE,
+            "not_here",
+            "tacacs-server key 7 0822455D0A16",
+            "422",
+        ),
+        (
+            "isakmp key",
+            A_CABLE,
+            "not_here",
+            "crypto isakmp key Sh4redS3cret address 10.0.0.1",
+            "422",
+        ),
+        ("wpa psk", A_CABLE, "label", "wpa-psk Tr0ub4dor&3", "422"),
+        (
+            "prose with the word key",
+            A_CABLE,
+            "not_here",
+            "replaced the key switch in rack 4",
+            "422",
+        ),
     ] {
         let (status, body) = call(
             addr,
@@ -4377,13 +4448,24 @@ async fn a_correction_body_is_checked_and_a_password_in_it_is_refused() {
         .await;
         assert_eq!(status, want, "{what}: {}", String::from_utf8_lossy(&body));
     }
-    // Plain prose that merely contains a secret word is fine.
+    // The refusal says why, in words a person can act on.
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", "enable secret cisco123"),
+    )
+    .await;
+    assert_eq!(status, "422");
+    assert!(String::from_utf8_lossy(&body).contains("even in an ordinary sentence"));
+    // Ordinary places and labels pass.
     let (status, _) = call(
         addr,
         &ann,
         "POST",
         &path,
-        &correction_body(A_CABLE, "not_here", "replaced the key switch in rack 4"),
+        &correction_body(A_CABLE, "not_here", "Behind the blanking plate in B3"),
     )
     .await;
     assert_eq!(status, "200");
@@ -4535,23 +4617,302 @@ async fn the_app_role_cannot_delete_or_rewrite_a_correction() {
             .await
             .is_err()
     );
-    for column in [
-        "sender",
-        "cable",
-        "kind",
-        "ciphertext",
-        "nonce",
-        "design_id",
-        "created_at",
-    ] {
+    for column in ["sender", "cable", "kind", "design_id", "created_at"] {
         let sql = format!("UPDATE cable_corrections SET {column} = {column} WHERE id = $1");
         assert!(
             attempt(sql).await.is_err(),
             "the app role must not write {column}"
         );
     }
-    for column in ["state", "decided_by", "decided_at", "version"] {
+    for column in [
+        "state",
+        "decided_by",
+        "decided_at",
+        "version",
+        "ciphertext",
+        "nonce",
+        "key_epoch",
+    ] {
         let sql = format!("UPDATE cable_corrections SET {column} = {column} WHERE id = $1");
         assert!(attempt(sql).await.is_ok(), "the app role writes {column}");
     }
+}
+
+#[tokio::test]
+async fn dismissing_a_correction_scrubs_what_was_typed_but_keeps_the_row_bound() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", "Behind the Hartwell blanking plate"),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let id = text_of(&parsed(&body), "id");
+    let kept = send_correction(addr, &ann, &path, A_CABLE, "PP7").await;
+
+    let client = support::superuser_client_on_test_database().await;
+    let before: Vec<u8> = client
+        .query_one(
+            "SELECT ciphertext FROM cable_corrections WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{id}/dismiss"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        text_of(&parsed(&body), "text"),
+        "",
+        "the answer carries no text"
+    );
+
+    // The stored bytes changed, still open (so the body is sealed under the same binding), and are empty.
+    let after: Vec<u8> = client
+        .query_one(
+            "SELECT ciphertext FROM cable_corrections WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_ne!(before, after, "the sealed body was replaced");
+    for who in [&drawer, &ann] {
+        let (status, body) = call(addr, who, "GET", &path, b"").await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        let list = list_of(&body);
+        let gone = list.iter().find(|c| text_of(c, "id") == id).unwrap();
+        assert_eq!(text_of(gone, "state"), "dismissed");
+        assert_eq!(text_of(gone, "text"), "", "it opens, and to nothing");
+        let live = list.iter().find(|c| text_of(c, "id") == kept).unwrap();
+        assert_eq!(
+            text_of(live, "text"),
+            "PP7",
+            "other corrections are untouched"
+        );
+    }
+    // An old copy of the sealed text put back is not a way to read it again: the row is still
+    // bound by its AAD, but the plaintext it holds is what the thief already had. What the
+    // dismissal guarantees is that the server's current row no longer holds it.
+    let rendered: String = client
+        .query_one(
+            "SELECT t::text FROM cable_corrections t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(!rendered.contains("Hartwell"));
+}
+
+#[tokio::test]
+async fn reopening_takes_an_accepted_correction_back_and_nothing_else() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+    let fake = corrections_path(&estate, a_design_id_nothing_was_ever_created_under());
+
+    let accepted = send_correction(addr, &ann, &path, A_CABLE, "PP1").await;
+    let dismissed = send_correction(addr, &ann, &path, A_CABLE, "PP2").await;
+    let open = send_correction(addr, &ann, &path, A_CABLE, "PP3").await;
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/accept"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{dismissed}/dismiss"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    // A reader is refused, identically for a real design and an invented one.
+    let (rs, rb) = call(
+        addr,
+        &ann,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    let (fs, fb) = call(
+        addr,
+        &ann,
+        "POST",
+        &format!("{fake}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    assert_eq!(rs, "403");
+    assert_eq!((rs, rb), (fs, fb));
+
+    // Only an accepted one reopens: not a dismissed one (its text is gone), not an open one.
+    for (id, version) in [(&dismissed, 2), (&open, 1)] {
+        let (status, _) = call(
+            addr,
+            &drawer,
+            "POST",
+            &format!("{path}/{id}/reopen"),
+            &decision_body(version),
+        )
+        .await;
+        assert_eq!(status, "409");
+    }
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(9),
+    )
+    .await;
+    assert_eq!(status, "409", "a stale version");
+
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let back = parsed(&body);
+    assert_eq!(text_of(&back, "state"), "open");
+    assert_eq!(int_of(&back, "version"), 3);
+    assert_eq!(back["decidedBy"], fathom_canon::Json::Null);
+    assert_eq!(
+        text_of(&back, "text"),
+        "PP1",
+        "the text was kept for an accepted one"
+    );
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(3),
+    )
+    .await;
+    assert_eq!(status, "409", "it is open now");
+
+    // It can be accepted again.
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/accept"),
+        &decision_body(3),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+}
+
+#[tokio::test]
+async fn the_database_binds_the_sender_and_the_decider_to_the_session_account() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let bob = a_member_with(&pool, &ring, &estate, "bob", Some(Capability::Draw)).await;
+
+    // As the app role, tenant and account set the way `open_tenant_context` sets them; the
+    // statements run in order in one transaction, which commits only if all of them pass.
+    type Params<'a> = &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)];
+    async fn run_as(
+        pool: &Pool,
+        org: &str,
+        account: &str,
+        statements: &[(&str, Params<'_>)],
+    ) -> Result<(), tokio_postgres::Error> {
+        let mut conn = pool.get().await.unwrap();
+        let tx = conn.transaction().await.unwrap();
+        tx.execute(
+            "SELECT set_config('app.tenant_id', $1, true), set_config('app.account_id', $2, true)",
+            &[&org, &account],
+        )
+        .await
+        .unwrap();
+        for (sql, params) in statements {
+            tx.execute(*sql, params).await?;
+        }
+        tx.commit().await
+    }
+    let insert = "INSERT INTO cable_corrections \
+        (organisation_id, id, design_id, cable, kind, sender, ciphertext, nonce, key_epoch) \
+        VALUES ($1, $2, $3, 'cable:x', 'traced', $4, '\\x00'::bytea, \
+                decode('000000000000000000000000', 'hex'), 1)";
+    let decide = "UPDATE cable_corrections SET state = 'accepted', decided_by = $2, \
+                  decided_at = now() WHERE id = $1";
+    let org = estate.organisation.to_string();
+    let (ann_id, bob_id) = (ann.account.to_string(), bob.account.to_string());
+    let dsn = design.to_string();
+    let id1 = fathom_server::ids::new_ulid().to_string();
+
+    // Someone else's name as the sender: refused. Their own: accepted.
+    assert!(
+        run_as(
+            &pool,
+            &org,
+            &ann_id,
+            &[(insert, &[&org, &id1, &dsn, &bob_id])]
+        )
+        .await
+        .is_err(),
+        "a sender other than the session account"
+    );
+    run_as(
+        &pool,
+        &org,
+        &ann_id,
+        &[(insert, &[&org, &id1, &dsn, &ann_id])],
+    )
+    .await
+    .expect("own sender");
+    // Deciding it in anyone else's name: refused. In the session account's own: accepted.
+    assert!(
+        run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &bob_id])])
+            .await
+            .is_err(),
+        "a decider other than the session account"
+    );
+    run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &ann_id])])
+        .await
+        .expect("own decision");
 }

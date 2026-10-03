@@ -35,7 +35,6 @@ const AAD_CORRECTION: &[u8] = b"fathom/cable-correction/v1";
 pub const KINDS: [&str; 3] = ["traced", "label", "not_here"];
 pub const MAX_LABEL_CHARS: usize = 200;
 pub const MAX_WHERE_CHARS: usize = 500;
-pub const MAX_CABLE_CHARS: usize = 64;
 /// Open corrections one sender may have on one cable, on one design, and open on one design.
 pub const MAX_OPEN_PER_SENDER_PER_CABLE: i64 = 5;
 pub const MAX_OPEN_PER_SENDER_PER_DESIGN: i64 = 20;
@@ -92,24 +91,24 @@ fn bad(why: &'static str) -> DesignError {
     DesignError::InvalidCorrection(why)
 }
 
-/// A cable element id as the client writes it (`cable:<ulid>`): short, printable, no spaces.
+/// A cable element id as the client writes it: `cable:` and a ULID, in its canonical form.
 pub fn clean_cable(raw: &str) -> Result<String, DesignError> {
-    let ok = !raw.is_empty()
-        && raw.chars().count() <= MAX_CABLE_CHARS
-        && raw
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.'));
+    let ok = raw
+        .strip_prefix("cable:")
+        .is_some_and(|u| fathom_id::Ulid::decode(u).is_ok_and(|id| id.to_string() == u));
     if ok {
         Ok(raw.to_string())
     } else {
-        Err(bad("that is not a cable id"))
+        Err(bad("that is not a cable id (cable: and a ULID)"))
     }
 }
 
 /// The typed text, whitespace collapsed. `traced` carries none; the other two need some.
-/// Refuses control and invisible characters, and text that still carries a password-shaped
-/// value (the check a save runs on a Note: a delimiter beside a secret word, or a crypt,
-/// hex or base64 shape), because a pasted correction has already been through the client gate.
+/// Refuses control and invisible characters, and any text the redaction gate's BARE check
+/// reads as a credential: a secret word (key, secret, password, psk, community...) within two
+/// words before a value, as device syntax writes it (`enable secret cisco123`), or a crypt, hex
+/// or base64 shape. Ordinary prose with those words in it may be refused too; that is the
+/// direction of error chosen. A pasted correction has already been through the client gate.
 pub fn clean_text(kind: &str, raw: &str) -> Result<String, DesignError> {
     if !KINDS.contains(&kind) {
         return Err(bad("kind is one of traced, label, not_here"));
@@ -140,11 +139,8 @@ pub fn clean_text(kind: &str, raw: &str) -> Result<String, DesignError> {
             "where it actually is takes 1 to 500 characters"
         }));
     }
-    if fathom_ingest::redact::looks_like_credential(&t) {
-        return Err(DesignError::CredentialInPayload {
-            kind: "correction",
-            line: 1,
-        });
+    if fathom_ingest::redact::looks_like_credential_bare(&t) {
+        return Err(DesignError::CorrectionLooksSecret);
     }
     Ok(t)
 }
@@ -289,6 +285,35 @@ async fn require_design(
     row.map(|_| ()).ok_or(DesignError::NoSuchDesign)
 }
 
+/// Seal `{text}` under the CURRENT organisation content key, bound to this row's identity.
+/// Returns (ciphertext, nonce) and the key epoch used.
+#[allow(clippy::too_many_arguments)]
+async fn seal(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    tenant: &str,
+    id: &str,
+    design: &str,
+    cable: &str,
+    kind: &str,
+    sender: &str,
+    text: &str,
+) -> Result<((Vec<u8>, [u8; crypto::NONCE_LEN]), i32), DesignError> {
+    let mut body = BTreeMap::new();
+    body.insert("text".to_string(), Json::Str(text.to_string()));
+    let plain = Json::Obj(body).to_canonical_bytes();
+    let key = keys::org_content_key(tx, auth.ctx, auth.tenant_key).await?;
+    let nonce = crypto::random_nonce()?;
+    let ciphertext = crypto::seal(
+        &key.key,
+        &nonce,
+        &plain,
+        &aad(tenant, id, design, cable, kind, sender, key.epoch),
+    )?;
+    keys::count_write_under_org_content_key(tx, tenant, key.epoch).await?;
+    Ok(((ciphertext, nonce), key.epoch))
+}
+
 /// Send a correction. Needs `read` on the design's place.
 pub async fn create(
     tx: &Transaction<'_>,
@@ -339,18 +364,21 @@ pub async fn create(
     }
 
     let id = crate::ids::new_ulid().to_string();
-    let mut body = BTreeMap::new();
-    body.insert("text".to_string(), Json::Str(text.clone()));
-    let plain = Json::Obj(body).to_canonical_bytes();
-    let key = keys::org_content_key(tx, auth.ctx, auth.tenant_key).await?;
-    let nonce = crypto::random_nonce()?;
-    let ciphertext = crypto::seal(
-        &key.key,
-        &nonce,
-        &plain,
-        &aad(&tenant, &id, &design_text, &cable, kind, &sender, key.epoch),
-    )?;
-    keys::count_write_under_org_content_key(tx, &tenant, key.epoch).await?;
+    let (ciphertext, nonce, epoch) = {
+        let (sealed, epoch) = seal(
+            tx,
+            auth,
+            &tenant,
+            &id,
+            &design_text,
+            &cable,
+            kind,
+            &sender,
+            &text,
+        )
+        .await?;
+        (sealed.0, sealed.1, epoch)
+    };
     tx.execute(
         "INSERT INTO cable_corrections \
          (organisation_id, id, design_id, cable, kind, sender, ciphertext, nonce, key_epoch) \
@@ -364,7 +392,7 @@ pub async fn create(
             &sender,
             &ciphertext,
             &nonce.to_vec(),
-            &key.epoch,
+            &epoch,
         ],
     )
     .await?;
@@ -452,19 +480,31 @@ pub async fn list(
     Ok(out)
 }
 
-/// Accept or dismiss one open correction. Needs `draw`. The row is locked, must still be
-/// `open` and at `if_version`; the decider and the time are recorded. Accepting changes nothing
-/// else here: the edit itself is the accepter's, made in the client.
+/// What a decision does to a correction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Verb {
+    Accept,
+    Dismiss,
+    /// Take an ACCEPTED correction back to open, when the edit it was accepted for failed.
+    Reopen,
+}
+
+/// Accept, dismiss or reopen one correction. Needs `draw`. The row is locked and must be in the
+/// state the verb starts from (`open`, or `accepted` for a reopen) at `if_version`; the decider
+/// and the time are recorded. Accepting changes nothing else here: the edit itself is the
+/// accepter's, made in the client. A dismissal re-seals the body as empty text in the same
+/// UPDATE, so what was typed is not kept; that is why a dismissed correction cannot be reopened.
 pub async fn decide(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     design: DesignId,
     id: &str,
     if_version: i64,
-    accept: bool,
+    verb: Verb,
 ) -> Result<Correction, DesignError> {
     authorise(tx, auth, design, Capability::Draw).await?;
     let tenant = auth.ctx.tenant().to_string();
+    let design_text = design.to_string();
     let row = tx
         .query_opt(
             &format!(
@@ -472,7 +512,7 @@ pub async fn decide(
                  WHERE c.organisation_id = $1 AND c.design_id = $2 AND c.id = $3 \
                  FOR UPDATE OF c"
             ),
-            &[&tenant, &design.to_string(), &id],
+            &[&tenant, &design_text, &id],
         )
         .await?
         .ok_or(DesignError::NoSuchCorrection)?;
@@ -480,23 +520,69 @@ pub async fn decide(
         auth,
         keys: BTreeMap::new(),
     };
-    let mut c = opener.open(tx, &row).await?;
-    if c.state != "open" || c.version != if_version {
+    let c = opener.open(tx, &row).await?;
+    let from = if verb == Verb::Reopen {
+        "accepted"
+    } else {
+        "open"
+    };
+    if c.state != from || c.version != if_version {
         return Err(DesignError::CorrectionConflict {
             state: c.state,
             version: c.version,
         });
     }
-    let state = if accept { "accepted" } else { "dismissed" };
     let actor = auth.ctx.actor().to_string();
-    let changed = tx
-        .execute(
-            "UPDATE cable_corrections SET state = $4, decided_by = $5, decided_at = now(), \
-             version = version + 1 \
-             WHERE organisation_id = $1 AND id = $2 AND version = $3 AND state = 'open'",
-            &[&tenant, &id, &if_version, &state, &actor],
-        )
-        .await?;
+    let changed = match verb {
+        Verb::Accept => {
+            tx.execute(
+                "UPDATE cable_corrections SET state = 'accepted', decided_by = $4, \
+                 decided_at = now(), version = version + 1 \
+                 WHERE organisation_id = $1 AND id = $2 AND version = $3 AND state = 'open'",
+                &[&tenant, &id, &if_version, &actor],
+            )
+            .await?
+        }
+        Verb::Reopen => {
+            tx.execute(
+                "UPDATE cable_corrections SET state = 'open', decided_by = NULL, \
+                 decided_at = NULL, version = version + 1 \
+                 WHERE organisation_id = $1 AND id = $2 AND version = $3 AND state = 'accepted'",
+                &[&tenant, &id, &if_version],
+            )
+            .await?
+        }
+        Verb::Dismiss => {
+            let (sealed, epoch) = seal(
+                tx,
+                auth,
+                &tenant,
+                id,
+                &design_text,
+                &c.cable,
+                &c.kind,
+                &c.sender,
+                "",
+            )
+            .await?;
+            tx.execute(
+                "UPDATE cable_corrections SET state = 'dismissed', decided_by = $4, \
+                 decided_at = now(), version = version + 1, \
+                 ciphertext = $5, nonce = $6, key_epoch = $7 \
+                 WHERE organisation_id = $1 AND id = $2 AND version = $3 AND state = 'open'",
+                &[
+                    &tenant,
+                    &id,
+                    &if_version,
+                    &actor,
+                    &sealed.0,
+                    &sealed.1.to_vec(),
+                    &epoch,
+                ],
+            )
+            .await?
+        }
+    };
     if changed != 1 {
         return Err(DesignError::Refused);
     }
@@ -508,8 +594,7 @@ pub async fn decide(
             &[&tenant, &id],
         )
         .await?;
-    c = opener.open(tx, &row).await?;
-    Ok(c)
+    opener.open(tx, &row).await
 }
 
 #[cfg(test)]
@@ -529,29 +614,68 @@ mod tests {
         assert!(clean_text("label", "a\u{0}b").is_err());
     }
 
+    /// Forms a real device accepts, with the value and its word separated by a space only.
+    const DEVICE_SECRETS: [&str; 6] = [
+        "enable secret cisco123",
+        "username admin password 0 Cisco123!",
+        "snmp-server community s3cr3tR0 RO",
+        "tacacs-server key 7 0822455D0A16",
+        "crypto isakmp key Sh4redS3cret address 10.0.0.1",
+        "wpa-psk Tr0ub4dor&3",
+    ];
+
     #[test]
-    fn a_password_beside_its_word_is_refused() {
-        for t in [
-            "password: hunter2",
-            "enable secret=cisco123",
-            "psk: Tr0ub4dor",
-        ] {
+    fn a_secret_in_device_syntax_is_refused_for_every_kind_of_text() {
+        for t in DEVICE_SECRETS {
+            for kind in ["label", "not_here"] {
+                assert!(
+                    matches!(clean_text(kind, t), Err(DesignError::CorrectionLooksSecret)),
+                    "{kind}: {t}"
+                );
+            }
+            // Behind other words, as a person would write it.
+            let wrapped = format!("it is behind the panel, switch says {t}");
             assert!(
                 matches!(
-                    clean_text("not_here", t),
-                    Err(DesignError::CredentialInPayload { .. })
+                    clean_text("not_here", &wrapped),
+                    Err(DesignError::CorrectionLooksSecret)
                 ),
-                "{t}"
+                "{wrapped}"
             );
         }
-        assert!(clean_text("not_here", "replaced the key switch in rack 4").is_ok());
+        // The delimiter forms still go.
+        for t in ["password: hunter2", "psk=Tr0ub4dor"] {
+            assert!(clean_text("label", t).is_err(), "{t}");
+        }
     }
 
     #[test]
-    fn cable_ids_are_short_and_plain() {
+    fn ordinary_places_and_labels_pass() {
+        for t in [
+            "Behind the Hartwell blanking plate in B3",
+            "PP1-04",
+            "Rack B3, U12",
+        ] {
+            assert!(clean_text("not_here", t).is_ok(), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_cable_id_is_cable_colon_and_a_ulid() {
         assert!(clean_cable("cable:01JABCDEFGHJKMNPQRSTVWXYZ0").is_ok());
-        assert!(clean_cable("").is_err());
-        assert!(clean_cable("a b").is_err());
-        assert!(clean_cable(&"a".repeat(65)).is_err());
+        for bad in [
+            "",
+            "a b",
+            "cable:",
+            "cable:x",
+            "cable:01JABCDEFGHJKMNPQRSTVWXYZ0 ",
+            "cable:01jabcdefghjkmnpqrstvwxyz0",
+            "port:01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "cable:01JABCDEFGHJKMNPQRSTVWXYZI",
+            "cable:81JABCDEFGHJKMNPQRSTVWXYZ0",
+            "01JABCDEFGHJKMNPQRSTVWXYZ0",
+        ] {
+            assert!(clean_cable(bad).is_err(), "{bad:?}");
+        }
     }
 }

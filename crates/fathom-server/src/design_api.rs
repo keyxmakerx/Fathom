@@ -227,6 +227,10 @@ pub fn router(state: DesignApiState) -> Router {
             "/organisations/{organisation}/designs/{design}/corrections/{correction}/dismiss",
             post(dismiss_correction_handler),
         )
+        .route(
+            "/organisations/{organisation}/designs/{design}/corrections/{correction}/reopen",
+            post(reopen_correction_handler),
+        )
         .route("/catalogue/models", get(catalogue_list_handler))
         .route(
             "/catalogue/models/{vendor}/{model}",
@@ -488,6 +492,13 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::InvalidCorrection(why) => {
             (StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()
         }
+        DesignError::CorrectionLooksSecret => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "That looks as if it carries a password or key, so it was not sent. A word such as key, \
+             secret, password or community next to a value is refused, even in an ordinary \
+             sentence; reword it without the value.\n",
+        )
+            .into_response(),
         DesignError::CorrectionCap(why) => {
             (StatusCode::TOO_MANY_REQUESTS, format!("{why}\n")).into_response()
         }
@@ -2602,7 +2613,7 @@ async fn decide_correction(
     state: DesignApiState,
     path: (String, String, String),
     signed: Signed,
-    accept: bool,
+    verb: corrections::Verb,
 ) -> Result<Response, RouteError> {
     let (organisation, design, correction) = path;
     let design_id = parse_design(&design)?;
@@ -2625,7 +2636,7 @@ async fn decide_correction(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let done = corrections::decide(&tx, &auth, design_id, &id, if_version, accept).await?;
+    let done = corrections::decide(&tx, &auth, design_id, &id, if_version, verb).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(done.to_json()))
 }
@@ -2636,7 +2647,7 @@ async fn accept_correction_handler(
     PathExtractor(path): PathExtractor<(String, String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    decide_correction(state, path, signed, true).await
+    decide_correction(state, path, signed, corrections::Verb::Accept).await
 }
 
 /// `POST .../corrections/{id}/dismiss`: body `{ifVersion}`. Needs `draw`.
@@ -2645,7 +2656,18 @@ async fn dismiss_correction_handler(
     PathExtractor(path): PathExtractor<(String, String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    decide_correction(state, path, signed, false).await
+    decide_correction(state, path, signed, corrections::Verb::Dismiss).await
+}
+
+/// `POST .../corrections/{id}/reopen`: body `{ifVersion}`. Needs `draw`. An ACCEPTED correction
+/// goes back to open (the edit it was accepted for failed); a dismissed one cannot, because its
+/// text was scrubbed when it was dismissed.
+async fn reopen_correction_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(path): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    decide_correction(state, path, signed, corrections::Verb::Reopen).await
 }
 
 // ---- Response framing ----
