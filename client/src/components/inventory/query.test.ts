@@ -77,6 +77,9 @@ describe('operators', () => {
   it('field:value is equals, any case', () => {
     expect(names(run('role:switch', ROWS))).toEqual(['lon1-core1', 'man1-sw01']);
   });
+  it('tag:value is a shortcut for tags:value', () => {
+    expect(names(run('tag:prod', ROWS))).toEqual(['lon1-core1', 'man1-sw01']);
+  });
   it('field!=value is not equals', () => {
     expect(names(run('role!=switch', ROWS))).toEqual(['lon1-fw1', 'man1-ap001']);
   });

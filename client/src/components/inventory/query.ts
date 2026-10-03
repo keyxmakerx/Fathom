@@ -138,7 +138,8 @@ function parseWord(tok: string, fields: readonly FieldSpec[], kindWord: string, 
   const field = m[2]!.toLowerCase();
   const op = m[3] as Op;
   const value = unquote(m[4]!);
-  const spec = fields.find((f) => f.key.toLowerCase() === field);
+  // `tag:edge` is a shortcut for the Tags field.
+  const spec = fields.find((f) => f.key.toLowerCase() === field) ?? (field === 'tag' ? fields.find((f) => f.key.toLowerCase() === 'tags') : undefined);
   if (!spec) {
     const near = closest(field, fields);
     errors.push({
