@@ -30,7 +30,7 @@ function PolicyRow({ p }: { p: TracePolicy }): JSX.Element {
   return (
     <li className={`trace-policy${affect ? ' trace-policy--affect' : ''}`} data-testid="trace-policy" data-state={p.state}>
       <span className="trace-policy__line">
-        <span className="trace-policy__ord">#{p.ordinal}</span> {p.name} <span className="trace-muted">· {p.action}</span>
+        <span className="trace-policy__ord">#{Number(p.ordinal) + 1}</span> {p.name} <span className="trace-muted">· {p.action}</span>
         <span className="trace-policy__state"> · {affect && p.state === "can't tell" ? "could affect: can't tell" : p.state}</span>
       </span>
       <button type="button" className="trace-link" aria-expanded={why} onClick={() => setWhy((w) => !w)}>

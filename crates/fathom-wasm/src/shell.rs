@@ -2203,7 +2203,12 @@ impl Shell {
                 port: port.parse().ok()?,
             })
         });
-        protocol::encode_trace_reply(&fathom_inventory::trace(estate, from.trim(), to.trim(), flow))
+        protocol::encode_trace_reply(&fathom_inventory::trace(
+            estate,
+            from.trim(),
+            to.trim(),
+            flow,
+        ))
     }
 
     fn element(&mut self, req: &[u8]) -> Vec<u8> {

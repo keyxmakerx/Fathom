@@ -12,6 +12,7 @@ import { readPlain, SCHEMA_VERSION, writePlain } from './document/plain';
 import { viewOf } from './document/view';
 import { newUlid } from './document/ulid';
 import { Engine } from './engine/engine';
+import { Mirror } from './engine/mirror';
 import { setSession } from './state/sessionState';
 import {
   catalogueFrom,
@@ -105,6 +106,30 @@ declare global {
   }
 }
 
+/** The canvas scene with a Junos config pasted into fw-01: two addressed units in two zones, a static route
+ * and one policy that names an application, so a trace from fw-01 has a route hop and a firewall hop to show. */
+const TRACE_CONFIG = `set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.0.1/24
+set routing-options static route 198.51.100.0/24 next-hop 203.0.113.1
+set security zones security-zone trust interfaces ge-0/0/1.0
+set security zones security-zone untrust interfaces ge-0/0/0.0
+set security policies from-zone trust to-zone untrust policy block-smb match source-address any
+set security policies from-zone trust to-zone untrust policy block-smb match destination-address any
+set security policies from-zone trust to-zone untrust policy block-smb match application junos-smb
+set security policies from-zone trust to-zone untrust policy block-smb then deny
+set security policies from-zone trust to-zone untrust policy allow-web match source-address any
+set security policies from-zone trust to-zone untrust policy allow-web match destination-address any
+set security policies from-zone trust to-zone untrust policy allow-web match application junos-https
+set security policies from-zone trust to-zone untrust policy allow-web then permit
+`;
+async function seedTraceScene(catalogue: ReturnType<typeof catalogueFrom>) {
+  const base = seedCanvasScene(catalogue, ME);
+  const fw = viewOf(base, catalogue).racks.flatMap((r) => r.chassis).find((c) => c.hostname === 'fw-01')!;
+  const mirror = new Mirror(await Engine.init());
+  mirror.load(base);
+  return mirror.pasteInto(fw.deviceId, TRACE_CONFIG).doc;
+}
+
 async function main() {
   window.__driveActors__ = { me: ME, colleague: COLLEAGUE };
   const params = new URLSearchParams(window.location.search);
@@ -130,6 +155,7 @@ async function main() {
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
+  else if (scene === 'trace') doc = await seedTraceScene(catalogue);
   else doc = seedEmptyDesign();
 
   let version = 1;

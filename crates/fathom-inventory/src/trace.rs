@@ -842,6 +842,19 @@ impl Walk<'_> {
                             "could not establish the zones on this hop, so which set applies"
                                 .to_owned();
                     }
+                    // Only the sets that end in the egress zone could be this hop's, and only when the
+                    // zone the traffic enters from is the one thing missing.
+                    let ends_here = zout.is_some()
+                        && matches!(scope, Some(PolicyScope::ZonePair { to, .. })
+                            if self.zone_ref(*to) == zout);
+                    if ends_here {
+                        hop.unplaced.extend(lines.into_iter().map(|mut l| {
+                            l.state = "can't tell";
+                            l.reason = "which zone the traffic enters from was not read, so whether this set applies could not be established".to_owned();
+                            l.could_affect = true;
+                            l
+                        }));
+                    }
                 }
                 Place::Elsewhere => {}
             }

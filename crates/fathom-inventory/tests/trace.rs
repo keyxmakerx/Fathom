@@ -646,6 +646,11 @@ fn the_start_can_be_the_firewall_itself() {
     // No ingress interface: the zone is said, not invented.
     let fw = t.hops.iter().find(|h| h.kind == "device").unwrap();
     assert!(fw.scope.starts_with("no ingress interface"));
+    // The sets that end in the egress zone are listed, each "can't tell": the zone entered from is the gap.
+    assert!(fw.policies.is_empty());
+    assert!(!fw.unplaced.is_empty());
+    assert!(fw.unplaced.iter().all(|p| p.state == "can't tell" && p.could_affect));
+    assert!(fw.unplaced_why.starts_with("could not establish"));
 }
 
 #[test]
