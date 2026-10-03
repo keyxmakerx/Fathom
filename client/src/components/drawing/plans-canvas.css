@@ -31,14 +31,15 @@
 .react-flow__node.plan-mark--plan {
   --plan-tone: var(--m-plan);
 }
-.react-flow__node.plan-mark--do {
+.react-flow__node.plan-mark--do,
+.react-flow__node.plan-mark--done {
   --plan-tone: var(--m-do);
 }
 .react-flow__node.plan-mark--plan.plan-mark--dashed {
   outline-style: dashed;
 }
 
-/* The tag: PLANNED, STEP 4, ✓ DONE, ≠ WENT DIFFERENTLY. */
+/* The tag: PLANNED, STEP 4, ✓ DONE (filled teal in Do), ≠ WENT DIFFERENTLY. Ink only once recorded. */
 .react-flow__node.plan-mark::after {
   content: var(--plan-word);
   position: absolute;

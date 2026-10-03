@@ -3,11 +3,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
-import { OUTCOMES, currentStep, touchedBy, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { OUTCOMES, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
 import { Touches, WhySlot } from './PlanParts';
-import { KIND_WORD, OUTCOME_WORD, nameOf, outcomeSentence, progress, stepIsLive } from './plansModel';
+import { OUTCOME_WORD, outcomeSentence, progress, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
 import './plans.css';
 
@@ -20,6 +20,16 @@ function BeforeAfter({ step }: { step: PlanStep }) {
       {step.before !== '' && step.after !== '' && <span aria-label="becomes"> → </span>}
       {step.after !== '' && <span className="plans-mono">{step.after}</span>}
     </p>
+  );
+}
+
+/** The kind as a badge, unless the change already opens with it. */
+function StepHead({ step }: { step: PlanStep }) {
+  const { badge, text } = stepHead(step);
+  return (
+    <>
+      {badge != null && <strong>{badge}</strong>} {text}
+    </>
   );
 }
 
@@ -45,7 +55,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
         {plan.steps.map((s, i) => (
           <li key={s.id} className="plans-step plans-step--planned" data-testid="plans-step">
             <p className="plans-step__head">
-              <strong>{KIND_WORD[s.kind]}</strong> {s.change}
+              <StepHead step={s} />
             </p>
             <BeforeAfter step={s} />
             {canEdit && (
@@ -68,7 +78,6 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       </ol>
       <h3 className="plans-label">What it touches</h3>
       <Touches controller={controller} plan={plan} />
-      {canEdit && <AddStepForm controller={controller} />}
       {canEdit && (
         <p>
           <button type="button" className="plans-btn plans-btn--ink" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
@@ -77,6 +86,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
           {plan.steps.length === 0 && <span className="plans-note"> Add a step first.</span>}
         </p>
       )}
+      {canEdit && <AddStepForm controller={controller} stepCount={plan.steps.length} />}
     </>
   );
 }
@@ -89,6 +99,20 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   const ref = useRef<HTMLLIElement>(null);
   const refused = controller.refused?.stepId === step.id ? controller.refused.finding : null;
   const mountedLive = useRef(live);
+  const differentlyBtn = useRef<HTMLButtonElement>(null);
+  const backToButton = useRef(false);
+
+  // Cancel, or Esc in the note: the form goes, and focus goes back to the button that opened it.
+  const closeForm = () => {
+    backToButton.current = true;
+    setDifferently(false);
+  };
+  useEffect(() => {
+    if (!differently && backToButton.current) {
+      backToButton.current = false;
+      differentlyBtn.current?.focus();
+    }
+  }, [differently]);
 
   // The step before this one was just marked: the buttons it had are gone, so focus comes here.
   useEffect(() => {
@@ -149,12 +173,26 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
           }}
         >
           <label htmlFor={noteId}>What happened instead (required)</label>
-          <textarea id={noteId} className="plans-input plans-input--area" value={note} onChange={(e) => setNote(e.target.value)} autoFocus required />
+          <textarea
+            id={noteId}
+            className="plans-input plans-input--area"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeForm();
+              }
+            }}
+            autoFocus
+            required
+          />
           <p className="plans-step__actions">
             <button type="submit" className="plans-btn plans-btn--ink" disabled={note.trim() === ''}>
               Save, went differently
             </button>
-            <button type="button" className="plans-btn" onClick={() => setDifferently(false)}>
+            <button type="button" className="plans-btn" onClick={closeForm}>
               Cancel
             </button>
           </p>
@@ -164,7 +202,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
           <button type="button" className="plans-btn plans-btn--ink" onClick={() => void controller.done(step.id)}>
             Mark done
           </button>
-          <button type="button" className="plans-btn" onClick={() => setDifferently(true)}>
+          <button ref={differentlyBtn} type="button" className="plans-btn" onClick={() => setDifferently(true)}>
             Went differently
           </button>
         </p>
@@ -194,7 +232,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
   const [outcome, setOutcome] = useState<PlanOutcome | null>(plan.outcome);
   const [text, setText] = useState(plan.record);
   const textId = useId();
-  const names = touchedBy(plan).map((id) => (controller.doc ? nameOf(controller.doc, controller.canon, id) : id));
+  const names = controller.doc ? touchedDevices(controller.doc, controller.canon, plan).map((d) => d.name) : [];
   return (
     <>
       <h3 className="plans-label" id={`${textId}-o`}>
@@ -241,14 +279,14 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           </p>
         )
       )}
-      {recorded && (
+      {recorded && names.length > 0 && (
         <p className="plans-note plans-mono" data-testid="plans-history">
           Saved to the history of {names.join(', ')}
         </p>
       )}
       <ol className="plans-checklist plans-checklist--read">
         {plan.steps.map((s) => (
-          <li key={s.id} className="plans-step plans-step--marked" data-state={s.state}>
+          <li key={s.id} className="plans-step plans-step--recorded" data-state={s.state}>
             <p className="plans-step__head">
               {s.state === 'done' ? '✓' : '≠'} {s.ordinal + 1} · {s.change}
             </p>
@@ -278,12 +316,13 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
   appliedRef.current = applied;
   const mode = panelMode(plan);
   const body = useRef<HTMLDivElement>(null);
-  const lastMode = useRef(mode);
-  // Start work or the last Done replaced the buttons that had focus: focus the panel's body instead.
+  const lastMode = useRef(`${mode}|${plan.stage}`);
+  // Start work, the last Done or Record replaced the buttons that had focus: focus the panel's body instead.
   useEffect(() => {
-    if (lastMode.current !== mode) body.current?.focus({ preventScroll: true });
-    lastMode.current = mode;
-  }, [mode]);
+    const now = `${mode}|${plan.stage}`;
+    if (lastMode.current !== now) body.current?.focus({ preventScroll: true });
+    lastMode.current = now;
+  }, [mode, plan.stage]);
 
   // Same dock, clamp and fold as the Checks panel: the offset is kept, what is drawn stays inside the canvas.
   const measure = () => {

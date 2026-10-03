@@ -1,12 +1,35 @@
 // The plan as a page (mockup r6-maint-a-review): a table of steps, what it touches, notes. Print and Back to
 // canvas. On a phone the table stacks into cards; the print stylesheet in plans.css prints this alone.
+import { useEffect, useRef } from 'react';
+
 import { currentStep, missingTargets, planProblems, type Plan } from '../../document/plans';
 import { Touches, WhySlot } from './PlanParts';
-import { KIND_WORD, OUTCOME_WORD, bandSentence, stateText, windowText } from './plansModel';
+import { KIND_WORD, LIST_TOGGLE_ID, holdSiblings, OUTCOME_WORD, bandSentence, stateText, windowText } from './plansModel';
 import type { PlansController } from './usePlansController';
 import './plans.css';
 
 export function PlanListPage({ controller, plan }: { controller: PlansController; plan: Plan }) {
+  const ref = useRef<HTMLElement>(null);
+  // The page covers the canvas: make what is beneath inert, and keep keys from reaching its shortcuts
+  // (Delete, undo), so nothing can act on a device nobody can see.
+  useEffect(() => {
+    const page = ref.current;
+    if (!page) return undefined;
+    const release = holdSiblings(page);
+    const swallow = (e: KeyboardEvent) => {
+      if (!page.contains(e.target as Node | null)) e.stopPropagation();
+    };
+    document.addEventListener('keydown', swallow, true);
+    return () => {
+      document.removeEventListener('keydown', swallow, true);
+      release();
+    };
+  }, []);
+  const back = () => {
+    // The list toggle stays in the band: focus goes there before this page goes.
+    document.getElementById(LIST_TOGGLE_ID)?.focus();
+    controller.setListMode(false);
+  };
   const cur = currentStep(plan);
   const notes = plan.steps.filter((s) => s.note !== '');
   const problems = planProblems(plan);
@@ -14,18 +37,18 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
   const win = windowText(plan.windowStart, plan.windowEnd);
   const meta = [win, plan.author, `${plan.steps.length} ${plan.steps.length === 1 ? 'change' : 'changes'}`].filter((x) => x !== '').join(' · ');
   return (
-    <article className="plans-page" data-stage={plan.stage} aria-label={`Plan: ${plan.title}`} data-testid="plans-page">
+    <article ref={ref} className="plans-page" onKeyDown={(e) => e.stopPropagation()} data-stage={plan.stage} aria-label={`Plan: ${plan.title}`} data-testid="plans-page">
       <header className="plans-page__head">
         <div>
           <h1 className="plans-page__title">{plan.title}</h1>
           <p className="plans-page__meta plans-mono">{meta}</p>
-          <p className="plans-page__meta">{bandSentence(plan)}</p>
+          <p className="plans-page__meta">{bandSentence(plan, controller.doc, controller.canon)}</p>
         </div>
         <p className="plans-page__tools no-print">
           <button type="button" className="plans-btn" onClick={() => window.print()} data-testid="plans-print">
             Print
           </button>
-          <button type="button" className="plans-btn" onClick={() => controller.setListMode(false)} data-testid="plans-back">
+          <button type="button" className="plans-btn" onClick={back} data-testid="plans-back">
             Back to canvas
           </button>
         </p>

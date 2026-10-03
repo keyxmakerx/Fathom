@@ -85,7 +85,7 @@ use deadpool_postgres::Transaction;
 use fathom_canon::Json;
 use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
 use fathom_graph::Graph;
-use fathom_ir::generated::accessors::{capture, note};
+use fathom_ir::generated::accessors::{capture, maintenance_plan, note, plan_step};
 use fathom_ir::generated::ir_types::NodeKind;
 
 use crate::api;
@@ -1328,7 +1328,85 @@ fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
             }
         }
     }
+    // A plan's and a step's text is typed by a person, or pasted from a device on the
+    // way to being recorded: the delimiter-only check, as for a `Note`. Its `edit` and
+    // `targets` hold only ids, wire names and a value, so they are read part by part.
+    for node in graph.nodes_of_kind(NodeKind::MaintenancePlan) {
+        let fields = [
+            maintenance_plan::title(node),
+            maintenance_plan::window_start(node),
+            maintenance_plan::window_end(node),
+            maintenance_plan::author(node),
+            maintenance_plan::record(node),
+        ];
+        for text in fields.into_iter().flatten() {
+            if let Some(line) = credential_line(&text.0, false) {
+                return Some(("MaintenancePlan", line));
+            }
+        }
+    }
+    for node in graph.nodes_of_kind(NodeKind::PlanStep) {
+        let prose = [
+            plan_step::change(node),
+            plan_step::before(node),
+            plan_step::after(node),
+            plan_step::note(node),
+            plan_step::done_at(node),
+        ];
+        for text in prose.into_iter().flatten() {
+            if let Some(line) = credential_line(&text.0, false) {
+                return Some(("PlanStep", line));
+            }
+        }
+        if let Ok(text) = plan_step::edit(node) {
+            if let Some(line) = edit_credential_line(&text.0) {
+                return Some(("PlanStep", line));
+            }
+        }
+        if let Ok(text) = plan_step::targets(node) {
+            if let Some(line) = parts_credential_line(&text.0, '\n', None) {
+                return Some(("PlanStep", line));
+            }
+        }
+    }
     None
+}
+
+/// `kind:ULID`: a design id, which the shape detectors would otherwise read as base64.
+fn id_shaped(part: &str) -> bool {
+    part.split_once(':').is_some_and(|(kind, ulid)| {
+        !kind.is_empty()
+            && kind.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+            && ulid.len() == 26
+            && ulid.chars().all(|c| c.is_ascii_alphanumeric())
+    })
+}
+
+/// The 1-based line of `text` with a part (split on `sep`) that is not an id and looks
+/// like a credential. `prose_part` is the one part index that may be a typed value, so it
+/// gets the prose-safe check; every other part is read bare, as it should hold no prose.
+fn parts_credential_line(text: &str, sep: char, prose_part: Option<usize>) -> Option<usize> {
+    text.lines()
+        .enumerate()
+        .find(|(_, line)| {
+            line.split(sep).enumerate().any(|(i, part)| {
+                if id_shaped(part) {
+                    return false;
+                }
+                if Some(i) == prose_part {
+                    fathom_ingest::redact::looks_like_credential(part)
+                } else {
+                    fathom_ingest::redact::looks_like_credential_bare(part)
+                }
+            })
+        })
+        .map(|(idx, _)| idx + 1)
+}
+
+/// `PlanStep.edit`: tab-separated, and only a `field` edit's fourth part is a typed value.
+fn edit_credential_line(text: &str) -> Option<usize> {
+    let prose = text.starts_with("field\t").then_some(3);
+    parts_credential_line(text, '\t', prose)
 }
 
 /// The 1-based line in one field's text that first looks like a credential, run
@@ -1918,5 +1996,129 @@ mod tests {
             generic_response.status(),
             "the typed error must not collapse into the generic one"
         );
+    }
+
+    /// A graph with one plan and one step carrying exactly the given texts.
+    fn plan_graph(plan: &[(u32, &str)], step: &[(u32, &str)]) -> Graph {
+        use fathom_graph::{
+            Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+        };
+        use fathom_id::Ulid;
+        let prov = |n: u128| ProvenanceRecord {
+            id: ProvenanceId(Ulid(n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(0),
+            asserted_by: Actor::User(UserId(Ulid(9_999))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        };
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(Ulid(1)), "fixture").unwrap();
+        let p = g
+            .insert_node(NodeKind::MaintenancePlan, Ulid(2), prov(3))
+            .unwrap();
+        let st = g.insert_node(NodeKind::PlanStep, Ulid(4), prov(5)).unwrap();
+        for (i, (key, text)) in plan.iter().enumerate() {
+            g.set_field(
+                p.into(),
+                fathom_ir::bag::FieldKey(*key),
+                fathom_ir::scalar::Text((*text).to_owned()),
+                prov(10 + i as u128),
+            )
+            .unwrap();
+        }
+        for (i, (key, text)) in step.iter().enumerate() {
+            g.set_field(
+                st.into(),
+                fathom_ir::bag::FieldKey(*key),
+                fathom_ir::scalar::Text((*text).to_owned()),
+                prov(100 + i as u128),
+            )
+            .unwrap();
+        }
+        g.end_batch().unwrap();
+        g
+    }
+
+    /// Plan and step text is scanned like a note; ids in `edit` and `targets` are not
+    /// mistaken for credentials, and a credential in any part of them is caught.
+    #[test]
+    fn find_credential_reads_plan_and_step_text() {
+        use fathom_ir::generated::ir_types::{MaintenancePlanField as P, PlanStepField as S};
+        let psk = "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3";
+        let id = "device:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let port = "physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAW";
+
+        let plan_fields = [
+            P::Title.key().0,
+            P::WindowStart.key().0,
+            P::WindowEnd.key().0,
+            P::Author.key().0,
+            P::Record.key().0,
+        ];
+        for k in plan_fields {
+            let g = plan_graph(&[(k, psk)], &[]);
+            assert_eq!(find_credential(&g), Some(("MaintenancePlan", 1)), "{k}");
+        }
+        let step_fields = [
+            S::Change.key().0,
+            S::Before.key().0,
+            S::After.key().0,
+            S::Note.key().0,
+            S::DoneAt.key().0,
+        ];
+        for k in step_fields {
+            let g = plan_graph(&[], &[(k, &format!("fine\n{psk}"))]);
+            assert_eq!(find_credential(&g), Some(("PlanStep", 2)), "{k}");
+        }
+        // A bare Cisco-style line in a part that holds no prose.
+        let g = plan_graph(
+            &[],
+            &[(
+                S::Targets.key().0,
+                &format!("{id}\nenable secret 5 Abc12345"),
+            )],
+        );
+        assert_eq!(find_credential(&g), Some(("PlanStep", 2)));
+        let g = plan_graph(
+            &[],
+            &[(
+                S::Edit.key().0,
+                &format!("cut\t{id} password 7 0822455D0A16"),
+            )],
+        );
+        assert_eq!(find_credential(&g), Some(("PlanStep", 1)));
+        let g = plan_graph(
+            &[],
+            &[(S::Edit.key().0, &format!("field\t{id}\tDevice.role\t{psk}"))],
+        );
+        assert_eq!(find_credential(&g), Some(("PlanStep", 1)));
+
+        // Honest plans are not refused: ids, prose and a typed value read clean.
+        let g = plan_graph(
+            &[
+                (P::Title.key().0, "Replaced the key switch in rack 4"),
+                (P::WindowStart.key().0, "2026-10-03T22:00:00Z"),
+            ],
+            &[
+                (S::Edit.key().0, &format!("cable\t{port}\t{port}")),
+                (S::Targets.key().0, &format!("{id}\n{port}")),
+                (S::Change.key().0, "Move the uplink to sw-02 before 06:00"),
+            ],
+        );
+        assert_eq!(find_credential(&g), None);
+        let g = plan_graph(
+            &[],
+            &[(
+                S::Edit.key().0,
+                &format!("field\t{id}\tDevice.role\tkey switch"),
+            )],
+        );
+        assert_eq!(find_credential(&g), None);
+        let g = plan_graph(
+            &[],
+            &[(S::Edit.key().0, &format!("move\t{id}\t{port}\t4\tfront"))],
+        );
+        assert_eq!(find_credential(&g), None);
     }
 }

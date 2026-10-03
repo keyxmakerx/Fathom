@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import { addSketchPort, createSketchDevice } from '../../document/commands';
+import { IncompatibleConnectorError, PortAlreadyTerminatedError, connectPorts } from '../../document/cables';
 import { edgesOut, emptyDocument, type Document } from '../../document/model';
 import {
+  PlanRefusal,
   addStep,
   createPlan,
   currentStep,
@@ -28,7 +30,13 @@ import {
   buildStep,
   changedMarks,
   focusKeys,
+  holdSiblings,
+  mediaCandidatesFor,
   outcomeSentence,
+  portsOfDevice,
+  stateText,
+  stepHead,
+  touchedDevices,
   planEscTarget,
   prefillFor,
   refusalFor,
@@ -38,7 +46,7 @@ import {
   windowText,
   bandSentence,
 } from './plansModel';
-import { ENGINE_DOWN, loadPanelPrefs, refusalText, usePlansController, type PlansController } from './usePlansController';
+import { ENGINE_DOWN, editFailureText, loadPanelPrefs, refusalText, usePlansController, type PlansController } from './usePlansController';
 
 const tick = (() => {
   let now = 1_790_900_000_000;
@@ -59,11 +67,12 @@ const finding = (over: Partial<CheckFinding> = {}): CheckFinding => ({
   ...over,
 });
 
-function lab(): { doc: Document; devices: string[]; ports: string[] } {
+/** Three free ports (`ports`), and a cable already joining two more, for a plan to cut. */
+function lab(): { doc: Document; devices: string[]; ports: string[]; cable: string } {
   let doc = emptyDocument();
   const ports: string[] = [];
   const devices: string[] = [];
-  for (const label of ['Et1', 'Et2', 'Et3']) {
+  for (const label of ['Et1', 'Et2', 'Et3', 'Et4', 'Et5']) {
     const before = new Set(doc.nodes.map((n) => n.id));
     doc = createSketchDevice(doc, tick());
     const fresh = doc.nodes.filter((n) => !before.has(n.id));
@@ -72,7 +81,9 @@ function lab(): { doc: Document; devices: string[]; ports: string[] } {
     doc = addSketchPort(doc, chassis, { label, connector: 'rj45', face: 'front' }, tick());
     ports.push(edgesOut(doc, chassis, 'HasPort')[0]!.to);
   }
-  return { doc, devices, ports };
+  doc = connectPorts(doc, ports[3], ports[4], {}, tick());
+  const cable = doc.nodes.find((n) => n.id.startsWith('cable:'))!.id;
+  return { doc, devices: devices.slice(0, 3), ports: ports.slice(0, 3), cable };
 }
 
 function planWith(doc: Document, edits: (StepEdit | null)[]): { doc: Document; id: string } {
@@ -86,10 +97,10 @@ function planWith(doc: Document, edits: (StepEdit | null)[]): { doc: Document; i
 
 describe('marks and their words', () => {
   it('words a step PLANNED, STEP n, ✓ DONE or ≠ WENT DIFFERENTLY', () => {
-    const { doc, ports } = lab();
+    const { doc, ports, cable } = lab();
     const made = planWith(doc, [
       { t: 'cable', a: ports[0], b: ports[1] },
-      { t: 'cut', cable: 'cable:X' },
+      { t: 'cut', cable },
       { t: 'cable', a: ports[1], b: ports[2] },
     ]);
     const planning = readPlan(made.doc, made.id);
@@ -104,10 +115,10 @@ describe('marks and their words', () => {
   });
 
   it('maps edits to marks by kind, with canonical keys, in step order', () => {
-    const { doc, devices, ports } = lab();
+    const { doc, devices, ports, cable } = lab();
     const made = planWith(doc, [
       { t: 'cable', a: ports[0], b: ports[1] },
-      { t: 'cut', cable: 'cable:X' },
+      { t: 'cut', cable },
       null,
     ]);
     const plan = readPlan(made.doc, made.id);
@@ -120,7 +131,7 @@ describe('marks and their words', () => {
     ]);
     expect(marks[0].ends).toEqual([ports[0], ports[1]]);
     expect(marks[0].keys).toEqual([devices[0], devices[1]]);
-    expect(marks[1].keys).toEqual(['cable:X']);
+    expect(marks[1].keys).toEqual([cable]);
   });
 
   it('Do lights only the current step; Record lights nothing until asked, then the changes', () => {
@@ -144,6 +155,34 @@ describe('marks and their words', () => {
     expect(focusKeys(recorded, canon, false)).toBeNull();
     expect(focusKeys(recorded, canon, true)?.size).toBe(3);
     expect(changedMarks(recorded, canon).map((m) => m.word)).toEqual(['✓ DONE', '≠ WENT DIFFERENTLY']);
+  });
+});
+
+describe('marks for steps that happened', () => {
+  it('a went-differently cable step tags the devices and draws no cable, ghost or solid', () => {
+    const { doc, devices, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    let d = startPlan(made.doc, made.id, tick());
+    d = markWentDifferently(d, readPlan(d, made.id).steps[0].id, { note: 'patched by hand', gate, ...tick() });
+    const plan = readPlan(d, made.id);
+    const canon = buildCanon(d);
+    for (const marks of [buildMarks(plan, canon, d), changedMarks({ ...plan, stage: 'recorded' }, canon, d)]) {
+      expect(marks).toHaveLength(1);
+      expect(marks[0].kind).toBe('touch');
+      expect(marks[0].ends).toBeUndefined();
+      expect(marks[0].keys).toEqual([devices[0], devices[1]]);
+    }
+  });
+
+  it('a done cable step has no ghost: the real cable carries the mark', () => {
+    const { doc, devices, ports, cable: existing } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
+    let d = startPlan(made.doc, made.id, tick());
+    d = markDone(d, readPlan(d, made.id).steps[0].id, { check: allow, ...tick() });
+    const cable = d.nodes.find((n) => n.id.startsWith('cable:') && n.id !== existing)!.id;
+    const marks = buildMarks(readPlan(d, made.id), buildCanon(d), d);
+    expect(marks[0]).toMatchObject({ kind: 'touch', word: '✓ DONE', keys: [cable, devices[0], devices[1]] });
+    expect(marks.some((m) => m.kind === 'add-cable')).toBe(false);
   });
 });
 
@@ -251,6 +290,115 @@ describe('Done is gated by the checks', () => {
   });
 });
 
+describe('refusals in plain words', () => {
+  it('pre-checks the cable with the media its connectors give, as the canvas does', () => {
+    const { doc, ports } = lab();
+    expect(mediaCandidatesFor(doc, ports[0], ports[1])).toEqual(['cat6']);
+    const seen: string[] = [];
+    const mirror = {
+      checkCable: (_a: unknown, _b: unknown, media?: string) => {
+        seen.push(media ?? '');
+        return media === 'cat6' ? [finding()] : [];
+      },
+      checkFieldEdit: () => [],
+    };
+    expect(refusalFor(mirror, { t: 'cable', a: ports[0], b: ports[1] }, () => undefined, doc)?.title).toMatch(/cannot be joined/);
+    expect(seen).toEqual(['cat6']);
+  });
+
+  it('a mismatched pair tries each end\'s own lead, so the Why card can name the refusal', () => {
+    let d = emptyDocument();
+    const before = new Set(d.nodes.map((n) => n.id));
+    d = createSketchDevice(d, tick());
+    const chassis = d.nodes.filter((n) => !before.has(n.id)).find((n) => n.id.startsWith('chassis:'))!.id;
+    d = addSketchPort(d, chassis, { label: 'a', connector: 'rj45', face: 'front' }, tick());
+    d = addSketchPort(d, chassis, { label: 'b', connector: 'lc', face: 'front' }, tick());
+    const [a, b] = edgesOut(d, chassis, 'HasPort').map((e) => e.to);
+    expect(mediaCandidatesFor(d, a, b).sort()).toEqual(['cat6', 'mmf']);
+  });
+
+  it('an edit that fails says so without ids, and offers Went differently', () => {
+    const bad = new IncompatibleConnectorError('physical-port:01ABC', 'physical-port:01DEF', '"rj45" does not pair with "lc"');
+    expect(refusalText(bad)).toBe('That cable cannot be made: the port connectors do not pair.');
+    expect(refusalText(new PortAlreadyTerminatedError('physical-port:01ABC', 'cable:01XYZ'))).not.toMatch(/01ABC|01XYZ/);
+    expect(refusalText(new Error('port "physical-port:01ABC" is gone'))).not.toMatch(/01ABC/);
+    const said = editFailureText(new Error('node chassis:01ABC is absent'));
+    expect(said).not.toMatch(/01ABC/);
+    expect(said).toMatch(/Went differently/);
+    expect(editFailureText(bad)).toMatch(/connectors do not pair.*Went differently/);
+  });
+});
+
+describe('words for steps, ports and history', () => {
+  it('shows the kind once: a badge unless the change already opens with it', () => {
+    expect(stepHead({ kind: 'cable', change: 'Cable sw-02 → sw-03' })).toEqual({ badge: null, text: 'Cable sw-02 → sw-03' });
+    expect(stepHead({ kind: 'move', change: 'Move sw-02 to Rack A' }).badge).toBeNull();
+    expect(stepHead({ kind: 'cable', change: 'Remove sw-02 uplink' }).badge).toBe('Cable');
+    expect(stepHead({ kind: 'cable', change: 'Cables on sw-02' }).badge).toBe('Cable');
+  });
+
+  it('default step text does not repeat the kind', () => {
+    const { doc, ports } = lab();
+    const canon = buildCanon(doc);
+    const built = buildStep(doc, canon, { ...EMPTY_FORM, kind: 'cable', portA: ports[0], portB: ports[1] });
+    expect('error' in built ? '' : built.change).not.toMatch(/^Cable /);
+  });
+
+  it('gives repeated port labels their face, then a count', () => {
+    let d = emptyDocument();
+    const before = new Set(d.nodes.map((n) => n.id));
+    d = createSketchDevice(d, tick());
+    const fresh = d.nodes.filter((n) => !before.has(n.id));
+    const chassis = fresh.find((n) => n.id.startsWith('chassis:'))!.id;
+    const device = fresh.find((n) => n.id.startsWith('device:'))!.id;
+    for (const face of ['front', 'rear', 'rear'] as const) d = addSketchPort(d, chassis, { label: '1', connector: 'rj45', face }, tick());
+    d = addSketchPort(d, chassis, { label: '2', connector: 'rj45', face: 'front' }, tick());
+    const names = portsOfDevice(d, buildCanon(d), device).map((c) => c.name);
+    expect(names).toEqual(['1 (front)', '1 (rear) #1', '1 (rear) #2', '2']);
+  });
+
+  it('the history lists devices only, once each, and the band counts them', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    let d = startPlan(made.doc, made.id, tick());
+    d = markDone(d, readPlan(d, made.id).steps[0].id, { check: allow, ...tick() });
+    d = recordPlan(d, made.id, { outcome: 'succeeded', text: '', gate, ...tick() });
+    const plan = readPlan(d, made.id);
+    const canon = buildCanon(d);
+    const touched = touchedDevices(d, canon, { ...plan, steps: plan.steps.map((s) => ({ ...s, targets: [...s.targets, ports[0], 'rack:none'] })) });
+    expect(touched.every((t) => t.id.startsWith('device:'))).toBe(true);
+    expect(new Set(touched.map((t) => t.id)).size).toBe(touched.length);
+    expect(bandSentence(plan, d, canon)).toBe(`Succeeded · on ${touchedDevices(d, canon, plan).length} ${touchedDevices(d, canon, plan).length === 1 ? "device's" : "devices'"} history`);
+  });
+
+  it('Under way is not the glyph Do uses for what is still to come', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const d = startPlan(made.doc, made.id, tick());
+    const plan = readPlan(d, made.id);
+    expect(stateText(plan.steps[0], currentStep(plan))).not.toContain('…');
+  });
+
+  it('holds what is beside a covering page inert and lets go again', () => {
+    const el = () => {
+      const attrs = new Set<string>();
+      return { attrs, hasAttribute: (n: string) => attrs.has(n), setAttribute: (n: string) => attrs.add(n), removeAttribute: (n: string) => attrs.delete(n) };
+    };
+    const canvas = el();
+    const other = el();
+    other.attrs.add('inert');
+    const children: unknown[] = [canvas];
+    const page = { ...el(), parentElement: { children: children as ArrayLike<Element> } };
+    children.push(page, other);
+    const release = holdSiblings(page);
+    expect(canvas.attrs.has('inert')).toBe(true);
+    expect(page.attrs.has('inert')).toBe(false);
+    release();
+    expect(canvas.attrs.has('inert')).toBe(false);
+    expect(other.attrs.has('inert')).toBe(true);
+  });
+});
+
 describe('Esc and sentences', () => {
   it('Esc closes the Why card first, then a notice, then the changes shown', () => {
     expect(planEscTarget({ why: true, notice: true, changes: true })).toBe('why');
@@ -260,7 +408,7 @@ describe('Esc and sentences', () => {
   });
 
   it('speaks a refusal in words, with a capital and a full stop', () => {
-    expect(refusalText(new Error('already done'))).toBe('already done');
+    expect(refusalText(new PlanRefusal('not-doing', 'start the work first'))).toBe('Start the work first.');
     expect(loadPanelPrefs({ getItem: () => 'not json' })).toEqual({ x: 0, y: 0, open: null });
     expect(loadPanelPrefs({ getItem: () => JSON.stringify({ x: 5, y: 'no', open: false }) })).toEqual({ x: 5, y: 0, open: false });
   });
@@ -329,13 +477,14 @@ describe('the controller applies commands through the one write path', () => {
     expect(await h.controller.start()).toBe(true);
     const startedDoc = h.applied[0];
     const stepId = readPlan(startedDoc, planId).steps[0].id;
-    expect(withStepDoc.nodes.some((n) => n.id.startsWith('cable:'))).toBe(false);
+    const cables = (d: Document) => d.nodes.filter((n) => n.id.startsWith('cable:')).length;
+    expect(cables(withStepDoc)).toBe(1);
     h = harness(startedDoc, { open: planId });
     expect(await h.controller.done(stepId)).toBe(true);
     const after = h.applied[0];
     expect(readPlan(after, planId).steps[0].state).toBe('done');
     // Done applied the step's edit through the normal command: a cable now joins the two ports.
-    expect(after.nodes.some((n) => n.id.startsWith('cable:'))).toBe(true);
+    expect(cables(after)).toBe(2);
     expect(after.provenance.filter((r) => r.assertedBy === '01ARZ3NDEKTSV4RRFFQ69G5FAV').length).toBeGreaterThan(withStepDoc.provenance.length);
     spy.mockRestore();
   });
@@ -480,6 +629,30 @@ describe('the panel and the page, rendered', () => {
     for (const word of ['What it touches', 'Notes', 'Print', 'Back to canvas', 'used port 23', 'data-label="Before"', '≠ Went differently']) {
       expect(page).toContain(word);
     }
+  });
+
+  it('Plan puts Start work after What it touches, and the Add a step form behind a button once there are steps', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const out = render(readPlan(made.doc, made.id), made.doc);
+    expect(out.panel.indexOf('What it touches')).toBeLessThan(out.panel.indexOf('Start work'));
+    expect(out.panel.indexOf('Start work')).toBeLessThan(out.panel.indexOf('Add a step'));
+    expect(out.panel).not.toContain('data-testid="plans-add-step"');
+    const empty = planWith(doc, []);
+    expect(render(readPlan(empty.doc, empty.id), empty.doc).panel).toContain('data-testid="plans-add-step"');
+  });
+
+  it('a recorded plan never says it is reading the design; it names what it touched, as recorded', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    let d = startPlan(made.doc, made.id, tick());
+    d = markDone(d, readPlan(d, made.id).steps[0].id, { check: allow, ...tick() });
+    d = recordPlan(d, made.id, { outcome: 'succeeded', text: '', gate, ...tick() });
+    const out = render(readPlan(d, made.id), d);
+    expect(out.page).not.toContain('Reading the design');
+    expect(out.page).toContain('As recorded');
+    expect(out.panel).toContain('plans-step--recorded');
+    expect(out.panel).not.toContain('plans-step--marked');
   });
 
   it('never uses amber or calls a plan private', () => {

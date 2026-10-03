@@ -9,11 +9,14 @@ import {
   LOCAL_ACTOR,
   UnknownReferenceError,
   archiveField,
+  asString,
   assertHand,
   edgesIn,
   findEdge,
+  fieldValue,
   findNode,
   parseEdgeId,
+  parseNodeId,
   readMountedInFields,
   replaceEdge,
   replaceNode,
@@ -101,7 +104,10 @@ export type UndoConflict =
   /** ADR-0053 §1 — reviving this batch's tombstoned element would land it
    * where something else now stands (the same check `check_edge_l0` runs for
    * an ordinary add, re-run here for the edge kinds this client revives). */
-  | { kind: 'revive-refused'; element: string; reason: string };
+  | { kind: 'revive-refused'; element: string; reason: string }
+  /** The batch set a field on a recorded plan or one of its steps: a recorded plan is
+   * history as written and is never reversed. */
+  | { kind: 'recorded-plan'; element: string };
 
 /** Every element `batch` touched: each op's own element, plus — when that
  * element is (or was) an edge — its two endpoints, so a colleague's edit to
@@ -142,6 +148,23 @@ function touchedElements(doc: Document, batch: Batch): Set<string> {
   return out;
 }
 
+/** The first element `batch` sets a field on that is a recorded plan, or a step of one. */
+function recordedPlanTouched(doc: Document, batch: Batch): string | undefined {
+  for (const op of batch.ops) {
+    if (op.type !== 'set_field') continue;
+    const node = findNode(doc, op.element);
+    if (!node) continue;
+    const kind = parseNodeId(node.id).kind;
+    let plan = kind === 'MaintenancePlan' ? node : undefined;
+    if (kind === 'PlanStep') {
+      const from = edgesIn(doc, node.id, 'HasStep')[0]?.from;
+      plan = from === undefined ? undefined : findNode(doc, from);
+    }
+    if (plan && asString(fieldValue(plan.fields, 'MaintenancePlan.stage')) === 'recorded') return op.element;
+  }
+  return undefined;
+}
+
 /** The wall-clock millisecond a ulid was minted at — its top 48 bits
  * (`ulid.ts`'s own layout doc), used here to give a conflicting batch a time
  * without `Batch` carrying one of its own. */
@@ -169,6 +192,9 @@ export function conflict(doc: Document, batchId: string, requestingActor?: strin
   if (requestingActor !== undefined && requestingActor !== actor) {
     return { kind: 'not-yours', actor };
   }
+
+  const recorded = recordedPlanTouched(doc, batch);
+  if (recorded !== undefined) return { kind: 'recorded-plan', element: recorded };
 
   const touched = touchedElements(doc, batch);
   const index = doc.batches.indexOf(batch);
@@ -206,6 +232,8 @@ function conflictMessage(c: UndoConflict): string {
       return `this change is ${c.actor}'s, not yours to undo`;
     case 'revive-refused':
       return `undo refused: ${c.reason}`;
+    case 'recorded-plan':
+      return 'a recorded plan is history as written and cannot be undone';
   }
 }
 
@@ -225,17 +253,20 @@ export class UndoConflictError extends Error {
  * imported (it is `pub(crate)`, not part of the schema or the wire): the
  * bound a batch label is refused past, so "undo of <label>"/"redo of
  * <label>" never mints a label the engine would refuse. */
-const LABEL_MAX_BYTES = 60;
+export const LABEL_MAX_BYTES = 60;
 
 /** Cut `s` at `maxBytes` UTF-8 bytes, on a character boundary — never
  * mid-codepoint. */
-function truncateUtf8(s: string, maxBytes: number): string {
+export function truncateUtf8(s: string, maxBytes: number = LABEL_MAX_BYTES): string {
   const encoder = new TextEncoder();
-  if (encoder.encode(s).length <= maxBytes) return s;
-  let end = s.length;
+  // Every UTF-16 unit is at least one byte, so nothing past `maxBytes` units can fit.
+  let end = Math.min(s.length, maxBytes);
   while (end > 0 && encoder.encode(s.slice(0, end)).length > maxBytes) {
     end -= 1;
   }
+  // Never leave half of a surrogate pair.
+  const last = end > 0 ? s.charCodeAt(end - 1) : 0;
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
   return s.slice(0, end);
 }
 

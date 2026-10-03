@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PlanMark } from '../plans/plansStore';
 import { menuItemsFor } from './contextMenuItems';
-import { applyPlans, cssString, decorFor, focusMatch, ghostEdges, matchMarks, toneOf, type PortTarget } from './plansMarks';
+import { TONE_COLOUR, applyPlans, cssString, decorFor, focusMatch, ghostEdges, matchMarks, toneOf, type PortTarget } from './plansMarks';
 
 const canon = (id: string): string => (id.startsWith('port:') ? `device:${id.split(':')[1]}` : id);
 
@@ -63,6 +63,16 @@ describe('tone and tag', () => {
     expect(d.word).toBe('STEP 1 +2');
   });
 
+  it('in Do the current step wins over an earlier done one on the same device', () => {
+    const d = decorFor('doing', [mark({ ordinal: 0, word: '✓ DONE' }), mark({ ordinal: 1, word: 'STEP 2' })]);
+    expect(d).toMatchObject({ tone: 'do', word: 'STEP 2 +1' });
+  });
+
+  it('a done step is filled teal in Do; ink only once recorded', () => {
+    expect(TONE_COLOUR[toneOf('doing', '✓ DONE')]).toBe('var(--m-do)');
+    expect(TONE_COLOUR[toneOf('recorded', '✓ DONE')]).toBe('var(--ink)');
+  });
+
   it('keeps a word from ending its CSS string', () => {
     expect(cssString('a"b\\c')).toBe('"a b c"');
   });
@@ -85,6 +95,11 @@ describe('ghostEdges', () => {
     ] as Node[];
     const [g] = ghostEdges('planned', [add], free, (id) => (id.startsWith('port:') ? `device:${id.split(':')[1]}` : id), () => null);
     expect(g).toMatchObject({ source: 'free:device:fw', sourceHandle: 'r', target: 'free:device:nas', targetHandle: 'l' });
+  });
+
+  it('draws no ghost for a step already marked done or gone another way', () => {
+    expect(ghostEdges('doing', [{ ...add, word: '✓ DONE' }], nodes, canon, resolve)).toEqual([]);
+    expect(ghostEdges('doing', [{ ...add, word: '≠ WENT DIFFERENTLY' }], nodes, canon, resolve)).toEqual([]);
   });
 
   it('draws nothing for a cable it cannot place, and nothing for other kinds', () => {
@@ -142,7 +157,7 @@ describe('applyPlans', () => {
 
   it('keeps a ghost and the plates it joins at full strength when its mark is in focus', () => {
     const add = mark({ kind: 'add-cable', keys: ['device:fw', 'device:nas'], ends: ['port:fw:1', 'port:nas:2'] });
-    const out = applyPlans({ nodes, edges, plans: plans({ marks: [add], focus: new Set(['device:nas']) }), canon, resolvePort: resolve, checksShowing: false });
+    const out = applyPlans({ nodes, edges, plans: plans({ marks: [add], focus: new Set(['device:fw', 'device:nas']) }), canon, resolvePort: resolve, checksShowing: false });
     const ghost = out.edges.find((e) => e.id === 'plan-ghost:s1')!;
     expect(ghost.className ?? '').not.toContain('checks-faded');
     expect(out.nodes.find((n) => n.id === 'chassis:fw')!.className ?? '').not.toContain('checks-faded');
@@ -155,6 +170,18 @@ describe('focusMatch', () => {
     const { nodeIds, edgeIds } = focusMatch(nodes, edges, new Set(['cable:1']), canon);
     expect([...nodeIds].sort()).toEqual(['chassis:fw', 'chassis:sw1']);
     expect([...edgeIds]).toEqual(['cable:1']);
+  });
+});
+
+describe('Do fades all but the current step', () => {
+  it('drops a later step\'s ghost and the device only it reaches', () => {
+    const now = mark({ stepId: 'now', kind: 'add-cable', word: 'STEP 1', keys: ['device:fw', 'device:sw1'], ends: ['port:fw:1', 'port:sw1:2'] });
+    const later = mark({ stepId: 'later', ordinal: 2, kind: 'add-cable', keys: ['device:sw1', 'device:nas'], ends: ['port:sw1:3', 'port:nas:2'] });
+    const out = applyPlans({ nodes, edges, plans: { stage: 'doing', marks: [now, later], focus: new Set(['device:fw', 'device:sw1']) }, canon, resolvePort: resolve, checksShowing: false });
+    const faded = (id: string) => (out.edges.find((e) => e.id === id)!.className ?? '').includes('checks-faded');
+    expect(faded('plan-ghost:now')).toBe(false);
+    expect(faded('plan-ghost:later')).toBe(true);
+    expect(out.nodes.find((n) => n.id === 'chassis:nas')!.className ?? '').toContain('checks-faded');
   });
 });
 

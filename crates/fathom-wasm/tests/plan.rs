@@ -312,3 +312,93 @@ fn not_a_plan_or_no_estate_answers_no_steps() {
     assert!(preview(&mut shell, &a1).is_empty());
     assert!(preview(&mut shell, "garbage").is_empty());
 }
+
+#[test]
+fn hostile_lines_do_not_trap_and_the_engine_stays_usable() {
+    use fathom_ir::generated::ir_types::{DeviceField, MaintenancePlanField};
+    use fathom_wasm::plan::{impact, Edit};
+
+    let (mut shell, cable1, a1, a2, b2, dev) = estate();
+    let plan = add_plan(
+        &mut shell,
+        &[
+            // An editable key on a kind that does not own it.
+            Spec {
+                edit: format!("field\t{a1}\tDevice.management_address\t10.0.0.1"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("field\t{dev}\tRack.row\tR1"),
+                state: "planned",
+            },
+            // A key no hand can set: not an edit at all.
+            Spec {
+                edit: format!("field\t{dev}\tMaintenancePlan.stage\trecorded"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("field\t{dev}\tDevice.platform\tjunos-srx"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("field\t{cable1}\tDevice.role\tx"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("cable\t{a2}\t{b2}"),
+                state: "planned",
+            },
+        ],
+    );
+    let held_before = shell.handle(OP_EXPORT_PLAIN, &[]);
+    let out = preview(&mut shell, &plan);
+    assert_eq!(out.len(), 6);
+    assert!(
+        out[0].step[2].contains("does not belong"),
+        "{:?}",
+        out[0].step
+    );
+    assert!(
+        out[1].step[2].contains("does not belong"),
+        "{:?}",
+        out[1].step
+    );
+    for o in &out[2..4] {
+        assert_eq!(o.step[2], "", "an unknown edit is a no-op: {:?}", o.step);
+        assert_eq!(o.step[4], "", "and touches nothing: {:?}", o.step);
+    }
+    assert_eq!(shell.handle(OP_EXPORT_PLAIN, &[]), held_before);
+
+    // `impact` itself, handed a key the node's kind lacks, is typed and quiet.
+    let g = fathom_workspace::read_plain(&held_before).unwrap();
+    for key in [
+        MaintenancePlanField::Stage.key(),
+        DeviceField::Hostname.key(),
+    ] {
+        let (lines, touches) = impact(
+            &g,
+            &Edit::Field {
+                id: a1.clone(),
+                key,
+                value: "x".into(),
+            },
+        );
+        assert!(lines.is_empty());
+        assert!(touches.len() <= 1);
+    }
+    let (_, touches) = impact(
+        &g,
+        &Edit::Field {
+            id: dev.clone(),
+            key: MaintenancePlanField::Stage.key(),
+            value: "recorded".into(),
+        },
+    );
+    assert!(touches.is_empty(), "a foreign key touches nothing");
+
+    // Still alive: the same plan previews again, and a sound step in it applies.
+    let again = preview(&mut shell, &plan);
+    assert_eq!(again.len(), 6);
+    assert_eq!(again[5].step[2], "", "{:?}", again[5].step);
+    assert!(again[5].step[4].contains("sw-a"), "{:?}", again[5].step);
+}

@@ -21,9 +21,9 @@ import { connectPorts } from '../document/cables';
 import { addSketchPort, createSketchDevice, removeChassis } from '../document/commands';
 import { setDeviceField } from '../document/edit';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
-import { edgesIn, edgesOut, emptyDocument, type Document } from '../document/model';
+import { edgesIn, edgesOut, emptyDocument, text, type Document } from '../document/model';
 import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
-import { createFreeBox, createLabel, createLine, removeFree, setLineLabel } from '../document/freeform';
+import { begin, createFreeBox, createLabel, createLine, finish, removeFree, setLineLabel, setNodeField } from '../document/freeform';
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
@@ -698,7 +698,7 @@ describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', ()
       doc = addSketchPort(doc, chassis, { label, connector: 'rj45', face: 'front' }, step());
       ports.push(edgesOut(doc, chassis, 'HasPort')[0]!.to);
     }
-    return { doc, ports };
+    return { doc, ports, device: doc.nodes.find((n) => n.id.startsWith('device:'))!.id };
   }
 
   it('previews each step in order, says what it adds, and changes nothing', () => {
@@ -728,7 +728,7 @@ describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', ()
   it('real-length device secrets in any plan text never reach the stored plan', () => {
     const psk = 'Zk9Qw3Lm0PxV7tYsAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-aBcDeF';
     const line = `set security ike policy ike-pol pre-shared-key ascii-text "${psk}"`;
-    const { doc, ports } = lab();
+    const { doc, device } = lab();
     expect(gate('Move the uplink to sw-02 before 06:00')).toBe('Move the uplink to sw-02 before 06:00');
     const made = createPlan(doc, { title: 'Rotate the key', gate, ...step() });
     const added = addStep(made.doc, made.id, {
@@ -736,7 +736,7 @@ describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', ()
       change: 'Rotate the key',
       before: line,
       after: line,
-      edit: { t: 'field', id: ports[0], key: 'Device.role', value: line },
+      edit: { t: 'field', id: device, key: 'Device.role', value: line },
       gate,
       ...step(),
     });
@@ -748,5 +748,70 @@ describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', ()
     expect(stored).toContain('REDACTED');
     expect(readPlan(d, made.id).stage).toBe('recorded');
     expect(typeof markDone).toBe('function');
+  });
+
+  // Each line is what a real device accepts (CLAUDE.md rule 2): an 8-character Junos PSK, a `$9$`
+  // BGP authentication-key, Cisco type 5 and type 7. The gate under test is the real wasm one.
+  const SECRET_LINES: [string, string][] = [
+    ['Ab3dE6gH', 'set security ike policy ike-pol pre-shared-key ascii-text "Ab3dE6gH"'],
+    ['Ab3dE6gH', 'set security ike policy ike-pol pre-shared-key ascii-text Ab3dE6gH'],
+    ['Qz7Lx-VYgoJDm5T3AtOBIEcSrKvWx', 'set protocols bgp group ISP neighbor 203.0.113.1 authentication-key "$9$Qz7Lx-VYgoJDm5T3AtOBIEcSrKvWx"'],
+    ['Qz7Lx-VYgoJDm5T3AtOBIEcSrKvWx', 'set protocols bgp authentication-key $9$Qz7Lx-VYgoJDm5T3AtOBIEcSrKvWx'],
+    ['mERr$hx5rVt7rPNoS4wqbXKX7m0', 'enable secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0'],
+    ['0822455D0A16', 'username admin privilege 15 password 7 0822455D0A16'],
+    ['0822455D0A16', 'line vty 0 4\n password 7 0822455D0A16'],
+  ];
+
+  it.each(SECRET_LINES)('%s: never reaches a stored plan, in What went wrong, a step note or a step', (secret, line) => {
+    const { doc, device } = lab();
+    const made = createPlan(doc, { title: 'Rotate the key', gate, ...step() });
+    const added = addStep(made.doc, made.id, {
+      kind: 'other',
+      change: `Rotate: ${line}`,
+      before: line,
+      after: line,
+      edit: { t: 'field', id: device, key: 'Device.role', value: line.replace('\n', ' ') },
+      gate,
+      ...step(),
+    });
+    let d = startPlan(added.doc, made.id, step());
+    d = markWentDifferently(d, added.id, { note: `Did it by hand:\n${line}`, gate, ...step() });
+    d = recordPlan(d, made.id, { outcome: 'failed', text: `What went wrong:\n${line}`, gate, ...step() });
+    const stored = JSON.stringify(d.nodes) + JSON.stringify(d.batches);
+    expect(stored).not.toContain(secret);
+    // The gate leaves a marker, or the quarantine sketch (`<word> <word>`) for a line it cannot label.
+    expect(stored).toMatch(/REDACTED|<word>/);
+    const p = readPlan(d, made.id);
+    expect(p.record).not.toContain(secret);
+    expect(p.steps[0].note).not.toContain(secret);
+    expect(p.stage).toBe('recorded');
+  });
+
+  it('a crafted step the engine is asked to preview does not kill it', () => {
+    const { doc, ports, device } = lab();
+    let made = createPlan(doc, { title: 'Hostile', gate, ...step() });
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const s = addStep(made.doc, made.id, { kind: 'other', change: `s${i}`, edit: { t: 'field', id: device, key: 'Device.role', value: 'x' }, gate, ...step() });
+      made = { doc: s.doc, id: made.id };
+      ids.push(s.id);
+    }
+    // Written into the document the way a hostile client could, past addStep.
+    const crafted = [
+      `field\t${device}\tMaintenancePlan.stage\trecorded`,
+      `field\t${ports[0]}\tDevice.management_address\t10.0.0.9`,
+      `field\t${device}\tRack.row\tR1`,
+    ];
+    const b = begin(made.doc, step());
+    crafted.forEach((line, i) => setNodeField(b, ids[i], 'PlanStep.edit', text(line)));
+    const hostile = finish(b, 'crafted');
+    engine.loadPlain(writePlain(hostile));
+    const before = engine.exportPlain();
+    const out = engine.planPreview(made.id);
+    expect(out).toHaveLength(3);
+    expect(engine.exportPlain()).toEqual(before);
+    // Still alive and answering.
+    expect(engine.planPreview(made.id)).toHaveLength(3);
+    expect(engine.redactText('hello').text).toBe('hello');
   });
 });

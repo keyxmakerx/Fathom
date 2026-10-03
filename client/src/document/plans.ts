@@ -34,6 +34,7 @@ import {
   type Document,
   type GraphNode,
 } from './model';
+import { truncateUtf8 } from './undo';
 
 interface Actor {
   actor?: string;
@@ -155,8 +156,59 @@ export const EDITABLE_FIELDS: readonly string[] = [
   'Cable.ownership',
 ];
 
+/** The node kind a design id names, or null when it is not a well-formed node id. */
+function nodeKindOf(id: string): string | null {
+  try {
+    return parseNodeId(id).kind;
+  } catch {
+    return null;
+  }
+}
+
+/** A field edit's key must be one a hand can set, and the target must be of the kind that owns it. */
+function assertEditable(e: StepEdit): void {
+  if (e.t !== 'field') return;
+  if (!EDITABLE_FIELDS.includes(e.key)) throw new PlanRefusal('bad-edit', `${e.key} is not a field a plan step can set`);
+  if (nodeKindOf(e.id) !== e.key.split('.')[0]) {
+    throw new PlanRefusal('bad-edit', `${e.key} does not belong to the thing this step changes`);
+  }
+}
+
+/** The id slots of an edit and the node kind each must be. */
+function slotsOf(e: StepEdit): [string, string][] {
+  switch (e.t) {
+    case 'field':
+      return [[e.id, e.key.split('.')[0]]];
+    case 'cable':
+      return [
+        [e.a, 'PhysicalPort'],
+        [e.b, 'PhysicalPort'],
+      ];
+    case 'cut':
+      return [[e.cable, 'Cable']];
+    case 'move':
+      return [
+        [e.chassis, 'Chassis'],
+        [e.rack, 'Rack'],
+      ];
+  }
+}
+
+/** Refuses an edit whose key, ids or kinds are not well formed, or name something not in the design. */
+function assertWellFormed(doc: Document, e: StepEdit): void {
+  assertEditable(e);
+  for (const [id, kind] of slotsOf(e)) {
+    if (nodeKindOf(id) !== kind) throw new PlanRefusal('bad-edit', `"${id}" is not a ${kind}`);
+    const n = findNode(doc, id);
+    if (!n || n.absentSince !== undefined) throw new PlanRefusal('bad-edit', `"${id}" is not in the design`);
+  }
+  if (e.t === 'move' && !Number.isInteger(e.positionU)) throw new PlanRefusal('bad-edit', 'a rack position is a whole number');
+  if (e.t === 'move' && e.face !== 'front' && e.face !== 'rear') throw new PlanRefusal('bad-edit', 'a face is front or rear');
+}
+
 /** Applies an edit through the command a hand edit uses. Throws what that command throws. */
 export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
+  assertEditable(e);
   switch (e.t) {
     case 'cable':
       return connectPorts(doc, e.a, e.b, {}, opts);
@@ -167,6 +219,11 @@ export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
     case 'field': {
       const value = e.value === '' ? null : e.value;
       const [kind, key] = e.key.split('.');
+      const number = (): number => {
+        const n = Number(value);
+        if (value === null || !Number.isFinite(n)) throw new PlanRefusal('bad-edit', `${e.key} needs a number`);
+        return n;
+      };
       switch (kind) {
         case 'Device':
           return setDeviceField(doc, e.id, key as DeviceFieldKey, value, opts);
@@ -174,12 +231,12 @@ export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
           return setChassisField(doc, e.id, key as ChassisFieldKey, value, opts);
         case 'Rack':
           return key === 'height_u'
-            ? setRackHeight(doc, e.id, Number(value), opts)
+            ? setRackHeight(doc, e.id, number(), opts)
             : setRackField(doc, e.id, key as RackFieldKey, value, opts);
         case 'PassiveNode':
           return setPassiveNodeField(doc, e.id, 'label', value, opts);
         case 'Cable':
-          return setCableField(doc, e.id, key as CableFieldKey, key === 'length_m' && value !== null ? Number(value) : value, opts);
+          return setCableField(doc, e.id, key as CableFieldKey, key === 'length_m' && value !== null ? number() : value, opts);
         default:
           throw new PlanRefusal('bad-edit', `${e.key} is not a field a plan step can set`);
       }
@@ -317,6 +374,17 @@ function gated(gate: TextGate, value: string | undefined, what: string): string 
   return out;
 }
 
+/** A window end is empty, or an ISO date-time as a date-time field gives it. */
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+function windowValue(value: string, what: string): string {
+  if (value === '') return value;
+  if (!ISO_DATE_TIME.test(value) || Number.isNaN(new Date(value).getTime())) {
+    throw new PlanRefusal('bad-text', `${what} is not a date and time`);
+  }
+  return value;
+}
+
 function requirePlanning(doc: Document, planId: string): void {
   live(doc, planId, 'MaintenancePlan');
   const stage = str(findNode(doc, planId)!, 'MaintenancePlan.stage');
@@ -335,13 +403,15 @@ export interface CreatePlanOptions extends Actor {
 export function createPlan(doc: Document, opts: CreatePlanOptions): { doc: Document; id: string } {
   const title = gated(opts.gate, opts.title, 'the title').trim();
   if (title === '') throw new PlanRefusal('bad-text', 'a plan needs a title');
+  const windowStart = windowValue(opts.windowStart ?? '', 'the start of the window');
+  const windowEnd = windowValue(opts.windowEnd ?? '', 'the end of the window');
   const b = begin(doc, opts);
   const fields: Record<string, ReturnType<typeof text>> = {
     'MaintenancePlan.title': text(title),
     'MaintenancePlan.stage': token('planned'),
   };
-  if (opts.windowStart) fields['MaintenancePlan.window_start'] = text(opts.windowStart);
-  if (opts.windowEnd) fields['MaintenancePlan.window_end'] = text(opts.windowEnd);
+  if (windowStart) fields['MaintenancePlan.window_start'] = text(windowStart);
+  if (windowEnd) fields['MaintenancePlan.window_end'] = text(windowEnd);
   if (opts.author) fields['MaintenancePlan.author'] = text(gated(opts.gate, opts.author, 'the author'));
   const id = addNode(b, 'MaintenancePlan', fields);
   return { doc: finish(b, 'plan a change'), id };
@@ -354,14 +424,16 @@ export function setPlanHead(
   opts: Actor & { gate: TextGate },
 ): Document {
   requirePlanning(doc, planId);
+  const start = patch.windowStart === undefined ? undefined : windowValue(patch.windowStart, 'the start of the window');
+  const end = patch.windowEnd === undefined ? undefined : windowValue(patch.windowEnd, 'the end of the window');
   const b = begin(doc, opts);
   if (patch.title !== undefined) {
     const t = gated(opts.gate, patch.title, 'the title').trim();
     if (t === '') throw new PlanRefusal('bad-text', 'a plan needs a title');
     setNodeField(b, planId, 'MaintenancePlan.title', text(t));
   }
-  if (patch.windowStart !== undefined) setNodeField(b, planId, 'MaintenancePlan.window_start', text(patch.windowStart));
-  if (patch.windowEnd !== undefined) setNodeField(b, planId, 'MaintenancePlan.window_end', text(patch.windowEnd));
+  if (start !== undefined) setNodeField(b, planId, 'MaintenancePlan.window_start', text(start));
+  if (end !== undefined) setNodeField(b, planId, 'MaintenancePlan.window_end', text(end));
   return finish(b, 'edit plan');
 }
 
@@ -393,11 +465,17 @@ export function addStep(doc: Document, planId: string, opts: AddStepOptions): { 
   if (opts.edit) {
     // The value is the one place a typed value reaches an edit; it is gated like any text.
     const e = opts.edit.t === 'field' ? { ...opts.edit, value: gated(opts.gate, opts.edit.value, 'the value') } : opts.edit;
+    assertWellFormed(doc, e);
     fields['PlanStep.edit'] = text(encodeEdit(e));
-    if (e.t === 'field' && !EDITABLE_FIELDS.includes(e.key)) throw new PlanRefusal('bad-edit', `${e.key} is not a field a plan step can set`);
   }
   const targets = opts.targets ?? [];
-  if (!opts.edit && targets.length > 0) fields['PlanStep.targets'] = text(targets.join('\n'));
+  if (!opts.edit) {
+    for (const t of targets) {
+      const n = nodeKindOf(t) === null ? undefined : findNode(doc, t);
+      if (!n || n.absentSince !== undefined) throw new PlanRefusal('bad-edit', `"${t}" is not in the design`);
+    }
+    if (targets.length > 0) fields['PlanStep.targets'] = text(targets.join('\n'));
+  }
   const b = begin(doc, opts);
   const id = addNode(b, 'PlanStep', fields);
   addEdge(b, 'HasStep', planId, id);
@@ -486,6 +564,7 @@ export interface MarkDoneOptions extends Actor {
 export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): Document {
   const { plan, step } = requireTurn(doc, stepId);
   if (step.edit) {
+    assertEditable(step.edit);
     const refused = opts.check(step.edit);
     if (refused) throw new PlanRefusal('refused-by-check', refused.title);
   }
@@ -495,7 +574,7 @@ export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): 
   const b = begin(applied, { actor: opts.actor, now });
   setNodeField(b, stepId, 'PlanStep.state', token('done'));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
-  return relabelLast(finish(b, 'mark step'), from, `${plan.title}: step ${step.ordinal + 1} done`);
+  return relabelLast(finish(b, 'mark step'), from, truncateUtf8(`${plan.title}: step ${step.ordinal + 1} done`));
 }
 
 export interface WentDifferentlyOptions extends Actor {
@@ -513,7 +592,7 @@ export function markWentDifferently(doc: Document, stepId: string, opts: WentDif
   setNodeField(b, stepId, 'PlanStep.state', token('went_differently'));
   setNodeField(b, stepId, 'PlanStep.note', text(note));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
-  return finish(b, `${plan.title}: step ${step.ordinal + 1} went differently`);
+  return finish(b, truncateUtf8(`${plan.title}: step ${step.ordinal + 1} went differently`));
 }
 
 export interface RecordOptions extends Actor {
@@ -535,7 +614,7 @@ export function recordPlan(doc: Document, planId: string, opts: RecordOptions): 
   setNodeField(b, planId, 'MaintenancePlan.outcome', token(opts.outcome));
   const record = gated(opts.gate, opts.text, 'the record').trim();
   if (record !== '') setNodeField(b, planId, 'MaintenancePlan.record', text(record));
-  return finish(b, `${plan.title}: recorded as ${opts.outcome}`);
+  return finish(b, truncateUtf8(`${plan.title}: recorded as ${opts.outcome}`));
 }
 
 /** Unknown ids in a plan's steps, for the list view to flag: a thing deleted since planning. */

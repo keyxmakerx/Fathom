@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FIELD_KEYS } from '../../../../schema/generated/ir_types';
+import { IncompatibleConnectorError, PortAlreadyTerminatedError } from '../../document/cables';
 import type { Document } from '../../document/model';
 import {
   PlanRefusal,
@@ -61,10 +62,18 @@ function savePanelPrefs(p: PlanPanelPrefs, storage: Pick<Storage, 'setItem'> | u
   }
 }
 
-/** A sentence for a refused command: the plan's own words, never a code. */
+/** A sentence for a refused command: the plan's own words, never a code, an id or the engine's text. */
 export function refusalText(e: unknown): string {
   if (e instanceof PlanRefusal) return e.message.charAt(0).toUpperCase() + e.message.slice(1) + (/[.!?]$/.test(e.message) ? '' : '.');
-  return e instanceof Error ? e.message : 'That did not go through.';
+  if (e instanceof IncompatibleConnectorError) return 'That cable cannot be made: the port connectors do not pair.';
+  if (e instanceof PortAlreadyTerminatedError) return 'That cable cannot be made: one of its ports already has a cable.';
+  return 'That did not go through.';
+}
+
+/** What a step's edit failing says on the day, with the way out in words. */
+export function editFailureText(e: unknown): string {
+  const said = e instanceof PlanRefusal || e instanceof IncompatibleConnectorError || e instanceof PortAlreadyTerminatedError ? refusalText(e) : 'That change cannot be made to the design as it stands.';
+  return `${said} If it went another way on the day, mark it Went differently.`;
 }
 
 export const ENGINE_DOWN = "Fathom's engine did not start, so nothing was changed. Try again.";
@@ -181,13 +190,13 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
       lastFocusToken.current = '';
       return;
     }
-    const focus = focusKeys(plan, canon, showChanges);
-    const marks = plan.stage === 'recorded' && showChanges ? changedMarks(plan, canon) : buildMarks(plan, canon);
+    const focus = focusKeys(plan, canon, showChanges, doc);
+    const marks = plan.stage === 'recorded' && showChanges ? changedMarks(plan, canon, doc) : buildMarks(plan, canon, doc);
     const moved = focus != null && focusToken !== lastFocusToken.current;
     lastFocusToken.current = focusToken;
     if (moved) tokenRef.current += 1;
     store.set({ stage: plan.stage, marks, focus, ...(moved ? { token: tokenRef.current } : {}) });
-  }, [plan, canon, showChanges, store, focusToken]);
+  }, [plan, canon, doc, showChanges, store, focusToken]);
   useEffect(() => () => store.set({ stage: null, marks: [], focus: null }), [store]);
 
   // Show these changes belongs to the plan it was asked of.
@@ -418,9 +427,14 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         const kept: { finding: CheckFinding | null } = { finding: null };
         // Bring the module up to this document: the check reads what the design is now.
         const m = latest.current.mirrorNow() ?? mirror;
-        const check = stepCheck(m, fieldKey, (f) => {
-          kept.finding = f;
-        });
+        const check = stepCheck(
+          m,
+          fieldKey,
+          (f) => {
+            kept.finding = f;
+          },
+          doc0,
+        );
         try {
           return markDone(doc0, stepId, { check, ...stamp() });
         } catch (e) {
@@ -429,7 +443,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
             setNotice('The checks refuse this step. Fix what they name, or mark it Went differently.');
             return null;
           }
-          throw e;
+          setNotice(editFailureText(e));
+          return null;
         }
       });
     },

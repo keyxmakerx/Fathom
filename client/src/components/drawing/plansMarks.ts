@@ -9,14 +9,14 @@ import type { PlanStage } from '../../document/plans';
 import type { PortPoint } from './cableEnds';
 import { lineSides, type Rect } from './freeLayout';
 
-/** Indigo while planning, teal in Do (the current step), ink once recorded; a done or differently-done step is ink. */
+/** Indigo while planning, teal in Do (the current step, and filled once done), ink once recorded. */
 export type PlanTone = 'plan' | 'do' | 'record' | 'done';
 
 export const TONE_COLOUR: Record<PlanTone, string> = {
   plan: 'var(--m-plan)',
   do: 'var(--m-do)',
   record: 'var(--ink)',
-  done: 'var(--ink)',
+  done: 'var(--m-do)',
 };
 
 export function toneOf(stage: PlanStage, word: string): PlanTone {
@@ -32,10 +32,15 @@ export interface PlanDecor {
   dashed: boolean;
 }
 
-/** The decoration for the marks that touch one thing: the lowest step's word, `+n` for the others. */
+/** Doing: the step being done wins over the ones before it. */
+const isCurrentWord = (word: string): boolean => /^STEP\b/.test(word);
+
+/** The decoration for the marks that touch one thing: the lead step's word (the current step in Do, else the
+ * lowest), `+n` for the others. */
 export function decorFor(stage: PlanStage, marks: readonly PlanMark[]): PlanDecor {
   const sorted = [...marks].sort((a, b) => a.ordinal - b.ordinal);
-  const first = sorted[0]!;
+  const lead = stage === 'doing' ? sorted.find((m) => isCurrentWord(m.word)) : undefined;
+  const first = lead ?? sorted[0]!;
   const tone = toneOf(stage, first.word);
   const word = sorted.length > 1 ? `${first.word} +${sorted.length - 1}` : first.word;
   return { tone, word, dashed: tone === 'plan' };
@@ -131,6 +136,8 @@ export function ghostEdges(
   };
   for (const m of marks) {
     if (m.kind !== 'add-cable' || m.ends == null) continue;
+    // Marked steps have no ghost: the real cable carries the mark, or none was made.
+    if (/^[✓≠]/.test(m.word)) continue;
     const [pa, pb] = m.ends;
     const ta = resolve?.(pa) ?? null;
     const tb = resolve?.(pb) ?? null;
@@ -200,8 +207,8 @@ export function cssString(text: string): string {
   return `"${text.replace(/[\\"\n\r]/g, ' ')}"`;
 }
 
-/** Which drawn nodes and edges a focus keeps at full strength: Checks' own match, plus a ghost whose mark is in
- * the focus (and the two things it joins). */
+/** Which drawn nodes and edges a focus keeps at full strength: Checks' own match, plus a ghost only when both
+ * its ends are in the focus (so a later step's cable is not kept for sharing one device). */
 export function focusMatch(
   nodes: readonly Node[],
   edges: readonly Edge[],
@@ -212,7 +219,7 @@ export function focusMatch(
   for (const e of edges) {
     if (!e.id.startsWith(GHOST_ID_PREFIX)) continue;
     const keys = (e.data as Partial<PlanGhostData> | undefined)?.planKeys ?? [];
-    if (!keys.some((k) => focus.has(k))) continue;
+    if (keys.length === 0 || !keys.every((k) => focus.has(k))) continue;
     edgeIds.add(e.id);
     nodeIds.add(e.source);
     nodeIds.add(e.target);

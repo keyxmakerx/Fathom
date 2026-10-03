@@ -1754,7 +1754,18 @@ impl Shell {
             let reply = match &step.edit {
                 Edit::None | Edit::Move { .. } => Vec::new(),
                 Edit::Field { id, key, value } => {
-                    scratch.field_set(&plan::field_frame(&prefix, *key, id, value))
+                    // A key the target's kind does not have is never written.
+                    let foreign = scratch
+                        .resolve_node(id)
+                        .is_some_and(|n| !n.kind.fields().iter().any(|k| k.0 == key.0));
+                    if foreign {
+                        protocol::encode_error(
+                            ERR_FIELD_VALUE,
+                            "this field does not belong to what the step changes",
+                        )
+                    } else {
+                        scratch.field_set(&plan::field_frame(&prefix, *key, id, value))
+                    }
                 }
                 Edit::Cable { a, b } => scratch.cable(&plan::cable_frame(&prefix, a, b)),
                 Edit::Cut { cable } => scratch.cable(&plan::cut_frame(&prefix, cable)),

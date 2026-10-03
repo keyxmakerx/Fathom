@@ -56,11 +56,21 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: { label: 
   );
 }
 
-export function AddStepForm({ controller }: { controller: PlansController }) {
+/** Collapsed behind a button; open from the start when the plan has no steps, and when a right-click fills it. */
+export function AddStepForm({ controller, stepCount }: { controller: PlansController; stepCount: number }) {
   const { doc, canon, prefill } = controller;
   const [form, setForm] = useState<StepForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const first = useRef<HTMLSelectElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(stepCount === 0);
+  // Focus follows the form opening (the first control) or closing (the button that opens it).
+  const moveFocus = useRef<'in' | 'out' | null>(null);
+  useEffect(() => {
+    if (moveFocus.current === 'in') first.current?.focus();
+    else if (moveFocus.current === 'out') opener.current?.focus();
+    moveFocus.current = null;
+  }, [open]);
   const set = <K extends keyof StepForm>(k: K, v: StepForm[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   // A right-click on a thing starts the form with that thing in it.
@@ -69,9 +79,13 @@ export function AddStepForm({ controller }: { controller: PlansController }) {
     if (prefill != null && prefill.token !== seen.current) {
       seen.current = prefill.token;
       setForm(prefill.form);
-      first.current?.focus();
+      if (open) first.current?.focus();
+      else {
+        moveFocus.current = 'in';
+        setOpen(true);
+      }
     }
-  }, [prefill]);
+  }, [prefill, open]);
 
   const devices = useMemo(() => (doc ? devicesOf(doc, canon) : []), [doc, canon]);
   const racks = useMemo(() => (doc ? racksOf(doc, canon) : []), [doc, canon]);
@@ -81,6 +95,25 @@ export function AddStepForm({ controller }: { controller: PlansController }) {
   const kindId = useId();
   const modeId = useId();
   const faceId = useId();
+
+  if (!open) {
+    return (
+      <p>
+        <button
+          ref={opener}
+          type="button"
+          className="plans-btn"
+          aria-expanded={false}
+          onClick={() => {
+            moveFocus.current = 'in';
+            setOpen(true);
+          }}
+        >
+          Add a step
+        </button>
+      </p>
+    );
+  }
 
   return (
     <form
@@ -154,6 +187,16 @@ export function AddStepForm({ controller }: { controller: PlansController }) {
       <Field label={form.kind === 'route' || form.kind === 'other' ? 'What changes' : 'What changes (optional)'} value={form.change} onChange={(v) => set('change', v)} />
       <button type="submit" className="plans-btn plans-btn--ink" disabled={busy || !controller.canEdit}>
         Add step
+      </button>
+      <button
+        type="button"
+        className="plans-btn"
+        onClick={() => {
+          moveFocus.current = 'out';
+          setOpen(false);
+        }}
+      >
+        Close
       </button>
     </form>
   );

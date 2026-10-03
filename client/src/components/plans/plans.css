@@ -52,6 +52,10 @@
   color: var(--page);
 }
 
+.plans-bar-chip[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+}
+
 .plans-btn:disabled,
 .plans-chip:disabled {
   opacity: 0.5;
@@ -196,8 +200,9 @@
   position: absolute;
   top: calc(var(--s2) * 6);
   right: var(--s2);
-  /* With the Checks panel (modal + 1): over it, under the paste card and the refusal card (+ 2, + 3). */
-  z-index: calc(var(--z-modal) + 2);
+  /* Level with the Checks panel (modal + 1, later in the page so over it); under the paste card and the
+     refusal card (+ 2, + 3), which the panel must never cover. */
+  z-index: calc(var(--z-modal) + 1);
   display: flex;
   flex-direction: column;
   width: min(320px, 92%);
@@ -276,6 +281,12 @@
 /* Do: marked steps carry the teal edge; the ones to come are dimmed; the current one leads. */
 .plans-step--marked {
   border-color: var(--m-do);
+  border-left-width: 4px;
+}
+
+/* Record: the steps as they happened, in ink. */
+.plans-step--recorded {
+  border-color: var(--ink);
   border-left-width: 4px;
 }
 
@@ -366,7 +377,7 @@
 .plans-page {
   position: absolute;
   inset: 0;
-  z-index: calc(var(--z-modal) + 2);
+  z-index: calc(var(--z-modal) + 1);
   box-sizing: border-box;
   overflow: auto;
   padding: var(--s4) var(--s5);
@@ -514,7 +525,15 @@
     position: static !important;
   }
 
-  .plans-page {
+  /* Paper is white whatever the theme: the tokens the page draws its rules and stripe with turn black and grey. */
+  .plans-page,
+  .plans-page[data-stage] {
+    --ink: black;
+    --page: white;
+    --tone: black;
+    --wash: white;
+    --hairline: #888;
+    --muted: #444;
     position: static;
     padding: 0;
     overflow: visible;
@@ -531,6 +550,7 @@
   }
 
   .plans-table .plans-table__stripe {
+    background: black;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

@@ -34,11 +34,32 @@ pub enum Edit {
     },
 }
 
+/// The fields a step may set: mirrors `EDITABLE_FIELDS` in `client/src/document/plans.ts`.
+const EDITABLE_FIELDS: &[&str] = &[
+    "Device.hostname",
+    "Device.role",
+    "Device.management_address",
+    "Chassis.serial",
+    "Rack.row",
+    "Rack.bay",
+    "Rack.height_u",
+    "PassiveNode.label",
+    "Cable.label",
+    "Cable.sheath",
+    "Cable.media",
+    "Cable.length_m",
+    "Cable.ownership",
+];
+
 impl Edit {
+    /// A line that is not a known edit, or names a field no hand can set, is `Edit::None`.
     pub fn parse(line: &str) -> Edit {
         let p: Vec<&str> = line.split('\t').collect();
         match p.as_slice() {
-            ["field", id, wire, value] => match FIELD_KEYS.iter().find(|(n, _)| n == wire) {
+            ["field", id, wire, value] => match FIELD_KEYS
+                .iter()
+                .find(|(n, _)| n == wire && EDITABLE_FIELDS.contains(n))
+            {
                 Some((_, k)) => Edit::Field {
                     id: (*id).to_owned(),
                     key: FieldKey(*k),
@@ -151,6 +172,10 @@ pub fn impact(g: &Graph, edit: &Edit) -> (Vec<String>, Vec<(String, String)>) {
             let Some(n) = live(g, id) else {
                 return (lines, touches);
             };
+            // A key the node's kind does not have reads nothing; skip rather than trap.
+            if !n.kind.fields().iter().any(|k| k.0 == key.0) {
+                return (lines, touches);
+            }
             touches.push(touch(g, n));
             let old = field_text(g, n, *key).unwrap_or_default();
             if old.len() >= 2 && old != *value {
@@ -255,4 +280,94 @@ pub fn field_frame(prefix: &[u8; 24], key: FieldKey, id: &str, value: &str) -> V
     f.extend_from_slice(id.as_bytes());
     f.extend_from_slice(value.as_bytes());
     f
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_keeps_only_editable_fields() {
+        let ok = Edit::parse("field\tdevice:X\tDevice.role\tswitch");
+        assert!(matches!(ok, Edit::Field { .. }));
+        for line in [
+            "field\tdevice:X\tMaintenancePlan.stage\trecorded",
+            "field\tdevice:X\tDevice.platform\tx",
+            "field\tdevice:X\tNope.nothing\tx",
+            "field\tdevice:X\tDevice.role",
+            "field\tdevice:X\tDevice.role\ta\tb",
+            "field\t\t\t",
+            "",
+            "\t\t\t",
+            "cut",
+            "cut\ta\tb",
+            "move\tonly",
+            "cable\tonly",
+            "bogus\tx",
+        ] {
+            assert!(matches!(Edit::parse(line), Edit::None), "{line:?}");
+        }
+        assert!(matches!(Edit::parse("cut\tcable:X"), Edit::Cut { .. }));
+        assert!(matches!(
+            Edit::parse("cable\ta\tb\textra"),
+            Edit::Cable { .. }
+        ));
+    }
+
+    #[test]
+    fn parse_round_trips_hostile_values_and_never_panics() {
+        let values = [
+            "",
+            " ",
+            "switch",
+            "caf\u{e9} \u{1f600} \u{2028}",
+            "$9$Qz7Lx-VYgoJDm5T3",
+            "\"quoted\" \\ back",
+            "a\0b",
+            "set security ike policy p pre-shared-key ascii-text Ab3dE6gH",
+            &"x".repeat(1 << 20),
+        ];
+        for wire in EDITABLE_FIELDS {
+            for v in values {
+                match Edit::parse(&format!("field\tdevice:X\t{wire}\t{v}")) {
+                    Edit::Field { id, key, value } => {
+                        assert_eq!(id, "device:X");
+                        assert_eq!(value, v);
+                        assert!(FIELD_KEYS.iter().any(|(n, k)| n == wire && *k == key.0));
+                    }
+                    _ => panic!("{wire} with {v:?} should parse"),
+                }
+            }
+        }
+        // A value with a tab is a different shape: refused as an edit, never half-read.
+        assert!(matches!(
+            Edit::parse("field\tdevice:X\tDevice.role\ta\tb"),
+            Edit::None
+        ));
+        for line in [
+            "move\tchassis:X\track:Y\t4\tfront",
+            "move\t\t\t\t",
+            "cable\t\t",
+            "cut\t",
+            "\u{0}\t\u{0}",
+            "FIELD\tdevice:X\tDevice.role\tx",
+            " field\tdevice:X\tDevice.role\tx",
+            "field\tdevice:X\tDevice.role \tx",
+            "field\tdevice:X\tdevice.role\tx",
+        ] {
+            let _ = Edit::parse(line);
+        }
+        assert!(matches!(
+            Edit::parse("FIELD\tdevice:X\tDevice.role\tx"),
+            Edit::None
+        ));
+        assert!(matches!(
+            Edit::parse("field\tdevice:X\tDevice.role \tx"),
+            Edit::None
+        ));
+        assert!(matches!(
+            Edit::parse("field\tdevice:X\tdevice.role\tx"),
+            Edit::None
+        ));
+    }
 }

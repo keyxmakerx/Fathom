@@ -1,6 +1,7 @@
 // Pure helpers for the plan surface (ADR-0061 round 7): words, marks, the add-step form, names. No React.
 import type { Canon } from '../checks/checksModel';
 import { UNNAMED_HOSTNAME } from '../drawing/contract';
+import { compatible } from '../../document/compat';
 import {
   asString,
   edgesOut,
@@ -8,6 +9,7 @@ import {
   findNode,
   parseNodeId,
   readMountedInFields,
+  readPhysicalPortFields,
   type Document,
   type GraphNode,
 } from '../../document/model';
@@ -23,6 +25,16 @@ import {
 } from '../../document/plans';
 import type { CheckFinding } from '../../engine/engine';
 import type { PlanMark } from './plansStore';
+
+/** The band's List view button: where focus lands when the list page closes. */
+export const LIST_TOGGLE_ID = 'plans-list-toggle';
+
+/** Makes everything beside `page` inert (nothing under a covering page can be focused or clicked); returns the undo. */
+export function holdSiblings(page: { parentElement: { children: ArrayLike<Element> } | null }): () => void {
+  const held = Array.from(page.parentElement?.children ?? []).filter((el) => (el as unknown) !== page && !el.hasAttribute('inert'));
+  held.forEach((el) => el.setAttribute('inert', ''));
+  return () => held.forEach((el) => el.removeAttribute('inert'));
+}
 
 export const STAGE_WORD: Record<PlanStage, string> = { planned: 'PLANNING', doing: 'DOING', recorded: 'RECORDED' };
 
@@ -41,39 +53,65 @@ export function stepWord(plan: Pick<Plan, 'stage'>, step: PlanStep, current: Pla
 export function stateText(step: PlanStep, current: PlanStep | null): string {
   if (step.state === 'done') return '✓ Done';
   if (step.state === 'went_differently') return '≠ Went differently';
-  return current?.id === step.id ? '… Under way' : 'Planned';
+  return current?.id === step.id ? '● Under way' : 'Planned';
 }
 
-function markFor(step: PlanStep, canon: Canon, word: string): PlanMark | null {
+/** A step's heading: the kind as a badge, unless the change text already opens with it ("Move X", "Cable Y"). */
+export function stepHead(step: Pick<PlanStep, 'kind' | 'change'>): { badge: string | null; text: string } {
+  const word = KIND_WORD[step.kind];
+  const opens = step.change.toLowerCase().startsWith(word.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(step.change.charAt(word.length));
+  return { badge: opens ? null : word, text: step.change };
+}
+
+/** The live cable that joins two ports, if the design has one. */
+function cableBetween(doc: Document, a: string, b: string): string | null {
+  for (const n of doc.nodes) {
+    if (n.absentSince !== undefined || parseNodeId(n.id).kind !== 'Cable') continue;
+    const ends = edgesOut(doc, n.id, 'Terminates').map((e) => e.to);
+    if (ends.includes(a) && ends.includes(b)) return n.id;
+  }
+  return null;
+}
+
+function markFor(step: PlanStep, canon: Canon, word: string, doc?: Document | null): PlanMark | null {
   const e = step.edit;
   const base = { stepId: step.id, ordinal: step.ordinal, word };
-  if (e?.t === 'cable') return { ...base, kind: 'add-cable', keys: [canon(e.a), canon(e.b)], ends: [e.a, e.b] };
+  if (e?.t === 'cable') {
+    const devices = [...new Set([canon(e.a), canon(e.b)])];
+    // Went differently: no cable was made, so only a tag on the devices. Done: the real cable carries the mark.
+    if (step.state === 'went_differently') return { ...base, kind: 'touch', keys: devices };
+    if (step.state === 'done') {
+      const cable = doc ? cableBetween(doc, e.a, e.b) : null;
+      return { ...base, kind: 'touch', keys: cable ? [cable, ...devices] : devices };
+    }
+    return { ...base, kind: 'add-cable', keys: [canon(e.a), canon(e.b)], ends: [e.a, e.b] };
+  }
   if (e?.t === 'cut') return { ...base, kind: 'cut-cable', keys: [e.cable] };
   const keys = [...new Set(step.targets.map(canon))];
   return keys.length === 0 ? null : { ...base, kind: 'touch', keys };
 }
 
 /** The marks the canvas draws: every step while planning or doing; none once recorded (Show these changes asks). */
-export function buildMarks(plan: Plan, canon: Canon): PlanMark[] {
+export function buildMarks(plan: Plan, canon: Canon, doc?: Document | null): PlanMark[] {
   if (plan.stage === 'recorded') return [];
   const current = currentStep(plan);
-  return plan.steps.flatMap((s) => markFor(s, canon, stepWord(plan, s, current)) ?? []);
+  return plan.steps.flatMap((s) => markFor(s, canon, stepWord(plan, s, current), doc) ?? []);
 }
 
 /** What a recorded plan changed: the steps that happened, as marks. */
-export function changedMarks(plan: Plan, canon: Canon): PlanMark[] {
-  return plan.steps.filter((s) => s.state !== 'planned').flatMap((s) => markFor(s, canon, stepWord(plan, s, null)) ?? []);
+export function changedMarks(plan: Plan, canon: Canon, doc?: Document | null): PlanMark[] {
+  return plan.steps.filter((s) => s.state !== 'planned').flatMap((s) => markFor(s, canon, stepWord(plan, s, null), doc) ?? []);
 }
 
 /** Keys kept at full strength: Do's current step, Record's changes when asked; null fades nothing. */
-export function focusKeys(plan: Plan, canon: Canon, showChanges: boolean): ReadonlySet<string> | null {
+export function focusKeys(plan: Plan, canon: Canon, showChanges: boolean, doc?: Document | null): ReadonlySet<string> | null {
   let marks: PlanMark[] = [];
   if (plan.stage === 'doing') {
     const cur = currentStep(plan);
     const mark = cur ? markFor(cur, canon, '') : null;
     marks = mark ? [mark] : [];
   } else if (plan.stage === 'recorded' && showChanges) {
-    marks = changedMarks(plan, canon);
+    marks = changedMarks(plan, canon, doc);
   }
   const keys = new Set(marks.flatMap((m) => m.keys));
   return keys.size === 0 ? null : keys;
@@ -108,7 +146,7 @@ function fmt(d: Date): string {
 }
 
 /** The band's sentence after the title. */
-export function bandSentence(plan: Plan): string {
+export function bandSentence(plan: Plan, doc?: Document | null, canon?: Canon): string {
   const p = progress(plan);
   if (plan.stage === 'planned') {
     const win = windowText(plan.windowStart, plan.windowEnd);
@@ -120,8 +158,8 @@ export function bandSentence(plan: Plan): string {
     return [head, ...bits].join(' · ');
   }
   const outcome = plan.outcome ? OUTCOME_WORD[plan.outcome] : 'Recorded';
-  const n = touchedBy(plan).length;
-  return `${outcome} · on ${n} ${n === 1 ? "thing's" : "things'"} history`;
+  const n = doc && canon ? touchedDevices(doc, canon, plan).length : touchedBy(plan).length;
+  return n === 0 ? outcome : `${outcome} · on ${n} ${n === 1 ? "device's" : "devices'"} history`;
 }
 
 /** "3 of 4 as planned, 1 went differently." */
@@ -167,6 +205,30 @@ export function nameOf(doc: Document, canon: Canon, id: string): string {
   }
 }
 
+const kindOf = (id: string): string => {
+  try {
+    return parseNodeId(id).kind;
+  } catch {
+    return '';
+  }
+};
+
+/** The devices a plan touched, once each: ports and chassis resolve to their device, a cable to the devices it
+ * joined; racks and anything else are dropped. */
+export function touchedDevices(doc: Document, canon: Canon, plan: Plan): Choice[] {
+  const out = new Map<string, Choice>();
+  const add = (id: string): void => {
+    const dev = canon(id);
+    if (out.has(dev) || findNode(doc, dev) === undefined || kindOf(dev) !== 'Device') return;
+    out.set(dev, { id: dev, name: nameOf(doc, canon, dev) });
+  };
+  for (const id of touchedBy(plan)) {
+    if (kindOf(id) === 'Cable') edgesOut(doc, id, 'Terminates').forEach((e) => add(e.to));
+    else add(id);
+  }
+  return [...out.values()];
+}
+
 export interface Choice {
   id: string;
   name: string;
@@ -197,11 +259,24 @@ export function chassisOfDevice(doc: Document, canon: Canon, deviceId: string): 
     .map((n) => ({ id: n.id, name: nameOf(doc, canon, n.id) }));
 }
 
-/** The ports on one device, labels only (the device is already chosen). */
+/** The ports on one device (the device is already chosen). Labels that repeat get their face, then a count, so
+ * two "1"s are never the same words. */
 export function portsOfDevice(doc: Document, canon: Canon, deviceId: string): Choice[] {
-  return liveOfKind(doc, 'PhysicalPort')
+  const ports = liveOfKind(doc, 'PhysicalPort')
     .filter((n) => canon(n.id) === deviceId)
-    .map((n) => ({ id: n.id, name: field(n, 'PhysicalPort.label') || 'port' }))
+    .map((n) => ({ id: n.id, label: field(n, 'PhysicalPort.label') || 'port', face: readPhysicalPortFields(n).face ?? '' }));
+  const count = (names: string[]): Map<string, number> => names.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>());
+  const labels = count(ports.map((p) => p.label));
+  const withFace = ports.map((p) => ({ ...p, name: (labels.get(p.label) ?? 0) > 1 && p.face !== '' ? `${p.label} (${p.face})` : p.label }));
+  const names = count(withFace.map((p) => p.name));
+  const seen = new Map<string, number>();
+  return withFace
+    .map((p) => {
+      if ((names.get(p.name) ?? 0) < 2) return { id: p.id, name: p.name };
+      const n = (seen.get(p.name) ?? 0) + 1;
+      seen.set(p.name, n);
+      return { id: p.id, name: `${p.name} #${n}` };
+    })
     .sort(byName);
 }
 
@@ -288,7 +363,7 @@ export function buildStep(doc: Document, canon: Canon, f: StepForm): BuiltStep |
       if (f.portA === f.portB) return { error: 'A cable needs two different ports.' };
       return {
         kind: 'cable',
-        change: text(f.change) || `Cable ${name(f.portA)} → ${name(f.portB)}`,
+        change: text(f.change) || `${name(f.portA)} → ${name(f.portB)}`,
         before: text(f.before),
         after: text(f.after) || `${name(f.portA)} ↔ ${name(f.portB)}`,
         edit: { t: 'cable', a: f.portA, b: f.portB },
@@ -302,7 +377,7 @@ export function buildStep(doc: Document, canon: Canon, f: StepForm): BuiltStep |
       if (!Number.isInteger(u) || u < 1) return { error: 'Give the rack unit as a whole number from 1.' };
       return {
         kind: 'move',
-        change: text(f.change) || `Move ${name(f.device)} to ${name(f.rack)}`,
+        change: text(f.change) || `${name(f.device)} to ${name(f.rack)}`,
         before: text(f.before) || placementText(doc, canon, chassis),
         after: text(f.after) || `${name(f.rack)} · U${u}`,
         edit: { t: 'move', chassis, rack: f.rack, positionU: u, face: f.face },
@@ -349,18 +424,48 @@ export function titleFor(doc: Document, canon: Canon, elementId: string): string
 // ---------------------------------------------------------------------------
 // Checks before Done
 
+/** The media each end's connector could take, as the canvas guesses it for a cable it may refuse
+ * (`mediaCandidates`): the pair's own when they fit, else each end's natural lead. */
+export function mediaCandidatesFor(doc: Document, a: string, b: string): string[] {
+  const connector = (id: string): string | null => {
+    const n = findNode(doc, id);
+    return n ? (readPhysicalPortFields(n).connector ?? '') : null;
+  };
+  const from = connector(a);
+  const to = connector(b);
+  if (from == null || to == null) return [''];
+  const pair = compatible(from, to);
+  if (pair.ok) return [pair.media];
+  const natural = (c: string): string | null => {
+    const probe = compatible(c, c);
+    return probe.ok && probe.media !== 'power' ? probe.media : null;
+  };
+  const found = [natural(from), natural(to)].filter((m): m is string => m != null);
+  return found.length > 0 ? [...new Set(found)] : [''];
+}
+
 interface Gestures {
   checkCable(near: { port: string }, far: { port: string }, media?: string): CheckFinding[];
   checkFieldEdit(key: number, displayId: string, value: string): CheckFinding[];
 }
 
 /** The first refusal the step's edit would meet, or null. Fails open: the checks never block on an error. */
-export function refusalFor(mirror: Gestures | null, edit: StepEdit, fieldKey: (name: string) => number | undefined): CheckFinding | null {
+export function refusalFor(
+  mirror: Gestures | null,
+  edit: StepEdit,
+  fieldKey: (name: string) => number | undefined,
+  doc?: Document | null,
+): CheckFinding | null {
   if (mirror == null) return null;
   try {
     let found: CheckFinding[] = [];
-    if (edit.t === 'cable') found = mirror.checkCable({ port: edit.a }, { port: edit.b }, '');
-    else if (edit.t === 'field') {
+    if (edit.t === 'cable') {
+      // The media comes from the ports' connectors, as the canvas's own cable gesture does.
+      for (const media of doc ? mediaCandidatesFor(doc, edit.a, edit.b) : ['']) {
+        found = mirror.checkCable({ port: edit.a }, { port: edit.b }, media);
+        if (found.some((f) => f.severity === 'refuse')) break;
+      }
+    } else if (edit.t === 'field') {
       const key = fieldKey(edit.key);
       if (key !== undefined) found = mirror.checkFieldEdit(key, edit.id, edit.value);
     }
@@ -371,9 +476,14 @@ export function refusalFor(mirror: Gestures | null, edit: StepEdit, fieldKey: (n
 }
 
 /** A `StepCheck` that also keeps the whole finding for the Why card. */
-export function stepCheck(mirror: Gestures | null, fieldKey: (name: string) => number | undefined, keep: (f: CheckFinding) => void): StepCheck {
+export function stepCheck(
+  mirror: Gestures | null,
+  fieldKey: (name: string) => number | undefined,
+  keep: (f: CheckFinding) => void,
+  doc?: Document | null,
+): StepCheck {
   return (edit) => {
-    const hit = refusalFor(mirror, edit, fieldKey);
+    const hit = refusalFor(mirror, edit, fieldKey, doc);
     if (hit == null) return null;
     keep(hit);
     return { title: hit.title };

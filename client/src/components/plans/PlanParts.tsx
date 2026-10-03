@@ -2,6 +2,7 @@
 import type { Plan } from '../../document/plans';
 import { SEVERITY } from '../checks/checksModel';
 import { WhyCard } from '../checks/ChecksPanel';
+import { touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
 
 export function WhySlot({ controller }: { controller: PlansController }) {
@@ -12,6 +13,15 @@ export function WhySlot({ controller }: { controller: PlansController }) {
  * `stepId` narrows it to one step. Never a cause: only what is touched. */
 export function Touches({ controller, plan, stepId }: { controller: PlansController; plan: Plan; stepId?: string }) {
   const { preview, unavailable } = controller;
+  // A recorded plan is not read against the design again: what it touched is what it says, as recorded.
+  if (plan.stage === 'recorded') {
+    const names = controller.doc ? touchedDevices(controller.doc, controller.canon, plan).map((d) => d.name) : [];
+    return (
+      <p className="plans-note" data-testid="plans-touches-recorded">
+        As recorded{names.length > 0 ? `: ${names.join(', ')}` : '.'}
+      </p>
+    );
+  }
   const rows = (preview ?? []).filter((r) => stepId === undefined || r.step === stepId);
   const shown = rows.filter((r) => r.impact.length > 0 || r.findings.length > 0 || r.error !== '');
   if (unavailable) return <p className="plans-note">Checks are not running, so what this touches is not shown.</p>;

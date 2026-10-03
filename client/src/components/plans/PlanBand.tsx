@@ -2,7 +2,7 @@
 // (indigo planning, teal doing, ink recorded), the plan's title and window, a picker, and the list-view toggle.
 import { useId, useState } from 'react';
 
-import { STAGE_WORD, bandSentence } from './plansModel';
+import { LIST_TOGGLE_ID, STAGE_WORD, bandSentence } from './plansModel';
 import type { PlansController } from './usePlansController';
 // The stage tokens (--m-plan, --m-do and their washes) live with the canvas marks.
 import '../drawing/plans-canvas.css';
@@ -13,7 +13,7 @@ export function PlansBarChip({ controller }: { controller: PlansController }) {
   return (
     <button
       type="button"
-      className="shell-chip shell-chip--ink plans-chip"
+      className="shell-chip shell-chip--ink plans-bar-chip"
       aria-pressed={controller.bandOpen}
       title={controller.bandOpen ? 'Close the plans band' : 'Open a maintenance plan'}
       onClick={() => controller.setBandOpen(!controller.bandOpen)}
@@ -65,6 +65,7 @@ export function PlanBand({ controller }: { controller: PlansController }) {
   const [creating, setCreating] = useState(false);
   const pickId = useId();
   const stage = plan?.stage ?? 'none';
+  const sentence = plan ? bandSentence(plan, controller.doc, controller.canon) : '';
   return (
     <section className="plans-band" data-stage={stage} aria-label="Maintenance plan" data-testid="plans-band">
       <div className="plans-band__row">
@@ -73,7 +74,7 @@ export function PlanBand({ controller }: { controller: PlansController }) {
           {plan ? (
             <>
               <strong className="plans-band__title">{plan.title}</strong>
-              {bandSentence(plan) !== '' && <span className="plans-band__sentence"> · {bandSentence(plan)}</span>}
+              {sentence !== '' && <span className="plans-band__sentence"> · {sentence}</span>}
             </>
           ) : (
             'No plan open. Plans mark changes before they are made.'
@@ -103,7 +104,7 @@ export function PlanBand({ controller }: { controller: PlansController }) {
           )}
           {plan && (
             <>
-              <button type="button" className="plans-btn" aria-pressed={controller.listMode} onClick={() => controller.setListMode(!controller.listMode)} data-testid="plans-list-toggle">
+              <button type="button" className="plans-btn" aria-pressed={controller.listMode} onClick={() => controller.setListMode(!controller.listMode)} data-testid="plans-list-toggle" id={LIST_TOGGLE_ID}>
                 List view
               </button>
               {!controller.listMode && !controller.panelOpen && (
