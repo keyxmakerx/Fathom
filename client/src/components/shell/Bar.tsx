@@ -57,6 +57,8 @@ export interface BarProps {
   onPrint?: () => void;
   /** The Share button; present only for someone who may share (a steward). */
   onShare?: () => void;
+  /** The Docs button: the design's docs list. */
+  onDocs?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -95,6 +97,7 @@ export function Bar({
   onRedo,
   onPrint,
   onShare,
+  onDocs,
   account,
   viewOnly,
   onHome,
@@ -310,6 +313,14 @@ export function Bar({
                 Redo
               </button>
             </div>
+            <Sep />
+          </>
+        )}
+        {onDocs && (
+          <>
+            <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
+              Docs
+            </button>
             <Sep />
           </>
         )}

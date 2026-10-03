@@ -1775,6 +1775,42 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(348))
         }
     }
+    /// Typed reads for `Doc` fields.
+    pub mod doc {
+        /// `Doc.title` — `Text`, card `1`, emit `—`.
+        /// The doc's name in lists.
+        pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(351))
+        }
+        /// `Doc.body` — `Text`, card `1`, emit `—`.
+        /// Markdown text. Rendered as a safe subset: no raw HTML, no remote images.
+        pub fn body<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(352))
+        }
+        /// `Doc.how` — `enum { typed, pasted }`, card `1`, emit `—`.
+        /// How the body arrived; a pasted body passed the gate first.
+        pub fn how<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::DocHow, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(353))
+        }
+        /// `Doc.model` — `Identifier`, card `0..1`, emit `—`.
+        /// A catalogue model id: the doc shows on every thing of that model.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(354))
+        }
+    }
+    /// Typed reads for `DocLink` fields.
+    pub mod doc_link {
+        /// `DocLink.title` — `Text`, card `1`, emit `—`.
+        /// The link's words.
+        pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(355))
+        }
+        /// `DocLink.url` — `Text`, card `1`, emit `—`.
+        /// The address as typed.
+        pub fn url<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(356))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2131,6 +2167,12 @@ mod body {
             348 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             349 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableEnd>(), "crate::generated::ir_types::CableEnd")),
             350 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            351 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            352 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            353 => Some((core::any::TypeId::of::<crate::generated::ir_types::DocHow>(), "crate::generated::ir_types::DocHow")),
+            354 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            355 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            356 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2489,6 +2531,12 @@ mod body {
             348 => crate::canon::slot_to::<crate::scalar::Text>(348, "crate::scalar::Text", value),
             349 => crate::canon::slot_to::<crate::generated::ir_types::CableEnd>(349, "crate::generated::ir_types::CableEnd", value),
             350 => crate::canon::slot_to::<u8>(350, "u8", value),
+            351 => crate::canon::slot_to::<crate::scalar::Text>(351, "crate::scalar::Text", value),
+            352 => crate::canon::slot_to::<crate::scalar::Text>(352, "crate::scalar::Text", value),
+            353 => crate::canon::slot_to::<crate::generated::ir_types::DocHow>(353, "crate::generated::ir_types::DocHow", value),
+            354 => crate::canon::slot_to::<crate::scalar::Identifier>(354, "crate::scalar::Identifier", value),
+            355 => crate::canon::slot_to::<crate::scalar::Text>(355, "crate::scalar::Text", value),
+            356 => crate::canon::slot_to::<crate::scalar::Text>(356, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2845,6 +2893,12 @@ mod body {
             348 => crate::canon::slot_from::<crate::scalar::Text>(j),
             349 => crate::canon::slot_from::<crate::generated::ir_types::CableEnd>(j),
             350 => crate::canon::slot_from::<u8>(j),
+            351 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            352 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            353 => crate::canon::slot_from::<crate::generated::ir_types::DocHow>(j),
+            354 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            355 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            356 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

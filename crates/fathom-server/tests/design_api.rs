@@ -30,7 +30,7 @@ use fathom_graph::{
     Actor, BatchId, Confidence, Graph, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
 };
 use fathom_id::Ulid;
-use fathom_ir::generated::ir_types::{CaptureField, NodeKind, NoteField};
+use fathom_ir::generated::ir_types::{CaptureField, DocField, DocLinkField, NodeKind, NoteField};
 use fathom_ir::scalar;
 use fathom_server::api::{
     HEADER_COUNTER, HEADER_NONCE, HEADER_SESSION, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_TOKEN,
@@ -488,7 +488,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `12` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 13;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 14;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -2503,6 +2503,110 @@ fn a_payload_with_note_text(seed: u128, line: &str) -> Vec<u8> {
     .expect("set note text");
     g.end_batch().expect("close batch");
     fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+/// A payload with a `Doc` whose body, and a `DocLink` whose address, are given. A clean
+/// one when both are plain.
+fn a_payload_with_doc(seed: u128, title: &str, body: &str, url: &str) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "doc test fixture")
+        .expect("open batch");
+    let doc = g
+        .insert_node(NodeKind::Doc, Ulid(seed * 10 + 1), a_graph_prov(seed))
+        .expect("doc node");
+    for (key, value) in [(DocField::Title.key(), title), (DocField::Body.key(), body)] {
+        g.set_field(
+            doc.into(),
+            key,
+            scalar::Text(value.to_string()),
+            a_graph_prov(seed),
+        )
+        .expect("set doc text");
+    }
+    let link = g
+        .insert_node(NodeKind::DocLink, Ulid(seed * 10 + 4), a_graph_prov(seed))
+        .expect("link node");
+    g.set_field(
+        link.into(),
+        DocLinkField::Url.key(),
+        scalar::Text(url.to_string()),
+        a_graph_prov(seed),
+    )
+    .expect("set link url");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+#[tokio::test]
+async fn a_doc_or_its_link_carrying_a_credential_refuses_the_write_and_a_reader_cannot_save_a_doc()
+{
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+
+    // The same real-length Junos pre-shared-key hash the note test uses (rule 2), in a
+    // doc body, in a doc title and as a query value in a link address.
+    let psk =
+        "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234";
+    let clean_title = "Runbook";
+    let clean_body = "# Steps\n\nreplaced the key switch";
+    let clean_url = "https://docs.example.com/guide";
+    let cases = [
+        ("body", a_payload_with_doc(301, clean_title, psk, clean_url)),
+        ("title", a_payload_with_doc(302, psk, clean_body, clean_url)),
+        (
+            "link",
+            a_payload_with_doc(
+                303,
+                clean_title,
+                clean_body,
+                "https://x.example.com/?password=Zq7vRk2mXp9wLs4t",
+            ),
+        ),
+    ];
+    for (what, payload) in cases {
+        let (status, body) = call(
+            addr,
+            &drawer,
+            "POST",
+            &versions_path,
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+        )
+        .await;
+        let text = String::from_utf8_lossy(&body);
+        assert_eq!(status, "422", "{what}: {text}");
+        assert!(text.contains("Doc"), "{what}: {text}");
+    }
+
+    // A clean doc saves for a drawer and is refused for a reader, whatever it holds.
+    let clean = a_payload_with_doc(304, clean_title, clean_body, clean_url);
+    let (status, _) = call(
+        addr,
+        &reader,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &clean),
+    )
+    .await;
+    assert_eq!(status, "403");
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &clean),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
 }
 
 #[tokio::test]

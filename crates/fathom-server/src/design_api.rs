@@ -85,7 +85,7 @@ use deadpool_postgres::Transaction;
 use fathom_canon::Json;
 use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
 use fathom_graph::Graph;
-use fathom_ir::generated::accessors::{capture, note};
+use fathom_ir::generated::accessors::{capture, doc, doc_link, note};
 use fathom_ir::generated::ir_types::NodeKind;
 
 use crate::api;
@@ -1739,7 +1739,7 @@ async fn save_design_handler(
 /// # The payload's own text fields, checked once more, at the door
 ///
 /// The redaction gate runs client-side (`fathom-ingest`, compiled for the browser;
-/// CLAUDE.md rule 3), so every `Capture.text` and `Note.text` here should already
+/// CLAUDE.md rule 3), so every `Capture.text`, `Note.text` and the text of a `Doc` and its links here should already
 /// have had credential shapes destroyed. A hit means an old client that predates
 /// the gate or a hostile one that skipped it: the write is refused, naming field
 /// kind and line, before anything is stored.
@@ -1809,6 +1809,30 @@ fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
         if let Ok(text) = note::text(node) {
             if let Some(line) = credential_line(&text.0, false) {
                 return Some(("Note", line));
+            }
+        }
+    }
+    // A doc's text is the same kind of text a note's is (typed prose or a gated paste), so it
+    // stays on the delimiter-only check. A link's title and address too: a token in a query
+    // string is `name=value`, which that check reads.
+    for node in graph.nodes_of_kind(NodeKind::Doc) {
+        for text in [doc::title(node), doc::body(node)].into_iter().flatten() {
+            if let Some(line) = credential_line(&text.0, false) {
+                return Some(("Doc", line));
+            }
+        }
+    }
+    for node in graph.nodes_of_kind(NodeKind::DocLink) {
+        if let Ok(text) = doc_link::title(node) {
+            if let Some(line) = credential_line(&text.0, false) {
+                return Some(("DocLink", line));
+            }
+        }
+        // A query or fragment parameter is `name=value` inside one token; split it out.
+        if let Ok(url) = doc_link::url(node) {
+            let split = url.0.replace(['?', '&', ';', '#'], " ");
+            if let Some(line) = credential_line(&split, false) {
+                return Some(("DocLink", line));
             }
         }
     }

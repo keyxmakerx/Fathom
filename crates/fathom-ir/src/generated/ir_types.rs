@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.13";
+    pub const SCHEMA_VERSION: &str = "0.14";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -370,12 +370,25 @@ mod body {
         /// LineEnd edges to Chassis; a line with one end is a line still being drawn. Hung off the
         /// root through HasLine. Not a Cable: a Cable terminates on a PhysicalPort.
         Line,
+        /// A titled, longer text about one thing, a catalogue model, or the whole design
+        /// (ADR-0061 round 7). A note stays a quick line on one thing (ADR-0053); a doc has a
+        /// title and can be shared across a model. Hangs off the design root as Tag does (no
+        /// containment edge is written for a root child). What it is about: a DocOn edge to a
+        /// Docable, or `model` set (shows on every thing of that model), or neither (design-wide).
+        ///
+        /// Pasted body text goes through OP_REDACT_TEXT first; typed text is stored as typed
+        /// (ADR-0053 §6), `how` tells the two apart. Who and when come from the provenance of the
+        /// body and title fields, as Note's do. Weak identity, Note's precedent.
+        Doc,
+        /// One link on a Doc: a title and a URL, hung off its Doc through HasDocLink. The client
+        /// links only http and https URLs and shows the host.
+        DocLink,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 61;
+        pub const COUNT: usize = 63;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 61] = [
+        pub const ALL: [NodeKind; 63] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -437,6 +450,8 @@ mod body {
             NodeKind::Tag,
             NodeKind::Label,
             NodeKind::Line,
+            NodeKind::Doc,
+            NodeKind::DocLink,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -504,6 +519,8 @@ mod body {
                 NodeKind::Tag => "Tag",
                 NodeKind::Label => "Label",
                 NodeKind::Line => "Line",
+                NodeKind::Doc => "Doc",
+                NodeKind::DocLink => "DocLink",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -569,6 +586,8 @@ mod body {
                 "Tag" => Some(NodeKind::Tag),
                 "Label" => Some(NodeKind::Label),
                 "Line" => Some(NodeKind::Line),
+                "Doc" => Some(NodeKind::Doc),
+                "DocLink" => Some(NodeKind::DocLink),
                 _ => None,
             }
         }
@@ -640,6 +659,8 @@ mod body {
                 NodeKind::Tag => &[&["name"]],
                 NodeKind::Label => &[],
                 NodeKind::Line => &[],
+                NodeKind::Doc => &[],
+                NodeKind::DocLink => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -706,6 +727,8 @@ mod body {
                 NodeKind::Tag => Layer::Physical,
                 NodeKind::Label => Layer::Physical,
                 NodeKind::Line => Layer::Physical,
+                NodeKind::Doc => Layer::Physical,
+                NodeKind::DocLink => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -773,6 +796,8 @@ mod body {
                 NodeKind::Tag => false,
                 NodeKind::Label => false,
                 NodeKind::Line => false,
+                NodeKind::Doc => false,
+                NodeKind::DocLink => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -841,6 +866,8 @@ mod body {
                 NodeKind::Tag => &[crate::bag::FieldKey(343)],
                 NodeKind::Label => &[crate::bag::FieldKey(344), crate::bag::FieldKey(345), crate::bag::FieldKey(346), crate::bag::FieldKey(347)],
                 NodeKind::Line => &[crate::bag::FieldKey(348)],
+                NodeKind::Doc => &[crate::bag::FieldKey(351), crate::bag::FieldKey(352), crate::bag::FieldKey(353), crate::bag::FieldKey(354)],
+                NodeKind::DocLink => &[crate::bag::FieldKey(355), crate::bag::FieldKey(356)],
             }
         }
     }
@@ -1189,12 +1216,19 @@ mod body {
         /// ADR-0060 step 7. Which box a line end is on. A REFERENCE EDGE because a Line already has
         /// its containment parent (root, via HasLine); Terminates' own shape, to a box not a port.
         LineEnd,
+        /// ADR-0061 round 7. Docs hang off the design root as Tag does.
+        HasDoc,
+        /// ADR-0061 round 7. Which thing a doc is about. A REFERENCE EDGE because a Doc's
+        /// containment parent is the root. Absent for a model doc or a design-wide doc.
+        DocOn,
+        /// ADR-0061 round 7. A doc's links, HasNote's own shape.
+        HasDocLink,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 103;
+        pub const COUNT: usize = 106;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 103] = [
+        pub const ALL: [EdgeKind; 106] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1298,6 +1332,9 @@ mod body {
             EdgeKind::HasLabel,
             EdgeKind::HasLine,
             EdgeKind::LineEnd,
+            EdgeKind::HasDoc,
+            EdgeKind::DocOn,
+            EdgeKind::HasDocLink,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1407,6 +1444,9 @@ mod body {
                 EdgeKind::HasLabel => "HasLabel",
                 EdgeKind::HasLine => "HasLine",
                 EdgeKind::LineEnd => "LineEnd",
+                EdgeKind::HasDoc => "HasDoc",
+                EdgeKind::DocOn => "DocOn",
+                EdgeKind::HasDocLink => "HasDocLink",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1514,6 +1554,9 @@ mod body {
                 "HasLabel" => Some(EdgeKind::HasLabel),
                 "HasLine" => Some(EdgeKind::HasLine),
                 "LineEnd" => Some(EdgeKind::LineEnd),
+                "HasDoc" => Some(EdgeKind::HasDoc),
+                "DocOn" => Some(EdgeKind::DocOn),
+                "HasDocLink" => Some(EdgeKind::HasDocLink),
                 _ => None,
             }
         }
@@ -1623,6 +1666,9 @@ mod body {
                 EdgeKind::HasLabel => EdgeClass::Containment,
                 EdgeKind::HasLine => EdgeClass::Containment,
                 EdgeKind::LineEnd => EdgeClass::Reference,
+                EdgeKind::HasDoc => EdgeClass::Containment,
+                EdgeKind::DocOn => EdgeClass::Reference,
+                EdgeKind::HasDocLink => EdgeClass::Containment,
             }
         }
     }
@@ -1800,7 +1846,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1822,6 +1868,9 @@ mod body {
                 EdgeKind::HasLabel => &[],
                 EdgeKind::HasLine => &[],
                 EdgeKind::LineEnd => &[NodeKind::Line],
+                EdgeKind::HasDoc => &[],
+                EdgeKind::DocOn => &[NodeKind::Doc],
+                EdgeKind::HasDocLink => &[NodeKind::Doc],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1930,6 +1979,9 @@ mod body {
                 EdgeKind::HasLabel => &[NodeKind::Label],
                 EdgeKind::HasLine => &[NodeKind::Line],
                 EdgeKind::LineEnd => &[NodeKind::Chassis],
+                EdgeKind::HasDoc => &[NodeKind::Doc],
+                EdgeKind::DocOn => &[NodeKind::Device, NodeKind::PassiveNode, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack],
+                EdgeKind::HasDocLink => &[NodeKind::DocLink],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2038,6 +2090,9 @@ mod body {
                 EdgeKind::HasLabel => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasLine => EdgeCardBound { min: 0, max: None },
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: Some(2) },
+                EdgeKind::HasDoc => EdgeCardBound { min: 0, max: None },
+                EdgeKind::DocOn => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasDocLink => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2146,6 +2201,9 @@ mod body {
                 EdgeKind::HasLabel => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasLine => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDoc => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::DocOn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDocLink => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2255,6 +2313,9 @@ mod body {
                 EdgeKind::HasLabel => false,
                 EdgeKind::HasLine => false,
                 EdgeKind::LineEnd => false,
+                EdgeKind::HasDoc => false,
+                EdgeKind::DocOn => false,
+                EdgeKind::HasDocLink => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2363,6 +2424,9 @@ mod body {
                 EdgeKind::HasLabel => true,
                 EdgeKind::HasLine => true,
                 EdgeKind::LineEnd => false,
+                EdgeKind::HasDoc => true,
+                EdgeKind::DocOn => false,
+                EdgeKind::HasDocLink => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2471,6 +2535,9 @@ mod body {
                 EdgeKind::HasLabel => &[],
                 EdgeKind::HasLine => &[],
                 EdgeKind::LineEnd => &[crate::bag::FieldKey(349)],
+                EdgeKind::HasDoc => &[],
+                EdgeKind::DocOn => &[],
+                EdgeKind::HasDocLink => &[],
             }
         }
     }
@@ -4586,6 +4653,41 @@ mod body {
         }
     }
 
+    /// Inline enum on `Doc.how` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocHow {
+        Typed,
+        Pasted,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl DocHow {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "typed",
+            "pasted",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> DocHow {
+            match token {
+                "typed" => DocHow::Typed,
+                "pasted" => DocHow::Pasted,
+                other => DocHow::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                DocHow::Typed => "typed",
+                DocHow::Pasted => "pasted",
+                DocHow::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -5348,6 +5450,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(LabelForm::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for DocHow {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(DocHow::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -8169,6 +8283,78 @@ mod body {
         }
     }
 
+    /// Fields of kind `Doc`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocField {
+        Title,
+        Body,
+        How,
+        Model,
+    }
+
+    impl DocField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [DocField; 4] = [
+            DocField::Title,
+            DocField::Body,
+            DocField::How,
+            DocField::Model,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DocField::Title => "title",
+                DocField::Body => "body",
+                DocField::How => "how",
+                DocField::Model => "model",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DocField::Title => crate::bag::FieldKey(351),
+                DocField::Body => crate::bag::FieldKey(352),
+                DocField::How => crate::bag::FieldKey(353),
+                DocField::Model => crate::bag::FieldKey(354),
+            }
+        }
+    }
+
+    /// Fields of kind `DocLink`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocLinkField {
+        Title,
+        Url,
+    }
+
+    impl DocLinkField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [DocLinkField; 2] = [
+            DocLinkField::Title,
+            DocLinkField::Url,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DocLinkField::Title => "title",
+                DocLinkField::Url => "url",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DocLinkField::Title => crate::bag::FieldKey(355),
+                DocLinkField::Url => crate::bag::FieldKey(356),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -8688,7 +8874,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 350] = [
+    pub const FIELD_KEYS: [(&str, u32); 356] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9039,15 +9225,21 @@ mod body {
         ("Line.label", 348),
         ("LineEnd.end", 349),
         ("PassiveNode.slots", 350),
+        ("Doc.title", 351),
+        ("Doc.body", 352),
+        ("Doc.how", 353),
+        ("Doc.model", 354),
+        ("DocLink.title", 355),
+        ("DocLink.url", 356),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 44] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 45] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0x23,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0x1b,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

@@ -442,3 +442,10 @@ fields:
   Line.label: 348
   LineEnd.end: 349
   PassiveNode.slots: 350
+  # ADR-0061 round 7 (docs, 2026-10-03). Appended at the tail with the next integers.
+  Doc.title: 351
+  Doc.body: 352
+  Doc.how: 353
+  Doc.model: 354
+  DocLink.title: 355
+  DocLink.url: 356

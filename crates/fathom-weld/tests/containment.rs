@@ -136,7 +136,10 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     //
     // 116 -> 118 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` read `from: [root]`, +0;
     // `Label` and `Line` join `Placeable`, +2 (their pins). `LineEnd` is a reference.
-    assert_eq!(resolved, 118, "the containment pair set moved");
+    //
+    // 118 -> 121 (ADR-0061 round 7, schema 0.14): `HasDoc` reads `from: [root]`, +0; `Doc` and
+    // `DocLink` join `Placeable`, +2; `HasDocLink` (Doc, DocLink), +1. `DocOn` is a reference.
+    assert_eq!(resolved, 121, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -164,7 +167,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 52 (ADR-0059, schema 0.12): `HasTag` (root -> Tag). `TaggedWith` is
     // REFERENCE and does not count here.
     // 54 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` (root -> Label, Line).
-    assert_eq!(containment, 54);
+    // 56 (ADR-0061 round 7, schema 0.14): `HasDoc` (root -> Doc), `HasDocLink` (Doc -> DocLink).
+    assert_eq!(containment, 56);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -191,7 +195,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             "Tag",
             // ADR-0060 step 7, schema 0.13: `HasLabel`/`HasLine` read `from: [root]`.
             "Label",
-            "Line"
+            "Line",
+            // ADR-0061 round 7, schema 0.14: `HasDoc` reads `from: [root]`.
+            "Doc"
         ],
         "the set of kinds no node kind contains moved"
     );

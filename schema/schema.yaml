@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.13"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.14"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -227,6 +227,12 @@ schema:
                     # and HasLine (root containment, HasTag's shape) and LineEnd (reference,
                     # Line to Chassis), seven field keys (344-350, PassiveNode.slots last). Whole change = MINOR; the
                     # reader still opens 0.10 to 0.12 payloads.
+                    #
+                    # 0.14 is ADR-0061 round 7 (docs, 2026-10-03), all additive: two node kinds,
+                    # Doc and DocLink (Doc joins Placeable as Tag does), one class, Docable, three
+                    # edge kinds, HasDoc (root containment, HasTag's shape), DocOn (reference, Doc to
+                    # Docable) and HasDocLink (containment, Doc to DocLink); six field keys
+                    # (351-356). Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -445,6 +451,8 @@ classes:
       # ADR-0060 step 7: the two things a person draws on the canvas that are not devices.
       - Label
       - Line
+      - Doc
+      - DocLink
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
@@ -459,6 +467,12 @@ classes:
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack, Premises, Vlan, ContainerNetwork, Container]
     doc: |
       The owners of TaggedWith (ADR-0059 decision 2). Widens later, as Placeable has.
+
+  - class: Docable
+    members: [Device, PassiveNode, PhysicalPort, Cable, Rack]
+    doc: |
+      The things a Doc can be about through DocOn (ADR-0061 round 7). A model's doc and a
+      design-wide doc have no DocOn edge.
 
 kinds:
   # Identity tuples are transcribed only where 11 §10.3 or 19 states them. Kinds for which no
@@ -1848,6 +1862,38 @@ kinds:
       root through HasLine. Not a Cable: a Cable terminates on a PhysicalPort.
     fields:
       - { name: label, type: Text, card: "0..1", emit: "—", doc: Words along the line. }
+    identity: []
+
+  # ADR-0061 round 7 (docs, 2026-10-03). Appended at the tail (62 §13).
+  - kind: Doc
+    layer: physical
+    emits: false
+    doc: |
+      A titled, longer text about one thing, a catalogue model, or the whole design
+      (ADR-0061 round 7). A note stays a quick line on one thing (ADR-0053); a doc has a
+      title and can be shared across a model. Hangs off the design root as Tag does (no
+      containment edge is written for a root child). What it is about: a DocOn edge to a
+      Docable, or `model` set (shows on every thing of that model), or neither (design-wide).
+
+      Pasted body text goes through OP_REDACT_TEXT first; typed text is stored as typed
+      (ADR-0053 §6), `how` tells the two apart. Who and when come from the provenance of the
+      body and title fields, as Note's do. Weak identity, Note's precedent.
+    fields:
+      - { name: title, type: Text, card: "1", emit: "—", doc: The doc's name in lists. }
+      - { name: body, type: Text, card: "1", emit: "—", doc: "Markdown text. Rendered as a safe subset: no raw HTML, no remote images." }
+      - { name: how, type: "enum { typed, pasted }", card: "1", emit: "—", doc: "How the body arrived; a pasted body passed the gate first." }
+      - { name: model, type: Identifier, card: "0..1", emit: "—", doc: "A catalogue model id: the doc shows on every thing of that model." }
+    identity: []
+
+  - kind: DocLink
+    layer: physical
+    emits: false
+    doc: |
+      One link on a Doc: a title and a URL, hung off its Doc through HasDocLink. The client
+      links only http and https URLs and shows the host.
+    fields:
+      - { name: title, type: Text, card: "1", emit: "—", doc: The link's words. }
+      - { name: url, type: Text, card: "1", emit: "—", doc: The address as typed. }
     identity: []
 
 edges:
@@ -3274,6 +3320,43 @@ edges:
     doc: |
       ADR-0060 step 7. Which box a line end is on. A REFERENCE EDGE because a Line already has
       its containment parent (root, via HasLine); Terminates' own shape, to a box not a port.
+
+  # ADR-0061 round 7 (2026-10-03). Appended at the tail (62 §13).
+  - edge: HasDoc
+    class: containment
+    from: [root]
+    to: [Doc]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 round 7. Docs hang off the design root as Tag does.
+  - edge: DocOn
+    class: reference
+    from: [Doc]
+    to: [Docable]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0061 round 7. Which thing a doc is about. A REFERENCE EDGE because a Doc's
+      containment parent is the root. Absent for a model doc or a design-wide doc.
+  - edge: HasDocLink
+    class: containment
+    from: [Doc]
+    to: [DocLink]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 round 7. A doc's links, HasNote's own shape.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
