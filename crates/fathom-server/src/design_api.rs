@@ -201,6 +201,14 @@ pub fn router(state: DesignApiState) -> Router {
             "/organisations/{organisation}/designs/{design}/verify",
             get(verify_design_handler),
         )
+        .route(
+            "/organisations/{organisation}/designs/{design}/files",
+            post(store_file_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/files/{file}",
+            get(read_file_handler),
+        )
         .route("/catalogue/models", get(catalogue_list_handler))
         .route(
             "/catalogue/models/{vendor}/{model}",
@@ -276,6 +284,9 @@ impl Signed {
 /// doc.
 pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
 
+/// A doc file upload reads at its own cap, [`designs::MAX_FILE_BYTES`].
+const MAX_FILE_BODY: usize = designs::MAX_FILE_BYTES;
+
 /// True for exactly the two `POST` routes whose legitimate body may run to
 /// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`) and a
 /// create (`.../scopes/{scope}/designs`). Every other route, including any `GET`,
@@ -284,6 +295,15 @@ pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
 /// Decided from method and path alone, before the body is read, since the
 /// signature cannot be checked until after it. Path shape only, never the ids: this
 /// decides how many bytes `to_bytes` may buffer, nothing about authority.
+fn is_file_route(method: &str, path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    method == "POST"
+        && matches!(
+            segments.as_slice(),
+            ["organisations", _organisation, "designs", _design, "files"]
+        )
+}
+
 fn is_large_body_route(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
@@ -343,7 +363,9 @@ impl FromRequest<DesignApiState> for Signed {
 
         // Read at the small cap unless method and path alone (known before any header is
         // trusted) name one of the two large-body routes. See [`is_large_body_route`].
-        let cap = if is_large_body_route(&method, &route_path) {
+        let cap = if is_file_route(&method, &route_path) {
+            MAX_FILE_BODY
+        } else if is_large_body_route(&method, &route_path) {
             MAX_SIGNED_BODY
         } else {
             api::MAX_SIGNED_BODY
@@ -448,6 +470,20 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::NoSuchDesign | DesignError::NoSuchVersion | DesignError::NoSuchScope => {
             (StatusCode::NOT_FOUND, "no such design\n").into_response()
         }
+        DesignError::NoSuchFile => (StatusCode::NOT_FOUND, "no such file\n").into_response(),
+        DesignError::FileTooLarge { bytes } => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "that file is {bytes} bytes; a doc file may be at most {}\n",
+                designs::MAX_FILE_BYTES
+            ),
+        )
+            .into_response(),
+        DesignError::FileTypeRefused => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "a doc file must be a PDF, an image or text\n",
+        )
+            .into_response(),
         DesignError::InvalidName => (
             StatusCode::BAD_REQUEST,
             "a design name is at most 100 characters, without control characters\n",
@@ -1637,6 +1673,114 @@ async fn open_design_handler(
             .expect("a static cache-control is a valid header value"),
     );
     Ok((StatusCode::OK, headers, stored.payload).into_response())
+}
+
+// ---- Files on docs ----
+
+/// `POST /organisations/{organisation}/designs/{design}/files`: the body is the file's bytes.
+/// Refused by what the bytes are, by size, and (text) by the same credential scan a `Capture`
+/// gets. Answers the file's id and what the content check found.
+async fn store_file_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    if signed.body.len() > designs::MAX_FILE_BYTES {
+        return Err(DesignError::FileTooLarge {
+            bytes: signed.body.len(),
+        }
+        .into());
+    }
+    let media = designs::sniff_file(&signed.body).ok_or(DesignError::FileTypeRefused)?;
+    if media == designs::FileMedia::Text {
+        // Valid UTF-8 by the sniff. A file is a device config as often as prose, so the
+        // bare-adjacency check a `Capture` gets applies; the browser's gate ran first.
+        let text = core::str::from_utf8(&signed.body).map_err(|_| DesignError::FileTypeRefused)?;
+        if let Some(line) = credential_line(text, true) {
+            return Err(DesignError::CredentialInPayload { kind: "File", line }.into());
+        }
+    }
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let id = designs::store_file_in_tx(&tx, &auth, design_id, scope, &signed.body).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        format!("{id} {}\n", media.as_str()),
+    )
+        .into_response())
+}
+
+/// `GET /organisations/{organisation}/designs/{design}/files/{file}`: the stored bytes, only ever
+/// as a download: `attachment`, `nosniff`, an opaque type, no caching.
+async fn read_file_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design, file)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    if file.len() != 32
+        || !file
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(DesignError::NoSuchFile.into());
+    }
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let bytes = designs::read_file_in_tx(&tx, &auth, design_id, scope, &file).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut headers = HeaderMap::new();
+    for (name, value) in [
+        (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+        (axum::http::header::CONTENT_DISPOSITION, "attachment"),
+        (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (axum::http::header::CACHE_CONTROL, "no-store"),
+    ] {
+        headers.insert(name, value.parse().expect("a static header value is valid"));
+    }
+    Ok((StatusCode::OK, headers, bytes).into_response())
 }
 
 // ---- Save ----
