@@ -14,7 +14,7 @@
 // `InsideStop.tsx`. This file only forwards to it, the same as `load`/
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
-import { Engine, EngineError, ERRORS, type InsideFaces, type PasteResult } from './engine';
+import { Engine, EngineError, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult } from './engine';
 import { errorName } from './protocol.constants';
 import { readPlain, writePlain } from '../document/plain';
 import type { Document } from '../document/model';
@@ -56,6 +56,16 @@ export class Mirror {
    * drawer and inside stop both open. */
   inside(deviceId: string): InsideFaces {
     return this.engine.inside(deviceId);
+  }
+
+  /** `OP_CHECKS` over the estate `load` last put in the module. */
+  checks(): ChecksResult {
+    return this.engine.checks();
+  }
+
+  /** `OP_CHECK_GESTURE` for a cable; reads the estate `load` last put in the module. */
+  checkCable(near: CableEnd, far: CableEnd, media = ''): CheckFinding[] {
+    return this.engine.checkCable(near, far, media);
   }
 }
 

@@ -41,6 +41,7 @@ export function Shell({
   onUndo,
   onRedo,
   onPrint,
+  onShare,
   account,
   editor,
   rail,
@@ -49,6 +50,7 @@ export function Shell({
   onTrailOpenChange,
   children,
   viewOnly,
+  barExtra,
   menu,
   adminPill,
   onHome,
@@ -74,8 +76,10 @@ export function Shell({
         onUndo={onUndo}
         onRedo={onRedo}
         onPrint={onPrint}
+        onShare={onShare}
         account={account}
         viewOnly={viewOnly}
+        barExtra={barExtra}
         menu={menu}
         adminPill={adminPill}
         onHome={onHome}

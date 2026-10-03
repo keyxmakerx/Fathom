@@ -13,6 +13,7 @@
 //! allows is the narrowest working form; there is no `unsafe` block to allow.
 #![deny(unsafe_code)]
 
+pub mod checks;
 pub mod dictframe;
 pub mod protocol;
 pub mod shell;
@@ -342,6 +343,19 @@ pub const OP_PASTE_INTO: u32 = 30;
 /// statement path needs — the same refusal `OP_PASTE` gives for the same
 /// reason.
 pub const OP_REDACT_TEXT: u32 = 31;
+
+/// Standing checks over the held estate (ADR-0061 §5). No request bytes. Reply: one
+/// `FACE_CHECK_HEAD` (counts), then one `FACE_CHECK` per finding, most severe first.
+/// Incremental: only rules whose read set a new batch touched run again. Not initialised
+/// is `ERR_NOT_INITIALISED`, never "no problems".
+pub const OP_CHECKS: u32 = 32;
+
+/// Dry-run a gesture, change nothing: the refusals it would cause, as `FACE_CHECK` rows
+/// (none = go ahead). Frame: `kind u8`; `0` cable = near end spec, far end spec (as
+/// `OP_CABLE`), media (`len u8` + token, empty = unset); `1` field edit = key `u32`,
+/// display-id length `u16`, id, value to the end. A frame that does not parse or names
+/// nothing live answers with no rows: the write refuses those itself.
+pub const OP_CHECK_GESTURE: u32 = 33;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and

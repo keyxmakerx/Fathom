@@ -55,12 +55,16 @@ export interface BarProps {
   onRedo: () => void;
   /** The Print button beside Undo/Redo; absent with no design open. */
   onPrint?: () => void;
+  /** The Share button; present only for someone who may share (a steward). */
+  onShare?: () => void;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
    * beside the undo/redo pair; absent everywhere there is nothing to be
    * read-only about (Home, or a writable design). */
   viewOnly?: boolean;
+  /** A chip before Undo (the Checks count). */
+  barExtra?: ReactNode;
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
   /** Quick search; the box is absent without it. */
@@ -92,8 +96,10 @@ export function Bar({
   onUndo,
   onRedo,
   onPrint,
+  onShare,
   account,
   viewOnly,
+  barExtra,
   onHome,
   menu,
   adminPill,
@@ -295,6 +301,13 @@ export function Bar({
           </>
         )}
 
+        {barExtra != null && (
+          <>
+            {barExtra}
+            <Sep />
+          </>
+        )}
+
         {/* Undo and Redo act on an open design; zoom acts on the drawing,
             so it is Racks only (Inventory is lists). */}
         {place !== null && (
@@ -307,6 +320,14 @@ export function Bar({
                 Redo
               </button>
             </div>
+            <Sep />
+          </>
+        )}
+        {onShare && (
+          <>
+            <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+              Share
+            </button>
             <Sep />
           </>
         )}

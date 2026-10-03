@@ -22,7 +22,9 @@
     "OP_LOAD_PLAIN": 28,
     "OP_EXPORT_PLAIN": 29,
     "OP_PASTE_INTO": 30,
-    "OP_REDACT_TEXT": 31
+    "OP_REDACT_TEXT": 31,
+    "OP_CHECKS": 32,
+    "OP_CHECK_GESTURE": 33
   },
   "faces": {
     "FACE_HEADER": 0,
@@ -56,7 +58,9 @@
     "FACE_IN_TUNNEL": 28,
     "FACE_INV_KEY": 29,
     "FACE_PASTE_LINE": 30,
-    "FACE_DROP": 31
+    "FACE_DROP": 31,
+    "FACE_CHECK_HEAD": 32,
+    "FACE_CHECK": 33
   },
   "faceColumns": {
     "FACE_HEADER": ["kind_label", "column_1", "column_2", "column_3", "column_4", "column_5", "column_6", "opinions"],
@@ -90,7 +94,9 @@
     "FACE_IN_TUNNEL": ["id", "name", "unit", "", "", "", "", ""],
     "FACE_INV_KEY": ["", "key_1", "key_2", "key_3", "key_4", "key_5", "key_6", ""],
     "FACE_PASTE_LINE": ["ordinal", "outcome", "byte_start", "byte_end", "node_id", "fields", "reason", ""],
-    "FACE_DROP": ["ordinal", "marker_start", "marker_end", "label", "detectors", "", "", ""]
+    "FACE_DROP": ["ordinal", "marker_start", "marker_end", "label", "detectors", "", "", ""],
+    "FACE_CHECK_HEAD": ["refuse", "warn", "idea", "rules", "load_failed", "unfinished", "", ""],
+    "FACE_CHECK": ["rule", "severity", "title", "fix", "why", "concept", "source", "elements"]
   },
   "errors": {
     "ERR_UNKNOWN_OP": 1,

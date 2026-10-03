@@ -77,6 +77,9 @@ export interface ShellProps {
   /** The Print button, next to Undo/Redo; absent with no design open. */
   onPrint?: () => void;
 
+  /** The Share button; present only for someone who may share (a steward). */
+  onShare?: () => void;
+
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;
@@ -96,6 +99,9 @@ export interface ShellProps {
    * bar. Omitted or `false` on Home and everywhere a reader could not have
    * landed anyway. */
   viewOnly?: boolean;
+
+  /** A chip for the bar's trailing group, before Undo (the Checks count). */
+  barExtra?: ReactNode;
 
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */

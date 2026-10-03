@@ -137,6 +137,10 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
             placeholder="paste a config"
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
             rows={4}
           />
           <button type="button" className="config-drawer__paste-button" onClick={commitPaste}>

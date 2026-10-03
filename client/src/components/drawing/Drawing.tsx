@@ -23,6 +23,9 @@ import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
 
 import { compatible } from '../../document/compat';
+import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
+import { mediaCandidates } from '../checks/checksModel';
+import { useChecksApi } from '../checks/checksStore';
 import { Callout } from './Callout';
 import { CablesViewControl } from './CablesViewControl';
 import { useSettledView } from './settledView';
@@ -326,6 +329,8 @@ function DrawingInner({
   onAddDevice,
   onAddRack,
   onAddWall,
+  onPasteConfig,
+  onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
   onAddDeviceAt,
@@ -415,9 +420,15 @@ function DrawingInner({
   const openChassis = useCallback(
     (id: string, view: 'config' | 'inside' = 'config') => {
       onSelect({ kind: 'chassis', id });
+      if (onOpenDevice) {
+        // ADR-0060 decision 10: Open goes into the device. Its place on this canvas is where equipment dropped there lands.
+        const at = rf.getInternalNode(chassisNodeId(id))?.internals.positionAbsolute ?? rf.getInternalNode(`free:${id}`)?.internals.positionAbsolute;
+        onOpenDevice(id, view === 'inside', at ?? null);
+        return;
+      }
       setOpened({ id, view });
     },
-    [onSelect],
+    [onSelect, onOpenDevice, rf],
   );
   const onOpenInside = renderInsideStop ? (id: string) => openChassis(id, 'inside') : undefined;
   const freeMenuActions: Partial<MenuActions> = {
@@ -428,7 +439,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -488,6 +499,7 @@ function DrawingInner({
   // selection/hover (UI-SPEC "Selection").
   const [dragFromPortId, setDragFromPortId] = useState<string | null>(null);
   const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
+  const checks = useChecksApi();
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
@@ -1221,11 +1233,13 @@ function DrawingInner({
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
     (_event, node) => {
+      const freeBox = parseFreeNodeId(node.id);
+      if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
     },
-    [openChassis, free.onNodeDoubleClick],
+    [openChassis, onOpenDevice, free.onNodeDoubleClick],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1402,12 +1416,16 @@ function DrawingInner({
     (_event, connectionState: FinalConnectionState) => {
       setDragFromPortId(null);
       const toHandleId = connectionState.toHandle?.id ?? null;
+      const fromHandleId = connectionState.fromHandle?.id;
       if (!connectionState.isValid) {
         if (toHandleId != null) triggerPortShake(toHandleId);
+        // Checks: say why the drop could not work (the card, at the pointer).
+        if (toHandleId != null && fromHandleId && fromHandleId !== toHandleId) checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId));
         return;
       }
-      const fromHandleId = connectionState.fromHandle?.id;
       if (!fromHandleId || !toHandleId) return;
+      // Checks: a refused cable is never drawn; a failure of the checks themselves is a pass.
+      if (checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId))) return;
       const from = locatePort(view, fromHandleId);
       const to = locatePort(view, toHandleId);
       if (!from || !to) return;
@@ -1429,7 +1447,7 @@ function DrawingInner({
         screenY: (rect?.top ?? 0) + connectionState.to.y,
       });
     },
-    [view, triggerPortShake],
+    [view, triggerPortShake, checks],
   );
 
   const handlePickerConfirm = useCallback(
@@ -1470,7 +1488,7 @@ function DrawingInner({
 
     function onKeyDown(event: KeyboardEvent) {
       if (free.onKeyDown(event)) return;
-      if (event.key === 'Escape' && !focusIsInAField()) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !focusIsInAField()) {
         if (openedRef.current != null) setOpened(null);
         else if (selected != null || calloutRef.current != null) onSelect(null);
         return;
@@ -1528,6 +1546,7 @@ function DrawingInner({
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
+  const shown = useChecksFade(allNodes, allEdges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1543,8 +1562,8 @@ function DrawingInner({
       {...free.containerProps}
     >
       <ReactFlow
-        nodes={allNodes}
-        edges={allEdges}
+        nodes={shown.nodes}
+        edges={shown.edges}
         nodeTypes={ALL_NODE_TYPES}
         edgeTypes={ALL_EDGE_TYPES}
         defaultViewport={defaultViewport}
@@ -1605,6 +1624,7 @@ function DrawingInner({
           — never part of the React Flow pane, so it survives a pan or zoom
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
+      <ChecksCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}

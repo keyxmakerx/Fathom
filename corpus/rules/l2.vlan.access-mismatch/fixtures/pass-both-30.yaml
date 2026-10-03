@@ -1,0 +1,32 @@
+# Both access ports in VLAN 30.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: junos-ex, role: switch } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p1, kind: PhysicalPort, set: { label: "ge-0/0/1", connector: rj45, service: ethernet } }
+  - { id: d2, kind: Device, set: { hostname: access-sw-02, platform: junos-ex, role: switch } }
+  - { id: d2_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p2, kind: PhysicalPort, set: { label: "ge-0/0/2", connector: rj45, service: ethernet } }
+  - { id: i1, kind: Interface, set: { name: ge-0/0/1, form: ethernet } }
+  - { id: i2, kind: Interface, set: { name: ge-0/0/2, form: ethernet } }
+  - { id: u1, kind: LogicalUnit, set: { index: 0 } }
+  - { id: u2, kind: LogicalUnit, set: { index: 0 } }
+  - { id: v1, kind: Vlan, set: { vlan_id: 30 } }
+  - { id: v2, kind: Vlan, set: { vlan_id: 30 } }
+  - { id: c1, kind: Cable, set: { media: cat6 } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+  - { kind: HasPort, from: d1_ch, to: p1 }
+  - { kind: HasChassis, from: d2, to: d2_ch }
+  - { kind: HasPort, from: d2_ch, to: p2 }
+  - { kind: HasInterface, from: d1, to: i1 }
+  - { kind: Occupies, from: i1, to: p1 }
+  - { kind: HasInterface, from: d2, to: i2 }
+  - { kind: Occupies, from: i2, to: p2 }
+  - { kind: HasUnit, from: i1, to: u1 }
+  - { kind: HasUnit, from: i2, to: u2 }
+  - { kind: HasVlan, from: d1, to: v1 }
+  - { kind: VlanMember, from: u1, to: v1, set: { mode: access } }
+  - { kind: HasVlan, from: d2, to: v2 }
+  - { kind: VlanMember, from: u2, to: v2, set: { mode: access } }
+  - { kind: Terminates, from: c1, to: p1, set: { end: a } }
+  - { kind: Terminates, from: c1, to: p2, set: { end: b } }

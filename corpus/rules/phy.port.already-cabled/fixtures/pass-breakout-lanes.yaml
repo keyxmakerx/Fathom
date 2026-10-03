@@ -1,0 +1,21 @@
+# A 100G QSFP28 port broken out to two 25G ports, each cable on its own lane.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: core-sw-01, platform: junos-ex, role: switch } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p1, kind: PhysicalPort, set: { label: "Et1/1", connector: qsfp28, service: ethernet }, present: [transceiver] }
+  - { id: d2, kind: Device, set: { hostname: dist-sw-02, platform: junos-ex, role: switch } }
+  - { id: d2_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p2, kind: PhysicalPort, set: { label: "xe-0/1/0", connector: sfp28, service: ethernet }, present: [transceiver] }
+  - { id: p3, kind: PhysicalPort, set: { label: "xe-0/1/1", connector: sfp28, service: ethernet }, present: [transceiver] }
+  - { id: c1, kind: Cable, set: { media: mmf } }
+  - { id: c2, kind: Cable, set: { media: mmf } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+  - { kind: HasPort, from: d1_ch, to: p1 }
+  - { kind: HasChassis, from: d2, to: d2_ch }
+  - { kind: HasPort, from: d2_ch, to: p2 }
+  - { kind: HasPort, from: d2_ch, to: p3 }
+  - { kind: Terminates, from: c1, to: p1, set: { end: a, lane: 1 } }
+  - { kind: Terminates, from: c1, to: p2, set: { end: b } }
+  - { kind: Terminates, from: c2, to: p1, set: { end: a, lane: 2 } }
+  - { kind: Terminates, from: c2, to: p3, set: { end: b } }

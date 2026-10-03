@@ -167,6 +167,22 @@ pub fn router(state: DesignApiState) -> Router {
             post(create_design_handler),
         )
         .route(
+            "/organisations/{organisation}/scopes/{scope}/access",
+            get(access_handler),
+        )
+        .route(
+            "/organisations/{organisation}/scopes/{scope}/grants/propose",
+            post(propose_share_handler),
+        )
+        .route(
+            "/organisations/{organisation}/scopes/{scope}/grants/sign",
+            post(sign_share_handler),
+        )
+        .route(
+            "/organisations/{organisation}/scopes/{scope}/grants/{grant}/revoke",
+            get(revoke_bytes_handler).post(revoke_share_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
         )
@@ -575,6 +591,11 @@ fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
         grants::AuthorityError::NotAuthorised | grants::AuthorityError::QuorumNotMet { .. } => {
             tracing::info!(reason = %e, "not authorised");
             (StatusCode::FORBIDDEN, "not authorised\n").into_response()
+        }
+        // A proposal overtaken by another change: ask again.
+        grants::AuthorityError::Stale(_) => {
+            tracing::info!(reason = %e, "stale proposal");
+            (StatusCode::CONFLICT, "changed since it was proposed\n").into_response()
         }
         _ => {
             tracing::error!(reason = %e, "integrity check failed");
@@ -1118,6 +1139,405 @@ async fn create_design_handler(
     );
     map.insert("latest_version".to_string(), Json::Int(version));
     Ok(json_response(Json::Obj(map)))
+}
+
+// ---- Sharing a scope (View / Draw) ----
+//
+// Every route here needs `steward` on the scope, checked in `grants::`. The grant
+// is signed in the steward's browser (§3.3); the server fixes the bytes first and
+// re-derives every field of them when the signature comes back.
+
+/// A revoke signature is accepted for a time within this many seconds of now.
+const REVOKE_SKEW_SECONDS: i64 = 300;
+
+fn to_hex(bytes: &[u8]) -> String {
+    use core::fmt::Write;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
+
+fn lp_text<'a>(rest: &mut &'a [u8], what: &'static str) -> Result<&'a str, SessionError> {
+    let (field, tail) = crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
+    *rest = tail;
+    core::str::from_utf8(field).map_err(|_| SessionError::Malformed(what))
+}
+
+fn lp_number(rest: &mut &[u8], what: &'static str) -> Result<i64, SessionError> {
+    lp_text(rest, what)?
+        .parse()
+        .map_err(|_| SessionError::Malformed(what))
+}
+
+fn fixed32(text: &str, what: &'static str) -> Result<[u8; 32], SessionError> {
+    unhex(text)
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+        .ok_or(SessionError::Malformed(what))
+}
+
+/// The shareable capability named in a body: `read` or `draw`, never `steward`.
+fn shareable(text: &str) -> Result<Capability, SessionError> {
+    Capability::parse(text)
+        .filter(|c| grants::is_shareable(*c))
+        .ok_or(SessionError::Malformed("capability"))
+}
+
+/// `subject` must already belong to the organisation and not be the caller.
+async fn require_other_member(
+    tx: &Transaction<'_>,
+    ctx: &TenantContext,
+    subject: &str,
+) -> Result<String, SessionError> {
+    let canonical: repo::AccountId = subject
+        .parse()
+        .map_err(|_| SessionError::Malformed("account id"))?;
+    if canonical.to_string() == ctx.actor().to_string() {
+        return Err(SessionError::Malformed("account id"));
+    }
+    tx.query_opt(
+        "SELECT 1 FROM memberships WHERE organisation_id = $1 AND account_id = $2",
+        &[&ctx.tenant().to_string(), &canonical.to_string()],
+    )
+    .await
+    .map_err(SessionError::Db)?
+    .ok_or(SessionError::Malformed("account id"))?;
+    Ok(canonical.to_string())
+}
+
+/// `GET .../scopes/{scope}/access`: every member and what they can do here.
+async fn access_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    // The caller's own authority before anything about the organisation is read.
+    grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    let people = tx
+        .query(
+            "SELECT a.id, a.email, a.display_name FROM memberships m \
+               JOIN accounts a ON a.id = m.account_id \
+              WHERE m.organisation_id = $1 ORDER BY a.display_name, a.id",
+            &[&ctx.tenant().to_string()],
+        )
+        .await
+        .map_err(SessionError::Db)?;
+    let ids: Vec<String> = people.iter().map(|r| r.get(0)).collect();
+    let rows = grants::access_at_scope(&tx, &auth, scope_id, &ids)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let out = people
+        .iter()
+        .zip(rows)
+        .map(|(person, row)| {
+            let mut map = BTreeMap::new();
+            map.insert("account".to_string(), Json::Str(row.account.clone()));
+            map.insert("email".to_string(), Json::Str(person.get(1)));
+            map.insert("name".to_string(), Json::Str(person.get(2)));
+            map.insert(
+                "you".to_string(),
+                Json::Bool(row.account == ctx.actor().to_string()),
+            );
+            map.insert(
+                "capability".to_string(),
+                match row.capability {
+                    Some(c) => Json::Str(c.as_str().to_string()),
+                    None => Json::Null,
+                },
+            );
+            map.insert("inherited".to_string(), Json::Bool(row.inherited));
+            map.insert(
+                "direct".to_string(),
+                Json::Arr(
+                    row.direct
+                        .iter()
+                        .map(|(id, c)| {
+                            let mut g = BTreeMap::new();
+                            g.insert("grant".to_string(), Json::Str(id.clone()));
+                            g.insert("capability".to_string(), Json::Str(c.as_str().to_string()));
+                            Json::Obj(g)
+                        })
+                        .collect(),
+                ),
+            );
+            Json::Obj(map)
+        })
+        .collect();
+    let mut map = BTreeMap::new();
+    map.insert("people".to_string(), Json::Arr(out));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `POST .../scopes/{scope}/grants/propose`: body `LP(account) ‖ LP(capability)`.
+/// Answers the fields of the proposal and the `bytes` to sign, hex.
+async fn propose_share_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let mut rest: &[u8] = &signed.body;
+    let subject = lp_text(&mut rest, "account id")?.to_string();
+    let capability = shareable(lp_text(&mut rest, "capability")?)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    // The caller's own authority first, so a non-steward learns nothing about
+    // who belongs to the organisation.
+    grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    let subject = require_other_member(&tx, &ctx, &subject).await?;
+    let proposal = grants::propose_grant(
+        &tx,
+        &auth,
+        &grants::GrantRequest {
+            scope: Some(scope_id),
+            subject: subject
+                .parse()
+                .map_err(|_| SessionError::Malformed("account id"))?,
+            capability,
+            expires_at_unix: 0,
+        },
+    )
+    .await
+    .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("subject".to_string(), Json::Str(proposal.subject.clone()));
+    map.insert(
+        "capability".to_string(),
+        Json::Str(proposal.capability.as_str().to_string()),
+    );
+    map.insert(
+        "effective_from_unix".to_string(),
+        Json::Int(proposal.effective_from_unix),
+    );
+    map.insert(
+        "auth_epoch".to_string(),
+        Json::Int(i64::from(proposal.auth_epoch)),
+    );
+    map.insert(
+        "granter_key_fpr".to_string(),
+        Json::Str(to_hex(&proposal.granter_key_fpr)),
+    );
+    map.insert(
+        "subject_key_fpr".to_string(),
+        Json::Str(to_hex(&proposal.subject_key_fpr)),
+    );
+    map.insert(
+        "root_pubkey_fpr".to_string(),
+        Json::Str(to_hex(&proposal.root_pubkey_fpr)),
+    );
+    map.insert("bytes".to_string(), Json::Str(to_hex(&proposal.bytes)));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `POST .../scopes/{scope}/grants/sign`: body `LP(account) ‖ LP(capability) ‖
+/// LP(effective_from) ‖ LP(auth_epoch) ‖ LP(granter_key_fpr hex) ‖
+/// LP(subject_key_fpr hex) ‖ LP(root_pubkey_fpr hex) ‖ LP(signature hex)`: the
+/// proposal's fields back with the signature. Rebuilt, then re-derived and
+/// verified in `grants::sign_grant`; the scope comes from the path, not the body.
+async fn sign_share_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let mut rest: &[u8] = &signed.body;
+    let subject = lp_text(&mut rest, "account id")?.to_string();
+    let capability = shareable(lp_text(&mut rest, "capability")?)?;
+    let effective_from_unix = lp_number(&mut rest, "effective-from")?;
+    let auth_epoch = i32::try_from(lp_number(&mut rest, "authority epoch")?)
+        .map_err(|_| SessionError::Malformed("authority epoch"))?;
+    let granter_key_fpr = fixed32(lp_text(&mut rest, "key fingerprint")?, "key fingerprint")?;
+    let subject_key_fpr = fixed32(lp_text(&mut rest, "key fingerprint")?, "key fingerprint")?;
+    let root_pubkey_fpr = fixed32(lp_text(&mut rest, "key fingerprint")?, "key fingerprint")?;
+    let signature = unhex(lp_text(&mut rest, "signature")?)
+        .filter(|s| s.len() == 64)
+        .ok_or(SessionError::Malformed("signature"))?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    let subject = require_other_member(&tx, &ctx, &subject).await?;
+    let proposal = grants::GrantProposal {
+        organisation: ctx.tenant().to_string(),
+        scope: Some(scope_id.to_string()),
+        subject,
+        subject_key_fpr,
+        capability,
+        granter: ctx.actor().to_string(),
+        granter_key_fpr,
+        root_pubkey_fpr,
+        effective_from_unix,
+        expires_at_unix: 0,
+        auth_epoch,
+        sole_steward_appointment: false,
+        bytes: Vec::new(),
+    }
+    .rebuilt();
+    let grant_id = grants::sign_grant(&tx, &auth, &proposal, &signature)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("grant".to_string(), Json::Str(grant_id));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `GET .../grants/{grant}/revoke`: the time and the bytes to sign to revoke it.
+async fn revoke_bytes_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope, grant)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let at = unix_now();
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let bytes = grants::revoke_bytes_for_share(&tx, &auth, scope_id, &grant, at)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("at".to_string(), Json::Int(at));
+    map.insert("bytes".to_string(), Json::Str(to_hex(&bytes)));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `POST .../grants/{grant}/revoke`: body `LP(at) ‖ LP(signature hex)`. Takes
+/// effect on the next request: `authorise_account` reads the revocation each time.
+async fn revoke_share_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope, grant)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let mut rest: &[u8] = &signed.body;
+    let at = lp_number(&mut rest, "revoke time")?;
+    let signature = unhex(lp_text(&mut rest, "signature")?)
+        .filter(|s| s.len() == 64)
+        .ok_or(SessionError::Malformed("signature"))?;
+    // Never in the future: a future time would leave the grant working after the 200.
+    if at > unix_now() || unix_now() - at > REVOKE_SKEW_SECONDS {
+        return Err(SessionError::Malformed("revoke time").into());
+    }
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    grants::revoke_shared_grant(&tx, &auth, scope_id, &grant, &signature, at)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("grant".to_string(), Json::Str(grant));
+    Ok(json_response(Json::Obj(map)))
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 // ---- Rename ----
@@ -1986,7 +2406,7 @@ async fn list_field_definitions_handler(
 }
 
 /// `POST /organisations/{o}/field-definitions`: body `{kind, name, type, choices?}`.
-/// Any member.
+/// Needs `draw` somewhere in the organisation.
 async fn create_field_definition_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,

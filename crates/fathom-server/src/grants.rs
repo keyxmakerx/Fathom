@@ -1350,6 +1350,20 @@ pub struct GrantProposal {
     pub bytes: Vec<u8>,
 }
 
+impl GrantProposal {
+    /// A proposal read back off the wire, with `bytes` rebuilt from its own fields.
+    /// This makes [`sign_grant`]'s bytes-equality check pass by construction; what
+    /// protects the caller is that `sign_grant` re-derives every server-chosen
+    /// field and verifies the signature over the rebuilt bytes. Do not call it
+    /// where a proposal's bytes were meant to be compared with what was signed.
+    pub fn rebuilt(self) -> Self {
+        Self {
+            bytes: proposal_bytes(&self),
+            ..self
+        }
+    }
+}
+
 /// Step one: fix the server's choices and produce the bytes to sign (§3.3).
 ///
 /// The granter must already hold `steward` at or above the scope, **verified
@@ -2166,6 +2180,139 @@ pub async fn revoke_grant(
 
     advance_head(tx, auth.ring, auth.ctx, auth.tenant_key).await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Sharing a scope: who can do what here, and View/Draw grants
+// ---------------------------------------------------------------------------
+
+/// One member's standing at a scope.
+#[derive(Clone, Debug)]
+pub struct AccessRow {
+    pub account: String,
+    /// The widest capability that applies here, direct or inherited.
+    pub capability: Option<Capability>,
+    /// Whether that capability comes from a grant above this scope.
+    pub inherited: bool,
+    /// Live `read` and `draw` grants made exactly at this scope: `(id, capability)`.
+    pub direct: Vec<(String, Capability)>,
+}
+
+/// Who among `members` holds what at `scope`. Needs `steward` there.
+pub async fn access_at_scope(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    members: &[String],
+) -> Result<Vec<AccessRow>, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    authorise_in_verified_state(tx, auth, &verified, Some(scope), Capability::Steward).await?;
+    let scope_text = scope.to_string();
+    let now = now_unix();
+    let mut rows = Vec::with_capacity(members.len());
+    for member in members {
+        let best = match authorise_subject_in_verified_state(
+            tx,
+            auth,
+            &verified,
+            member,
+            Some(scope),
+            Capability::Read,
+        )
+        .await
+        {
+            Ok(found) => Some(found),
+            Err(AuthorityError::NotAuthorised | AuthorityError::QuorumNotMet { .. }) => None,
+            Err(other) => return Err(other),
+        };
+        let direct = verified
+            .state
+            .grants
+            .iter()
+            .filter(|g| {
+                g.subject_id == *member
+                    && g.scope_id.as_deref() == Some(scope_text.as_str())
+                    && g.capability != Capability::Steward
+                    && !g.is_genesis
+                    && !verified.state.revoked_by(&g.id, now)
+                    && (g.expires_at_unix == 0 || g.expires_at_unix > now)
+            })
+            .map(|g| (g.id.clone(), g.capability))
+            .collect();
+        rows.push(AccessRow {
+            account: member.clone(),
+            inherited: best
+                .as_ref()
+                .is_some_and(|b| b.scope.as_deref() != Some(scope_text.as_str())),
+            capability: best.map(|b| b.capability),
+            direct,
+        });
+    }
+    Ok(rows)
+}
+
+/// The Share panel hands out `read` and `draw` only; `steward` has a quorum and
+/// its own flow.
+pub fn is_shareable(capability: Capability) -> bool {
+    capability != Capability::Steward
+}
+
+/// The message to sign to revoke one `read`/`draw` grant made exactly at `scope`.
+/// Refuses anything else, so this route cannot be pointed at a steward's grant.
+pub async fn revoke_bytes_for_share(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    grant_id: &str,
+    at_unix: i64,
+) -> Result<Vec<u8>, AuthorityError> {
+    let grant = shareable_grant_at(tx, auth, scope, grant_id).await?;
+    Ok(authority::revoke_bytes(
+        &auth.organisation(),
+        &grant.id,
+        &grant_bytes_of(tx, auth.ring, &grant).await?,
+        at_unix,
+    ))
+}
+
+/// [`revoke_grant`], limited to a `read`/`draw` grant made exactly at `scope`.
+pub async fn revoke_shared_grant(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    grant_id: &str,
+    signature: &[u8],
+    at_unix: i64,
+) -> Result<(), AuthorityError> {
+    shareable_grant_at(tx, auth, scope, grant_id).await?;
+    revoke_grant(tx, auth, grant_id, signature, at_unix).await
+}
+
+async fn shareable_grant_at(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    grant_id: &str,
+) -> Result<Grant, AuthorityError> {
+    authorise_account(tx, auth, Some(scope), Capability::Steward).await?;
+    let grant = read_grant(tx, grant_id)
+        .await?
+        .ok_or(AuthorityError::NotAuthorised)?;
+    if grant.organisation_id != auth.organisation()
+        || grant.scope_id.as_deref() != Some(scope.to_string().as_str())
+        || !is_shareable(grant.capability)
+        || grant.is_genesis
+    {
+        return Err(AuthorityError::NotAuthorised);
+    }
+    // Already revoked: a second revocation row would be refused by its key.
+    if read_authority_state(tx, &auth.organisation())
+        .await?
+        .revoked_by(&grant.id, i64::MAX)
+    {
+        return Err(AuthorityError::NotAuthorised);
+    }
+    Ok(grant)
 }
 
 // ---------------------------------------------------------------------------
@@ -3383,6 +3530,28 @@ pub(crate) async fn verify_authority_state(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
 ) -> Result<VerifiedAuthorityState, AuthorityError> {
+    // READ COMMITTED: a share or revoke committing between the head read and the
+    // table reads would fail the digest check as if the store had been tampered
+    // with. Sharing makes that routine, so when the head moved while the state was
+    // read, read again. A head that stays put while the digest disagrees is real.
+    let mut moved = 0;
+    loop {
+        match verify_authority_state_once(tx, auth).await {
+            Err(AuthorityError::Stale(HEAD_MOVED)) if moved < 3 => moved += 1,
+            Err(AuthorityError::Stale(HEAD_MOVED)) => {
+                return Err(AuthorityError::Unverifiable("authority state"))
+            }
+            other => return other,
+        }
+    }
+}
+
+const HEAD_MOVED: &str = "the authority head moved while it was being read";
+
+async fn verify_authority_state_once(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<VerifiedAuthorityState, AuthorityError> {
     let (ring, ctx, watch) = (auth.ring, auth.ctx, auth.watch);
     let organisation = auth.organisation();
 
@@ -3428,6 +3597,17 @@ pub(crate) async fn verify_authority_state(
         &entries,
     );
     if stored_digest != recomputed_digest {
+        // A commit in between moves the head; tampering does not.
+        let now_epoch: Option<i32> = tx
+            .query_opt(
+                "SELECT auth_epoch FROM organisation_auth_head WHERE organisation_id = $1",
+                &[&organisation],
+            )
+            .await?
+            .map(|r| r.get(0));
+        if now_epoch != Some(auth_epoch) {
+            return Err(AuthorityError::Stale(HEAD_MOVED));
+        }
         return Err(AuthorityError::Unverifiable("authority state"));
     }
     // `live_count` is a second statement of the same fact; one nobody checks can
@@ -3469,8 +3649,20 @@ pub(crate) async fn authorise_in_verified_state(
     scope: Option<ScopeId>,
     needed: Capability,
 ) -> Result<Capabilities, AuthorityError> {
+    authorise_subject_in_verified_state(tx, auth, verified, &auth.actor(), scope, needed).await
+}
+
+/// As [`authorise_in_verified_state`], for `account` rather than the caller. The
+/// Share panel asks it of each member; the walk is the same one a request runs.
+async fn authorise_subject_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    account: &str,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<Capabilities, AuthorityError> {
     let ring = auth.ring;
-    let account = auth.actor();
     let organisation = &verified.organisation;
     let auth_epoch = verified.auth_epoch;
     let root_fpr = &verified.root_fpr;
