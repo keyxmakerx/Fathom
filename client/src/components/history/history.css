@@ -1,0 +1,113 @@
+/* The History panel beside the canvas (round 11, mockup r11-history-a): ink only, no colour. */
+.history {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: var(--t-small);
+}
+.history__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: var(--s3) var(--s4) var(--s2);
+}
+.history__title {
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.history__close,
+.history__older {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+.history__older {
+  align-self: flex-start;
+  padding: var(--s2) var(--s4);
+}
+.history__verify,
+.history__note {
+  margin: 0;
+  padding: 0 var(--s4) var(--s3);
+}
+.history__note {
+  color: var(--muted);
+}
+.history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.history__row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: var(--s2) var(--s4);
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.history__row--on {
+  border-left-color: var(--ink);
+  background: var(--surface);
+}
+.history__what {
+  display: block;
+  color: var(--muted);
+}
+.history__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.history__btn {
+  font: inherit;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.history__btn--primary {
+  background: var(--ink);
+  color: var(--page);
+}
+.history__confirm p {
+  margin: 0 0 var(--s2);
+}
+
+/* Over the canvas while a past save is shown. */
+.history-banner {
+  position: absolute;
+  top: var(--s3);
+  left: var(--s4);
+  z-index: 5;
+  font-size: var(--t-small);
+  color: var(--ink);
+  pointer-events: none;
+}
+/* What the picked save changed: dashed ink, never a colour. */
+.history-changed {
+  outline: 2px dashed var(--ink);
+  outline-offset: 4px;
+}
+.react-flow__edge.history-changed {
+  outline: none;
+}
+.react-flow__edge.history-changed path {
+  stroke-dasharray: 6 5;
+}

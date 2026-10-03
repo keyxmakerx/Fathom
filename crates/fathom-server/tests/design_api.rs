@@ -1005,6 +1005,87 @@ async fn a_drawer_saves_a_version_and_the_steward_opens_the_same_bytes_back() {
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("\"entry_type\":\"create\""), "{text}");
     assert!(text.contains("\"design_version\":1"), "{text}");
+    // The History panel names who and when: the saving account and the clock time.
+    assert!(text.contains("\"at_unix\":"), "{text}");
+    assert!(
+        text.contains(&format!("\"actor\":\"{}\"", drawer.account)),
+        "{text}"
+    );
+}
+
+/// A past version opens by number for anyone with Read, still reads back its own bytes
+/// after later saves, and is refused to someone with no grant.
+#[tokio::test]
+async fn a_past_version_opens_by_number_and_needs_read() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let first = a_plain_face_payload(2);
+    let second = a_plain_face_payload(3);
+    for (base, payload) in [(0, &first), (1, &second)] {
+        let path = format!(
+            "/organisations/{}/designs/{}/versions?base={base}",
+            estate.organisation, design
+        );
+        let (status, body) = call(
+            addr,
+            &drawer,
+            "POST",
+            &path,
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, payload),
+        )
+        .await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    }
+
+    let v1 = format!(
+        "/organisations/{}/designs/{}?version=1",
+        estate.organisation, design
+    );
+    let (status, body) = call(addr, &estate.steward, "GET", &v1, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        body, first,
+        "version 1 keeps its own bytes after version 2 landed"
+    );
+
+    let (status, _) = call(addr, &outsider, "GET", &v1, b"").await;
+    assert_ne!(status, "200", "a past version is not readable without Read");
+
+    // Restoring is an ordinary save of the old bytes: a third entry, the first two kept.
+    let path = format!(
+        "/organisations/{}/designs/{}/versions?base=2",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &first),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let history = format!(
+        "/organisations/{}/designs/{}/history",
+        estate.organisation, design
+    );
+    let (_, body) = call(addr, &estate.steward, "GET", &history, b"").await;
+    let text = String::from_utf8_lossy(&body);
+    for v in 1..=3 {
+        assert!(
+            text.contains(&format!("\"design_version\":{v}")),
+            "version {v} stays listed: {text}"
+        );
+    }
+    let (_, body) = call(addr, &estate.steward, "GET", &v1, b"").await;
+    assert_eq!(body, first);
 }
 
 // ---------------------------------------------------------------------------

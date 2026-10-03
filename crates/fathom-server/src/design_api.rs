@@ -2080,7 +2080,8 @@ async fn history_handler(
 
     let rows = tx
         .query(
-            "SELECT seq, entry_type, chain_key_epoch, design_version FROM chain_entries \
+            "SELECT seq, entry_type, chain_key_epoch, design_version, \
+                    extract(epoch FROM created_at)::bigint, metadata FROM chain_entries \
              WHERE chain_kind = 'design' AND design_id = $1 AND organisation_id = $2 \
              ORDER BY seq",
             &[&design_id.to_string(), &ctx.tenant().to_string()],
@@ -2094,6 +2095,8 @@ async fn history_handler(
         let entry_type_text: String = row.get(1);
         let chain_key_epoch: i32 = row.get(2);
         let design_version: Option<i64> = row.get(3);
+        let at_unix: i64 = row.get(4);
+        let metadata: Vec<u8> = row.get(5);
         let entry_type = chain::StoredEntryType::from_column(&entry_type_text);
 
         let mut map = BTreeMap::new();
@@ -2113,6 +2116,17 @@ async fn history_handler(
                 None => Json::Null,
             },
         );
+        map.insert("at_unix".to_string(), Json::Int(at_unix));
+        // The sealed metadata names the account that saved (§7.3); a row that will
+        // not parse reads as unknown rather than failing the whole list.
+        let actor = match Json::parse_canonical(&metadata) {
+            Ok(Json::Obj(m)) => match m.get("actor") {
+                Some(Json::Str(a)) => Json::Str(a.clone()),
+                _ => Json::Null,
+            },
+            _ => Json::Null,
+        };
+        map.insert("actor".to_string(), actor);
         out.push(Json::Obj(map));
     }
 

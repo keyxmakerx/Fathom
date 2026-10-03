@@ -62,6 +62,9 @@ export interface BarProps {
   onShare?: () => void;
   /** The Docs button: the design's docs list. */
   onDocs?: () => void;
+  /** The History button: the design's saves beside the canvas. */
+  onHistory?: () => void;
+  historyOpen?: boolean;
   account: AccountInfo;
   /** ADR-0052 §5 — the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s `canDraw`, negated). Renders the "view only" chip
@@ -104,6 +107,8 @@ export function Bar({
   onPrint,
   onShare,
   onDocs,
+  onHistory,
+  historyOpen,
   account,
   viewOnly,
   barExtra,
@@ -373,6 +378,20 @@ export function Bar({
           <>
             <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
               Docs
+            </button>
+            <Sep />
+          </>
+        )}
+        {onHistory && (
+          <>
+            <button
+              type="button"
+              className="shell-chip shell-chip--ink"
+              aria-pressed={historyOpen ?? false}
+              onClick={onHistory}
+              data-testid="shell-history"
+            >
+              History
             </button>
             <Sep />
           </>
