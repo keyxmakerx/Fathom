@@ -609,3 +609,25 @@ export function seedInventoryScene(catalogue: CatalogueModel[], me: string, coun
   }
   return doc;
 }
+
+/** The canvas scene plus three more racks and a firewall cable to sw-09 in the
+ * last (R7), far enough away to draw as stubs: the look-switch scene. */
+export function seedLookScene(catalogue: CatalogueModel[], me: string): Document {
+  let working = seedCanvasScene(catalogue, me);
+  const premisesId = viewOf(working, catalogue).premisesId;
+  for (const label of ['R2', 'R3', 'R7']) {
+    working = createRack(working, premisesId, { label, heightU: 12, unitNumbering: 'ascending', actor: me });
+  }
+  const rack = (label: string) => viewOf(working, catalogue).racks.find((r) => r.label === label)!;
+  const srx = catalogue.find((c) => c.model === 'SRX340')!;
+  working = placeChassis(working, rack('R7').id, srx, 3, 'front', { actor: me });
+  const far = rack('R7').chassis[0]!;
+  working = setDeviceField(working, far.deviceId, 'hostname', 'sw-09', { actor: me });
+  const rj = (host: string, rackLabel: string) =>
+    rack(rackLabel)
+      .chassis.find((c) => c.hostname === host)!
+      .ports.filter((p) => p.face === 'front' && p.connector.toLowerCase() === 'rj45')
+      .sort((x, y) => naturalLabelCompare(x.label, y.label));
+  working = connectPorts(working, rj('fw-01', 'A-04')[1]!.id, rj('sw-09', 'R7')[0]!.id, { sheath: 'red' }, { actor: me });
+  return working;
+}
