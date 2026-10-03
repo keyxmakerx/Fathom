@@ -10,6 +10,16 @@
 //! the values the ops lack, and after the replay every touched element must read exactly as
 //! the fragment says, or the delta is refused.
 //!
+//! **Nothing unexplained.** Every field and tombstone of every touched element must read as the
+//! fragment says, and the fragment may hold no element, history or provenance record that no op
+//! names: evidence the ops do not explain is refused, not dropped.
+//!
+//! **Loadable.** A store this accepts must reload through `Graph::from_snapshot`, whose edge
+//! ladder (in `EdgeId` order, against the final tombstones) is stricter than the write path's
+//! (in time order). A delta that revives something, or adds an edge ordered before one the store
+//! holds, is therefore re-run through that ladder (`Graph::check_loadable`) and refused if the
+//! loader would refuse. Any other delta can only shrink what the loader sees, and is not.
+//!
 //! **All or nothing.** Every mutation leaves an undo entry; a refusal runs them back, so a
 //! failed delta leaves the store as it was, including its log and its adjacency maps.
 
@@ -17,11 +27,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fathom_ir::bag::FieldKey;
 use fathom_ir::canon::CanonError;
-use fathom_ir::generated::accessors::{slot_from_canon, slot_type};
-use fathom_ir::generated::ir_types::EdgeClass;
+use fathom_ir::generated::accessors::{slot_from_canon, slot_to_canon, slot_type};
+use fathom_ir::generated::ir_types::{EdgeClass, EdgeKind};
 
 use crate::field::{FieldHistory, HistoryEntry, StoredPresence};
-use crate::graph::{declares, insert_sorted, Edge, Graph, Node, Slot, WriteError};
+use crate::graph::{declares, Edge, Graph, Node, Slot, WriteError};
 use crate::id::{EdgeId, ElementId, NodeId};
 use crate::op::{Batch, BatchId, Op};
 use crate::prov::{ProvenanceId, ProvenanceRecord, Timestamp};
@@ -47,6 +57,10 @@ pub enum SyncError {
     SupersedesMismatch { id: ProvenanceId },
     /// The same record, element or history key listed twice in the fragment.
     Duplicate,
+    /// The fragment holds an element, history or provenance record that no op names.
+    Unexplained,
+    /// The result is a design `Graph::from_snapshot` would refuse.
+    NotLoadable(WriteError),
     /// A value that does not read back into its declared type.
     Canon(CanonError),
 }
@@ -60,13 +74,7 @@ impl From<CanonError> for SyncError {
 enum Undo {
     Prov(ProvenanceId),
     Node(NodeId),
-    Edge {
-        id: EdgeId,
-        from: NodeId,
-        to: NodeId,
-        /// The containment owner this edge displaced (`Some(None)`: there was none).
-        owner: Option<Option<EdgeId>>,
-    },
+    Edge(EdgeId),
     Absent {
         element: ElementId,
         was: Option<Timestamp>,
@@ -137,6 +145,10 @@ struct Run {
     last: BTreeMap<(ElementId, FieldKey), (StoredPresence, ProvenanceId)>,
     /// Fields whose ops replaced or cleared a value, so a history record must come with them.
     archived: BTreeSet<(ElementId, FieldKey)>,
+    /// Provenance ids the ops cite; the fragment may carry no other record.
+    cited: BTreeSet<ProvenanceId>,
+    /// Something happened that the loader's ladder must be re-run for (module docs).
+    recheck: bool,
 }
 
 impl Graph {
@@ -151,7 +163,11 @@ impl Graph {
         let mut run = Run::default();
         let r = self
             .replay(d, &ix, &mut run)
-            .and_then(|()| self.settle(&ix, &mut run));
+            .and_then(|()| self.settle(&ix, &mut run))
+            .and_then(|()| match run.recheck {
+                true => self.check_loadable().map_err(SyncError::NotLoadable),
+                false => Ok(()),
+            });
         if r.is_err() {
             self.rollback(run.undo, mark);
         }
@@ -159,11 +175,20 @@ impl Graph {
     }
 
     fn replay(&mut self, d: &Snapshot, ix: &Index<'_>, run: &mut Run) -> Result<(), SyncError> {
+        // One pass over the log for the whole delta, not one per batch.
+        let mut incoming: BTreeSet<BatchId> = BTreeSet::new();
+        for b in &d.batches {
+            if !incoming.insert(b.id) {
+                let error = WriteError::BatchIdReused { id: b.id };
+                return Err(SyncError::Refused { batch: b.id, error });
+            }
+        }
+        if let Some(x) = self.log.iter().find(|x| incoming.contains(&x.id)) {
+            let error = WriteError::BatchIdReused { id: x.id };
+            return Err(SyncError::Refused { batch: x.id, error });
+        }
         for b in &d.batches {
             let refuse = |error| SyncError::Refused { batch: b.id, error };
-            if self.log.iter().any(|x| x.id == b.id) {
-                return Err(refuse(WriteError::BatchIdReused { id: b.id }));
-            }
             for op in &b.ops {
                 self.replay_op(op, ix, run).map_err(|e| match e {
                     SyncError::Refused { error, .. } => refuse(error),
@@ -239,31 +264,25 @@ impl Graph {
                     });
                 }
                 self.sync_prov(*prov, None, ix, run)?;
-                self.edges.insert(
-                    *edge,
-                    Edge {
-                        id: *edge,
-                        from: f,
-                        to: t,
-                        prov: *prov,
-                        absent_since: None,
-                        fields: BTreeMap::new(),
-                    },
-                );
-                self.by_ulid.insert(edge.ulid, el);
-                insert_sorted(self.out.entry((f, edge.kind)).or_default(), *edge);
-                insert_sorted(self.inn.entry((t, edge.kind)).or_default(), *edge);
-                let owner = if edge.kind.class() == EdgeClass::Containment {
-                    Some(self.owner_edge.insert(t, *edge))
-                } else {
-                    None
-                };
-                run.undo.push(Undo::Edge {
+                // An edge ordered before one the loader will already have placed (module docs).
+                let rival = |k| self.newest_edge_id(k).is_some_and(|m| m > *edge);
+                if rival(edge.kind)
+                    || (edge.kind.class() == EdgeClass::Containment
+                        && EdgeKind::ALL
+                            .into_iter()
+                            .any(|k| k.class() == EdgeClass::Containment && rival(k)))
+                {
+                    run.recheck = true;
+                }
+                self.place_edge(Edge {
                     id: *edge,
                     from: f,
                     to: t,
-                    owner,
+                    prov: *prov,
+                    absent_since: None,
+                    fields: BTreeMap::new(),
                 });
+                run.undo.push(Undo::Edge(*edge));
                 run.added.insert(el);
                 run.touched.insert(el);
             }
@@ -320,6 +339,7 @@ impl Graph {
                     self.check_edge_l0(id.kind, e.from, e.to).map_err(refused)?;
                 }
                 self.set_absent(*element, None);
+                run.recheck = true;
                 run.undo.push(Undo::Absent {
                     element: *element,
                     was,
@@ -345,6 +365,7 @@ impl Graph {
         if rec.supersedes != current {
             return Err(SyncError::SupersedesMismatch { id });
         }
+        run.cited.insert(id);
         match self.prov.get(&id) {
             Some(held) if held == *rec => Ok(()),
             Some(_) => Err(SyncError::Refused {
@@ -373,16 +394,37 @@ impl Graph {
         }
     }
 
-    /// After the ops: install values and history from the fragment, and check that every
-    /// touched element reads as the fragment says.
+    /// After the ops: install values and history from the fragment, and check that the
+    /// fragment holds nothing the ops do not name and that every touched element reads, in
+    /// every field and in its tombstone, exactly as the fragment says.
     fn settle(&mut self, ix: &Index<'_>, run: &mut Run) -> Result<(), SyncError> {
+        let named = |el| run.touched.contains(&el);
+        let stray = ix.nodes.keys().any(|n| !named(ElementId::Node(*n)))
+            || ix.edges.keys().any(|e| !named(ElementId::Edge(*e)))
+            || ix.history.keys().any(|k| !run.last.contains_key(k))
+            || ix.prov.keys().any(|p| !run.cited.contains(p));
+        if stray {
+            return Err(SyncError::Unexplained);
+        }
         for el in run.touched.clone() {
             let (absent, fields) = ix.state(el)?;
+            let bad = || SyncError::Mismatch {
+                element: el,
+                key: None,
+            };
             if self.absent_since(el) != Some(absent) {
-                return Err(SyncError::Mismatch {
-                    element: el,
-                    key: None,
-                });
+                return Err(bad());
+            }
+            // What an op cannot change must be what the store holds.
+            let same_identity = match el {
+                ElementId::Node(n) => self.nodes[&n].existence == ix.nodes[&n].existence,
+                ElementId::Edge(e) => {
+                    let (held, s) = (&self.edges[&e], ix.edges[&e]);
+                    (held.from, held.to, held.prov) == (s.from, s.to, s.prov)
+                }
+            };
+            if !same_identity {
+                return Err(bad());
             }
             // A new element holds no field its ops did not set.
             if run.added.contains(&el) {
@@ -456,7 +498,39 @@ impl Graph {
                 None => {}
             }
         }
+        for el in &run.touched {
+            self.fields_match(*el, ix.state(*el)?.1)?;
+        }
         Ok(())
+    }
+
+    /// The element's slots are the fragment's fields, key for key, in the same order.
+    fn fields_match(&self, el: ElementId, fields: &[FieldSnap]) -> Result<(), SyncError> {
+        let held = match el {
+            ElementId::Node(n) => &self.nodes[&n].fields,
+            ElementId::Edge(e) => &self.edges[&e].fields,
+        };
+        let mismatch = |key| SyncError::Mismatch {
+            element: el,
+            key: Some(key),
+        };
+        let mut have = held.iter();
+        for f in fields {
+            let Some((key, slot)) = have.next().filter(|(k, _)| **k == f.key) else {
+                return Err(mismatch(f.key));
+            };
+            let value = match (slot.presence, slot.value.as_deref()) {
+                (StoredPresence::Set, Some(v)) => Some(slot_to_canon(*key, v)?),
+                _ => None,
+            };
+            if (slot.presence, &value, slot.prov) != (f.presence, &f.value, f.prov) {
+                return Err(mismatch(f.key));
+            }
+        }
+        match have.next() {
+            Some((key, _)) => Err(mismatch(*key)),
+            None => Ok(()),
+        }
     }
 
     fn history_from(&self, h: &HistorySnap) -> Result<FieldHistory, SyncError> {
@@ -497,32 +571,7 @@ impl Graph {
                     self.nodes.remove(&id);
                     self.by_ulid.remove(&id.ulid);
                 }
-                Undo::Edge {
-                    id,
-                    from,
-                    to,
-                    owner,
-                } => {
-                    self.edges.remove(&id);
-                    self.by_ulid.remove(&id.ulid);
-                    for (map, n) in [(&mut self.out, from), (&mut self.inn, to)] {
-                        if let Some(v) = map.get_mut(&(n, id.kind)) {
-                            v.retain(|e| *e != id);
-                            if v.is_empty() {
-                                map.remove(&(n, id.kind));
-                            }
-                        }
-                    }
-                    match owner {
-                        Some(Some(prev)) => {
-                            self.owner_edge.insert(to, prev);
-                        }
-                        Some(None) => {
-                            self.owner_edge.remove(&to);
-                        }
-                        None => {}
-                    }
-                }
+                Undo::Edge(id) => self.unplace_edge(id),
                 Undo::Absent { element, was } => self.set_absent(element, was),
                 Undo::Slot { element, key, was } => {
                     let m = self.slot_map_mut(element);

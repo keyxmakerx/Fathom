@@ -344,7 +344,10 @@ pub struct Graph {
     pub(crate) by_ulid: BTreeMap<Ulid, ElementId>,
     pub(crate) out: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
     pub(crate) inn: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
-    pub(crate) owner_edge: BTreeMap<NodeId, EdgeId>,
+    /// Every containment edge into a node, tombstoned or not, in `EdgeId` order. The owner is
+    /// whichever of them is effective (`live_owner_edge`): a function of the edges' state alone,
+    /// so a write, a replayed delta and a snapshot rebuild cannot disagree about it.
+    pub(crate) containment_in: BTreeMap<NodeId, Vec<EdgeId>>,
     pub(crate) prov: BTreeMap<ProvenanceId, ProvenanceRecord>,
     pub(crate) history: BTreeMap<(ElementId, FieldKey), FieldHistory>,
     pub(crate) log: Vec<Batch>,
@@ -370,7 +373,7 @@ impl Graph {
             by_ulid: BTreeMap::new(),
             out: BTreeMap::new(),
             inn: BTreeMap::new(),
-            owner_edge: BTreeMap::new(),
+            containment_in: BTreeMap::new(),
             prov: BTreeMap::new(),
             history: BTreeMap::new(),
             log: Vec::new(),
@@ -550,23 +553,14 @@ impl Graph {
 
         let id = EdgeId { kind, ulid };
         let prov = self.intern(filled);
-        self.edges.insert(
+        self.place_edge(Edge {
             id,
-            Edge {
-                id,
-                from,
-                to,
-                prov,
-                absent_since: None,
-                fields: BTreeMap::new(),
-            },
-        );
-        self.by_ulid.insert(ulid, ElementId::Edge(id));
-        insert_sorted(self.out.entry((from, kind)).or_default(), id);
-        insert_sorted(self.inn.entry((to, kind)).or_default(), id);
-        if kind.class() == EdgeClass::Containment {
-            self.owner_edge.insert(to, id);
-        }
+            from,
+            to,
+            prov,
+            absent_since: None,
+            fields: BTreeMap::new(),
+        });
         self.record(Op::AddEdge {
             edge: id,
             from,
@@ -574,6 +568,54 @@ impl Graph {
             prov,
         });
         Ok(id)
+    }
+
+    /// Put an edge in the store and in every index that reads it. The one way an edge enters:
+    /// a write, a replayed delta and a snapshot rebuild all come through here.
+    pub(crate) fn place_edge(&mut self, edge: Edge) {
+        let (id, from, to) = (edge.id, edge.from, edge.to);
+        self.by_ulid.insert(id.ulid, ElementId::Edge(id));
+        insert_sorted(self.out.entry((from, id.kind)).or_default(), id);
+        insert_sorted(self.inn.entry((to, id.kind)).or_default(), id);
+        if id.kind.class() == EdgeClass::Containment {
+            insert_sorted(self.containment_in.entry(to).or_default(), id);
+        }
+        self.edges.insert(id, edge);
+    }
+
+    /// The greatest id among the edges of one kind, tombstoned or not.
+    pub(crate) fn newest_edge_id(&self, kind: EdgeKind) -> Option<EdgeId> {
+        let lo = EdgeId {
+            kind,
+            ulid: Ulid(0),
+        };
+        let hi = EdgeId {
+            kind,
+            ulid: Ulid(u128::MAX),
+        };
+        self.edges.range(lo..=hi).next_back().map(|(id, _)| *id)
+    }
+
+    /// The exact inverse of [`Graph::place_edge`], for a refused delta.
+    pub(crate) fn unplace_edge(&mut self, id: EdgeId) {
+        let Some(edge) = self.edges.remove(&id) else {
+            return;
+        };
+        self.by_ulid.remove(&id.ulid);
+        for (map, n) in [(&mut self.out, edge.from), (&mut self.inn, edge.to)] {
+            if let Some(v) = map.get_mut(&(n, id.kind)) {
+                v.retain(|e| *e != id);
+                if v.is_empty() {
+                    map.remove(&(n, id.kind));
+                }
+            }
+        }
+        if let Some(v) = self.containment_in.get_mut(&edge.to) {
+            v.retain(|e| *e != id);
+            if v.is_empty() {
+                self.containment_in.remove(&edge.to);
+            }
+        }
     }
 
     /// The L0 ladder for an edge that is about to exist, in the fixed order
@@ -744,14 +786,13 @@ impl Graph {
             .copied()
     }
 
+    /// The effective containment edge into `n`, if any.
     fn live_owner_edge(&self, n: NodeId) -> Option<EdgeId> {
-        let id = *self.owner_edge.get(&n)?;
-        let e = self.edges.get(&id)?;
-        if self.is_effective(e) {
-            Some(id)
-        } else {
-            None
-        }
+        self.containment_in
+            .get(&n)?
+            .iter()
+            .copied()
+            .find(|id| self.edges.get(id).is_some_and(|e| self.is_effective(e)))
     }
 
     /// Is `target` reachable from `start` over live edges of one kind?

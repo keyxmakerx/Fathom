@@ -5,6 +5,7 @@ use fathom_graph::{
     Actor, Batch, BatchId, Confidence, EdgeId, ElementId, Graph, NodeId, Op, Origin, ProvenanceId,
     ProvenanceRecord, Snapshot, StoredPresence, SyncError, Timestamp, UserId, WriteError,
 };
+use fathom_graph::{FieldSnap, HistorySnap, SnapshotError};
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{DeviceField, EdgeKind, NodeKind, SiteField};
 use fathom_ir::scalar::{Identifier, Text};
@@ -434,6 +435,10 @@ fn a_new_element_carrying_a_field_no_op_set_is_refused() {
     for b in &mut f.batches {
         b.ops.retain(|o| !matches!(o, Op::SetField { .. }));
     }
+    // Keep the field's record so that only the field itself is unexplained.
+    f.history.clear();
+    assert!(matches!(refuses(&mut p, &f), SyncError::Unexplained));
+    f.provenance.retain(|r| r.id != prov(13).id);
     assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
 }
 
@@ -458,5 +463,160 @@ fn an_open_batch_refuses() {
 fn an_empty_delta_is_a_no_op() {
     let (mut p, _, _) = base();
     p.sync().unwrap();
+    p.same();
+}
+
+const HAS_DEVICE: EdgeKind = EdgeKind::HasDevice;
+
+fn edge_id(n: u128) -> EdgeId {
+    EdgeId {
+        kind: HAS_DEVICE,
+        ulid: ulid(n),
+    }
+}
+
+fn tombstone(g: &mut Graph, el: ElementId, n: u128) {
+    g.tombstone(el, Timestamp(AT + n as u64), by()).unwrap();
+}
+
+fn revive(g: &mut Graph, el: ElementId, n: u128) {
+    g.revive(el, Timestamp(AT + n as u64), by()).unwrap();
+}
+
+/// The device's owner cut, a new owner given and cut again: nothing yet the loader refuses.
+fn cut_twice() -> Pair {
+    let (mut p, _, dev) = base();
+    p.doc.begin_batch(BatchId(ulid(10)), "move").unwrap();
+    tombstone(&mut p.doc, ElementId::Edge(edge_id(3)), 10);
+    let site2 = p
+        .doc
+        .insert_node(NodeKind::Site, ulid(14), prov(14))
+        .unwrap();
+    p.doc
+        .insert_edge(HAS_DEVICE, ulid(15), site2, dev, prov(15))
+        .unwrap();
+    p.doc.end_batch().unwrap();
+    p.doc.begin_batch(BatchId(ulid(11)), "cut").unwrap();
+    tombstone(&mut p.doc, ElementId::Edge(edge_id(15)), 11);
+    p.doc.end_batch().unwrap();
+    p
+}
+
+#[test]
+fn a_revive_after_a_reparent_is_refused_because_the_loader_refuses_it() {
+    // Revive the first owner's edge: the write path takes it, but the loader checks the replaced
+    // edge against the revived one and refuses the design. So must a delta.
+    let loader_refuses = |p: &Pair| {
+        matches!(
+            Graph::from_snapshot(&p.doc.to_snapshot().unwrap()),
+            Err(SnapshotError::L0(WriteError::SecondContainment { .. }))
+        )
+    };
+    let revive_first = |p: &mut Pair| {
+        p.doc.begin_batch(BatchId(ulid(12)), "back").unwrap();
+        revive(&mut p.doc, ElementId::Edge(edge_id(3)), 12);
+        p.doc.end_batch().unwrap();
+    };
+    // All three batches in one delta.
+    let mut p = cut_twice();
+    revive_first(&mut p);
+    assert!(loader_refuses(&p));
+    let whole = p.fragment();
+    assert!(matches!(
+        refuses(&mut p, &whole),
+        SyncError::NotLoadable(WriteError::SecondContainment { .. })
+    ));
+    // The first two held, then the revive alone.
+    let mut p = cut_twice();
+    p.sync().unwrap();
+    revive_first(&mut p);
+    assert!(loader_refuses(&p));
+    let revive_only = p.fragment();
+    assert!(matches!(
+        refuses(&mut p, &revive_only),
+        SyncError::NotLoadable(WriteError::SecondContainment { .. })
+    ));
+}
+
+#[test]
+fn the_owner_is_the_same_whichever_way_the_store_was_built() {
+    // The replacement edge is ordered before the original (another client's clock), the new
+    // site goes, and the device and the original edge come back: the original owns it again.
+    let (mut p, site, dev) = base();
+    p.doc.begin_batch(BatchId(ulid(10)), "move").unwrap();
+    tombstone(&mut p.doc, ElementId::Edge(edge_id(3)), 10);
+    let site2 = p
+        .doc
+        .insert_node(NodeKind::Site, ulid(14), prov(14))
+        .unwrap();
+    let early = Ulid::from_parts(AT - 1_000, 1).unwrap();
+    p.doc
+        .insert_edge(HAS_DEVICE, early, site2, dev, prov(15))
+        .unwrap();
+    p.doc.end_batch().unwrap();
+    p.doc.begin_batch(BatchId(ulid(11)), "remove").unwrap();
+    tombstone(&mut p.doc, ElementId::Node(site2), 11);
+    p.doc.end_batch().unwrap();
+    p.doc.begin_batch(BatchId(ulid(12)), "back").unwrap();
+    revive(&mut p.doc, ElementId::Node(dev), 12);
+    revive(&mut p.doc, ElementId::Edge(edge_id(3)), 12);
+    p.doc.end_batch().unwrap();
+
+    p.sync().unwrap();
+    p.same();
+    let full = Graph::from_snapshot(&p.doc.to_snapshot().unwrap()).unwrap();
+    for g in [&p.held, &p.doc, &full] {
+        assert_eq!(g.owner(dev), Some(site));
+    }
+    p.held.check_loadable().unwrap();
+}
+
+#[test]
+fn evidence_no_op_explains_is_refused_not_dropped() {
+    let (mut p, site, dev) = base();
+    p.doc.begin_batch(BatchId(ulid(10)), "rename").unwrap();
+    hostname(&mut p.doc, dev, "b", 11);
+    p.doc.end_batch().unwrap();
+    let good = p.fragment();
+
+    // A tombstone on an element no op names.
+    let mut f = good.clone();
+    let mut stray = p.doc.to_snapshot().unwrap().nodes;
+    stray.retain(|n| n.id == site);
+    stray[0].absent_since = Some(Timestamp(AT + 99));
+    f.nodes.extend(stray);
+    f.nodes.sort_by_key(|n| n.id);
+    assert!(matches!(refuses(&mut p, &f), SyncError::Unexplained));
+
+    // A field on a touched, already-held element that no op set.
+    let mut f = good.clone();
+    f.nodes[0].fields.push(FieldSnap {
+        key: DeviceField::Role.key(),
+        presence: StoredPresence::Absent,
+        value: None,
+        prov: prov(11).id,
+    });
+    f.nodes[0].fields.sort_by_key(|x| x.key);
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+
+    // A held element's identity, a record no op cites, a history no op writes.
+    let mut f = good.clone();
+    f.nodes[0].existence = prov(99).id;
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+    let mut f = good.clone();
+    f.provenance.push(prov(98));
+    f.provenance.sort_by_key(|r| r.id);
+    assert!(matches!(refuses(&mut p, &f), SyncError::Unexplained));
+    let mut f = good.clone();
+    f.history.push(HistorySnap {
+        element: ElementId::Node(site),
+        key: SiteField::Name.key(),
+        entries: vec![],
+        truncated: 0,
+    });
+    assert!(matches!(refuses(&mut p, &f), SyncError::Unexplained));
+
+    p.held.apply_batches(&good).unwrap();
+    p.seen = p.doc.log().len();
     p.same();
 }
