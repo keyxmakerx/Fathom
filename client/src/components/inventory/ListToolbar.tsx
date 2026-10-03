@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 
+import { parseFilterText } from './filterText';
 import type { CellEdit, Column, InvRow } from './kinds';
 
 export interface Filter {
@@ -142,8 +143,9 @@ export function ListToolbar(props: ListToolbarProps) {
           className="inv-toolbar__pop"
           onSubmit={(e) => {
             e.preventDefault();
-            if (filterValue.trim() === '') return;
-            onFilters([...filters, { col: filterCol, value: filterValue.trim() }]);
+            const parsed = parseFilterText(filterValue, columnsAll, filterCol);
+            if (parsed == null) return;
+            onFilters([...filters, parsed]);
             setFilterValue('');
             setOpen(null);
           }}
@@ -156,7 +158,7 @@ export function ListToolbar(props: ListToolbarProps) {
               </option>
             ))}
           </select>
-          <input aria-label="Contains" placeholder="contains" value={filterValue} onChange={(e) => setFilterValue(e.currentTarget.value)} autoFocus />
+          <input aria-label="Contains" placeholder="contains, or tag:edge" value={filterValue} onChange={(e) => setFilterValue(e.currentTarget.value)} autoFocus />
           <button type="submit">Add filter</button>
         </form>
       ) : null}

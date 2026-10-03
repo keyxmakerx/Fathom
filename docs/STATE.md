@@ -202,7 +202,7 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   refuses by name. The trail shows sealed and pending, with a comment on the next change.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
-  Not built: the Inventory column and filter.
+  Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
 
 **Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
 numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
@@ -241,7 +241,7 @@ outside invites, a public link.
 from the canvas), Rack elevations, Cable schedule, Port map; "Make PDF" opens the preview and the browser's
 own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials and management addresses
 optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
-.xlsx. Not built: the Inventory table page.
+.xlsx. From Inventory the pack also prints the table as shown (its columns, filters and sort).
 
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never

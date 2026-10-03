@@ -210,6 +210,22 @@ try {
   check('bulk Add tag put the tag on the row', (await page.locator('.inv-table__row').first().innerText()).includes('lab'));
   await shot('inventory-05-bulk.png');
 
+  // 8b — the tag: filter token, then the Inventory page of the print pack.
+  while ((await page.locator('.inv-chip button').count()) > 0) await page.locator('.inv-chip button').first().click();
+  await page.getByRole('button', { name: '+ Filter' }).click();
+  await page.getByLabel('Contains').fill('tag:lab');
+  await page.getByRole('button', { name: 'Add filter' }).click();
+  check('tag:lab filters to the tagged row', (await page.locator('.inv-table__row').count()) === 1 && (await page.locator('.inv-chip').first().innerText()).startsWith('Tags: lab'));
+  await page.locator('[data-testid="shell-print"]').click();
+  await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
+  check('the pack offers the Inventory table', await page.locator('[data-testid="print-section-inventory"]').isChecked());
+  await page.locator('[data-testid="print-panel-print"]').click();
+  await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
+  const previewText = await page.locator('[data-testid="print-preview"]').innerText();
+  check('the printed table is the filtered list', previewText.includes('Inventory · Devices') && previewText.includes('pasted-sw') && previewText.includes('filtered: Tags: lab') && !previewText.includes('edge-fw'));
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 }).catch(() => {});
+
   // 9 — Show on canvas.
   await page.locator('.inv-table__row').first().click();
   await page.getByRole('button', { name: 'Show on canvas' }).click();
