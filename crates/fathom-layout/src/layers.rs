@@ -379,6 +379,10 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     not by this layout, so they stay UNTABLED like `Tag`.
         | NodeKind::Label
         | NodeKind::Line
+        //     ADR-0061 round 7: docs are listed by the client, never laid out.
+        | NodeKind::Doc
+        | NodeKind::DocLink
+        | NodeKind::DocFile
         //     ADR-0061 round 7: plans are drawn by the plan views, never as a box.
         | NodeKind::MaintenancePlan
         | NodeKind::PlanStep

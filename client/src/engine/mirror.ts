@@ -14,23 +14,100 @@
 // `InsideStop.tsx`. This file only forwards to it, the same as `load`/
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
-import { Engine, EngineError, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult, type PlanStepPreview } from './engine';
+import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult, type PlanStepPreview } from './engine';
 import { errorName } from './protocol.constants';
-import { readPlain, writePlain } from '../document/plain';
+import { readPlain, writeDelta, writePlain } from '../document/plain';
 import type { Document } from '../document/model';
+
+/** Is `next` the document the module holds (`held`) with batches appended, and nothing earlier
+ * changed? Batch objects are compared by identity first (the common case, a document edited by
+ * `commands.ts`), then by value, so a copy of the same history still counts and a comment added
+ * to an old batch does not. */
+function continues(held: Document, next: Document): boolean {
+  // A held document with elements and no batches has no last batch for the module to check
+  // against, so nothing says the module holds it: load whole.
+  if (held.batches.length === 0 && (held.nodes.length > 0 || held.edges.length > 0)) return false;
+  const a = held.batches;
+  const b = next.batches;
+  if (b.length < a.length) return false;
+  if (a === b) return true;
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a[i];
+    const y = b[i];
+    if (x === y) continue;
+    if (x.id !== y.id || x.label !== y.label || x.comment !== y.comment || x.reverses !== y.reverses) return false;
+    if (x.ops !== y.ops && JSON.stringify(x.ops) !== JSON.stringify(y.ops)) return false;
+  }
+  return true;
+}
+
+function liveCount(items: readonly { absentSince?: number }[]): number {
+  let n = 0;
+  for (const x of items) if (x.absentSince === undefined) n += 1;
+  return n;
+}
+
+/** What `sync` did: the whole design went in, only new batches did, or nothing needed to. */
+export type SyncKind = 'full' | 'delta' | 'none';
 
 export class Mirror {
   private readonly engine: Engine;
+  /** The document the module holds, as far as this page knows; `null` when unknown (nothing loaded,
+   * a load failed, a paste in flight). The module checks the last batch id itself (`OP_SYNC`'s base)
+   * and answers its node and edge counts, so a stale guess costs a reload, never a wrong estate. */
+  private held: { doc: Document } | null = null;
 
   constructor(engine: Engine) {
     this.engine = engine;
+  }
+
+  /** The module trapped: discard this mirror and its engine, and boot another. */
+  get trapped(): boolean {
+    return this.engine.trapped;
   }
 
   /** Door one: write the held document to the plain face and hand it to the
    * module (`OP_LOAD_PLAIN`) — nothing round-trips back from this call, the
    * module simply now holds what the page already had. */
   load(doc: Document): void {
+    this.held = null;
     this.engine.loadPlain(writePlain(doc));
+    this.hold(doc);
+  }
+
+  /** Bring the module in step with `doc` for checks. The first call, a document that does not
+   * continue what the module holds (another design, a restored version), and a module that
+   * answers "resync needed" do the full load (`load`); otherwise only the batches the module has
+   * not seen are sent (`OP_SYNC`) and the checks cache stays warm. The full load is the oracle
+   * and the fallback, never skipped when anything is in doubt. */
+  sync(doc: Document): SyncKind {
+    const held = this.held;
+    if (held != null && held.doc === doc) return 'none';
+    if (held != null && continues(held.doc, doc)) {
+      let counts: { nodes: number; edges: number } | null = null;
+      try {
+        counts = this.engine.syncDelta(writeDelta(doc, held.doc.batches.length));
+      } catch (e) {
+        // A trap leaves the module unusable: say so rather than load into it. Anything else (a
+        // delta that could not be built, a refusal that is not "resync") falls back to a full load.
+        if (e instanceof EngineTrap) {
+          this.held = null;
+          throw e;
+        }
+      }
+      // Live counts that differ are a tombstone, revive or element no batch told the module about.
+      if (counts != null && counts.nodes === liveCount(doc.nodes) && counts.edges === liveCount(doc.edges)) {
+        this.hold(doc);
+        return 'delta';
+      }
+      this.held = null;
+    }
+    this.load(doc);
+    return 'full';
+  }
+
+  private hold(doc: Document): void {
+    this.held = { doc };
   }
 
   /** Door three, then door two: paste under an already-placed device
@@ -45,8 +122,12 @@ export class Mirror {
    * paste reply, for the summary numbers and the refusal text a caller
    * wants immediately, without waiting on a second read of `doc`. */
   pasteInto(deviceId: string, text: string): { doc: Document; result: PasteResult } {
+    // The module's estate is now neither the document it was given nor any the page holds.
+    this.held = null;
     const result = this.engine.pasteInto(deviceId, text);
     const doc = readPlain(this.engine.exportPlain());
+    // What was read back is exactly what the module holds, so later syncs can continue from it.
+    this.hold(doc);
     return { doc, result };
   }
 

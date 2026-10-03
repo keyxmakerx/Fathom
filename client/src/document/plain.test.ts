@@ -359,13 +359,36 @@ describe('readPlain refusals', () => {
     expect(() => readPlain(bytesOf(bad))).toThrow('Label does not exist in schema 0.12');
   });
 
-  it('opens a 0.14 vector and refuses a 0.14 header holding an issue', () => {
+  it('opens a 0.13 vector, holds a Label there, and refuses a Doc under a 0.13 header', () => {
+    const at013 = PINNED.replace('schema 0.17', 'schema 0.13');
+    expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at013))))).toEqual(PINNED);
+    const doc = readPlain(bytesOf(PINNED));
+    const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
+    const label013 = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.17', 'schema 0.13');
+    expect(() => readPlain(bytesOf(label013))).not.toThrow();
+    const withDoc: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Doc', newUlid()), existence: newUlid(), fields: {} }] };
+    const bad = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.17', 'schema 0.13');
+    expect(() => readPlain(bytesOf(bad))).toThrow('Doc does not exist in schema 0.13');
+  });
+
+  it('opens a 0.14 vector and refuses a plan under a 0.14 header', () => {
     const at014 = PINNED.replace('schema 0.17', 'schema 0.14');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at014))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
+    const withPlan: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('MaintenancePlan', newUlid()), existence: newUlid(), fields: {} }] };
+    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.17', 'schema 0.14');
+    expect(() => readPlain(bytesOf(bad))).toThrow('MaintenancePlan does not exist in schema 0.14');
+  });
+
+  it('opens 0.15 and 0.16 vectors, and refuses either header holding an issue', () => {
+    const doc = readPlain(bytesOf(PINNED));
     const withIssue: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Issue', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withIssue)).replace('schema 0.17', 'schema 0.14');
-    expect(() => readPlain(bytesOf(bad))).toThrow('Issue does not exist in schema 0.14');
+    for (const v of ['0.15', '0.16']) {
+      const older = PINNED.replace('schema 0.17', `schema ${v}`);
+      expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
+      const bad = new TextDecoder().decode(writePlain(withIssue)).replace('schema 0.17', `schema ${v}`);
+      expect(() => readPlain(bytesOf(bad))).toThrow(`Issue does not exist in schema ${v}`);
+    }
   });
 
   it('refuses an unlisted older version', () => {

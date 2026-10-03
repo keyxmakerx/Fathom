@@ -31,8 +31,8 @@ use fathom_graph::{
 };
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{
-    CaptureField, EdgeKind, IssueField, IssueStepAnswer, IssueStepField, IssueStepTopic, NodeKind,
-    NoteField,
+    CaptureField, DocField, DocLinkField, EdgeKind, IssueField, IssueStepAnswer, IssueStepField,
+    IssueStepTopic, NodeKind, NoteField,
 };
 use fathom_ir::scalar;
 use fathom_server::api::{
@@ -2506,6 +2506,231 @@ fn a_payload_with_note_text(seed: u128, line: &str) -> Vec<u8> {
     .expect("set note text");
     g.end_batch().expect("close batch");
     fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+/// A payload with a `Doc` whose body, and a `DocLink` whose address, are given. A clean
+/// one when both are plain.
+fn a_payload_with_doc(seed: u128, title: &str, body: &str, url: &str) -> Vec<u8> {
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "doc test fixture")
+        .expect("open batch");
+    let doc = g
+        .insert_node(NodeKind::Doc, Ulid(seed * 10 + 1), a_graph_prov(seed))
+        .expect("doc node");
+    for (key, value) in [(DocField::Title.key(), title), (DocField::Body.key(), body)] {
+        g.set_field(
+            doc.into(),
+            key,
+            scalar::Text(value.to_string()),
+            a_graph_prov(seed),
+        )
+        .expect("set doc text");
+    }
+    let link = g
+        .insert_node(NodeKind::DocLink, Ulid(seed * 10 + 4), a_graph_prov(seed))
+        .expect("link node");
+    g.set_field(
+        link.into(),
+        DocLinkField::Url.key(),
+        scalar::Text(url.to_string()),
+        a_graph_prov(seed),
+    )
+    .expect("set link url");
+    g.end_batch().expect("close batch");
+    fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
+}
+
+#[tokio::test]
+async fn a_doc_or_its_link_carrying_a_credential_refuses_the_write_and_a_reader_cannot_save_a_doc()
+{
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+
+    // The same real-length Junos pre-shared-key hash the note test uses (rule 2), in a
+    // doc body, in a doc title and as a query value in a link address.
+    let psk =
+        "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234";
+    let clean_title = "Runbook";
+    let clean_body = "# Steps\n\nreplaced the key switch";
+    let clean_url = "https://drive.example.com/open?id=1AbCdEfGhIjKlMnOpQrStUvWx";
+    let cases = [
+        ("body", a_payload_with_doc(301, clean_title, psk, clean_url)),
+        ("title", a_payload_with_doc(302, psk, clean_body, clean_url)),
+    ];
+    for (what, payload) in cases {
+        let (status, body) = call(
+            addr,
+            &drawer,
+            "POST",
+            &versions_path,
+            &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+        )
+        .await;
+        let text = String::from_utf8_lossy(&body);
+        assert_eq!(status, "422", "{what}: {text}");
+        assert!(text.contains("Doc"), "{what}: {text}");
+    }
+
+    // A clean doc saves for a drawer and is refused for a reader, whatever it holds.
+    let clean = a_payload_with_doc(304, clean_title, clean_body, clean_url);
+    let (status, _) = call(
+        addr,
+        &reader,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &clean),
+    )
+    .await;
+    assert_eq!(status, "403");
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &clean),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+}
+
+#[tokio::test]
+async fn doc_files_are_checked_by_content_sealed_served_as_downloads_and_survive_rotation() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    designs::write_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        b"already on file before the files",
+        1,
+    )
+    .await
+    .expect("seed a version");
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let files = format!(
+        "/organisations/{}/designs/{}/files",
+        estate.organisation, design
+    );
+
+    let notes = b"core-01 upgrade notes\nreboot one member at a time\n".to_vec();
+    let (status, body) = call(addr, &drawer, "POST", &files, &notes).await;
+    let answer = String::from_utf8_lossy(&body).to_string();
+    assert_eq!(status, "200", "{answer}");
+    let (id, media) = answer.trim().split_once(' ').expect("id and media");
+    assert_eq!((id.len(), media), (32, "text"));
+
+    // The same bytes come back, as a download and nothing else.
+    let one = format!("{files}/{id}");
+    let (status, head, got) = call_full(addr, &reader, "GET", &one, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(got, notes);
+    let head = head.to_ascii_lowercase();
+    assert!(head.contains("content-disposition: attachment"), "{head}");
+    assert!(head.contains("x-content-type-options: nosniff"), "{head}");
+    assert!(
+        head.contains("content-type: application/octet-stream"),
+        "{head}"
+    );
+
+    // A reader cannot add; a file nobody stored is absent.
+    let (status, _) = call(addr, &reader, "POST", &files, &notes).await;
+    assert_eq!(status, "403");
+    let (status, _) = call(
+        addr,
+        &reader,
+        "GET",
+        &format!("{files}/{}", "0".repeat(32)),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "404");
+    let (status, _) = call(addr, &reader, "GET", &format!("{files}/not-an-id"), b"").await;
+    assert_eq!(status, "404");
+
+    // Refused by what the bytes are, whatever the file is called.
+    for (what, bytes) in [
+        ("an executable", b"MZ\x90\x00\x03\x00\x00\x00".to_vec()),
+        ("a zip", b"PK\x03\x04rest".to_vec()),
+        ("empty", Vec::new()),
+    ] {
+        let (status, _) = call(addr, &drawer, "POST", &files, &bytes).await;
+        assert_eq!(status, "415", "{what}");
+    }
+    // A PDF and an image are accepted by signature.
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &files,
+        b"%PDF-1.7\n%\xe2\xe3\n1 0 obj",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).ends_with(" pdf\n"));
+
+    // A text file that still carries a real-length key is refused, naming the line.
+    let psk = b"hostname fw\nset security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234\n";
+    let (status, body) = call(addr, &drawer, "POST", &files, psk).await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "422", "{text}");
+    assert!(text.contains("line 2"), "{text}");
+    // Space-separated device syntax a delimiter check would miss.
+    let ios = b"username admin privilege 15 secret 0 Cisco123\n";
+    let (status, _) = call(addr, &drawer, "POST", &files, ios).await;
+    assert_eq!(status, "422");
+
+    // A byte-order mark does not hide a key line; a long line with no spaces is cheap to scan.
+    let bom = b"\xef\xbb\xbfusername admin privilege 15 secret 0 Cisco123\n";
+    let (status, _) = call(addr, &drawer, "POST", &files, bom).await;
+    assert_eq!(status, "422");
+    let long = "a:".repeat(20_000).into_bytes();
+    let started = std::time::Instant::now();
+    let (status, _) = call(addr, &drawer, "POST", &files, &long).await;
+    assert_eq!(status, "200");
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
+
+    // Rotation re-seals files under the new key; the file still opens.
+    designs::rotate_design(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        "test",
+    )
+    .await
+    .expect("rotate");
+    let (status, got) = call(addr, &reader, "GET", &one, b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(got, notes);
+    let client = support::superuser_client_on_test_database().await;
+    let stale = client
+        .query_one(
+            "SELECT count(*) FROM design_files f WHERE f.design_id = $1 AND f.key_epoch < \
+             (SELECT max(key_epoch) FROM design_keys k WHERE k.design_id = f.design_id)",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("count")
+        .get::<_, i64>(0);
+    assert_eq!(stale, 0, "every file was re-sealed under the new epoch");
 }
 
 #[tokio::test]
