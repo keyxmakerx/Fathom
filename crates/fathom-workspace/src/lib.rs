@@ -93,22 +93,25 @@ const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
     &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
 
 /// Kinds `0.14` (ADR-0061 round 7) added; same reasoning, now for `0.10` to `0.13`.
-const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink];
-const EDGE_KINDS_SINCE_0_14: &[EdgeKind] =
-    &[EdgeKind::HasDoc, EdgeKind::DocOn, EdgeKind::HasDocLink];
+const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile];
+const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
+    EdgeKind::HasDoc,
+    EdgeKind::DocOn,
+    EdgeKind::HasDocLink,
+    EdgeKind::HasDocFile,
+];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` or `0.12` added, `0.11` cannot hold anything `0.12`
-/// added.
+/// anything `0.11` to `0.14` added, and so on up the chain.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
     // Nothing to check for the current version (`0.14`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
-    // refused above this call — only the two accepted older headers name a
+    // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
     if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());

@@ -228,11 +228,11 @@ schema:
                     # Line to Chassis), seven field keys (344-350, PassiveNode.slots last). Whole change = MINOR; the
                     # reader still opens 0.10 to 0.12 payloads.
                     #
-                    # 0.14 is ADR-0061 round 7 (docs, 2026-10-03), all additive: two node kinds,
-                    # Doc and DocLink (Doc joins Placeable as Tag does), one class, Docable, three
+                    # 0.14 is ADR-0061 round 7 (docs, 2026-10-03), all additive: three node kinds,
+                    # Doc, DocLink and DocFile (all join Placeable as Tag does), one class, Docable, four
                     # edge kinds, HasDoc (root containment, HasTag's shape), DocOn (reference, Doc to
-                    # Docable) and HasDocLink (containment, Doc to DocLink); six field keys
-                    # (351-356). Whole change = MINOR.
+                    # Docable), HasDocLink and HasDocFile (containment, Doc to DocLink or DocFile);
+                    # thirteen field keys (351-363). Whole change = MINOR.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -453,6 +453,7 @@ classes:
       - Line
       - Doc
       - DocLink
+      - DocFile
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
@@ -1894,6 +1895,28 @@ kinds:
     fields:
       - { name: title, type: Text, card: "1", emit: "—", doc: The link's words. }
       - { name: url, type: Text, card: "1", emit: "—", doc: The address as typed. }
+    identity: []
+
+  - kind: DocFile
+    layer: physical
+    emits: false
+    doc: |
+      A file attached to a Doc (ADR-0061 round 10, r10-files A): PDF, image or text, at most 25 MiB.
+      The bytes are not in the graph: they are stored sealed by the server under `file_id`, and
+      the graph holds what the person sees (name, size, what the gate found) and `sha256`, the
+      hash of the stored bytes, which the chained payload therefore covers. The browser ran
+      text through the redaction gate before upload and stored only the redacted copy;
+      `checked` says what happened: clean (nothing found), removed (`removed` values destroyed),
+      unread (an image, or a PDF or text the gate could not read: stored, and said so).
+      Hung off its Doc through HasDocFile.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—", doc: The file name as shown. }
+      - { name: size, type: u32, card: "1", emit: "—", doc: Stored size in bytes. }
+      - { name: media, type: "enum { text, pdf, image }", card: "1", emit: "—", doc: "What the server's content check found; never taken from the name." }
+      - { name: checked, type: "enum { clean, removed, unread }", card: "1", emit: "—", doc: What the gate did to it before upload. }
+      - { name: removed, type: u32, card: "0..1", emit: "—", doc: "How many values the gate destroyed; present when checked is removed." }
+      - { name: file_id, type: Identifier, card: "1", emit: "—", doc: The server's id for the stored bytes. }
+      - { name: sha256, type: Text, card: "1", emit: "—", doc: Lowercase hex SHA-256 of the stored bytes. }
     identity: []
 
 edges:
@@ -3357,6 +3380,17 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0061 round 7. A doc's links, HasNote's own shape.
+  - edge: HasDocFile
+    class: containment
+    from: [Doc]
+    to: [DocFile]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 round 10. A doc's files, HasDocLink's own shape.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

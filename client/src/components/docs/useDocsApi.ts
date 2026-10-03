@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   addDoc,
   addDocLink,
@@ -9,15 +9,15 @@ import {
   removeDoc,
   removeDocLink,
   thingLabel,
-} from "../../document/docs";
-import type { Document } from "../../document/model";
-import type { Engine } from "../../engine/engine";
-import { refusalSentence } from "../../engine/mirror";
-import { DocsContext, type DocsApi, type DocsView } from "./context";
+} from '../../document/docs';
+import type { Document } from '../../document/model';
+import type { Engine } from '../../engine/engine';
+import { refusalSentence } from '../../engine/mirror';
+import { DocsContext, type DocsApi, type DocsView } from './context';
 
 export { DocsContext };
 
-const READ_ONLY = { refused: "You can read docs here, not change them." };
+const READ_ONLY = { refused: 'You can read docs here, not change them.' };
 
 /** Builds the docs api over the open design. Writes are refused unless the person may draw;
  * pasted text goes through the gate first (ADR-0053 §6), typed text is stored as typed. */
@@ -34,6 +34,9 @@ export function useDocsApi(opts: {
 } {
   const { doc, canDraw, accountId, applyDocChange, ensureEngine } = opts;
   const [view, setView] = useState<DocsView | null>(null);
+  // The gate is async; whatever changed meanwhile (an undo) must not be written over.
+  const latest = useRef(doc);
+  latest.current = doc;
   const actor = accountId ? { actor: accountId } : undefined;
 
   const gate = useCallback(
@@ -44,12 +47,12 @@ export function useDocsApi(opts: {
   const run = useCallback(
     (f: (d: Document) => Document): { refused: string } | void => {
       if (!canDraw) return READ_ONLY;
-      if (doc == null) return { refused: "No design is open." };
+      if (doc == null) return { refused: 'No design is open.' };
       try {
         applyDocChange(f(doc));
       } catch (e) {
         return {
-          refused: e instanceof Error ? e.message : "That was refused.",
+          refused: e instanceof Error ? e.message : 'That was refused.',
         };
       }
     },
@@ -62,17 +65,17 @@ export function useDocsApi(opts: {
       of: (ownerId, model) => (doc ? docsOf(doc, ownerId, model) : []),
       get: (id) => (doc ? docView(doc, id) : undefined),
       all: () => (doc ? allDocs(doc) : []),
-      label: (id) => (doc ? thingLabel(doc, id) : ""),
+      label: (id) => (doc ? thingLabel(doc, id) : ''),
       async create(target, input) {
         if (!canDraw) return READ_ONLY;
-        if (doc == null) return { refused: "No design is open." };
+        if (doc == null) return { refused: 'No design is open.' };
         try {
           const body = await gate(input.body, input.pasted);
           const title = await gate(input.title, input.pasted);
           const made = addDoc(
-            doc,
+            latest.current ?? doc,
             target,
-            { title, body, how: input.pasted ? "pasted" : "typed" },
+            { title, body, how: input.pasted ? 'pasted' : 'typed' },
             actor,
           );
           applyDocChange(made.doc);
@@ -85,24 +88,13 @@ export function useDocsApi(opts: {
       },
       async update(id, patch) {
         if (!canDraw) return READ_ONLY;
-        if (doc == null) return { refused: "No design is open." };
+        if (doc == null) return { refused: 'No design is open.' };
         try {
           const pasted = patch.pasted === true;
-          const body =
-            patch.body === undefined
-              ? undefined
-              : await gate(patch.body, pasted);
-          const title =
-            patch.title === undefined
-              ? undefined
-              : await gate(patch.title, pasted);
+          const body = patch.body === undefined ? undefined : await gate(patch.body, pasted);
+          const title = patch.title === undefined ? undefined : await gate(patch.title, pasted);
           applyDocChange(
-            editDoc(
-              doc,
-              id,
-              { title, body, how: pasted ? "pasted" : undefined },
-              actor,
-            ),
+            editDoc(latest.current ?? doc, id, { title, body, how: pasted ? 'pasted' : undefined }, actor),
           );
         } catch (e) {
           return {
@@ -113,11 +105,11 @@ export function useDocsApi(opts: {
       remove: (id) => run((d) => removeDoc(d, id, actor)),
       async addLink(id, input) {
         if (!canDraw) return READ_ONLY;
-        if (doc == null) return { refused: "No design is open." };
+        if (doc == null) return { refused: 'No design is open.' };
         try {
           const title = await gate(input.title, input.pasted);
           const url = await gate(input.url, input.pasted);
-          applyDocChange(addDocLink(doc, id, { title, url }, actor));
+          applyDocChange(addDocLink(latest.current ?? doc, id, { title, url }, actor));
         } catch (e) {
           return {
             refused: e instanceof Error ? e.message : refusalSentence(e),

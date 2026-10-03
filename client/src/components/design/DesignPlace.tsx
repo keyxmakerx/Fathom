@@ -493,7 +493,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <>
-      <div className="print-hide-under-preview" inert={printMode === 'preview'}>
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
         <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
       </div>
       {docs.view != null && printMode === 'closed' && (

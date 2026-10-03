@@ -69,8 +69,8 @@ const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
 const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
 
 // Kinds 0.14 (ADR-0061 round 7) added; same reasoning, for 0.10 to 0.13.
-const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink']);
-const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink']);
+const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
+const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate

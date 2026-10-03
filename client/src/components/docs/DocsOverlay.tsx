@@ -1,32 +1,24 @@
-import { useContext, useEffect, useRef, useState } from "react";
-import {
-  MAX_BODY,
-  MAX_LINKS,
-  MAX_TITLE,
-  safeUrl,
-  type DocTarget,
-  type DocView,
-} from "../../document/docs";
-import { DocsContext, type DocsApi, type DocsView } from "./context";
-import { Markdown } from "./markdown";
-import "./docs.css";
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { MAX_BODY, MAX_LINKS, MAX_TITLE, safeUrl, type DocTarget, type DocView } from '../../document/docs';
+import { DocsContext, type DocsApi, type DocsView } from './context';
+import { Markdown } from './markdown';
+import './docs.css';
 
-const TYPED_SENTENCE =
-  "Stored as typed. Fathom does not redact what you type, only what you paste.";
+const TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
 
 function when(ms: number): string {
   return ms > 0
     ? new Date(ms).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
+        day: 'numeric',
+        month: 'short',
       })
-    : "";
+    : '';
 }
 
 function about(api: DocsApi, d: DocView): string {
   if (d.model) return `Model ${d.model}`;
-  if (d.ownerId) return d.ownerGone ? "A removed item" : api.label(d.ownerId);
-  return "The design";
+  if (d.ownerId) return d.ownerGone ? 'A removed item' : api.label(d.ownerId);
+  return 'The design';
 }
 
 /** The docs list and one doc's page, over the design. Esc or Close goes back to the drawing. */
@@ -41,78 +33,73 @@ export function DocsOverlay({
 }) {
   const api = useContext(DocsContext);
   const ref = useRef<HTMLDivElement>(null);
+  // Set by the add and edit forms while they hold text that is not saved.
+  const dirty = useRef(new Set<string>());
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const guard = (go: () => void) => () => {
+    if (dirty.current.size > 0 && !window.confirm('Discard what you typed?')) return;
+    dirty.current.clear();
+    go();
+  };
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     // On the document, not the dialog: a disabled field drops focus to the page, and Esc must still close.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== 'Escape' || e.isComposing) return;
       e.stopPropagation();
-      onClose();
+      guard(() => closeRef.current())();
     };
-    document.addEventListener("keydown", onKey, true);
+    document.addEventListener('keydown', onKey, true);
     return () => {
-      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener('keydown', onKey, true);
       back?.focus?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only; onClose is a plain closer
   }, []);
   if (!api) return null;
   return (
-    <div
-      className="docs-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Docs"
-      tabIndex={-1}
-      ref={ref}
-    >
-      <div className="docs-overlay__head">
-        {view.kind !== "list" && view.from === "list" ? (
-          <button
-            type="button"
-            className="docs-link"
-            onClick={() => onView({ kind: "list" })}
-          >
-            ← All docs
+    <DirtyContext.Provider value={dirty}>
+      <div className="docs-overlay" role="dialog" aria-modal="true" aria-label="Docs" tabIndex={-1} ref={ref}>
+        <div className="docs-overlay__head">
+          {view.kind !== 'list' && view.from === 'list' ? (
+            <button type="button" className="docs-link" onClick={guard(() => onView({ kind: 'list' }))}>
+              ← All docs
+            </button>
+          ) : (
+            <span>Docs</span>
+          )}
+          <button type="button" className="docs-overlay__close" aria-label="Close docs" onClick={guard(onClose)}>
+            ×
           </button>
-        ) : (
-          <span>Docs</span>
-        )}
-        <button
-          type="button"
-          className="docs-overlay__close"
-          aria-label="Close docs"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        </div>
+        {view.kind === 'list' ? <DocsList api={api} onView={onView} /> : null}
+        {view.kind === 'doc' ? (
+          <DocPage key={view.id} api={api} id={view.id} onView={onView} onClose={onClose} from={view.from} />
+        ) : null}
+        {view.kind === 'new' ? <NewDoc api={api} view={view} onView={onView} onClose={onClose} /> : null}
       </div>
-      {view.kind === "list" ? <DocsList api={api} onView={onView} /> : null}
-      {view.kind === "doc" ? (
-        <DocPage
-          key={view.id}
-          api={api}
-          id={view.id}
-          onView={onView}
-          onClose={onClose}
-          from={view.from}
-        />
-      ) : null}
-      {view.kind === "new" ? (
-        <NewDoc api={api} view={view} onView={onView} onClose={onClose} />
-      ) : null}
-    </div>
+    </DirtyContext.Provider>
   );
 }
 
-function DocsList({
-  api,
-  onView,
-}: {
-  api: DocsApi;
-  onView: (v: DocsView) => void;
-}) {
+const DirtyContext = createContext<{ current: Set<string> }>({ current: new Set() });
+
+/** Tells the overlay this form holds unsaved text. */
+function useDirty(isDirty: boolean) {
+  const dirty = useContext(DirtyContext);
+  const id = useId();
+  useEffect(() => {
+    if (isDirty) dirty.current.add(id);
+    else dirty.current.delete(id);
+    return () => {
+      dirty.current.delete(id);
+    };
+  }, [dirty, id, isDirty]);
+}
+
+function DocsList({ api, onView }: { api: DocsApi; onView: (v: DocsView) => void }) {
   const rows = api.all().sort((a, b) => b.when - a.when);
   return (
     <div className="docs-overlay__body">
@@ -131,9 +118,7 @@ function DocsList({
                 <button
                   type="button"
                   className="docs-link"
-                  onClick={() =>
-                    onView({ kind: "doc", id: d.id, from: "list" })
-                  }
+                  onClick={() => onView({ kind: 'doc', id: d.id, from: 'list' })}
                 >
                   {d.title}
                 </button>
@@ -145,15 +130,9 @@ function DocsList({
         </tbody>
       </table>
       {rows.length === 0 ? <p className="docs-note">No docs yet.</p> : null}
-      <p className="docs-note">
-        Docs about one thing also show in that thing's panel under Docs.
-      </p>
+      <p className="docs-note">Docs about one thing also show in that thing's panel under Docs.</p>
       {api.canEdit ? (
-        <button
-          type="button"
-          className="docs-link"
-          onClick={() => onView({ kind: "new", from: "list" })}
-        >
+        <button type="button" className="docs-link" onClick={() => onView({ kind: 'new', from: 'list' })}>
           + Add doc
         </button>
       ) : null}
@@ -178,28 +157,27 @@ function NewDoc({
   onClose,
 }: {
   api: DocsApi;
-  view: Extract<DocsView, { kind: "new" }>;
+  view: Extract<DocsView, { kind: 'new' }>;
   onView: (v: DocsView) => void;
   onClose: () => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [aboutKind, setAboutKind] = useState<"thing" | "model" | "design">(
-    view.ownerId ? "thing" : "design",
-  );
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [aboutKind, setAboutKind] = useState<'thing' | 'model' | 'design'>(view.ownerId ? 'thing' : 'design');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const paste = usePaste();
+  useDirty(title.trim() !== '' || body !== '');
   const titlePaste = usePaste();
 
   async function save() {
     if (busy) return;
     const target: DocTarget =
-      aboutKind === "thing" && view.ownerId
-        ? { kind: "thing", id: view.ownerId }
-        : aboutKind === "model" && view.model
-          ? { kind: "model", model: view.model }
-          : { kind: "design" };
+      aboutKind === 'thing' && view.ownerId
+        ? { kind: 'thing', id: view.ownerId }
+        : aboutKind === 'model' && view.model
+          ? { kind: 'model', model: view.model }
+          : { kind: 'design' };
     setBusy(true);
     const r = await api.create(target, {
       title,
@@ -207,8 +185,8 @@ function NewDoc({
       pasted: paste.pasted || titlePaste.pasted,
     });
     setBusy(false);
-    if ("refused" in r) setRefusal(r.refused);
-    else onView({ kind: "doc", id: r.id, from: view.from });
+    if ('refused' in r) setRefusal(r.refused);
+    else onView({ kind: 'doc', id: r.id, from: view.from });
   }
 
   return (
@@ -221,9 +199,10 @@ function NewDoc({
             <label>
               <input
                 type="radio"
-                checked={aboutKind === "thing"}
-                onChange={() => setAboutKind("thing")}
-              />{" "}
+                name="docs-about"
+                checked={aboutKind === 'thing'}
+                onChange={() => setAboutKind('thing')}
+              />{' '}
               {api.label(view.ownerId)}
             </label>
           ) : null}
@@ -231,18 +210,20 @@ function NewDoc({
             <label>
               <input
                 type="radio"
-                checked={aboutKind === "model"}
-                onChange={() => setAboutKind("model")}
-              />{" "}
+                name="docs-about"
+                checked={aboutKind === 'model'}
+                onChange={() => setAboutKind('model')}
+              />{' '}
               Every {view.model}
             </label>
           ) : null}
           <label>
             <input
               type="radio"
-              checked={aboutKind === "design"}
-              onChange={() => setAboutKind("design")}
-            />{" "}
+              name="docs-about"
+              checked={aboutKind === 'design'}
+              onChange={() => setAboutKind('design')}
+            />{' '}
             The design
           </label>
         </fieldset>
@@ -254,6 +235,7 @@ function NewDoc({
           maxLength={MAX_TITLE}
           onChange={(e) => setTitle(e.target.value)}
           onPaste={titlePaste.onPaste}
+          onDrop={titlePaste.onPaste}
           disabled={busy}
         />
       </label>
@@ -265,25 +247,20 @@ function NewDoc({
           maxLength={MAX_BODY}
           onChange={(e) => setBody(e.target.value)}
           onPaste={paste.onPaste}
+          onDrop={paste.onPaste}
           disabled={busy}
         />
       </label>
       <p className="docs-note">{TYPED_SENTENCE}</p>
       {refusal != null ? <p className="docs-problem">{refusal}</p> : null}
       <div className="docs-actions">
-        <button
-          type="button"
-          disabled={busy || title.trim() === ""}
-          onClick={() => void save()}
-        >
+        <button type="button" disabled={busy || title.trim() === ''} onClick={() => void save()}>
           Save doc
         </button>
         <button
           type="button"
           disabled={busy}
-          onClick={() =>
-            view.from === "list" ? onView({ kind: "list" }) : onClose()
-          }
+          onClick={() => (view.from === 'list' ? onView({ kind: 'list' }) : onClose())}
         >
           Cancel
         </button>
@@ -303,16 +280,17 @@ function DocPage({
   id: string;
   onView: (v: DocsView) => void;
   onClose: () => void;
-  from?: "list";
+  from?: 'list';
 }) {
   const d = api.get(id);
   const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const paste = usePaste();
+  useDirty(editing && (title !== (d?.title ?? '') || body !== (d?.body ?? '')));
   const titlePaste = usePaste();
   if (!d) {
     return (
@@ -348,21 +326,21 @@ function DocPage({
   function remove() {
     const r = api.remove(id);
     if (r?.refused) setRefusal(r.refused);
-    else if (from === "list") onView({ kind: "list" });
+    else if (from === 'list') onView({ kind: 'list' });
     else onClose();
   }
 
   const meta = [
-    "Doc",
+    'Doc',
     d.model
       ? `on the model ${d.model}`
       : d.ownerId
-        ? `on ${d.ownerGone ? "a removed item" : api.label(d.ownerId)}`
-        : "about the design",
+        ? `on ${d.ownerGone ? 'a removed item' : api.label(d.ownerId)}`
+        : 'about the design',
     `edited ${when(d.when)}`,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(' · ');
 
   return (
     <div className="docs-overlay__body">
@@ -375,6 +353,7 @@ function DocPage({
               maxLength={MAX_TITLE}
               onChange={(e) => setTitle(e.target.value)}
               onPaste={titlePaste.onPaste}
+              onDrop={titlePaste.onPaste}
               disabled={busy}
             />
           </label>
@@ -398,24 +377,17 @@ function DocPage({
               maxLength={MAX_BODY}
               onChange={(e) => setBody(e.target.value)}
               onPaste={paste.onPaste}
+              onDrop={paste.onPaste}
               disabled={busy}
             />
           </label>
           <p className="docs-note">{TYPED_SENTENCE}</p>
           {refusal != null ? <p className="docs-problem">{refusal}</p> : null}
           <div className="docs-actions">
-            <button
-              type="button"
-              disabled={busy || title.trim() === ""}
-              onClick={() => void save()}
-            >
+            <button type="button" disabled={busy || title.trim() === ''} onClick={() => void save()}>
               Save
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setEditing(false)}
-            >
+            <button type="button" disabled={busy} onClick={() => setEditing(false)}>
               Cancel
             </button>
             {confirmRemove ? (
@@ -432,11 +404,7 @@ function DocPage({
       ) : (
         <>
           <Markdown source={d.body} />
-          {d.how === "typed" ? null : (
-            <p className="docs-note">
-              Pasted text. Passwords were removed at the gate.
-            </p>
-          )}
+          {d.how === 'typed' ? null : <p className="docs-note">Pasted text. Passwords were removed at the gate.</p>}
         </>
       )}
       <LinksBlock api={api} d={d} />
@@ -445,11 +413,12 @@ function DocPage({
 }
 
 function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState('');
+  const [url, setUrl] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const paste = usePaste();
+  useDirty(title.trim() !== '' || url.trim() !== '');
 
   async function add() {
     if (busy) return;
@@ -461,8 +430,8 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
       return;
     }
     setRefusal(null);
-    setTitle("");
-    setUrl("");
+    setTitle('');
+    setUrl('');
     paste.reset();
   }
 
@@ -482,10 +451,7 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
               ) : (
                 <span>{l.title}</span>
               )}
-              <span className="docs-links__host">
-                {" "}
-                {safe ? safe.host : "not a web address"}
-              </span>
+              <span className="docs-links__host"> {safe ? safe.host : 'not a web address'}</span>
               {api.canEdit ? (
                 <button
                   type="button"
@@ -493,7 +459,7 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
                   onClick={() => api.removeLink(l.id)}
                   aria-label={`Remove link ${l.title}`}
                 >
-                  {" "}
+                  {' '}
                   remove
                 </button>
               ) : null}
@@ -509,6 +475,7 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onPaste={paste.onPaste}
+            onDrop={paste.onPaste}
             disabled={busy}
           />
           <input
@@ -517,13 +484,10 @@ function LinksBlock({ api, d }: { api: DocsApi; d: DocView }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onPaste={paste.onPaste}
+            onDrop={paste.onPaste}
             disabled={busy}
           />
-          <button
-            type="button"
-            disabled={busy || url.trim() === ""}
-            onClick={() => void add()}
-          >
+          <button type="button" disabled={busy || url.trim() === ''} onClick={() => void add()}>
             + Add link
           </button>
           {refusal != null ? <p className="docs-problem">{refusal}</p> : null}

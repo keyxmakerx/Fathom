@@ -1811,6 +1811,44 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(356))
         }
     }
+    /// Typed reads for `DocFile` fields.
+    pub mod doc_file {
+        /// `DocFile.name` — `Text`, card `1`, emit `—`.
+        /// The file name as shown.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(357))
+        }
+        /// `DocFile.size` — `u32`, card `1`, emit `—`.
+        /// Stored size in bytes.
+        pub fn size<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(358))
+        }
+        /// `DocFile.media` — `enum { text, pdf, image }`, card `1`, emit `—`.
+        /// What the server's content check found; never taken from the name.
+        pub fn media<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::DocFileMedia, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(359))
+        }
+        /// `DocFile.checked` — `enum { clean, removed, unread }`, card `1`, emit `—`.
+        /// What the gate did to it before upload.
+        pub fn checked<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::DocFileChecked, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(360))
+        }
+        /// `DocFile.removed` — `u32`, card `0..1`, emit `—`.
+        /// How many values the gate destroyed; present when checked is removed.
+        pub fn removed<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(361))
+        }
+        /// `DocFile.file_id` — `Identifier`, card `1`, emit `—`.
+        /// The server's id for the stored bytes.
+        pub fn file_id<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(362))
+        }
+        /// `DocFile.sha256` — `Text`, card `1`, emit `—`.
+        /// Lowercase hex SHA-256 of the stored bytes.
+        pub fn sha256<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(363))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2173,6 +2211,13 @@ mod body {
             354 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             355 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             356 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            357 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            358 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            359 => Some((core::any::TypeId::of::<crate::generated::ir_types::DocFileMedia>(), "crate::generated::ir_types::DocFileMedia")),
+            360 => Some((core::any::TypeId::of::<crate::generated::ir_types::DocFileChecked>(), "crate::generated::ir_types::DocFileChecked")),
+            361 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            362 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            363 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2537,6 +2582,13 @@ mod body {
             354 => crate::canon::slot_to::<crate::scalar::Identifier>(354, "crate::scalar::Identifier", value),
             355 => crate::canon::slot_to::<crate::scalar::Text>(355, "crate::scalar::Text", value),
             356 => crate::canon::slot_to::<crate::scalar::Text>(356, "crate::scalar::Text", value),
+            357 => crate::canon::slot_to::<crate::scalar::Text>(357, "crate::scalar::Text", value),
+            358 => crate::canon::slot_to::<u32>(358, "u32", value),
+            359 => crate::canon::slot_to::<crate::generated::ir_types::DocFileMedia>(359, "crate::generated::ir_types::DocFileMedia", value),
+            360 => crate::canon::slot_to::<crate::generated::ir_types::DocFileChecked>(360, "crate::generated::ir_types::DocFileChecked", value),
+            361 => crate::canon::slot_to::<u32>(361, "u32", value),
+            362 => crate::canon::slot_to::<crate::scalar::Identifier>(362, "crate::scalar::Identifier", value),
+            363 => crate::canon::slot_to::<crate::scalar::Text>(363, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2899,6 +2951,13 @@ mod body {
             354 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             355 => crate::canon::slot_from::<crate::scalar::Text>(j),
             356 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            357 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            358 => crate::canon::slot_from::<u32>(j),
+            359 => crate::canon::slot_from::<crate::generated::ir_types::DocFileMedia>(j),
+            360 => crate::canon::slot_from::<crate::generated::ir_types::DocFileChecked>(j),
+            361 => crate::canon::slot_from::<u32>(j),
+            362 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            363 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

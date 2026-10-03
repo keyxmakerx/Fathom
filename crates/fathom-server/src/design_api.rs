@@ -1813,8 +1813,7 @@ fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
         }
     }
     // A doc's text is the same kind of text a note's is (typed prose or a gated paste), so it
-    // stays on the delimiter-only check. A link's title and address too: a token in a query
-    // string is `name=value`, which that check reads.
+    // stays on the delimiter-only check.
     for node in graph.nodes_of_kind(NodeKind::Doc) {
         for text in [doc::title(node), doc::body(node)].into_iter().flatten() {
             if let Some(line) = credential_line(&text.0, false) {
@@ -1822,16 +1821,11 @@ fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
             }
         }
     }
+    // A link's title is prose; its address is stored as typed (an ordinary one carries `?id=` and
+    // long ids that this check reads as secrets, and a refused save is a stuck design).
     for node in graph.nodes_of_kind(NodeKind::DocLink) {
         if let Ok(text) = doc_link::title(node) {
             if let Some(line) = credential_line(&text.0, false) {
-                return Some(("DocLink", line));
-            }
-        }
-        // A query or fragment parameter is `name=value` inside one token; split it out.
-        if let Ok(url) = doc_link::url(node) {
-            let split = url.0.replace(['?', '&', ';', '#'], " ");
-            if let Some(line) = credential_line(&split, false) {
                 return Some(("DocLink", line));
             }
         }

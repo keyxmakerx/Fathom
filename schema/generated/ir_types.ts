@@ -69,7 +69,8 @@ export type NodeKind =
   | "Label"
   | "Line"
   | "Doc"
-  | "DocLink";
+  | "DocLink"
+  | "DocFile";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -134,6 +135,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Line",
   "Doc",
   "DocLink",
+  "DocFile",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -243,7 +245,8 @@ export type EdgeKind =
   | "LineEnd"
   | "HasDoc"
   | "DocOn"
-  | "HasDocLink";
+  | "HasDocLink"
+  | "HasDocFile";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -351,6 +354,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDoc",
   "DocOn",
   "HasDocLink",
+  "HasDocFile",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -497,6 +501,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Line: ["label"],
   Doc: ["title", "body", "how", "model"],
   DocLink: ["title", "url"],
+  DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -857,4 +862,11 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Doc.model": 354,
   "DocLink.title": 355,
   "DocLink.url": 356,
+  "DocFile.name": 357,
+  "DocFile.size": 358,
+  "DocFile.media": 359,
+  "DocFile.checked": 360,
+  "DocFile.removed": 361,
+  "DocFile.file_id": 362,
+  "DocFile.sha256": 363,
 };

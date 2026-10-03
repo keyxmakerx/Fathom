@@ -2559,19 +2559,10 @@ async fn a_doc_or_its_link_carrying_a_credential_refuses_the_write_and_a_reader_
         "set security ike proposal IKE-PROP pre-shared-key ascii-text $9$EXAMPLEnotARealKey01234";
     let clean_title = "Runbook";
     let clean_body = "# Steps\n\nreplaced the key switch";
-    let clean_url = "https://docs.example.com/guide";
+    let clean_url = "https://drive.example.com/open?id=1AbCdEfGhIjKlMnOpQrStUvWx";
     let cases = [
         ("body", a_payload_with_doc(301, clean_title, psk, clean_url)),
         ("title", a_payload_with_doc(302, psk, clean_body, clean_url)),
-        (
-            "link",
-            a_payload_with_doc(
-                303,
-                clean_title,
-                clean_body,
-                "https://x.example.com/?password=Zq7vRk2mXp9wLs4t",
-            ),
-        ),
     ];
     for (what, payload) in cases {
         let (status, body) = call(
