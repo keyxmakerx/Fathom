@@ -5,6 +5,7 @@ import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
+import { newUlid } from '../../document/ulid';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
@@ -107,11 +108,14 @@ export function DesignPlace(props: DesignPlaceProps) {
   useEffect(() => {
     if (outlineKey === '') return undefined;
     const selector = outlineSelectors(outlineKey.split('\n')).join(',');
-    const apply = () => document.querySelectorAll(selector).forEach((el) => el.classList.add('history-changed'));
+    // Only touch an element that lacks the class, so the observer never loops on its own edit.
+    const apply = () =>
+      document.querySelectorAll(selector).forEach((el) => {
+        if (!el.classList.contains('history-changed')) el.classList.add('history-changed');
+      });
     apply();
-    const flow = document.querySelector('.react-flow');
-    const observer = new MutationObserver(apply); // nodes mount lazily; child changes only, so adding a class never loops
-    if (flow) observer.observe(flow, { childList: true, subtree: true });
+    const observer = new MutationObserver(apply); // nodes mount lazily and React Flow rewrites classes on selection
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     return () => {
       observer.disconnect();
       document.querySelectorAll('.history-changed').forEach((el) => el.classList.remove('history-changed'));
@@ -467,7 +471,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
-    onDocs: doc != null ? () => docs.setView({ kind: 'list' }) : undefined,
+    onDocs: doc != null && pickedSave == null ? () => docs.setView({ kind: 'list' }) : undefined,
     onHistory: doc != null ? () => toggleHistory() : undefined,
     historyOpen,
     // Offered to stewards only; the server refuses anyone else regardless.
@@ -500,7 +504,12 @@ export function DesignPlace(props: DesignPlaceProps) {
   };
   const restorePicked = () => {
     if (pickedSave == null || !session.canDraw) return;
-    session.applyDocChange(pickedSave.doc); // a new save; the old ones stay in the chain
+    // A new save of the old content, with one batch saying so; the old saves stay in the chain.
+    const when = whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0);
+    session.applyDocChange({
+      ...pickedSave.doc,
+      batches: [...pickedSave.doc.batches, { id: newUlid(), label: `Restored the save from ${when}`, ops: [] }],
+    });
     setHistoryOpen(false);
   };
   const historyView = historyOpen

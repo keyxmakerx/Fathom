@@ -39,6 +39,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
   const [picked, setPicked] = useState<History['picked']>(null);
   const cache = useRef(new Map<number, Document>());
   const changes = useRef(new Map<number, SaveChange>());
+  const pickSeq = useRef(0);
 
   const load = useCallback(
     async (version: number): Promise<Document> => {
@@ -111,6 +112,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
 
   const pickVersion = useCallback(
     async (version: number) => {
+      const mine = ++pickSeq.current;
       try {
         const doc = await load(version);
         let change = changes.current.get(version);
@@ -119,6 +121,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
           change = describeSave(prev ? await load(prev.designVersion) : null, doc);
           changes.current.set(version, change);
         }
+        if (mine !== pickSeq.current) return; // a later pick or Back to now won
         setPicked({ version, doc, change: change!, outline: outlineIds(doc, change!.changed) });
         setError(null);
       } catch {
@@ -137,6 +140,9 @@ export function useHistory(organisationId: string, designId: string, active: boo
     error,
     picked,
     pickVersion,
-    back: () => setPicked(null),
+    back: () => {
+      pickSeq.current += 1;
+      setPicked(null);
+    },
   };
 }

@@ -86,7 +86,7 @@ export function outlineIds(doc: Document, changed: readonly string[]): string[] 
   const out = new Set<string>();
   for (const id of changed) {
     out.add(id);
-    if (isNodeOfKind(id, 'Device') || isNodeOfKind(id, 'PhysicalPort')) {
+    if (isNodeOfKind(id, 'Device') || isNodeOfKind(id, 'PhysicalPort') || isNodeOfKind(id, 'LayoutPin')) {
       for (const e of doc.edges) {
         if (e.from === id) out.add(e.to);
         else if (e.to === id) out.add(e.from);
@@ -104,6 +104,9 @@ export function outlineSelectors(ids: readonly string[]): string[] {
     `[data-id=${attr(`rack:${id}`)}]`,
     `[data-id=${attr(`surface:${id}`)}]`,
     `[data-id=${attr(`shelf:${id}`)}]`,
+    `[data-id=${attr(`free:${id}`)}]`,
+    `[data-id=${attr(`label:${id}`)}]`,
     `[data-testid=${attr(`rf__edge-${id}`)}]`,
+    `[data-testid=${attr(`rf__edge-line:${id}`)}]`,
   ]);
 }

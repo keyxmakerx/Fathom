@@ -2117,7 +2117,7 @@ async fn history_handler(
             },
         );
         map.insert("at_unix".to_string(), Json::Int(at_unix));
-        // The sealed metadata names the account that saved (§7.3); a row that will
+        // The MAC-covered (cleartext) metadata names the account that saved (§7.3); a row that will
         // not parse reads as unknown rather than failing the whole list.
         let actor = match Json::parse_canonical(&metadata) {
             Ok(Json::Obj(m)) => match m.get("actor") {
