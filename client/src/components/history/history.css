@@ -93,9 +93,12 @@
 /* Over the canvas while a past save is shown. */
 .history-banner {
   position: absolute;
-  top: var(--s3);
+  bottom: var(--s4);
   left: var(--s4);
   z-index: 5;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   color: var(--ink);
   pointer-events: none;

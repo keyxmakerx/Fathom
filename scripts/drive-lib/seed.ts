@@ -631,3 +631,19 @@ export function seedShowScene(catalogue: CatalogueModel[], me: string): Document
   );
   return tagObject(working, chassis('fw-01').deviceId, 'edge', { actor: me });
 }
+
+/** Successive versions of one design, for the History drive: two devices, a colleague's second device,
+ * a cable, then a rename. Each document extends the one before it. */
+export function seedHistoryVersions(catalogue: CatalogueModel[], me: string, colleague: string): Document[] {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const core = catalogue.find((m) => m.model === 'EX4300-48P');
+  const acc = catalogue.find((m) => m.model === 'EX2300-48P');
+  if (!core || !acc) throw new Error('the drive catalogue fixture has no EX4300-48P or EX2300-48P');
+  const v1 = place(doc, catalogue, rackId, core, 40, 'core-01', me);
+  const v2 = place(v1, catalogue, rackId, acc, 38, 'acc-01', colleague);
+  const a = frontRj45(v2, catalogue, 'core-01');
+  const b = frontRj45(v2, catalogue, 'acc-01');
+  const v3 = connectPorts(v2, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
+  const v4 = setDeviceField(v3, a.deviceId, 'hostname', 'core-02', { actor: me });
+  return [v1, v2, v3, v4];
+}

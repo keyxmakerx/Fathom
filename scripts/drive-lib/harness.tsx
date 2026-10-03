@@ -23,6 +23,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedHistoryVersions,
   seedManyDevicesScene,
   seedNetworksScene,
   seedPrintAttackScene,
@@ -134,8 +135,18 @@ async function main() {
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
   else doc = seedEmptyDesign();
 
-  let version = 1;
-  let bytes = writePlain(doc);
+  // Every saved version, for the History panel: `stored[v - 1]`. Normal scenes start with one.
+  const stored: { bytes: Uint8Array; atUnix: number; actor: string }[] = [];
+  const nowUnix = Math.floor(Date.now() / 1000);
+  if (scene === 'history') {
+    const docs = seedHistoryVersions(catalogue, ME, COLLEAGUE);
+    docs.forEach((d, i) => stored.push({ bytes: writePlain(d), atUnix: nowUnix - (docs.length - i) * 3600, actor: i === 1 ? COLLEAGUE : ME }));
+    doc = docs[docs.length - 1]!;
+  } else {
+    stored.push({ bytes: writePlain(doc), atUnix: nowUnix, actor: ME });
+  }
+  let version = stored.length;
+  let bytes = stored[version - 1]!.bytes;
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
@@ -220,6 +231,20 @@ async function main() {
         },
       ]);
     }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/history`) {
+      return json(stored.map((e, i) => ({ seq: i + 1, entry_type: i === 0 ? 'create' : 'update', chain_key_epoch: 1, design_version: i + 1, at_unix: e.atUnix, actor: e.actor })));
+    }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/verify`) {
+      return json({ outcome: 'verified', entries: stored.length });
+    }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}` && u.searchParams.has('version')) {
+      const hit = stored[Number(u.searchParams.get('version')) - 1];
+      if (!hit) return new Response('no such version\n', { status: 404 });
+      return new Response(hit.bytes as BodyInit, {
+        status: 200,
+        headers: { 'fathom-design-version': u.searchParams.get('version')!, 'fathom-payload-schema-version': String(minor) },
+      });
+    }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}`) {
       return new Response(bytes as BodyInit, {
         status: 200,
@@ -238,6 +263,7 @@ async function main() {
       }
       version += 1;
       bytes = requestBody.slice(4);
+      stored.push({ bytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
       window.__saveCount__ += 1;
       if (verifyEngine) {
         try {

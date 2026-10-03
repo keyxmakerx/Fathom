@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { createRack, removeChassis } from './commands';
+import { createRack, createSketchDevice, removeChassis } from './commands';
+import { setDeviceField } from './edit';
 import { describeRestore, describeSave, outlineIds, outlineSelectors } from './historyDiff';
 import { emptyDocument, formatNodeId, type Document } from './model';
 import { newUlid } from './ulid';
@@ -29,7 +30,7 @@ describe('describeSave', () => {
     const next = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', actor: ACTOR, now: NOW });
     const rackId = next.nodes.find((n) => n.id !== premisesId)!.id;
     const change = describeSave(doc, next);
-    expect(change.summary).toBe(next.batches[next.batches.length - 1]!.label);
+    expect(change.summary).toBe('added 1 rack');
     expect(change.changed).toContain(rackId);
   });
 
@@ -38,13 +39,31 @@ describe('describeSave', () => {
     expect(describeSave(doc, doc)).toEqual({ summary: 'Saved with no drawn change', changed: [] });
   });
 
-  it('folds a long list to two labels and a count', () => {
+  it('names devices and renames, and falls back to batch labels when nothing drawn differs', () => {
     const { doc, premisesId } = base();
     let next = doc;
     for (const label of ['R1', 'R2', 'R3', 'R4']) {
       next = createRack(next, premisesId, { label, heightU: 42, unitNumbering: 'ascending', actor: ACTOR, now: NOW });
     }
-    expect(describeSave(doc, next).summary).toMatch(/; \+2 more$/);
+    expect(describeSave(doc, next).summary).toBe('added 4 racks');
+  });
+});
+
+describe('describeSave summaries', () => {
+  it('reads like the mockup', () => {
+    const { doc } = base();
+    const withNas = createSketchDevice(doc, { hostname: 'nas-01', actor: ACTOR, now: NOW });
+    expect(describeSave(doc, withNas).summary).toBe('added nas-01');
+    const deviceId = withNas.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const renamed = setDeviceField(withNas, deviceId, 'hostname', 'nas-02', { actor: ACTOR, now: NOW });
+    expect(describeSave(withNas, renamed).summary).toBe('renamed nas-01 \u2192 nas-02');
+    expect(describeSave(null, withNas).summary).toBe('added nas-01');
+  });
+
+  it('falls back to the batch labels', () => {
+    const { doc } = base();
+    const next: Document = { ...doc, batches: [{ id: newUlid(NOW), label: 'tidy up', ops: [] }] };
+    expect(describeSave(doc, next).summary).toBe('tidy up');
   });
 });
 
