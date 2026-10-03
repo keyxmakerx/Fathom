@@ -153,6 +153,7 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   needs `draw`. Not built: people, invitations and roles on the Organisation tab (need server routes).
 - **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
   CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
+- **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,

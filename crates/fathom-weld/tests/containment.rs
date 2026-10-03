@@ -142,7 +142,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 121 -> 123 (round 10): `HasDocFile` (Doc, DocFile) +1, `DocFile`'s pin +1.
     // 123 -> 126 (ADR-0061 round 7 plans, schema 0.15): `HasPlan` reads `from: [root]`, +0; `HasStep`,
     // +1; `MaintenancePlan` and `PlanStep` join `Placeable`, +2 (their pins).
-    assert_eq!(resolved, 126, "the containment pair set moved");
+    // 126 -> 136 (custom-field values, schema 0.16), +10: `Notable` widened, so `HasNote`
+    // adds (Cable, Note), (Vlan, Note), (ContainerNetwork, Note) -- +3; `HasFieldValue`
+    // adds one pair per `Fieldable` member to `FieldValue` -- +6; joining `Placeable`
+    // adds (FieldValue, LayoutPin) through `HasLayoutPin` -- +1.
+    assert_eq!(resolved, 136, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -172,7 +176,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 54 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` (root -> Label, Line).
     // 56 (ADR-0061 round 7, schema 0.14): `HasDoc` (root -> Doc), `HasDocLink` (Doc -> DocLink).
     // 59 (plans, schema 0.15): `HasPlan` (root -> MaintenancePlan), `HasStep` (plan -> step).
-    assert_eq!(containment, 59);
+    // 60 (custom-field values, schema 0.16): `HasFieldValue` (Fieldable -> FieldValue).
+    assert_eq!(containment, 60);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

@@ -250,7 +250,7 @@ ADR-0046 is the decision; this is the list.
 | Sign in and enrol | everyone | built |
 | **Home**: organisations, the closets and designs you may open, what changed | everyone | built |
 | **Canvas**: the drawing on this page | everyone | approved; built |
-| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | built (basic: lists, page, show on rack, notes, undo) |
+| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, paste from a spreadsheet (export not built; ADR-0062), change history from the chain, *show on rack* | everyone | built (basic: lists, page, show on rack, notes, undo) |
 | Search: an overlay, never a page | everyone | not drawn (the patching board's far-end picker is the same box) |
 | Findings and the config checker | everyone | not drawn |
 | Walkthrough: the teaching half | everyone | low-fi sketch; never built |

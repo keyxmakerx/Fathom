@@ -30,7 +30,7 @@ import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
-import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
+import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
 import {
   cableGroupsStorageKey,
   closetCableIdSet,
@@ -219,6 +219,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** ADR-0059 — Tags, threaded straight into `EditorFor`'s own `actions`
    * below, `notesActions`'s own shape. */
   tagsActions: TagsActions;
+  /** ADR-0062 — custom fields in the canvas panel, the same editor Inventory shows. */
+  fieldsActions: FieldsActions;
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
@@ -260,6 +262,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     accountId,
     notesActions,
     tagsActions,
+    fieldsActions,
     onActiveRackChange,
     historyView,
     onShownCablesChange,
@@ -1235,6 +1238,10 @@ export function RacksPlace(props: RacksPlaceProps) {
             onAddTag: canDraw ? tagsActions.onAddTag : undefined,
             onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
             onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
+            fieldsOf: fieldsActions.fieldsOf,
+            onSetField: canDraw ? fieldsActions.onSetField : undefined,
+            onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
+            onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
             // A view choice, offered to every reader regardless of
             // `canDraw`.
             isCableHidden: handleIsCableHidden,

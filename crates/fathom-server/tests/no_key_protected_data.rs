@@ -270,6 +270,16 @@ const TABLES: &[TableClaim] = &[
               `design_payload`. No key is stored in this table.",
     },
     TableClaim {
+        name: "field_definitions",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "custom-field definitions (ADR-0062). Name, type and choices are one sealed blob; \
+              the plaintext columns are the definition id, its kind, a version counter, the \
+              creator and an archived flag, none of which names a field.",
+    },
+    TableClaim {
         name: "org_content_keys",
         protection: Protection::KeyProtected {
             columns: &["wrapped_key"],
