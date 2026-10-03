@@ -95,6 +95,8 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
 export interface DesignSession {
   doc: Document | null;
   catalogue: CatalogueModel[];
+  /** The open design's id, for per-design browser-local choices (the look). */
+  designId?: string;
   loadError: string | null;
   saveRefusal: string | null;
   canDraw: boolean;
@@ -253,5 +255,5 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
+  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
 }
