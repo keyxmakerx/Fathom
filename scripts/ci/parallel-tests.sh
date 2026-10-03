@@ -6,6 +6,10 @@
 set -euo pipefail
 
 jobs="${1:-$(nproc)}"
+# Most of a server test's wall time is waiting (a one-time code's next step, a delay), not
+# computing, so each binary runs more test threads than there are cores. The default is the
+# core count. Needs the database's max_connections raised (ci.yml does).
+export RUST_TEST_THREADS="${RUST_TEST_THREADS:-16}"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 

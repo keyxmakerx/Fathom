@@ -37,6 +37,19 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request replaces the run still going for the older one.
+# Pushes to main are never cancelled.
+concurrency:
+  group: gates-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # CI never opens a debugger, and incremental data is written once and never reused.
+  # Both only make `target` bigger to save, restore and link.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -123,6 +136,22 @@ jobs:
             "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
             "CREATE DATABASE fathom_test OWNER fathom_test;"
+
+      # Most server tests wait on the clock (a one-time code's thirty-second step) rather
+      # than compute, so the suite runs many more test threads than cores (parallel-tests.sh).
+      # That needs more connections than the image's 100, and this database is thrown away
+      # with the job, so it also skips disk syncs. The service container is restarted once
+      # for the connection limit, which only takes effect on a restart.
+      - name: Tune the test database (connections, no fsync)
+        run: |
+          export PGPASSWORD=postgres
+          psql -h 127.0.0.1 -U postgres \
+            -c "ALTER SYSTEM SET max_connections = 600" \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off"
+          docker restart "$(docker ps -q --filter ancestor=postgres:16)"
+          until pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
 
       # ---- Layer 1, and everything else that needs no toolchain at all. ----
 
@@ -229,7 +258,9 @@ jobs:
       # The build cache, added 2026-10-02: without it every run compiled the
       # whole workspace from nothing. GitHub's own action, pinned to the
       # commit `git ls-remote` gave for v6.1.0 on 2026-10-02. It holds build
-      # output only (`target`); the crates themselves still come from the
+      # output only (`target`); v2 because the profile env at the top changed what is built, and a
+      # cache built under the old settings would be restored and then rebuilt on every run
+      # without ever being saved again. The crates themselves still come from the
       # checksummed `cargo fetch --locked` above, after every dependency gate
       # has run. Cargo's own fingerprints decide what is rebuilt; the key
       # (lockfile and toolchain file) only decides when a new cache is saved.
@@ -237,9 +268,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          key: cargo-v2-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            cargo-${{ runner.os }}-
+            cargo-v2-${{ runner.os }}-
 
       - name: Format
         run: cargo fmt --all --check
