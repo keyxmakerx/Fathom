@@ -1,3 +1,5 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -374,5 +376,15 @@ describe('bounds typed in the panel', () => {
   it('shows a strict bound with its sign, so the panel reads back what the line says', () => {
     expect(boundText('30', true, 'min')).toBe('>30');
     expect(boundText('100', false, 'max')).toBe('100');
+  });
+});
+
+describe('the "?" help on any', () => {
+  it('says role:any is filled in and role!=any is blank, and the queries agree', async () => {
+    const { Help } = await import('./FilterLine');
+    const { schemaFor } = await import('./rowQuery');
+    const schema = schemaFor('devices', [{ key: 'role', label: 'Role', width: 100, editable: false, type: 'text' }]);
+    const html = renderToStaticMarkup(createElement(Help, { schema, rows: [], valuesOf: () => ({ counts: new Map(), keys: [], n: 0 }), kindLabel: 'Devices', onField: () => {}, onClose: () => {} }));
+    expect(html).toContain('role:any means the field has a value; role!=any means it is blank');
   });
 });

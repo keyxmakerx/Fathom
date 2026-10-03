@@ -152,6 +152,24 @@ export type Redact = (text: string) => Promise<string>;
 const flat = (c: string): string => c.replace(/[\r\n\t]+/g, ' ');
 const yieldToUi = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+export interface GatedTable {
+  clean: string[][];
+  redactedRows: number;
+  /** Indexes (0-based) of rows the row pass changed beyond what the cell pass did: a secret split across cells. */
+  splitRows: number[];
+}
+
+/** The dialog's line for such a row; `row` is the number the dialog shows (1-based, header row included). */
+export function splitRowNote(row: number): string {
+  return `Row ${row}: something that may be a password is split across cells, so every word in this row was hidden. Fix it in your file, or bring it in hidden.`;
+}
+
+/** The gated table without the split rows the user left unticked (`ticked` holds row indexes). */
+export function withoutUntickedSplitRows(clean: string[][], splitRows: readonly number[], ticked: ReadonlySet<number>): string[][] {
+  const drop = new Set(splitRows.filter((i) => !ticked.has(i)));
+  return clean.filter((_, i) => !drop.has(i));
+}
+
 /**
  * Runs a pasted table through the gate twice over: each cell alone, then each row as one statement
  * (cells joined with a space), because the gate reads keyword context ("enable secret" in one cell,
@@ -159,7 +177,7 @@ const yieldToUi = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
  * the cells; if they cannot be dealt back one for one, every cell in the row becomes `<word>`. A
  * failed gate throws, and nothing is returned.
  */
-export async function gatePastedTable(table: string[][], redact: Redact): Promise<{ clean: string[][]; redactedRows: number }> {
+export async function gatePastedTable(table: string[][], redact: Redact): Promise<GatedTable> {
   const cache = new Map<string, string>();
   let calls = 0;
   const gate = async (text: string): Promise<string> => {
@@ -175,6 +193,7 @@ export async function gatePastedTable(table: string[][], redact: Redact): Promis
   };
   const clean: string[][] = [];
   let redactedRows = 0;
+  const splitRows: number[] = [];
   for (const row of table) {
     const cells = row.map(flat);
     const alone: string[] = [];
@@ -199,7 +218,8 @@ export async function gatePastedTable(table: string[][], redact: Redact): Promis
       }
     }
     if (out.some((c, i) => c !== cells[i])) redactedRows += 1;
+    if (out.some((c, i) => c !== alone[i])) splitRows.push(clean.length);
     clean.push(out);
   }
-  return { clean, redactedRows };
+  return { clean, redactedRows, splitRows };
 }

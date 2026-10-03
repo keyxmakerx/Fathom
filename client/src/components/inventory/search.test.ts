@@ -248,12 +248,31 @@ describe('VLANs', () => {
 
   it('a name finds it exactly or in part; Enter jumps only on the exact one', () => {
     expect(search(ix, 'Voice', NO_WHERE).jump?.row.key).toBe('vlan:40');
-    // "Cameras" is exact for one VLAN but also part of another's name: not a unique answer.
-    expect(search(ix, 'Cameras', NO_WHERE).jump).toBeNull();
+    // "Cameras" is exact for one VLAN and only part of another's name: Enter opens the exact one, the other stays listed.
+    const cams = search(ix, 'Cameras', NO_WHERE);
+    expect(cams.jump?.row.key).toBe('vlan:30');
+    expect(cams.total).toBe(2);
+    expect(search(ix, 'cameras ', NO_WHERE).jump?.row.key).toBe('vlan:30');
     const part = search(ix, 'camer', NO_WHERE);
     expect(part.groups[0]?.kind).toBe('vlans');
     expect(part.total).toBe(2);
     expect(part.jump).toBeNull();
+  });
+
+  it('two exact matches: Enter does not pick one', () => {
+    const twin = buildSearchIndex({
+      devices: [],
+      ports: [],
+      racks: [],
+      cables: [],
+      idx,
+      vlans: [vlan(30, 'Cameras'), vlan(31, 'Cameras', 'MAN1'), vlan(300, 'Cameras-old')],
+    });
+    const o = search(twin, 'Cameras', NO_WHERE);
+    expect(o.total).toBe(3);
+    expect(o.jump).toBeNull();
+    // Where can leave just one exact match, and then Enter opens it.
+    expect(search(twin, 'Cameras', { site: 'MAN1', row: '', rack: '' }).jump?.row.key).toBe('vlan:31');
   });
 
   it('a bare number that is a VLAN id lists it without jumping, and Where narrows it', () => {

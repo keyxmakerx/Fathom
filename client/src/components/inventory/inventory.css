@@ -915,6 +915,17 @@
   text-align: left;
 }
 
+.inv-paste__split {
+  border: var(--rule-hair) solid var(--hairline);
+  margin: var(--s2) 0;
+  padding: var(--s2);
+}
+
+.inv-paste__split label {
+  display: block;
+  margin-bottom: var(--s1);
+}
+
 .inv-page__mono {
   font-family: var(--mono, monospace);
 }

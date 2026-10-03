@@ -227,13 +227,15 @@ try {
   check('Back says where it goes', (await page.getByRole('button', { name: /^← Back to / }).innerText()).includes('Back to Devices'));
   await page.getByRole('button', { name: /^← Back to Devices/ }).click();
   await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
-  await find.fill('lon1-a02');
+  // A fragment with no exact match (an exact one now opens, even beside partial ones).
+  await find.fill('lon1-a0');
   await page.waitForSelector('.inv-find__group', { timeout: 5_000 });
   await find.press('Enter');
   check('Enter on many matches lists them instead of opening', (await page.locator('.inv-page').count()) === 0 && (await page.locator('.inv-find__hit').count()) > 1);
   await shot('v5-05-find-many.png');
   await find.fill('');
   await page.keyboard.press('Escape');
+  check('clearing the box and Esc bring the list back', (await page.locator('.inv-find__panel').count()) === 0 && (await page.locator('.inv-table__row').count()) > 0);
 
   // 4 — the Where bar: counts follow it, Find says what it hides, Clear puts it back.
   await page.getByRole('button', { name: /^Devices/ }).first().click().catch(() => {});

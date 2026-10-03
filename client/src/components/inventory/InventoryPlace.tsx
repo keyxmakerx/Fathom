@@ -27,7 +27,7 @@ import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
 import { linkTarget } from './links';
 import { listKey, loadMemory, saveMemory, type ListMemory } from './listView';
-import type { ListState } from './listState';
+import { placeLabel, type ListState } from './listState';
 import { FindBox } from './FindBox';
 import { buildSearchIndex, type Hit } from './search';
 import { WhereBar } from './WhereBar';
@@ -239,8 +239,6 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const kindLabel = KINDS.find((k) => k.key === kind)!.label;
   // A page opens from the whole design, not the Where-narrowed list: a link can lead outside Where.
   const openRow = openKey ? ((rowsByKind[kind] ?? baseRows).find((r) => r.key === openKey) ?? baseRows.find((r) => r.key === openKey) ?? null) : null;
-  /** The place being left, as the next entry's Back label: the open item's name, else the list. */
-  const hereLabel = openKey ? openRow?.title || kindLabel : kindLabel;
 
   // Writes what the list on screen remembers (scroll, ticks, the row opened) before it is left.
   const checkedRef = useRef(checked);
@@ -305,6 +303,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const allViews = useMemo(() => [...PINNED_VIEWS, ...mine], [mine]);
   const currentView = ls.view ? allViews.find((v) => v.id === ls.view && v.kind === kind) : undefined;
+  /** The place being left, as the next entry's Back label: the open item's name, else the saved view, else the kind. */
+  const hereLabel = openKey ? placeLabel({ openTitle: openRow?.title, kindLabel }) : placeLabel({ viewName: currentView?.name, kindLabel });
   const kindSchemas = useMemo(() => {
     const out: Partial<Record<Kind, QuerySchema>> = {};
     for (const k of ['devices', 'ports', 'racks', 'cables'] as const) out[k] = schemaFor(kindWord(k), allColumns(k, fieldDefs), FACETS[k] ?? []);

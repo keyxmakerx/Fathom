@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { Engine } from '../../engine/engine';
 import { fileLoader } from '../../engine/wasm';
 import { gatedInsert, oneLine, spliceAt, type Redact } from '../paste/gatedPaste';
-import { gatePastedTable, parseTable, planPaste } from './paste';
+import { gatePastedTable, parseTable, planPaste, splitRowNote, withoutUntickedSplitRows } from './paste';
 import type { Column } from './kinds';
 
 const WASM = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../public/engine/fathom_wasm.wasm');
@@ -61,11 +61,34 @@ describe('pasted text passes the real gate', () => {
     expect(JSON.stringify(plan)).not.toContain(SECRET);
   });
 
+  it('a secret split across cells is flagged for the dialog, and unticked rows are not brought in', async () => {
+    const table = parseTable(`name\trole\tnote\tserial\nlon1-sw1\tswitch\tEX4300\tJN1\nlon1-fw1\tserver\tenable secret\t${SECRET}\nlon1-sw2\tswitch\tEX4300\tJN2`);
+    const gated = await gatePastedTable(table, real);
+    expect(gated.splitRows).toEqual([2]);
+    expect(JSON.stringify(gated.clean)).not.toContain(SECRET);
+    expect(splitRowNote(3)).toBe('Row 3: something that may be a password is split across cells, so every word in this row was hidden. Fix it in your file, or bring it in hidden.');
+    // Unticked (the default): the row is dropped, the others stay.
+    const left = withoutUntickedSplitRows(gated.clean, gated.splitRows, new Set());
+    expect(left.map((r) => r[0])).toEqual(['name', 'lon1-sw1', 'lon1-sw2']);
+    // Ticked: it comes in, hidden.
+    const kept = withoutUntickedSplitRows(gated.clean, gated.splitRows, new Set([2]));
+    expect(kept).toHaveLength(4);
+    expect(JSON.stringify(kept)).not.toContain(SECRET);
+  });
+
+  it('a secret wholly inside one cell is hidden by the cell pass, so the row is not a split row', async () => {
+    const table = parseTable(`enable secret ${SECRET}`);
+    const { splitRows, redactedRows } = await gatePastedTable(table, real);
+    expect(redactedRows).toBe(1);
+    expect(splitRows).toEqual([]);
+  });
+
   it('an ordinary row is left exactly as pasted', async () => {
     const table = parseTable('lon1-sw1\tswitch\tEX4300-48P\tJN1234567890\nlon1-sw2\tswitch\t\tJN1234567891');
     const { clean, redactedRows } = await gatePastedTable(table, real);
     expect(clean).toEqual(table);
     expect(redactedRows).toBe(0);
+    expect((await gatePastedTable(table, real)).splitRows).toEqual([]);
   });
 
   it('a gate that fails stops the whole paste', async () => {

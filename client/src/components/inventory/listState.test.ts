@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EMPTY_STATE, formatHash, parseHash, type ListState } from './listState';
+import { EMPTY_STATE, formatHash, parseHash, placeLabel, type ListState } from './listState';
 import { nextSorts, sortRows } from './sorting';
 import type { InvRow } from './kinds';
 
@@ -92,5 +92,17 @@ describe('sorting', () => {
     s = nextSorts(s, 'length', true);
     expect(s[1]).toEqual({ key: 'length', dir: 'desc' });
     expect(nextSorts(s, 'tags', false)).toEqual([{ key: 'tags', dir: 'asc' }]);
+  });
+});
+
+describe('the Back label', () => {
+  it('names the saved view that was open, else the kind', () => {
+    expect(placeLabel({ viewName: 'Over half full', kindLabel: 'Racks' })).toBe('Over half full');
+    expect(placeLabel({ kindLabel: 'Cables' })).toBe('Cables');
+    expect(`Back to ${placeLabel({ viewName: 'Over half full', kindLabel: 'Racks' })}`).toBe('Back to Over half full');
+    expect(`Back to ${placeLabel({ kindLabel: 'Cables' })}`).toBe('Back to Cables');
+  });
+  it('an open item is named by itself', () => {
+    expect(placeLabel({ openTitle: 'R12', viewName: 'Over half full', kindLabel: 'Racks' })).toBe('R12');
   });
 });

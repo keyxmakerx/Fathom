@@ -561,6 +561,9 @@ export function boundText(v: string, strict: boolean, side: 'min' | 'max'): stri
   return v !== '' && strict ? `${side === 'min' ? '>' : '<'}${v}` : v;
 }
 
+/** What `any` and `empty` mean, as the "?" help says it. */
+export const ANY_HELP = 'role:any means the field has a value; role!=any means it is blank';
+
 /** The operators, for the "?" help. */
 export const OPERATOR_HELP: ReadonlyArray<{ write: string; means: string; example: string }> = [
   { write: 'field:value', means: 'is', example: 'role:switch' },

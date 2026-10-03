@@ -90,3 +90,8 @@ export function sameState(a: ListState, b: ListState): boolean {
 export function carryWhere(landed: ListState, current: ListState): ListState {
   return { ...landed, where: current.where };
 }
+
+/** The Back label for the place being left: the open item, else the saved view that was open, else the kind. */
+export function placeLabel(left: { openTitle?: string; viewName?: string; kindLabel: string }): string {
+  return left.openTitle || left.viewName || left.kindLabel;
+}

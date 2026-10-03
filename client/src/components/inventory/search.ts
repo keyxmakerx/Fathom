@@ -464,7 +464,8 @@ export function search(ix: SearchIndex, clue: string, where: Where): Outcome {
     const hs = inside.filter((h) => h.kind === kind);
     if (hs.length) groups.push({ kind: kind as Kind, label: KIND_LABEL[kind]!, hits: hs });
   }
-  // Enter opens only one EXACT match; a fragment of a serial or a name shows the results instead.
-  const jump = inside.length === 1 && inside[0]!.how === 'exact' ? inside[0]! : null;
+  // Enter opens the one EXACT match even with partial ones beside it; two exact (or a fragment) show the list.
+  const exact = inside.filter((h) => h.how === 'exact');
+  const jump = exact.length === 1 ? exact[0]! : null;
   return { clue: t, reading: used.map((r) => r.text).join(', or '), groups, total: inside.length, outside, jump };
 }

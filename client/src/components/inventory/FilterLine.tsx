@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { BLANK, PANEL_LIMIT, distinctOf, type Distinct } from './facets';
 import type { InvRow } from './kinds';
-import { OPERATOR_HELP, boundText, fieldState, parseBound, readQuery, removeUnit, setField, stripField, units, type Parsed } from './query';
+import { ANY_HELP, OPERATOR_HELP, boundText, fieldState, parseBound, readQuery, removeUnit, setField, stripField, units, type Parsed } from './query';
 import { filterRows, type QuerySchema } from './rowQuery';
 import { SheathWord } from './Swatch';
 import { applySuggestion, suggestAt, type Suggestion } from './suggest';
@@ -190,7 +190,7 @@ export function FilterLine(props: FilterLineProps) {
   );
 }
 
-function Help(props: { schema: QuerySchema; rows: readonly InvRow[]; valuesOf: (f: string) => Distinct; kindLabel: string; onField: (f: string) => void; onClose: () => void }) {
+export function Help(props: { schema: QuerySchema; rows: readonly InvRow[]; valuesOf: (f: string) => Distinct; kindLabel: string; onField: (f: string) => void; onClose: () => void }) {
   const { schema, valuesOf, kindLabel, onField, onClose } = props;
   return (
     <div className="inv-fp inv-fhelp" id="inv-fhelp">
@@ -249,6 +249,7 @@ function Help(props: { schema: QuerySchema; rows: readonly InvRow[]; valuesOf: (
           </tbody>
         </table>
       </div>
+      <p className="inv-fp__note inv-fhelp__any">{ANY_HELP}</p>
     </div>
   );
 }
