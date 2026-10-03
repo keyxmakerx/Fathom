@@ -5,6 +5,7 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
+import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
@@ -40,6 +41,8 @@ export interface BarProps {
   tree: ReactNode;
   lens: Lens;
   onLensChange: (lens: Lens) => void;
+  /** The Rack | Diagram switch; omitted where the look does not apply. */
+  look?: { value: Look; onChange: (look: Look) => void };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -78,6 +81,7 @@ export function Bar({
   tree,
   lens,
   onLensChange,
+  look,
   presence,
   zoom,
   onZoomIn,
@@ -249,6 +253,22 @@ export function Bar({
                 </button>
               ))}
             </div>
+            {look != null && <Sep />}
+            {look != null && (
+              <div className="shell-bar__lenses" role="group" aria-label="Look">
+                {LOOKS.map((candidate) => (
+                  <button
+                    key={candidate}
+                    type="button"
+                    aria-pressed={candidate === look.value}
+                    className={candidate === look.value ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                    onClick={() => look.onChange(candidate)}
+                  >
+                    {LOOK_LABEL[candidate]}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

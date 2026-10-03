@@ -57,6 +57,9 @@ export interface ShellProps {
   lens: Lens;
   onLensChange: (lens: Lens) => void;
 
+  /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
+  look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
+
   /** Who else is in this view, as initials dots. Empty renders nothing —
    * never a placeholder name. */
   presence: PresenceUser[];

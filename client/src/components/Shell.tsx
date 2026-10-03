@@ -32,6 +32,7 @@ export function Shell({
   tree,
   lens,
   onLensChange,
+  look,
   presence,
   zoom,
   onZoomIn,
@@ -76,6 +77,7 @@ export function Shell({
         tree={tree}
         lens={lens}
         onLensChange={onLensChange}
+        look={look}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}

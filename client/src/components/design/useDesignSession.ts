@@ -143,6 +143,8 @@ export interface DesignSession {
   /** The view this person is in ("canvas" or "inventory") and what they have selected, for presence. */
   setPresence: (view: string, selected: string | null) => void;
   catalogue: CatalogueModel[];
+  /** The open design's id, for per-design browser-local choices (the look). */
+  designId?: string;
   loadError: string | null;
   saveRefusal: string | null;
   canDraw: boolean;
@@ -473,6 +475,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
 
   return {
     doc,
+    designId,
     live,
     putMineBack,
     dismissOverwrite,
