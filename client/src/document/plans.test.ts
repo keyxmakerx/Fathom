@@ -441,6 +441,7 @@ describe('a recorded plan is never undone', () => {
 });
 
 describe('no plan text says what is forbidden', () => {
+  // The four sentences ADR-0040 forbids.
   const FORBIDDEN = /zero-knowledge|end-to-end|we cannot read your data|only you hold the key/i;
 
   it('refusals, batch labels and plan fields in every stage avoid the four phrases', () => {

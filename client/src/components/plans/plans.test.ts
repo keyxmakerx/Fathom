@@ -660,6 +660,7 @@ describe('the panel and the page, rendered', () => {
     const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     const out = render(readPlan(made.doc, made.id), made.doc);
     const all = `${out.panel}${out.page}${out.band}`.toLowerCase();
+    // The sentences ADR-0040 forbids.
     expect(all).not.toMatch(/amber|private|zero-knowledge|end-to-end/);
   });
 });
