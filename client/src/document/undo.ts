@@ -35,12 +35,26 @@ import { decodeUlid, newUlid } from './ulid';
  * revival is exactly as authored an act as a field set, `op.rs`'s own
  * reason for `Tombstone`/`Revive` both carrying `by`). `undefined` only for
  * a dangling `prov` this client's own writers never produce. */
+const ACTOR_BY_PROV = new WeakMap<object, Map<string, string>>();
+
+/** Provenance id -> who asserted it, built once per provenance list: a large import is one batch of
+ * thousands of ops, and a linear `find` per op made `undoable` quadratic on every render. */
+function actorByProv(doc: Document): Map<string, string> {
+  let m = ACTOR_BY_PROV.get(doc.provenance);
+  if (!m) {
+    m = new Map();
+    for (const p of doc.provenance) if (!m.has(p.id)) m.set(p.id, p.assertedBy);
+    ACTOR_BY_PROV.set(doc.provenance, m);
+  }
+  return m;
+}
+
 function actorOfOp(doc: Document, op: Op): string | undefined {
   switch (op.type) {
     case 'add_node':
     case 'add_edge':
     case 'set_field':
-      return doc.provenance.find((p) => p.id === op.prov)?.assertedBy;
+      return actorByProv(doc).get(op.prov);
     case 'tombstone':
     case 'revive':
       return op.by;

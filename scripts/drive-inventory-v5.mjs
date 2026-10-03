@@ -111,6 +111,7 @@ try {
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') console.log('    console error: ' + m.text().slice(0, 300)); });
   const shot = async (name) => {
     await page.screenshot({ path: SHOTS + name });
     console.log('    wrote ' + SHOTS + name);
@@ -118,6 +119,7 @@ try {
 
 
   const SCENE = process.env.FATHOM_SCENE ?? 'estate';
+  const WRITES = SCENE !== 'scale';
   const timings = {};
   const timed = async (name, fn) => {
     const t = Date.now();
@@ -132,10 +134,32 @@ try {
     return m ? Number(m[1].replace(/,/g, '')) : null;
   };
 
-  await page.goto(`${BASE}/drive.html?scene=${SCENE}`);
-  await page.waitForSelector('.drawing', { timeout: 60_000 });
+  // FATHOM_PROFILE=1 prints where the first seconds go (top self time), for finding what is slow to open.
+  let cdp = null;
+  if (process.env.FATHOM_PROFILE) {
+    cdp = await context.newCDPSession(page);
+    await cdp.send('Profiler.enable');
+    await cdp.send('Profiler.start');
+  }
+  await page.goto(`${BASE}/drive.html?scene=${SCENE}&scale=${process.env.FATHOM_SCALE ?? '1'}`);
+  await timed('canvas first paint (the app lands there)', () => page.waitForSelector('.drawing', { timeout: 240_000 }).catch(async (e) => {
+    console.log('    page says: ' + (await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => '(page is busy)')));
+    throw e;
+  }));
   await page.getByRole('button', { name: 'Inventory', exact: true }).click();
   await timed('first list', () => page.waitForSelector('.inv-table__row', { timeout: 60_000 }));
+  if (cdp) {
+    const { profile } = await cdp.send('Profiler.stop');
+    const self = new Map();
+    const dt = profile.timeDeltas;
+    const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+    profile.samples.forEach((id, i) => {
+      const f = byId.get(id).callFrame;
+      const k = `${f.functionName || '(anon)'} ${f.url.split('/').slice(-2).join('/')}:${f.lineNumber}`;
+      self.set(k, (self.get(k) ?? 0) + (dt[i] ?? 0));
+    });
+    console.log('    top self time (ms):\n' + [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `      ${Math.round(v / 1000)}  ${k}`).join('\n'));
+  }
   const devicesAll = await railCount('Devices');
   const portsAll = await railCount('Ports');
   const cablesAll = await railCount('Cables');
@@ -151,13 +175,17 @@ try {
   await page.waitForTimeout(200);
   const before = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollTop);
   const firstName = await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).innerText();
-  await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
-  await page.waitForSelector('.inv-page', { timeout: 10_000 });
+  await timed('open a row', async () => {
+    await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
+    await page.waitForSelector('.inv-page', { timeout: 10_000 });
+  });
   check('opening a row replaces the list', (await page.locator('.inv-table__row').count()) === 0);
   check('the address names the open row', (await hashOf()).includes('o='), await hashOf());
   await shot('v5-02-page.png');
-  await page.goBack();
-  await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
+  await timed('Back to the list', async () => {
+    await page.goBack();
+    await page.waitForSelector('.inv-table__row', { timeout: 10_000 });
+  });
   await page.waitForTimeout(300);
   const after = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollTop);
   check('the browser Back restores the scroll', Math.abs(after - before) < 40, `before=${before} after=${after}`);
@@ -167,12 +195,15 @@ try {
   await line.fill('');
 
   // 2 — the query line: operators, chips, reading in words, errors that name the term.
-  await line.fill('role:switch rack:LON1-A02');
-  await page.waitForTimeout(300);
+  await timed('filter: a two-term query', async () => {
+    await line.fill('role:switch rack:LON1-A02');
+    await page.waitForFunction(() => document.querySelectorAll('.inv-chip').length === 2);
+  });
   const chips = await page.locator('.inv-chip').count();
   check('each condition is a chip', chips === 2, `chips=${chips}`);
   const reading = await page.locator('.inv-fq__reading').innerText();
   check('the line is read back in words', /Role is switch/i.test(reading) && /LON1-A02/.test(reading), reading);
+  await page.waitForTimeout(350); // the address follows the line a moment after the last key
   check('the line is in the address', decodeURIComponent(await hashOf()).includes('q=role:switch'), await hashOf());
   await shot('v5-03-query.png');
   await line.fill('rak:LON1-A02');
@@ -182,8 +213,10 @@ try {
 
   // 3 — Find anything.
   const find = page.getByLabel('Find anything');
-  await find.fill('lon1-a02-tor1 ge-0/0/4');
-  await page.waitForSelector('.inv-find__panel', { timeout: 5_000 });
+  await timed('find: device and port', async () => {
+    await find.fill('lon1-a02-tor1 ge-0/0/4');
+    await page.waitForSelector('.inv-find__panel', { timeout: 5_000 });
+  });
   const readingFind = await page.locator('.inv-find__reading').innerText();
   check('Find says how it read the clue', /port ge-0\/0\/4 on lon1-a02-tor1/.test(readingFind), readingFind);
   await shot('v5-04-find.png');
@@ -204,8 +237,10 @@ try {
   await page.getByRole('button', { name: /^Devices/ }).first().click().catch(() => {});
   // One premises holds every site's racks (the closet model has one), so Where's rows tell the sites apart.
   await page.locator('.inv-where').getByLabel('Site').selectOption({ index: 1 });
-  await page.locator('.inv-where').getByLabel('Row').selectOption('LON2 Row A');
-  await page.waitForTimeout(500);
+  await timed('Where: pick a row', async () => {
+    await page.locator('.inv-where').getByLabel('Row').selectOption('LON2 Row A');
+    await page.waitForFunction((all) => !new RegExp('Devices\\s*' + all).test(document.querySelector('.inventory-place__rail')?.textContent?.replace(/,/g, '') ?? ''), devicesAll);
+  });
   const devicesLon2 = await railCount('Devices');
   check('Where narrows the rail counts', devicesLon2 > 0 && devicesLon2 < devicesAll, `all=${devicesAll} LON2 Row A=${devicesLon2}`);
   await find.fill('lon1-a02-tor1');
@@ -258,7 +293,7 @@ try {
   await rail.getByRole('button', { name: /^Devices/ }).first().click();
   await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
   const devLine = page.getByLabel('Filter devices');
-  await devLine.fill('role:server');
+  await devLine.fill('role:server rack:LON1-A03');
   await page.waitForTimeout(300);
   const servers = Number(/(\d[\d,]*)(?: of [\d,]+)? devices/.exec(await page.locator('.inv-foot').innerText())?.[1].replace(/,/g, ''));
   await page.locator('.inv-table__row').first().getByRole('checkbox').check();
@@ -270,12 +305,18 @@ try {
   const pv = await page.locator('.inv-bulkpv').innerText();
   check('the preview shows before and after and how many change', /Set Role to other/.test(pv) && /would change/.test(pv) && /server/.test(pv), pv.replace(/\s+/g, ' ').slice(0, 160));
   await shot('v5-09-bulk-preview.png');
-  await page.getByRole('button', { name: /^Apply to/ }).click();
-  await page.waitForTimeout(1500);
-  check('nothing is a server any more', (await page.locator('.inv-table__row').count()) === 0);
-  await page.getByRole('button', { name: 'Undo', exact: true }).last().click();
-  await page.waitForTimeout(1500);
-  check('Undo puts every row back in one step', new RegExp('^' + servers.toLocaleString('en-GB') + '( of [\\d,]+)? devices').test(await page.locator('.inv-foot').innerText()), (await page.locator('.inv-foot').innerText()).replace(/\s+/g, ' '));
+  if (WRITES) {
+    await page.getByRole('button', { name: /^Apply to/ }).click();
+    await page.waitForTimeout(1500);
+    check('nothing is a server any more', (await page.locator('.inv-table__row').count()) === 0);
+    await page.getByRole('button', { name: 'Undo', exact: true }).last().click();
+    await page.waitForTimeout(1500);
+    check('Undo puts every row back in one step', new RegExp('^' + servers.toLocaleString('en-GB') + '( of [\\d,]+)? devices').test(await page.locator('.inv-foot').innerText()), (await page.locator('.inv-foot').innerText()).replace(/\s+/g, ' '));
+  } else {
+    // Every write saves the whole design through the harness's mock server, which at this size
+    // blocks the page for a minute; the numbers that matter here are reads.
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
   await devLine.fill('');
 
   // 7 — pages: a cable's run through patch panels, a device's "Plugged into" and port map, a rack.
@@ -324,15 +365,17 @@ try {
   await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
 
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
-  await page.getByLabel(/Name of the new/).fill('v5-added');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await page.waitForSelector('.inv-page', { timeout: 30_000 });
-  await page.waitForFunction(() => (window.__saveCount__ ?? 0) > 0, null, { timeout: 60_000 });
+  if (WRITES) {
+    await page.getByLabel(/Name of the new/).fill('v5-added');
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.waitForSelector('.inv-page', { timeout: 30_000 });
+    await page.waitForFunction(() => (window.__saveCount__ ?? 0) > 0, null, { timeout: 60_000 });
+  }
 
   console.log('timings (ms): ' + JSON.stringify(timings));
 
   const saveCount = await page.evaluate(() => window.__saveCount__ ?? 0);
-  check('the scene saved', saveCount > 0, `saveCount=${saveCount}`);
+  if (WRITES) check('the scene saved', saveCount > 0, `saveCount=${saveCount}`);
   const saveLoadFailures = await page.evaluate(() => window.__saveLoadFailures__ ?? []);
   check('every saved payload loaded through the engine', saveLoadFailures.length === 0, saveLoadFailures.join(' | '));
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));

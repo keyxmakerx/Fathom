@@ -147,7 +147,7 @@ export function ListToolbar(props: ListToolbarProps) {
       ) : null}
       {checkedRows.length > 0 ? (
         <div className="inv-bulk" role="group" aria-label="Bulk edit">
-          <b>{checkedRows.length} selected</b>
+          <b>{checkedRows.length.toLocaleString('en-GB')} selected</b>
           {onBulkApply ? (
             <>
               <select aria-label="Column to set" value={bulkCol} onChange={(e) => setBulkCol(e.currentTarget.value)}>
@@ -204,6 +204,7 @@ export function ListToolbar(props: ListToolbarProps) {
             </table>
           ) : null}
           {plan.lines.length > 8 ? <p className="inv-bulkpv__more">and {(plan.lines.length - 8).toLocaleString('en-GB')} more</p> : null}
+          {plan.lines.length > 300 ? <p className="inv-bulkpv__more">That is a large change: the page pauses while it is written, about {Math.ceil(plan.lines.length * 0.01)} seconds on a big design.</p> : null}
           {refusals && refusals.length > 0 ? (
             <p className="inv-toolbar__error" role="alert">
               {refusals.length} would be refused: {refusals.slice(0, 2).join('; ')}
