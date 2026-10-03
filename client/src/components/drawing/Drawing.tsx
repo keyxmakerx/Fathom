@@ -30,7 +30,7 @@ import { faceplateLayoutFor, plateItems } from './faceplate';
 import { filterCablesByVisibility, loadCableVisibility, saveCableVisibility, type CableVisibility } from './cableVisibility';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
-import { decodePaletteDrag, PALETTE_DRAG_MIME } from './dnd';
+import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
   CAMERA_STOPS,
   MAX_ZOOM,
@@ -53,7 +53,6 @@ import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEd
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
-import { RackSquares } from './RackSquares';
 import { parseFreeNodeId } from './freeLayout';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
@@ -427,6 +426,7 @@ function DrawingInner({
   );
   const onOpenInside = renderInsideStop ? (id: string) => openChassis(id, 'inside') : undefined;
   const freeMenuActions: Partial<MenuActions> = {
+    onAddInRack: onAddDeviceAt ? (rackId, u, at) => free.openAdd(at.screen, at.flow, { rackId, positionU: u }) : undefined,
     onAddBoxHere: onAddFreeBox ? (at) => free.openAdd(at.screen, at.flow) : undefined,
     onAddLabelHere: onAddLabel ? (form, flow) => free.addLabelAt(form, flow) : undefined,
     onDuplicateFree: onDuplicateFree ? (ids) => void onDuplicateFree(ids, 24, 24) : undefined,
@@ -462,10 +462,22 @@ function DrawingInner({
   const handleNodeContextMenu: NodeMouseHandler = useCallback(
     (event, node) => {
       const parsedFree = parseFreeNodeId(node.id);
+      const rackNode = parseNodeId(node.id);
+      if (rackNode?.kind === 'rack') {
+        const target = paneTarget(event);
+        const rack = view.racks.find((r) => r.id === rackNode.id);
+        const pos = rack ? rackPositions[rack.id] : undefined;
+        if (rack && pos && target.kind === 'pane' && target.at) {
+          const u = rack.heightU - Math.floor((target.at.flow.y - pos.y - RACK_HEADER_PX) / U_PX);
+          const taken = [...rack.chassis, ...rack.shelves].some((c) => u >= c.positionU && u < c.positionU + c.heightU);
+          if (u >= 1 && u <= rack.heightU && !taken) return openMenu(event, { kind: 'rack', id: rack.id, freeU: { u, ...target.at } });
+        }
+        return openMenu(event, { kind: 'rack', id: rackNode.id });
+      }
       if (parsedFree) return openMenu(event, { kind: parsedFree.kind === 'box' ? 'free' : 'label', id: parsedFree.id });
       openMenu(event, parseNodeId(node.id) ?? paneTarget(event));
     },
-    [openMenu, paneTarget],
+    [openMenu, paneTarget, view.racks, rackPositions],
   );
   const handleEdgeContextMenu: EdgeMouseHandler = useCallback(
     (event, edge) =>
@@ -1254,13 +1266,36 @@ function DrawingInner({
       if (!event.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
+      // Light the unit the item would land in (the size is only known from the drag start).
+      const heightU = getDraggedUnits();
+      const rack =
+        heightU == null
+          ? null
+          : rackAtPoint<RackView>(view.racks, rackPositions, rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }), RACK_NODE_WIDTH);
+      if (heightU == null || rack == null) {
+        setDropPreview((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+        return;
+      }
+      const y = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }).y;
+      const positionU = snapDropToU(rack.heightU, y - rackPositions[rack.id].y - RACK_HEADER_PX, heightU);
+      const next = { fromU: positionU, toU: positionU + heightU - 1, valid: !overlapsRack(rack, { positionU, heightU }) };
+      setDropPreview((prev) => {
+        const cur = prev[rack.id];
+        return cur && cur.fromU === next.fromU && cur.toU === next.toU && cur.valid === next.valid ? prev : { [rack.id]: next };
+      });
     },
-    [canDraw],
+    [canDraw, rf, view.racks, rackPositions],
   );
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDropPreview((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, []);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
       if (!canDraw) return; // ADR-0052 §5: no placement for a reader, even if a drop event somehow reaches here
+      setDropPreview({});
       const raw = event.dataTransfer.getData(PALETTE_DRAG_MIME);
       if (!raw) return;
       event.preventDefault();
@@ -1469,6 +1504,7 @@ function DrawingInner({
       data-zoom-band={zoomBand}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       {...free.containerProps}
     >
       <ReactFlow
@@ -1526,16 +1562,6 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
         {free.portal}
-        <RackSquares
-          racks={view.racks}
-          rackPositions={rackPositions}
-          chassisId={selected?.kind === 'chassis' ? selected.id : null}
-          canDraw={canDraw && onAddDeviceAt != null}
-          onOpen={(at, flow, rackId, positionU) => {
-            const rect = containerRef.current?.getBoundingClientRect();
-            free.openAdd({ x: at.clientX - (rect?.left ?? 0), y: at.clientY - (rect?.top ?? 0) }, flow, { rackId, positionU });
-          }}
-        />
       </ReactFlow>
       {free.overlay}
       {/* This session's brief item 1 — "a cables view control: a small

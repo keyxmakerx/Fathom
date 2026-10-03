@@ -3,7 +3,8 @@ import type { Selection } from './contract';
 /** What a right-click landed on (ADR-0060 decision 4). */
 export type MenuTarget =
   | { kind: 'chassis'; id: string }
-  | { kind: 'rack'; id: string }
+  /** `freeU` is the free unit the click landed on, with the click's pane and flow position. */
+  | { kind: 'rack'; id: string; freeU?: { u: number; screen: Point; flow: Point } }
   | { kind: 'cable'; id: string }
   | { kind: 'free'; id: string }
   | { kind: 'label'; id: string }
@@ -35,6 +36,7 @@ export interface MenuActions {
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
   onPasteConfig?(): void;
+  onAddInRack?(rackId: string, u: number, at: { screen: Point; flow: Point }): void;
   onAddBoxHere?(at: { screen: Point; flow: Point }): void;
   onAddLabelHere?(form: 'text' | 'area', flow: Point): void;
   onDuplicateFree?(ids: string[]): void;
@@ -60,6 +62,8 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
     case 'rack': {
       const { id } = target;
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'rack', id }) });
+      const free = target.freeU;
+      if (free && actions.onAddInRack) items.push({ label: `Add here (U${free.u})`, onSelect: () => actions.onAddInRack?.(id, free.u, free) });
       if (actions.onAddDevice) items.push({ label: 'Add a device', onSelect: () => actions.onAddDevice?.(id) });
       break;
     }
