@@ -6,6 +6,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useReactFlow,
   type Edge,
   type EdgeProps,
@@ -19,8 +20,9 @@ import '../../styles/drawing.css';
 import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
+import { CableCheckBadge, CheckBadge } from '../checks/CheckBadge';
 import { StubTags } from './StubTags';
-import { SHEATH_VAR, needsHairlineOutline } from './sheath';
+import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 
@@ -29,14 +31,20 @@ import { endOffScreen, stubTagText, type StubEnd } from './stubs';
  * moved and cabled in Rack. */
 
 interface BoxData extends Record<string, unknown> {
+  /** The chassis id Checks counts against. */
+  deviceId: string;
   hostname: string;
   selected: boolean;
+  /** Show-menu words under the name (tags). */
+  words: string[];
 }
 
 function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
   return (
     <div className={data.selected ? 'drawing-diagram-box drawing-diagram-box--selected' : 'drawing-diagram-box'}>
       <span className="drawing-diagram-box__name">{data.hostname === '' ? 'unnamed device' : data.hostname}</span>
+      {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
+      <CheckBadge id={data.deviceId} />
       <Handle type="source" position={Position.Right} className="drawing-diagram-box__handle" isConnectable={false} />
       <Handle type="target" position={Position.Left} className="drawing-diagram-box__handle" isConnectable={false} />
     </div>
@@ -49,6 +57,8 @@ interface LineData extends Record<string, unknown> {
   stub?: [StubEnd, StubEnd];
   /** Selected, or its tag hovered: the whole cable draws even when its far end is off screen. */
   lit: boolean;
+  /** A ticked VLAN group's trunk member: drawn dashed. */
+  dashed: boolean;
   /** Another cable is lit: this one fades to the phantom level. */
   dimmed: boolean;
   onSelect: (cableId: string) => void;
@@ -60,8 +70,9 @@ const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copp
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, lit, dimmed, onSelect, onHover, onPanTo } = data;
-  const colour = SHEATH_VAR[cable.sheath ?? 'grey'];
+  const { cable, route, stub, lit, dashed, dimmed, onSelect, onHover, onPanTo } = data;
+  // Round 10: cables are plain ink on the canvas; sheath colours live in the Rack look only.
+  const colour = 'var(--ink)';
   const width = WIDTH_VAR[cable.kind];
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const tags =
@@ -87,9 +98,9 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       onMouseEnter={() => onHover(cable.id)}
       onMouseLeave={() => onHover(null)}
     >
-      {needsHairlineOutline(cable.sheath ?? 'grey') && <path d={route.d} fill="none" stroke="var(--hairline)" strokeWidth={`calc(${width} + 2px)`} strokeLinejoin="miter" />}
-      <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" />
+      <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" strokeDasharray={dashed ? 'var(--cable-dash)' : undefined} />
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
+      <CableCheckBadge id={cable.id} x={(route.a.x + route.b.x) / 2} y={(route.a.y + route.b.y) / 2} />
       {tags}
     </g>
   );
@@ -105,9 +116,14 @@ export interface DiagramDrawingProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   fitRequest?: number;
+  /** The Cables list's draw rule; `undefined` draws every cable, none dashed. */
+  drawnCableIds?: ReadonlySet<string>;
+  dashedCableIds?: ReadonlySet<string>;
+  /** What the Show menu's ticked layers write on the canvas. */
+  words?: LayerWords;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
@@ -135,15 +151,17 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
-        data: { hostname: b.hostname, selected: b.id === selectedId } satisfies BoxData,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [] } satisfies BoxData,
       })),
-    [boxes, selectedId],
+    [boxes, selectedId, words],
   );
 
   const litId = selectedCableId ?? hoverId;
   const edges: Edge[] = useMemo(() => {
     const byId = new Map(boxes.map((b) => [b.id, b]));
-    return diagramLines(view, new Set(byId.keys())).map((line) => {
+    return diagramLines(view, new Set(byId.keys()))
+      .filter((line) => drawnCableIds == null || drawnCableIds.has(line.cable.id))
+      .map((line) => {
       const ba = byId.get(line.a)!;
       const bb = byId.get(line.b)!;
       const route = orthRoute(ba, bb, line.lane);
@@ -163,10 +181,26 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         target: line.b,
         selectable: false,
         className: line.cable.id === selectedCableId ? 'drawing-diagram-line--selected' : undefined,
-        data: { cable: line.cable, route, stub, lit, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
+
+  // Show-menu words on the lines: placed so none overlap; a lost label is counted "+n".
+  const labels = useMemo(() => {
+    if (words == null || words.cables.size === 0) return [];
+    const byId = new Map(boxes.map((b) => [b.id, b]));
+    const routes = diagramLines(view, new Set(byId.keys()))
+      .filter((l) => !stubbedRef.current.has(l.cable.id))
+      // Only lines with an end near the screen: a big design mounts a screenful of words, not all of them.
+      .filter((l) => {
+        const r = settled.rect;
+        const near = (b: { x: number; y: number }) => b.x > r.x0 - 300 && b.x < r.x1 + 300 && b.y > r.y0 - 300 && b.y < r.y1 + 300;
+        return near(byId.get(l.a)!) || near(byId.get(l.b)!);
+      })
+      .map((l) => ({ id: l.cable.id, route: orthRoute(byId.get(l.a)!, byId.get(l.b)!, l.lane) }));
+    return placeLabels(cableCandidates(routes, words.cables, 1 / settled.zoom), boxes, 1 / settled.zoom);
+  }, [words, boxes, view, settled.zoom, settled.rect, edges]);
 
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);
@@ -216,6 +250,20 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={U_PX} size={1} />
+        {labels.length > 0 && (
+          <ViewportPortal>
+            {labels.map((l) => (
+              <span
+                key={l.key}
+                className="drawing-layer-label"
+                style={{ transform: `translate(${l.x}px, ${l.y}px) scale(${1 / settled.zoom}) translate(${l.ax === 'start' ? '0%' : l.ax === 'end' ? '-100%' : '-50%'}, -50%)` }}
+              >
+                {l.text}
+                {l.more > 0 && <span className="drawing-layer-label__more"> +{l.more}</span>}
+              </span>
+            ))}
+          </ViewportPortal>
+        )}
       </ReactFlow>
     </div>
   );

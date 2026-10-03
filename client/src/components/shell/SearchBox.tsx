@@ -105,7 +105,7 @@ export function SearchBox({ search, collapsed }: { search: ShellSearch; collapse
         <div className="shell-search__results" role="listbox" aria-label="Search results">
           {hits.length === 0 && <div className="shell-search__none">Nothing in this design matches.</div>}
           {hits.map((hit, i) => (
-            <Fragment key={`${hit.selection.kind}:${hit.selection.id}`}>
+            <Fragment key={`${hit.group}:${hit.selection.kind}:${hit.selection.id}:${hit.name}`}>
               {(i === 0 || hits[i - 1].group !== hit.group) && <div className="shell-search__group">{hit.group}</div>}
               <button
                 type="button"

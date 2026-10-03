@@ -6,14 +6,10 @@ redeemed over HTTP, keys kept across a restart) and which needs two variables se
 source**, for development. Both end in the same place: a server, a browser client, and one operator
 who can invite people.
 
-**Read `docs/STATE.md` for what is and is not built.** The short version, current as of
-2026-09-19 (read the actual page for the rest; this paragraph is corrected here because an
-earlier draft of this file said the client was a shell with no diagram, which stopped being true
-several sessions ago): you sign in, land on Home, and draw a network diagram with
-React Flow — racks, devices, ports and cables, a rear elevation, shelves and wall-mounted gear,
-a view-only config drawer behind the redaction gate, and an inventory with notes and undo. What
-is still missing: nothing is emailed, nothing talks to a live device, and the credential vault
-(private notes, secrets) is not built yet.
+**Read `docs/STATE.md` for what is and is not built.** In short: you sign in, land on Home, draw a
+network on one canvas (racks, devices, ports, cables, free boxes), paste a device config through the
+redaction gate, keep inventory, notes and docs, run Checks, print, and share a design read-only. Not
+there yet: mail, the credential vault, live devices.
 
 ---
 
@@ -332,16 +328,11 @@ personal access token that can read packages.
 
 ## What does not work yet
 
-Corrected 2026-09-19 against `docs/STATE.md`, which is the page of record — read it, not this
-list, for anything more specific than the headline gaps below:
+`docs/STATE.md` is the page of record. Headline gaps:
 
-- **The diagram is real** (racks, cables, a rear elevation, shelves and wall-mounted gear, a
-  view-only config drawer, an inventory with notes and undo), **but the credential vault is
-  not built.** Private notes and device secrets have nowhere to live yet.
-- **Nothing is emailed.** There is no mail path at all, so an invitation is a token you hand over
-  yourself, and the two-operator interlock on settings refuses correctly but notifies nobody.
-- **Nothing talks to a live device.** Everything comes from pasted text, through the redaction
-  gate.
-- **The audit trail is unwitnessed** unless you set `FATHOM_AUDIT_SYSLOG`. Without it, every entry is
-  sealed and stored, and nothing outside the machine holds a copy — so whoever holds the machine
-  holds all of it. The server says so at startup.
+- **The credential vault is not built.** Private notes and device secrets have nowhere to live yet.
+- **Nothing is emailed.** An invitation is a token you hand over yourself, and the two-operator
+  interlock on settings refuses correctly but notifies nobody.
+- **Nothing talks to a live device.** Everything comes from pasted text, through the redaction gate.
+- **The audit trail is unwitnessed** unless you set `FATHOM_AUDIT_SYSLOG`. Without it, entries are
+  sealed and stored and nothing outside the machine holds a copy; the server says so at startup.

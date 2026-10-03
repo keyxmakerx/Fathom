@@ -1,0 +1,4 @@
+fathom-change 1
+schema 0.16
+
+{"batch":{"id":"01HF7YAT00000000000001X141","label":"rename rack","ops":[{"set_field":{"element":"rack:01HF7YAT000000000000000003","key":"Rack.label","presence":"set","prov":"01HF7YAT00000000000000YGNR"}}]},"provenance":[{"asserted_at":1700000000120,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGNR","origin":"hand"}],"values":["Core rack"]}

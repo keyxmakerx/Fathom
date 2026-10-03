@@ -1,0 +1,4 @@
+fathom-change 1
+schema 0.16
+
+{"batch":{"id":"01HF7YAT00000000000001X141","label":"no serial","ops":[{"set_field":{"element":"chassis:01HF7YAT00000000000000000C","key":"Chassis.serial","presence":"absent","prov":"01HF7YAT00000000000000YGPC"}}]},"provenance":[{"asserted_at":1700000000140,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGPC","origin":"hand"}],"values":[]}
