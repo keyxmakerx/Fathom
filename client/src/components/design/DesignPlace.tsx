@@ -8,12 +8,14 @@ import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
+import { buildCableScheduleRows, cableScheduleHeaderRow, CABLE_SCHEDULE_WIDTHS } from '../../print/cableSchedule';
 import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
 import { PrintPanel } from '../../print/PrintPanel';
 import { SharePanel } from '../../share/SharePanel';
 import { PrintPreview } from '../../print/PrintPreview';
-import { buildPrintJob, type PrintJob, type PrintOptions, type PrintWhat } from '../../print/printJob';
+import { buildPrintJob, type PrintJob, type PrintOptions, type PrintSection } from '../../print/printJob';
+import { captureViewPng, downloadDataUrl } from '../../print/viewImage';
 import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
@@ -92,6 +94,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Print. `activeRackId` is RacksPlace's own report of what the current
   // selection resolves to; `null` when there is none, which the panel reads as "no active rack".
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
+  const [shownCableIds, setShownCableIds] = useState<ReadonlySet<string> | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -129,31 +132,47 @@ export function DesignPlace(props: DesignPlaceProps) {
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [printMode, openPrintPanel]);
 
-  const handlePrintSubmit = useCallback(
-    (what: PrintWhat, options: PrintOptions) => {
-      const doc = session.doc;
-      if (doc == null) return;
+  // The whole pack for the ticked rows, built from the document as it is now.
+  // `viewPng` is the canvas picture; `''` means "count it, don't draw it".
+  const buildPackJob = useCallback(
+    (sections: ReadonlySet<PrintSection>, options: PrintOptions, viewPng: string | null): PrintJob => {
+      const doc = session.doc!;
       const view = viewOf(doc, session.catalogue);
-      const racks =
-        what === 'closet'
-          ? view.rows.flatMap((row) => row.racks)
-          : what === 'this-rack'
-            ? view.racks.filter((r) => r.id === (activeRackId ?? view.racks[0]?.id))
-            : [];
-      const cutSheetDevices = what === 'cut-sheet' ? buildCutSheet(doc, view) : [];
-      const job = buildPrintJob({
-        what,
+      const allRacks = view.rows.flatMap((row) => row.racks);
+      const racks = options.rackScope === 'active' ? allRacks.filter((r) => r.id === (activeRackId ?? allRacks[0]?.id)) : allRacks;
+      const cableRows = sections.has('cables')
+        ? buildCableScheduleRows(doc, view).filter((r) => options.cables !== 'screen' || shownCableIds == null || shownCableIds.has(r.key ?? ''))
+        : [];
+      return buildPrintJob({
+        sections,
         racks,
         cables: view.cables,
-        cutSheetDevices,
+        shownCableIds,
+        cutSheetDevices: sections.has('ports') ? buildCutSheet(doc, view) : [],
+        extra: {
+          view: viewPng == null ? [] : [{ kind: 'image', section: 'view', dataUrl: viewPng, heading: { title: `This view · ${designLabel}`, detail: 'the canvas as drawn' } }],
+          cables: [
+            {
+              kind: 'table',
+              section: 'cables',
+              widths: CABLE_SCHEDULE_WIDTHS,
+              columnHeader: cableScheduleHeaderRow(),
+              bodyRows: cableRows,
+              heading: { title: 'Cable schedule', detail: `${cableRows.length} cable${cableRows.length === 1 ? '' : 's'} · by label` },
+            },
+          ],
+        },
         options,
         meta: { designName: designLabel, path: pathLabel, printedBy: accountAddress ?? '', printedAt: new Date() },
       });
-      setPrintJob(job);
-      setPrintMode('preview');
     },
-    [session.doc, session.catalogue, activeRackId, designLabel, pathLabel, accountAddress],
+    [session.doc, session.catalogue, activeRackId, shownCableIds, designLabel, pathLabel, accountAddress],
   );
+
+  const showPreview = useCallback((job: PrintJob) => {
+    setPrintJob(job);
+    setPrintMode('preview');
+  }, []);
 
   const downloadCutSheet = useCallback(
     (format: 'xlsx' | 'csv') => {
@@ -462,9 +481,6 @@ export function DesignPlace(props: DesignPlaceProps) {
   // The closet view for the print panel/preview only — computed while
   // either is actually open, never on every render of the place itself.
   const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
-  const activeRackSummary = printView
-    ? (printView.racks.find((r) => r.id === activeRackId) ?? printView.racks[0] ?? null)
-    : null;
 
   const place =
     props.place === 'racks' ? (
@@ -479,6 +495,8 @@ export function DesignPlace(props: DesignPlaceProps) {
         notesActions={notesActions}
         tagsActions={tagsActions}
         onActiveRackChange={setActiveRackId}
+        onShownCablesChange={setShownCableIds}
+        designId={designId}
       />
     ) : (
       <InventoryPlace
@@ -505,9 +523,15 @@ export function DesignPlace(props: DesignPlaceProps) {
       )}
       {printMode === 'panel' && printView && (
         <PrintPanel
-          activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}
+          designName={designLabel}
+          buildJob={buildPackJob}
+          hasView={props.place === 'racks'}
+          hasInventory={false}
+          cablesFiltered={shownCableIds != null}
           rackCount={printView.racks.length}
-          onPrint={handlePrintSubmit}
+          captureView={captureViewPng}
+          onPrint={showPreview}
+          onSavePng={(png) => downloadDataUrl(`${designLabel || 'view'}.png`, png)}
           onCancel={closePrint}
           onDownloadXlsx={() => downloadCutSheet('xlsx')}
           onDownloadCsv={() => downloadCutSheet('csv')}

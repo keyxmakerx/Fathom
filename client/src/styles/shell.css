@@ -346,6 +346,32 @@ button.shell-search {
   cursor: default;
 }
 
+/* The hidden-cables chip sits directly in `.shell-bar__leading`, which
+   stretches its children to the bar's own height — every other child there
+   is either that tall on purpose (a rule) or, like the lenses, wrapped in
+   its own centred row. This one is neither, so it centres itself. */
+.shell-bar__hidden-chip {
+  align-self: center;
+}
+
+/* The "show" word inside the hidden-cables chip: plain underlined text, the
+   one live part of an otherwise inert count. */
+.shell-chip__link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The Cables lens's own disclosure mark, lit only. */
+.shell-lens__caret {
+  font-size: inherit;
+}
+
 .shell-bar__undoredo {
   display: flex;
   align-items: center;

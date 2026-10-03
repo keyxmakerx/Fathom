@@ -106,12 +106,17 @@ or a port. That lets a red lead and a *disruptive* chip share a screen.
 **One cable per port.** Type is decided by the port you start from. Only compatible ports stay live
 during a drag; the rest dim. A refused drop shakes the port once (Motion 2).
 
-**Reaching a cable on a crowded plate.** A port is clickable: its panel names the device, connector,
-service and face, and its cable with the far end in words and the sheath swatch, with *Select cable*
-and *Go to far end*. A cable's panel has *Go to end A* and *Go to end B*; a selected cable's two ports
-carry a hairline ring. A click selects; a drag of a few pixels connects. A **cables view control**
-beside the lens row, *all · copper · fibre · power · none*, hides cables by kind and never a box. It is
-a view control, not a lens, remembered per browser, never saved to the design.
+**Reaching a cable on a crowded plate.** A port is a thing you can click:
+its panel names the device, connector, service and face, and its cable with the far end in words
+and the sheath swatch, with two actions, *Select cable* and *Go to far end*; a cable's panel has
+*Go to end A* and *Go to end B*, and a selected cable's two ports carry a hairline ring. A click
+selects; a drag of a few pixels connects. **The Cables list** (GitHub issue #54), a popover hanging
+from the lit Cables lens: any number of groups — a VLAN, a tag, a type or a device — on at once,
+each with its own cable count, plus All and None shortcuts; a box is never hidden, only a cable, and
+a ticked VLAN group's trunk member draws dashed. A cable can also be **hidden one cable at a time**
+from its own panel ("Hide this cable"), independent of every group and offered to a read-only viewer
+too; a bar chip counts however many are hidden and brings them all back. Both live per browser and
+per design, never saved to the design. A refused cable drop shakes the port once, as Motion 2 says.
 
 ## Keeping it readable at forty cables
 
