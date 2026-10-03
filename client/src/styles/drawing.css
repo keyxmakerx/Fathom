@@ -1603,16 +1603,34 @@
   color: var(--muted);
 }
 .drawing-diagram-box--icon {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--s3);
+  position: relative;
+  display: block;
   padding: 0;
-  border-color: transparent;
+  border: 0;
   background: transparent;
 }
 .drawing-diagram-box--icon .device-icon {
-  flex: none;
+  display: block;
   color: var(--ink);
+}
+.drawing-diagram-box--icon.drawing-diagram-box--selected .device-icon {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.drawing-diagram-box--icon.drawing-diagram-box--selected {
+  outline: none;
+}
+/* The name sits under the icon on the page, so a line passing behind it is hidden, not struck through. */
+.drawing-diagram-box__text--below {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 190px;
+  align-items: center;
+  padding: 1px 4px;
+  background: var(--page);
+  text-align: center;
 }
 .drawing-diagram-box__text {
   display: flex;

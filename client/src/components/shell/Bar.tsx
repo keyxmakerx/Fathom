@@ -307,6 +307,8 @@ export function Bar({
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
                     </button>
                   ))}
+                  {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
+                  <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
                   {layers.style != null && (
                     <div className="shell-show__style" role="group" aria-label="Device style">
                       <span className="shell-show__head">Device style</span>
@@ -314,7 +316,8 @@ export function Bar({
                         <button
                           key={st}
                           type="button"
-                          aria-pressed={layers.style!.value === st}
+                          role="menuitemradio"
+                          aria-checked={layers.style!.value === st}
                           className={layers.style!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
                           data-testid={`style-${st}`}
                           onClick={() => layers.style!.onChange(st)}
@@ -324,8 +327,6 @@ export function Bar({
                       ))}
                     </div>
                   )}
-                  {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
-                  <p className="shell-show__hint">Each adds words in ink, placed so they never overlap. Yours, per browser.</p>
                 </div>
               </Popover>
             )}

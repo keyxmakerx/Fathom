@@ -20,7 +20,7 @@ import '../../styles/drawing.css';
 import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
-import { DeviceIcon, iconForRole, type IconKind } from './deviceIcons';
+import { DeviceIcon, ICON_H, ICON_W, iconForRole, type IconKind } from './deviceIcons';
 import type { DiagramStyle } from './diagramStyle';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
@@ -46,7 +46,7 @@ function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
   return (
     <div className={cls}>
       {data.icon != null && <DeviceIcon kind={data.icon} />}
-      <span className="drawing-diagram-box__text">
+      <span className={data.icon != null ? 'drawing-diagram-box__text drawing-diagram-box__text--below' : 'drawing-diagram-box__text'}>
         <span className="drawing-diagram-box__name">{data.hostname === '' ? 'unnamed device' : data.hostname}</span>
         {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
       </span>
@@ -131,7 +131,15 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [band, setBand] = useState(() => zoomBandAt(Math.max(zoom, 1)));
 
-  const boxes = useMemo(() => layoutDiagram(view), [view]);
+  const roles = useMemo(() => new Map(view.racks.flatMap((r) => r.chassis.map((c) => [c.id, c.role] as const))), [view]);
+  // Icons style: a device with an icon is just the icon (lines meet its edge, the name sits under it); the rest stay boxes.
+  const boxes = useMemo(
+    () =>
+      layoutDiagram(view).map((b) =>
+        style === 'icons' && iconForRole(roles.get(b.id)) != null ? { ...b, x: b.x + (b.w - ICON_W) / 2, y: b.y + (b.h - ICON_H) / 2 - 8, w: ICON_W, h: ICON_H } : b,
+      ),
+    [view, style, roles],
+  );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
   const selectedCableId = selected?.kind === 'cable' ? selected.id : null;
 
@@ -142,8 +150,6 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     },
     [boxes, rf],
   );
-
-  const roles = useMemo(() => new Map(view.racks.flatMap((r) => r.chassis.map((c) => [c.id, c.role] as const))), [view]);
 
   const nodes: Node[] = useMemo(
     () =>
