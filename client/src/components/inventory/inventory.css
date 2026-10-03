@@ -36,7 +36,7 @@
   margin-top: var(--s2);
 }
 
-/* ---- the rail: kinds, then saved filters ----------------------------- */
+/* ---- the rail: kinds in groups, saved views nested under each --------- */
 
 .inventory-place__rail {
   width: 232px;
@@ -913,4 +913,143 @@
   border-left: none;
   flex: 1 1 auto;
   background: var(--page);
+}
+
+/* Quiet groups: a hairline between, no headings. */
+.inventory-place__group + .inventory-place__group {
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.inventory-place__views {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.inventory-place__view-row {
+  display: flex;
+  align-items: center;
+}
+
+.inventory-place__view {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: var(--s1) var(--s3) var(--s1) var(--s5);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.inventory-place__view--active {
+  background: var(--page);
+  border-left: var(--rule-accent) solid var(--ink);
+  padding-left: calc(var(--s5) - var(--rule-accent));
+  font-weight: 700;
+}
+
+.inventory-place__who {
+  margin-left: var(--s1);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.inventory-place__view-x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 var(--s2);
+}
+
+.inventory-place__mobile-nav {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .inventory-place {
+    flex-direction: column;
+  }
+  .inventory-place__rail {
+    display: none;
+  }
+  .inventory-place__mobile-nav {
+    display: flex;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+    border-bottom: var(--rule-hair) solid var(--hairline);
+  }
+  .inventory-place__mobile-nav select {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: var(--t-small);
+    border: var(--rule-hair) solid var(--hairline);
+    background: var(--page);
+    color: var(--ink);
+    border-radius: 0;
+    padding: var(--s1);
+  }
+}
+
+.inv-head {
+  padding: var(--s2) var(--s3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.inv-head__row,
+.inv-head__save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+}
+
+.inv-head__title {
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.inv-head__count,
+.inv-head__hint {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.inv-head__grow {
+  flex: 1;
+}
+
+.inv-head button {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+  cursor: pointer;
+}
+
+.inv-head input {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
 }

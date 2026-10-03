@@ -19,9 +19,12 @@ import type { FieldDefView } from '../../document/fields';
 import { ListToolbar } from './ListToolbar';
 import { isKind } from './kinds';
 import { nextSorts, sortRows } from './sorting';
-import { schemaFor, filterRows } from './rowQuery';
+import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
 import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
+import { ListHead } from './ListHead';
+import { SideList } from './SideList';
+import { PINNED_VIEWS, addMine, loadMine, removeMine, saveMine, updateMine, type SavedView } from './views';
 import { NetworksPanel } from './NetworksPanel';
 import { AddPrefixForm, AddVlanForm, PrefixPage, VlanPage } from './IpamPages';
 import { PasteDialog, type CustomPaste } from './PasteDialog';
@@ -66,6 +69,10 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   /** Runs pasted text through the redaction gate (CLAUDE.md rule 4). */
   redact: (text: string) => Promise<string>;
   accountId: string | null;
+}
+
+function kindLabelOf(kind: Kind): string {
+  return KINDS.find((k) => k.key === kind)?.label ?? kind;
 }
 
 function kindWord(kind: Kind): string {
@@ -124,6 +131,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const liveDoc = useRef(doc);
   liveDoc.current = doc;
   const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
+  const [mine, setMine] = useState<SavedView[]>(loadMine);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const endText = useCallback((end: Parameters<typeof cableEndText>[1]) => cableEndText(view, end), [view]);
@@ -209,6 +217,55 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
   const rows = useMemo(() => sortRows(filtered.rows, sorts), [filtered, sorts]);
 
+  const allViews = useMemo(() => [...PINNED_VIEWS, ...mine], [mine]);
+  const currentView = ls.view ? allViews.find((v) => v.id === ls.view && v.kind === kind) : undefined;
+  const kindSchemas = useMemo(() => {
+    const out: Partial<Record<Kind, QuerySchema>> = {};
+    for (const k of ['devices', 'ports', 'racks', 'cables'] as const) out[k] = schemaFor(kindWord(k), allColumns(k, fieldDefs));
+    return out;
+  }, [fieldDefs]);
+  const viewCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of allViews) {
+      const k = v.kind as Kind;
+      const rs = k === kind ? baseRows : rowsByKind[k];
+      const sc = k === kind ? schema : kindSchemas[k];
+      if (rs && sc) m.set(v.id, filterRows(rs, sc, v.q).rows.length);
+    }
+    return m;
+  }, [allViews, kind, baseRows, schema, rowsByKind, kindSchemas]);
+
+  const onView = (v: SavedView) => {
+    go({ kind: v.kind, q: v.q, sorts: v.sorts, view: v.id, open: '', tab: '' }, 'push');
+    setOverride(null);
+    setChecked(new Set());
+    setPrefs(null);
+    setNotice(null);
+    setAdding(null);
+    scrollTop.current = 0;
+  };
+  const onSaveAs = (name: string) => {
+    const id = `m${Date.now().toString(36)}`;
+    const next = addMine(mine, kind, name, q, sorts, id);
+    setMine(next);
+    saveMine(next);
+    const made = next.find((v) => v.id === id) ?? next.find((v) => v.name === (name.trim() || 'My view'));
+    go({ view: made?.id ?? id });
+    setNotice(`Saved “${name.trim() || 'My view'}” under ${kindLabelOf(kind)}.`);
+  };
+  const onUpdateView = () => {
+    if (!currentView) return;
+    const next = updateMine(mine, currentView.id, q, sorts);
+    setMine(next);
+    saveMine(next);
+  };
+  const onRemoveView = (v: SavedView) => {
+    const next = removeMine(mine, v.id);
+    setMine(next);
+    saveMine(next);
+    if (ls.view === v.id) go({ view: '' });
+  };
+
   const switchKind = (next: Kind) => {
     go({ kind: next, q: '', sorts: [], view: '', open: '', tab: '' }, 'push');
     setOverride(null);
@@ -232,7 +289,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   };
 
   const kindLabel = KINDS.find((k) => k.key === kind)!.label;
-  const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
+  const openRow = openKey ? (baseRows.find((r) => r.key === openKey) ?? null) : null;
   const pageSelection = override ?? openRow?.selection ?? null;
 
   const ctx = useMemo(() => ({ catalogue, actor: getSession()?.accountId, defs: fieldDefs }), [catalogue, fieldDefs]);
@@ -377,23 +434,17 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
         <div className="inventory-place">
-          <nav className="inventory-place__rail" aria-label="Inventory kinds">
-            <div className="inventory-place__rail-title">Kinds</div>
-            <ul className="inventory-place__kinds">
-              {KINDS.map((k) => (
-                <li key={k.key}>
-                  <button
-                    type="button"
-                    className={k.key === kind ? 'inventory-place__kind inventory-place__kind--active' : 'inventory-place__kind'}
-                    onClick={() => switchKind(k.key)}
-                  >
-                    <span>{k.label}</span>
-                    <span className="inventory-place__count">{counts[k.key] ?? '…'}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          <SideList
+            kind={kind}
+            viewId={currentView?.id ?? ''}
+            counts={counts}
+            views={allViews}
+            viewCounts={viewCounts}
+            onList={!openKey && !adding}
+            onKind={switchKind}
+            onView={onView}
+            onRemoveView={onRemoveView}
+          />
 
           {kind === 'networks' ? (
             <div className="inventory-place__main inventory-place__main--flush">
@@ -415,6 +466,16 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : (
             <div className="inv-list">
               {refusal}
+              <ListHead
+                title={currentView ? `${kindLabel} › ${currentView.name}` : kindLabel}
+                shown={rows.length}
+                total={baseRows.length}
+                edited={!!currentView && (currentView.q !== q || JSON.stringify(currentView.sorts) !== JSON.stringify(sorts))}
+                canUpdate={currentView?.who === 'Mine'}
+                hasQuery={q.trim() !== ''}
+                onUpdate={onUpdateView}
+                onSaveAs={onSaveAs}
+              />
               <ListToolbar
                 kindLabel={kindLabel}
                 columnsAll={columnsAll}
