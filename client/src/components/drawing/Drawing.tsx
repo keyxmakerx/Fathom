@@ -326,6 +326,8 @@ function DrawingInner({
   onAddDevice,
   onAddRack,
   onAddWall,
+  onPasteConfig,
+  onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
   onAddDeviceAt,
@@ -415,9 +417,15 @@ function DrawingInner({
   const openChassis = useCallback(
     (id: string, view: 'config' | 'inside' = 'config') => {
       onSelect({ kind: 'chassis', id });
+      if (onOpenDevice) {
+        // ADR-0060 decision 10: Open goes into the device. Its place on this canvas is where equipment dropped there lands.
+        const at = rf.getInternalNode(chassisNodeId(id))?.internals.positionAbsolute ?? rf.getInternalNode(`free:${id}`)?.internals.positionAbsolute;
+        onOpenDevice(id, view === 'inside', at ?? null);
+        return;
+      }
       setOpened({ id, view });
     },
-    [onSelect],
+    [onSelect, onOpenDevice, rf],
   );
   const onOpenInside = renderInsideStop ? (id: string) => openChassis(id, 'inside') : undefined;
   const freeMenuActions: Partial<MenuActions> = {
@@ -428,7 +436,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -1221,11 +1229,13 @@ function DrawingInner({
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
     (_event, node) => {
+      const freeBox = parseFreeNodeId(node.id);
+      if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
     },
-    [openChassis, free.onNodeDoubleClick],
+    [openChassis, onOpenDevice, free.onNodeDoubleClick],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>

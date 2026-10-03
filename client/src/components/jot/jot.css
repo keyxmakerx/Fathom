@@ -1,0 +1,146 @@
+/* ADR-0060 decision 10 — the open device: tokens only, hairlines, no radius or shadow. */
+.jot {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.jot--gone {
+  padding: var(--s4);
+  color: var(--muted);
+}
+.jot__bar {
+  position: absolute;
+  left: var(--s3);
+  top: var(--s3);
+  right: var(--s3);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  background: var(--page);
+}
+.jot__name {
+  font-weight: 700;
+}
+.jot__port {
+  color: var(--muted);
+}
+.jot__bar,
+.jot__bar > * {
+  white-space: nowrap;
+}
+.jot__bar button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--page);
+}
+.jot__field {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.jot__stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.jot__cables {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.jot__cable-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.jot__cable-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.jot__cable--on .jot__cable-line {
+  stroke-width: 4;
+}
+.jot__wire {
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.jot-plate {
+  position: absolute;
+  background: var(--page);
+  border: calc(1px / var(--k, 1)) solid var(--ink);
+  box-sizing: border-box;
+}
+.jot-plate--selected {
+  outline: calc(2px / var(--k, 1)) solid var(--ink);
+  outline-offset: calc(1px / var(--k, 1));
+}
+.jot-plate__name {
+  position: absolute;
+  left: 0;
+  font-size: calc(11px / var(--k, 1));
+  font-weight: 700;
+  line-height: 14px;
+  bottom: 100%;
+  margin-bottom: calc(2px / var(--k, 1));
+  cursor: grab;
+  white-space: nowrap;
+}
+.jot-plate--device .jot-plate__name {
+  cursor: default;
+}
+.jot-port {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: crosshair;
+  touch-action: none;
+}
+.jot-port--lit {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.jot-plate__add {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px / var(--k, 1));
+  font-size: calc(11px / var(--k, 1));
+  padding: 0 calc(4px / var(--k, 1));
+  white-space: nowrap;
+}
+.jot__hint {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--s3) + 2rem);
+  transform: translateX(-50%);
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+  max-width: 28rem;
+}
+.jot__inside {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 40px;
+}
+.jot__config {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
