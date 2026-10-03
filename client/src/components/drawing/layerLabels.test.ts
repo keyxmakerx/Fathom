@@ -52,7 +52,7 @@ describe('layerWords', () => {
   const view = (deviceId: string): ClosetView =>
     ({ racks: [{ chassis: [{ id: 'ch1', deviceId, ports: [] }] }], cables: [] }) as unknown as ClosetView;
   it('is empty with every layer off', () => {
-    const w = layerWords(emptyDocument(), view('d'), defaultLayers());
+    const w = layerWords(emptyDocument(), view('d'), { ...defaultLayers(), checks: false });
     expect(w.cables.size + w.devices.size).toBe(0);
   });
   it('writes a device its tags', () => {

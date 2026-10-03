@@ -34,12 +34,12 @@ import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type Ta
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
-import { loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
+import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
 import { mediaCandidates } from '../checks/checksModel';
-import { ChecksContext } from '../checks/checksStore';
+import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
@@ -1090,6 +1090,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   return (
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
       <ChecksContext.Provider value={checks.api}>
+      <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1199,6 +1200,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </div>
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      </CheckMarksContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );
