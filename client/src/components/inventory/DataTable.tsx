@@ -40,6 +40,8 @@ interface Cell {
 }
 
 const TEXT_TYPES = new Set(['text', 'number', 'tags']);
+/** The column that stays in view while the others scroll sideways. */
+const STICKY = new Set(['name', 'prefix']);
 
 function inputType(col: Column): string {
   return col.type === 'date' ? 'date' : 'text';
@@ -264,7 +266,7 @@ export function DataTable(props: DataTableProps) {
                 type="button"
                 key={c.key}
                 role="columnheader"
-                className={`inv-table__th${c.key === 'name' ? ' inv-table__stick' : ''}`}
+                className={`inv-table__th${STICKY.has(c.key) ? ' inv-table__stick' : ''}`}
                 style={{ width: c.width }}
                 aria-sort={sort?.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 onClick={() => onSort(c.key)}
@@ -306,7 +308,7 @@ export function DataTable(props: DataTableProps) {
                         key={col.key}
                         role="gridcell"
                         aria-selected={isActive}
-                        className={`inv-table__cell${col.key === 'name' ? ' inv-table__stick' : ''}${isActive ? ' inv-table__cell--active' : ''}${col.editable && canEdit ? ' inv-table__cell--editable' : ''}`}
+                        className={`inv-table__cell${STICKY.has(col.key) ? ' inv-table__stick' : ''}${isActive ? ' inv-table__cell--active' : ''}${col.editable && canEdit ? ' inv-table__cell--editable' : ''}`}
                         style={{ width: col.width }}
                         onClick={() => {
                           setActive({ rowKey: row.key, colKey: col.key });
@@ -326,6 +328,13 @@ export function DataTable(props: DataTableProps) {
                           />
                         ) : col.type === 'tags' ? (
                           <TagCell tags={row.tags} onFilterTag={onFilterTag} />
+                        ) : col.type === 'bar' && row.meter?.[col.key] !== undefined ? (
+                          <span className="inv-table__meter" title={text}>
+                            <span className="inv-table__bar" aria-hidden="true">
+                              <span style={{ width: `${Math.min(100, Math.round(row.meter[col.key]! * 100))}%` }} />
+                            </span>
+                            <span className="inv-table__text">{text}</span>
+                          </span>
                         ) : text !== '' ? (
                           <span className="inv-table__text" title={text}>
                             {text}

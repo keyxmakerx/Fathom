@@ -6,7 +6,17 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Column, InvRow } from './kinds';
 import { parseTable, planPaste, type PastePlan } from './paste';
 
+/** A kind whose rows are not matched by Name (prefixes, VLANs): it reads the pasted table itself. */
+export interface CustomPaste {
+  hint: string;
+  /** One line about what applying would do. */
+  summarise: (table: string[][]) => string;
+  /** Gets the table after every cell has passed the redaction gate. */
+  onApply: (clean: string[][]) => void;
+}
+
 export interface PasteDialogProps {
+  custom?: CustomPaste;
   initialText: string;
   kindLabel: string;
   columns: readonly Column[];
@@ -18,13 +28,13 @@ export interface PasteDialogProps {
 }
 
 export function PasteDialog(props: PasteDialogProps) {
-  const { initialText, kindLabel, columns, rows, canAdd, redact, onCancel, onApply } = props;
+  const { custom, initialText, kindLabel, columns, rows, canAdd, redact, onCancel, onApply } = props;
   const [text, setText] = useState(initialText);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const table = useMemo(() => parseTable(text), [text]);
-  const plan = useMemo(() => planPaste(table, columns, rows, { canAdd }), [table, columns, rows, canAdd]);
+  const plan = useMemo(() => planPaste(table, custom ? [] : columns, rows, { canAdd }), [table, columns, rows, canAdd, custom]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -39,30 +49,33 @@ export function PasteDialog(props: PasteDialogProps) {
     setError(null);
     try {
       const clean = await Promise.all(table.map((r) => Promise.all(r.map((c) => (c.trim() === '' ? Promise.resolve(c) : redact(c))))));
-      onApply(planPaste(clean, columns, rows, { canAdd }));
+      if (custom) custom.onApply(clean);
+      else onApply(planPaste(clean, columns, rows, { canAdd }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The redaction gate could not run, so nothing was pasted.');
       setBusy(false);
     }
   };
 
-  const nothing = plan.adds.length + plan.updates.length === 0;
+  const nothing = custom ? table.length === 0 : plan.adds.length + plan.updates.length === 0;
   return (
     <div className="inv-paste" role="dialog" aria-modal="true" aria-label={`Paste ${kindLabel}`}>
       <div className="inv-paste__box">
         <h2>Paste {kindLabel.toLowerCase()}</h2>
         <p className="inv-paste__muted">
-          Rows copied from a spreadsheet (tab-separated or CSV). A first row of column names is used as the header; otherwise cells fill the
-          columns shown, left to right. Rows are matched by name. An empty cell leaves the value alone. Pasted text passes the redaction gate.
+          {custom ? custom.hint : `Rows copied from a spreadsheet (tab-separated or CSV). A first row of column names is used as the header; otherwise cells fill the
+          columns shown, left to right. Rows are matched by name. An empty cell leaves the value alone. Pasted text passes the redaction gate.`}
         </p>
         <textarea aria-label="Pasted rows" rows={8} value={text} onChange={(e) => setText(e.currentTarget.value)} autoFocus />
         <p role="status">
           {table.length === 0
             ? 'Nothing pasted yet.'
-            : `${plan.adds.length} to add, ${plan.updates.length} to update${plan.skipped ? `, ${plan.skipped} skipped (no name${canAdd ? '' : ' match'})` : ''}.`}
-          {plan.ignoredHeaders.length ? ` Ignored columns: ${plan.ignoredHeaders.join(', ')}.` : ''}
+            : custom
+              ? custom.summarise(table)
+              : `${plan.adds.length} to add, ${plan.updates.length} to update${plan.skipped ? `, ${plan.skipped} skipped (no name${canAdd ? '' : ' match'})` : ''}.`}
+          {!custom && plan.ignoredHeaders.length ? ` Ignored columns: ${plan.ignoredHeaders.join(', ')}.` : ''}
         </p>
-        {table.length > 0 && plan.mapped.some(Boolean) ? (
+        {!custom && table.length > 0 && plan.mapped.some(Boolean) ? (
           <table className="inv-paste__preview" aria-label="Preview">
             <thead>
               <tr>

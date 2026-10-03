@@ -388,3 +388,4 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
 
 `/home/user/pouzor/homelable` — a smaller, well-built homelab visualization tool used as a reference
 for the client rebuild. React; it solves several problems we hand-built.
+- Inventory Prefix and VLAN kinds and a file importer (CSV, NetBox, Proxmox, nmap), ADR-0063.

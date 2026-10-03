@@ -21,7 +21,11 @@ export interface ListToolbarProps {
   canAdd: boolean;
   addHint: string;
   onAdd: (name: string) => string | void;
+  /** A button in place of the add-by-name box, for kinds that need more than a name. */
+  addAction?: { label: string; onClick: () => void };
   onPaste?: () => void;
+  /** Opens the file importer (round 9). */
+  onImport?: () => void;
   checkedRows: readonly InvRow[];
   bulkColumns: readonly Column[];
   onBulk?: (edits: CellEdit[]) => string | void;
@@ -30,7 +34,7 @@ export interface ListToolbarProps {
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, filters, onFilters, canAdd, addHint, onAdd, onPaste, checkedRows, bulkColumns, onBulk, onClearChecked, notice } = props;
+  const { kindLabel, columnsAll, columns, onColumns, filters, onFilters, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulk, onClearChecked, notice } = props;
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [filterCol, setFilterCol] = useState('*');
@@ -100,6 +104,10 @@ export function ListToolbar(props: ListToolbarProps) {
               Add
             </button>
           </form>
+        ) : addAction ? (
+          <button type="button" onClick={addAction.onClick}>
+            {addAction.label}
+          </button>
         ) : addHint ? (
           <span className="inv-toolbar__hint">{addHint}</span>
         ) : null}
@@ -115,6 +123,11 @@ export function ListToolbar(props: ListToolbarProps) {
           + Filter
         </button>
         <span className="inv-toolbar__grow" />
+        {onImport ? (
+          <button type="button" onClick={onImport}>
+            Import file
+          </button>
+        ) : null}
         {onPaste ? (
           <button type="button" onClick={onPaste}>
             Paste rows
