@@ -36,6 +36,11 @@ describe('vlanWord', () => {
 
 describe('cableCandidates', () => {
   const pt = (x: number, y: number, dx: number, dy: number) => ({ x, y, dx, dy });
+  it('keeps a bent route\'s VLAN word off the line', () => {
+    const c = cableCandidates([{ id: 'c', route: { a: pt(0, 0, 1, 0), b: pt(100, 80, -1, 0) } }], new Map([['c', { mid: 'VLAN 20' }]]), 1);
+    expect(c[0]!.x).toBeGreaterThan(50);
+    expect(c[0]!.ax).toBe('start');
+  });
   it('puts the VLAN word mid-line and an address at each end', () => {
     const c = cableCandidates([{ id: 'c', route: { a: pt(0, 0, 0, 1), b: pt(0, 100, 0, -1) } }], new Map([['c', { mid: 'VLAN 20', a: '10.0.0.1' }]]), 1);
     expect(c.map((x) => x.key).sort()).toEqual(['c:a', 'c:mid']);

@@ -24,6 +24,12 @@ export interface LayerWords {
 
 const EMPTY: LayerWords = { cables: new Map(), devices: new Map() };
 
+/** "10.0.20.1/24" reads "10.0.20.1" on the drawing. */
+function hostOnly(a: string): string {
+  const i = a.indexOf('/');
+  return i < 0 ? a : a.slice(0, i);
+}
+
 export function vlanWord(ids: number[], trunk: boolean): string {
   const s = [...new Set(ids)].sort((x, y) => x - y);
   return trunk && s.length > 1 ? `TRUNK ${s.join(',')}` : `VLAN ${s.join(',')}`;
@@ -56,8 +62,8 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
     if (wantAddr) {
       // device + port label -> address, from both row kinds
       const addr = new Map<string, string>();
-      for (const row of net.vlanRows) for (const m of row.members) if (m.address != null) addr.set(`${m.deviceId}|${m.interfaceLabel}`, m.address);
-      for (const row of net.subnetRows) for (const m of row.members) addr.set(`${m.deviceId}|${m.interfaceLabel}`, m.address);
+      for (const row of net.vlanRows) for (const m of row.members) if (m.address != null) addr.set(`${m.deviceId}|${m.interfaceLabel}`, hostOnly(m.address));
+      for (const row of net.subnetRows) for (const m of row.members) addr.set(`${m.deviceId}|${m.interfaceLabel}`, hostOnly(m.address));
       const chassisById = new Map(view.racks.flatMap((r) => r.chassis).map((c) => [c.id, c]));
       for (const cable of view.cables) {
         const ends = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
@@ -108,7 +114,8 @@ const LABEL_H = 18;
 
 /** `scale` is flow units per screen pixel (1 / zoom): labels keep one on-screen size. */
 function rectOf(c: Candidate, scale: number): Rect {
-  const w = (c.text.length * CHAR_W + 8) * scale;
+  // 3 spare characters: the " +n" a winner may grow by.
+  const w = ((c.text.length + 3) * CHAR_W + 8) * scale;
   const x = c.ax === 'start' ? c.x : c.ax === 'end' ? c.x - w : c.x - w / 2;
   return { x, y: c.y - (LABEL_H / 2) * scale, w, h: LABEL_H * scale };
 }
@@ -156,8 +163,10 @@ export function cableCandidates(
     if (w.mid != null) {
       const mx = (route.a.x + route.b.x) / 2;
       const my = (route.a.y + route.b.y) / 2;
-      const vertical = route.a.dx === 0;
-      out.push({ key: `${id}:mid`, text: w.mid, x: vertical ? mx + gap : mx, y: vertical ? my : my - 10 * scale, ax: vertical ? 'start' : 'middle', priority: PRIORITY.mid });
+      const straightH = route.a.y === route.b.y;
+      // Straight vertical or bent: beside the vertical run; straight horizontal: above it. Never on the line.
+      if (straightH) out.push({ key: `${id}:mid`, text: w.mid, x: mx, y: my - 10 * scale, ax: 'middle', priority: PRIORITY.mid });
+      else out.push({ key: `${id}:mid`, text: w.mid, x: mx + gap, y: my, ax: 'start', priority: PRIORITY.mid });
     }
     if (w.a != null) out.push({ key: `${id}:a`, text: w.a, ...spot(route.a, 8), priority: PRIORITY.end });
     if (w.b != null) out.push({ key: `${id}:b`, text: w.b, ...spot(route.b, 8), priority: PRIORITY.end });

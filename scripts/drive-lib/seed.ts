@@ -607,7 +607,7 @@ export function seedLookScene(catalogue: CatalogueModel[], me: string): Document
   return working;
 }
 
-/** The canvas scene with VLAN 20 and addresses on the firewall cable, a trunk between the switches, and a tag: the Show-menu scene. */
+/** The canvas scene with VLAN 20 and an address on the firewall cable, and a tag: the Show-menu scene. */
 export function seedShowScene(catalogue: CatalogueModel[], me: string): Document {
   let working = seedCanvasScene(catalogue, me);
   const chassis = (host: string) => viewOf(working, catalogue).racks[0]!.chassis.find((c) => c.hostname === host)!;

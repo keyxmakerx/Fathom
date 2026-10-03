@@ -181,9 +181,15 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     const byId = new Map(boxes.map((b) => [b.id, b]));
     const routes = diagramLines(view, new Set(byId.keys()))
       .filter((l) => !stubbedRef.current.has(l.cable.id))
+      // Only lines with an end near the screen: a big design mounts a screenful of words, not all of them.
+      .filter((l) => {
+        const r = settled.rect;
+        const near = (b: { x: number; y: number }) => b.x > r.x0 - 300 && b.x < r.x1 + 300 && b.y > r.y0 - 300 && b.y < r.y1 + 300;
+        return near(byId.get(l.a)!) || near(byId.get(l.b)!);
+      })
       .map((l) => ({ id: l.cable.id, route: orthRoute(byId.get(l.a)!, byId.get(l.b)!, l.lane) }));
     return placeLabels(cableCandidates(routes, words.cables, 1 / settled.zoom), boxes, 1 / settled.zoom);
-  }, [words, boxes, view, settled.zoom]);
+  }, [words, boxes, view, settled.zoom, settled.rect, edges]);
 
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);
