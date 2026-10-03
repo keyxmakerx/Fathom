@@ -296,7 +296,8 @@ fn match_application_lines_bind() {
 }
 
 /// A name in `match source-address` finds the address object or the address set
-/// of that name; one the paste never defines is a pending edge, not a guess.
+/// of that name; one the paste never defines becomes a name-only object, so the
+/// policy never holds a smaller match than the device has, and its line is residue.
 #[test]
 fn match_address_names_resolve_in_the_paste() {
     use fathom_ir::generated::ir_types::EdgeKind;
@@ -321,14 +322,23 @@ fn match_address_names_resolve_in_the_paste() {
     );
     assert_eq!(
         kinds_of(EdgeKind::MatchDestination),
-        vec![NodeKind::AddressSet]
+        vec![NodeKind::AddressSet, NodeKind::AddressObject]
     );
     assert_eq!(kinds_of(EdgeKind::Contains), vec![NodeKind::AddressObject]);
-    assert_eq!(
-        out.fragment.pending.len(),
-        1,
-        "`elsewhere` is defined nowhere"
-    );
+    assert_eq!(out.fragment.pending.len(), 0);
+    let valueless = out
+        .fragment
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::AddressObject)
+        .filter(|n| {
+            !n.fields
+                .iter()
+                .any(|f| matches!(&f.value, BoundValue::Address(_)))
+        })
+        .count();
+    assert_eq!(valueless, 1, "`elsewhere` is defined nowhere: name only");
+    assert_eq!(out.residue.len(), 1, "only the undefined name is residue");
     let object = out
         .fragment
         .nodes

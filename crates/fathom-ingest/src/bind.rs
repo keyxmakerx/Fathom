@@ -311,7 +311,8 @@ pub(crate) fn bind(
     // pinned `Fragment`, so unresolved is always Pending, never Broken.
     let mut edges: Vec<FragEdge> = Vec::new();
     let mut pending: Vec<PendingEdge> = Vec::new();
-    for deferred in &b.deferred {
+    let deferred_all = std::mem::take(&mut b.deferred);
+    for deferred in &deferred_all {
         let found = resolve(&b, &deferred.target).or_else(|| {
             let kind = deferred.also?;
             match &deferred.target {
@@ -330,6 +331,42 @@ pub(crate) fn bind(
                 };
                 if !edges.iter().any(|e| same_edge(e, &edge)) {
                     edges.push(edge);
+                }
+            }
+            None if deferred.also == Some(NodeKind::AddressSet) => {
+                // A policy names an address the paste never defines (a zone-scoped
+                // book, a predefined name). Dropping the edge would store a smaller
+                // match than the device has, so the name gets a node with no value:
+                // the match is there, and a reader can only say it could not
+                // establish what it covers. The line is residue, not read.
+                if let PendingTarget::ByName { name, .. } = &deferred.target {
+                    let (to, _) = b.upsert(NodeKind::AddressObject, None, &name.0);
+                    if let (Some(k), Ok(ident)) = (
+                        dict.field_key("AddressObject", "name"),
+                        scalar::Identifier::parse(&name.0),
+                    ) {
+                        let mut diags = Vec::new();
+                        b.assert_node(
+                            to,
+                            FieldKey(k),
+                            BoundValue::Identifier(ident),
+                            deferred.prov,
+                            &mut diags,
+                        );
+                    }
+                    let edge = FragEdge {
+                        kind: deferred.kind,
+                        from: deferred.from,
+                        to,
+                        fields: deferred.fields.clone(),
+                        prov: deferred.prov,
+                    };
+                    if !edges.iter().any(|e| same_edge(e, &edge)) {
+                        edges.push(edge);
+                    }
+                    if let Some(o) = outcomes.get_mut(deferred.prov.line.0 as usize) {
+                        o.outcome = LineOutcome::Unmapped { known_prefix: 0 };
+                    }
                 }
             }
             None => {

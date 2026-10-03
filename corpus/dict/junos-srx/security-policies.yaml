@@ -49,7 +49,8 @@
 #   - `match source-address NAME` / `destination-address NAME` bind a MatchSource /
 #     MatchDestination edge to the address object or set of that name when the
 #     paste defines it (`security-address-book.yaml`); a name defined nowhere in
-#     the paste (a zone-scoped book, a predefined name) stays a pending edge.
+#     the paste (a zone-scoped book, a predefined name) gets a name-only
+#     AddressObject, so the match is never smaller than the device's; the line is residue.
 #     The literal `any` binds `match_any_*`.
 #   - `match application NAME` binds a MatchApplication edge to an `Application`
 #     named NAME, made if the paste does not define it. Predefined names such as
@@ -57,7 +58,8 @@
 #     ports are not known from the config. `any` binds `match_any_application`.
 #   - `then permit tunnel ipsec-vpn NAME` (`TunnelsVia`, policy-based VPN) and
 #     `description`, `deactivate … policy NAME` (`enabled = false`): not exercised
-#     by the reference fixture, not bound.
+#     by the reference fixture, not bound. A deactivated policy is therefore stored as
+#     active (the verb is unsupported): a reader must not trust `enabled` unset.
 #   - `then deny` and `then reject` are in the syntax block transcribed above
 #     (same page, same date) and bind the same way `then permit` does.
 #
