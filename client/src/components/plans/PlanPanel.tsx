@@ -6,7 +6,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { OUTCOMES, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
-import { Touches, WhySlot } from './PlanParts';
+import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
 import { OUTCOME_WORD, outcomeSentence, progress, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
 import './plans.css';
@@ -47,11 +47,33 @@ function Notice({ controller }: { controller: PlansController }) {
 
 function PlanMode({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const { canEdit } = controller;
+  const list = useRef<HTMLOListElement>(null);
+  // Up, Down and Remove can turn their own button off or take it away: focus goes on to a sibling, never the body.
+  const want = useRef<{ id: string; tool: 'up' | 'down' | 'remove'; index: number } | null>(null);
+  const tool = (id: string, kind: 'up' | 'down' | 'remove', index: number, run: Promise<boolean>) => {
+    want.current = { id, tool: kind, index };
+    void run.then((ok) => {
+      if (!ok) want.current = null;
+    });
+  };
+  useEffect(() => {
+    const w = want.current;
+    const ol = list.current;
+    if (w == null || ol == null) return;
+    want.current = null;
+    const live = (id: string, t: string) => ol.querySelector<HTMLElement>(`[data-step="${id}"][data-tool="${t}"]:not(:disabled)`);
+    const removes = [...ol.querySelectorAll<HTMLElement>('[data-tool="remove"]')];
+    const target =
+      w.tool === 'remove'
+        ? removes[Math.min(w.index, removes.length - 1)]
+        : (live(w.id, w.tool) ?? live(w.id, w.tool === 'up' ? 'down' : 'up') ?? live(w.id, 'remove'));
+    (target ?? ol.closest<HTMLElement>('.plans-panel__body'))?.focus();
+  }, [plan.steps]);
   return (
     <>
       <h3 className="plans-label">The plan</h3>
       {plan.steps.length === 0 && <p className="plans-note">No steps yet. Add the first one below.</p>}
-      <ol className="plans-steps">
+      <ol className="plans-steps" ref={list}>
         {plan.steps.map((s, i) => (
           <li key={s.id} className="plans-step plans-step--planned" data-testid="plans-step">
             <p className="plans-step__head">
@@ -60,15 +82,15 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
             <BeforeAfter step={s} />
             {canEdit && (
               <p className="plans-step__tools">
-                <button type="button" className="plans-link" aria-label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => void controller.moveStep(s.id, i - 1)}>
+                <button type="button" className="plans-link" aria-label={`Move step ${i + 1} up`} disabled={i === 0} data-step={s.id} data-tool="up" onClick={() => tool(s.id, 'up', i, controller.moveStep(s.id, i - 1))}>
                   Up
                 </button>
                 {' · '}
-                <button type="button" className="plans-link" aria-label={`Move step ${i + 1} down`} disabled={i === plan.steps.length - 1} onClick={() => void controller.moveStep(s.id, i + 1)}>
+                <button type="button" className="plans-link" aria-label={`Move step ${i + 1} down`} disabled={i === plan.steps.length - 1} data-step={s.id} data-tool="down" onClick={() => tool(s.id, 'down', i, controller.moveStep(s.id, i + 1))}>
                   Down
                 </button>
                 {' · '}
-                <button type="button" className="plans-link" aria-label={`Remove step ${i + 1}`} onClick={() => void controller.removeStep(s.id)}>
+                <button type="button" className="plans-link" aria-label={`Remove step ${i + 1}`} data-step={s.id} data-tool="remove" onClick={() => tool(s.id, 'remove', i, controller.removeStep(s.id))}>
                   Remove
                 </button>
               </p>
@@ -95,6 +117,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   const live = stepIsLive(plan, step, controller.canEdit);
   const [differently, setDifferently] = useState(false);
   const [note, setNote] = useState('');
+  const paste = usePasteMark();
   const noteId = useId();
   const ref = useRef<HTMLLIElement>(null);
   const refused = controller.refused?.stepId === step.id ? controller.refused.finding : null;
@@ -164,10 +187,11 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
           onSubmit={(e) => {
             e.preventDefault();
             if (note.trim() === '') return;
-            void controller.wentDifferently(step.id, note).then((ok) => {
+            void controller.wentDifferently(step.id, note, paste.pasted).then((ok) => {
               if (ok) {
                 setDifferently(false);
                 setNote('');
+                paste.reset();
               }
             });
           }}
@@ -178,6 +202,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
             className="plans-input plans-input--area"
             value={note}
             onChange={(e) => setNote(e.target.value)}
+            onPaste={paste.onPaste}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
@@ -188,6 +213,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
             autoFocus
             required
           />
+          <TypedSentence />
           <p className="plans-step__actions">
             <button type="submit" className="plans-btn plans-btn--ink" disabled={note.trim() === ''}>
               Save, went differently
@@ -232,6 +258,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
   const [outcome, setOutcome] = useState<PlanOutcome | null>(plan.outcome);
   const [text, setText] = useState(plan.record);
   const textId = useId();
+  const paste = usePasteMark();
   const names = controller.doc ? touchedDevices(controller.doc, controller.canon, plan).map((d) => d.name) : [];
   return (
     <>
@@ -261,8 +288,9 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           {plan.record === '' ? 'Nothing was written.' : plan.record}
         </p>
       ) : (
-        <textarea id={textId} className="plans-input plans-input--area" value={text} onChange={(e) => setText(e.target.value)} disabled={!controller.canEdit} />
+        <textarea id={textId} className="plans-input plans-input--area" value={text} onChange={(e) => setText(e.target.value)} onPaste={paste.onPaste} disabled={!controller.canEdit} />
       )}
+      {!recorded && <TypedSentence />}
       {recorded ? (
         <p>
           <button type="button" className="plans-btn" aria-pressed={controller.showChanges} onClick={controller.toggleShowChanges} data-testid="plans-show-changes">
@@ -272,7 +300,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
       ) : (
         controller.canEdit && (
           <p>
-            <button type="button" className="plans-btn plans-btn--ink" disabled={outcome == null} onClick={() => outcome != null && void controller.record(outcome, text)}>
+            <button type="button" className="plans-btn plans-btn--ink" disabled={outcome == null} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted)}>
               Record
             </button>
             {outcome == null && <span className="plans-note"> Choose an outcome.</span>}
@@ -317,6 +345,10 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
   const mode = panelMode(plan);
   const body = useRef<HTMLDivElement>(null);
   const lastMode = useRef(`${mode}|${plan.stage}`);
+  // Opened with nothing holding focus (Open panel just went): the panel takes it.
+  useEffect(() => {
+    if (document.activeElement === document.body || document.activeElement == null) body.current?.focus({ preventScroll: true });
+  }, []);
   // Start work, the last Done or Record replaced the buttons that had focus: focus the panel's body instead.
   useEffect(() => {
     const now = `${mode}|${plan.stage}`;

@@ -1,5 +1,5 @@
 // The add-step form: pick the kind, then the things from the design itself (never a typed id).
-import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEventHandler, type RefObject } from 'react';
 
 import { STEP_KINDS, type StepKind } from '../../document/plans';
 import {
@@ -12,6 +12,7 @@ import {
   type Choice,
   type StepForm,
 } from './plansModel';
+import { TypedSentence, usePasteMark } from './PlanParts';
 import type { PlansController } from './usePlansController';
 
 function Pick({
@@ -46,12 +47,27 @@ function Pick({
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  onPaste,
+  placeholder,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  /** Text fields only: a paste marks the form. */
+  onPaste?: ClipboardEventHandler;
+  placeholder?: string;
+  type?: string;
+}) {
   const id = useId();
   return (
     <>
       <label htmlFor={id}>{label}</label>
-      <input id={id} className="plans-input" type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <input id={id} className="plans-input" type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onPaste={onPaste} />
     </>
   );
 }
@@ -61,6 +77,8 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
   const { doc, canon, prefill } = controller;
   const [form, setForm] = useState<StepForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
+  // Any paste into any text field of this form sends the whole form through the redaction gate.
+  const paste = usePasteMark();
   const first = useRef<HTMLSelectElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(stepCount === 0);
@@ -124,9 +142,12 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
         e.preventDefault();
         if (busy) return;
         setBusy(true);
-        void controller.addStep(form).then((ok) => {
+        void controller.addStep(form, paste.pasted).then((ok) => {
           setBusy(false);
-          if (ok) setForm({ ...EMPTY_FORM, kind: form.kind });
+          if (ok) {
+            setForm({ ...EMPTY_FORM, kind: form.kind });
+            paste.reset();
+          }
         });
       }}
     >
@@ -142,7 +163,7 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
 
       {(form.kind === 'address' || form.kind === 'move') && <Pick refEl={first} label="Device" value={form.device} onChange={(v) => set('device', v)} choices={devices} />}
 
-      {form.kind === 'address' && <Field label="New management address" value={form.value} onChange={(v) => set('value', v)} placeholder="10.0.1.1" />}
+      {form.kind === 'address' && <Field label="New management address" value={form.value} onChange={(v) => set('value', v)} onPaste={paste.onPaste} placeholder="10.0.1.1" />}
 
       {form.kind === 'move' && (
         <>
@@ -179,12 +200,13 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
       {(form.kind === 'route' || form.kind === 'other') && (
         <>
           <Pick refEl={first} label="About (optional)" value={form.device} onChange={(v) => set('device', v)} choices={devices} empty="No device" />
-          <Field label="Before" value={form.before} onChange={(v) => set('before', v)} />
-          <Field label="After" value={form.after} onChange={(v) => set('after', v)} />
+          <Field label="Before" value={form.before} onChange={(v) => set('before', v)} onPaste={paste.onPaste} />
+          <Field label="After" value={form.after} onChange={(v) => set('after', v)} onPaste={paste.onPaste} />
         </>
       )}
 
-      <Field label={form.kind === 'route' || form.kind === 'other' ? 'What changes' : 'What changes (optional)'} value={form.change} onChange={(v) => set('change', v)} />
+      <Field label={form.kind === 'route' || form.kind === 'other' ? 'What changes' : 'What changes (optional)'} value={form.change} onChange={(v) => set('change', v)} onPaste={paste.onPaste} />
+      <TypedSentence />
       <button type="submit" className="plans-btn plans-btn--ink" disabled={busy || !controller.canEdit}>
         Add step
       </button>

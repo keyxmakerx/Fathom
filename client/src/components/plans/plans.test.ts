@@ -447,28 +447,68 @@ function harness(doc: Document, opts: { gate?: ((t: string) => string) | null; m
 }
 
 describe('the controller applies commands through the one write path', () => {
-  it('refuses, and changes nothing, when the engine has not given a gate', async () => {
+  it('refuses a pasted form, and changes nothing, when the engine has not given a gate', async () => {
     const { doc } = lab();
     const h = harness(doc, { gate: null });
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await h.controller.create({ title: 'Move uplink' })).toBe(false);
+    expect(await h.controller.create({ title: 'Move uplink' }, true)).toBe(false);
     spy.mockRestore();
     expect(h.applied).toEqual([]);
     expect(ENGINE_DOWN).toMatch(/nothing was changed/);
+  });
+
+  it('a form with a paste marker uses the real gate; one without stores what was typed', async () => {
+    const { doc } = lab();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const line = 'Rotate hunter2-abc123 on fw-01';
+    const typed = harness(doc);
+    expect(await typed.controller.create({ title: line })).toBe(true);
+    expect(readPlan(typed.applied[0], typed.applied[0].nodes.find((n) => n.id.startsWith('maintenance-plan:'))!.id).title).toBe(line);
+    const pasted = harness(doc);
+    expect(await pasted.controller.create({ title: line }, true)).toBe(true);
+    expect(readPlan(pasted.applied[0], pasted.applied[0].nodes.find((n) => n.id.startsWith('maintenance-plan:'))!.id).title).toBe('Rotate <REDACTED> on fw-01');
+    // Typed text needs no engine; a paste cannot go on without the gate.
+    const down = harness(doc, { gate: null });
+    expect(await down.controller.create({ title: line })).toBe(true);
+    expect(await down.controller.create({ title: line }, true)).toBe(false);
+    expect(down.applied).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it('typed words about secrets are stored intact; the same words pasted are whatever the gate returns', async () => {
+    const { doc } = lab();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const said = ['Rotate the pre-shared key on fw-01', 'Change SNMP community on core', 'Reset the admin password after cutover'];
+    const seen: string[] = [];
+    const lens = (t: string) => {
+      seen.push(t);
+      return t.toUpperCase();
+    };
+    const typed = harness(doc);
+    expect(await typed.controller.create({ title: said[0] })).toBe(true);
+    const planId = typed.applied[0].nodes.find((n) => n.id.startsWith('maintenance-plan:'))!.id;
+    let h = harness(typed.applied[0], { open: planId });
+    expect(await h.controller.addStep({ ...EMPTY_FORM, kind: 'other', change: said[1], before: said[2] })).toBe(true);
+    const step = readPlan(h.applied[0], planId).steps[0];
+    expect([step.change, step.before]).toEqual([said[1], said[2]]);
+    h = harness(doc, { gate: lens });
+    expect(await h.controller.create({ title: said[0] }, true)).toBe(true);
+    expect(seen).toContain(said[0]);
+    spy.mockRestore();
   });
 
   it('runs a plan created, stepped, started and done through applyDocChange, gated and attributed', async () => {
     const { doc, ports } = lab();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     let h = harness(doc);
-    expect(await h.controller.create({ title: 'Move uplink hunter2-abc123' })).toBe(true);
+    expect(await h.controller.create({ title: 'Move uplink hunter2-abc123' }, true)).toBe(true);
     const planId = h.applied[0].nodes.find((n) => n.id.startsWith('maintenance-plan:'))!.id;
     // The title passed through the gate before it reached the document.
     expect(readPlan(h.applied[0], planId).title).toBe('Move uplink <REDACTED>');
 
     h = harness(h.applied[0], { open: planId });
     const form = { ...EMPTY_FORM, kind: 'cable' as const, portA: ports[0], portB: ports[1], change: 'Cable it hunter2-zzz999' };
-    expect(await h.controller.addStep(form)).toBe(true);
+    expect(await h.controller.addStep(form, true)).toBe(true);
     const withStep = readPlan(h.applied[0], planId);
     expect(withStep.steps[0].change).toBe('Cable it <REDACTED>');
 
@@ -510,11 +550,26 @@ describe('the controller applies commands through the one write path', () => {
     const h = harness(started, { open: made.id });
     expect(await h.controller.wentDifferently(stepId, '   ')).toBe(false);
     expect(h.applied).toEqual([]);
-    expect(await h.controller.wentDifferently(stepId, 'port dead, line was: hunter2-secretpw99')).toBe(true);
+    expect(await h.controller.wentDifferently(stepId, 'port dead, line was: hunter2-secretpw99', true)).toBe(true);
     spy.mockRestore();
     const step = readPlan(h.applied[0], made.id).steps[0];
     expect(step.note).toBe('port dead, line was: <REDACTED>');
     expect(step.state).toBe('went_differently');
+  });
+
+  it('a pasted What went wrong is gated; a typed one is stored as typed', async () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    let d = startPlan(made.doc, made.id, tick());
+    d = markWentDifferently(d, readPlan(d, made.id).steps[0].id, { note: 'by hand', gate, ...tick() });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const pasted = harness(d, { open: made.id });
+    expect(await pasted.controller.record('failed', 'key was hunter2-abcdef', true)).toBe(true);
+    expect(readPlan(pasted.applied[0], made.id).record).toBe('key was <REDACTED>');
+    const typed = harness(d, { open: made.id });
+    expect(await typed.controller.record('failed', 'key was hunter2-abcdef')).toBe(true);
+    expect(readPlan(typed.applied[0], made.id).record).toBe('key was hunter2-abcdef');
+    spy.mockRestore();
   });
 
   it('a reader can look but not change', async () => {
@@ -552,6 +607,14 @@ describe('the panel and the page, rendered', () => {
       band: renderToStaticMarkup(createElement(PlanBand, { controller: c })),
     };
   }
+
+  it('the add-step form and the new-plan form say typed text is stored as typed', () => {
+    const { doc } = lab();
+    const made = planWith(doc, []);
+    const out = render(readPlan(made.doc, made.id), made.doc);
+    expect(out.panel).toContain('plans-add-step');
+    expect(out.panel).toContain('Fathom does not redact what you type, only what you paste');
+  });
 
   it('Plan lists the steps with reorder, remove, the add form and Start work', () => {
     const { doc, ports } = lab();

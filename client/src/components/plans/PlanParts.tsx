@@ -1,9 +1,28 @@
 // Pieces the panel and the list page share: what a plan touches, and the Why card.
+import { useState, type ClipboardEventHandler } from 'react';
+
 import type { Plan } from '../../document/plans';
 import { SEVERITY } from '../checks/checksModel';
 import { WhyCard } from '../checks/ChecksPanel';
 import { touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
+
+/** ADR-0053 section 6, as Editor's notes say it: typed text is stored as typed, pasted text meets the gate. */
+export const PLAN_TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
+
+/** A real `onPaste` on a field marks its form; sticky until the form is sent (Editor's `hadPaste`). */
+export function usePasteMark(): { pasted: boolean; onPaste: ClipboardEventHandler; reset(): void } {
+  const [pasted, setPasted] = useState(false);
+  return { pasted, onPaste: () => setPasted(true), reset: () => setPasted(false) };
+}
+
+export function TypedSentence() {
+  return (
+    <p className="plans-note plans-typed" data-testid="plans-typed">
+      {PLAN_TYPED_SENTENCE}
+    </p>
+  );
+}
 
 export function WhySlot({ controller }: { controller: PlansController }) {
   return controller.why != null ? <WhyCard key={controller.whyToken} finding={controller.why} onClose={controller.closeWhy} /> : null;

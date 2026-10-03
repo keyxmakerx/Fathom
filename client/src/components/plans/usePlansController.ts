@@ -1,6 +1,7 @@
 // Runs the maintenance plan surface for one open design (ADR-0061 round 7): which plan is open, the engine's
 // preview of it, and every command a person gives it. The engine and mirror are the ones the page already
-// holds (RacksPlace); this boots nothing itself. Every text goes through the gate before it is stored.
+// holds (RacksPlace); this boots nothing itself. Pasted text goes through the gate before it is stored; typed text is
+// stored as typed (ADR-0053 section 6), and the form says so.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FIELD_KEYS } from '../../../../schema/generated/ir_types';
@@ -22,6 +23,7 @@ import {
   startPlan,
   type Plan,
   type PlanOutcome,
+  TYPED_AS_WRITTEN,
   type TextGate,
 } from '../../document/plans';
 import type { CheckFinding, PlanStepPreview } from '../../engine/engine';
@@ -78,6 +80,8 @@ export function editFailureText(e: unknown): string {
 
 export const ENGINE_DOWN = "Fathom's engine did not start, so nothing was changed. Try again.";
 
+const howOf = (pasted: boolean): 'typed' | 'pasted' => (pasted ? 'pasted' : 'typed');
+
 const fieldKey = (name: string): number | undefined => (FIELD_KEYS as Readonly<Record<string, number>>)[name];
 
 export interface PlansController {
@@ -113,15 +117,16 @@ export interface PlansController {
   /** Form values the right-click set; the add-step form starts from them. */
   prefill: { token: number; form: StepForm } | null;
   planChange(elementId: string): void;
-  create(input: { title: string; windowStart?: string; windowEnd?: string }): Promise<boolean>;
-  rename(title: string): Promise<boolean>;
-  addStep(form: StepForm): Promise<boolean>;
+  // `pasted`: a real paste reached that form (see `PasteMark`); its text goes through the redaction gate.
+  create(input: { title: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
+  rename(title: string, pasted?: boolean): Promise<boolean>;
+  addStep(form: StepForm, pasted?: boolean): Promise<boolean>;
   removeStep(stepId: string): Promise<boolean>;
   moveStep(stepId: string, index: number): Promise<boolean>;
   start(): Promise<boolean>;
   done(stepId: string): Promise<boolean>;
-  wentDifferently(stepId: string, note: string): Promise<boolean>;
-  record(outcome: PlanOutcome, text: string): Promise<boolean>;
+  wentDifferently(stepId: string, note: string, pasted?: boolean): Promise<boolean>;
+  record(outcome: PlanOutcome, text: string, pasted?: boolean): Promise<boolean>;
 }
 
 interface Inputs {
@@ -294,30 +299,33 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
     return () => window.removeEventListener('keydown', onKey, true);
   }, [why, showChanges, notice, closeWhy]);
 
-  // One door for every command: engine up first (the gate lives in it), then the pure command, then the
-  // normal write path. A refusal is said in words and nothing is changed.
-  const run = useCallback(async (make: (doc: Document, gate: TextGate, mirror: Mirror) => Document | null): Promise<boolean> => {
+  // One door for every command. 'pasted' needs the engine's gate and refuses without it, changing nothing; 'typed'
+  // stores the text as typed and needs no engine; 'engine' is Done, which reads the checks. A refusal is said in words.
+  const run = useCallback(async (make: (doc: Document, gate: TextGate, mirror: Mirror | null) => Document | null, how: 'typed' | 'pasted' | 'engine' = 'typed'): Promise<boolean> => {
     const now = latest.current;
     if (!now.canEdit) {
       setNotice('You can look at this plan but not change it.');
       return false;
     }
-    let mirror: Mirror;
-    try {
-      mirror = await now.boot();
-    } catch {
-      setNotice(ENGINE_DOWN);
-      return false;
+    let mirror: Mirror | null = null;
+    if (how !== 'typed') {
+      try {
+        mirror = await now.boot();
+      } catch {
+        setNotice(ENGINE_DOWN);
+        return false;
+      }
     }
-    const gate = latest.current.redact();
+    const redact = how === 'pasted' ? latest.current.redact() : null;
     const base = latest.current.doc;
-    if (gate == null) {
+    if (how === 'pasted' && redact == null) {
       setNotice(ENGINE_DOWN);
       return false;
     }
     if (base == null) return false;
     try {
-      const next = make(base, (t) => gate(t), mirror);
+      const gate: TextGate = redact == null ? TYPED_AS_WRITTEN : (t) => redact(t);
+      const next = make(base, gate, mirror);
       if (next == null) return false;
       latest.current.applyDocChange(next);
       setNotice(null);
@@ -399,7 +407,7 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         return made.doc;
       });
     },
-    create: ({ title, windowStart, windowEnd }) =>
+    create: ({ title, windowStart, windowEnd }, pasted = false) =>
       run((doc0, gate) => {
         const made = createPlan(doc0, { title, windowStart, windowEnd, author: latest.current.authorName, gate, ...stamp() });
         setOpenId(made.id);
@@ -407,9 +415,9 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         setPrefill(null);
         update({ open: true });
         return made.doc;
-      }),
-    rename: (title) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, { title }, { gate, ...stamp() }) : null)),
-    addStep: (form) =>
+      }, howOf(pasted)),
+    rename: (title, pasted = false) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, { title }, { gate, ...stamp() }) : null), howOf(pasted)),
+    addStep: (form, pasted = false) =>
       run((doc0, gate) => {
         if (plan == null) return null;
         const built = buildStep(doc0, canon, form);
@@ -417,13 +425,14 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         const out = addStep(doc0, plan.id, { ...built, gate, ...stamp() });
         setPrefill(null);
         return out.doc;
-      }),
+      }, howOf(pasted)),
     removeStep: (stepId) => run((doc0) => removeStep(doc0, stepId, stamp())),
     moveStep: (stepId, index) => run((doc0) => moveStep(doc0, stepId, index, stamp())),
     start: () => run((doc0) => (plan ? startPlan(doc0, plan.id, stamp()) : null)),
     done: (stepId) => {
       setRefused(null);
       return run((doc0, _gate, mirror) => {
+        if (mirror == null) return null;
         const kept: { finding: CheckFinding | null } = { finding: null };
         // Bring the module up to this document: the check reads what the design is now.
         const m = latest.current.mirrorNow() ?? mirror;
@@ -440,19 +449,21 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         } catch (e) {
           if (kept.finding != null) {
             setRefused({ stepId, finding: kept.finding });
-            setNotice('The checks refuse this step. Fix what they name, or mark it Went differently.');
+            // The card under the step says it (and is the alert); a second notice would say it twice.
+            setNotice(null);
             return null;
           }
           setNotice(editFailureText(e));
           return null;
         }
-      });
+      }, 'engine');
     },
-    wentDifferently: (stepId, note) => {
+    wentDifferently: (stepId, note, pasted = false) => {
       setRefused(null);
-      return run((doc0, gate) => markWentDifferently(doc0, stepId, { note, gate, ...stamp() }));
+      return run((doc0, gate) => markWentDifferently(doc0, stepId, { note, gate, ...stamp() }), howOf(pasted));
     },
-    record: (outcome, text) => run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null)),
+    record: (outcome, text, pasted = false) =>
+      run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null), howOf(pasted)),
   };
   return api;
 }

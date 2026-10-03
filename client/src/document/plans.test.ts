@@ -25,6 +25,7 @@ import {
   removeStep,
   startPlan,
   touchedBy,
+  TYPED_AS_WRITTEN,
   type StepEdit,
 } from './plans';
 import { UndoConflictError, undo } from './undo';
@@ -249,7 +250,7 @@ describe('text passes the gate', () => {
   // the gate inside the command; that the real gate stops real device secrets is engine.test.ts.
   const SECRET = 'hunter2-Zk9Qw3Lm0PxV7tYs';
 
-  it('every typed field is gated inside the command', () => {
+  it('every field goes through the gate the command is given', () => {
     const { doc, device } = lab();
     const made = createPlan(doc, { title: `Swap ${SECRET}`, author: `by ${SECRET}`, gate, ...tick() });
     const s = addStep(made.doc, made.id, {
@@ -266,6 +267,27 @@ describe('text passes the gate', () => {
     d = recordPlan(d, made.id, { outcome: 'failed', text: `line: ${SECRET}`, gate, ...tick() });
     expect(JSON.stringify(d.nodes)).not.toContain(SECRET);
     expect(JSON.stringify(d.nodes)).toContain('<REDACTED>');
+  });
+
+  it('typed words about secrets are stored as typed, in every field', () => {
+    const { doc, device } = lab();
+    const said = ['Rotate the pre-shared key on fw-01', 'Change SNMP community on core', 'Reset the admin password after cutover'];
+    const made = createPlan(doc, { title: said[0], gate: TYPED_AS_WRITTEN, ...tick() });
+    const s = addStep(made.doc, made.id, {
+      kind: 'other',
+      change: said[1],
+      before: said[2],
+      after: said[0],
+      edit: { t: 'field', id: device, key: 'Device.role', value: said[2] },
+      gate: TYPED_AS_WRITTEN,
+      ...tick(),
+    });
+    let d = startPlan(s.doc, made.id, tick());
+    d = markWentDifferently(d, s.id, { note: said[1], gate: TYPED_AS_WRITTEN, ...tick() });
+    d = recordPlan(d, made.id, { outcome: 'partial', text: said[2], gate: TYPED_AS_WRITTEN, ...tick() });
+    const p = readPlan(d, made.id);
+    expect([p.title, p.steps[0].change, p.steps[0].before, p.steps[0].after, p.steps[0].note, p.record]).toEqual([said[0], said[1], said[2], said[0], said[1], said[2]]);
+    expect(p.steps[0].edit).toMatchObject({ t: 'field', value: said[2] });
   });
 
   it('a field no hand can set is refused', () => {

@@ -3,8 +3,10 @@
 // `edit` the canvas already makes, and marking the step done applies it through the same commands
 // (cables.ts, edit.ts, commands.ts), so the design's history sees it like any edit. All pure.
 //
-// Every text a person types goes through `gate` (the redaction gate, `Engine.redactText`) inside the
-// command, so no caller can skip it. Order and stage are enforced here; the UI only calls these.
+// Plan text meets the redaction gate the way notes do (ADR-0053 section 6): text a person PASTES goes through
+// `gate` (the redaction gate, `Engine.redactText`) inside the command; text they TYPE is stored as typed. Each
+// command still takes `gate`, so no caller can forget the choice: the UI passes the real gate for a pasted form and
+// `TYPED_AS_WRITTEN` otherwise. Order and stage are checked here by the client's own commands; the UI only calls these.
 
 import { connectPorts, disconnect, setCableField, type CableFieldKey } from './cables';
 import { movePlacement } from './commands';
@@ -41,8 +43,11 @@ interface Actor {
   now?: number;
 }
 
-/** The redaction gate: what a person typed in, what may be stored out. */
+/** The redaction gate: what a person gave in, what may be stored out. */
 export type TextGate = (text: string) => string;
+
+/** The explicit "stored as typed" choice for text nobody pasted. Never the answer for a pasted field. */
+export const TYPED_AS_WRITTEN: TextGate = (text) => text;
 
 export type PlanStage = 'planned' | 'doing' | 'recorded';
 export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other';
@@ -463,7 +468,7 @@ export function addStep(doc: Document, planId: string, opts: AddStepOptions): { 
   if (opts.before) fields['PlanStep.before'] = text(gated(opts.gate, opts.before, 'the before'));
   if (opts.after) fields['PlanStep.after'] = text(gated(opts.gate, opts.after, 'the after'));
   if (opts.edit) {
-    // The value is the one place a typed value reaches an edit; it is gated like any text.
+    // The value is the one place a typed value reaches an edit; it takes the same gate as the other fields.
     const e = opts.edit.t === 'field' ? { ...opts.edit, value: gated(opts.gate, opts.edit.value, 'the value') } : opts.edit;
     assertWellFormed(doc, e);
     fields['PlanStep.edit'] = text(encodeEdit(e));

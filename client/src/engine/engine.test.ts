@@ -27,7 +27,7 @@ import { begin, createFreeBox, createLabel, createLine, finish, removeFree, setL
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
-import { addStep, createPlan, markDone, markWentDifferently, recordPlan, startPlan, readPlan } from '../document/plans';
+import { TYPED_AS_WRITTEN, addStep, createPlan, markDone, markWentDifferently, recordPlan, startPlan, readPlan } from '../document/plans';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = path.resolve(__dirname, '../../public/engine/fathom_wasm.wasm');
@@ -785,6 +785,32 @@ describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', ()
     expect(p.record).not.toContain(secret);
     expect(p.steps[0].note).not.toContain(secret);
     expect(p.stage).toBe('recorded');
+  });
+
+  // The pasted path: the same lines, real device lengths, through the wasm gate (the typed path stores as typed).
+  it.each(SECRET_LINES)('%s: pasted into a step note or What went wrong, the real gate takes it out', (secret, line) => {
+    const { doc } = lab();
+    const made = createPlan(doc, { title: 'Rotate', gate: TYPED_AS_WRITTEN, ...step() });
+    const added = addStep(made.doc, made.id, { kind: 'other', change: 'Rotate', gate: TYPED_AS_WRITTEN, ...step() });
+    let d = startPlan(added.doc, made.id, step());
+    d = markWentDifferently(d, added.id, { note: `Pasted:\n${line}`, gate, ...step() });
+    d = recordPlan(d, made.id, { outcome: 'failed', text: `What went wrong:\n${line}`, gate, ...step() });
+    const p = readPlan(d, made.id);
+    expect(p.steps[0].note).not.toContain(secret);
+    expect(p.record).not.toContain(secret);
+    expect(JSON.stringify(d.nodes)).not.toContain(secret);
+  });
+
+  it('typed words about secrets survive the typed path intact; pasted, they are whatever the gate returns', () => {
+    const said = ['Rotate the pre-shared key on fw-01', 'Change SNMP community on core', 'Reset the admin password after cutover'];
+    const { doc } = lab();
+    const made = createPlan(doc, { title: said[0], gate: TYPED_AS_WRITTEN, ...step() });
+    const added = addStep(made.doc, made.id, { kind: 'other', change: said[1], before: said[2], gate: TYPED_AS_WRITTEN, ...step() });
+    const p = readPlan(added.doc, made.id);
+    expect([p.title, p.steps[0].change, p.steps[0].before]).toEqual(said);
+    // Pasted: no claim that they survive, only that the stored text is the gate's answer.
+    const pasted = createPlan(doc, { title: said[0], gate, ...step() });
+    expect(readPlan(pasted.doc, pasted.id).title).toBe(engine.redactText(said[0]).text);
   });
 
   it('a crafted step the engine is asked to preview does not kill it', () => {

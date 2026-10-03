@@ -1,7 +1,8 @@
 // The band under the bar while a maintenance plan is open (mockups r6-maint-*): the stage in a word and a colour
 // (indigo planning, teal doing, ink recorded), the plan's title and window, a picker, and the list-view toggle.
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
+import { TypedSentence, usePasteMark } from './PlanParts';
 import { LIST_TOGGLE_ID, STAGE_WORD, bandSentence } from './plansModel';
 import type { PlansController } from './usePlansController';
 // The stage tokens (--m-plan, --m-do and their washes) live with the canvas marks.
@@ -30,6 +31,7 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [busy, setBusy] = useState(false);
+  const paste = usePasteMark();
   return (
     <form
       className="plans-new"
@@ -38,14 +40,15 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
         e.preventDefault();
         if (title.trim() === '' || busy) return;
         setBusy(true);
-        void controller.create({ title, windowStart: start, windowEnd: end }).then((ok) => {
+        void controller.create({ title, windowStart: start, windowEnd: end }, paste.pasted).then((ok) => {
           setBusy(false);
           if (ok) onDone();
         });
       }}
     >
       <label htmlFor={`${id}-t`}>What is changing</label>
-      <input id={`${id}-t`} className="plans-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Move NAS to Building B" autoFocus required />
+      <input id={`${id}-t`} className="plans-input" value={title} onChange={(e) => setTitle(e.target.value)} onPaste={paste.onPaste} placeholder="Move NAS to Building B" autoFocus required />
+      <TypedSentence />
       <label htmlFor={`${id}-s`}>From</label>
       <input id={`${id}-s`} className="plans-input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
       <label htmlFor={`${id}-e`}>To</label>
@@ -64,6 +67,22 @@ export function PlanBand({ controller }: { controller: PlansController }) {
   const { plan, plans } = controller;
   const [creating, setCreating] = useState(false);
   const pickId = useId();
+  const newBtn = useRef<HTMLButtonElement>(null);
+  const openBtn = useRef<HTMLButtonElement>(null);
+  // A control that had focus has just gone (Fold, Cancel, Make plan): focus goes to the nearest one left.
+  const wasPanelOpen = useRef(controller.panelOpen);
+  useEffect(() => {
+    if (wasPanelOpen.current && !controller.panelOpen && !controller.listMode && document.activeElement === document.body) openBtn.current?.focus();
+    wasPanelOpen.current = controller.panelOpen;
+  }, [controller.panelOpen, controller.listMode]);
+  const wasCreating = useRef(false);
+  useEffect(() => {
+    if (wasCreating.current && !creating && document.activeElement === document.body) {
+      const panel = document.querySelector<HTMLElement>('[data-testid=plans-panel] .plans-panel__body');
+      (panel ?? newBtn.current)?.focus({ preventScroll: true });
+    }
+    wasCreating.current = creating;
+  }, [creating]);
   const stage = plan?.stage ?? 'none';
   const sentence = plan ? bandSentence(plan, controller.doc, controller.canon) : '';
   return (
@@ -98,7 +117,7 @@ export function PlanBand({ controller }: { controller: PlansController }) {
             </select>
           </label>
           {controller.canEdit && (
-            <button type="button" className="plans-btn" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+            <button ref={newBtn} type="button" className="plans-btn" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
               New plan
             </button>
           )}
@@ -108,11 +127,19 @@ export function PlanBand({ controller }: { controller: PlansController }) {
                 List view
               </button>
               {!controller.listMode && !controller.panelOpen && (
-                <button type="button" className="plans-btn" onClick={() => controller.setPanelOpen(true)}>
+                <button ref={openBtn} type="button" className="plans-btn" onClick={() => controller.setPanelOpen(true)}>
                   Open panel
                 </button>
               )}
-              <button type="button" className="plans-btn" onClick={() => controller.openPlan(null)}>
+              <button
+                type="button"
+                className="plans-btn"
+                onClick={() => {
+                  // The picker stays; the plan's own buttons go.
+                  document.getElementById(pickId)?.focus();
+                  controller.openPlan(null);
+                }}
+              >
                 Close plan
               </button>
             </>
