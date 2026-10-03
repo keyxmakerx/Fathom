@@ -208,8 +208,8 @@ async function openDesignInRacks(page, designId) {
   await page.waitForSelector('.home__design-row', { timeout: 10_000 });
   // An EXACT match on the id span itself, not a substring of the row's
   // whole text — `design-drive` is itself a substring of `design-drive-2`.
-  const row = page.locator('.home__design-row').filter({ has: page.locator('.home__design-id', { hasText: new RegExp(`^${designId}$`) }) });
-  await row.locator('button', { hasText: 'Racks' }).click();
+  const row = page.locator('.home__design-row').filter({ has: page.locator(`.home__design-name[title="${designId}"]`) });
+  await row.locator('button', { hasText: 'Canvas' }).click();
   await page.waitForSelector('.drawing', { timeout: 15_000 });
 }
 
@@ -417,7 +417,7 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.shell-bar__brand').click();
   await page.waitForSelector('.home__design-row', { timeout: 10_000 });
-  check('the second design is listed on Home', await page.locator('.home__design-row', { hasText: 'design-drive-2' }).count() === 1);
+  check('the second design is listed on Home', await page.locator('.home__design-row', { has: page.locator('.home__design-name[title="design-drive-2"]') }).count() === 1);
   await openDesignInRacks(page, 'design-drive-2');
   await openCableGroupsList(page);
   const secondDesignRows = await page.locator('.cable-groups-pop__row').count();
