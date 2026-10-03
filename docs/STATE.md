@@ -229,6 +229,14 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   PDFs are stored "can't be read" (no PDF text extraction yet). Removing a file removes it from the design;
   the sealed copy stays on the server. Not built: the Inventory Docs kind (after #93), attaching to a
   maintenance plan (after #98).
+- **Path trace** (ADR-0061 item 9, schema shapes in 0.17). `fathom-inventory/src/trace.rs` walks cables and
+  patch panels, VLANs at switches, a route lookup at each routed device (connected and static, longest
+  prefix) and the firewall (zones, then every policy in device order with "matches / doesn't match /
+  can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (35) runs
+  in the page; right-click a device, "Trace a path from here", then an address or device and an optional
+  "TCP 445". Never a verdict. Not built: interface-to-port ties from a paste (so a pasted device's trace
+  stops at "not tied to a port" until the tie is drawn), learned routes, NAT, port right-click, the
+  Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
   lists every library the web app ships with licence and copyright. The canvas no longer shows React
   Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's licence is off

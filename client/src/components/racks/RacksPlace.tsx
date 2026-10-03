@@ -38,6 +38,9 @@ import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
 import { mediaCandidates } from '../checks/checksModel';
 import { ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
+import { TracePanel } from '../trace/TracePanel';
+import { TraceContext } from '../trace/traceStore';
+import { useTraceController } from '../trace/useTraceController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -525,6 +528,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           },
     [realView],
   );
+
+  // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
+  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1057,6 +1063,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   return (
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
       <ChecksContext.Provider value={checks.api}>
+      <TraceContext.Provider value={trace.store}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1101,6 +1108,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
+          onTraceFrom={trace.openFrom}
           litPortLabel={litPortLabel}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
@@ -1143,7 +1151,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
-      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null && jot == null ? <TracePanel controller={trace} /> : null}
+      </TraceContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );
