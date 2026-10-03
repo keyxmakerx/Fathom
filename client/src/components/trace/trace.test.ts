@@ -61,6 +61,7 @@ const result = (): TraceResult => ({
 
 const controller = (over: Partial<TraceController> = {}): TraceController => ({
   open: true,
+  pending: false,
   store: createTraceStore(),
   from: { deviceId: 'device:L', label: 'laptop-12' },
   query: 'nas-01',
