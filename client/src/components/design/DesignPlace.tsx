@@ -454,6 +454,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     ...shellProps,
     account,
     presence,
+    noticeField: session.live.overwrite?.anchor ?? null,
     notices: (
       <LiveNotices
         live={session.live}

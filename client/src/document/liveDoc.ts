@@ -392,13 +392,18 @@ export function overwriteLines(os: readonly Overwrite[], nameOf: (account: strin
 
 /** `yours SN-ANN-1 → Bob's SN-BOB-2` */
 export function yoursLine(o: Overwrite, nameOf: (account: string) => string): string {
-  return `yours ${valueText(o.mine)} → ${nameOf(o.by)}'s ${valueText(o.theirs)}`;
+  return `yours ${valueText(o.mine)} → ${firstName(nameOf(o.by))}'s ${valueText(o.theirs)}`;
+}
+
+/** "Bob Roe" -> "Bob". */
+export function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || name;
 }
 
 /** "Keep Bob's", or "Keep theirs" when several people are involved. */
 export function keepLabel(os: readonly Overwrite[], nameOf: (account: string) => string): string {
   const people = new Set(os.map((o) => o.by));
-  return people.size === 1 ? `Keep ${nameOf(os[0].by)}'s` : 'Keep theirs';
+  return people.size === 1 ? `Keep ${firstName(nameOf(os[0].by))}'s` : 'Keep theirs';
 }
 
 /** Said once when this person's change on the same element merged with someone else's. */

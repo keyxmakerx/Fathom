@@ -99,6 +99,8 @@ export interface ShellProps {
   /** The live design's notices. Shown under the editor's fields, or at the
    * canvas's top right while no editor is open. */
   notices?: ReactNode;
+  /** The panel label of the field the notice sits under ("serial"). */
+  noticeField?: string | null;
 
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */

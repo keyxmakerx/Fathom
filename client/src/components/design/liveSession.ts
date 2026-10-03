@@ -35,6 +35,7 @@ import {
   mergedSentence,
   openLive,
   overwriteLines,
+  panelLabel,
   putMineBack,
   yoursLine,
   type LiveState,
@@ -56,7 +57,7 @@ export interface LiveView {
   /** A sentence about a change that was dropped or refused. */
   note: string | null;
   /** "<who> changed <field> on <device> just after you": one notice, a line and a Put mine back for each field. */
-  overwrite: { lines: string[]; items: Array<{ id: string; yours: string }>; keep: string } | null;
+  overwrite: { lines: string[]; items: Array<{ id: string; yours: string }>; keep: string; anchor: string } | null;
   /** Said once when this person's change merged with someone else's. */
   merged: string | null;
   /** This person, as the server names them. */
@@ -189,6 +190,7 @@ export class LiveEditing {
       lines: overwriteLines(this.overwrites, this.nameOf),
       items: this.overwrites.map((o) => ({ id: `${o.element}\n${o.key}`, yours: yoursLine(o, this.nameOf) })),
       keep: keepLabel(this.overwrites, this.nameOf),
+      anchor: panelLabel(this.overwrites[0].key),
     };
   }
 

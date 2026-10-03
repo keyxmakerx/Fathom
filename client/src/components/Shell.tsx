@@ -43,6 +43,7 @@ export function Shell({
   account,
   editor,
   notices,
+  noticeField,
   rail,
   trail,
   trailOpen,
@@ -88,7 +89,7 @@ export function Shell({
           {children}
           {editor == null && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
-        {editor != null && <Editor notices={notices}>{editor}</Editor>}
+        {editor != null && <Editor notices={notices} noticeField={noticeField}>{editor}</Editor>}
         {/* The trail folds to a strip on the right; it can be open beside the editor. */}
         {trail != null && (
           <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>

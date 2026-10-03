@@ -36,6 +36,7 @@ describe('LiveNotices', () => {
         lines: ['Bob changed the serial on core-sw-01 just after you'],
         items: [{ id: 'e\nk', yours: 'yours SN-ANN-1 → Bob’s SN-BOB-2' }],
         keep: 'Keep Bob’s',
+        anchor: 'serial',
       },
     });
     expect(markup).toContain('<b>Bob changed the serial on core-sw-01</b> just after you');
@@ -55,6 +56,7 @@ describe('LiveNotices', () => {
           { id: '2', yours: 'yours x → Bob’s y' },
         ],
         keep: 'Keep Bob’s',
+        anchor: 'serial',
       },
     });
     expect(markup.match(/data-testid="live-overwrite"/g)).toHaveLength(1);

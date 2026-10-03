@@ -588,8 +588,12 @@ button.shell-admin-pill {
   max-width: calc(100% - var(--s6));
 }
 
-.shell-editor__notices {
-  margin-top: var(--s3);
+.shell-editor__notices:not(:has(.live-notices:empty)) {
+  margin-bottom: var(--s3);
+}
+
+.shell-editor__notices--field:not(:has(.live-notices:empty)) {
+  margin: var(--s2) 0 0;
 }
 
 .shell-editor {

@@ -224,8 +224,9 @@ describe('what others do', () => {
     expect(last(r).self).toEqual(person(ME, 'Ann Lee', 'AL'));
     expect(last(r).people).toEqual([person(THEM, 'Bob Roe', 'BR')]);
     expect(last(r).overwrite?.lines).toEqual(['Bob Roe changed the role on an unnamed device just after you']);
-    expect(last(r).overwrite?.items.map((i) => i.yours)).toEqual(["yours router → Bob Roe's switch"]);
-    expect(last(r).overwrite?.keep).toBe("Keep Bob Roe's");
+    expect(last(r).overwrite?.items.map((i) => i.yours)).toEqual(["yours router → Bob's switch"]);
+    expect(last(r).overwrite?.keep).toBe("Keep Bob's");
+    expect(last(r).overwrite?.anchor).toBe('role');
     expect(findNode(last(r).doc, deviceId)!.fields['Device.role'].value).toBe('switch');
 
     r.live.putBack(last(r).overwrite!.items[0].id);
@@ -300,7 +301,7 @@ describe('what others do', () => {
     r.events().frame(frame(FRAME_AUTHOR, 11, new TextEncoder().encode(JSON.stringify(person(THEM, 'Cy Dunn', 'CD')))));
     const theirs = setDeviceField(mine, deviceId, 'role', 'switch', { actor: THEM, now: Date.now() + 5 });
     r.events().frame(frame(FRAME_CHANGE, 12, writeChange(changeOf(mine, theirs))));
-    expect(last(r).overwrite?.keep).toBe("Keep Cy Dunn's");
+    expect(last(r).overwrite?.keep).toBe("Keep Cy's");
   });
 
   it('asks the stream to start again from its last version when one is missed', () => {
