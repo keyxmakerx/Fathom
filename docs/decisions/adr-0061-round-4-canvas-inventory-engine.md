@@ -121,3 +121,18 @@ Reverses parts of round 5:
   credentials (ping, TCP, HTTP).
 
 Still open: private custom fields (#93 builds shared fields only).
+
+## Round 10, answered 2026-10-03
+
+- **Canvas layers:** a "Show" menu of layers (Checks, addresses, VLANs, docs, maintenance, tags),
+  remembered per browser. Checks on by default, the rest off. Words in ink that never overlap.
+  Cables stay plain ink on the canvas; cable colours belong to the rack view.
+- **Print:** a pack, made in the browser as one PDF: this view, rack elevations, cable schedule,
+  port maps, the Inventory table. Every page carries design, date, who and page numbers. Ink only.
+- **Files on docs:** upload PDF, image and text (cap 25 MB) for beta. Each file goes through the
+  redaction gate before it is stored; a file the gate can't read, such as an image, says so.
+  Files open as downloads, never inside Fathom.
+- **Guided lessons:** sample networks first, each lesson in its own copy that can't touch a real
+  design; lessons on your own design follow later as a lesson type.
+- **Inventory's list of kinds:** sent back. Key Maker leaned to the flat list (A) as cleaner but
+  asked for a mix of both, worked from real lookups. A new card follows.
