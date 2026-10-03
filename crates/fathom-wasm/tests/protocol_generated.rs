@@ -146,6 +146,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_CHECK_GESTURE",
             code: m::OP_CHECK_GESTURE,
         },
+        Entry {
+            name: "OP_SYNC",
+            code: m::OP_SYNC,
+        },
     ]
 }
 
@@ -234,6 +238,10 @@ fn errors() -> Vec<Entry> {
         Entry {
             name: "ERR_PLAIN_REFUSED",
             code: p::ERR_PLAIN_REFUSED as u32,
+        },
+        Entry {
+            name: "ERR_RESYNC",
+            code: p::ERR_RESYNC as u32,
         },
     ]
 }
