@@ -3,10 +3,11 @@
 // here, with this browser's enrolled key: the server fixes the bytes first and
 // re-derives every field of them when the signature comes back.
 
-import { concatBytes, fromHex, lp, toHex, u32LE, u64LE, utf8 } from '../crypto/bytes';
+import { concatBytes, fromHex, lp, toHex, u64LE, utf8 } from '../crypto/bytes';
 import { getEnrolledKeyPair, signMessage } from '../crypto/keys';
 import { getSession } from '../state/sessionState';
 import { keySlot } from './constants';
+import { grantBytes } from './grantBytes';
 import { signedFetch } from './signedFetch';
 
 /** What a person can do at a scope. `steward` is shown, never handed out. */
@@ -97,8 +98,8 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-/** `authority::grant_bytes` for a View/Draw grant, built here from what the
- * steward chose, so the key never signs bytes the server merely asserts. */
+/** `authority::grant_bytes` for a View/Draw grant at a folder: `grantBytes`
+ * (`./grantBytes.ts`) with no expiry and no sole-steward flag. */
 export function shareGrantBytes(f: {
   organisation: string;
   rootPubkeyFpr: Uint8Array;
@@ -111,21 +112,20 @@ export function shareGrantBytes(f: {
   effectiveFromUnix: number;
   authEpoch: number;
 }): Uint8Array {
-  return concatBytes(
-    lp(utf8('fathom/grant/v2')),
-    lp(utf8(f.organisation)),
-    lp(f.rootPubkeyFpr),
-    lp(utf8(f.scope)),
-    lp(utf8(f.subject)),
-    lp(f.subjectKeyFpr),
-    lp(utf8(f.capability)),
-    lp(utf8(f.granter)),
-    lp(f.granterKeyFpr),
-    u64LE(f.effectiveFromUnix),
-    u64LE(0), // expires: never
-    u32LE(0), // sole-steward appointment: no
-    u32LE(f.authEpoch),
-  );
+  return grantBytes({
+    organisation: f.organisation,
+    rootPubkeyFpr: f.rootPubkeyFpr,
+    scope: f.scope,
+    subject: f.subject,
+    subjectKeyFpr: f.subjectKeyFpr,
+    capability: f.capability,
+    granter: f.granter,
+    granterKeyFpr: f.granterKeyFpr,
+    effectiveFromUnix: f.effectiveFromUnix,
+    expiresAtUnix: 0,
+    soleSteward: false,
+    authEpoch: f.authEpoch,
+  });
 }
 
 /** Give `person` View (`read`) or Draw at the scope: propose, sign, send. The
