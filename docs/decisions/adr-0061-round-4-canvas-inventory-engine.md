@@ -150,3 +150,18 @@ Still open: private custom fields (#93 builds shared fields only).
   browser once a PDF reader passes security review; until then PDFs are "Not checked" too.
 - **Delete for good** (design thread): removing a file stays undoable; a separate delete erases the
   stored bytes and keeps name, size, hash, who and when in history. Before alpha.
+
+## Round 11 (2026-10-03)
+
+- **History** lives in a panel beside the canvas: the verify result in words, saves newest first,
+  pick one to see the design as it was with that save's changes outlined. Restore makes a new save;
+  history is never rewritten. An auditor's page comes later as Export from the same list.
+- **Network icons** are drawn in outline, in ink, like the rest of the canvas.
+- **Cable corrections** can be sent by anyone with Read on the place; no new access level. Someone
+  with Draw accepts or dismisses; both are recorded with the sender's name.
+- **People and access:** one invite flow, but confirming each person who joins one at a time was
+  sent back as too tedious. Access is still signed only after the person joins, because the grant
+  names their own key (PHASE-2 design §6.4: no grant to an account without a registered key; batches are capped and listed); a
+  capped, listed batch confirm is the way to make it quick. Recorded once answered.
+- **Design defaults** (design thread): pasted interfaces join drawn ports only by a confirmed
+  suggestion (the `Occupies` rule); suggestions come only from cited, dated vendor naming.
