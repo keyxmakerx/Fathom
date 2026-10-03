@@ -77,6 +77,35 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Two commits: a pull request's checkout is the merge commit, and its
+          # first parent is the base, so `HEAD^1..HEAD` is exactly the change.
+          fetch-depth: 2
+
+      # The test suite takes most of this job's time. A pull request that
+      # changes only paths no Rust code reads skips it; every gate, format,
+      # clippy and the schema check still run. Anything else, and every push
+      # to main, runs the whole suite. Rust tests read `client/src/engine/`,
+      # `client/src/document/vectors/`, `docs/archive/` and `design/`, so
+      # those count as Rust.
+      - name: Does this change reach Rust?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          rust=false
+          while IFS= read -r f; do
+            case "$f" in
+              client/src/engine/*|client/src/document/vectors/*|docs/archive/*) rust=true ;;
+              docs/*|client/*|.claude/*|.context/*) ;;
+              */*) rust=true ;;
+              *.md) ;;
+              *) rust=true ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "Rust test suite needed: $rust"
 
       # CREATEROLE, and only that, on top of NOSUPERUSER:
       # `crates/fathom-server/migrations/0005_planes.sql` creates the second
@@ -217,6 +246,7 @@ jobs:
       - name: Clippy, warnings are errors
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
+        if: steps.scope.outputs.rust == 'true'
         # `FATHOM_MIGRATE_DATABASE_URL` is the non-superuser, CREATEROLE-
         # holding role/database the step above provisioned -- see its
         # comment. `DATABASE_URL` names the RUNTIME role instead
