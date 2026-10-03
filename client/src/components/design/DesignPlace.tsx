@@ -14,6 +14,7 @@ import { buildCsv } from '../../print/csv';
 import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
 import { PrintPanel } from '../../print/PrintPanel';
+import { SharePanel } from '../../share/SharePanel';
 import { PrintPreview } from '../../print/PrintPreview';
 import { buildPrintJob, type PrintJob, type PrintOptions, type PrintWhat } from '../../print/printJob';
 import { buildXlsx } from '../../print/xlsx';
@@ -46,6 +47,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
   organisationId: string;
   designId: string;
   capability: DesignCapability;
+  /** The design's scope: what the Share panel shares. */
+  scopeId: string;
   onZoomChange: (zoom: number) => void;
 }
 
@@ -79,7 +82,7 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 
 export function DesignPlace(props: DesignPlaceProps) {
-  const { organisationId, designId, capability, onZoomChange, onPlaceChange, ...shellProps } = props;
+  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
 
@@ -92,6 +95,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   // A design has no name of its own — the deepest scope stands in; the path is what sits between the organisation and it, never repeating either end.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
@@ -467,6 +471,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
+    // Offered to stewards only; the server refuses anyone else regardless.
+    onShare: capability === 'steward' ? () => setSharing(true) : undefined,
   };
 
   const notesActions = { notesOf: notesOfCallback, onAddNote: handleAddNote, onRemoveNote: handleRemoveNote };
@@ -533,6 +539,9 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
+      {sharing && (
+        <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
+      )}
     </>
   );
 }

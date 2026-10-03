@@ -903,6 +903,7 @@ export default function App() {
       designId={view.design.designId}
       onZoomChange={setZoom}
       capability={view.design.capability}
+      scopeId={view.design.scopeId}
     />
   );
 }
