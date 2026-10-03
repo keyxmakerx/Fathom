@@ -20,6 +20,8 @@ import '../../styles/drawing.css';
 import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
+import { DeviceIcon, iconForRole, type IconKind } from './deviceIcons';
+import type { DiagramStyle } from './diagramStyle';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
 import { SHEATH_VAR, needsHairlineOutline } from './sheath';
@@ -35,13 +37,19 @@ interface BoxData extends Record<string, unknown> {
   selected: boolean;
   /** Show-menu words under the name (tags). */
   words: string[];
+  /** Icons style: the outline icon for the device's role; null draws the box. */
+  icon: IconKind | null;
 }
 
 function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
+  const cls = ['drawing-diagram-box', data.icon != null && 'drawing-diagram-box--icon', data.selected && 'drawing-diagram-box--selected'].filter(Boolean).join(' ');
   return (
-    <div className={data.selected ? 'drawing-diagram-box drawing-diagram-box--selected' : 'drawing-diagram-box'}>
-      <span className="drawing-diagram-box__name">{data.hostname === '' ? 'unnamed device' : data.hostname}</span>
-      {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
+    <div className={cls}>
+      {data.icon != null && <DeviceIcon kind={data.icon} />}
+      <span className="drawing-diagram-box__text">
+        <span className="drawing-diagram-box__name">{data.hostname === '' ? 'unnamed device' : data.hostname}</span>
+        {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
+      </span>
       <Handle type="source" position={Position.Right} className="drawing-diagram-box__handle" isConnectable={false} />
       <Handle type="target" position={Position.Left} className="drawing-diagram-box__handle" isConnectable={false} />
     </div>
@@ -112,9 +120,11 @@ export interface DiagramDrawingProps {
   fitRequest?: number;
   /** What the Show menu's ticked layers write on the canvas. */
   words?: LayerWords;
+  /** Boxes (default) or Icons; the same boxes, the same lines. */
+  style?: DiagramStyle;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, words }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, words, style = 'boxes' }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
@@ -133,6 +143,8 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [boxes, rf],
   );
 
+  const roles = useMemo(() => new Map(view.racks.flatMap((r) => r.chassis.map((c) => [c.id, c.role] as const))), [view]);
+
   const nodes: Node[] = useMemo(
     () =>
       boxes.map((b) => ({
@@ -142,9 +154,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
-        data: { hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [] } satisfies BoxData,
+        data: { hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null } satisfies BoxData,
       })),
-    [boxes, selectedId, words],
+    [boxes, selectedId, words, style, roles],
   );
 
   const litId = selectedCableId ?? hoverId;
@@ -219,7 +231,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
   );
 
   return (
-    <div className="drawing drawing--diagram" data-look="diagram" data-zoom-band={band}>
+    <div className="drawing drawing--diagram" data-look="diagram" data-style={style} data-zoom-band={band}>
       <ReactFlow
         nodes={nodes}
         edges={edges}

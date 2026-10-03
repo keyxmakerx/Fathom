@@ -1602,6 +1602,23 @@
 .drawing-layer-label__more {
   color: var(--muted);
 }
+.drawing-diagram-box--icon {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.drawing-diagram-box--icon .device-icon {
+  flex: none;
+  color: var(--ink);
+}
+.drawing-diagram-box__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .drawing-diagram-box__name {
   font-size: var(--t-mast);
   font-weight: 700;

@@ -733,3 +733,9 @@ button.shell-admin-pill {
   color: var(--muted);
   line-height: 1.4;
 }
+.shell-show__style {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+}

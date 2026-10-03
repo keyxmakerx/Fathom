@@ -5,6 +5,7 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
+import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
 import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
@@ -45,7 +46,7 @@ export interface BarProps {
   /** The Rack | Diagram switch; omitted where the look does not apply. */
   look?: { value: Look; onChange: (look: Look) => void };
   /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void };
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void } };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -306,7 +307,24 @@ export function Bar({
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
                     </button>
                   ))}
-                  {look?.value === 'rack' && <p className="shell-show__hint">The words are drawn in the Diagram look.</p>}
+                  {layers.style != null && (
+                    <div className="shell-show__style" role="group" aria-label="Device style">
+                      <span className="shell-show__head">Device style</span>
+                      {DIAGRAM_STYLES.map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          aria-pressed={layers.style!.value === st}
+                          className={layers.style!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                          data-testid={`style-${st}`}
+                          onClick={() => layers.style!.onChange(st)}
+                        >
+                          {DIAGRAM_STYLE_LABEL[st]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
                   <p className="shell-show__hint">Each adds words in ink, placed so they never overlap. Yours, per browser.</p>
                 </div>
               </Popover>
