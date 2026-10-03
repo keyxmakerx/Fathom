@@ -8,6 +8,7 @@ import type { CanonValue } from './canon';
 import {
   LOCAL_ACTOR,
   UnknownReferenceError,
+  appendHistory,
   archiveField,
   assertHand,
   edgesIn,
@@ -295,6 +296,7 @@ function reverseSetField(
     const rest: Record<string, FieldEntry> = { ...fields };
     delete rest[op.key];
     newFields = rest;
+    working = appendHistory(working, op.element, op.key, { presence: 'unknown', prov: prov.id });
   } else {
     const entry: FieldEntry =
       restoredPresence === 'set'
@@ -313,11 +315,16 @@ function reverseSetField(
   };
 }
 
-function reverseOp(doc: Document, actor: string, now: number, op: Op): { doc: Document; op: Op } {
+const isAbsent = (doc: Document, id: string): boolean => (findNode(doc, id) ?? findEdge(doc, id))?.absentSince !== undefined;
+
+/** `undefined` op: nothing to reverse (an add already tombstoned by a later batch of the same actor). */
+function reverseOp(doc: Document, actor: string, now: number, op: Op): { doc: Document; op?: Op } {
   switch (op.type) {
     case 'add_node':
+      if (isAbsent(doc, op.node)) return { doc };
       return { doc: markAbsent(doc, op.node, now), op: { type: 'tombstone', element: op.node, at: now, by: actor } };
     case 'add_edge':
+      if (isAbsent(doc, op.edge)) return { doc };
       return { doc: markAbsent(doc, op.edge, now), op: { type: 'tombstone', element: op.edge, at: now, by: actor } };
     case 'set_field':
       return reverseSetField(doc, actor, now, op);
@@ -413,6 +420,7 @@ function reverseBatch(
   for (const op of [...target.ops].reverse()) {
     const r = reverseOp(working, actor, now, op);
     working = r.doc;
+    if (!r.op) continue;
     ops.push(r.op);
     if (r.op.type === 'revive') revivedEdgeIds.push(r.op.element);
   }
