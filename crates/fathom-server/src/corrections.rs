@@ -114,7 +114,11 @@ pub fn clean_text(kind: &str, raw: &str) -> Result<String, DesignError> {
     if !KINDS.contains(&kind) {
         return Err(bad("kind is one of traced, label, not_here"));
     }
-    if raw.chars().any(is_unsafe_char) {
+    // Line breaks and tabs are just spaces here; any other control or invisible character is not.
+    if raw
+        .chars()
+        .any(|c| !matches!(c, '\n' | '\r' | '\t') && is_unsafe_char(c))
+    {
         return Err(bad("text must not contain control or invisible characters"));
     }
     let t = raw.split_whitespace().collect::<Vec<_>>().join(" ");

@@ -4137,9 +4137,22 @@ async fn a_read_only_member_sends_and_sees_only_their_own_and_cannot_decide() {
     let (_, body) = call(addr, &bob, "GET", &path, b"").await;
     assert_eq!(list_of(&body).len(), 1);
 
+    // Draw includes Read: a drawer can send one too.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "traced", ""),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (_, body) = call(addr, &ann, "GET", &path, b"").await;
+    assert_eq!(list_of(&body).len(), 2, "ann still sees only her own");
+
     // A Draw member sees every open one.
     let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
-    assert_eq!(list_of(&body).len(), 3);
+    assert_eq!(list_of(&body).len(), 4);
 
     // A Read member can decide none, theirs or anyone's.
     for id in [&anns] {
@@ -4156,7 +4169,7 @@ async fn a_read_only_member_sends_and_sees_only_their_own_and_cannot_decide() {
         }
     }
     let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
-    assert_eq!(list_of(&body).len(), 3, "still all open");
+    assert_eq!(list_of(&body).len(), 4, "still all open");
 }
 
 #[tokio::test]
