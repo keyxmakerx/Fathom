@@ -232,20 +232,44 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
 - **Rack height and surface placement** (ADR-0060 decisions 5 and 11). A rack's details panel offers
   42U, 24U and 12U or a typed height, and refuses one below anything mounted in it, naming it. Moving a
   device onto a wall, floor, desk or board no longer asks for millimetres; the surface lays it out.
-  Dragging onto a surface comes with free boxes on the canvas (step 7).
+  Dragging onto a surface comes with free boxes on the canvas (step 7, below).
+- **Free boxes, lines and areas** (ADR-0060 step 7, schema 0.13: `Label`, `Line`, `PassiveNode.slots`).
+  Boxes sit on the canvas beside racks and walls. A selected free box (equipment with no model) shows small ink circles on its edges: drag one to
+  draw a line, click one to add a dashed new free box. Modelled devices have none. Marquee select (drag empty canvas; pan with the wheel, a trackpad, middle button or Space+drag; one finger pans on touch, the touch marquee (long press) is not built), copy, paste, duplicate, dotted alignment guides, arrow-key nudge (Shift is
+  bigger), and a flat Align / Spread / Group / Label menu over the selection. Text labels and areas
+  carry what sits inside them. Right-click a free unit of a rack for "Add here". A selected shelf has two grips, height and slots, that refuse by
+  naming what is in the way; the details panel has both as numbers. Not built: cable styles, line
+  routing, a highlighted drop unit while dragging, copying a box's typed ports (a copy gets its role's usual ports).
+- **Open a device, and paste a config anywhere** (ADR-0060 step 8, ADR-0061 §7). Right-click → Open or a
+  double-click goes into a device ("jot mode", `components/jot/`): drawn large with its ports, equipment
+  dragged or clicked in from the list beside it (free boxes, on the canvas where the device is), cables
+  dragged port to port, Config and Inside buttons, Esc or the bar's path back out. Ctrl+V with text, or
+  right-click → Paste config, runs the text through the wasm gate (`components/paste/`) and shows a card:
+  hostname, platform, interfaces, what the gate destroyed by kind (never values), and attach to the
+  same-named device or add a new one. Nothing is stored until the choice. Not built: replacing a device's
+  capture, an import page; a cable to a free box is not drawn on the full canvas (the look switch's stubs).
 - **New design without a Site** (ADR-0060 decision 6). The home screen's "New design" puts the design
   in the first Site the person may draw in, else a Building or Closet they may draw in, else a new Site
-  named after the organisation. Design names are not built.
+  named after the organisation.
+- **Design names** (ADR-0060 step 3b). A design starts as "Untitled design"; Home's Rename (anyone who may draw) changes it. The name is sealed under the organisation content key (`designs.name_*`, migration 0030), never stored in the clear; `POST .../designs/{design}/name` needs `draw`. No chain entry for a rename yet.
+- **Admin pill**: an amber "Admin" pill beside the initials, on the same gate as Home's Admin tab (console host, not yet refused). Display only; the server still decides.
 - **Plainer canvas words** (ADR-0060 decisions 1 and 4): the Racks place is called Canvas; the left
   strip is one "Equipment" button that opens the equipment list; built-in items read "Any device" and
   "Backboard"; "+ add a surface" reads "+ Add a wall, floor or desk"; an empty design shows a note
   saying what to do; the zoom, account and trail controls name themselves on hover.
-- **Canvas looks right** (ADR-0061, bundle 2a): scrolling only zooms (max 400%); the config drawer and
+- **Canvas looks right** (ADR-0061, bundle 2a): Ctrl+wheel or pinch zooms (max 400%), the wheel pans; the config drawer and
   inside view open from right-click Open/Inside or a double-click. Ports sit at catalogue row/column,
   cables leave a port's own edge and sit under the plates; names sit in the plate's blank space (rail
   tab if none) with a click callout; at 200%+ a bundle splits into cables with port labels; the details
   panel lists ports in words; Switch/Router are placed with a default faceplate; zoomed out, ports are
   not drawn. Logic: `drawing/faceplate.ts`, `drawing/cableEnds.ts`.
+- **The look switch** (ADR-0061 round 7): a Rack | Diagram switch in the top bar. Rack is faceplates and dressed
+  cables; Diagram is a plain labelled box per device (one column per rack) and square-cornered lines in the
+  sheath colour, view-and-select only (devices are placed, moved and cabled in Rack). Each person's choice is
+  kept in this browser per account and design (`drawing/look.ts`); new designs start on Rack. A design-held
+  starting choice is deferred until design names give the design a settings home. A cable whose far end is
+  off screen (24 px inset, settled after a pan or zoom) draws as stubs in both looks, each ending in a tag naming
+  the far end that pans to it; selected or tag-hovered, the whole cable draws (`drawing/stubs.ts`). Zoom never changes the look.
 - **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
   Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
   row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A

@@ -74,7 +74,7 @@ function premisesDoc(): { doc: Document; premisesId: string } {
 
 describe('viewOf', () => {
   it('is empty for a document with no Premises', () => {
-    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [] });
+    expect(viewOf(emptyDocument(), [])).toEqual({ premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] });
   });
 
   it('draws a rack with no chassis and one free run', () => {

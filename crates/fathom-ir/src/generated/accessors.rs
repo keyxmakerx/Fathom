@@ -1242,6 +1242,11 @@ mod body {
         pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(229))
         }
+        /// `PassiveNode.slots` — `u8`, card `0..1`, emit `—`.
+        /// A shelf's slot count, left to right (ADR-0060 step 7); absent reads as the highest slot taken.
+        pub fn slots<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u8, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(350))
+        }
     }
     /// Typed reads for `Premises` fields.
     pub mod premises {
@@ -1739,6 +1744,37 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(343))
         }
     }
+    /// Typed reads for `Label` fields.
+    pub mod label {
+        /// `Label.text` — `Text`, card `1`, emit `—`.
+        /// The words.
+        pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(344))
+        }
+        /// `Label.form` — `enum { text, area }`, card `1`, emit `—`.
+        /// Discriminant: a bare text label or a labelled rectangle.
+        pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LabelForm, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(345))
+        }
+        /// `Label.w` — `u16`, card `0..1`, emit `—`.
+        /// An area's width in scene units.
+        pub fn w<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(346))
+        }
+        /// `Label.h` — `u16`, card `0..1`, emit `—`.
+        /// An area's height in scene units.
+        pub fn h<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(347))
+        }
+    }
+    /// Typed reads for `Line` fields.
+    pub mod line {
+        /// `Line.label` — `Text`, card `0..1`, emit `—`.
+        /// Words along the line.
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(348))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2088,6 +2124,13 @@ mod body {
             341 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
             342 => Some((core::any::TypeId::of::<Vec<crate::scalar::InterfaceAddress>>(), "Vec<crate::scalar::InterfaceAddress>")),
             343 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            344 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            345 => Some((core::any::TypeId::of::<crate::generated::ir_types::LabelForm>(), "crate::generated::ir_types::LabelForm")),
+            346 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            347 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            348 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            349 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableEnd>(), "crate::generated::ir_types::CableEnd")),
+            350 => Some((core::any::TypeId::of::<u8>(), "u8")),
             _ => None,
         }
     }
@@ -2439,6 +2482,13 @@ mod body {
             341 => crate::canon::slot_to::<crate::scalar::IpAddr>(341, "crate::scalar::IpAddr", value),
             342 => crate::canon::slot_to::<Vec<crate::scalar::InterfaceAddress>>(342, "Vec<crate::scalar::InterfaceAddress>", value),
             343 => crate::canon::slot_to::<crate::scalar::Text>(343, "crate::scalar::Text", value),
+            344 => crate::canon::slot_to::<crate::scalar::Text>(344, "crate::scalar::Text", value),
+            345 => crate::canon::slot_to::<crate::generated::ir_types::LabelForm>(345, "crate::generated::ir_types::LabelForm", value),
+            346 => crate::canon::slot_to::<u16>(346, "u16", value),
+            347 => crate::canon::slot_to::<u16>(347, "u16", value),
+            348 => crate::canon::slot_to::<crate::scalar::Text>(348, "crate::scalar::Text", value),
+            349 => crate::canon::slot_to::<crate::generated::ir_types::CableEnd>(349, "crate::generated::ir_types::CableEnd", value),
+            350 => crate::canon::slot_to::<u8>(350, "u8", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2788,6 +2838,13 @@ mod body {
             341 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
             342 => crate::canon::slot_from::<Vec<crate::scalar::InterfaceAddress>>(j),
             343 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            344 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            345 => crate::canon::slot_from::<crate::generated::ir_types::LabelForm>(j),
+            346 => crate::canon::slot_from::<u16>(j),
+            347 => crate::canon::slot_from::<u16>(j),
+            348 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            349 => crate::canon::slot_from::<crate::generated::ir_types::CableEnd>(j),
+            350 => crate::canon::slot_from::<u8>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

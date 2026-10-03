@@ -55,6 +55,9 @@ export interface ShellProps {
   lens: Lens;
   onLensChange: (lens: Lens) => void;
 
+  /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
+  look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
+
   /** Who else is here, as name chips. Empty renders no chips — never a
    * placeholder name. */
   presence: PresenceUser[];
@@ -74,12 +77,18 @@ export interface ShellProps {
   /** The Print button, next to Undo/Redo; absent with no design open. */
   onPrint?: () => void;
 
+  /** The Share button; present only for someone who may share (a steward). */
+  onShare?: () => void;
+
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */
   account: AccountInfo;
   /** The caller's account-menu rows — Site, credentials, Home — each present
    * only when it acts. People and permissions joins when it is built. */
   menu?: ReactNode;
+  /** The amber "Admin" pill beside the account square. Cosmetic: the server
+   * still decides who may open the console. Absent unless the caller says so. */
+  adminPill?: { current?: boolean; onSelect?: () => void };
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
   /** Quick search. Absent where there is nothing to search yet (Home, Site). */

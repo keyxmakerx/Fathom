@@ -124,7 +124,7 @@ describe('pairedPortFor: ADR-0051 §1 — passThroughId first, the label/row gue
     });
     const view: ClosetView = {
       premisesId: 'closet-1',
-      unplaced: [],
+      unplaced: [], free: [], lines: [], labels: [],
       rows: [],
       surfaces: [],
       cables: [],
@@ -140,7 +140,7 @@ describe('pairedPortFor: ADR-0051 §1 — passThroughId first, the label/row gue
     });
     const view: ClosetView = {
       premisesId: 'closet-1',
-      unplaced: [],
+      unplaced: [], free: [], lines: [], labels: [],
       rows: [],
       surfaces: [],
       cables: [],
@@ -159,7 +159,7 @@ describe('pairedPortFor: ADR-0051 §1 — passThroughId first, the label/row gue
     });
     const view: ClosetView = {
       premisesId: 'closet-1',
-      unplaced: [],
+      unplaced: [], free: [], lines: [], labels: [],
       rows: [],
       surfaces: [],
       cables: [],
@@ -227,7 +227,7 @@ function twoHopView(): ClosetView {
   });
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch, dist] }],
@@ -278,7 +278,7 @@ function threeHopView(): ClosetView {
   const core = chassis({ id: 'core-01', ports: [port({ id: 'core-port', label: '1', cable: { cableId: c3, farPortId: 'b-rear-3', farChassisId: 'patch-b', outsideCloset: false } })] });
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patchA, patchB, core] }],
@@ -318,7 +318,7 @@ function panelToPortalView(): { view: ClosetView; trayKey: string } {
   });
   const view: ClosetView = {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch] }],
@@ -393,7 +393,7 @@ function outletBoxView(): ClosetView {
   });
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [desk, outlet, idfSwitch] }],
@@ -453,7 +453,7 @@ function panelViaPassThroughView(): ClosetView {
   });
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [{ id: 'rack-1', label: 'A-04', heightU: 42, unitNumbering: 'bottom-up', freeRuns: [], row: null, bay: null, shelves: [], chassis: [acc, patch, dist] }],
@@ -532,7 +532,7 @@ function fixtureOutletView(): ClosetView {
   };
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [
       { id: 'wall-west', label: 'west wall', form: 'wall', widthMm: null, heightMm: null, fixtures: [outletFixture] },

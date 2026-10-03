@@ -13,6 +13,12 @@ function actions(): Required<MenuActions> {
     onAddDevice: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
+    onPasteConfig: vi.fn(),
+    onAddInRack: vi.fn(),
+    onAddBoxHere: vi.fn(),
+    onAddLabelHere: vi.fn(),
+    onDuplicateFree: vi.fn(),
+    onRemoveFree: vi.fn(),
   };
 }
 
@@ -49,9 +55,19 @@ describe('menuItemsFor', () => {
   it('offers the empty canvas three rack sizes and a wall', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'pane' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Add a 42U rack', 'Add a 24U rack', 'Add a 12U rack', 'Add a wall']);
+    expect(items.map((i) => i.label)).toEqual(['Add a 42U rack', 'Add a 24U rack', 'Add a 12U rack', 'Add a wall', 'Paste config']);
     items[1].onSelect();
     expect(a.onAddRack).toHaveBeenCalledWith(24);
+    items[4].onSelect();
+    expect(a.onPasteConfig).toHaveBeenCalled();
+  });
+
+  it('lets a free box be opened like a racked device', () => {
+    const a = actions();
+    const items = menuItemsFor({ kind: 'free', id: 'f1' }, a);
+    expect(items[0].label).toBe('Open');
+    items[0].onSelect();
+    expect(a.onOpen).toHaveBeenCalledWith('f1');
   });
 
   it('gives a reader only Details, and nothing on the empty canvas', () => {
@@ -59,5 +75,15 @@ describe('menuItemsFor', () => {
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'cable', id: 'k1' }, reader).map((i) => i.label)).toEqual(['Details']);
     expect(menuItemsFor({ kind: 'pane' }, reader)).toEqual([]);
+  });
+
+  it('offers Add here only when the click landed on a free unit of a rack', () => {
+    const a = actions();
+    const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
+    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device']);
+    items[1].onSelect();
+    expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
   });
 });

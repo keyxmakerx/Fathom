@@ -488,7 +488,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `12` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 12;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 13;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -2827,5 +2827,512 @@ async fn a_grant_revoked_between_the_check_and_the_act_stops_the_write() {
     assert!(
         matches!(latest, Err(designs::DesignError::NoSuchVersion)),
         "{latest:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Design names (ADR-0060 step 3b)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_drawer_names_a_design_and_a_reader_cannot_and_the_name_is_never_stored_in_the_clear() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let list = format!("/organisations/{}/designs", estate.organisation);
+    let name_path = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, design
+    );
+
+    let (_, body) = call(addr, &estate.steward, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains("\"name\":null"));
+
+    let (status, body) = call(addr, &reader, "POST", &name_path, b"Nope").await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+
+    let secret = "Core switches, 4th floor";
+    let (status, body) = call(addr, &estate.steward, "POST", &name_path, secret.as_bytes()).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (_, body) = call(addr, &reader, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains(&format!("\"name\":\"{secret}\"")));
+
+    // Sealed at rest: the stored bytes do not contain the name.
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT name_ciphertext FROM designs WHERE id = $1",
+            &[&design.to_string()],
+        )
+        .await
+        .unwrap();
+    let stored: Vec<u8> = rows[0].get(0);
+    assert!(!stored.windows(secret.len()).any(|w| w == secret.as_bytes()));
+
+    // Too long and control characters are refused; empty clears.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &name_path,
+        "x".repeat(101).as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (status, _) = call(addr, &estate.steward, "POST", &name_path, b"a\x07b").await;
+    assert_eq!(status, "400");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &name_path,
+        "a\u{202E}b".as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (status, _) = call(addr, &estate.steward, "POST", &name_path, b"  ").await;
+    assert_eq!(status, "200");
+    let (_, body) = call(addr, &estate.steward, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains("\"name\":null"));
+}
+
+#[tokio::test]
+async fn naming_a_design_in_another_organisation_or_one_that_does_not_exist_is_refused_the_same_way(
+) {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let other = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    // `other`'s steward names `design` through its own organisation, and through ours.
+    let own = format!(
+        "/organisations/{}/designs/{}/name",
+        other.organisation, design
+    );
+    let (status, _) = call(addr, &other.steward, "POST", &own, b"Mine now").await;
+    assert_eq!(status, "404");
+    let across = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, design
+    );
+    let (status, _) = call(addr, &other.steward, "POST", &across, b"Mine now").await;
+    assert_eq!(status, "403");
+
+    let ghost = a_design_id_nothing_was_ever_created_under();
+    let path = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, ghost
+    );
+    let (status, _) = call(addr, &estate.steward, "POST", &path, b"x").await;
+    assert_eq!(status, "404");
+}
+
+// ---------------------------------------------------------------------------
+// Sharing a scope: View is the `read` capability (round 9, bundle 2)
+// ---------------------------------------------------------------------------
+
+/// The text of `"key":"value"` or `"key":number` in canonical JSON.
+fn json_field(body: &[u8], key: &str) -> String {
+    let text = String::from_utf8_lossy(body).to_string();
+    let at = text
+        .find(&format!("\"{key}\":"))
+        .unwrap_or_else(|| panic!("no {key} in {text}"))
+        + key.len()
+        + 3;
+    let rest = text[at..].trim_start_matches('"');
+    rest.split(['"', ',', '}']).next().unwrap().to_string()
+}
+
+fn share_path(estate: &Estate, scope: ScopeId, tail: &str) -> String {
+    format!(
+        "/organisations/{}/scopes/{}/{tail}",
+        estate.organisation, scope
+    )
+}
+
+fn propose_body(person: &Person, capability: &str) -> Vec<u8> {
+    let mut body = Vec::new();
+    lp(&mut body, person.account.to_string().as_bytes());
+    lp(&mut body, capability.as_bytes());
+    body
+}
+
+/// The sign request for a proposal answer, signed by `signer`.
+fn sign_body(proposal: &[u8], signer: &Person) -> Vec<u8> {
+    let bytes = (0..json_field(proposal, "bytes").len() / 2)
+        .map(|i| u8::from_str_radix(&json_field(proposal, "bytes")[2 * i..2 * i + 2], 16).unwrap())
+        .collect::<Vec<u8>>();
+    let signature = signer.key.sign(&bytes);
+    let mut body = Vec::new();
+    for key in ["subject", "capability", "effective_from_unix", "auth_epoch"] {
+        lp(&mut body, json_field(proposal, key).as_bytes());
+    }
+    for key in ["granter_key_fpr", "subject_key_fpr", "root_pubkey_fpr"] {
+        lp(&mut body, json_field(proposal, key).as_bytes());
+    }
+    lp(&mut body, hex(signature).as_bytes());
+    body
+}
+
+/// Share `scope` with `person` at `capability`, as the estate's steward.
+async fn share(
+    addr: SocketAddr,
+    estate: &Estate,
+    scope: ScopeId,
+    person: &Person,
+    cap: &str,
+) -> String {
+    let (status, proposal) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(estate, scope, "grants/propose"),
+        &propose_body(person, cap),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&proposal));
+    let (status, signed) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(estate, scope, "grants/sign"),
+        &sign_body(&proposal, &estate.steward),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&signed));
+    json_field(&signed, "grant")
+}
+
+#[tokio::test]
+async fn a_steward_shares_view_and_the_viewer_reads_but_every_write_route_refuses_them() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (scope, design) = a_scope_and_design(&pool, &estate).await;
+    designs::write_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        b"on file",
+        1,
+    )
+    .await
+    .expect("seed");
+    let viewer = a_member_with(&pool, &ring, &estate, "viewer", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let open = format!("/organisations/{}/designs/{}", estate.organisation, design);
+
+    // Before: a member with no grant opens nothing.
+    let (status, _) = call(addr, &viewer, "GET", &open, b"").await;
+    assert_eq!(status, "403");
+
+    let grant = share(addr, &estate, scope, &viewer, "read").await;
+
+    // The access list shows them as a viewer, with the grant to revoke.
+    let (status, list) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &share_path(&estate, scope, "access"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&list).to_string();
+    assert!(
+        text.contains(&grant) && text.contains("\"capability\":\"read\""),
+        "{text}"
+    );
+
+    // After: they open and verify.
+    let (status, _) = call(addr, &viewer, "GET", &open, b"").await;
+    assert_eq!(status, "200");
+
+    // Every write route and every sharing route refuses a reader, 403, and
+    // leaves nothing behind.
+    let versions = format!("{open}/versions?base=1");
+    let save = save_body(CURRENT_SCHEMA_WIRE_VERSION, &a_plain_face_payload(3));
+    let mut scope_body = Vec::new();
+    lp(&mut scope_body, b"");
+    lp(&mut scope_body, b"Sneaky");
+    let mut well_formed_revoke = Vec::new();
+    lp(&mut well_formed_revoke, now_unix().to_string().as_bytes());
+    lp(&mut well_formed_revoke, "ab".repeat(64).as_bytes());
+    let mut well_formed_sign = Vec::new();
+    for field in [
+        viewer.account.to_string(),
+        "read".to_string(),
+        now_unix().to_string(),
+        "1".to_string(),
+        "ab".repeat(32),
+        "ab".repeat(32),
+        "ab".repeat(32),
+        "ab".repeat(64),
+    ] {
+        lp(&mut well_formed_sign, field.as_bytes());
+    }
+    let refused: Vec<(&str, String, Vec<u8>)> = vec![
+        ("POST", versions, save.clone()),
+        ("POST", format!("{open}/name"), b"renamed".to_vec()),
+        ("POST", share_path(&estate, scope, "designs"), save),
+        (
+            "POST",
+            format!("/organisations/{}/scopes", estate.organisation),
+            scope_body,
+        ),
+        (
+            "POST",
+            share_path(&estate, scope, "grants/sign"),
+            well_formed_sign,
+        ),
+        ("GET", share_path(&estate, scope, "access"), Vec::new()),
+        (
+            "POST",
+            share_path(&estate, scope, "grants/propose"),
+            propose_body(&viewer, "draw"),
+        ),
+        (
+            "POST",
+            share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+            well_formed_revoke,
+        ),
+        (
+            "GET",
+            share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+            Vec::new(),
+        ),
+    ];
+    for (method, path, body) in refused {
+        let (status, answer) = call(addr, &viewer, method, &path, &body).await;
+        assert_eq!(
+            status,
+            "403",
+            "{method} {path}: {}",
+            String::from_utf8_lossy(&answer)
+        );
+    }
+    let latest = designs::read_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        None,
+    )
+    .await
+    .expect("read");
+    assert_eq!(latest.version, 1, "no write landed");
+
+    // A revocation dated in the future is refused outright.
+    let mut future = Vec::new();
+    lp(&mut future, (now_unix() + 200).to_string().as_bytes());
+    lp(&mut future, "ab".repeat(64).as_bytes());
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+        &future,
+    )
+    .await;
+    assert_eq!(status, "400", "a future-dated revoke must not be accepted");
+
+    // Revoked: the next request is refused.
+    let (status, prep) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&prep));
+    let to_sign = json_field(&prep, "bytes");
+    let bytes: Vec<u8> = (0..to_sign.len() / 2)
+        .map(|i| u8::from_str_radix(&to_sign[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    let mut body = Vec::new();
+    lp(&mut body, json_field(&prep, "at").as_bytes());
+    lp(&mut body, hex(estate.steward.key.sign(&bytes)).as_bytes());
+    let (status, answer) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+        &body,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    let (status, _) = call(addr, &viewer, "GET", &open, b"").await;
+    assert_eq!(status, "403", "a revoked View stops at the next request");
+}
+
+#[tokio::test]
+async fn a_signed_share_cannot_be_replayed_onto_another_person_scope_or_capability() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (network, building_a, _b, _rack) = a_scope_tree(&pool, &estate).await;
+    let viewer = a_member_with(&pool, &ring, &estate, "viewer", None).await;
+    let other = a_member_with(&pool, &ring, &estate, "other", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let (status, proposal) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, network, "grants/propose"),
+        &propose_body(&viewer, "read"),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let good = sign_body(&proposal, &estate.steward);
+
+    // Same signature, a different capability: refused, no grant.
+    let mut as_draw = good.clone();
+    let swapped = {
+        let mut b = Vec::new();
+        lp(&mut b, json_field(&proposal, "subject").as_bytes());
+        lp(&mut b, b"draw");
+        b
+    };
+    as_draw.splice(0..swapped.len(), swapped);
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, network, "grants/sign"),
+        &as_draw,
+    )
+    .await;
+    assert_ne!(status, "200", "a read signature must not mint draw");
+
+    // Same signature, a different person.
+    let mut other_body = good.clone();
+    let swapped = {
+        let mut b = Vec::new();
+        lp(&mut b, other.account.to_string().as_bytes());
+        b
+    };
+    other_body.splice(0..swapped.len(), swapped);
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, network, "grants/sign"),
+        &other_body,
+    )
+    .await;
+    assert_ne!(
+        status, "200",
+        "a signature for one person must not grant another"
+    );
+
+    // Same signature, a different scope.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, building_a, "grants/sign"),
+        &good,
+    )
+    .await;
+    assert_ne!(
+        status, "200",
+        "a signature for one scope must not grant another"
+    );
+
+    // None of it landed; the honest one still does.
+    let (_, list) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &share_path(&estate, network, "access"),
+        b"",
+    )
+    .await;
+    assert!(
+        !String::from_utf8_lossy(&list).contains("\"grant\""),
+        "nothing was granted"
+    );
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, network, "grants/sign"),
+        &good,
+    )
+    .await;
+    assert_eq!(status, "200", "the untouched signature is accepted");
+}
+
+#[tokio::test]
+async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (scope, _design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let outsider = an_account(&pool, "outsider").await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &share_path(&estate, scope, "grants/propose"),
+        &propose_body(&drawer, "read"),
+    )
+    .await;
+    assert_eq!(status, "403", "a drawer cannot share");
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, "grants/propose"),
+        &propose_body(&outsider, "read"),
+    )
+    .await;
+    assert_ne!(
+        status, "200",
+        "someone outside the organisation is not offered an invite here"
+    );
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, "grants/propose"),
+        &propose_body(&estate.steward, "read"),
+    )
+    .await;
+    assert_ne!(status, "200", "nobody shares with themselves");
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, "grants/propose"),
+        &propose_body(&drawer, "steward"),
+    )
+    .await;
+    assert_ne!(
+        status, "200",
+        "steward is not a thing the Share panel hands out"
     );
 }

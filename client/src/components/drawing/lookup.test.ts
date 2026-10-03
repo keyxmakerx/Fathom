@@ -178,7 +178,7 @@ const FLOOR: SurfaceView = {
 
 const VIEW: ClosetView = {
   premisesId: 'closet-1',
-  unplaced: [],
+  unplaced: [], free: [], lines: [], labels: [],
   cables: [],
   rows: [],
   surfaces: [WEST_WALL, FLOOR],

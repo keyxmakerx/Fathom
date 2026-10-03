@@ -44,8 +44,11 @@ import {
   movePlacement,
   removeChassis,
   removeSketchPort,
+  resizeShelf,
+  ShelfResizeError,
 } from '../../document/commands';
 import { disconnect, setCableField } from '../../document/cables';
+import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
@@ -96,7 +99,8 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
     error instanceof InvalidPortRangeError ||
     error instanceof PortRangeTooLargeError ||
     error instanceof DuplicatePortLabelError ||
-    error instanceof ModelMismatchError
+    error instanceof ModelMismatchError ||
+    error instanceof ShelfResizeError
   ) {
     return { refused: error.message };
   }
@@ -110,6 +114,8 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
 export interface DesignSession {
   doc: Document | null;
   catalogue: CatalogueModel[];
+  /** The open design's id, for per-design browser-local choices (the look). */
+  designId?: string;
   loadError: string | null;
   saveRefusal: string | null;
   canDraw: boolean;
@@ -350,6 +356,16 @@ export function useDesignSession(organisationId: string, designId: string, capab
             ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
             : undefined;
           next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model, ...opts });
+        } else if (change.kind === 'label') {
+          next = setLabel(doc, change.id, { text: change.value }, opts);
+        } else if (change.kind === 'area-size') {
+          next = setLabel(doc, change.id, { w: change.w, h: change.h }, opts);
+        } else if (change.kind === 'line') {
+          next = setLineLabel(doc, change.id, change.value, opts);
+        } else if (change.kind === 'free-remove') {
+          next = removeFree(doc, [change.id], opts);
+        } else if (change.kind === 'shelf-size') {
+          next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
         } else {
           if (!isSurfaceForm(change.form)) {
             throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
@@ -365,5 +381,5 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
+  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
 }

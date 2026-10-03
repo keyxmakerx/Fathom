@@ -1,7 +1,15 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
-import { createDesign, fetchDesigns, sortDesignsByRecency, type DesignSummary } from '../../api/designs';
+import {
+  createDesign,
+  designTitle,
+  fetchDesigns,
+  renameDesign,
+  sortDesignsByRecency,
+  UNTITLED_DESIGN,
+  type DesignSummary,
+} from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
 import { createScope, fetchScopes, type Scope } from '../../api/scopes';
@@ -424,6 +432,16 @@ export function Home({
               onOpenInventory={onOpenInventory}
               onCreateDesign={handleCreateDesign}
               busyScopeId={newDesignBusyScopeId}
+              onRenamed={(designId, name) =>
+                setDesigns((current) =>
+                  current.status === 'ready'
+                    ? {
+                        status: 'ready',
+                        value: current.value.map((row) => (row.designId === designId ? { ...row, name } : row)),
+                      }
+                    : current,
+                )
+              }
             />
           )}
         </section>
@@ -455,6 +473,8 @@ interface HomeDesignsProps {
   onCreateDesign: (organisation: Organisation, scope: Scope) => void;
   /** The scope whose "New design" button is mid-request, or `null`. */
   busyScopeId: string | null;
+  /** A rename was saved; `name` is `null` when it was cleared. */
+  onRenamed: (designId: string, name: string | null) => void;
 }
 
 /**
@@ -474,6 +494,7 @@ function HomeDesigns({
   onOpenInventory,
   onCreateDesign,
   busyScopeId,
+  onRenamed,
 }: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
   const startable = scopesWithNoDesigns(scopes, designs).filter((scope) => canDrawFor(scope.capability));
@@ -496,6 +517,7 @@ function HomeDesigns({
                 organisation={organisation}
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
+                onRenamed={onRenamed}
               />
             ))}
           </ul>
@@ -518,6 +540,7 @@ function HomeDesigns({
                 organisation={organisation}
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
+                onRenamed={onRenamed}
               />
             ))}
           </ul>
@@ -703,18 +726,74 @@ interface DesignRowProps {
   organisation: Organisation;
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
+  onRenamed: (designId: string, name: string | null) => void;
 }
 
-function DesignRow({ design, organisation, onOpenRacks, onOpenInventory }: DesignRowProps) {
+function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenamed }: DesignRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = draft.trim();
+    setBusy(true);
+    setError(null);
+    renameDesign(organisation.organisationId, design.designId, name)
+      .then(() => {
+        onRenamed(design.designId, name === '' ? null : name);
+        setEditing(false);
+      })
+      .catch((e: unknown) => setError(describeError(e)))
+      .finally(() => setBusy(false));
+  }
+
   return (
     <li className="home__design-row">
-      <span className="home__design-id m">{design.designId}</span>
+      {editing ? (
+        <form className="home__design-rename" onSubmit={save}>
+          <input
+            className="home__input"
+            aria-label="Design name"
+            value={draft}
+            maxLength={100}
+            placeholder={UNTITLED_DESIGN}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <button type="submit" className="home__btn" disabled={busy}>
+            Save
+          </button>
+          <button type="button" className="home__btn" disabled={busy} onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+          {error && <span className="home__error">{error}</span>}
+        </form>
+      ) : (
+        <span className="home__design-name" title={design.designId}>
+          {designTitle(design)}
+        </span>
+      )}
       <span className="home__design-meta">v{design.latestVersion}</span>
       <span className="home__design-meta">{design.capability}</span>
       <span className="home__design-meta">
         {formatCreatedAt(design.createdAtUnix)} · {design.createdBy}
       </span>
       <span className="home__design-actions">
+        {canDrawFor(design.capability) && !editing && (
+          <button
+            type="button"
+            className="home__btn"
+            onClick={() => {
+              setDraft(design.name ?? '');
+              setError(null);
+              setEditing(true);
+            }}
+          >
+            Rename
+          </button>
+        )}
         <button type="button" className="home__btn" onClick={() => onOpenRacks(organisation, design)}>
           Canvas
         </button>

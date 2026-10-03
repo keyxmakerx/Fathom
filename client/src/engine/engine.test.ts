@@ -22,6 +22,7 @@ import { addSketchPort, createSketchDevice, removeChassis } from '../document/co
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
 import { edgesIn, edgesOut, emptyDocument, type Document } from '../document/model';
 import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
+import { createFreeBox, createLabel, createLine, removeFree, setLineLabel } from '../document/freeform';
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
@@ -463,6 +464,23 @@ describe('a design stays saveable after undo', () => {
     for (const batch of doc.batches.slice(-3).reverse()) doc = undo(doc, batch.id, step());
 
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  it('free boxes, a line, a label and an area load through the Rust reader, before and after removal', () => {
+    const step = (() => {
+      let now = 1_790_600_000_000;
+      return () => ({ actor: '01ARZ3NDEKTSV4RRFFQ69G5FAV', now: (now += 1000) });
+    })();
+    const a = createFreeBox(emptyDocument(), { role: 'router', hostname: 'router-1', x: 40, y: 40, ...step() });
+    const b = createFreeBox(a.doc, { role: 'switch', hostname: 'switch-1', x: 300, y: -40, ...step() });
+    let doc = createLine(b.doc, a.chassisId, b.chassisId, step()).doc;
+    doc = setLineLabel(doc, doc.nodes.find((n) => n.id.startsWith('line:'))!.id, 'uplink', step());
+    doc = createLabel(doc, { text: 'Floor 2', form: 'text', x: 0, y: 0, ...step() }).doc;
+    doc = createLabel(doc, { text: 'Guest', form: 'area', x: 200, y: 200, w: 240, h: 160, ...step() }).doc;
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+    const removed = removeFree(doc, [a.chassisId], step());
+    expect(() => engine.loadPlain(writePlain(removed))).not.toThrow();
+    expect(() => engine.loadPlain(writePlain(undo(removed, removed.batches.at(-1)!.id, step())))).not.toThrow();
   });
 
   it('addVlan, addSubnet and removeVlanNetwork each still load through the Rust reader after undo', () => {
