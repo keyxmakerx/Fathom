@@ -161,7 +161,7 @@ Still open: private custom fields (#93 builds shared fields only).
   with Draw accepts or dismisses; both are recorded with the sender's name.
 - **People and access:** one invite flow, but confirming each person who joins one at a time was
   sent back as too tedious. Access is still signed only after the person joins, because the grant
-  names their own key (PHASE-2 design §3.6: no grant to an account without a registered key); a
+  names their own key (PHASE-2 design §6.4: no grant to an account without a registered key; batches are capped and listed); a
   capped, listed batch confirm is the way to make it quick. Recorded once answered.
 - **Design defaults** (design thread): pasted interfaces join drawn ports only by a confirmed
   suggestion (the `Occupies` rule); suggestions come only from cited, dated vendor naming.
