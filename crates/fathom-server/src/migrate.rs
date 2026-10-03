@@ -206,9 +206,9 @@ pub const MIGRATIONS: &[Migration] = &[
     },
     // Docs files follow-up: delete for good.
     Migration {
-        version: 34,
-        name: "0034_design_files_delete.sql",
-        sql: include_str!("../migrations/0034_design_files_delete.sql"),
+        version: 32,
+        name: "0032_design_files_delete.sql",
+        sql: include_str!("../migrations/0032_design_files_delete.sql"),
     },
 ];
 
