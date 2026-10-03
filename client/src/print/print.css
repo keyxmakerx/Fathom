@@ -11,7 +11,7 @@
   position: fixed;
   top: 56px;
   right: 12px;
-  width: 320px;
+  width: 380px;
   max-height: calc(100vh - 72px);
   overflow-y: auto;
   background: var(--page);
@@ -119,6 +119,7 @@
 
 .print-panel__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--hairline);
@@ -443,4 +444,48 @@
   .print-page + .print-page {
     break-before: page;
   }
+}
+
+.print-view-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+  object-fit: contain;
+}
+.print-counter {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.print-panel__pages {
+  width: 100%;
+  border-collapse: collapse;
+}
+.print-panel__pages th {
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--ink);
+}
+.print-panel__pages td {
+  border-bottom: 1px solid var(--hairline);
+  padding: 0;
+}
+.print-panel__pages .print-panel__count {
+  width: 3.5em;
+  padding-right: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.print-panel__note {
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--muted);
 }

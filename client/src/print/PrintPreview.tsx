@@ -17,7 +17,7 @@ import {
   type RackDeviceRow,
 } from './rackSheet';
 import { paginateCutSheetByHeight, type CutSheetTableRow } from './cutSheetTable';
-import type { PrintJob, RackSheetUnpaginated, SheetHeading } from './printJob';
+import type { PrintJob, PrintSection, RackSheetUnpaginated, SheetHeading } from './printJob';
 import './print.css';
 
 const HIDE_SENSITIVE_NOTE = 'Serial numbers and management addresses left out of this printout.';
@@ -55,14 +55,21 @@ interface RackPageContent {
   reservedMm: number;
 }
 
-interface CutSheetPageContent {
-  kind: 'cutsheet';
+interface TablePageContent {
+  kind: 'table';
+  widths: readonly number[];
   rows: CutSheetTableRow[];
 }
 
-type PageContent = RackPageContent | CutSheetPageContent;
+interface ImagePageContent {
+  kind: 'image';
+  dataUrl: string;
+}
+
+type PageContent = RackPageContent | TablePageContent | ImagePageContent;
 
 interface FinalPage {
+  section: PrintSection;
   content: PageContent;
   heading: SheetHeading;
   titleBlock: TitleBlock;
@@ -86,7 +93,7 @@ function measureRowHeights(container: HTMLElement): Map<string, number> {
 
 function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage[] {
   const capacityPx = mmToPx(contentHeightMm(job.paper));
-  const built: { content: PageContent; heading: SheetHeading }[] = [];
+  const built: { section: PrintSection; content: PageContent; heading: SheetHeading }[] = [];
 
   job.sheets.forEach((sheet, sheetIndex) => {
     if (sheet.kind === 'rack') {
@@ -102,25 +109,46 @@ function buildFinalPages(job: PrintJob, heights: Map<string, number>): FinalPage
       const pages = paginateRackTableByHeight(rows, firstBudget, laterBudget);
       pages.forEach((pageRows, pageIndex) => {
         built.push({
+          section: sheet.section,
           content: { kind: 'rack', sheet, showElevation: pageIndex === 0, rows: pageRows, reservedMm },
           heading: sheet.heading,
         });
       });
+    } else if (sheet.kind === 'image') {
+      built.push({ section: sheet.section, content: { kind: 'image', dataUrl: sheet.dataUrl }, heading: sheet.heading });
     } else {
       const headerPx = heights.get(`${sheetIndex}:header`) ?? 0;
       const bodyRows = sheet.bodyRows.map((u, i) => ({ ...u, heightPx: heights.get(`${sheetIndex}:b${i}`) ?? 0 }));
       const pages = paginateCutSheetByHeight({ row: sheet.columnHeader, heightPx: headerPx }, bodyRows, capacityPx);
-      pages.forEach((rows) => built.push({ content: { kind: 'cutsheet', rows }, heading: sheet.heading }));
+      pages.forEach((rows) => built.push({ section: sheet.section, content: { kind: 'table', widths: sheet.widths, rows }, heading: sheet.heading }));
     }
   });
 
   const of = built.length;
   const date = formatDate(job.meta.printedAt);
   return built.map((b, i) => ({
+    section: b.section,
     content: b.content,
     heading: b.heading,
     titleBlock: { design: job.meta.designName, path: job.meta.path, date, printedBy: job.meta.printedBy, page: i + 1, of },
   }));
+}
+
+/** How many pages each section runs to under `job` — measured off-screen
+ * exactly as the preview will paginate, so the panel's counts match the PDF. */
+export function PageCounter({ job, onCounts }: { job: PrintJob; onCounts: (counts: Partial<Record<PrintSection, number>>) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const counts: Partial<Record<PrintSection, number>> = {};
+    for (const page of buildFinalPages(job, measureRowHeights(ref.current))) counts[page.section] = (counts[page.section] ?? 0) + 1;
+    onCounts(counts);
+  }, [job]);
+  return (
+    <div aria-hidden="true" className="print-counter">
+      <MeasuringPass job={job} containerRef={ref} />
+    </div>
+  );
 }
 
 export interface PrintPreviewProps {
@@ -225,9 +253,9 @@ function MeasuringPass({ job, containerRef }: { job: PrintJob; containerRef: Rea
             )}
             {sheet.allCables.length > 0 && <CablesNote sheet={sheet} dataRowId={`${i}:cablesNote`} />}
           </div>
-        ) : (
+        ) : sheet.kind === 'image' ? null : (
           <table key={i} className="print-table print-table--cutsheet">
-            <ColGroup widths={CUT_SHEET_COLUMN_WIDTHS} />
+            <ColGroup widths={sheet.widths} />
             <tbody>
               <CutSheetRow row={sheet.columnHeader} dataRowId={`${i}:header`} />
               {sheet.bodyRows.map((u, r) => (
@@ -253,9 +281,11 @@ function Page({ page, paper, blackAndWhite }: { page: FinalPage; paper: PaperSiz
       <div className="print-page__content">
         {page.content.kind === 'rack' ? (
           <RackSheetContent content={page.content} paper={paper} blackAndWhite={blackAndWhite} />
+        ) : page.content.kind === 'image' ? (
+          <img className="print-view-image" src={page.content.dataUrl} alt={page.heading.title} data-testid="print-view-image" />
         ) : (
-          <table className="print-table print-table--cutsheet" data-testid="print-cutsheet-table">
-            <ColGroup widths={CUT_SHEET_COLUMN_WIDTHS} />
+          <table className="print-table print-table--cutsheet" data-testid={`print-${page.section}-table`}>
+            <ColGroup widths={page.content.widths} />
             <tbody>
               {page.content.rows.map((row, i) => (
                 <CutSheetRow key={i} row={row} />
@@ -341,8 +371,6 @@ function CutSheetRow({ row, dataRowId }: { row: CutSheetTableRow; dataRowId?: st
     </tr>
   );
 }
-
-const CUT_SHEET_COLUMN_WIDTHS = [14, 12, 14, 8, 8, 16, 10, 8, 10];
 
 function RackSheetContent({ content, paper, blackAndWhite }: { content: RackPageContent; paper: PaperSize; blackAndWhite: boolean }) {
   const { sheet, showElevation, rows, reservedMm } = content;
