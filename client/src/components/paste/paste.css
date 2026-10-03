@@ -1,0 +1,89 @@
+/* ADR-0061 §7 — the paste card: tokens only, hairlines, no radius or shadow. */
+.paste-card {
+  position: absolute;
+  left: 50%;
+  top: var(--s5, 24px);
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal) + 2);
+  width: min(32rem, calc(100% - 2 * var(--s4)));
+  max-height: calc(100% - 2 * var(--s5, 24px));
+  overflow: auto;
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s3) var(--s4);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+}
+.paste-card__head {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  color: var(--muted);
+  margin-bottom: var(--s2);
+}
+.paste-card__note,
+.paste-card__gate {
+  margin: var(--s2) 0;
+}
+.paste-card__gate {
+  border-left: var(--rule-hair) solid var(--ink);
+  padding-left: var(--s2);
+}
+.paste-card__refusal {
+  margin: var(--s2) 0;
+  border: var(--rule-hair) solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  padding: var(--s2) var(--s3);
+}
+.paste-card__box {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--hairline);
+}
+.paste-card__read {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s1) var(--s3);
+  margin: var(--s2) 0;
+}
+.paste-card__read dt {
+  color: var(--muted);
+}
+.paste-card__read dd {
+  margin: 0;
+}
+.paste-card__ifaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.paste-card__ifaces span {
+  font-family: var(--mono);
+}
+.paste-card__choice {
+  border: 0;
+  padding: 0;
+  margin: var(--s2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.paste-card__off {
+  color: var(--muted);
+}
+.paste-card__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.paste-card__choice input {
+  appearance: auto;
+  margin: 0 var(--s2) 0 0;
+}
