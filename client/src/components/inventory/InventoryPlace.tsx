@@ -11,12 +11,17 @@ import { EditorFor, type FieldsActions, type NotesActions, type Selection, type 
 import { paletteFromCatalogue } from '../racks/palette';
 import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
-import { DataTable, type Sort } from './DataTable';
+import { DataTable } from './DataTable';
 import { ItemPage } from './ItemPage';
 import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
 import { ImportDialog } from '../import/ImportDialog';
 import type { FieldDefView } from '../../document/fields';
-import { ListToolbar, type Filter } from './ListToolbar';
+import { ListToolbar } from './ListToolbar';
+import { isKind } from './kinds';
+import { nextSorts, sortRows } from './sorting';
+import { schemaFor, filterRows } from './rowQuery';
+import { joinUnits, quoteValue, units } from './query';
+import { useListState } from './useListState';
 import { NetworksPanel } from './NetworksPanel';
 import { AddPrefixForm, AddVlanForm, PrefixPage, VlanPage } from './IpamPages';
 import { PasteDialog, type CustomPaste } from './PasteDialog';
@@ -30,7 +35,7 @@ import {
   cableRows,
   defaultColumnKeys,
   deviceRows,
-  interfaceRows,
+  portRows,
   prefixRows,
   rackRows,
   vlanKindRows,
@@ -63,6 +68,10 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   accountId: string | null;
 }
 
+function kindWord(kind: Kind): string {
+  return KINDS.find((k) => k.key === kind)?.label.toLowerCase() ?? 'this list';
+}
+
 function columnPrefsKey(kind: Kind): string {
   return `fathom.inventory.columns.${kind}`;
 }
@@ -85,15 +94,6 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
   }
 }
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-function matches(row: InvRow, filter: Filter): boolean {
-  const needle = filter.value.trim().toLowerCase();
-  if (needle === '') return true;
-  if (filter.col === '*') return Object.values(row.cells).some((v) => v.toLowerCase().includes(needle));
-  return (row.cells[filter.col] ?? '').toLowerCase().includes(needle);
-}
-
 /**
  * Inventory (ADR-0062): kinds down the left, a table in the middle, the selected thing's page
  * beside it. Every edit goes through the same document commands the canvas editor uses.
@@ -102,13 +102,18 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
-  const [kind, setKind] = useState<Kind>('devices');
-  const [openKey, setOpenKey] = useState<string | null>(null);
+  const { ls, go, back: listBack } = useListState();
+  const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
+  const openKey = ls.open || null;
+  const q = ls.q;
+  const sorts = ls.sorts;
   const [override, setOverride] = useState<Selection | null>(null);
-  const [filters, setFilters] = useState<Filter[]>([]);
-  const [sort, setSort] = useState<Sort | null>(null);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<string | null>(null);
+  /** Where the list was scrolled to, so Back returns there. */
+  const scrollTop = useRef(0);
+  /** The row last opened, marked when the list comes back. */
+  const [lastOpened, setLastOpened] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
@@ -161,12 +166,12 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   }, [doc]);
 
   const rowsByKind = useMemo(() => {
-    if (!doc) return { devices: [], racks: [], cables: [], interfaces: [] } as Record<string, InvRow[]>;
+    if (!doc) return { devices: [], racks: [], cables: [], ports: [] } as Record<string, InvRow[]>;
     return {
       devices: deviceRows(doc, view, fieldDefs),
       racks: rackRows(doc, view, fieldDefs),
       cables: cableRows(doc, view, endText, fieldDefs),
-      interfaces: interfaceRows(doc, view, endText, fieldDefs),
+      ports: portRows(doc, view, endText, fieldDefs),
     } as Record<string, InvRow[]>;
   }, [doc, view, endText, fieldDefs]);
 
@@ -185,7 +190,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     devices: rowsByKind.devices?.length ?? 0,
     racks: rowsByKind.racks?.length ?? 0,
     cables: rowsByKind.cables?.length ?? 0,
-    interfaces: rowsByKind.interfaces?.length ?? 0,
+    ports: rowsByKind.ports?.length ?? 0,
     networks: kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length : (background?.networks ?? null),
     prefixes: kind === 'prefixes' ? baseRows.length : (background?.prefixes ?? null),
     vlans: kind === 'vlans' ? baseRows.length : (background?.vlans ?? null),
@@ -200,31 +205,33 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return picked.length > 0 ? picked : columnsAll.slice(0, 4);
   }, [columnsAll, prefs, kind, lens]);
 
-  const rows = useMemo(() => {
-    let out = baseRows.filter((r) => filters.every((f) => matches(r, f)));
-    if (sort) {
-      const dir = sort.dir === 'asc' ? 1 : -1;
-      out = [...out].sort((a, b) => {
-        const x = a.sort?.[sort.key];
-        const y = b.sort?.[sort.key];
-        return dir * (x !== undefined && y !== undefined ? x - y : collator.compare(a.cells[sort.key] ?? '', b.cells[sort.key] ?? ''));
-      });
-    }
-    return out;
-  }, [baseRows, filters, sort]);
+  const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll), [kind, columnsAll]);
+  const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
+  const rows = useMemo(() => sortRows(filtered.rows, sorts), [filtered, sorts]);
 
   const switchKind = (next: Kind) => {
-    setKind(next);
-    setOpenKey(null);
+    go({ kind: next, q: '', sorts: [], view: '', open: '', tab: '' }, 'push');
     setOverride(null);
-    setFilters([]);
-    setSort(null);
     setChecked(new Set());
     setPrefs(null);
     setNotice(null);
     setAdding(null);
+    scrollTop.current = 0;
   };
 
+  const openPage = (row: InvRow) => {
+    setOverride(null);
+    setLastOpened(row.key);
+    go({ open: row.key, tab: '' }, 'push');
+  };
+
+  const closePage = () => {
+    setOverride(null);
+    setAdding(null);
+    if (openKey) listBack();
+  };
+
+  const kindLabel = KINDS.find((k) => k.key === kind)!.label;
   const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
   const pageSelection = override ?? openRow?.selection ?? null;
 
@@ -246,8 +253,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     try {
       const made = addThing(doc, kind, name, view.premisesId === '' ? null : view.premisesId, ctx);
       applyDocChange(made.doc);
-      setOpenKey(made.row.key);
       setOverride(null);
+      setLastOpened(made.row.key);
+      go({ open: made.row.key, tab: '' }, 'push');
       setNotice(null);
     } catch (e) {
       return e instanceof Error ? e.message : 'That was refused.';
@@ -296,7 +304,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     applyDocChange(next);
     setAdding(null);
     setNotice(null);
-    if (openNext) setOpenKey(openNext);
+    if (openNext) go({ open: openNext, tab: '' }, 'push');
   };
   const ipamPage = (() => {
     if (!doc) return null;
@@ -391,72 +399,88 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <div className="inventory-place__main inventory-place__main--flush">
               <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} />
             </div>
-          ) : (
-            <>
-              <div className="inv-list">
-                {refusal}
-                <ListToolbar
-                  kindLabel={KINDS.find((k) => k.key === kind)!.label}
-                  columnsAll={columnsAll}
-                  columns={columns}
-                  onColumns={(keys) => {
-                    setPrefs(keys);
-                    saveColumnPrefs(kind, keys);
-                  }}
-                  filters={filters}
-                  onFilters={setFilters}
-                  canAdd={canDraw && CAN_ADD.has(kind)}
-                  addAction={
-                    canDraw && (kind === 'prefixes' || kind === 'vlans')
-                      ? { label: kind === 'prefixes' ? '+ Add a prefix' : '+ Add a VLAN', onClick: () => setAdding(kind === 'prefixes' ? 'prefix' : 'vlan') }
-                      : undefined
-                  }
-                  addHint={kind === 'cables' ? 'Draw cables on the canvas.' : kind === 'interfaces' ? 'Interfaces come with a device.' : kind === 'addresses' ? 'Addresses are read from your devices.' : ''}
-                  onAdd={onAdd}
-                  onImport={canDraw && kind === 'devices' ? () => { importBase.current = liveDoc.current; setImporting(true); } : undefined}
-                  onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'interfaces' || kind === 'prefixes' || kind === 'vlans') ? () => setPasteText('') : undefined}
-                  checkedRows={checkedRows}
-                  bulkColumns={columnsAll.filter((c) => c.editable)}
-                  onBulk={canDraw ? (edits) => commitEdits(edits) : undefined}
-                  onClearChecked={() => setChecked(new Set())}
-                  notice={notice}
-                />
-                <div
-                  className="inv-list__grid"
-                  onPaste={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (!canDraw || target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
-                    const text = e.clipboardData.getData('text/plain');
-                    if (/[\t\n]/.test(text)) {
-                      e.preventDefault();
-                      setPasteText(text);
-                    }
-                  }}
-                >
-                  <DataTable
-                    columns={columns}
-                    rows={rows}
-                    openKey={openKey}
-                    checked={checked}
-                    sort={sort}
-                    canEdit={canDraw}
-                    onCommit={onCommit}
-                    onFilterTag={(tag) => setFilters((f) => (f.some((x) => x.col === 'tags' && x.value === tag) ? f : [...f, { col: 'tags', value: tag }]))}
-                    onOpen={(row) => {
-                      setOpenKey(row.key);
-                      setOverride(null);
-                    }}
-                    onToggleChecked={toggleChecked}
-                    onToggleAll={(all) => setChecked(all ? new Set(rows.map((r) => r.key)) : new Set())}
-                    onSort={(key) =>
-                      setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null))
-                    }
-                    emptyText={baseRows.length === 0 ? `No ${kind} yet.` : 'Nothing matches the filters.'}
-                  />
-                </div>
+          ) : adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))) ? (
+            <div className="inv-pageframe">
+              {refusal}
+              <div className="inv-pageframe__bar">
+                <button type="button" className="inv-pageframe__back" onClick={closePage}>
+                  ← {kindLabel}
+                </button>
+                <span className="inv-pageframe__crumb">
+                  {kindLabel} › {adding ? (adding === 'prefix' ? 'New prefix' : 'New VLAN') : (openRow?.title ?? '')}
+                </span>
               </div>
-              {kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}
-            </>
+              <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
+            </div>
+          ) : (
+            <div className="inv-list">
+              {refusal}
+              <ListToolbar
+                kindLabel={kindLabel}
+                columnsAll={columnsAll}
+                columns={columns}
+                onColumns={(keys) => {
+                  setPrefs(keys);
+                  saveColumnPrefs(kind, keys);
+                }}
+                q={q}
+                onQ={(next) => go({ q: next })}
+                fieldOptions={schema.fields}
+                canAdd={canDraw && CAN_ADD.has(kind)}
+                addAction={
+                  canDraw && (kind === 'prefixes' || kind === 'vlans')
+                    ? { label: kind === 'prefixes' ? '+ Add a prefix' : '+ Add a VLAN', onClick: () => setAdding(kind === 'prefixes' ? 'prefix' : 'vlan') }
+                    : undefined
+                }
+                addHint={kind === 'cables' ? 'Draw cables on the canvas.' : kind === 'ports' ? 'Ports come with a device.' : kind === 'addresses' ? 'Addresses are read from your devices.' : ''}
+                onAdd={onAdd}
+                onImport={canDraw && kind === 'devices' ? () => { importBase.current = liveDoc.current; setImporting(true); } : undefined}
+                onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'ports' || kind === 'prefixes' || kind === 'vlans') ? () => setPasteText('') : undefined}
+                checkedRows={checkedRows}
+                bulkColumns={columnsAll.filter((c) => c.editable)}
+                onBulk={canDraw ? (edits) => commitEdits(edits) : undefined}
+                onClearChecked={() => setChecked(new Set())}
+                notice={notice}
+              />
+              {filtered.parsed.errors.length > 0 ? (
+                <div className="inv-toolbar__error" role="alert">
+                  {filtered.parsed.errors.map((e) => e.message).join(' ')}
+                </div>
+              ) : null}
+              <div
+                className="inv-list__grid"
+                onPaste={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (!canDraw || target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
+                  const text = e.clipboardData.getData('text/plain');
+                  if (/[\t\n]/.test(text)) {
+                    e.preventDefault();
+                    setPasteText(text);
+                  }
+                }}
+              >
+                <DataTable
+                  key={kind}
+                  columns={columns}
+                  rows={rows}
+                  openKey={lastOpened}
+                  checked={checked}
+                  sorts={sorts}
+                  canEdit={canDraw}
+                  onCommit={onCommit}
+                  onFilterTag={(tag) => go({ q: joinUnits([...units(q), `tags:${quoteValue(tag)}`]) })}
+                  onOpen={openPage}
+                  onToggleChecked={toggleChecked}
+                  onToggleAll={(all) => setChecked(all ? new Set(rows.map((r) => r.key)) : new Set())}
+                  onSort={(key, additive) => go({ sorts: nextSorts(sorts, key, additive) })}
+                  emptyText={baseRows.length === 0 ? `No ${kind} yet.` : 'Nothing matches the filters.'}
+                  initialScrollTop={scrollTop.current}
+                  onScrollTop={(top) => {
+                    scrollTop.current = top;
+                  }}
+                />
+              </div>
+            </div>
           )}
           {importing && doc ? (
             <ImportDialog
@@ -483,7 +507,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <PasteDialog
               custom={customPaste}
               initialText={pasteText}
-              kindLabel={KINDS.find((k) => k.key === kind)!.label}
+              kindLabel={kindLabel}
               columns={columnsAll.filter((c) => c.editable)}
               rows={baseRows}
               canAdd={CAN_ADD.has(kind)}

@@ -140,9 +140,12 @@ try {
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.waitForSelector('.inv-page', { timeout: 5_000 });
   check('adding by name opens its page', (await page.locator('.inv-page').innerText()).includes('edge-fw'));
+  check('the page replaces the list', (await page.locator('.inv-table__row').count()) === 0);
+  await page.getByRole('button', { name: /^← Devices/ }).click();
+  await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
+  check('Back returns to the list', (await page.locator('.inv-table__row').count()) > 10);
 
   // 4 — edit a cell in place: Role, then Tab to Mgmt address.
-  await page.getByLabel(/Name of the new/).fill('');
   await page.getByRole('button', { name: '+ Filter' }).click();
   await page.getByLabel('Contains').fill('edge-fw');
   await page.getByRole('button', { name: 'Add filter' }).click();
@@ -168,12 +171,21 @@ try {
   await page.keyboard.press('Escape');
 
   // 6 — a custom field is defined in the page and then fills a column.
+  await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
+  await page.waitForSelector('.inv-page', { timeout: 5_000 });
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByRole('button', { name: '+ Add a field' }).click();
   await page.getByLabel('Field name').fill('Warranty ends');
   await page.getByLabel('Field type').selectOption('date');
   await page.getByRole('button', { name: 'Add field' }).click();
   await page.waitForTimeout(200);
+  for (const tab of ['Ports', 'Notes', 'History']) {
+    await page.getByRole('tab', { name: new RegExp('^' + tab) }).click();
+  }
+  check('the History tab lists the changes made', (await page.locator('.inv-page__body').innerText()).length > 0);
+  await shot('inventory-04-history.png');
+  await page.getByRole('button', { name: /^← Devices/ }).click();
+  await page.waitForSelector('.inv-table__row', { timeout: 5_000 });
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('checkbox', { name: 'Warranty ends' }).check();
   await page.getByRole('button', { name: 'Columns' }).click();
@@ -184,13 +196,6 @@ try {
   await page.waitForTimeout(300);
   check('a new field becomes a column and takes a date', (await page.locator('.inv-table__row').first().innerText()).includes('2027-03-01'));
   await shot('inventory-03-field.png');
-
-  // 7 — tabs on the page.
-  for (const tab of ['Ports', 'Notes', 'History']) {
-    await page.getByRole('tab', { name: new RegExp('^' + tab) }).click();
-  }
-  check('the History tab lists the changes made', (await page.locator('.inv-page__body').innerText()).length > 0);
-  await shot('inventory-04-history.png');
 
   // 8 — paste rows (header + update + add) and bulk-tag them.
   await page.locator('.inv-chip button').click();
@@ -211,7 +216,8 @@ try {
   await shot('inventory-05-bulk.png');
 
   // 9 — Show on canvas.
-  await page.locator('.inv-table__row').first().click();
+  await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
+  await page.waitForSelector('.inv-page', { timeout: 5_000 });
   await page.getByRole('button', { name: 'Show on canvas' }).click();
   await page.waitForSelector('.drawing', { timeout: 10_000 });
   check('Show on canvas returns to the canvas', true);

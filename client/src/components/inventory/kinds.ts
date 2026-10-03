@@ -19,24 +19,31 @@ import { ABSENT } from '../drawing/contract';
 import type { Lens } from '../shell/lens';
 import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './rows';
 
-export type Kind = 'devices' | 'racks' | 'cables' | 'interfaces' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
-export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
-  { key: 'devices', label: 'Devices' },
-  { key: 'racks', label: 'Racks' },
-  { key: 'cables', label: 'Cables' },
-  { key: 'interfaces', label: 'Interfaces' },
-  { key: 'networks', label: 'Networks' },
-  { key: 'prefixes', label: 'Prefixes' },
-  { key: 'vlans', label: 'VLANs' },
-  { key: 'addresses', label: 'Addresses' },
+export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
+/** The side list's kinds in quiet groups. Docs, Maintenance and Issues are not built, so not listed. */
+export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
+  [
+    { key: 'devices', label: 'Devices' },
+    { key: 'ports', label: 'Ports' },
+    { key: 'racks', label: 'Racks' },
+    { key: 'cables', label: 'Cables' },
+  ],
+  [
+    { key: 'networks', label: 'Networks' },
+    { key: 'prefixes', label: 'Prefixes' },
+    { key: 'vlans', label: 'VLANs' },
+    { key: 'addresses', label: 'Addresses' },
+  ],
 ];
+export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
+export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
 
 /** The field kind a table kind's rows take; networks and addresses take none here. */
 export const FIELD_FOR_KIND: Partial<Record<Kind, FieldFor>> = {
   devices: 'device',
   racks: 'rack',
   cables: 'cable',
-  interfaces: 'port',
+  ports: 'port',
 };
 
 export type CellType = 'text' | 'select' | FieldType | 'tags' | 'bar';
@@ -70,6 +77,10 @@ export interface InvRow {
   meter?: Readonly<Record<string, number>>;
   /** A Device-row's name, for jumping to it from an address. */
   deviceNodeId?: string;
+  /** Numbers for the query language where the cell is words ("5 of 42U"). */
+  nums?: Readonly<Record<string, number>>;
+  /** Extra values the query language can ask about that no column shows (a cable's far end). */
+  facets?: Readonly<Record<string, readonly string[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +130,8 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('endA', 'End A', 170),
     core('endB', 'End B', 170),
   ],
-  interfaces: [
-    core('name', 'Name', 110),
+  ports: [
+    core('name', 'Port', 110),
     core('device', 'Device', 140),
     core('connector', 'Connector', 100),
     core('service', 'Service', 100),
@@ -160,7 +171,7 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   }
   if (kind === 'racks') return ['name', 'height', 'row', 'bay', 'used', 'devices', 'tags'];
   if (kind === 'cables') return ['name', 'kind', 'sheath', 'length', 'endA', 'endB', 'tags'];
-  if (kind === 'interfaces') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
+  if (kind === 'ports') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
   if (kind === 'addresses') return ['address', 'interface', 'device', 'subnet'];
   if (kind === 'prefixes') return ['prefix', 'vlan', 'site', 'used', 'gateway'];
   if (kind === 'vlans') return ['vlan', 'label', 'prefixes', 'site', 'devices', 'members'];
@@ -279,6 +290,7 @@ export function rackRows(doc: Document, view: ClosetView, defs: readonly FieldDe
     };
     const { tags } = withExtras(doc, 'racks', rack.id, cells, defs);
     return {
+      nums: { used, free, devices: rack.chassis.length, height: rack.heightU, ...(rack.bay != null ? { bay: rack.bay } : {}) },
       key: `rack:${rack.id}`,
       selection: { kind: 'rack', id: rack.id },
       ownerId: rack.id,
@@ -315,7 +327,7 @@ export function cableRows(doc: Document, view: ClosetView, endText: (end: CableE
   });
 }
 
-export function interfaceRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
+export function portRows(doc: Document, view: ClosetView, endText: (end: CableEnd) => string, defs: readonly FieldDefView[] = []): InvRow[] {
   const out: InvRow[] = [];
   const cableById = new Map(view.cables.map((c) => [c.id, c]));
   const push = (port: ClosetView['racks'][number]['chassis'][number]['ports'][number], device: string) => {
@@ -334,7 +346,7 @@ export function interfaceRows(doc: Document, view: ClosetView, endText: (end: Ca
       uplink: port.uplink ? 'yes' : 'no',
       cable: cableTo,
     };
-    const { tags } = withExtras(doc, 'interfaces', port.id, cells, defs);
+    const { tags } = withExtras(doc, 'ports', port.id, cells, defs);
     out.push({
       key: `port:${port.id}`,
       selection: { kind: 'port', id: port.id },
