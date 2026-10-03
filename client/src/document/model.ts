@@ -58,6 +58,12 @@ function splitId(s: string): [string, string] {
   return [kebabPart, ulidPart];
 }
 
+/** Is this element id a node's (not an edge's)? By the kind in its prefix. */
+export function isNodeId(s: string): boolean {
+  const at = s.indexOf(':');
+  return at > 0 && NODE_KIND_BY_KEBAB.has(s.slice(0, at));
+}
+
 export function formatNodeId(kind: NodeKind, ulid: string): string {
   return `${kebab(kind)}:${ulid}`;
 }

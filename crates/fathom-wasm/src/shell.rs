@@ -509,7 +509,12 @@ impl Shell {
             );
         }
         match graph.apply_batches(&delta.fragment) {
-            Ok(()) => Vec::new(),
+            Ok(()) => {
+                // What the module now holds, as two counts the page checks against its document.
+                let mut counts = (graph.nodes().count() as u32).to_le_bytes().to_vec();
+                counts.extend_from_slice(&(graph.edges().count() as u32).to_le_bytes());
+                counts
+            }
             Err(e) => resync(format!("{e:?}")),
         }
     }

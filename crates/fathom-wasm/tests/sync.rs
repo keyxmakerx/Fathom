@@ -12,7 +12,7 @@ use fathom_wasm::shell::Shell;
 use fathom_wasm::{OP_CHECKS, OP_EXPORT_PLAIN, OP_LOAD_PLAIN, OP_SYNC};
 
 mod sim;
-use sim::{checks, finding_rows, load, sync_reply, Sim};
+use sim::{checks, finding_rows, load, sync_reply, sync_took, Sim};
 
 fn code(reply: &[u8]) -> Option<u16> {
     match decode_reply(reply) {
@@ -42,14 +42,14 @@ fn held(sim: &Sim) -> (Shell, Vec<u8>) {
 }
 
 #[test]
-fn a_pure_append_is_taken_with_an_empty_reply() {
+fn a_pure_append_is_taken_and_answers_the_held_counts() {
     let mut sim = sim_with(1, 30);
     let (mut sh, _) = held(&sim);
     let seen = sim.g.log().len();
     for _ in 0..10 {
         sim.step();
     }
-    assert!(sync_reply(&mut sh, &sim.g, seen).is_empty());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
     let (mut fresh, want) = held(&sim);
     assert_eq!(export(&mut sh), want);
     assert_eq!(checks(&mut sh), checks(&mut fresh));
@@ -70,7 +70,7 @@ fn an_empty_module_takes_a_whole_log_from_none() {
     let mut sh = Shell::new();
     let empty = Graph::new();
     load(&mut sh, &empty);
-    assert!(sync_reply(&mut sh, &sim.g, 0).is_empty());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, 0), &sim.g));
     let (_, want) = held(&sim);
     assert_eq!(export(&mut sh), want);
 }
@@ -109,7 +109,7 @@ fn a_base_that_is_not_the_modules_last_batch_is_resync() {
     );
     assert_eq!(export(&mut sh), before);
     // The right one still lands afterwards.
-    assert!(sync_reply(&mut sh, &sim.g, seen).is_empty());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn the_same_delta_twice_is_refused_the_second_time() {
     for _ in 0..4 {
         sim.step();
     }
-    assert!(sync_reply(&mut sh, &sim.g, seen).is_empty());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
     let after = export(&mut sh);
     assert_eq!(code(&sync_reply(&mut sh, &sim.g, seen)), Some(ERR_RESYNC));
     assert_eq!(export(&mut sh), after);
@@ -215,7 +215,7 @@ fn a_failure_in_a_later_batch_leaves_the_estate_untouched() {
         "no earlier batch of the delta survived"
     );
     // The honest delta still lands.
-    assert!(sync_reply(&mut sh, &sim.g, seen).is_empty());
+    assert!(sync_took(&sync_reply(&mut sh, &sim.g, seen), &sim.g));
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn fuzzed_frames_never_panic_and_a_refusal_changes_nothing() {
     let (mut refused, mut accepted) = (0, 0);
     let mut try_frame = |sh: &mut Shell, before: &mut Vec<u8>, frame: &[u8]| {
         let reply = sh.handle(OP_SYNC, frame);
-        if reply.is_empty() {
+        if code(&reply).is_none() {
             // A mutation that still parses and applies: a new baseline for the module.
             accepted += 1;
             *before = export(sh);
@@ -300,7 +300,7 @@ fn fuzzed_frames_never_panic_and_a_refusal_changes_nothing() {
 
 /// Sync, check, compare with a fresh full load; return the rule ids standing.
 fn step_check(inc: &mut Shell, sim: &Sim, seen: &mut usize) -> Vec<String> {
-    assert!(sync_reply(inc, &sim.g, *seen).is_empty());
+    assert!(sync_took(&sync_reply(inc, &sim.g, *seen), &sim.g));
     *seen = sim.g.log().len();
     let got = checks(inc);
     let mut fresh = Shell::new();

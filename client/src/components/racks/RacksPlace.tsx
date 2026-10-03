@@ -296,12 +296,17 @@ export function RacksPlace(props: RacksPlaceProps) {
     return mirrorPromiseRef.current;
   }, []);
 
-  // How long the last load of the module took, ms: Checks sizes its wait and its guard by it.
+  // How long the last sync of the module took, ms: Checks sizes its wait and its guard by it. After the first
+  // full load the next sync is a delta, so one full load says little about it and is not counted; a second
+  // full load in a row (the module keeps answering "resync needed") is the real cost and is.
   const loadCostRef = useRef<number | null>(null);
+  const fullStreakRef = useRef(0);
   const loadInto = useCallback((mirror: Mirror, target: Document) => {
     const t0 = performance.now();
-    mirror.load(target);
-    loadCostRef.current = performance.now() - t0;
+    const kind = mirror.sync(target);
+    const ms = performance.now() - t0;
+    fullStreakRef.current = kind === 'full' ? fullStreakRef.current + 1 : 0;
+    if (kind === 'delta' || (kind === 'full' && fullStreakRef.current > 1)) loadCostRef.current = ms;
     mirrorLoadedDocRef.current = target;
   }, []);
 
@@ -447,7 +452,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       // now, synchronously (`Mirror.inside` has no async door to await
       // one), but only pays the reload when the module is actually stale.
       if (doc != null && mirrorLoadedDocRef.current !== doc) {
-        mirrorRef.current.load(doc);
+        mirrorRef.current.sync(doc);
         mirrorLoadedDocRef.current = doc;
       }
       const faces = mirrorRef.current.inside(chassis.deviceId);

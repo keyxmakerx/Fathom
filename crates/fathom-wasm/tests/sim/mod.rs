@@ -500,6 +500,15 @@ pub fn sync_reply(shell: &mut Shell, g: &Graph, from: usize) -> Vec<u8> {
     )
 }
 
+/// Did `OP_SYNC` take the delta? The reply is the held estate's node and edge counts; they must
+/// be the writer's own.
+pub fn sync_took(reply: &[u8], g: &Graph) -> bool {
+    let counts = [g.nodes().count() as u32, g.edges().count() as u32];
+    reply.len() == 8
+        && reply[..4] == counts[0].to_le_bytes()
+        && reply[4..] == counts[1].to_le_bytes()
+}
+
 pub fn finding_rows(reply: &[u8]) -> Vec<Vec<String>> {
     match decode_reply(reply) {
         Ok(ReplyView::FaceRows(r)) => r

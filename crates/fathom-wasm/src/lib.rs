@@ -364,7 +364,10 @@ pub const OP_CHECK_GESTURE: u32 = 33;
 /// (the new batches, the provenance they cite, the state of what they touched) and the id of the
 /// batch the sender believes the module ends at. No host clock or entropy: nothing new is minted.
 ///
-/// Reply: empty on success. **Anything else is `ERR_RESYNC` and the module is unchanged**: no
+/// Reply on success: 8 raw bytes, the node count then the edge count of the held estate
+/// (`u32` little-endian each, tombstoned elements included), which the page checks against its
+/// own document: a count that differs is a document change no batch told the module about, and
+/// the page loads the whole design. **Anything else is `ERR_RESYNC` and the module is unchanged**: no
 /// estate, a base that is not the module's last batch, a frame that does not parse, a batch the
 /// store refuses, or a fragment that disagrees with its own ops. The page answers with a full
 /// `OP_LOAD_PLAIN`. All batches apply or none do; the graph keeps its identity, so `OP_CHECKS`

@@ -643,6 +643,24 @@ export class Engine {
     }
   }
 
+  /** `OP_SYNC`: append the batches the module has not seen (`writeDelta`'s bytes). On success the
+   * node and edge counts the module now holds, for the caller to check against its document;
+   * `null` on ERR_RESYNC, which leaves the module unchanged and means "send the whole design".
+   * Any other refusal is a real fault and throws. */
+  syncDelta(bytes: Uint8Array): { nodes: number; edges: number } | null {
+    const reply = this.wasm.call(OPCODES.OP_SYNC, bytes);
+    if (reply.length === 8) {
+      const v = new DataView(reply.buffer, reply.byteOffset, 8);
+      return { nodes: v.getUint32(0, true), edges: v.getUint32(4, true) };
+    }
+    const view = decodeReply(reply);
+    if (view.kind === 'error') {
+      if (view.error.code === ERRORS.ERR_RESYNC) return null;
+      throw new EngineError(view.error.code, view.error.detail);
+    }
+    throw new EngineError(0, 'OP_SYNC answered something that is neither counts nor an error');
+  }
+
   /** Door two: export the module's held estate as plain-face bytes — the
    * mirror of `loadPlain`, so every save carries what the gate let through.
    * The reply is the plain-face bytes THEMSELVES on success, not an FDLT

@@ -15,7 +15,7 @@ use fathom_wasm::shell::Shell;
 use fathom_wasm::OP_EXPORT_PLAIN;
 
 mod sim;
-use sim::{checks, finding_rows, load, sync_reply, Rng, Sim};
+use sim::{checks, finding_rows, load, sync_reply, sync_took, Rng, Sim};
 
 fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
     let mut sim = Sim::new(seed);
@@ -38,7 +38,7 @@ fn run(seed: u64, steps: usize, stats: &mut BTreeMap<&'static str, usize>) {
         }
         let reply = sync_reply(&mut inc, &sim.g, seen);
         assert!(
-            reply.is_empty(),
+            sync_took(&reply, &sim.g),
             "seed {seed} step {step}: a pure append must sync, got {:?}",
             decode_reply(&reply)
         );
