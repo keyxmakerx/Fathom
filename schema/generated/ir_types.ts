@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.13";
+export const SCHEMA_VERSION = "0.14";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -67,7 +67,10 @@ export type NodeKind =
   | "PublishedPort"
   | "Tag"
   | "Label"
-  | "Line";
+  | "Line"
+  | "Doc"
+  | "DocLink"
+  | "DocFile";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -130,6 +133,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Tag",
   "Label",
   "Line",
+  "Doc",
+  "DocLink",
+  "DocFile",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -236,7 +242,11 @@ export type EdgeKind =
   | "TaggedWith"
   | "HasLabel"
   | "HasLine"
-  | "LineEnd";
+  | "LineEnd"
+  | "HasDoc"
+  | "DocOn"
+  | "HasDocLink"
+  | "HasDocFile";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -341,6 +351,10 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLabel",
   "HasLine",
   "LineEnd",
+  "HasDoc",
+  "DocOn",
+  "HasDocLink",
+  "HasDocFile",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -485,6 +499,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Tag: ["name"],
   Label: ["text", "form", "w", "h"],
   Line: ["label"],
+  Doc: ["title", "body", "how", "model"],
+  DocLink: ["title", "url"],
+  DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -839,4 +856,17 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Line.label": 348,
   "LineEnd.end": 349,
   "PassiveNode.slots": 350,
+  "Doc.title": 351,
+  "Doc.body": 352,
+  "Doc.how": 353,
+  "Doc.model": 354,
+  "DocLink.title": 355,
+  "DocLink.url": 356,
+  "DocFile.name": 357,
+  "DocFile.size": 358,
+  "DocFile.media": 359,
+  "DocFile.checked": 360,
+  "DocFile.removed": 361,
+  "DocFile.file_id": 362,
+  "DocFile.sha256": 363,
 };

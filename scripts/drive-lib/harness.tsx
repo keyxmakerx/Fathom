@@ -99,6 +99,8 @@ declare global {
      * script can tell a scene that never wrote anything apart from one whose
      * writes all happened to load fine. */
     __saveCount__: number;
+    /** Every body this backend stored as a doc file, as Latin-1 text. */
+    __uploads__: string[];
     /** The `positionU` the last saved document gives the chassis with this hostname. */
     __savedPositionU__: (hostname: string) => number | null;
   }
@@ -153,6 +155,8 @@ async function main() {
   // than one test.
   window.__saveLoadFailures__ = [];
   window.__saveCount__ = 0;
+  window.__uploads__ = [];
+  const driveFiles: Record<string, Uint8Array> = {};
   let verifyEngine: Engine | null = null;
   try {
     verifyEngine = await Engine.init();
@@ -243,6 +247,19 @@ async function main() {
         }
       }
       return new Response(`${version}\n`, { status: 200 });
+    }
+    // Doc files: kept in memory, answered the way `store_file_handler` does (`{id} {media}`).
+    if (method === 'POST' && p === `${org}/designs/${DESIGN_ID}/files`) {
+      const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, '0')).join('');
+      const head = String.fromCharCode(...requestBody.slice(0, 5));
+      const media = head === '%PDF-' ? 'pdf' : requestBody[0] === 0x89 ? 'image' : 'text';
+      driveFiles[id] = requestBody;
+      window.__uploads__.push(bytesToLatin1(requestBody));
+      return new Response(`${id} ${media}\n`, { status: 200 });
+    }
+    if (method === 'GET' && p.startsWith(`${org}/designs/${DESIGN_ID}/files/`)) {
+      const hit = driveFiles[p.split('/').pop() ?? ''];
+      return hit ? new Response(hit as BodyInit, { status: 200 }) : new Response('no such file\n', { status: 404 });
     }
     if (method === 'GET' && p === '/catalogue/models') {
       return json(cat.list);
