@@ -14,8 +14,8 @@ use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CABLE_COUNT, ERR_CABLE_END, ERR_CORPUS_LOAD,
     ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
     ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
-    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_RESYNC, ERR_UNKNOWN_OP,
-    ERR_WELD_REFUSED,
+    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_PLATFORM_CHOICE,
+    ERR_RESYNC, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
@@ -34,13 +34,11 @@ pub struct Shell {
     estate: Option<fathom_graph::Graph>,
     /// The schema version `OP_LOAD_PLAIN` last read the estate under; a delta must declare it.
     estate_schema: String,
-    /// The junos-srx statement dictionary, handed in over `OP_DICT` and held for the
-    /// module's lifetime. Absent until that succeeds, so `OP_PASTE` can refuse with
-    /// `ERR_NO_DICTIONARY`.
-    dict: Option<fathom_ingest::dict::Dictionary>,
-    /// The OPNsense firewall-rules dictionary, likewise. A second slot, not a
-    /// replacement: a paste chooses one and the other must remain for the next.
-    csv_dict: Option<fathom_ingest::dict::Dictionary>,
+    /// Every dictionary handed in over `OP_DICT`, keyed by its own `platform:` line and
+    /// held for the module's lifetime. Booting one platform never replaces another.
+    /// `opnsense` is the rules-CSV one; the rest are set-form. Empty until `OP_DICT`
+    /// succeeds, so `OP_PASTE` can refuse with `ERR_NO_DICTIONARY`.
+    dicts: std::collections::BTreeMap<String, fathom_ingest::dict::Dictionary>,
     /// The rule pack and its cache over `estate` (ADR-0061 §5).
     checks: crate::checks::Checks,
 }
@@ -50,9 +48,8 @@ impl Shell {
         Shell {
             finder: None,
             estate: None,
+            dicts: std::collections::BTreeMap::new(),
             estate_schema: fathom_ir::generated::ir_types::SCHEMA_VERSION.to_owned(),
-            dict: None,
-            csv_dict: None,
             checks: crate::checks::Checks::new(),
         }
     }
@@ -74,11 +71,7 @@ impl Shell {
             // read a paste provenanced as another's, unnoticed.
             OP_DICT => match crate::dictframe::load(req) {
                 Ok(d) => {
-                    if d.platform() == "opnsense" {
-                        self.csv_dict = Some(d);
-                    } else {
-                        self.dict = Some(d);
-                    }
+                    self.dicts.insert(d.platform().to_owned(), d);
                     Vec::new()
                 }
                 Err((code, detail)) => protocol::encode_error(code, &detail),
@@ -134,56 +127,54 @@ impl Shell {
         Vec::new()
     }
 
-    /// The dictionary choice, the ingest run, and the two typed refusals both paste
-    /// doors share (`OP_PASTE`, `OP_PASTE_INTO`, ADR-0052 §4): no dictionary yet, and
-    /// a paste that bound nothing.
+    /// The dictionary choice, the ingest run, and the typed refusals both paste doors
+    /// share (`OP_PASTE`, `OP_PASTE_INTO`, ADR-0052 §4): no dictionary yet, a platform
+    /// that cannot be told, and a paste that bound nothing.
+    ///
+    /// `hint` is the platform the page named (a device's model, or the operator's
+    /// answer). With none, the platform is detected: the rules-CSV header is an exact
+    /// sniff (`64` §1.1); otherwise every set-form dictionary reads the text and the one
+    /// that binds clearly most wins. A near tie is `ERR_PLATFORM_CHOICE` listing the
+    /// candidates, never a guess. Every outcome here runs before anything is stored, and
+    /// the ingest that wins is the gated one.
     ///
     /// Returns the platform name as an owned `String`, since the caller's weld needs
-    /// `self.estate` mutably borrowed while `platform` is live, and a borrow of
-    /// `self.dict`/`self.csv_dict` cannot outlive that.
+    /// `self.estate` mutably borrowed while `platform` is live.
     fn ingest_paste_text(
         &self,
         text: &[u8],
+        hint: Option<&str>,
     ) -> Result<(fathom_ingest::IngestOutput, String), Vec<u8>> {
-        // Which grammar? The sniff is exact: the first non-blank line must begin `@uuid`
-        // then `;` or `,`, the OPNsense Migration assistant's header (`64` §1.1). A
-        // fuzzy sniff would sometimes read Junos as a table and replace the estate with
-        // nonsense.
-        let table = fathom_ingest::csv::looks_like_rules_csv(text);
+        let refuse = |e| protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e));
+        let table = match hint {
+            Some(p) => p == "opnsense",
+            None => fathom_ingest::csv::looks_like_rules_csv(text),
+        };
 
         // No fallback, by design: the dictionary bytes live in the page
         // (`crate::dictframe`), and carrying on with an empty one binds nothing, telling
-        // the operator their config is unrecognised when the page never finished
-        // booting.
-        //
-        // Two slots, and the refusals are worded apart: a page that booted one
-        // dictionary but not the other is a different defect from one that booted
-        // neither, and "no dictionary" would send the reader to the wrong place.
-        let held = if table {
-            self.csv_dict.as_ref()
-        } else {
-            self.dict.as_ref()
-        };
-        let Some(dict) = held else {
-            return Err(protocol::encode_error(
+        // the operator their config is unrecognised when the page never finished booting.
+        let missing = |what: &str| {
+            Err(protocol::encode_error(
                 ERR_NO_DICTIONARY,
-                if table {
-                    "no table dictionary is loaded: OP_DICT must hand in a rules-CSV \
-                     dictionary before a rules export can be read"
-                } else {
-                    "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE"
-                },
-            ));
+                &format!("no {what} dictionary is loaded: OP_DICT must succeed before OP_PASTE"),
+            ))
         };
 
-        let read = if table {
-            fathom_ingest::csv::ingest_csv(text, dict)
+        let (ingest, platform) = if table {
+            let Some(dict) = self.dicts.get("opnsense") else {
+                return missing("table");
+            };
+            let read = fathom_ingest::csv::ingest_csv(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if let Some(p) = hint {
+            let Some(dict) = self.dicts.get(p).filter(|_| p != "opnsense") else {
+                return missing("statement");
+            };
+            let read = fathom_ingest::ingest(text, dict).map_err(refuse)?;
+            (read, p.to_owned())
         } else {
-            fathom_ingest::ingest(text, dict)
-        };
-        let ingest = match read {
-            Ok(o) => o,
-            Err(e) => return Err(protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e))),
+            self.detect_set_form(text)?
         };
 
         // A paste that bound nothing is not an estate. The binder seeds a `Device` root
@@ -199,33 +190,102 @@ impl Shell {
             ));
         }
 
-        Ok((ingest, dict.platform().to_owned()))
+        Ok((ingest, platform))
+    }
+
+    /// Which set-form platform wrote this text. Each loaded dictionary reads it; a line
+    /// only ONE dictionary binds is evidence for it (SRX and EX share `system` and most
+    /// `interfaces` lines, so raw counts mislead). One platform with such lines wins. Two
+    /// or more, or none with the lines bound by several, is `ERR_PLATFORM_CHOICE`, the
+    /// detail the candidates comma-separated. Nothing binding anywhere falls through to
+    /// the usual `ERR_NOTHING_UNDERSTOOD` wording.
+    fn detect_set_form(
+        &self,
+        text: &[u8],
+    ) -> Result<(fathom_ingest::IngestOutput, String), Vec<u8>> {
+        use std::collections::BTreeSet;
+        let mut reads = Vec::new();
+        for (name, dict) in self.dicts.iter().filter(|(n, _)| *n != "opnsense") {
+            let out = fathom_ingest::ingest(text, dict)
+                .map_err(|e| protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)))?;
+            let bound: BTreeSet<u32> = out
+                .ledger
+                .lines
+                .iter()
+                .filter(|e| matches!(e.outcome, fathom_ingest::frame::LineOutcome::Bound { .. }))
+                .map(|e| e.ordinal.0)
+                .collect();
+            reads.push((name.clone(), bound, out));
+        }
+        if reads.is_empty() {
+            return Err(protocol::encode_error(
+                ERR_NO_DICTIONARY,
+                "no statement dictionary is loaded: OP_DICT must succeed before OP_PASTE",
+            ));
+        }
+        let only_mine = |i: usize| {
+            reads[i].1.iter().any(|l| {
+                reads
+                    .iter()
+                    .enumerate()
+                    .all(|(j, r)| j == i || !r.1.contains(l))
+            })
+        };
+        let mut rivals: Vec<usize> = (0..reads.len()).filter(|i| only_mine(*i)).collect();
+        if rivals.is_empty() {
+            rivals = (0..reads.len())
+                .filter(|i| !reads[*i].1.is_empty())
+                .collect();
+        }
+        if rivals.len() > 1 {
+            let names: Vec<&str> = rivals.iter().map(|i| reads[*i].0.as_str()).collect();
+            return Err(protocol::encode_error(
+                ERR_PLATFORM_CHOICE,
+                &names.join(","),
+            ));
+        }
+        // One candidate, or none binding at all (the caller refuses that as nothing
+        // understood; any dictionary's ingest carries the same residue).
+        let (name, _, out) = reads.swap_remove(rivals.first().copied().unwrap_or(0));
+        Ok((out, name))
     }
 
     /// `OP_REDACT_TEXT`: the gate alone, for a pasted note (ADR-0053 §6); see
     /// [`crate::OP_REDACT_TEXT`] for the frame and reply.
     ///
-    /// Set-form dictionary only: a note has no platform to sniff, and
-    /// `fathom_ingest::redact_only`'s stages are the Junos-set-form ones `self.dict`
-    /// was loaded for. Writes nothing: `self.estate` is untouched on success or
-    /// refusal.
+    /// Set-form dictionaries only, ALL of them in turn: a note has no platform to sniff,
+    /// and `fathom_ingest::redact_only`'s stages are the set-form ones, so each loaded
+    /// platform's secret-bearing statements are destroyed, never just one's. A later pass
+    /// reads the earlier pass's output; drop rows are summed (their offsets are per pass).
+    /// Writes nothing: `self.estate` is untouched on success or refusal.
     fn redact_text(&self, req: &[u8]) -> Vec<u8> {
-        let Some(dict) = self.dict.as_ref() else {
+        let mut dicts = self
+            .dicts
+            .iter()
+            .filter(|(n, _)| *n != "opnsense")
+            .peekable();
+        if dicts.peek().is_none() {
             return protocol::encode_error(
                 ERR_NO_DICTIONARY,
                 "no statement dictionary is loaded: OP_DICT must succeed before OP_REDACT_TEXT",
             );
-        };
-        match fathom_ingest::redact_only(req, dict) {
-            Ok(out) => {
-                let drops = drop_rows(&out.drops);
-                protocol::encode_redact_reply(&protocol::RedactReply {
-                    capture: out.text.text(),
-                    drops: &drops,
-                })
-            }
-            Err(e) => protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
         }
+        let mut text = req.to_vec();
+        let mut drops = Vec::new();
+        for (_, dict) in dicts {
+            match fathom_ingest::redact_only(&text, dict) {
+                Ok(out) => {
+                    drops.extend(drop_rows(&out.drops));
+                    text = out.text.text().as_bytes().to_vec();
+                }
+                Err(e) => return protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)),
+            }
+        }
+        let capture = String::from_utf8_lossy(&text);
+        protocol::encode_redact_reply(&protocol::RedactReply {
+            capture: &capture,
+            drops: &drops,
+        })
     }
 
     /// `OP_PASTE`: pasted text in, an estate out.
@@ -265,10 +325,14 @@ impl Shell {
         entropy.copy_from_slice(entropy_bytes);
         let at = fathom_graph::Timestamp(u64::from_le_bytes(at));
         let entropy = u128::from_le_bytes(entropy);
-        let confirmed = confirm_bytes[0] == 1;
+        let confirmed = confirm_bytes[0] & 1 == 1;
+        let hint = match protocol::paste_platform(confirm_bytes[0]) {
+            Ok(h) => h,
+            Err(reply) => return reply,
+        };
         let text = req.get(PREFIX..).unwrap_or_default();
 
-        let (ingest, platform) = match self.ingest_paste_text(text) {
+        let (ingest, platform) = match self.ingest_paste_text(text, hint) {
             Ok(v) => v,
             Err(reply) => return reply,
         };
@@ -419,7 +483,11 @@ impl Shell {
         };
         let at = fathom_graph::Timestamp(u64::from_le_bytes(le8(head, 0)));
         let entropy = u128::from_le_bytes(le16(head, 8));
-        // Byte 24 is the confirm flag `OP_PASTE` carries; unused here.
+        // Byte 24 is `OP_PASTE`'s flag byte: confirm is unused here, the platform is not.
+        let hint = match protocol::paste_platform(head[24]) {
+            Ok(h) => h,
+            Err(reply) => return reply,
+        };
         let id_len = usize::from(u16::from_le_bytes([
             *head.get(25).unwrap_or(&0),
             *head.get(26).unwrap_or(&0),
@@ -450,7 +518,7 @@ impl Shell {
             Err(reply) => return reply,
         };
 
-        let (ingest, platform) = match self.ingest_paste_text(text) {
+        let (ingest, platform) = match self.ingest_paste_text(text, hint) {
             Ok(v) => v,
             Err(reply) => return reply,
         };
@@ -2753,11 +2821,11 @@ fn nothing_understood(ingest: &fathom_ingest::IngestOutput) -> String {
     if not_verb_initial > 0 {
         return format!(
             "none of these {} lines starts with a Junos configuration verb, so nothing here \
-             could be read as a Juniper `set` statement — the first line reads `{}`. If this is \
-             a different vendor, Fathom only knows Juniper SRX today. Nothing was changed; what \
-             you had is still loaded.",
+             could be read as a Juniper `set` statement — it stopped at line {}. If this is \
+             a different vendor, Fathom reads Junos, EdgeOS and OPNsense today. Nothing was \
+             changed; what you had is still loaded.",
             lines.len(),
-            lines.first().copied().unwrap_or_default()
+            ingest.residue.first().map_or(1, |r| r.ordinal.0 + 1)
         );
     }
 

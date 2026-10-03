@@ -104,3 +104,15 @@ pub fn booted_shell() -> Shell {
     }
     shell
 }
+
+/// Every dictionary the page boots (`client/src/engine/engine.ts` `DICT_PLATFORMS`),
+/// in that order. The holding-several-at-once tests need all four.
+#[allow(dead_code)]
+pub fn all_booted_shell() -> Shell {
+    let mut shell = Shell::new();
+    for platform in ["junos-srx", "opnsense", "junos-ex", "edgeos"] {
+        let reply = shell.handle(OP_DICT, &frame_of(&platform_sources(platform)));
+        assert!(reply.is_empty(), "{platform} must boot");
+    }
+    shell
+}

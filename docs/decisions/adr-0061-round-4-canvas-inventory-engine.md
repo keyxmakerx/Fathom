@@ -134,5 +134,19 @@ Still open: private custom fields (#93 builds shared fields only).
   Files open as downloads, never inside Fathom.
 - **Guided lessons:** sample networks first, each lesson in its own copy that can't touch a real
   design; lessons on your own design follow later as a lesson type.
-- **Inventory's list of kinds:** sent back. Key Maker leaned to the flat list (A) as cleaner but
-  asked for a mix of both, worked from real lookups. A new card follows.
+- **Inventory's list of kinds:** sent back, then settled below.
+
+## Round 10, later answers (2026-10-03)
+
+- **Inventory at scale** (prototype v5, after a three-reviewer panel): kinds in a side list with
+  saved views nested under them; Ports is a kind; a Where bar (site, room, rack) scopes everything.
+  One search box reads any clue (label, part of one, MAC in any format, device and port, serial)
+  and says how it read it; it jumps only on one exact match. One filter language, reached by typing
+  (with a "?" field list and suggestions), column menus or a Filters panel; it lives in the URL and
+  saves as a view. A cable page walks the path through patch panels; field corrections are
+  proposals someone with Draw accepts. Opening a row replaces the list; Back restores it.
+- **Files the gate can't read:** photos and scanned pages are allowed, labelled "Not checked",
+  after the person adding each one confirms it shows no passwords. A PDF's text is checked in the
+  browser once a PDF reader passes security review; until then PDFs are "Not checked" too.
+- **Delete for good** (design thread): removing a file stays undoable; a separate delete erases the
+  stored bytes and keeps name, size, hash, who and when in history. Before alpha.

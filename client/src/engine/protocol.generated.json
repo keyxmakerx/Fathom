@@ -121,6 +121,7 @@
     "ERR_CABLE_END": 19,
     "ERR_NO_CABLE": 20,
     "ERR_PLAIN_REFUSED": 21,
-    "ERR_RESYNC": 22
+    "ERR_RESYNC": 22,
+    "ERR_PLATFORM_CHOICE": 23
   }
 }

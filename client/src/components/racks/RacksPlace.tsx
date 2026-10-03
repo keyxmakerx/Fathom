@@ -26,12 +26,15 @@ import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
-import { previewPaste, worthReading } from '../paste/pasteConfig';
+import type { PastePlatform } from '../../engine/frames';
+import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
+import { layerWords } from '../drawing/layerLabels';
+import { loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
@@ -243,6 +246,18 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [accountId, session.designId],
   );
+  // The Show menu's ticked layers: this person's, this design's, this browser's.
+  const [layers, setLayers] = useState<LayerSet>(() => loadLayers(accountId, session.designId));
+  useEffect(() => setLayers(loadLayers(accountId, session.designId)), [accountId, session.designId]);
+  const toggleLayer = useCallback(
+    (id: LayerId) =>
+      setLayers((prev) => {
+        const next = { ...prev, [id]: !prev[id] };
+        saveLayers(accountId, session.designId, next);
+        return next;
+      }),
+    [accountId, session.designId],
+  );
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -398,9 +413,13 @@ export function RacksPlace(props: RacksPlaceProps) {
     setSelectedLinePortLabel(null);
   }, [selectedChassisId]);
 
+  // The drawer's paste asks "which device is this from?" only when the device has no platform of its own
+  // and the engine cannot tell; the text is held for that one question and dropped on any other outcome.
+  const [drawerAsk, setDrawerAsk] = useState<{ deviceId: string; text: string; candidates: PastePlatform[] } | null>(null);
   const handlePasteInto = useCallback(
-    (deviceId: string, text: string) => {
+    (deviceId: string, text: string, platform?: PastePlatform) => {
       setPasteRefusal(null);
+      setDrawerAsk(null);
       withMirror()
         .then((mirror) => {
           // Door three, ADR-0052 §4: "the human answer ADR-0010 asks for" —
@@ -409,7 +428,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           // saved document's own provenance on reopen (`document/capture.ts`'s
           // `captureOf`, ADR-0052 §3) rather than kept from this reply, so
           // only the `Document` it returns is used here.
-          const { doc: nextDoc } = mirror.pasteInto(deviceId, text);
+          const { doc: nextDoc } = mirror.pasteInto(deviceId, text, platform ?? (doc ? devicePlatform(doc, deviceId) : null) ?? undefined);
           // The module already holds exactly this document — its own
           // `OP_EXPORT_PLAIN` is what `nextDoc` was read back from
           // (`mirror.ts`'s `pasteInto`) — so the next call to reach for the
@@ -424,9 +443,13 @@ export function RacksPlace(props: RacksPlaceProps) {
         // (ADR-0052 §5's amendment on a second paste, among others); this
         // file's own `describeError` is for the server's refusals, a
         // different vocabulary.
-        .catch((error: unknown) => setPasteRefusal(refusalSentence(error)));
+        .catch((error: unknown) => {
+          const candidates = platformChoices(error);
+          if (candidates !== null) setDrawerAsk({ deviceId, text, candidates });
+          else setPasteRefusal(refusalSentence(error));
+        });
     },
-    [withMirror, applyDocChange],
+    [withMirror, applyDocChange, doc],
   );
 
   // ADR-0052 §5 — "when a chassis is selected
@@ -525,6 +548,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           },
     [realView],
   );
+  const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -690,20 +714,29 @@ export function RacksPlace(props: RacksPlaceProps) {
     const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
     return nextFreeSpot(taken);
   }, [realView.free, realView.labels]);
+  // Held only while the card asks "which device is this from?"; cleared on every other outcome.
+  const pendingPasteRef = useRef<string | null>(null);
   const startPaste = useCallback(
-    (text: string) => {
+    (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
+      pendingPasteRef.current = null;
       setPasteState({ kind: 'reading' });
       withMirror()
         .then((mirror) => {
           const at = openSpot();
-          const preview = previewPaste(mirror, doc, text, at, actorOpts(accountId));
+          const preview = previewPaste(mirror, doc, text, at, actorOpts(accountId), platform);
           // The module now holds the scratch design the preview was read from.
           mirrorLoadedDocRef.current = null;
           setPasteState({ kind: 'card', preview, base: doc });
         })
         .catch((error: unknown) => {
           mirrorLoadedDocRef.current = null;
+          const candidates = platformChoices(error);
+          if (candidates !== null) {
+            pendingPasteRef.current = text;
+            setPasteState({ kind: 'which', candidates });
+            return;
+          }
           setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
@@ -1055,7 +1088,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
       <ChecksContext.Provider value={checks.api}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
@@ -1067,6 +1100,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          words={words}
         />
       ) : (
         <Drawing
@@ -1135,8 +1169,29 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
         />
       ) : null}
+      {drawerAsk != null && pasteState == null ? (
+        <PasteCard
+          state={{ kind: 'which', candidates: drawerAsk.candidates }}
+          onText={() => {}}
+          onPlatform={(p) => handlePasteInto(drawerAsk.deviceId, drawerAsk.text, p)}
+          onChoose={() => {}}
+          onCancel={() => setDrawerAsk(null)}
+        />
+      ) : null}
       {pasteState != null ? (
-        <PasteCard state={pasteState} onText={startPaste} onChoose={handlePasteChoice} onCancel={() => setPasteState(null)} />
+        <PasteCard
+          state={pasteState}
+          onText={(t) => startPaste(t)}
+          onPlatform={(p) => {
+            const text = pendingPasteRef.current;
+            if (text != null) startPaste(text, p);
+          }}
+          onChoose={handlePasteChoice}
+          onCancel={() => {
+            pendingPasteRef.current = null;
+            setPasteState(null);
+          }}
+        />
       ) : null}
       {canvasNotice != null ? (
         <div className="racks-place__notice" role="status" data-testid="canvas-notice">
