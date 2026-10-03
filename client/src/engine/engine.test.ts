@@ -27,6 +27,7 @@ import { createFreeBox, createLabel, createLine, removeFree, setLineLabel } from
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
 import { undo } from '../document/undo';
+import { addStep, createPlan, markDone, markWentDifferently, recordPlan, startPlan, readPlan } from '../document/plans';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = path.resolve(__dirname, '../../public/engine/fathom_wasm.wasm');
@@ -678,5 +679,74 @@ describe('OP_CHECKS (32) and OP_CHECK_GESTURE (33)', () => {
     const { doc } = labDoc();
     engine.loadPlain(writePlain(doc));
     expect(engine.checkCable({ port: 'physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAV' }, 'unknown', '')).toEqual([]);
+  });
+});
+
+describe('maintenance plans (OP_PLAN_PREVIEW 34, and the gate on plan text)', () => {
+  const step = (() => {
+    let now = 1_790_800_000_000;
+    return () => ({ actor: '01ARZ3NDEKTSV4RRFFQ69G5FAV', now: (now += 1000) });
+  })();
+  const gate = (t: string) => engine.redactText(t).text;
+  function lab() {
+    let doc = emptyDocument();
+    const ports: string[] = [];
+    for (const label of ['Et1', 'Et2', 'Et3']) {
+      const before = doc;
+      doc = createSketchDevice(doc, step());
+      const chassis = doc.nodes.find((n) => n.id.startsWith('chassis:') && !before.nodes.some((b) => b.id === n.id))!.id;
+      doc = addSketchPort(doc, chassis, { label, connector: 'rj45', face: 'front' }, step());
+      ports.push(edgesOut(doc, chassis, 'HasPort')[0]!.to);
+    }
+    return { doc, ports };
+  }
+
+  it('previews each step in order, says what it adds, and changes nothing', () => {
+    const { doc, ports } = lab();
+    const cabled = connectPorts(doc, ports[0], ports[2], {}, step());
+    let made = createPlan(cabled, { title: 'Re-patch', gate, ...step() });
+    // Et1 already carries a cable: cabling it again is refused by the checks, after step 2 only.
+    for (const edit of [
+      { t: 'cable', a: ports[1], b: ports[2] },
+      { t: 'cable', a: ports[0], b: ports[1] },
+    ] as const) {
+      const s = addStep(made.doc, made.id, { kind: 'cable', change: 'cable it', edit, gate, ...step() });
+      made = { doc: s.doc, id: made.id };
+    }
+    engine.loadPlain(writePlain(made.doc));
+    const before = engine.exportPlain();
+    const out = engine.planPreview(made.id);
+    expect(out.map((s) => s.ordinal)).toEqual([0, 1]);
+    expect(out[0].error).toBe('');
+    expect(out[1].impact.join(' ')).toMatch(/already carries a cable/);
+    expect(out[1].findings.some((f) => f.rule === 'phy.port.already-cabled')).toBe(true);
+    expect(out[1].touches.length).toBeGreaterThan(0);
+    expect(engine.exportPlain()).toEqual(before);
+    expect(engine.planPreview('device:not-a-plan')).toEqual([]);
+  });
+
+  it('real-length device secrets in any plan text never reach the stored plan', () => {
+    const psk = 'Zk9Qw3Lm0PxV7tYsAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-aBcDeF';
+    const line = `set security ike policy ike-pol pre-shared-key ascii-text "${psk}"`;
+    const { doc, ports } = lab();
+    expect(gate('Move the uplink to sw-02 before 06:00')).toBe('Move the uplink to sw-02 before 06:00');
+    const made = createPlan(doc, { title: 'Rotate the key', gate, ...step() });
+    const added = addStep(made.doc, made.id, {
+      kind: 'other',
+      change: 'Rotate the key',
+      before: line,
+      after: line,
+      edit: { t: 'field', id: ports[0], key: 'Device.role', value: line },
+      gate,
+      ...step(),
+    });
+    let d = startPlan(added.doc, made.id, step());
+    d = markWentDifferently(d, added.id, { note: `I pasted this by mistake: ${line}`, gate, ...step() });
+    d = recordPlan(d, made.id, { outcome: 'failed', text: `What went wrong:\n${line}`, gate, ...step() });
+    const stored = JSON.stringify(d.nodes);
+    expect(stored).not.toContain(psk);
+    expect(stored).toContain('REDACTED');
+    expect(readPlan(d, made.id).stage).toBe('recorded');
+    expect(typeof markDone).toBe('function');
   });
 });
