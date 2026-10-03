@@ -1,0 +1,198 @@
+/* The importer dialog (round 9). Same plain rules as the Inventory paste dialog. */
+
+.imp {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: color-mix(in srgb, var(--page) 72%, transparent);
+  display: grid;
+  place-items: center;
+}
+
+.imp__box {
+  width: min(880px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.imp__steps {
+  display: flex;
+  gap: var(--s2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.imp__step {
+  padding: var(--s1) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.imp__step--on {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.imp__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.imp__body h2 {
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.imp__body h3,
+.imp__label {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.imp__muted {
+  color: var(--muted);
+  font-size: var(--t-small);
+  margin: 0;
+}
+
+.imp__mono {
+  font-family: var(--mono, monospace);
+}
+
+.imp__error {
+  color: var(--danger);
+  margin: 0;
+  padding-left: var(--s4);
+}
+
+.imp__drop {
+  border: var(--rule-hair) dashed var(--ink);
+  padding: var(--s5) var(--s4);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.imp__drop--over {
+  background: var(--surface);
+}
+
+.imp button,
+.imp select,
+.imp input:not([type='radio']):not([type='file']) {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+}
+
+.imp button {
+  cursor: pointer;
+}
+
+.imp button:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.imp .imp__primary:not(:disabled) {
+  color: var(--page);
+  background: var(--ink);
+}
+
+.imp__recognised {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding-top: var(--s2);
+}
+
+.imp__file {
+  color: var(--muted);
+}
+
+.imp__scroll {
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.imp__table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.imp__table th,
+.imp__table td {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.imp__table th {
+  border-bottom-color: var(--ink);
+  font-size: var(--t-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.imp__row--new td {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.imp__newfield {
+  display: inline-flex;
+  gap: var(--s1);
+  margin-left: var(--s2);
+}
+
+.imp__diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-bottom: var(--s3);
+}
+
+.imp__pick {
+  display: flex;
+  gap: var(--s4);
+  font-size: var(--t-small);
+}
+
+.imp__names ul {
+  margin: var(--s1) 0 0;
+  padding-left: var(--s4);
+}
+
+.imp__actions {
+  display: flex;
+  gap: var(--s2);
+}
+
+/* The global `input { appearance: none }` collapses radios; restore the native control. */
+.imp__pick input[type='radio'] {
+  appearance: auto;
+  margin-right: var(--s1);
+}

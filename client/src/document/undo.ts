@@ -225,11 +225,11 @@ export class UndoConflictError extends Error {
  * imported (it is `pub(crate)`, not part of the schema or the wire): the
  * bound a batch label is refused past, so "undo of <label>"/"redo of
  * <label>" never mints a label the engine would refuse. */
-const LABEL_MAX_BYTES = 60;
+export const LABEL_MAX_BYTES = 60;
 
 /** Cut `s` at `maxBytes` UTF-8 bytes, on a character boundary — never
  * mid-codepoint. */
-function truncateUtf8(s: string, maxBytes: number): string {
+export function truncateUtf8(s: string, maxBytes: number): string {
   const encoder = new TextEncoder();
   if (encoder.encode(s).length <= maxBytes) return s;
   let end = s.length;
