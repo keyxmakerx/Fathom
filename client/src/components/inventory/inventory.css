@@ -2177,3 +2177,63 @@ button.inv-path__host {
     --cols: minmax(0, 1fr);
   }
 }
+
+/* ---- Corrections from the floor ------------------------------------------------------------ */
+
+.inv-corr {
+  margin-bottom: var(--s4);
+}
+
+.inv-corr__buttons,
+.inv-corr__decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.inv-corr__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.inv-corr__form label {
+  display: grid;
+  gap: var(--s1);
+  flex: 1 1 14rem;
+}
+
+.inv-corr__form p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.inv-corr__waiting,
+.inv-corr__sent {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+}
+
+.inv-corr__waiting li {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.inv-corr__refused {
+  margin: var(--s2) 0 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.inventory-place__waiting {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  width: 100%;
+  margin-top: var(--s3);
+}

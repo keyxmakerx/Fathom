@@ -519,6 +519,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         createField={(kind, name, type) => fieldDefs.create(kind, name, type)}
         redact={redact}
         accountId={accountId}
+        organisationId={organisationId}
       />
     );
 

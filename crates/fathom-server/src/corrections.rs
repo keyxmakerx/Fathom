@@ -42,6 +42,8 @@ pub const MAX_OPEN_PER_SENDER_PER_DESIGN: i64 = 20;
 pub const MAX_OPEN_PER_DESIGN: i64 = 200;
 /// A Read sender's own list is the newest of these.
 const MAX_OWN_LISTED: i64 = 200;
+/// A Draw list also carries this many recently decided ones, for the cable's history.
+const MAX_DECIDED_LISTED: i64 = 100;
 
 /// One correction as the API returns it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +54,7 @@ pub struct Correction {
     pub kind: String,
     pub text: String,
     pub sender: String,
+    pub sender_name: String,
     pub created_ms: i64,
     pub state: String,
     pub decided_by: Option<String>,
@@ -69,6 +72,7 @@ impl Correction {
         m.insert("kind".to_string(), s(&self.kind));
         m.insert("text".to_string(), s(&self.text));
         m.insert("sender".to_string(), s(&self.sender));
+        m.insert("senderName".to_string(), s(&self.sender_name));
         m.insert("createdAt".to_string(), Json::Int(self.created_ms));
         m.insert("state".to_string(), s(&self.state));
         m.insert(
@@ -162,10 +166,11 @@ fn aad(
     a
 }
 
-const COLUMNS: &str = "id, design_id, cable, kind, sender, state, decided_by, version, \
-     ciphertext, nonce, key_epoch, \
-     (extract(epoch from created_at) * 1000)::bigint, \
-     (extract(epoch from decided_at) * 1000)::bigint";
+const COLUMNS: &str = "c.id, c.design_id, c.cable, c.kind, c.sender, c.state, c.decided_by, \
+     c.version, c.ciphertext, c.nonce, c.key_epoch, \
+     (extract(epoch from c.created_at) * 1000)::bigint, \
+     (extract(epoch from c.decided_at) * 1000)::bigint, \
+     (SELECT a.display_name FROM accounts a WHERE a.id = c.sender)";
 
 /// Opens correction rows, fetching each key epoch once per request.
 struct Opener<'a> {
@@ -216,6 +221,7 @@ impl Opener<'_> {
             kind,
             text,
             sender,
+            sender_name: row.get::<_, Option<String>>(13).unwrap_or_default(),
             created_ms: row.get(11),
             state: row.get(5),
             decided_by: row.get(6),
@@ -361,7 +367,7 @@ pub async fn create(
     let row = tx
         .query_one(
             &format!(
-                "SELECT {COLUMNS} FROM cable_corrections WHERE organisation_id = $1 AND id = $2"
+                "SELECT {COLUMNS} FROM cable_corrections c WHERE c.organisation_id = $1 AND c.id = $2"
             ),
             &[&tenant, &id],
         )
@@ -374,7 +380,7 @@ pub async fn create(
     .await
 }
 
-/// `draw`: every open correction on the design, oldest first. `read` only: the caller's own,
+/// `draw`: every open correction on the design, oldest first, and the 100 most recently decided. `read` only: the caller's own,
 /// any state, newest 200. Neither: refused as for a design that is not there.
 pub async fn list(
     tx: &Transaction<'_>,
@@ -405,11 +411,15 @@ pub async fn list(
     let rows = if draws {
         tx.query(
             &format!(
-                "SELECT {COLUMNS} FROM cable_corrections \
-                 WHERE organisation_id = $1 AND design_id = $2 AND state = 'open' \
-                 ORDER BY created_at, id"
+                "SELECT {COLUMNS} FROM cable_corrections c \
+                 WHERE c.organisation_id = $1 AND c.design_id = $2 AND (c.state = 'open' \
+                   OR c.id IN (SELECT d.id FROM cable_corrections d \
+                               WHERE d.organisation_id = $1 AND d.design_id = $2 \
+                                 AND d.state <> 'open' \
+                               ORDER BY d.decided_at DESC, d.id DESC LIMIT $3)) \
+                 ORDER BY c.created_at, c.id"
             ),
-            &[&tenant, &design_text],
+            &[&tenant, &design_text, &MAX_DECIDED_LISTED],
         )
         .await?
     } else {
@@ -417,9 +427,9 @@ pub async fn list(
         let mut rows = tx
             .query(
                 &format!(
-                    "SELECT {COLUMNS} FROM cable_corrections \
-                     WHERE organisation_id = $1 AND design_id = $2 AND sender = $3 \
-                     ORDER BY created_at DESC, id DESC LIMIT $4"
+                    "SELECT {COLUMNS} FROM cable_corrections c \
+                     WHERE c.organisation_id = $1 AND c.design_id = $2 AND c.sender = $3 \
+                     ORDER BY c.created_at DESC, c.id DESC LIMIT $4"
                 ),
                 &[&tenant, &design_text, &me, &MAX_OWN_LISTED],
             )
@@ -454,8 +464,9 @@ pub async fn decide(
     let row = tx
         .query_opt(
             &format!(
-                "SELECT {COLUMNS} FROM cable_corrections \
-                 WHERE organisation_id = $1 AND design_id = $2 AND id = $3 FOR UPDATE"
+                "SELECT {COLUMNS} FROM cable_corrections c \
+                 WHERE c.organisation_id = $1 AND c.design_id = $2 AND c.id = $3 \
+                 FOR UPDATE OF c"
             ),
             &[&tenant, &design.to_string(), &id],
         )
@@ -488,7 +499,7 @@ pub async fn decide(
     let row = tx
         .query_one(
             &format!(
-                "SELECT {COLUMNS} FROM cable_corrections WHERE organisation_id = $1 AND id = $2"
+                "SELECT {COLUMNS} FROM cable_corrections c WHERE c.organisation_id = $1 AND c.id = $2"
             ),
             &[&tenant, &id],
         )

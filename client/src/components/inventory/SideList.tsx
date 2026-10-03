@@ -16,12 +16,14 @@ export interface SideListProps {
   onKind: (kind: Kind) => void;
   onView: (view: SavedView) => void;
   onRemoveView: (view: SavedView) => void;
+  /** Corrections from the floor waiting for someone with Draw; absent for a reader. */
+  waiting?: { count: number; onOpen: () => void };
 }
 
 const fmt = (n: number | null | undefined): string => (n == null ? '…' : n.toLocaleString('en-GB'));
 
 export function SideList(props: SideListProps) {
-  const { kind, viewId, counts, views, viewCounts, onList, onKind, onView, onRemoveView } = props;
+  const { kind, viewId, counts, views, viewCounts, onList, onKind, onView, onRemoveView, waiting } = props;
   return (
     <>
       <nav className="inventory-place__rail" aria-label="Inventory kinds and saved views">
@@ -70,6 +72,16 @@ export function SideList(props: SideListProps) {
             })}
           </ul>
         ))}
+        {waiting && waiting.count > 0 ? (
+          <ul className="inventory-place__kinds inventory-place__group">
+            <li>
+              <button type="button" className="inventory-place__kind inventory-place__waiting" onClick={waiting.onOpen}>
+                <span>Corrections waiting</span>
+                <span className="inventory-place__count">{fmt(waiting.count)}</span>
+              </button>
+            </li>
+          </ul>
+        ) : null}
       </nav>
       <div className="inventory-place__mobile-nav">
         <select aria-label="Kind" value={kind} onChange={(e) => onKind(e.currentTarget.value as Kind)}>
@@ -95,6 +107,11 @@ export function SideList(props: SideListProps) {
             </option>
           ))}
         </select>
+        {waiting && waiting.count > 0 ? (
+          <button type="button" onClick={waiting.onOpen}>
+            Corrections waiting · {fmt(waiting.count)}
+          </button>
+        ) : null}
       </div>
     </>
   );

@@ -5,7 +5,10 @@ import { viewOfAll, type ClosetView } from '../../document/view';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
-import type { DesignSession } from '../design/useDesignSession';
+import { refusalFor, type DesignSession } from '../design/useDesignSession';
+import { useCorrections } from '../design/useCorrections';
+import type { CorrectionsApi } from './CableCorrections';
+import { applyCorrection, whyNotApplicable } from './corrections';
 import { EditorFor, type FieldsActions, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { paletteFromCatalogue } from '../racks/palette';
 import { Shell } from '../Shell';
@@ -82,6 +85,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   /** Runs pasted text through the redaction gate (CLAUDE.md rule 4). */
   redact: (text: string) => Promise<string>;
   accountId: string | null;
+  /** The organisation the design is in, for the corrections store. */
+  organisationId: string;
 }
 
 /** Lets the page paint before the next step of a long job. */
@@ -126,7 +131,7 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -161,6 +166,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   liveDoc.current = doc;
   const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
   const [mine, setMine] = useState<SavedView[]>(loadMine);
+
+  const corrections = useCorrections(organisationId, session.designId);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOfAll(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const placeIdx = useMemo(() => buildPlaceIndex(doc, view), [doc, view]);
@@ -484,6 +491,39 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   };
 
   const actorOpts = ctx.actor ? { actor: ctx.actor } : undefined;
+  // Corrections from the floor. Accepting is the ordinary edit, made by this person as one undoable
+  // batch; the server is asked first, so two people accepting at once make the edit once.
+  const correctionsApi: CorrectionsApi = {
+    list: corrections.list,
+    canDraw,
+    send: corrections.send,
+    accept: async (c) => {
+      if (!liveDoc.current) return { refused: 'No design is open.' };
+      const gone = whyNotApplicable(liveDoc.current, c);
+      if (gone) return { refused: gone };
+      const decided = await corrections.decide(c, 'accept');
+      if ('refused' in decided) return decided;
+      const current = liveDoc.current;
+      try {
+        if (current) applyDocChange(applyCorrection(current, decided, actorOpts));
+      } catch (e) {
+        return refusalFor(e) ?? { refused: 'It was marked accepted, but the edit could not be made.' };
+      }
+    },
+    dismiss: async (c) => {
+      const decided = await corrections.decide(c, 'dismiss');
+      if ('refused' in decided) return decided;
+    },
+  };
+  const waitingCount = canDraw ? corrections.list.filter((c) => c.state === 'open').length : 0;
+  const openFirstWaiting = () => {
+    const here = new Set(view.cables.map((cb) => cb.id));
+    const first = corrections.list.find((c) => c.state === 'open' && here.has(c.cable));
+    const target = first ? linkTarget({ kind: 'cable', id: first.cable }) : null;
+    if (target) push({ kind: target.kind, q: '', sorts: [], view: '', open: target.open, tab: '' });
+    else setNotice('The cables those corrections are about are no longer in this design.');
+  };
+
   const afterIpamWrite = (next: typeof doc, openNext?: string) => {
     if (!next) return;
     applyDocChange(next);
@@ -545,6 +585,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         onShowOnCanvas={() => onShowOnRack(pageSelection)}
         tab={ls.tab}
         onTab={(t) => go({ tab: t })}
+        corrections={correctionsApi}
       />
     ) : null;
 
@@ -579,6 +620,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             onKind={switchKind}
             onView={onView}
             onRemoveView={onRemoveView}
+            waiting={canDraw ? { count: waitingCount, onOpen: openFirstWaiting } : undefined}
           />
 
           {kind === 'networks' ? (

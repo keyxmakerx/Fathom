@@ -4221,9 +4221,12 @@ async fn a_drawer_accepts_or_dismisses_once_and_a_second_decision_is_a_conflict(
     assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
     assert_eq!(text_of(&parsed(&body), "state"), "dismissed");
 
-    // Decided ones leave the Draw list; the sender still sees how each ended.
+    // The Draw list keeps the recently decided ones, marked; the sender sees how each ended.
     let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
-    assert!(list_of(&body).is_empty());
+    let all = list_of(&body);
+    assert!(all.iter().all(|c| text_of(c, "state") != "open"));
+    assert_eq!(all.len(), 2);
+    assert_eq!(text_of(&all[0], "senderName"), "ann");
     let (_, body) = call(addr, &ann, "GET", &path, b"").await;
     let mine = list_of(&body);
     let states: Vec<String> = mine.iter().map(|c| text_of(c, "state")).collect();
