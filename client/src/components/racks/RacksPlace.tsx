@@ -26,6 +26,8 @@ import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
+import { DiagramDrawing } from '../drawing/DiagramDrawing';
+import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
@@ -215,6 +217,17 @@ export function RacksPlace(props: RacksPlaceProps) {
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
+  // Rack or Diagram: this person's choice for this design, kept in this browser.
+  const [look, setLookState] = useState<Look>(() => loadLook(accountId, session.designId));
+  useEffect(() => setLookState(loadLook(accountId, session.designId)), [accountId, session.designId]);
+  const changeLook = useCallback(
+    (next: Look) => {
+      setLookState(next);
+      setCalloutId(null);
+      saveLook(accountId, session.designId, next);
+    },
+    [accountId, session.designId],
+  );
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -861,9 +874,18 @@ export function RacksPlace(props: RacksPlaceProps) {
   ) : null;
 
   return (
-    <Shell {...shellProps} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
+      ) : look === 'diagram' ? (
+        <DiagramDrawing
+          view={displayView}
+          selected={selection}
+          onSelect={setSelection}
+          zoom={shellProps.zoom}
+          onZoomChange={onZoomChange}
+          fitRequest={fitRequest}
+        />
       ) : (
         <Drawing
           view={displayView}
