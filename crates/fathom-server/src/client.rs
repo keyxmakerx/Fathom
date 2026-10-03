@@ -271,7 +271,8 @@ fn cache_control(rel: &Path) -> &'static str {
 ///    framed.
 ///
 /// `img-src` carries `data:` because Vite inlines small assets as data URIs
-/// at build time; `connect-src 'self'` is what the signed-request client
+/// at build time, and the print pack's "This view" picture is a `data:` image
+/// made in the browser (`client/src/print/viewImage.ts`, `PrintPreview.tsx`); `connect-src 'self'` is what the signed-request client
 /// needs and no more.
 ///
 /// # What has been PROVEN and what has only been derived

@@ -237,6 +237,7 @@ describe('doc files', () => {
     expect(f[0]).toMatchObject({ name: 'runbook.txt', size: 120, checked: 'removed', removed: 2, media: 'text' });
     const gone = removeDocFile(withFile, f[0]!.id, { actor: ACTOR, now: NOW + 1 });
     expect(docView(gone, id)!.files).toHaveLength(0);
+    expect(docView(gone, id)!.removedFiles.map((x) => x.name)).toEqual(['runbook.txt']);
     expect(
       docView(undo(gone, gone.batches[gone.batches.length - 1]!.id, { actor: ACTOR, now: NOW + 2 }), id)!.files,
     ).toHaveLength(1);

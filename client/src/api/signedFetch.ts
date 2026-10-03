@@ -82,6 +82,7 @@ export async function signedFetchWithHeaders(
   method: string,
   path: string,
   body: Uint8Array = EMPTY_BODY,
+  background = false,
 ): Promise<SignedResponse> {
   // **Which session signs this** is the path's own question since ADR-0055
   // decision 1 put two of them in the browser at once: anything under
@@ -92,7 +93,20 @@ export async function signedFetchWithHeaders(
   if (!held) {
     throw new Error('no active session: sign in first');
   }
-  return send(held.plane, held.session, method, path, body);
+  return send(held.plane, held.session, method, path, body, background);
+}
+
+/**
+ * A signed GET whose body is read as it arrives (ADR-0063's live feed). The
+ * caller reads `response.body`; `signal` ends it. Background: it does not
+ * count as use of the session in this tab's own record.
+ */
+export async function signedStream(path: string, signal: AbortSignal): Promise<Response> {
+  const held = sessionForPath(path);
+  if (!held) {
+    throw new Error('no active session: sign in first');
+  }
+  return sendRaw(held.plane, held.session, 'GET', path, EMPTY_BODY, signal);
 }
 
 /**
@@ -114,13 +128,14 @@ export async function signedFetchOn(
   return (await send(plane, session, method, path, body)).bytes;
 }
 
-async function send(
+async function sendRaw(
   plane: Plane,
   session: ActiveSession,
   method: string,
   path: string,
   body: Uint8Array,
-): Promise<SignedResponse> {
+  signal?: AbortSignal,
+): Promise<Response> {
   // §4.1: a signature needs a nonce and the caller has none yet, so one is
   // drawn per request from the bearer-token-authenticated endpoint. The
   // token buys exactly this and nothing more (`sessions::token_hash`'s own
@@ -160,13 +175,26 @@ async function send(
       [HEADER_SIGNATURE]: toHex(signature),
     },
     body: body.byteLength > 0 ? (body as BodyInit) : undefined,
+    signal,
   });
   if (!response.ok) {
     return clearOnUnauthorized(plane, response);
   }
+  return response;
+}
+
+async function send(
+  plane: Plane,
+  session: ActiveSession,
+  method: string,
+  path: string,
+  body: Uint8Array,
+  background = false,
+): Promise<SignedResponse> {
+  const response = await sendRaw(plane, session, method, path, body);
   // Best effort, and only the plane decision 4 persists at all: a failure
   // here changes nothing about whether the request itself succeeded.
-  if (plane === ACCOUNT_PLANE) {
+  if (plane === ACCOUNT_PLANE && !background) {
     void touchAccountSession(thisTabId());
   }
   return { bytes: new Uint8Array(await response.arrayBuffer()), headers: response.headers };

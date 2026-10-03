@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -285,6 +285,23 @@ function SupplyAction({
       </button>
       {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
     </>
+  );
+}
+
+/** "Hide this cable" / "Show this cable" in the cable's own panel: a view
+ * choice, never an edit — never gated on `actions.onEdit` the way
+ * `SupplyAction` above is, so a read-only viewer can hide a cable too.
+ * Absent only when the caller supplies neither half of the pair at all. */
+function HideCableAction({ cable, actions }: { cable: CableView; actions: EditorActions }) {
+  if (!actions.isCableHidden || !actions.onToggleCableHidden) return null;
+  const hidden = actions.isCableHidden(cable.id);
+  return (
+    <div className="drawing-editor__hide-cable">
+      <button type="button" onClick={() => actions.onToggleCableHidden!(cable.id)}>
+        {hidden ? 'Show this cable' : 'Hide this cable'}
+      </button>
+      {!hidden && <span className="drawing-editor__hide-cable-note">in this browser only; nothing is deleted</span>}
+    </div>
   );
 }
 
@@ -1480,7 +1497,31 @@ function AddNoteForm({
  * page — this file draws the fields and raises `actions.onEdit`; it never
  * reads or writes a `Document` itself.
  */
+/** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
+function elementsOf(selection: Selection, view: ClosetView): string {
+  const ids = [selection.id];
+  if (selection.kind === 'chassis') {
+    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+    if (chassis != null) {
+      ids.push(chassis.deviceId);
+      for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
+    }
+  }
+  return ids.join(' ');
+}
+
 export function EditorFor(
+  selection: Selection | null,
+  view: ClosetView,
+  actions: EditorActions,
+  catalogue: readonly PaletteItem[] = [],
+): ReactNode {
+  const panel = panelFor(selection, view, actions, catalogue);
+  if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
+  return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
+}
+
+function panelFor(
   selection: Selection | null,
   view: ClosetView,
   actions: EditorActions,
@@ -2039,6 +2080,8 @@ export function EditorFor(
           label="Disconnect"
           onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
         />
+
+        <HideCableAction cable={cable} actions={actions} />
 
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
         <TagsSection ownerId={cable.id} actions={actions} />

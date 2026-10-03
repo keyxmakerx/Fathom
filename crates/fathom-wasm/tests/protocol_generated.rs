@@ -150,6 +150,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_SYNC",
             code: m::OP_SYNC,
         },
+        Entry {
+            name: "OP_PLAN_PREVIEW",
+            code: m::OP_PLAN_PREVIEW,
+        },
     ]
 }
 
@@ -595,6 +599,11 @@ fn faces() -> Vec<FaceEntry> {
             columns: &[
                 "rule", "severity", "title", "fix", "why", "concept", "source", "elements",
             ],
+        },
+        FaceEntry {
+            name: "FACE_PLAN_STEP",
+            code: p::FACE_PLAN_STEP as u32,
+            columns: &["step", "ordinal", "error", "impact", "touches", "", "", ""],
         },
     ]
 }

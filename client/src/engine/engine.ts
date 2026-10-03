@@ -530,6 +530,42 @@ function readFindings(rows: FaceRow[], op: string): CheckFinding[] {
   });
 }
 
+/** `FACE_PLAN_STEP` and the findings that step adds (`OP_PLAN_PREVIEW`). */
+export interface PlanStepPreview {
+  /** The step's node id. */
+  step: string;
+  ordinal: number;
+  /** Why the step cannot be applied to a copy of the design; empty when it can. */
+  error: string;
+  /** What the step touches, read from the design: one sentence each. Never a cause. */
+  impact: string[];
+  touches: CheckElement[];
+  /** Findings this step adds to the ones before it. */
+  findings: CheckFinding[];
+}
+
+function readPlanReply(rows: FaceRow[]): PlanStepPreview[] {
+  const out: PlanStepPreview[] = [];
+  for (const row of rows) {
+    if (row.role === FACES.FACE_PLAN_STEP) {
+      const s = row.strings;
+      out.push({
+        step: s[0],
+        ordinal: parseCount(s[1], 'plan step ordinal'),
+        error: s[2],
+        impact: s[3] === '' ? [] : s[3].split('\n'),
+        touches: parseElements(s[4]),
+        findings: [],
+      });
+    } else if (row.role === FACES.FACE_CHECK && out.length > 0) {
+      out[out.length - 1].findings.push(readFinding(row));
+    } else {
+      throw new Error(`OP_PLAN_PREVIEW reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+  }
+  return out;
+}
+
 function readChecksReply(rows: FaceRow[]): ChecksResult {
   const head = rows[0];
   if (!head || head.role !== FACES.FACE_CHECK_HEAD) {
@@ -771,6 +807,11 @@ export class Engine {
   /** `OP_CHECK_GESTURE`, a cable: the findings it would cause. Zero rows is go ahead. Never writes. */
   checkCable(near: CableEnd, far: CableEnd, media = ''): CheckFinding[] {
     return readFindings(this.callFaces(OPCODES.OP_CHECK_GESTURE, cableGestureFrame(near, far, media)), 'OP_CHECK_GESTURE');
+  }
+
+  /** `OP_PLAN_PREVIEW`: what the plan's steps still to do would add, in order. Never writes. */
+  planPreview(planId: string): PlanStepPreview[] {
+    return readPlanReply(this.callFaces(OPCODES.OP_PLAN_PREVIEW, new TextEncoder().encode(planId)));
   }
 
   /** `OP_CHECK_GESTURE`, a field edit: `key` is a field key id from the registry. */

@@ -16,7 +16,7 @@ import {
   thingLabel,
 } from '../../document/docs';
 import { ApiRefusal } from '../../api/errors';
-import { fetchFile, saveAsDownload, storeFile } from '../../api/files';
+import { deleteFile, fetchFile, saveAsDownload, storeFile } from '../../api/files';
 import { sniffFile } from './sniff';
 import type { Document } from '../../document/model';
 import type { Engine } from '../../engine/engine';
@@ -30,6 +30,7 @@ function fileRefusal(e: unknown): string {
     if (e.status === 413) return 'That file is over 25 MB.';
     if (e.status === 415) return 'Fathom keeps PDFs, images and text files only.';
     if (e.status === 403) return 'You can download files here, not add them.';
+    if (e.status === 410) return `This file was ${e.message.replace(/\.$/, '')}.`;
     if (e.status === 404) return 'That file is not there any more.';
     if (e.status === 422) return `The server found something that looks like a password in that file: ${e.message}`;
   }
@@ -138,7 +139,7 @@ export function useDocsApi(opts: {
         }
       },
       removeLink: (linkId) => run((d) => removeDocLink(d, linkId, actor)),
-      async addFile(docId, file) {
+      async addFile(docId, file, confirmed) {
         if (!canDraw) return READ_ONLY;
         if (doc == null) return { refused: 'No design is open.' };
         try {
@@ -153,6 +154,9 @@ export function useDocsApi(opts: {
           const kind = sniffFile(raw);
           if (kind === 'refused')
             return { refused: `${file.name} is not a PDF, an image or a text file, so Fathom will not keep it.` };
+          // Photos, scans and PDFs cannot be checked: the person says, per file, that they hold nothing secret.
+          if ((kind === 'image' || kind === 'pdf') && confirmed !== true)
+            return { confirm: kind === 'pdf' ? 'PDF' : 'image' };
           let bytes = raw;
           let checked: 'clean' | 'removed' | 'unread' = 'unread';
           let removed = 0;
@@ -187,7 +191,7 @@ export function useDocsApi(opts: {
                 ? `${removed} password${removed === 1 ? '' : 's'} removed from ${file.name}.`
                 : checked === 'clean'
                   ? `${file.name}: no passwords found.`
-                  : `${file.name} was stored, but Fathom can't read it to check for passwords.`,
+                  : `${file.name} was stored. It is not checked for passwords.`,
           };
         } catch (e) {
           return { refused: fileRefusal(e) };
@@ -197,6 +201,14 @@ export function useDocsApi(opts: {
       async download(file) {
         try {
           saveAsDownload(file.name, await fetchFile(organisationId, designId, file.fileId, file.sha256));
+        } catch (e) {
+          return { refused: fileRefusal(e) };
+        }
+      },
+      async deleteFileForGood(file) {
+        if (!canDraw) return READ_ONLY;
+        try {
+          await deleteFile(organisationId, designId, file.fileId);
         } catch (e) {
           return { refused: fileRefusal(e) };
         }

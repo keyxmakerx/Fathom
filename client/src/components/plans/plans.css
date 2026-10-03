@@ -1,0 +1,557 @@
+/* Maintenance plans (ADR-0061 round 7). Indigo while planning, teal while doing, ink once recorded; tokens only.
+   --m-plan, --m-do and their washes are defined in drawing/plans-canvas.css, with the dark overrides. No amber. */
+
+.plans-band,
+.plans-panel,
+.plans-page {
+  --tone: var(--ink);
+  --wash: var(--surface);
+}
+
+.plans-band[data-stage='planned'],
+.plans-panel[data-stage='planned'],
+.plans-page[data-stage='planned'] {
+  --tone: var(--m-plan);
+  --wash: var(--m-plan-wash);
+}
+
+.plans-band[data-stage='doing'],
+.plans-panel[data-stage='doing'],
+.plans-page[data-stage='doing'] {
+  --tone: var(--m-do);
+  --wash: var(--m-do-wash);
+}
+
+.plans-mono {
+  font-family: var(--mono);
+  font-size: 0.96em;
+}
+
+.plans-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.plans-btn,
+.plans-chip {
+  padding: 2px var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plans-btn--ink {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.plans-bar-chip[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+}
+
+.plans-btn:disabled,
+.plans-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plans-btn[aria-pressed='true'],
+.plans-chip[aria-pressed='true'] {
+  font-weight: 700;
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+}
+
+.plans-btn:focus-visible,
+.plans-chip:focus-visible,
+.plans-link:focus-visible,
+.plans-select:focus-visible,
+.plans-input:focus-visible {
+  outline: 2px solid var(--tone, var(--ink));
+  outline-offset: 2px;
+}
+
+.plans-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.plans-link:disabled {
+  color: var(--muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+.plans-select,
+.plans-input {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 2px var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+}
+
+.plans-input--area {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+}
+
+.plans-label {
+  margin: var(--s3) 0 var(--s1);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-mast, 0.08em);
+  text-transform: uppercase;
+}
+
+.plans-note {
+  margin: var(--s1) 0;
+  color: var(--muted);
+}
+
+.plans-notice {
+  margin: var(--s2) 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-mast) solid var(--ink);
+  color: var(--ink);
+}
+
+/* ---- the band ------------------------------------------------------- */
+
+.plans-band {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: var(--s2) var(--s4);
+  background: var(--wash);
+  border-bottom: 2px solid var(--tone);
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+
+.plans-band__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+
+.plans-band__pill {
+  padding: 1px var(--s3);
+  border: var(--rule-hair) solid var(--tone);
+  background: var(--tone);
+  color: var(--page);
+  font-size: var(--t-small);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.plans-band__text {
+  flex: 1 1 16ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plans-band__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.plans-band__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.plans-band__pick-label {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.plans-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+/* ---- the panel ------------------------------------------------------ */
+
+.plans-panel {
+  position: absolute;
+  top: calc(var(--s2) * 6);
+  right: var(--s2);
+  /* Level with the Checks panel (modal + 1, later in the page so over it); under the paste card and the
+     refusal card (+ 2, + 3), which the panel must never cover. */
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 92%);
+  max-height: calc(100% - 7 * var(--s2));
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--tone);
+  border-top: var(--rule-mast) solid var(--tone);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+}
+
+/* The Checks panel is open at the same dock: sit to its left. */
+.plans-panel--beside-checks {
+  right: calc(min(264px, 60%) + 2 * var(--s2));
+}
+
+.plans-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.plans-panel__title {
+  margin: 0;
+  color: var(--tone);
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.plans-panel__body {
+  overflow-y: auto;
+  padding: var(--s2) var(--s3) var(--s3);
+}
+
+.plans-panel__body:focus {
+  outline: none;
+}
+
+.plans-panel__body p {
+  margin: var(--s1) 0;
+}
+
+.plans-steps,
+.plans-checklist,
+.plans-touches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.plans-step {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.plans-step p {
+  margin: var(--s1) 0;
+}
+
+/* Planned: dashed indigo, as the marks on the drawing. */
+.plans-step--planned {
+  border: 1px dashed var(--m-plan);
+}
+
+/* Do: marked steps carry the teal edge; the ones to come are dimmed; the current one leads. */
+.plans-step--marked {
+  border-color: var(--m-do);
+  border-left-width: 4px;
+}
+
+/* Record: the steps as they happened, in ink. */
+.plans-step--recorded {
+  border-color: var(--ink);
+  border-left-width: 4px;
+}
+
+.plans-step--later {
+  border: 1px dotted var(--m-do);
+  color: var(--muted);
+}
+
+.plans-step--current {
+  border: 2px solid var(--m-do);
+  padding: var(--s3);
+}
+
+.plans-step--current:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--m-do-wash);
+}
+
+.plans-step__title {
+  margin: 0;
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.plans-step__note {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.plans-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.plans-touches__item--refuse {
+  padding-left: var(--s2);
+  border-left: var(--rule-mast) solid var(--ink);
+}
+
+.plans-touches__sev {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plans-refused {
+  margin: var(--s2) 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-mast) solid var(--ink);
+}
+
+.plans-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s1);
+  margin: var(--s3) 0;
+}
+
+.plans-form > .plans-label {
+  margin-top: 0;
+}
+
+.plans-form label {
+  margin-top: var(--s1);
+  color: var(--muted);
+}
+
+.plans-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s1) 0;
+}
+
+.plans-record {
+  margin: var(--s1) 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the list page -------------------------------------------------- */
+
+.plans-page {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  box-sizing: border-box;
+  overflow: auto;
+  padding: var(--s4) var(--s5);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+}
+
+.plans-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.plans-page__title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.plans-page__meta {
+  margin: var(--s1) 0 0;
+  color: var(--muted);
+}
+
+.plans-page__tools {
+  display: flex;
+  gap: var(--s2);
+  margin: 0;
+}
+
+.plans-table {
+  width: 100%;
+  margin: var(--s4) 0;
+  border-collapse: collapse;
+}
+
+.plans-table th {
+  padding: var(--s2);
+  border-bottom: var(--rule-mast) solid var(--ink);
+  color: var(--muted);
+  font-size: var(--t-small);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.plans-table td {
+  padding: var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.plans-table .plans-table__stripe {
+  width: 4px;
+  padding: 0;
+  background: var(--tone);
+}
+
+.plans-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s4);
+}
+
+.plans-box {
+  padding: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.plans-box .plans-label {
+  margin-top: 0;
+}
+
+/* A phone: the table stacks into cards, one per step. */
+@media (max-width: 640px) {
+  .plans-page {
+    padding: var(--s3);
+  }
+
+  .plans-table,
+  .plans-table tbody,
+  .plans-table tr,
+  .plans-table td {
+    display: block;
+  }
+
+  .plans-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .plans-table tr {
+    margin-bottom: var(--s3);
+    border: var(--rule-hair) solid var(--hairline);
+    border-left: 4px solid var(--tone);
+  }
+
+  .plans-table td {
+    display: flex;
+    gap: var(--s3);
+    border-bottom: 0;
+  }
+
+  .plans-table td::before {
+    content: attr(data-label);
+    flex: 0 0 5.5em;
+    color: var(--muted);
+    font-size: var(--t-small);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .plans-table .plans-table__stripe {
+    display: none;
+  }
+
+  .plans-panel,
+  .plans-panel--beside-checks {
+    right: var(--s2);
+    width: calc(100% - 2 * var(--s2));
+  }
+}
+
+/* Print: the list page alone, on paper, in ink. */
+@media print {
+  .shell:has(.plans-page) > :not(.shell__body),
+  .shell:has(.plans-page) .shell__body > :not(.shell__drawing),
+  .shell:has(.plans-page) .shell__drawing > :not(.plans-page) {
+    display: none !important;
+  }
+
+  .shell:has(.plans-page),
+  .shell:has(.plans-page) .shell__body,
+  .shell:has(.plans-page) .shell__drawing {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* Paper is white whatever the theme: the tokens the page draws its rules and stripe with turn black and grey. */
+  .plans-page,
+  .plans-page[data-stage] {
+    --ink: black;
+    --page: white;
+    --tone: black;
+    --wash: white;
+    --hairline: #888;
+    --muted: #444;
+    position: static;
+    padding: 0;
+    overflow: visible;
+    color: black;
+    background: white;
+  }
+
+  .plans-page * {
+    color: black;
+  }
+
+  .plans-table tr {
+    break-inside: avoid;
+  }
+
+  .plans-table .plans-table__stripe {
+    background: black;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

@@ -208,7 +208,7 @@ try {
   check('no save carries the pasted key', !saved.includes('EXAMPLEnotARealKey01234'));
   await page.screenshot({ path: SHOTS + 'docs-04-gated.png' });
 
-  // 5b - files: text goes through the gate before upload, an image says it cannot be read, a
+  // 5b - files: text goes through the gate before upload, an image says Not checked, a
   // download is the stored bytes, a refused type says so.
   const upload = (name, buffer) => page.setInputFiles('input[aria-label="Add a file"]', { name, mimeType: 'application/octet-stream', buffer });
   await upload('ike.conf', Buffer.from('set system host-name acc-01\n' + SECRET_LINE + '\n'));
@@ -218,14 +218,22 @@ try {
   check('the table says passwords were removed', /\d+ passwords? removed/.test(await page.locator('.docs-files__table').innerText()));
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
   await upload('rack.png', png);
+  await page.getByRole('button', { name: 'Add rack.png, it shows no passwords' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.docs-files__table tbody tr').length === 2);
-  check('an image says it cannot be read', (await page.locator('.docs-files__table').innerText()).includes("Image, can't be read"));
+  check('an image says Not checked', (await page.locator('.docs-files__table').innerText()).includes("Not checked · image"));
   await upload('tool.exe', Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03]));
   await page.waitForSelector('[role="alert"]');
   check('a program is refused by content', (await page.locator('[role="alert"]').innerText()).includes('not a PDF, an image or a text file'));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download rack.png' }).click()]);
   check('the download keeps the name', dl.suggestedFilename() === 'rack.png');
-  check('the upload dialog says images cannot be checked', (await page.locator('.docs-files').innerText()).includes("can't be read, so they are stored without a check"));
+  check('the add control says images and PDFs are not checked yet', (await page.locator('.docs-files').innerText()).includes('Images and PDFs are not checked yet'));
+  // Remove keeps it undoable and listed; delete for good asks, then erases on the server.
+  await page.getByRole('button', { name: 'Remove file rack.png' }).click();
+  await page.waitForSelector('.docs-files__removed');
+  await page.getByRole('button', { name: 'Delete rack.png for good' }).click();
+  await page.getByRole('button', { name: 'Really delete rack.png for good' }).click();
+  await page.waitForFunction(() => window.__deleted__.length === 1);
+  check('delete for good reached the server and says so', (await page.locator('.docs-files').innerText()).includes('Deleted for good'));
   await page.screenshot({ path: SHOTS + 'docs-04b-files.png' });
   await page.keyboard.press('Escape');
 

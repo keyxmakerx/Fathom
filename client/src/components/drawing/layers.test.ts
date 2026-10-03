@@ -26,8 +26,10 @@ describe('layers', () => {
     expect(loadLayers('a1', 'd1')).toEqual(defaultLayers());
     expect(() => saveLayers('a1', 'd1', defaultLayers())).not.toThrow();
   });
-  it('a ticked layer with no data yet draws nothing', () => {
-    expect(layerOn(defaultLayers(), 'checks')).toBe(false);
-    expect(layerOn({ ...defaultLayers(), tags: true }, 'tags')).toBe(true);
+  it('Checks and Docs are listed; Maintenance waits on its data', () => {
+    expect(layerOn(defaultLayers(), 'checks')).toBe(true);
+    expect(layerOn({ ...defaultLayers(), docs: true }, 'docs')).toBe(true);
+    expect(layerOn({ ...defaultLayers(), maintenance: true }, 'maintenance')).toBe(false);
+    expect(layerOn({ ...defaultLayers(), checks: false }, 'checks')).toBe(false);
   });
 });

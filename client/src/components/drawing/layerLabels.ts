@@ -3,6 +3,7 @@
 
 import type { Document } from '../../document/model';
 import { deriveNetworks } from '../../document/networks-derive';
+import { docsOf } from '../../document/docs';
 import { tagsOf } from '../../document/tags';
 import type { ClosetView } from './contract';
 import { layerOn, type LayerSet } from './layers';
@@ -40,7 +41,8 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
   const wantAddr = layerOn(layers, 'addresses');
   const wantVlan = layerOn(layers, 'vlans');
   const wantTags = layerOn(layers, 'tags');
-  if (!wantAddr && !wantVlan && !wantTags) return EMPTY;
+  const wantDocs = layerOn(layers, 'docs');
+  if (!wantAddr && !wantVlan && !wantTags && !wantDocs) return EMPTY;
   const cables = new Map<string, CableWords>();
   const devices = new Map<string, string[]>();
 
@@ -79,10 +81,12 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
     }
   }
 
-  if (wantTags) {
+  if (wantTags || wantDocs) {
     for (const ch of view.racks.flatMap((r) => r.chassis)) {
-      const names = tagsOf(doc, ch.deviceId).map((t) => t.name);
-      if (names.length > 0) devices.set(ch.id, names);
+      const words: string[] = [];
+      if (wantDocs && docsOf(doc, ch.deviceId, ch.model).length > 0) words.push('docs');
+      if (wantTags) words.push(...tagsOf(doc, ch.deviceId).map((t) => t.name));
+      if (words.length > 0) devices.set(ch.id, words);
     }
   }
   return { cables, devices };

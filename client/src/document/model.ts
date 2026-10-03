@@ -689,16 +689,16 @@ export function isGoTrimSpaceBlank(s: string): boolean {
   return true;
 }
 
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
+export function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): CanonValue | undefined {
   const e = fields[name];
   return e && e.presence === 'set' ? e.value : undefined;
 }
 
-function asString(v: CanonValue | undefined): string | undefined {
+export function asString(v: CanonValue | undefined): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-function asNumber(v: CanonValue | undefined): number | undefined {
+export function asNumber(v: CanonValue | undefined): number | undefined {
   return typeof v === 'number' ? v : undefined;
 }
 

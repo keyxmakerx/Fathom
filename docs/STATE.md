@@ -199,8 +199,8 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
-  containers; "Add tag" suggests existing ones; quick search finds by tag. Not built: the Inventory column
-  and filter, tags in the cable filter, search over cables, VLANs and containers.
+  containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
+  Not built: the Inventory column and filter.
 
 **Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
 numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
@@ -223,9 +223,11 @@ panels and a Docs button in the bar open the list. Markdown is a safe subset (no
 http/https links with host). Pasted text goes through the gate; typed text is stored as typed; the server
 refuses a credential in doc text. Files (PDF, image, text, 25 MB) hang off a doc: text is gated in the
 browser and only the redacted copy uploaded; the server sniffs by content, refuses text still carrying a
-password, seals bytes under the design key and serves downloads only. Images and PDFs are stored "can't
-be read". Removing a file leaves the sealed copy on the server. Not built: a Docs Inventory kind (#93),
-docs on maintenance plans (#98), delete for good.
+password, seals bytes under the design key and serves downloads only. Images and PDFs (no PDF text
+check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not checked · image/PDF".
+"Remove" takes a file off the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps
+name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
+kind (#93), docs on maintenance plans (#98).
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
@@ -233,10 +235,15 @@ organisation can be added. The grant is signed in the steward's enrolled browser
 re-derives every signed field. Shares do not expire and cover everything inside the scope. Not built:
 outside invites, a public link.
 
-**Print** (#39). Print button or Ctrl+P: one rack, every rack in the closet, or the cut sheet; A4 or Letter;
-cables none or all; optional serials and management addresses; black and white with cable colours as
-words; title block and page x of y. A rack sheet draws front and rear to scale with a device table. The
-cut sheet is a block per device and a row per port, as .csv or .xlsx. Not built: the map sheet.
+**Print pack** (#39, round 10). Print lists pages with counts: This view (also a PNG drawn by the browser
+from the canvas), Rack elevations, Cable schedule, Port map; "Make PDF" opens the preview and the browser's
+own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials and management addresses
+optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
+.xlsx. Not built: the Inventory table page.
+
+**Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
+VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
+saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.
 
 **Open, not on main yet:** #93 Inventory table, #98 maintenance plans, #100 more paste platforms, #101
 live co-editing, #110 Show menu, #111 print pack.

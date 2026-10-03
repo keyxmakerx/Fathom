@@ -18,9 +18,10 @@ import {
 } from './document/commands';
 import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
-import { emptyDocument, parseNodeId, type Document, type NodeKind } from './document/model';
+import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addVlan } from './document/networks';
 import { tagObject } from './document/tags';
+import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
 
 export function catalogueFrom(cat: { models: Record<string, unknown> }): CatalogueModel[] {
@@ -39,6 +40,10 @@ function firstRack(doc: Document, catalogue: CatalogueModel[]) {
   return viewOf(doc, catalogue).racks[0];
 }
 
+/** Placed by `rackId` directly, not `firstRack`'s own racks[0] — the many
+ * multi-rack scenes below (`seedManyDevicesScene` past one rack's own
+ * capacity, `seedCableGroupsScene`) need a device landing in a SPECIFIC
+ * rack, not always the first one `viewOf` happens to return. */
 function place(
   doc: Document,
   catalogue: CatalogueModel[],
@@ -49,20 +54,28 @@ function place(
   actor: string,
 ): Document {
   let working = placeChassis(doc, rackId, model, positionU, 'front', { actor });
-  const chassis = firstRack(working, catalogue).chassis.find((c) => c.positionU === positionU)!;
+  const rack = viewOf(working, catalogue).racks.find((r) => r.id === rackId)!;
+  const chassis = rack.chassis.find((c) => c.positionU === positionU)!;
   working = setDeviceField(working, chassis.deviceId, 'hostname', hostname, { actor });
   return working;
 }
 
 /** The device's lowest-numbered front RJ45 port, so both cable ends always
- * pair. Port order in the view follows random ids, so "first" is not stable. */
+ * pair. Port order in the view follows random ids, so "first" is not
+ * stable. Searches every rack, not only `firstRack`'s racks[0] — the same
+ * reason `place` above does. */
 function frontRj45(doc: Document, catalogue: CatalogueModel[], hostname: string): { deviceId: string; portId: string } {
-  const chassis = firstRack(doc, catalogue).chassis.find((c) => c.hostname === hostname)!;
-  const ports = chassis.ports
-    .filter((p) => p.face === 'front' && p.connector === 'rj45')
-    .sort((x, y) => x.label.localeCompare(y.label, undefined, { numeric: true }));
-  if (ports.length === 0) throw new Error(`${hostname} has no front rj45 port`);
-  return { deviceId: chassis.deviceId, portId: ports[0].id };
+  const view = viewOf(doc, catalogue);
+  for (const rack of view.racks) {
+    const chassis = rack.chassis.find((c) => c.hostname === hostname);
+    if (!chassis) continue;
+    const ports = chassis.ports
+      .filter((p) => p.face === 'front' && p.connector === 'rj45')
+      .sort((x, y) => x.label.localeCompare(y.label, undefined, { numeric: true }));
+    if (ports.length === 0) continue;
+    return { deviceId: chassis.deviceId, portId: ports[0].id };
+  }
+  throw new Error(`${hostname} has no front rj45 port`);
 }
 
 function oneRack(catalogue: CatalogueModel[], actor: string, heightU = 42): { doc: Document; rackId: string; premisesId: string } {
@@ -524,13 +537,36 @@ export function seedPrintLoftScene(catalogue: CatalogueModel[], me: string): Doc
 
 /** Enough rack-mounted devices, side by side, that a hover, a selection, a
  * drag or a wheel-zoom touches many nodes nobody meant to disturb. One cable between the first two, so a hover has something lit to prove stays lit. */
+/** `Rack.height_u`'s own schema bound (`schema/schema.yaml`: `range: 1..100`)
+ * — one rack alone cannot hold a count past 100, so past 42 (the reference
+ * height every other scene in this file uses) this spills into further
+ * racks, same label scheme (`A-04`, `A-05`, ...), `dev-NN` numbering
+ * carrying straight across the seam. */
+const MANY_DEVICES_RACK_HEIGHT_U = 42;
+
 export function seedManyDevicesScene(catalogue: CatalogueModel[], me: string, count = 16): Document {
-  const { doc, rackId } = oneRack(catalogue, me);
   const model = catalogue.find((m) => m.model === 'EX4300-48P');
   if (!model) throw new Error('the drive catalogue fixture has no juniper/EX4300-48P');
+  let doc = emptyDocument();
+  const premises = createPremises(doc, { actor: me });
+  doc = premises.doc;
+  const rackCount = Math.max(1, Math.ceil(count / MANY_DEVICES_RACK_HEIGHT_U));
+  const rackIds: string[] = [];
+  for (let r = 0; r < rackCount; r += 1) {
+    const before = doc;
+    doc = createRack(doc, premises.premisesId, {
+      label: `A-${String(4 + r).padStart(2, '0')}`,
+      heightU: MANY_DEVICES_RACK_HEIGHT_U,
+      unitNumbering: 'ascending',
+      actor: me,
+    });
+    rackIds.push(newestNode(before, doc, 'Rack'));
+  }
   let working = doc;
   for (let i = 0; i < count; i += 1) {
-    working = place(working, catalogue, rackId, model, i + 1, `dev-${String(i + 1).padStart(2, '0')}`, me);
+    const rackId = rackIds[Math.floor(i / MANY_DEVICES_RACK_HEIGHT_U)];
+    const positionU = (i % MANY_DEVICES_RACK_HEIGHT_U) + 1;
+    working = place(working, catalogue, rackId, model, positionU, `dev-${String(i + 1).padStart(2, '0')}`, me);
   }
   const a = frontRj45(working, catalogue, 'dev-01');
   const b = frontRj45(working, catalogue, 'dev-02');
@@ -607,6 +643,172 @@ export function seedLookScene(catalogue: CatalogueModel[], me: string): Document
   return working;
 }
 
+/** The lowest-numbered UNCABLED front RJ45 port — `frontRj45`'s own doc,
+ * plus "free": a device with several cables (`seedCableGroupsScene`'s own
+ * `sw-core`) needs a fresh port picked each time, never the same one an
+ * earlier call already terminated. */
+function freeFrontRj45(doc: Document, catalogue: CatalogueModel[], hostname: string): { deviceId: string; portId: string; label: string } {
+  const view = viewOf(doc, catalogue);
+  for (const rack of view.racks) {
+    const chassis = rack.chassis.find((c) => c.hostname === hostname);
+    if (!chassis) continue;
+    const ports = chassis.ports
+      .filter((p) => p.face === 'front' && p.connector === 'rj45' && p.cable == null)
+      .sort((x, y) => x.label.localeCompare(y.label, undefined, { numeric: true }));
+    if (ports.length === 0) continue;
+    return { deviceId: chassis.deviceId, portId: ports[0].id, label: ports[0].label };
+  }
+  throw new Error(`${hostname} has no free front rj45 port`);
+}
+
+/** The Cables list's own drive: one rack, `sw-core` and `sw-edge` (a trunk
+ * uplink between them carrying VLAN 30 tagged), `cam-01` (VLAN 30, access),
+ * `srv-01` (VLAN 10, access), a fibre pair (`nas-01` / `patch-01`, LC-LC,
+ * media smf), a power lead (`ups-01` / `pdu-01`, C13-C14) and `wifi-ap`, sat
+ * on its own shelf rather than mounted directly, tagged `shelfgear` — a
+ * Device-kind tag proving it catches a shelf occupant's cable the same way
+ * it catches a rack-mounted one's. Six cables: the trunk, the two access
+ * leads, the fibre pair, the power lead and the shelf device's own uplink.
+ *
+ * The trunk cannot be built through `document/networks.ts`'s own
+ * `attachToVlan` — "tagged... is refused unless the resolved unit already
+ * carries a live trunk membership... a trunk is never made here" (its own
+ * doc): a real trunk enters a document only through config the Rust engine
+ * parses, which this seed script does not run. `LogicalUnit.vlan_id` alone
+ * marks a unit a trunk carrier (`document/networks-derive.ts`'s own
+ * `unitCarries`) — the same raw node/edge shape
+ * `client/src/document/networks-derive.test.ts`'s own "pasted interface"
+ * fixture and `client/src/components/drawing/cableGroups.test.ts`'s own
+ * `trunkVlanScene` both build, reused here rather than invented twice. */
+export function seedCableGroupsScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const coreModel = catalogue.find((m) => m.model === 'EX4300-48P');
+  const edgeModel = catalogue.find((m) => m.model === 'EX2300-48P');
+  if (!coreModel || !edgeModel) throw new Error('the drive catalogue fixture has no juniper/EX4300-48P or EX2300-48P');
+  let working = place(doc, catalogue, rackId, coreModel, 40, 'sw-core', me);
+  working = place(working, catalogue, rackId, edgeModel, 38, 'sw-edge', me);
+
+  function sketch(hostname: string, positionU: number, portLabel: string, connector: string, service: string) {
+    const beforeDevice = working;
+    working = createSketchDevice(working, { hostname, actor: me });
+    const chassisId = newestNode(beforeDevice, working, 'Chassis');
+    const deviceId = newestNode(beforeDevice, working, 'Device');
+    working = movePlacement(working, chassisId, { kind: 'rack', rackId, positionU, face: 'front' }, { actor: me });
+    const beforePort = working;
+    working = addSketchPort(working, chassisId, { label: portLabel, connector, service, face: 'front' }, { actor: me });
+    const portId = newestNode(beforePort, working, 'PhysicalPort');
+    return { chassisId, deviceId, portId };
+  }
+
+  const cam = sketch('cam-01', 10, 'Et0', 'rj45', 'ethernet');
+  const srv = sketch('srv-01', 9, 'Et0', 'rj45', 'ethernet');
+  const nas = sketch('nas-01', 8, 'p1', 'lc', 'ethernet');
+  const patch = sketch('patch-01', 7, 'p1', 'lc', 'ethernet');
+  const ups = sketch('ups-01', 6, 'out1', 'c13', 'power');
+  const pdu = sketch('pdu-01', 5, 'in', 'c14', 'power');
+
+  const trunkFar = freeFrontRj45(working, catalogue, 'sw-edge');
+  const trunkNear = freeFrontRj45(working, catalogue, 'sw-core');
+  working = connectPorts(working, trunkNear.portId, trunkFar.portId, { sheath: 'grey' as Sheath }, { actor: me });
+
+  const camNear = freeFrontRj45(working, catalogue, 'sw-core');
+  working = connectPorts(working, camNear.portId, cam.portId, { sheath: 'yellow' as Sheath }, { actor: me });
+
+  // `srv-01` hangs off `sw-edge`, not `sw-core` — VLAN 10 needs no bridging
+  // at all (one cable, its own domain already); VLAN 30's own bridging,
+  // below, is `sw-core`'s alone, between exactly the two ports (`cam-01`'s
+  // downlink and the trunk uplink) that VLAN 30 itself touches. Sharing a
+  // bridged device with a THIRD, unrelated VLAN would merge that VLAN's own
+  // domain into 30's too (`document/networks-derive.ts`'s "blank bridge"
+  // unions every one of a device's own ports, not only the ones a VLAN
+  // names) — true of a real dumb switch, wrong for this scene's own count.
+  const srvNear = freeFrontRj45(working, catalogue, 'sw-edge');
+  working = connectPorts(working, srvNear.portId, srv.portId, { sheath: 'blue' as Sheath }, { actor: me });
+
+  working = connectPorts(working, nas.portId, patch.portId, { media: 'smf' }, { actor: me });
+  working = connectPorts(working, ups.portId, pdu.portId, {}, { actor: me });
+
+  // `wifi-ap`, sat on its own shelf rather than mounted directly — a
+  // Device-kind tag placed on it (below) must catch its cable the same way
+  // it catches a rack-mounted device's, `document/view.ts`'s own
+  // `ShelfView.occupants` reached through `SitsOn`, never `MountedIn`.
+  const beforeShelf = working;
+  working = createShelf(working, rackId, { positionU: 4, label: 'AP shelf', actor: me });
+  const shelfId = newestNode(beforeShelf, working, 'PassiveNode');
+  const beforeShelfDevice = working;
+  working = createSketchDevice(working, { hostname: 'wifi-ap', actor: me });
+  const shelfChassisId = newestNode(beforeShelfDevice, working, 'Chassis');
+  const shelfDeviceId = newestNode(beforeShelfDevice, working, 'Device');
+  working = placeOnShelf(working, shelfChassisId, shelfId, 0, { actor: me });
+  const beforeShelfPort = working;
+  working = addSketchPort(working, shelfChassisId, { label: 'Et0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  const shelfPortId = newestNode(beforeShelfPort, working, 'PhysicalPort');
+  const shelfFar = freeFrontRj45(working, catalogue, 'sw-edge');
+  working = connectPorts(working, shelfPortId, shelfFar.portId, { sheath: 'grey' as Sheath }, { actor: me });
+  working = tagObject(working, shelfDeviceId, 'shelfgear', { actor: me });
+
+  // `sw-core` bridges its own downlink (to `cam-01`) and its uplink (to
+  // `sw-edge`) onto the SAME VLAN 30 domain — the "blank bridge" rule above,
+  // now safe: `sw-core` carries exactly these two cabled ports.
+  working = setDeviceField(working, camNear.deviceId, 'role', 'switch', { actor: me });
+
+  working = addVlan(
+    working,
+    { vlanId: 10, name: 'servers', attach: [{ target: { kind: 'port', portId: srv.portId, interfaceName: 'Et0' } }] },
+    { actor: me },
+  );
+  working = addVlan(
+    working,
+    { vlanId: 30, name: 'cameras', attach: [{ target: { kind: 'port', portId: cam.portId, interfaceName: 'Et0' } }] },
+    { actor: me },
+  );
+
+  const now = Date.now();
+  const trunkIfaceId = formatNodeId('Interface', newUlid(now));
+  const trunkUnitId = formatNodeId('LogicalUnit', newUlid(now));
+  working = {
+    ...working,
+    nodes: [
+      ...working.nodes,
+      { id: trunkIfaceId, existence: newUlid(now), fields: { 'Interface.name': { presence: 'set', prov: newUlid(now), value: trunkFar.label } } },
+      {
+        id: trunkUnitId,
+        existence: newUlid(now),
+        fields: {
+          'LogicalUnit.index': { presence: 'set', prov: newUlid(now), value: 30 },
+          'LogicalUnit.vlan_id': { presence: 'set', prov: newUlid(now), value: '30' },
+        },
+      },
+    ],
+    edges: [
+      ...working.edges,
+      { id: formatEdgeId('HasInterface', newUlid(now)), from: trunkFar.deviceId, to: trunkIfaceId, prov: newUlid(now), fields: {} },
+      { id: formatEdgeId('Occupies', newUlid(now)), from: trunkIfaceId, to: trunkFar.portId, prov: newUlid(now), fields: {} },
+      { id: formatEdgeId('HasUnit', newUlid(now)), from: trunkIfaceId, to: trunkUnitId, prov: newUlid(now), fields: {} },
+    ],
+  };
+
+  // A tag on the trunk cable — `design/proposals/cables/cable-filter.dc.html`
+  // panel 1's own "Uplinks" tag row.
+  const trunkCableId = viewOf(working, catalogue)
+    .cables.find((c) => c.ends.some((e) => 'portId' in e && e.portId === trunkNear.portId))!.id;
+  working = tagObject(working, trunkCableId, 'uplinks', { actor: me });
+
+  return working;
+}
+
+/** The Cables list's own speed measurement, at `count` devices —
+ * `seedManyDevicesScene`'s own scene (racks packed to capacity, dev-01
+ * cabled to dev-02) plus one VLAN on that same cable, so "tick a VLAN
+ * group" has a real one to tick rather than only a type group, which
+ * `cableGroups.ts`'s own membership resolution never has to touch
+ * `deriveNetworks` for. */
+export function seedCableGroupsSpeedScene(catalogue: CatalogueModel[], me: string, count: number): Document {
+  const doc = seedManyDevicesScene(catalogue, me, count);
+  const a = frontRj45(doc, catalogue, 'dev-01');
+  return addVlan(doc, { vlanId: 50, name: 'load', attach: [{ target: { kind: 'port', portId: a.portId, interfaceName: 'up' } }] }, { actor: me });
+}
+
 /** The canvas scene with VLAN 20 and an address on the firewall cable, and a tag: the Show-menu scene. */
 export function seedShowScene(catalogue: CatalogueModel[], me: string): Document {
   let working = seedCanvasScene(catalogue, me);
@@ -630,4 +832,20 @@ export function seedShowScene(catalogue: CatalogueModel[], me: string): Document
     { actor: me },
   );
   return tagObject(working, chassis('fw-01').deviceId, 'edge', { actor: me });
+}
+
+/** Successive versions of one design, for the History drive: two devices, a colleague's second device,
+ * a cable, then a rename. Each document extends the one before it. */
+export function seedHistoryVersions(catalogue: CatalogueModel[], me: string, colleague: string): Document[] {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const core = catalogue.find((m) => m.model === 'EX4300-48P');
+  const acc = catalogue.find((m) => m.model === 'EX2300-48P');
+  if (!core || !acc) throw new Error('the drive catalogue fixture has no EX4300-48P or EX2300-48P');
+  const v1 = place(doc, catalogue, rackId, core, 40, 'core-01', me);
+  const v2 = place(v1, catalogue, rackId, acc, 38, 'acc-01', colleague);
+  const a = frontRj45(v2, catalogue, 'core-01');
+  const b = frontRj45(v2, catalogue, 'acc-01');
+  const v3 = connectPorts(v2, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
+  const v4 = setDeviceField(v3, a.deviceId, 'hostname', 'core-02', { actor: me });
+  return [v1, v2, v3, v4];
 }
