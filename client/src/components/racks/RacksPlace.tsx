@@ -310,13 +310,13 @@ export function RacksPlace(props: RacksPlaceProps) {
   // full load in a row (the module keeps answering "resync needed") is the real cost and is.
   const loadCostRef = useRef<number | null>(null);
   const fullStreakRef = useRef(0);
-  const loadInto = useCallback((mirror: Mirror, target: Document) => {
+  const loadInto = useCallback((mirror: Mirror, target: Document, discard: () => void = discardTrapped) => {
     const t0 = performance.now();
     let kind: ReturnType<Mirror['sync']>;
     try {
       kind = mirror.sync(target);
     } catch (e) {
-      if (e instanceof EngineTrap) discardTrapped();
+      if (e instanceof EngineTrap) discard();
       throw e;
     }
     const ms = performance.now() - t0;
@@ -466,14 +466,23 @@ export function RacksPlace(props: RacksPlaceProps) {
       // above uses: this stop needs the module in step with `doc` right
       // now, synchronously (`Mirror.inside` has no async door to await
       // one), but only pays the reload when the module is actually stale.
-      if (doc != null && mirrorLoadedDocRef.current !== doc) {
-        mirrorRef.current.sync(doc);
-        mirrorLoadedDocRef.current = doc;
+      // A trapped or refused mirror is dropped, never thrown from a render: the discard is deferred
+      // (it sets state) and the stop shows nothing until the next need boots another.
+      const mirror = mirrorRef.current;
+      const discardLater = () =>
+        queueMicrotask(() => {
+          if (mirrorRef.current === mirror) discardTrapped();
+        });
+      try {
+        if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc, discardLater);
+        const faces = mirror.inside(chassis.deviceId);
+        return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
+      } catch {
+        discardLater();
+        return null;
       }
-      const faces = mirrorRef.current.inside(chassis.deviceId);
-      return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
     },
-    [litPortLabel, doc],
+    [litPortLabel, doc, loadInto, discardTrapped],
   );
 
   const realView = useMemo<ClosetView>(

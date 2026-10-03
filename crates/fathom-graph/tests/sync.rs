@@ -650,3 +650,40 @@ fn evidence_no_op_explains_is_refused_not_dropped() {
     p.seen = p.doc.log().len();
     p.same();
 }
+
+#[test]
+fn a_history_is_matched_by_position_when_a_provenance_id_is_reused() {
+    // The slot's provenance is also the id of an older history entry: the value each entry
+    // keeps is its own, not that of the first entry with the same id.
+    let (mut p, _, dev) = base();
+    // A record may be reused when it is the same record, which a set after a clear is.
+    p.doc.begin_batch(BatchId(ulid(10)), "clear").unwrap();
+    p.doc
+        .clear_field(ElementId::Node(dev), DeviceField::Hostname.key(), prov(11))
+        .unwrap();
+    p.doc.end_batch().unwrap();
+    p.doc
+        .begin_batch(BatchId(ulid(20)), "c, under the first id")
+        .unwrap();
+    hostname(&mut p.doc, dev, "c", 4);
+    p.doc.end_batch().unwrap();
+    p.sync().unwrap();
+    p.same();
+
+    p.doc.begin_batch(BatchId(ulid(30)), "d").unwrap();
+    hostname(&mut p.doc, dev, "d", 31);
+    p.doc.end_batch().unwrap();
+    let good = p.fragment();
+    let entries = &good.history[0].entries;
+    assert_eq!(entries[0].prov, entries[2].prov, "the id is reused");
+    assert_ne!(entries[0].value, entries[2].value);
+
+    // A value swapped between the two entries is still refused.
+    let mut f = good.clone();
+    f.history[0].entries[2].value = f.history[0].entries[0].value.clone();
+    assert!(matches!(refuses(&mut p, &f), SyncError::Mismatch { .. }));
+
+    p.held.apply_batches(&good).unwrap();
+    p.seen = p.doc.log().len();
+    p.same();
+}

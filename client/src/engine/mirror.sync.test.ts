@@ -13,6 +13,7 @@ import { Mirror } from './mirror';
 import { ACTOR, EDITS, buildDesign } from './syncDesign';
 import { fileLoader } from './wasm';
 import { parseCanonical } from '../document/canon';
+import { createSketchDevice, removeChassis } from '../document/commands';
 import { setDeviceField } from '../document/edit';
 import { emptyDocument, type Document } from '../document/model';
 import { readPlain, writePlain } from '../document/plain';
@@ -289,10 +290,34 @@ describe('Mirror.sync against the real module', () => {
       const got = mirror.checks();
       expect(got, e.name).toEqual(full.checks());
       expect(same(incremental.exportPlain(), oracle.exportPlain()), `${e.name}: the held design`).toBe(true);
-      findings += got.findings.length;
+      findings += got.findings.length; console.log("F", i, e.name, got.findings.length);
     }
     expect(kinds.length).toBeGreaterThan(10);
     expect(findings, 'the design must stand some findings or this proves nothing').toBeGreaterThan(0);
+  });
+
+  it('an undo of an add, of a tag, and of a create after its remove each sync as a delta', () => {
+    const mirror = new Mirror(incremental);
+    const full = new Mirror(oracle);
+    const d = buildDesign(6);
+    mirror.sync(d.doc);
+    for (const name of ['add a cable then undo', 'tag a box then undo', 'tag a box then undo']) {
+      edit(name, d, 3);
+      expect(mirror.sync(d.doc), name).toBe('delta');
+      full.load(d.doc);
+      expect(mirror.checks(), name).toEqual(full.checks());
+      expect(same(incremental.exportPlain(), oracle.exportPlain()), name).toBe(true);
+    }
+
+    const o = { actor: ACTOR, now: d.clock + 100 };
+    const made = createSketchDevice(d.doc, { ...o, hostname: 'sk' });
+    const chassisId = made.nodes.filter((n) => n.id.startsWith('chassis:')).at(-1)!.id;
+    const removed = removeChassis(made, chassisId, { ...o, now: o.now + 1 });
+    d.doc = undo(removed, made.batches.at(-1)!.id, { ...o, now: o.now + 2 });
+    expect(mirror.sync(d.doc)).toBe('delta');
+    full.load(d.doc);
+    expect(mirror.checks()).toEqual(full.checks());
+    expect(same(incremental.exportPlain(), oracle.exportPlain()), 'the held design').toBe(true);
   });
 
   it('a different design, then back to deltas', () => {

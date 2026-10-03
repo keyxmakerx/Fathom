@@ -97,6 +97,8 @@ function liveCable(d: Design, i: number): string {
   throw new Error('no live cable');
 }
 
+const byName = (name: string) => EDITS.find((e) => e.name === name)!;
+
 /** One named kind of ordinary edit, applied to `d` (which is updated in place). */
 export const EDITS: readonly { name: string; apply: (d: Design, i: number) => void }[] = [
   {
@@ -152,6 +154,20 @@ export const EDITS: readonly { name: string; apply: (d: Design, i: number) => vo
     apply: (d) => {
       const last = d.doc.batches[d.doc.batches.length - 1];
       if (last?.reverses !== undefined) d.doc = redo(d.doc, last.id, opts(d));
+    },
+  },
+  {
+    name: 'add a cable then undo',
+    apply: (d, i) => {
+      byName('add a cable').apply(d, i);
+      d.doc = undo(d.doc, d.doc.batches[d.doc.batches.length - 1].id, opts(d));
+    },
+  },
+  {
+    name: 'tag a box then undo',
+    apply: (d, i) => {
+      byName('tag a box').apply(d, i);
+      d.doc = undo(d.doc, d.doc.batches[d.doc.batches.length - 1].id, opts(d));
     },
   },
 ];

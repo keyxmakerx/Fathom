@@ -54,7 +54,7 @@ export async function run(o: Options): Promise<void> {
     mirror.checks();
     rows.push({ name: e.name, kind: k, sync, checks: performance.now() - t });
   }
-  for (const r of rows) log(`  ${r.name.padEnd(18)} ${r.kind.padEnd(6)} sync ${f(r.sync).padStart(10)}  checks ${f(r.checks).padStart(10)}  total ${f(r.sync + r.checks).padStart(10)}`);
+  for (const r of rows) log(`  ${r.name.padEnd(24)} ${r.kind.padEnd(6)} sync ${f(r.sync).padStart(10)}  checks ${f(r.checks).padStart(10)}  total ${f(r.sync + r.checks).padStart(10)}`);
   const total = rows.map((r) => r.sync + r.checks);
   const sync = rows.map((r) => r.sync);
   const checks = rows.map((r) => r.checks);

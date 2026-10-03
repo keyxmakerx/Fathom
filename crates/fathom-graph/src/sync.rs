@@ -539,29 +539,57 @@ impl Graph {
             element: el,
             key: Some(key),
         };
+        // Where each wanted entry's value can be witnessed, tracked by position through the pruning.
+        #[derive(Clone, Copy)]
+        enum Src {
+            Held(usize),
+            Slot,
+            Derived,
+        }
         let held = self.history.get(&(el, key));
-        let before_prov = current.map(|c| c.1);
         let mut want = match held {
             Some(h) => h.meta_copy(),
             None => FieldHistory::new(),
         };
+        let mut src: Vec<Src> = (0..held.map_or(0, |h| h.entries().len()))
+            .map(Src::Held)
+            .collect();
         let origin = |p: ProvenanceId| self.prov.get(&p).map(|r| r.origin.discriminant());
         let entry = |(presence, prov)| HistoryEntry {
             presence,
             value: None,
             prov,
         };
+        let mut push = |want: &mut FieldHistory, e, disc, s| {
+            src.push(s);
+            if let Some(keep) = want.push_discriminant(e, disc) {
+                let mut it = keep.iter();
+                src.retain(|_| *it.next().expect("index-aligned"));
+            }
+        };
+        let mut current_src = Src::Slot;
         for &(presence, prov) in chain {
             if let Some(old) = current {
-                want.push_discriminant(entry(old), origin(old.1).ok_or_else(bad)?);
+                push(
+                    &mut want,
+                    entry(old),
+                    origin(old.1).ok_or_else(bad)?,
+                    current_src,
+                );
             }
             current = match presence {
                 StoredPresence::Unknown => {
-                    want.push_discriminant(entry((presence, prov)), origin(prov).ok_or_else(bad)?);
+                    push(
+                        &mut want,
+                        entry((presence, prov)),
+                        origin(prov).ok_or_else(bad)?,
+                        Src::Derived,
+                    );
                     None
                 }
                 _ => Some((presence, prov)),
             };
+            current_src = Src::Derived;
         }
         let (got, truncated) = frag.map_or((&[][..], 0), |h| (&h.entries[..], h.truncated));
         if want.entries().len() != got.len()
@@ -574,17 +602,19 @@ impl Graph {
         {
             return Err(bad());
         }
-        // An entry the store already held (in its history, or as the slot just replaced) keeps
-        // its value. Entries for values replaced inside the delta have no other witness.
-        for g in got {
-            let kept = held.and_then(|h| h.entries().iter().find(|e| e.prov == g.prov));
-            let value = match kept {
-                Some(e) => match (e.presence, e.value.as_deref()) {
-                    (StoredPresence::Set, Some(v)) => Some(slot_to_canon(key, v)?),
-                    _ => None,
+        // The values of entries the store already held (in its history, or as the slot just
+        // replaced) are kept, matched by position. Entries made inside the delta have no witness.
+        for (g, s) in got.iter().zip(&src) {
+            let value = match *s {
+                Src::Held(k) => match held.map(|h| &h.entries()[k]) {
+                    Some(e) => match (e.presence, e.value.as_deref()) {
+                        (StoredPresence::Set, Some(v)) => Some(slot_to_canon(key, v)?),
+                        _ => None,
+                    },
+                    None => None,
                 },
-                None if before_prov == Some(g.prov) => current_value.clone(),
-                None => continue,
+                Src::Slot => current_value.clone(),
+                Src::Derived => continue,
             };
             if value != g.value {
                 return Err(bad());
