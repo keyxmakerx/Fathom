@@ -118,7 +118,7 @@ interface FadeEdge {
 }
 
 /** The chassis ids a node stands for: a plate, a free box, or a shelf's occupants. */
-function chassisIdsOf(node: FadeNode): string[] {
+export function chassisIdsOf(node: FadeNode): string[] {
   const data = node.data as { chassis?: { id: string }; shelf?: { occupants?: { id: string }[] } } | undefined;
   if (node.type === 'chassis' && data?.chassis) return [data.chassis.id];
   if (node.type === 'freeBox' && node.id.startsWith('free:')) return [node.id.slice(5)];
@@ -126,7 +126,7 @@ function chassisIdsOf(node: FadeNode): string[] {
   return [];
 }
 
-function cableIdsOf(edge: FadeEdge): string[] {
+export function cableIdsOf(edge: FadeEdge): string[] {
   const data = edge.data as { cable?: { id: string }; bundle?: { members?: { id: string }[] } } | undefined;
   if (data?.bundle?.members) return data.bundle.members.map((m) => m.id);
   return [data?.cable?.id ?? edge.id];

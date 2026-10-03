@@ -326,7 +326,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.13',
+        supported: '0.14',
       });
     }
   });

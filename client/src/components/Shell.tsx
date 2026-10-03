@@ -49,6 +49,7 @@ export function Shell({
   children,
   viewOnly,
   barExtra,
+  band,
   menu,
   onHome,
   search,
@@ -79,6 +80,7 @@ export function Shell({
         onHome={onHome}
         search={search}
       />
+      {band}
       <div className="shell__body">
         {/* The folded rail exists where it has something to open (the Racks
             palette); Home, Site and Inventory carry their own rails. */}

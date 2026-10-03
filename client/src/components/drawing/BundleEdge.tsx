@@ -5,9 +5,13 @@ import { SHEATH_VAR } from './sheath';
 import { cableLeadPath, leadsFor, type PortPoint } from './cableEnds';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
+import { PlanEdgeTag } from './PlanGhostEdge';
+import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
 
 export interface BundleEdgeData extends Record<string, unknown> {
   bundle: Bundle;
+  /** Set while an open plan touches a cable in this band: its stage colour and tag. */
+  planMark?: PlanEdgeMark;
   /** True while this bundle is fanned open (`Drawing.tsx`'s own hover
    * state) — the band itself draws invisible (its members draw instead,
    * each a real `CableEdge`) but keeps its generous hit path mounted, so
@@ -64,7 +68,11 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
     >
       {!fanned && (
         <>
+          {data.planMark != null && (
+            <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} strokeWidth={width + 6} strokeLinecap="round" className="plan-mark__wash" />
+          )}
           <path d={d} fill="none" stroke={bandColour} strokeWidth={width} strokeLinecap="round" className="drawing-bundle__band" />
+          {data.planMark != null && <PlanEdgeTag x={midX} y={midY - 16} mark={data.planMark} />}
           <g transform={`translate(${midX}, ${midY})`} className="drawing-bundle__badge">
             <rect x={-11} y={-7} width={22} height={14} className="drawing-bundle__badge-box" />
             <text textAnchor="middle" dominantBaseline="central" className="drawing-bundle__badge-text">

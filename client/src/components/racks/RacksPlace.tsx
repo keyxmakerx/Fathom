@@ -36,6 +36,10 @@ import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
 import { mediaCandidates } from '../checks/checksModel';
 import { ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
+import { PlanBand, PlansBarChip } from '../plans/PlanBand';
+import { PlansSurface } from '../plans/PlansSurface';
+import { PlansContext } from '../plans/plansStore';
+import { usePlansController } from '../plans/usePlansController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -269,6 +273,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   // second "first need" (a second chassis selected before the first
   // `Engine.init()` resolves) join the same boot rather than start another.
   const mirrorRef = useRef<Mirror | null>(null);
+  // The engine itself, for the redaction gate Plans runs its notes through.
+  const engineRef = useRef<Engine | null>(null);
   const mirrorPromiseRef = useRef<Promise<Mirror> | null>(null);
   // The `Document` the module currently holds, by reference — `writePlain`
   // and `loadPlain` (`mirror.ts`'s `load`) are not free (measured: seconds,
@@ -288,6 +294,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     if (mirrorPromiseRef.current == null) {
       mirrorPromiseRef.current = Engine.init().then((engine) => {
         const mirror = new Mirror(engine);
+        engineRef.current = engine;
         mirrorRef.current = mirror;
         forceMirrorRerender((n) => n + 1);
         return mirror;
@@ -328,6 +335,22 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
   const loadCostMs = useCallback(() => loadCostRef.current, []);
   const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs });
+  // Maintenance plans (ADR-0061 round 7): the same engine and mirror; every command goes through applyDocChange.
+  const redact = useCallback(() => {
+    const engine = engineRef.current;
+    return engine == null ? null : (t: string) => engine.redactText(t).text;
+  }, []);
+  const plans = usePlansController({
+    doc,
+    boot: ensureMirror,
+    mirrorNow,
+    loadCostMs,
+    redact,
+    applyDocChange,
+    actor: actorOpts(accountId),
+    authorName: shellProps.account?.initials,
+    canEdit: canDraw,
+  });
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -1013,8 +1036,18 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+    <Shell {...shellProps} path={jotPath} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={
+        doc != null ? (
+          <>
+            <PlansBarChip controller={plans} />
+            <ChecksBarChip controller={checks} />
+          </>
+        ) : undefined
+      }
+      band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
+    >
       <ChecksContext.Provider value={checks.api}>
+      <PlansContext.Provider value={plans.store}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
@@ -1045,6 +1078,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onDuplicateFree={canDraw ? handleDuplicateFree : undefined}
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
+          onPlanChange={canDraw ? plans.planChange : undefined}
           onCalloutChange={setCalloutId}
           canDraw={canDraw && jot === null}
           openRequest={openRequest}
@@ -1093,6 +1127,8 @@ export function RacksPlace(props: RacksPlaceProps) {
         </div>
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
+      </PlansContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );

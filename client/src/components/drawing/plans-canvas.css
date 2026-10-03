@@ -1,0 +1,98 @@
+/* Maintenance plans on the canvas (ADR-0061 round 7). The stage colours the marks: indigo while planning,
+   teal in Do, ink once recorded. Dashed is only for an open plan's indigo marks. No amber. The plan panel and
+   band (plans/*) use the same tokens. */
+:root {
+  --m-plan: #4b3fc4;
+  --m-plan-wash: #eeedfb;
+  --m-do: #0b7a83;
+  --m-do-wash: #e3f3f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --m-plan: #a49cf2;
+    --m-plan-wash: #1e1b3b;
+    --m-do: #4fc6cf;
+    --m-do-wash: #0f2a2c;
+  }
+}
+:root[data-theme='dark'] {
+  --m-plan: #a49cf2;
+  --m-plan-wash: #1e1b3b;
+  --m-do: #4fc6cf;
+  --m-do-wash: #0f2a2c;
+}
+
+/* A marked device. The outline sits outside the box and never takes the pointer, so hit-testing is the real one. */
+.react-flow__node.plan-mark {
+  --plan-tone: var(--ink);
+  outline: 1.6px solid var(--plan-tone);
+  outline-offset: 2px;
+}
+.react-flow__node.plan-mark--plan {
+  --plan-tone: var(--m-plan);
+}
+.react-flow__node.plan-mark--do {
+  --plan-tone: var(--m-do);
+}
+.react-flow__node.plan-mark--plan.plan-mark--dashed {
+  outline-style: dashed;
+}
+
+/* The tag: PLANNED, STEP 4, ✓ DONE, ≠ WENT DIFFERENTLY. */
+.react-flow__node.plan-mark::after {
+  content: var(--plan-word);
+  position: absolute;
+  top: -8px;
+  right: 6px;
+  padding: 0 5px;
+  height: 12px;
+  line-height: 10px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+  color: var(--plan-tone);
+  background: var(--page);
+  border: 1px solid var(--plan-tone);
+  pointer-events: none;
+  z-index: 1;
+}
+.react-flow__node.plan-mark--done::after {
+  color: var(--page);
+  background: var(--plan-tone);
+}
+
+/* Too far out to read a tag: keep the outline, drop the word. */
+.drawing[data-zoom-band='50'] .react-flow__node.plan-mark::after {
+  display: none;
+}
+
+/* A marked cable: a wide wash under it, dashed in the stage colour over it when planning. */
+.plan-mark__wash {
+  stroke-width: 7px;
+  opacity: 0.18;
+  pointer-events: none;
+}
+.plan-mark__dash {
+  stroke-width: 1.4px;
+}
+
+.plan-edge-tag__box {
+  stroke-width: 1px;
+}
+.plan-edge-tag__word {
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+/* A cable the plan adds: it is in the plan, not in the graph. */
+.plan-ghost__wash {
+  fill: none;
+  stroke-width: 7px;
+  stroke-linecap: round;
+  opacity: 0.18;
+}
+.plan-ghost__line {
+  fill: none;
+  stroke-width: 1.4px;
+  stroke-linecap: round;
+}

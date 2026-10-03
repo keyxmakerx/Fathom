@@ -21,11 +21,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
+import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
+import { PlanGhostEdge } from './PlanGhostEdge';
+import { PlansCanvasBridge, usePlansFade } from './plansFade';
+import type { PortTarget } from './plansMarks';
 import { Callout } from './Callout';
 import { CablesViewControl } from './CablesViewControl';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
@@ -96,7 +100,7 @@ const NODE_TYPES = {
   surface: SurfaceNode,
   shelf: ShelfPlate,
 };
-const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
+const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
 const PAN_BUTTONS = [1];
@@ -217,6 +221,8 @@ export interface DrawingProps extends DrawingActions {
    * component is the one place that converts between the two. */
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** Right-click "Plan a change" on a device (ADR-0061 round 7). Absent, or a reader: no menu item. */
+  onPlanChange?: (elementId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
@@ -328,6 +334,7 @@ function DrawingInner({
   onAddRack,
   onAddWall,
   onPasteConfig,
+  onPlanChange,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -436,7 +443,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -1032,6 +1039,14 @@ function DrawingInner({
     return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h, row: box.row };
   }
   type RealEnd = { portId: string; chassisId: string; rackId: string | null };
+  // Where a planned cable's end lands: the node and handle a real cable to that port would use.
+  const resolvePlanPort = (portId: string): PortTarget | null => {
+    const at = locatePort(view, portId);
+    if (at == null) return null;
+    const end: RealEnd = at.place === 'chassis' ? { portId, chassisId: at.chassis.id, rackId: at.rack.id } : { portId, chassisId: '', rackId: null };
+    const target = resolveEnd(end);
+    return target == null ? null : { ...target, box: portBox(end) };
+  };
   const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
 
   // Close in, every cable is its own line with each end's port named; the
@@ -1466,7 +1481,9 @@ function DrawingInner({
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
-  const shown = useChecksFade(allNodes, allEdges);
+  // An open plan's marks and focus first; a Checks Show then fades on top and wins.
+  const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
+  const shown = useChecksFade(planned.nodes, planned.edges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1554,6 +1571,7 @@ function DrawingInner({
           untouched. */}
       <CablesViewControl value={cableVisibility} onChange={handleCableVisibilityChange} />
       <ChecksCanvasBridge />
+      <PlansCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}
