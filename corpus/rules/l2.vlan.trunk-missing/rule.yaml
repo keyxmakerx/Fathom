@@ -1,0 +1,25 @@
+id: l2.vlan.trunk-missing
+rule_version: 1.0.0
+status: active
+severity: warn
+category: correctness
+title: "A VLAN is carried on one end of a trunk and not the other"
+why: >
+  A trunk carries only the VLANs listed on both ends. A VLAN listed on one end and missing from the other is cut at the far side: its hosts cannot reach across this link.
+fix: >
+  Add the missing VLAN to the other end of the trunk, or remove it from the end that carries it.
+concept: check.l2.vlan-ports
+acceptable_when: >
+  A VLAN deliberately kept off one side. Then remove it from the other end too.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-02
+sources:
+  - { publisher: "Cisco Press", doc: "CCENT/CCNA ICND1 100-101 Official Cert Guide, 'Check the Allowed VLAN List on Both Ends of a Trunk'", url: "https://www.oreilly.com/library/view/ccentccna-icnd1-100-101/9780133367867/ch10lev3sec14.html", read_on: 2026-10-02, note: "Located by web search on 2026-10-02; the page could not be opened from this environment (outbound fetch blocked), so the claim rests on the document's known scope and has not been read against it. A person should confirm it." }
+applies_to:
+  kind: Cable
+  with:
+    a_tru: { via: [{ role: Terminates, where: { end: a } }, { role: Occupies, reverse: true }, HasUnit, { role: VlanMember, where: { mode: trunk } }], card: many }
+    b_tru: { via: [{ role: Terminates, where: { end: b } }, { role: Occupies, reverse: true }, HasUnit, { role: VlanMember, where: { mode: trunk } }], card: many }
+condition: >
+  count(a_tru) > 0 && count(b_tru) > 0 && (a_tru.exists(x, !b_tru.exists(y, y.vlan_id == x.vlan_id)) || b_tru.exists(y, !a_tru.exists(x, x.vlan_id == y.vlan_id)))
+involves: [a_tru, b_tru]

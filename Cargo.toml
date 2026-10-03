@@ -12,6 +12,7 @@ members = [
     "crates/fathom-inventory",
     "crates/fathom-ir",
     "crates/fathom-layout",
+    "crates/fathom-rules",
     "crates/fathom-schema",
     "crates/fathom-schemagen",
     "crates/fathom-server",
