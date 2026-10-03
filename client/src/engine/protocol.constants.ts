@@ -47,7 +47,9 @@ export const OPCODES = {
   OP_CHECKS: 32,
   /** ADR-0061 §5: dry-run a cable or field edit; the refusals it would cause. */
   OP_CHECK_GESTURE: 33,
-  OP_PLAN_PREVIEW: 34,
+  /** Append the batches the module has not seen, or answer ERR_RESYNC (the page then loads the whole design). */
+  OP_SYNC: 34,
+  OP_PLAN_PREVIEW: 35,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,
@@ -117,6 +119,8 @@ export const ERRORS = {
   ERR_CABLE_END: 19,
   ERR_NO_CABLE: 20,
   ERR_PLAIN_REFUSED: 21,
+  /** OP_SYNC could not append; the module is unchanged and the page sends OP_LOAD_PLAIN. */
+  ERR_RESYNC: 22,
 } as const;
 
 /** The FDLT reply header (`protocol.rs`'s `header()`, `HEADER_LEN`). */

@@ -26,6 +26,7 @@ pub mod op;
 pub mod prov;
 pub mod shape;
 pub mod snap;
+pub mod sync;
 
 pub use field::{FieldHistory, FieldInfo, HistoryEntry, StoredPresence};
 pub use graph::{Edge, End, Graph, Node, ReadError, WriteError};
@@ -39,3 +40,4 @@ pub use shape::{shape_digest, shape_hex};
 pub use snap::{
     EdgeSnap, FieldSnap, HistoryEntrySnap, HistorySnap, NodeSnap, Snapshot, SnapshotError,
 };
+pub use sync::SyncError;

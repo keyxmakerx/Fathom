@@ -66,6 +66,18 @@ export class EngineError extends Error {
   }
 }
 
+/** The module trapped (a panic is an `unreachable`) or ran out of memory mid-call. Its memory is in an
+ * unknown state, so the `Engine` that threw this answers nothing afterwards: discard it and boot another. */
+export class EngineTrap extends Error {
+  readonly cause: unknown;
+
+  constructor(detail: string, cause: unknown) {
+    super(`fathom-wasm trapped: ${detail}`);
+    this.name = 'EngineTrap';
+    this.cause = cause;
+  }
+}
+
 export interface PasteSummary {
   nodes: number;
   edges: number;
@@ -600,9 +612,25 @@ function readChecksReply(rows: FaceRow[]): ChecksResult {
 
 export class Engine {
   private readonly wasm: EngineWasm;
+  private trap: EngineTrap | null = null;
 
   private constructor(wasm: EngineWasm) {
-    this.wasm = wasm;
+    this.wasm = {
+      call: (op, req) => {
+        if (this.trap != null) throw new EngineTrap('the module trapped earlier and is discarded', this.trap);
+        try {
+          return wasm.call(op, req);
+        } catch (e) {
+          this.trap = new EngineTrap(e instanceof Error ? e.message : String(e), e);
+          throw this.trap;
+        }
+      },
+    };
+  }
+
+  /** The module trapped; this instance answers nothing more. */
+  get trapped(): boolean {
+    return this.trap != null;
   }
 
   /** Load the module and hand it both dictionaries (ADR-0052 §1). Defaults
@@ -677,6 +705,24 @@ export class Engine {
     if (view.kind === 'error') {
       throw new EngineError(view.error.code, view.error.detail);
     }
+  }
+
+  /** `OP_SYNC`: append the batches the module has not seen (`writeDelta`'s bytes). On success the
+   * live node and edge counts the module now holds, for the caller to check against its document;
+   * `null` on ERR_RESYNC, which leaves the module unchanged and means "send the whole design".
+   * Any other refusal is a real fault and throws. */
+  syncDelta(bytes: Uint8Array): { nodes: number; edges: number } | null {
+    const reply = this.wasm.call(OPCODES.OP_SYNC, bytes);
+    if (reply.length === 8) {
+      const v = new DataView(reply.buffer, reply.byteOffset, 8);
+      return { nodes: v.getUint32(0, true), edges: v.getUint32(4, true) };
+    }
+    const view = decodeReply(reply);
+    if (view.kind === 'error') {
+      if (view.error.code === ERRORS.ERR_RESYNC) return null;
+      throw new EngineError(view.error.code, view.error.detail);
+    }
+    throw new EngineError(0, 'OP_SYNC answered something that is neither counts nor an error');
   }
 
   /** Door two: export the module's held estate as plain-face bytes — the

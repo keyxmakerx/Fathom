@@ -48,6 +48,18 @@ publish = false
 # radius visible in the manifest itself.
 [workspace.dependencies]
 
+# The sync oracle (`fathom-wasm/tests/sync_diff.rs`) loads a few hundred-node design thousands of
+# times; at opt-level 0 the canonical-JSON and graph code made that minutes. Optimising just these
+# crates in dev and test builds keeps it to seconds and changes no behaviour.
+[profile.dev.package.fathom-canon]
+opt-level = 2
+[profile.dev.package.fathom-graph]
+opt-level = 2
+[profile.dev.package.fathom-workspace]
+opt-level = 2
+[profile.dev.package.fathom-ir]
+opt-level = 2
+
 # 42 §8.1's release profile — the one the WASM artifact gates measure under.
 # overflow-checks stays on in release: 41 §2.5, "a wrapped length in a parser
 # is the bug we are here to avoid". panic = "abort": a panic is a trap at the

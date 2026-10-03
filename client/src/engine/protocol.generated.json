@@ -25,7 +25,8 @@
     "OP_REDACT_TEXT": 31,
     "OP_CHECKS": 32,
     "OP_CHECK_GESTURE": 33,
-    "OP_PLAN_PREVIEW": 34
+    "OP_SYNC": 34,
+    "OP_PLAN_PREVIEW": 35
   },
   "faces": {
     "FACE_HEADER": 0,
@@ -122,6 +123,7 @@
     "ERR_CABLE_COUNT": 18,
     "ERR_CABLE_END": 19,
     "ERR_NO_CABLE": 20,
-    "ERR_PLAIN_REFUSED": 21
+    "ERR_PLAIN_REFUSED": 21,
+    "ERR_RESYNC": 22
   }
 }

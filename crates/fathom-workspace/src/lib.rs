@@ -254,6 +254,12 @@ pub fn write_plain(graph: &Graph) -> Result<Vec<u8>, PlainError> {
 /// refusal deterministic: magic, face version, banner, schema version, the
 /// blank line, then the body.
 pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
+    read_plain_declared(bytes).map(|(graph, _)| graph)
+}
+
+/// [`read_plain`], and the schema version the file declared: the version the graph was loaded
+/// under, which a delta for it must also declare.
+pub fn read_plain_declared(bytes: &[u8]) -> Result<(Graph, String), PlainError> {
     // 1 — the magic, before the file is even shaped into lines. The sealed
     // envelope's `FTHM\x1fREC` lands here, which is the point: a build must
     // know what it is not holding before it does anything with it.
@@ -299,7 +305,91 @@ pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
     let json = Json::parse_canonical(body)?;
     let snapshot = snapshot_from_json(&json)?;
     reject_kinds_too_new_for_declared_version(declared, &snapshot)?;
-    Ok(Graph::from_snapshot(&snapshot)?)
+    Ok((Graph::from_snapshot(&snapshot)?, declared.to_owned()))
+}
+
+/// Line 1's magic for a delta (`Graph::apply_batches`'s input). Not a plain face: it holds a
+/// fragment, never a whole design, and `read_plain` refuses it by its magic.
+pub const DELTA_MAGIC: &str = "fathom-delta";
+
+/// The delta format version, checked for exact equality.
+pub const DELTA_FACE_VERSION: u32 = 1;
+
+/// A fragment and the batch the sender believes the receiver already ends at.
+#[derive(Debug)]
+pub struct Delta {
+    /// The schema version the delta declares.
+    pub schema: String,
+    /// The last batch the receiver holds; `None` for a receiver with an empty log.
+    pub base: Option<BatchId>,
+    pub fragment: Snapshot,
+}
+
+/// A delta as bytes, in the plain face's own canonical encoding of batches, ops, nodes, edges,
+/// provenance and history. Four header lines, then the fragment as canonical JSON:
+///
+/// ```text
+/// fathom-delta 1
+/// schema <SCHEMA_VERSION>
+/// base <batch ulid | none>
+/// (empty)
+/// <the fragment, as the plain face's snapshot object>
+/// ```
+pub fn write_delta(base: Option<BatchId>, fragment: &Snapshot) -> Vec<u8> {
+    let base = base.map_or_else(|| "none".to_owned(), |b| b.0.encode());
+    let mut bytes =
+        format!("{DELTA_MAGIC} {DELTA_FACE_VERSION}\nschema {SCHEMA_VERSION}\nbase {base}\n\n")
+            .into_bytes();
+    bytes.extend_from_slice(&snapshot_to_json(fragment).to_canonical_bytes());
+    bytes
+}
+
+/// The delta a holder of `graph`'s first `from` batches needs to reach all of it. The Rust
+/// reference for what the browser sends; the wasm module never calls it.
+pub fn write_delta_since(graph: &Graph, from: usize) -> Result<Vec<u8>, PlainError> {
+    let base = from.checked_sub(1).map(|i| graph.log()[i].id);
+    Ok(write_delta(base, &graph.to_snapshot()?.since(from)))
+}
+
+/// The inverse of [`write_delta`]. Header checks run in the plain face's order and with its
+/// schema rule; nothing of the fragment is trusted until `Graph::apply_batches` has run it.
+pub fn read_delta(bytes: &[u8]) -> Result<Delta, PlainError> {
+    let magic = format!("{DELTA_MAGIC} ");
+    if !bytes.starts_with(magic.as_bytes()) {
+        return Err(PlainError::NotPlainFace);
+    }
+    let (header, body) = split_header(bytes)?;
+    let version = String::from_utf8_lossy(&header[0][magic.len()..]).into_owned();
+    if version != DELTA_FACE_VERSION.to_string() {
+        return Err(PlainError::UnsupportedFaceVersion { found: version });
+    }
+    let line = |i: usize, prefix: &str| {
+        core::str::from_utf8(header[i])
+            .ok()
+            .and_then(|l| l.strip_prefix(prefix))
+            .ok_or(PlainError::MalformedHeader { line: i as u32 + 1 })
+    };
+    let declared = line(1, "schema ")?;
+    if declared != SCHEMA_VERSION && !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
+        return Err(PlainError::SchemaVersionMismatch {
+            found: declared.to_owned(),
+            supported: SCHEMA_VERSION,
+        });
+    }
+    let base = match line(2, "base ")? {
+        "none" => None,
+        text => Some(BatchId(read_ulid(&Json::Str(text.to_owned()), "base")?)),
+    };
+    if !header[3].is_empty() {
+        return Err(PlainError::MalformedHeader { line: 4 });
+    }
+    let fragment = snapshot_from_json(&Json::parse_canonical(body)?)?;
+    reject_kinds_too_new_for_declared_version(declared, &fragment)?;
+    Ok(Delta {
+        schema: declared.to_owned(),
+        base,
+        fragment,
+    })
 }
 
 /// The refuse-to-masquerade rule for anyone naming a file after these bytes:
