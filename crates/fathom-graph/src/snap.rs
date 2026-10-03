@@ -25,10 +25,9 @@ use fathom_canon::Json;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::{slot_from_canon, slot_to_canon};
-use fathom_ir::generated::ir_types::EdgeClass;
 
 use crate::field::{FieldHistory, HistoryEntry, StoredPresence};
-use crate::graph::{declares, insert_sorted, Edge, Graph, Node, Slot, WriteError};
+use crate::graph::{declares, Edge, Graph, Node, Slot, WriteError};
 use crate::id::{EdgeId, ElementId, NodeId};
 use crate::op::{Batch, BatchId, Op};
 use crate::prov::{ProvenanceId, ProvenanceRecord, Timestamp};
@@ -338,6 +337,18 @@ impl Loader<'_> {
 }
 
 impl Graph {
+    /// Would [`Graph::from_snapshot`] take this store's edges? The loader runs each edge,
+    /// tombstoned ones included, through the write ladder in `EdgeId` order against the effective
+    /// edges before it, so a design the write path built (re-parent, then revive the old
+    /// parent's edge) can be one the loader refuses. This runs that ladder, in place, with each
+    /// edge's own id as the horizon.
+    pub fn check_loadable(&self) -> Result<(), WriteError> {
+        for e in self.edges.values() {
+            self.check_edge_l0_at(e.id.kind, e.from, e.to, Some(e.id))?;
+        }
+        Ok(())
+    }
+
     /// Rebuild a store from a snapshot, refusing everything the write path
     /// would have refused and everything only a file can get wrong.
     pub fn from_snapshot(s: &Snapshot) -> Result<Graph, SnapshotError> {
@@ -411,26 +422,14 @@ impl Graph {
             }
             loader.require_prov(e.prov)?;
             let fields = loader.slots(ElementId::Edge(e.id), &e.fields, "edge fields")?;
-            loader.graph.edges.insert(
-                e.id,
-                Edge {
-                    id: e.id,
-                    from,
-                    to,
-                    prov: e.prov,
-                    absent_since: e.absent_since,
-                    fields,
-                },
-            );
-            loader
-                .graph
-                .by_ulid
-                .insert(e.id.ulid, ElementId::Edge(e.id));
-            insert_sorted(loader.graph.out.entry((from, e.id.kind)).or_default(), e.id);
-            insert_sorted(loader.graph.inn.entry((to, e.id.kind)).or_default(), e.id);
-            if e.id.kind.class() == EdgeClass::Containment {
-                loader.graph.owner_edge.insert(to, e.id);
-            }
+            loader.graph.place_edge(Edge {
+                id: e.id,
+                from,
+                to,
+                prov: e.prov,
+                absent_since: e.absent_since,
+                fields,
+            });
         }
 
         // History, verbatim. Its per-entry origin is the origin of the entry's

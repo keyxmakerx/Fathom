@@ -433,11 +433,15 @@ pub const ERR_NO_CABLE: u16 = 20;
 /// malformed body. The store's own words, as `ERR_WELD_REFUSED` carries.
 pub const ERR_PLAIN_REFUSED: u16 = 21;
 
+/// `OP_SYNC` could not append: the page should send the whole design (`OP_LOAD_PLAIN`). The
+/// module is unchanged. The detail names why, for a log, not for a person.
+pub const ERR_RESYNC: u16 = 22;
+
 /// `OP_PASTE` / `OP_PASTE_INTO` could not tell which set-form platform wrote the text
 /// and no platform was named: two or more dictionaries read it about equally. The
 /// detail is the candidate platforms, comma-separated. The page asks the person and
 /// re-posts naming one; it never picks. Nothing is stored on this refusal.
-pub const ERR_PLATFORM_CHOICE: u16 = 22;
+pub const ERR_PLATFORM_CHOICE: u16 = 23;
 
 /// The platforms a paste frame's flag byte can name, in bits 1..=3 (value 0 = detect;
 /// bit 0 is `confirm`). Append-only, like the opcode table; `client/src/engine/frames.ts`

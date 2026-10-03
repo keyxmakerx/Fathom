@@ -88,9 +88,9 @@ interface Inputs {
   doc: Document | null;
   /** Starts the engine once (RacksPlace's `ensureMirror`). */
   boot: () => Promise<Mirror>;
-  /** The mirror; null before it has booted. Brought up to `doc` first if stale, unless `load` is false. */
+  /** The mirror; null before it has booted. Synced to `doc` first if stale (`Mirror.sync`), unless `load` is false. */
   mirrorNow: (load?: boolean) => Mirror | null;
-  /** How long the last load of the module took, ms; null before there has been one. */
+  /** How long the last sync of the module took, ms; null before there has been a measurable one. */
   loadCostMs: () => number | null;
 }
 
@@ -207,7 +207,8 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
   const guardCable = useCallback<ChecksApi['guardCable']>((from, to, medias) => {
     let mirror: Mirror | null = null;
     try {
-      // A dear reload is not paid here: use what the module holds (unknown ports give no rows; it fails open).
+      // A sync measured as dear is not paid here (a safety net: a delta sync is cheap): use what the module holds
+      // (unknown ports give no rows; it fails open).
       mirror = latest.current.mirrorNow(guardMayReload(latest.current.loadCostMs()));
     } catch {
       // Not loadable now: go ahead.

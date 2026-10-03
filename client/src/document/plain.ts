@@ -18,6 +18,10 @@
 import { toCanonicalBytes, parseCanonical, type CanonValue } from './canon';
 import { SCHEMA_VERSION, type NodeKind, type EdgeKind } from '../../../schema/generated/ir_types';
 import {
+  compareEdgeId,
+  compareHistoryRecord,
+  compareNodeId,
+  isNodeId,
   parseNodeId,
   parseEdgeId,
   type Batch,
@@ -39,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.13 move is additive, so a payload declared at an older
+// Every 0.10-to-0.14 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -68,6 +72,10 @@ const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedW
 const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
 const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
 
+// Kinds 0.14 (ADR-0061 round 7) added; same reasoning, for 0.10 to 0.13.
+const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
+const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
+
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
@@ -75,8 +83,9 @@ function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): v
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
     const tooNew =
-      NODE_KINDS_SINCE_0_13.has(kind) ||
-      (declared !== '0.12' && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
+      NODE_KINDS_SINCE_0_14.has(kind) ||
+      (declared !== '0.13' && NODE_KINDS_SINCE_0_13.has(kind)) ||
+      (declared !== '0.12' && declared !== '0.13' && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
@@ -84,8 +93,9 @@ function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): v
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
     const tooNew =
-      EDGE_KINDS_SINCE_0_13.has(kind) ||
-      (declared !== '0.12' && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
+      EDGE_KINDS_SINCE_0_14.has(kind) ||
+      (declared !== '0.13' && EDGE_KINDS_SINCE_0_13.has(kind)) ||
+      (declared !== '0.12' && declared !== '0.13' && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
@@ -148,6 +158,105 @@ export function writePlain(doc: Document): Uint8Array {
     `${PLAIN_MAGIC} ${PLAIN_FACE_VERSION}\n${PLAIN_WARNING}\nschema ${SCHEMA_VERSION}\n\n`,
   );
   const body = toCanonicalBytes(documentToJson(doc));
+  const out = new Uint8Array(header.length + body.length);
+  out.set(header, 0);
+  out.set(body, header.length);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Delta — `fathom_workspace::write_delta`'s format: the batches a holder has not seen, and the
+// state they need to be applied (the ops carry no values). Four header lines, then the plain
+// face's own snapshot object holding only that fragment:
+//
+//   fathom-delta 1
+//   schema <SCHEMA_VERSION>
+//   base <ulid of the last batch the holder has | none>
+//   (empty)
+//   <fragment as canonical JSON>
+//
+// Only the batches are instructions; the nodes, edges, provenance and history are evidence the
+// module checks against them (`fathom-graph/src/sync.rs`). A fragment that is short or wrong is
+// refused there, not repaired here.
+
+export const DELTA_MAGIC = 'fathom-delta';
+export const DELTA_FACE_VERSION = 1;
+
+function findSorted<T>(arr: readonly T[], compare: (x: T) => number): T | undefined {
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const c = compare(arr[mid]);
+    if (c === 0) return arr[mid];
+    if (c < 0) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return undefined;
+}
+
+/** The delta for a holder of `doc.batches[0..held]`: the rest of the log and what it touched.
+ * The caller has checked that `held` batches are a prefix of `doc.batches`. */
+export function writeDelta(doc: Document, held: number): Uint8Array {
+  const batches = doc.batches.slice(held);
+  const elements = new Set<string>();
+  const provs = new Set<string>();
+  const sets = new Map<string, { element: string; field: string }>();
+  for (const batch of batches) {
+    for (const op of batch.ops) {
+      switch (op.type) {
+        case 'add_node':
+          elements.add(op.node);
+          provs.add(op.prov);
+          break;
+        case 'add_edge':
+          elements.add(op.edge);
+          provs.add(op.prov);
+          break;
+        case 'set_field':
+          elements.add(op.element);
+          provs.add(op.prov);
+          sets.set(`${op.element}\u0000${op.key}`, { element: op.element, field: op.key });
+          break;
+        case 'tombstone':
+        case 'revive':
+          elements.add(op.element);
+          break;
+      }
+    }
+  }
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  for (const id of elements) {
+    if (isNodeId(id)) {
+      const n = findSorted(doc.nodes, (x) => compareNodeId(x.id, id));
+      if (n) nodes.push(n);
+    } else {
+      const e = findSorted(doc.edges, (x) => compareEdgeId(x.id, id));
+      if (e) edges.push(e);
+    }
+  }
+  const provenance: ProvenanceRecord[] = [];
+  for (const id of provs) {
+    const p = findSorted(doc.provenance, (x) => (x.id < id ? -1 : x.id > id ? 1 : 0));
+    if (p) provenance.push(p);
+  }
+  const history: HistoryRecord[] = [];
+  for (const s of sets.values()) {
+    const h = findSorted(doc.history, (x) => compareHistoryRecord(x, s));
+    if (h) history.push(h);
+  }
+  const base = held > 0 ? doc.batches[held - 1].id : 'none';
+  const header = new TextEncoder().encode(
+    `${DELTA_MAGIC} ${DELTA_FACE_VERSION}\nschema ${SCHEMA_VERSION}\nbase ${base}\n\n`,
+  );
+  const body = toCanonicalBytes({
+    batches: batches.map(batchToJson),
+    edges: edges.map(edgeToJson),
+    history: history.map(historyToJson),
+    nodes: nodes.map(nodeToJson),
+    provenance: provenance.map(provenanceToJson),
+  });
   const out = new Uint8Array(header.length + body.length);
   out.set(header, 0);
   out.set(body, header.length);

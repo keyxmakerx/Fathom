@@ -1909,6 +1909,18 @@ fn fold_word(s: &str) -> String {
         .collect()
 }
 
+/// The exempt and secret word lists, folded once. A gate scan calls `is_secret_word` per token, so
+/// folding thirty words each time made a large file cost minutes.
+fn folded_words() -> &'static (Vec<String>, Vec<String>) {
+    static FOLDED: std::sync::OnceLock<(Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    FOLDED.get_or_init(|| {
+        (
+            SECRET_WORD_EXEMPT.iter().map(|w| fold_word(w)).collect(),
+            SECRET_WORD_LIST.iter().map(|w| fold_word(w)).collect(),
+        )
+    })
+}
+
 /// Leaf names that CONTAIN a secret word and do not name a secret.
 ///
 /// A keychain statement carries the NAME of a key chain, which is an ordinary
@@ -1957,10 +1969,15 @@ const SECRET_WORD_EXEMPT: [&str; 3] = ["key-chain", "authentication-key-chain", 
 /// other.
 pub(crate) fn is_secret_word(text: &str) -> bool {
     let needle = fold_word(text);
-    if SECRET_WORD_EXEMPT.iter().any(|w| fold_word(w) == needle) {
+    let (exempt, list) = folded_words();
+    // Every way to answer true below needs a listed word inside the text, so most words stop here.
+    if !list.iter().any(|w| needle.contains(w.as_str())) {
         return false;
     }
-    if SECRET_WORD_LIST.iter().any(|w| fold_word(w) == needle) {
+    if exempt.contains(&needle) {
+        return false;
+    }
+    if list.contains(&needle) {
         return true;
     }
     // Component match. `14` §9.7 fixes the direction of error as destruction,
@@ -1968,7 +1985,7 @@ pub(crate) fn is_secret_word(text: &str) -> bool {
     if needle
         .split(['-', '.'])
         .filter(|p| !p.is_empty())
-        .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == part))
+        .any(|part| list.iter().any(|w| w == part))
     {
         return true;
     }
@@ -2007,9 +2024,7 @@ pub(crate) fn is_secret_word(text: &str) -> bool {
     if !cur.is_empty() {
         parts.push(cur);
     }
-    parts
-        .iter()
-        .any(|part| SECRET_WORD_LIST.iter().any(|w| fold_word(w) == *part))
+    parts.iter().any(|part| list.iter().any(|w| w == part))
 }
 
 fn build_trie(entries: &[Entry]) -> Result<Vec<DictNode>, DictError> {

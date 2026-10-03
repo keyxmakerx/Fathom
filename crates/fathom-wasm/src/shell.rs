@@ -15,7 +15,7 @@ use crate::protocol::{
     ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
     ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
     ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_PLATFORM_CHOICE,
-    ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
+    ERR_RESYNC, ERR_UNKNOWN_OP, ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
 use crate::OP_ESTATE_DEMO;
@@ -23,7 +23,7 @@ use crate::{
     OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
     OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY,
-    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT,
+    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC,
 };
 
 pub struct Shell {
@@ -32,6 +32,8 @@ pub struct Shell {
     /// `OP_EQUIP_ADD` succeeds; the only workspace this build holds. `OP_ESTATE_DEMO`
     /// is gone from the shipping module (see `estate_demo`).
     estate: Option<fathom_graph::Graph>,
+    /// The schema version `OP_LOAD_PLAIN` last read the estate under; a delta must declare it.
+    estate_schema: String,
     /// Every dictionary handed in over `OP_DICT`, keyed by its own `platform:` line and
     /// held for the module's lifetime. Booting one platform never replaces another.
     /// `opnsense` is the rules-CSV one; the rest are set-form. Empty until `OP_DICT`
@@ -47,6 +49,7 @@ impl Shell {
             finder: None,
             estate: None,
             dicts: std::collections::BTreeMap::new(),
+            estate_schema: fathom_ir::generated::ir_types::SCHEMA_VERSION.to_owned(),
             checks: crate::checks::Checks::new(),
         }
     }
@@ -79,6 +82,7 @@ impl Shell {
             OP_PASTE_INTO => self.paste_into(req),
             OP_REDACT_TEXT => self.redact_text(req),
             OP_LOAD_PLAIN => self.load_plain(req),
+            OP_SYNC => self.sync(req),
             OP_EXPORT_PLAIN => self.export_plain(req),
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
@@ -551,13 +555,61 @@ impl Shell {
     /// `OP_LOAD_PLAIN`: the plain face in, the held estate out. Frame in
     /// [`crate::OP_LOAD_PLAIN`].
     fn load_plain(&mut self, req: &[u8]) -> Vec<u8> {
-        let graph = match fathom_workspace::read_plain(req) {
+        let (graph, schema) = match fathom_workspace::read_plain_declared(req) {
             Ok(g) => g,
             Err(e) => return protocol::encode_error(ERR_PLAIN_REFUSED, &format!("{e:?}")),
         };
         let reply = load_plain_reply(&graph);
         self.estate = Some(graph);
+        self.estate_schema = schema;
         reply
+    }
+
+    /// `OP_SYNC`: append the batches the module has not seen. Frame in [`crate::OP_SYNC`].
+    fn sync(&mut self, req: &[u8]) -> Vec<u8> {
+        let resync = |why: String| protocol::encode_error(ERR_RESYNC, &why);
+        if req.len() > crate::SYNC_FRAME_MAX {
+            return resync(format!(
+                "the delta is {} bytes; the most OP_SYNC takes is {}",
+                req.len(),
+                crate::SYNC_FRAME_MAX
+            ));
+        }
+        let Some(graph) = self.estate.as_mut() else {
+            return resync("no estate loaded".to_owned());
+        };
+        let delta = match fathom_workspace::read_delta(req) {
+            Ok(d) => d,
+            Err(e) => return resync(format!("{e:?}")),
+        };
+        if delta.schema != self.estate_schema {
+            return resync(format!(
+                "the delta is schema {}, the estate was loaded as {}",
+                delta.schema, self.estate_schema
+            ));
+        }
+        if delta.base != graph.log().last().map(|b| b.id) {
+            return resync(
+                "the module does not end at the batch the delta starts after".to_owned(),
+            );
+        }
+        // "From nothing" means an empty estate, not one that merely has no log.
+        if delta.base.is_none()
+            && (graph.nodes().next().is_some() || graph.edges().next().is_some())
+        {
+            return resync("the delta starts from nothing and the estate is not empty".to_owned());
+        }
+        match graph.apply_batches(&delta.fragment) {
+            Ok(()) => {
+                // The live node and edge counts the page checks against its document.
+                let live_nodes = graph.nodes().filter(|n| n.absent_since.is_none()).count();
+                let live_edges = graph.edges().filter(|e| e.absent_since.is_none()).count();
+                let mut counts = (live_nodes as u32).to_le_bytes().to_vec();
+                counts.extend_from_slice(&(live_edges as u32).to_le_bytes());
+                counts
+            }
+            Err(e) => resync(format!("{e:?}")),
+        }
     }
 
     /// `OP_EXPORT_PLAIN`: the held estate out as the plain face's raw bytes. See
@@ -3431,6 +3483,11 @@ fn section_prefix(section: Section) -> &'static str {
 impl Shell {
     pub fn estate_for_test(&self) -> Option<&fathom_graph::Graph> {
         self.estate.as_ref()
+    }
+
+    /// The rules the last `OP_CHECKS` ran again (indexes into `checks::RULES`).
+    pub fn checks_last_run_for_test(&self) -> &[usize] {
+        self.checks.last_run()
     }
 }
 

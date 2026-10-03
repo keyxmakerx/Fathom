@@ -79,6 +79,8 @@ export interface ShellProps {
 
   /** The Share button; present only for someone who may share (a steward). */
   onShare?: () => void;
+  /** The design's docs list; absent with no design open. */
+  onDocs?: () => void;
 
   /** The 24×24 account square and its menu (ADR-0047 §3): the caller's
    * `menu` rows, then the theme switch and Sign out. */

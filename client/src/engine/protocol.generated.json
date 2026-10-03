@@ -24,7 +24,8 @@
     "OP_PASTE_INTO": 30,
     "OP_REDACT_TEXT": 31,
     "OP_CHECKS": 32,
-    "OP_CHECK_GESTURE": 33
+    "OP_CHECK_GESTURE": 33,
+    "OP_SYNC": 34
   },
   "faces": {
     "FACE_HEADER": 0,
@@ -120,6 +121,7 @@
     "ERR_CABLE_END": 19,
     "ERR_NO_CABLE": 20,
     "ERR_PLAIN_REFUSED": 21,
-    "ERR_PLATFORM_CHOICE": 22
+    "ERR_RESYNC": 22,
+    "ERR_PLATFORM_CHOICE": 23
   }
 }

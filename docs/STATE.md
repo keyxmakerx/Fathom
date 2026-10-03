@@ -224,6 +224,17 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   tag; a VLAN row tags through its members ("2 of 3"). Quick search finds devices, racks and ports by
   tag. Not built: the Inventory column and filter, tags in the cable filter (#54), search over cables,
   VLANs and containers.
+- **Docs** (ADR-0061 round 7, schema 0.14). A doc has a title, Markdown text and links, and is about a
+  device, port, cable, rack, a catalogue model (shows on every unit, "on the model") or the design.
+  A "Docs" line in those panels and a Docs button in the bar open the list and the page. Markdown is a
+  safe subset (no HTML, images shown as words, http/https links with their host). A pasted body or link
+  goes through the gate; typed text is stored as typed. The server refuses a credential in doc text as
+  it does in notes. Files (PDF, image or text, 25 MB) hang off a doc: text goes through the gate in the
+  browser and only the redacted copy is uploaded; the server sniffs by content, refuses text that still
+  carries a password, seals the bytes under the design key and serves them as downloads only. Images and
+  PDFs are stored "can't be read" (no PDF text extraction yet). Removing a file removes it from the design;
+  the sealed copy stays on the server. Not built: the Inventory Docs kind (after #93), attaching to a
+  maintenance plan (after #98).
 - **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
   lists every library the web app ships with licence and copyright. The canvas no longer shows React
   Flow's corner link. `scripts/licences-npm.mjs` fails CI when a client package's licence is off

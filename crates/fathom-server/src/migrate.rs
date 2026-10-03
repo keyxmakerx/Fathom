@@ -198,6 +198,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0030_design_names.sql",
         sql: include_str!("../migrations/0030_design_names.sql"),
     },
+    // ADR-0061 round 10: files on docs, sealed under the design key.
+    Migration {
+        version: 31,
+        name: "0031_design_files.sql",
+        sql: include_str!("../migrations/0031_design_files.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
