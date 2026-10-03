@@ -2,18 +2,14 @@
 // link returns to the same list: kind, filter line, sort, Where, search, saved view and the open row.
 // Pure. Defaults are left out, so the plain list is just "#inventory".
 
+import { NO_WHERE, type Where } from './placeIndex';
+
+export { NO_WHERE, type Where };
+
 export interface SortKey {
   key: string;
   dir: 'asc' | 'desc';
 }
-
-export interface Where {
-  site: string;
-  room: string;
-  rack: string;
-}
-
-export const NO_WHERE: Where = { site: '', room: '', rack: '' };
 
 export interface ListState {
   kind: string;

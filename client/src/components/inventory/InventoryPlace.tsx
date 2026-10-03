@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOf, type ClosetView } from '../../document/view';
@@ -6,7 +6,6 @@ import { deriveNetworks, type NetworksDerived } from '../../document/networks-de
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
 import type { DesignSession } from '../design/useDesignSession';
-import { cableEndText } from '../drawing/Editor';
 import { EditorFor, type FieldsActions, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { paletteFromCatalogue } from '../racks/palette';
 import { Shell } from '../Shell';
@@ -22,6 +21,8 @@ import { nextSorts, sortRows } from './sorting';
 import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
 import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
+import { WhereBar } from './WhereBar';
+import { buildPlaceIndex, hasWhere, inWhere, whereOptions } from './placeIndex';
 import { ListHead } from './ListHead';
 import { SideList } from './SideList';
 import { PINNED_VIEWS, addMine, loadMine, removeMine, saveMine, updateMine, type SavedView } from './views';
@@ -30,6 +31,7 @@ import { AddPrefixForm, AddVlanForm, PrefixPage, VlanPage } from './IpamPages';
 import { PasteDialog, type CustomPaste } from './PasteDialog';
 import {
   CAN_ADD,
+  FACETS,
   KINDS,
   addThing,
   addressRows,
@@ -134,7 +136,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [mine, setMine] = useState<SavedView[]>(loadMine);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
-  const endText = useCallback((end: Parameters<typeof cableEndText>[1]) => cableEndText(view, end), [view]);
+  const placeIdx = useMemo(() => buildPlaceIndex(doc, view), [doc, view]);
 
   // Networks, addresses, prefixes and VLANs share one derivation, computed only when one of them
   // is shown, and a debounced one for the rail counts.
@@ -154,7 +156,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       return EMPTY_IPAM;
     }
   }, [doc, kind, networksDerived]);
-  const [background, setBackground] = useState<{ networks: number; addresses: number; prefixes: number; vlans: number } | null>(null);
+  const [background, setBackground] = useState<{ networks: number; addresses: number; prefixes: InvRow[]; vlans: InvRow[] } | null>(null);
   useEffect(() => {
     if (!doc) return undefined;
     const timer = window.setTimeout(() => {
@@ -163,11 +165,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         setBackground({
           networks: d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length,
           addresses: d.subnetRows.reduce((n, s) => n + s.members.length, 0),
-          prefixes: deriveIpam(doc, d).prefixes.length,
-          vlans: d.vlanRows.length,
+          prefixes: prefixRows(deriveIpam(doc, d).prefixes),
+          vlans: vlanKindRows(deriveIpam(doc, d).vlans),
         });
       } catch {
-        setBackground({ networks: 0, addresses: 0, prefixes: 0, vlans: 0 });
+        setBackground({ networks: 0, addresses: 0, prefixes: [], vlans: [] });
       }
     }, 250);
     return () => window.clearTimeout(timer);
@@ -176,12 +178,23 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const rowsByKind = useMemo(() => {
     if (!doc) return { devices: [], racks: [], cables: [], ports: [] } as Record<string, InvRow[]>;
     return {
-      devices: deviceRows(doc, view, fieldDefs),
-      racks: rackRows(doc, view, fieldDefs),
-      cables: cableRows(doc, view, endText, fieldDefs),
-      ports: portRows(doc, view, endText, fieldDefs),
+      devices: deviceRows(doc, view, fieldDefs, placeIdx),
+      racks: rackRows(doc, view, fieldDefs, placeIdx),
+      cables: cableRows(doc, view, placeIdx, fieldDefs),
+      ports: portRows(doc, view, placeIdx, fieldDefs),
     } as Record<string, InvRow[]>;
-  }, [doc, view, endText, fieldDefs]);
+  }, [doc, view, placeIdx, fieldDefs]);
+
+  // Where: counts, lists and search all follow it (listState.where).
+  const where = ls.where;
+  const whereOn = hasWhere(where);
+  const whereOpts = useMemo(() => whereOptions(placeIdx.racks.values(), where), [placeIdx, where]);
+  const scoped = useMemo(() => {
+    if (!whereOn) return rowsByKind;
+    const out: Record<string, InvRow[]> = {};
+    for (const k of Object.keys(rowsByKind)) out[k] = rowsByKind[k]!.filter((r) => inWhere(r.places, where));
+    return out;
+  }, [rowsByKind, where, whereOn]);
 
   const baseRows = useMemo<InvRow[]>(() => {
     if (!doc) return [];
@@ -189,19 +202,21 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       const labelOf = (id: string) => rowsByKind.devices?.find((r) => r.deviceNodeId === id)?.title ?? id;
       return addressRows(doc, networksDerived.subnetRows, labelOf);
     }
-    if (kind === 'prefixes') return prefixRows(ipam.prefixes);
-    if (kind === 'vlans') return vlanKindRows(ipam.vlans);
-    return rowsByKind[kind] ?? [];
-  }, [doc, kind, rowsByKind, networksDerived, ipam]);
+    if (kind === 'prefixes') return prefixRows(ipam.prefixes).filter((r) => inWhere(r.places, where));
+    if (kind === 'vlans') return vlanKindRows(ipam.vlans).filter((r) => inWhere(r.places, where));
+    return scoped[kind] ?? [];
+  }, [doc, kind, rowsByKind, scoped, networksDerived, ipam, where]);
+
+  const scopedCount = (rows: readonly InvRow[] | undefined): number | null => (rows ? rows.filter((r) => inWhere(r.places, where)).length : null);
 
   const counts: Record<Kind, number | null> = {
-    devices: rowsByKind.devices?.length ?? 0,
-    racks: rowsByKind.racks?.length ?? 0,
-    cables: rowsByKind.cables?.length ?? 0,
-    ports: rowsByKind.ports?.length ?? 0,
+    devices: scoped.devices?.length ?? 0,
+    racks: scoped.racks?.length ?? 0,
+    cables: scoped.cables?.length ?? 0,
+    ports: scoped.ports?.length ?? 0,
     networks: kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length : (background?.networks ?? null),
-    prefixes: kind === 'prefixes' ? baseRows.length : (background?.prefixes ?? null),
-    vlans: kind === 'vlans' ? baseRows.length : (background?.vlans ?? null),
+    prefixes: kind === 'prefixes' ? baseRows.length : scopedCount(background?.prefixes),
+    vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
   };
 
@@ -213,7 +228,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return picked.length > 0 ? picked : columnsAll.slice(0, 4);
   }, [columnsAll, prefs, kind, lens]);
 
-  const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll), [kind, columnsAll]);
+  const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll, FACETS[kind] ?? []), [kind, columnsAll]);
   const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
   const rows = useMemo(() => sortRows(filtered.rows, sorts), [filtered, sorts]);
 
@@ -221,19 +236,19 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const currentView = ls.view ? allViews.find((v) => v.id === ls.view && v.kind === kind) : undefined;
   const kindSchemas = useMemo(() => {
     const out: Partial<Record<Kind, QuerySchema>> = {};
-    for (const k of ['devices', 'ports', 'racks', 'cables'] as const) out[k] = schemaFor(kindWord(k), allColumns(k, fieldDefs));
+    for (const k of ['devices', 'ports', 'racks', 'cables'] as const) out[k] = schemaFor(kindWord(k), allColumns(k, fieldDefs), FACETS[k] ?? []);
     return out;
   }, [fieldDefs]);
   const viewCounts = useMemo(() => {
     const m = new Map<string, number>();
     for (const v of allViews) {
       const k = v.kind as Kind;
-      const rs = k === kind ? baseRows : rowsByKind[k];
+      const rs = k === kind ? baseRows : scoped[k];
       const sc = k === kind ? schema : kindSchemas[k];
       if (rs && sc) m.set(v.id, filterRows(rs, sc, v.q).rows.length);
     }
     return m;
-  }, [allViews, kind, baseRows, schema, rowsByKind, kindSchemas]);
+  }, [allViews, kind, baseRows, schema, scoped, kindSchemas]);
 
   const onView = (v: SavedView) => {
     go({ kind: v.kind, q: v.q, sorts: v.sorts, view: v.id, open: '', tab: '' }, 'push');
@@ -434,6 +449,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
         <div className="inventory-place">
+          <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
+          <div className="inventory-place__body">
           <SideList
             kind={kind}
             viewId={currentView?.id ?? ''}
@@ -543,6 +560,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               </div>
             </div>
           )}
+          </div>
           {importing && doc ? (
             <ImportDialog
               doc={doc}

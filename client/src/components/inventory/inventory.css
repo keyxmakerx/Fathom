@@ -8,6 +8,7 @@
 
 .inventory-place {
   display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   background: var(--page);
@@ -978,9 +979,6 @@
 }
 
 @media (max-width: 760px) {
-  .inventory-place {
-    flex-direction: column;
-  }
   .inventory-place__rail {
     display: none;
   }
@@ -1052,4 +1050,65 @@
   border: var(--rule-hair) solid var(--hairline);
   border-radius: 0;
   padding: var(--s1) var(--s2);
+}
+
+/* ---- Where, above everything ------------------------------------------------------------- */
+
+.inv-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+  font-size: var(--t-small);
+}
+
+.inv-where__label {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inv-where__sep,
+.inv-where__note {
+  color: var(--muted);
+}
+
+.inv-where__grow {
+  flex: 1;
+}
+
+.inv-where select,
+.inv-where__clear {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: 2px var(--s1);
+}
+
+.inv-where__clear {
+  border-color: var(--ink);
+  cursor: pointer;
+  padding: 2px var(--s2);
+}
+
+.inventory-place__body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+}
+
+@media (max-width: 760px) {
+  .inventory-place__body {
+    flex-direction: column;
+  }
+  .inventory-place {
+    flex-direction: column;
+  }
 }
