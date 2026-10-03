@@ -80,6 +80,9 @@ export interface ShellProps {
   /** The caller's account-menu rows — Site, credentials, Home — each present
    * only when it acts. People and permissions joins when it is built. */
   menu?: ReactNode;
+  /** The amber "Admin" pill beside the account square. Cosmetic: the server
+   * still decides who may open the console. Absent unless the caller says so. */
+  adminPill?: { current?: boolean; onSelect?: () => void };
   /** Where the brand goes: Home. Omitted on Home itself. */
   onHome?: () => void;
   /** Quick search. Absent where there is nothing to search yet (Home, Site). */
