@@ -117,6 +117,16 @@ export const FACETS: Partial<Record<Kind, readonly FacetSpec[]>> = {
   ],
 };
 
+/** Smaller questions a column's menu offers beyond its own values: facets about the same thing. */
+export const COLUMN_ASKS: Partial<Record<Kind, Readonly<Record<string, readonly string[]>>>> = {
+  devices: { where: ['site', 'room', 'rack', 'u'] },
+  ports: { device: ['role', 'site', 'rack'], cable: ['connected'] },
+  cables: {
+    endA: ['a.site', 'a.rack', 'a.role', 'a.device', 'a.port'],
+    endB: ['b.site', 'b.rack', 'b.role', 'b.device', 'b.port'],
+  },
+};
+
 /** The facets every placed row answers: site, room and rack of each place. */
 export function placeFacets(places: readonly Place[]): Record<string, string[]> {
   const uniq = (xs: string[]) => [...new Set(xs)];

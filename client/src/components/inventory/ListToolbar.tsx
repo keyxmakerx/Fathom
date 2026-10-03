@@ -1,9 +1,10 @@
 // The strip above the Inventory table (ADR-0062): add by name, filters, column choice, paste, and
 // the bulk-edit bar that replaces nothing — it appears when rows are ticked.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { CellEdit, Column, InvRow } from './kinds';
+import { planSet, planTag, type BulkPlan } from './bulk';
+import type { Column, InvRow } from './kinds';
 
 export interface ListToolbarProps {
   kindLabel: string;
@@ -20,13 +21,21 @@ export interface ListToolbarProps {
   onImport?: () => void;
   checkedRows: readonly InvRow[];
   bulkColumns: readonly Column[];
-  onBulk?: (edits: CellEdit[]) => string | void;
+  /** Writes a previewed change; returns a sentence when it cannot. */
+  onBulkApply?: (plan: BulkPlan) => string | void;
+  /** What a change would be refused for, found without writing; null when too many to try. */
+  bulkCheck?: (plan: BulkPlan) => string[] | null;
+  /** How many rows the line matches, and a way to tick them all. */
+  matching: number;
+  onSelectAllMatching: () => void;
   onClearChecked: () => void;
   notice: string | null;
+  /** Shown beside the notice after a bulk change. */
+  undo?: { run: () => void } | null;
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulk, onClearChecked, notice } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo } = props;
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [open, setOpen] = useState<'columns' | null>(null);
@@ -53,25 +62,21 @@ export function ListToolbar(props: ListToolbarProps) {
   };
 
   const bulkTarget = bulkColumns.find((c) => c.key === bulkCol);
-  const applyBulk = (mode: 'set' | 'add-tag' | 'remove-tag') => {
-    if (!onBulk) return;
-    const tagsCol = bulkColumns.find((c) => c.type === 'tags');
-    let edits: CellEdit[];
+  const tagsCol = bulkColumns.find((c) => c.type === 'tags');
+  const [plan, setPlan] = useState<BulkPlan | null>(null);
+  const preview = (mode: 'set' | 'add-tag' | 'remove-tag') => {
+    setBulkError(null);
     if (mode === 'set') {
-      if (!bulkTarget) return;
-      edits = checkedRows.map((row) => ({ row, col: bulkTarget, value: bulkValue }));
-    } else {
-      if (!tagsCol || bulkValue.trim() === '') return;
-      const t = bulkValue.trim().toLowerCase();
-      edits = checkedRows.map((row) => {
-        const have = row.tags.filter((x) => x.toLowerCase() !== t);
-        const next = mode === 'add-tag' ? [...have, bulkValue.trim()] : have;
-        return { row, col: tagsCol, value: next.join(', ') };
-      });
+      if (bulkTarget) setPlan(planSet(checkedRows, bulkTarget, bulkValue));
+    } else if (tagsCol && bulkValue.trim() !== '') {
+      setPlan(planTag(checkedRows, tagsCol, bulkValue, mode === 'add-tag' ? 'add' : 'remove'));
     }
-    const refused = onBulk(edits);
-    setBulkError(typeof refused === 'string' ? refused : null);
   };
+  useEffect(() => {
+    if (checkedRows.length === 0) setPlan(null);
+  }, [checkedRows.length]);
+  const refusals = plan && bulkCheck ? bulkCheck(plan) : null;
+  const noun = kindLabel.toLowerCase();
 
   return (
     <div className="inv-toolbar">
@@ -133,12 +138,17 @@ export function ListToolbar(props: ListToolbarProps) {
       {notice ? (
         <div className="inv-toolbar__notice" role="status">
           {notice}
+          {undo ? (
+            <button type="button" className="inv-toolbar__undo" onClick={undo.run}>
+              Undo
+            </button>
+          ) : null}
         </div>
       ) : null}
       {checkedRows.length > 0 ? (
         <div className="inv-bulk" role="group" aria-label="Bulk edit">
           <b>{checkedRows.length} selected</b>
-          {onBulk ? (
+          {onBulkApply ? (
             <>
               <select aria-label="Column to set" value={bulkCol} onChange={(e) => setBulkCol(e.currentTarget.value)}>
                 <option value="">Column…</option>
@@ -151,21 +161,73 @@ export function ListToolbar(props: ListToolbarProps) {
                   ))}
               </select>
               <input aria-label="Value" placeholder="value or tag" value={bulkValue} onChange={(e) => setBulkValue(e.currentTarget.value)} />
-              <button type="button" disabled={!bulkTarget} onClick={() => applyBulk('set')}>
+              <button type="button" disabled={!bulkTarget} onClick={() => preview('set')}>
                 Set
               </button>
-              <button type="button" onClick={() => applyBulk('add-tag')}>
+              <button type="button" onClick={() => preview('add-tag')}>
                 Add tag
               </button>
-              <button type="button" onClick={() => applyBulk('remove-tag')}>
+              <button type="button" onClick={() => preview('remove-tag')}>
                 Remove tag
               </button>
             </>
+          ) : null}
+          {checkedRows.length < matching ? (
+            <button type="button" onClick={onSelectAllMatching}>
+              Select all {matching.toLocaleString('en-GB')} matching
+            </button>
           ) : null}
           <button type="button" onClick={onClearChecked}>
             Clear
           </button>
           {bulkError ? <span className="inv-toolbar__error">{bulkError}</span> : null}
+        </div>
+      ) : null}
+      {plan ? (
+        <div className="inv-bulkpv" role="group" aria-label="Preview of the change">
+          <p>
+            <b>{plan.title}</b> on {checkedRows.length.toLocaleString('en-GB')} {noun}: {plan.lines.length.toLocaleString('en-GB')} would change
+            {plan.same > 0 ? `, ${plan.same.toLocaleString('en-GB')} already so` : ''}.
+          </p>
+          {plan.lines.length > 0 ? (
+            <table>
+              <tbody>
+                {plan.lines.slice(0, 8).map((l) => (
+                  <tr key={l.row.key}>
+                    <td>{l.row.title}</td>
+                    <td className="inv-bulkpv__was">{l.before || '—'}</td>
+                    <td aria-hidden="true">→</td>
+                    <td>{l.after || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+          {plan.lines.length > 8 ? <p className="inv-bulkpv__more">and {(plan.lines.length - 8).toLocaleString('en-GB')} more</p> : null}
+          {refusals && refusals.length > 0 ? (
+            <p className="inv-toolbar__error" role="alert">
+              {refusals.length} would be refused: {refusals.slice(0, 2).join('; ')}
+            </p>
+          ) : refusals === null && plan.lines.length > 0 ? (
+            <p className="inv-bulkpv__more">Each row is checked as it is written; any refused is named afterwards.</p>
+          ) : null}
+          <div className="inv-bulkpv__acts">
+            <button
+              type="button"
+              disabled={plan.lines.length === 0}
+              onClick={() => {
+                const refused = onBulkApply?.(plan);
+                setBulkError(typeof refused === 'string' ? refused : null);
+                if (typeof refused !== 'string') setPlan(null);
+              }}
+            >
+              Apply to {plan.lines.length.toLocaleString('en-GB')}
+            </button>
+            <button type="button" onClick={() => setPlan(null)}>
+              Cancel
+            </button>
+            <span className="inv-bulkpv__more">One undo step.</span>
+          </div>
         </div>
       ) : null}
     </div>

@@ -397,7 +397,14 @@
 
 .inv-table__th {
   flex: none;
-  text-align: left;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.inv-table__sort,
+.inv-table__caret {
   font: inherit;
   font-family: var(--sans);
   font-size: var(--t-micro);
@@ -406,10 +413,144 @@
   color: var(--muted);
   background: none;
   border: none;
-  padding: 0 var(--s2);
   cursor: pointer;
+}
+
+.inv-table__sort {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 0 var(--s2);
   overflow: hidden;
-  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.inv-table__caret {
+  flex: none;
+  padding: 0 var(--s2);
+}
+
+.inv-table__sort:hover,
+.inv-table__caret:hover,
+.inv-table__caret[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.inv-table__menu {
+  position: fixed;
+  z-index: var(--z-egress);
+  width: 320px;
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  font-size: var(--t-small);
+}
+
+.inv-cm__sec {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.inv-cm__head {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--s1);
+}
+
+.inv-cm__row,
+.inv-cm__typed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+  margin-bottom: var(--s1);
+}
+
+.inv-cm button,
+.inv-cm select,
+.inv-cm input[type='text'],
+.inv-cm input:not([type]),
+.inv-cm__typed input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+
+.inv-cm button[aria-pressed='true'] {
+  border-color: var(--ink);
+  font-weight: 600;
+}
+
+.inv-cm button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.inv-cm__note {
+  margin: 0 0 var(--s1);
+  color: var(--muted);
+}
+
+.inv-cm__find {
+  width: 100%;
+  margin-bottom: var(--s1);
+  cursor: text;
+}
+
+.inv-cm__vals {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.inv-cm__vals label {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.inv-cm__vals input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: none;
+  border: none;
+  padding: 0;
+}
+
+.inv-cm__val {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.inv-cm__n {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.inv-cm__clear {
+  margin-top: var(--s1);
+}
+
+.inv-cm__ask summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.inv-cm__foot {
+  padding: var(--s2) var(--s3);
+  text-align: right;
 }
 
 .inv-table__row {
@@ -1673,4 +1814,72 @@
     left: 0;
     width: 100%;
   }
+}
+
+/* ---- footer totals and the bulk preview -------------------------------------------------- */
+
+.inv-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  align-items: baseline;
+  padding: var(--s1) var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.inv-foot b {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.inv-foot__count {
+  color: var(--ink);
+}
+
+.inv-foot__sel {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--s3);
+}
+
+.inv-bulkpv {
+  border: var(--rule-hair) solid var(--ink);
+  margin: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+}
+
+.inv-bulkpv p {
+  margin: 0 0 var(--s1);
+}
+
+.inv-bulkpv table {
+  border-collapse: collapse;
+  margin-bottom: var(--s1);
+}
+
+.inv-bulkpv td {
+  padding: 1px var(--s3) 1px 0;
+}
+
+.inv-bulkpv__was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.inv-bulkpv__more {
+  color: var(--muted);
+}
+
+.inv-bulkpv__acts {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+}
+
+.inv-toolbar__undo {
+  margin-left: var(--s2);
 }

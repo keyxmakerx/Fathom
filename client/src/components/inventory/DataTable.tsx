@@ -3,7 +3,7 @@
 // Keys: arrows move, Enter or F2 or typing edits, Tab and Shift Tab move to the next editable cell
 // (committing), Escape cancels. It never writes the document: `onCommit` does, and may refuse.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import type { Column, InvRow } from './kinds';
 import type { SortKey } from './listState';
@@ -32,6 +32,8 @@ export interface DataTableProps {
   onToggleAll: (checkAll: boolean) => void;
   /** `additive` is a shift-click: sort by this column after the others. */
   onSort: (key: string, additive: boolean) => void;
+  /** The ▾ menu's content for a column; omit it and headings have no ▾. */
+  columnMenu?: (col: Column, close: () => void) => ReactNode;
   emptyText: string;
   /** Where the list was scrolled to when it was last left. */
   initialScrollTop?: number;
@@ -52,13 +54,33 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, emptyText, initialScrollTop = 0, onScrollTop } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, initialScrollTop = 0, onScrollTop } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(initialScrollTop);
   const [viewHeight, setViewHeight] = useState(600);
   const [active, setActive] = useState<Cell | null>(null);
   const [editing, setEditing] = useState<{ cell: Cell; draft: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ key: string; left: number; top: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (menuRef.current?.contains(t) || t.closest('.inv-table__menu')) return;
+      setMenu(null);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -269,23 +291,38 @@ export function DataTable(props: DataTableProps) {
               const at = sorts.findIndex((x) => x.key === c.key);
               const sort = at >= 0 ? sorts[at]! : null;
               return (
-                <button
-                  type="button"
+                <div
                   key={c.key}
                   role="columnheader"
                   className={`inv-table__th${STICKY.has(c.key) ? ' inv-table__stick' : ''}`}
                   style={{ width: c.width }}
                   aria-sort={sort ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                  onClick={(e) => onSort(c.key, e.shiftKey)}
                 >
-                  {c.label}
-                  {sort ? (
-                    <span aria-hidden="true">
-                      {sorts.length > 1 ? ` ${at + 1}` : ''}
-                      {sort.dir === 'asc' ? ' ▲' : ' ▼'}
-                    </span>
+                  <button type="button" className="inv-table__sort" onClick={(e) => onSort(c.key, e.shiftKey)}>
+                    {c.label}
+                    {sort ? (
+                      <span aria-hidden="true">
+                        {sorts.length > 1 ? ` ${at + 1}` : ''}
+                        {sort.dir === 'asc' ? ' ▲' : ' ▼'}
+                      </span>
+                    ) : null}
+                  </button>
+                  {columnMenu ? (
+                    <button
+                      type="button"
+                      className="inv-table__caret"
+                      aria-label={`${c.label} menu`}
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.key === c.key}
+                      onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setMenu(menu?.key === c.key ? null : { key: c.key, left: Math.min(r.left, window.innerWidth - 340), top: r.bottom + 2 });
+                      }}
+                    >
+                      ▾
+                    </button>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -368,6 +405,11 @@ export function DataTable(props: DataTableProps) {
           </div>
         </div>
       </div>
+      {menu && columnMenu ? (
+        <div ref={menuRef} className="inv-table__menu" style={{ left: menu.left, top: menu.top }}>
+          {columnMenu(columns.find((c) => c.key === menu.key)!, () => setMenu(null))}
+        </div>
+      ) : null}
     </div>
   );
 }

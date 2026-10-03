@@ -208,6 +208,7 @@ try {
   await page.getByLabel('Select all rows').check();
   await page.getByLabel('Value').fill('lab');
   await page.getByRole('button', { name: 'Add tag' }).click();
+  await page.getByRole('button', { name: /^Apply to/ }).click(); // the change is previewed first
   await page.waitForTimeout(300);
   check('bulk Add tag put the tag on the row', (await page.locator('.inv-table__row').first().innerText()).includes('lab'));
   await shot('inventory-05-bulk.png');

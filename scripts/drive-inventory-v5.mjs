@@ -219,6 +219,65 @@ try {
   await page.waitForTimeout(400);
   check('Clear restores the counts', (await railCount('Devices')) === devicesAll);
 
+  // 5 — column menus, a second sort, footer totals.
+  const rail = page.locator('.inventory-place__rail');
+  await rail.getByRole('button', { name: /^Cables/ }).first().click();
+  await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
+  await page.getByLabel('Sheath menu').click();
+  const menu = page.locator('.inv-cm');
+  await menu.waitFor();
+  const menuText = await menu.innerText();
+  check('a column menu lists its values with counts', /\d/.test(menuText) && /show only/i.test(menuText), menuText.replace(/\s+/g, ' ').slice(0, 120));
+  await shot('v5-07-column-menu.png');
+  await menu.getByRole('group', { name: 'Sheath values' }).getByRole('checkbox').first().check();
+  await page.waitForTimeout(300);
+  const cableLine = page.getByLabel('Filter cables');
+  check('picking a value writes the filter line', /^sheath:/.test(await cableLine.inputValue()), await cableLine.inputValue());
+  await page.keyboard.press('Escape');
+  await cableLine.fill('');
+  await cableLine.blur();
+  await page.getByLabel('Label menu').click();
+  const bigMenu = await page.locator('.inv-cm').innerText();
+  check('a column with thousands of values asks for a typed condition', /too many to list/.test(bigMenu), bigMenu.replace(/\s+/g, ' ').slice(0, 140));
+  await page.getByLabel('Label value').fill('C-1041');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.waitForTimeout(300);
+  check('the typed condition is written into the line', (await cableLine.inputValue()) === 'name~C-1041', await cableLine.inputValue());
+  await page.keyboard.press('Escape');
+  await cableLine.fill('');
+  await cableLine.blur();
+  await page.getByRole('columnheader', { name: /Length/ }).getByRole('button').first().click();
+  await page.getByRole('columnheader', { name: /Sheath/ }).getByRole('button').first().click({ modifiers: ['Shift'] });
+  await page.waitForTimeout(300);
+  check('shift-click adds a second sort', /s=length%3Aasc%2Csheath%3Aasc/.test(await hashOf()), await hashOf());
+  const foot = await page.locator('.inv-foot').innerText();
+  check('the footer counts the rows and adds up cable length', /cables/.test(foot) && /Cable length\s+[\d,]+ m/.test(foot), foot.replace(/\s+/g, ' '));
+  await shot('v5-08-footer.png');
+
+  // 6 — select all matching, then a bulk change with a preview, one Undo step.
+  await rail.getByRole('button', { name: /^Devices/ }).first().click();
+  await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
+  const devLine = page.getByLabel('Filter devices');
+  await devLine.fill('role:server');
+  await page.waitForTimeout(300);
+  const servers = Number(/(\d[\d,]*)(?: of [\d,]+)? devices/.exec(await page.locator('.inv-foot').innerText())?.[1].replace(/,/g, ''));
+  await page.locator('.inv-table__row').first().getByRole('checkbox').check();
+  await page.getByRole('button', { name: /^Select all [\d,]+ matching/ }).click();
+  check('Select all N matching ticks every row the line matches', (await page.locator('.inv-bulk').innerText()).includes(`${servers.toLocaleString('en-GB')} selected`), `servers=${servers}`);
+  await page.getByLabel('Column to set').selectOption('role');
+  await page.getByLabel('Value').fill('other');
+  await page.getByRole('button', { name: 'Set', exact: true }).click();
+  const pv = await page.locator('.inv-bulkpv').innerText();
+  check('the preview shows before and after and how many change', /Set Role to other/.test(pv) && /would change/.test(pv) && /server/.test(pv), pv.replace(/\s+/g, ' ').slice(0, 160));
+  await shot('v5-09-bulk-preview.png');
+  await page.getByRole('button', { name: /^Apply to/ }).click();
+  await page.waitForTimeout(1500);
+  check('nothing is a server any more', (await page.locator('.inv-table__row').count()) === 0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).last().click();
+  await page.waitForTimeout(1500);
+  check('Undo puts every row back in one step', new RegExp('^' + servers.toLocaleString('en-GB') + '( of [\\d,]+)? devices').test(await page.locator('.inv-foot').innerText()), (await page.locator('.inv-foot').innerText()).replace(/\s+/g, ' '));
+  await devLine.fill('');
+
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
   await page.getByLabel(/Name of the new/).fill('v5-added');
   await page.getByRole('button', { name: 'Add', exact: true }).click();

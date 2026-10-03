@@ -37,3 +37,9 @@ export function nextSorts(sorts: readonly SortKey[], key: string, additive: bool
   if (sorts.length === 1 && at === 0) return sorts[0]!.dir === 'asc' ? [{ key, dir: 'desc' }] : [];
   return [{ key, dir: 'asc' }];
 }
+
+/** The column's menu: sort this way (or off), on its own or after the others. */
+export function setSort(sorts: readonly SortKey[], key: string, dir: 'asc' | 'desc' | null, additive: boolean): SortKey[] {
+  const rest = additive ? sorts.filter((s) => s.key !== key) : [];
+  return dir === null ? rest : [...rest, { key, dir }];
+}

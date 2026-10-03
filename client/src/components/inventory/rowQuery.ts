@@ -54,6 +54,12 @@ export function schemaFor(kindWord: string, columns: readonly Column[], facets: 
   return { kindWord, fields, cellOf, labelOf: (f) => labels.get(f) ?? f };
 }
 
+/** The word the line uses for a column, if it has one. */
+export function fieldOfColumn(schema: QuerySchema, colKey: string): string | undefined {
+  for (const [field, cell] of schema.cellOf) if (cell === colKey) return field;
+  return undefined;
+}
+
 const textCache = new WeakMap<InvRow, string>();
 function rowText(row: InvRow): string {
   let t = textCache.get(row);
