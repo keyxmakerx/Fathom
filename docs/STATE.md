@@ -226,8 +226,9 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   it does in notes. Files (PDF, image or text, 25 MB) hang off a doc: text goes through the gate in the
   browser and only the redacted copy is uploaded; the server sniffs by content, refuses text that still
   carries a password, seals the bytes under the design key and serves them as downloads only. Images and
-  PDFs are stored "can't be read" (no PDF text extraction yet). Removing a file removes it from the design;
-  the sealed copy stays on the server. Not built: the Inventory Docs kind (after #93), attaching to a
+  Images and PDFs show "Not checked · image/PDF" (no PDF text extraction yet). "Remove" takes a file off
+  the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps the name, size and hash in
+  the design's history and makes fetch answer 410. Not built: the Inventory Docs kind (after #93), attaching to a
   maintenance plan (after #98).
 - **About page and licences** (ADR-0060 decision 12). "About Fathom" in the home screen's You panel
   lists every library the web app ships with licence and copyright. The canvas no longer shows React

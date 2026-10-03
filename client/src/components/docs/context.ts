@@ -22,6 +22,8 @@ export interface DocsApi {
   addFile(docId: string, file: File): Promise<Refused | { note: string }>;
   removeFile(fileNodeId: string): Refused | void;
   download(file: DocFileView): Promise<Refused | void>;
+  /** Erases the stored bytes; the name, size and hash stay in the design's history. */
+  deleteFileForGood(file: DocFileView): Promise<Refused | void>;
   open(view: DocsView): void;
 }
 

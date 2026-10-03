@@ -204,6 +204,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0031_design_files.sql",
         sql: include_str!("../migrations/0031_design_files.sql"),
     },
+    // Docs files follow-up: delete for good.
+    Migration {
+        version: 32,
+        name: "0032_design_files_delete.sql",
+        sql: include_str!("../migrations/0032_design_files_delete.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
