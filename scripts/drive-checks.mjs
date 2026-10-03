@@ -181,7 +181,7 @@ try {
     const card = await page.locator('[data-testid=checks-refusal]').innerText();
     check('[rack] the card has the fact and the fix', /more than one cable/i.test(card) && /Fix:/.test(card), card.replace(/\s+/g, ' '));
     check('[rack] no colour picker, nothing drawn', (await page.locator('.drawing-picker').count()) === 0 && (await page.locator('.react-flow__edge').count()) === cablesBefore);
-    await shot(page, 'checks-rack-refusal');
+    await shot(page, 'checks2-rack-refusal');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     check('[rack] Esc dismisses the card', (await page.locator('[data-testid=checks-refusal]').count()) === 0);
@@ -192,7 +192,7 @@ try {
   }
 
   for (const [w, h] of SIZES) {
-    const tag = `checks-${w}x${h}`;
+    const tag = `checks2-${w}x${h}`;
     const context = await browser.newContext({ viewport: { width: w, height: h } });
     const page = await context.newPage();
     const pageErrors = [];
@@ -231,6 +231,7 @@ try {
     check(`[${w}x${h}] the card gives the sentence and the fix`, /more than one cable/i.test(card) && /Fix:/.test(card), card.replace(/\s+/g, ' '));
     check(`[${w}x${h}] the card never uses the forbidden words`, !FORBIDDEN.test(card));
     const cardBox = await page.locator('[data-testid=checks-refusal]').boundingBox();
+    check(`[${w}x${h}] the card is a live region`, (await page.locator('[data-testid=checks-refusal]').getAttribute('role')) === 'alert');
     check(`[${w}x${h}] the card sits inside the window`, cardBox.x >= 0 && cardBox.y >= 0 && cardBox.x + cardBox.width <= w && cardBox.y + cardBox.height <= h);
     await shot(page, `${tag}-02-refusal`);
 
@@ -245,6 +246,8 @@ try {
     await page.waitForSelector('[data-testid=checks-why]', { timeout: 5_000 });
     const why = await page.locator('[data-testid=checks-why]').innerText();
     check(`[${w}x${h}] Why? opens the panel's card with the reason, the fix and the basis`, /Fix:/.test(why) && /basis|source/i.test(why), why.replace(/\s+/g, ' ').slice(0, 300));
+    check(`[${w}x${h}] the why card has focus`, await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'checks-why'));
+    check(`[${w}x${h}] no Show link while the open device covers the canvas`, (await page.locator('[data-testid=checks-panel]').getByRole('button', { name: 'Show' }).count()) === 0);
     check(`[${w}x${h}] the why card does not show the concept id`, !/check\.phy\./.test(why));
     check(`[${w}x${h}] the card is gone once Why? is taken`, (await page.locator('[data-testid=checks-refusal]').count()) === 0);
     await shot(page, `${tag}-03-why`);
@@ -263,7 +266,7 @@ try {
     const chip = await page.locator('[data-testid=checks-chip]').innerText();
     check(`[${w}x${h}] the chip shows the count`, /Checks \d+/.test(chip), chip);
     const badgeCount = await page.locator('[data-testid=checks-badge]').count();
-    check(`[${w}x${h}] a badge sits on the device`, badgeCount >= 1, String(badgeCount));
+    check(`[${w}x${h}] an idea is listed but not badged on the device`, badgeCount === 0, String(badgeCount));
     await shot(page, `${tag}-04-panel-badge`);
 
     // The panel stays clear of the bar and the canvas controls.
@@ -272,6 +275,18 @@ try {
     const ctl = await page.locator('.drawing-cables-control').boundingBox();
     check(`[${w}x${h}] the panel is below the bar and inside the window`, panel.y >= bar.y + bar.height && panel.x + panel.width <= w && panel.y + panel.height <= h, JSON.stringify(panel));
     check(`[${w}x${h}] the panel does not cover the cables control`, ctl == null || panel.x >= ctl.x + ctl.width || panel.y >= ctl.y + ctl.height);
+
+    // Why? from a row: the card takes focus, Esc closes it and focus goes back to that row's button.
+    const whyBtn = page.locator('[data-testid=checks-row]').first().getByRole('button', { name: 'Why?' });
+    await whyBtn.click();
+    await page.waitForTimeout(200);
+    check(`[${w}x${h}] Why? moves focus to the card`, await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'checks-why'));
+    const whyText = await page.locator('[data-testid=checks-why]').innerText();
+    check(`[${w}x${h}] the card never prints the author's working note`, !/web search|outbound fetch|could not be opened/i.test(whyText), whyText.replace(/\s+/g, ' ').slice(0, 200));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    check(`[${w}x${h}] Esc closes the Why card`, (await page.locator('[data-testid=checks-why]').count()) === 0);
+    check(`[${w}x${h}] focus goes back to the row's Why? button`, await page.evaluate(() => document.activeElement?.textContent === 'Why?' && document.activeElement.closest('[data-testid=checks-row]') != null));
 
     // Show: fade everything else and move the camera.
     const before = await page.locator('.react-flow__viewport').getAttribute('style');
@@ -283,6 +298,23 @@ try {
     const opacity = await page.locator('.react-flow__node.checks-faded').first().evaluate((el) => getComputedStyle(el).opacity);
     check(`[${w}x${h}] the fade is the phantom 28%`, Math.abs(Number(opacity) - 0.28) < 0.01, opacity);
     check(`[${w}x${h}] Show moves the camera`, (await page.locator('.react-flow__viewport').getAttribute('style')) !== before);
+    {
+      const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
+      const full = await page.locator('.react-flow__node:not(.checks-faded)').evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }));
+      const under = full.filter((r) => r.x < pb.x + pb.width && r.x + r.w > pb.x && r.y < pb.y + pb.height && r.y + r.h > pb.y);
+      check(`[${w}x${h}] what Show shows is not under the panel`, under.length === 0, JSON.stringify({ pb, full }));
+    }
+    // Esc inside an input is the input's: the Show stays.
+    await page.evaluate(() => {
+      const i = document.createElement('input');
+      i.id = 'drive-input';
+      document.body.appendChild(i);
+      i.focus();
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    check(`[${w}x${h}] Esc inside an input does not clear Show`, (await page.locator('.checks-faded').count()) > 0);
+    await page.evaluate(() => document.getElementById('drive-input').remove());
     await shot(page, `${tag}-05-show`);
     await page.locator('[data-testid=checks-row]').first().getByRole('button', { name: 'Show' }).click();
     await page.waitForTimeout(300);
@@ -310,11 +342,58 @@ try {
     const stored = await page.evaluate(() => localStorage.getItem('fathom.checks.panel'));
     check(`[${w}x${h}] the place is remembered`, stored != null && JSON.parse(stored).x !== 0, String(stored));
     await shot(page, `${tag}-06-dragged`);
+    const area = await page.locator('.shell__drawing').boundingBox();
+    for (const [name, dx, dy] of [['left', -3000, 0], ['bottom', 0, 3000], ['right', 3000, 0], ['top', 0, -3000], ['bottom-left', -3000, 3000], ['top-right', 3000, -3000]]) {
+      const hd = await page.locator('.checks-panel__head').boundingBox();
+      await page.mouse.move(hd.x + 30, hd.y + 10);
+      await page.mouse.down();
+      await page.mouse.move(Math.max(1, Math.min(w - 1, hd.x + 30 + dx)), Math.max(1, Math.min(h - 1, hd.y + 10 + dy)), { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
+      check(`[${w}x${h}] dragged to the ${name}, the panel stays on the canvas`, pb.x >= area.x - 1 && pb.y >= area.y - 1 && pb.x + pb.width <= area.x + area.width + 1 && pb.y + pb.height <= area.y + area.height + 1, JSON.stringify({ pb, area }));
+    }
+    await shot(page, `${tag}-07-dragged-extreme`);
     await page.locator('.checks-panel__head').getByRole('button', { name: 'Fold the Checks panel' }).click();
     await page.waitForTimeout(200);
     check(`[${w}x${h}] Fold leaves only the count in the bar`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=checks-chip]').count()) === 1);
 
     check(`[${w}x${h}] no uncaught page errors`, pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // A fresh browser, nothing remembered: what the panel does by itself.
+  for (const [w, h] of SIZES) {
+    const context = await browser.newContext({ viewport: { width: w, height: h } });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/drive.html?scene=canvas`);
+    await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
+    await page.waitForTimeout(1500);
+    const chip = await page.locator('[data-testid=checks-chip]').innerText();
+    const canvasW = (await page.locator('.shell__drawing').boundingBox()).width;
+    const open = (await page.locator('[data-testid=checks-panel]').count()) === 1;
+    console.log(`    [${w}x${h}] fresh: chip "${chip}", canvas ${canvasW}px, panel ${open ? 'open' : 'folded'}`);
+    if (canvasW < 720) check(`[${w}x${h}] a canvas under 720 px starts folded`, !open, `${canvasW}`);
+    // The rail and the editor open: the canvas narrows, and the panel does not open by itself.
+    await page.locator('.shell-strip--rail').click();
+    await page.waitForTimeout(500);
+    const narrowW = (await page.locator('.shell__drawing').boundingBox()).width;
+    console.log(`    [${w}x${h}] rail open: canvas ${narrowW}px`);
+    if (narrowW < 720) check(`[${w}x${h}] with the rail open the canvas is narrow and the panel stays folded`, (await page.locator('[data-testid=checks-panel]').count()) === 0, `${narrowW}`);
+    // Select a device: the editor opens beside the canvas and narrows it further.
+    await page.locator('.react-flow__node-chassis').first().click();
+    await page.waitForTimeout(600);
+    const narrowerW = (await page.locator('.shell__drawing').boundingBox()).width;
+    console.log(`    [${w}x${h}] rail and editor open: canvas ${narrowerW}px`);
+    if (narrowerW < 720) check(`[${w}x${h}] with the rail and the editor open the panel stays folded`, (await page.locator('[data-testid=checks-panel]').count()) === 0, `${narrowerW}`);
+    // An explicit open is remembered and wins.
+    await page.locator('[data-testid=checks-chip]').click();
+    await page.waitForTimeout(300);
+    check(`[${w}x${h}] an explicit open wins over the narrow default`, (await page.locator('[data-testid=checks-panel]').count()) === 1);
+    const area = await page.locator('.shell__drawing').boundingBox();
+    const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
+    check(`[${w}x${h}] the opened panel is inside the canvas`, pb.x >= area.x - 1 && pb.x + pb.width <= area.x + area.width + 1 && pb.y + pb.height <= area.y + area.height + 1, JSON.stringify({ pb, area }));
+    await shot(page, `checks2-fresh-${w}x${h}`);
     await context.close();
   }
 
