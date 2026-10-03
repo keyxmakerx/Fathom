@@ -41,6 +41,9 @@
 
 #![forbid(unsafe_code)]
 
+mod change;
+pub use change::*;
+
 use std::collections::BTreeMap;
 
 use fathom_canon::Json;
@@ -431,7 +434,7 @@ fn split_header(bytes: &[u8]) -> Result<([&[u8]; 4], &[u8]), PlainError> {
 // Snapshot -> JSON. Module-private free functions: the orphan rule bars trait
 // impls here, and the shape is this crate's, not `fathom-graph`'s.
 
-fn obj(pairs: Vec<(&str, Json)>) -> Json {
+pub(crate) fn obj(pairs: Vec<(&str, Json)>) -> Json {
     let mut m = BTreeMap::new();
     for (k, v) in pairs {
         m.insert(k.to_owned(), v);
@@ -523,7 +526,7 @@ fn edge_to_json(e: &EdgeSnap) -> Json {
     obj(pairs)
 }
 
-fn provenance_to_json(r: &ProvenanceRecord) -> Json {
+pub(crate) fn provenance_to_json(r: &ProvenanceRecord) -> Json {
     let Actor::User(UserId(user)) = r.asserted_by;
     let confidence = match r.confidence {
         Confidence::Asserted => "asserted",
@@ -658,7 +661,7 @@ fn op_to_json(op: &Op) -> Json {
     }
 }
 
-fn batch_to_json(b: &Batch) -> Json {
+pub(crate) fn batch_to_json(b: &Batch) -> Json {
     let mut pairs = vec![
         ("id", ulid_json(b.id.0)),
         ("label", Json::Str(b.label.clone())),
@@ -702,47 +705,54 @@ fn snapshot_to_json(s: &Snapshot) -> Json {
 // ---------------------------------------------------------------------------
 // JSON -> Snapshot
 
-fn shape(path: &str, expected: &'static str) -> PlainError {
+pub(crate) fn shape(path: &str, expected: &'static str) -> PlainError {
     PlainError::Shape {
         path: path.to_owned(),
         expected,
     }
 }
 
-fn get_obj<'a>(j: &'a Json, path: &str) -> Result<&'a BTreeMap<String, Json>, PlainError> {
+pub(crate) fn get_obj<'a>(
+    j: &'a Json,
+    path: &str,
+) -> Result<&'a BTreeMap<String, Json>, PlainError> {
     match j {
         Json::Obj(m) => Ok(m),
         _ => Err(shape(path, "a JSON object")),
     }
 }
 
-fn get_arr<'a>(j: &'a Json, path: &str) -> Result<&'a [Json], PlainError> {
+pub(crate) fn get_arr<'a>(j: &'a Json, path: &str) -> Result<&'a [Json], PlainError> {
     match j {
         Json::Arr(items) => Ok(items),
         _ => Err(shape(path, "a JSON array")),
     }
 }
 
-fn get_str<'a>(j: &'a Json, path: &str) -> Result<&'a str, PlainError> {
+pub(crate) fn get_str<'a>(j: &'a Json, path: &str) -> Result<&'a str, PlainError> {
     match j {
         Json::Str(s) => Ok(s),
         _ => Err(shape(path, "a JSON string")),
     }
 }
 
-fn get_u64(j: &Json, path: &str) -> Result<u64, PlainError> {
+pub(crate) fn get_u64(j: &Json, path: &str) -> Result<u64, PlainError> {
     match j {
         Json::Int(i) if *i >= 0 => Ok(*i as u64),
         _ => Err(shape(path, "a non-negative JSON integer")),
     }
 }
 
-fn key<'a>(m: &'a BTreeMap<String, Json>, k: &str, path: &str) -> Result<&'a Json, PlainError> {
+pub(crate) fn key<'a>(
+    m: &'a BTreeMap<String, Json>,
+    k: &str,
+    path: &str,
+) -> Result<&'a Json, PlainError> {
     m.get(k).ok_or_else(|| shape(path, "a required key"))
 }
 
 /// A bare ULID string, in the one spelling it is allowed to have.
-fn read_ulid(j: &Json, path: &str) -> Result<Ulid, PlainError> {
+pub(crate) fn read_ulid(j: &Json, path: &str) -> Result<Ulid, PlainError> {
     let text = get_str(j, path)?;
     let decoded = Ulid::decode(text).map_err(|e| PlainError::Id(IdParseError::Ulid(e)))?;
     if decoded.encode() != text {
@@ -777,7 +787,7 @@ fn read_origin(j: &Json, path: &str) -> Result<Origin, PlainError> {
     })
 }
 
-fn read_u32(j: &Json, path: &str) -> Result<u32, PlainError> {
+pub(crate) fn read_u32(j: &Json, path: &str) -> Result<u32, PlainError> {
     u32::try_from(get_u64(j, path)?).map_err(|_| shape(path, "a byte offset inside u32"))
 }
 
@@ -818,7 +828,11 @@ fn read_fields(j: &Json, path: &str) -> Result<Vec<FieldSnap>, PlainError> {
     Ok(out)
 }
 
-fn key_or<'a>(m: &'a BTreeMap<String, Json>, k: &str, path: &str) -> Result<&'a Json, PlainError> {
+pub(crate) fn key_or<'a>(
+    m: &'a BTreeMap<String, Json>,
+    k: &str,
+    path: &str,
+) -> Result<&'a Json, PlainError> {
     key(m, k, &format!("{path}.{k}"))
 }
 
@@ -877,33 +891,7 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         .iter()
         .enumerate()
     {
-        let path = format!("$.provenance[{i}]");
-        let m = get_obj(item, &path)?;
-        let actor = get_obj(key_or(m, "asserted_by", &path)?, &path)?;
-        let user = actor
-            .get("user")
-            .ok_or_else(|| shape(&path, "an actor object with a `user` key"))?;
-        if actor.len() != 1 {
-            return Err(shape(&path, "a one-key actor object"));
-        }
-        let confidence = match get_str(key_or(m, "confidence", &path)?, &path)? {
-            "asserted" => Confidence::Asserted,
-            "derived" => Confidence::Derived,
-            "heuristic" => Confidence::Heuristic,
-            _ => return Err(shape(&path, "one of asserted / derived / heuristic")),
-        };
-        let origin = read_origin(key_or(m, "origin", &path)?, &path)?;
-        provenance.push(ProvenanceRecord {
-            id: ProvenanceId(read_ulid(key_or(m, "id", &path)?, &path)?),
-            origin,
-            asserted_at: Timestamp(get_u64(key_or(m, "asserted_at", &path)?, &path)?),
-            asserted_by: Actor::User(UserId(read_ulid(user, &path)?)),
-            confidence,
-            supersedes: match m.get("supersedes") {
-                None => None,
-                Some(s) => Some(ProvenanceId(read_ulid(s, &path)?)),
-            },
-        });
+        provenance.push(read_provenance(item, &format!("$.provenance[{i}]"))?);
     }
 
     let mut history = Vec::new();
@@ -941,27 +929,7 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         .iter()
         .enumerate()
     {
-        let path = format!("$.batches[{i}]");
-        let m = get_obj(item, &path)?;
-        let mut ops = Vec::new();
-        for (n, o) in get_arr(key_or(m, "ops", &path)?, &path)?.iter().enumerate() {
-            ops.push(read_op(o, &format!("{path}.ops[{n}]"))?);
-        }
-        batches.push(Batch {
-            id: BatchId(read_ulid(key_or(m, "id", &path)?, &path)?),
-            label: get_str(key_or(m, "label", &path)?, &path)?.to_owned(),
-            ops,
-            // Both ADR-0053 §4 keys: absent on the wire reads as absent here,
-            // exactly `by`'s own established shape for an optional key.
-            comment: match m.get("comment") {
-                Some(v) => Some(Text(get_str(v, &path)?.to_owned())),
-                None => None,
-            },
-            reverses: match m.get("reverses") {
-                Some(v) => Some(BatchId(read_ulid(v, &path)?)),
-                None => None,
-            },
-        });
+        batches.push(read_batch(item, &format!("$.batches[{i}]"))?);
     }
 
     Ok(Snapshot {
@@ -970,6 +938,57 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         provenance,
         history,
         batches,
+    })
+}
+
+pub(crate) fn read_provenance(item: &Json, path: &str) -> Result<ProvenanceRecord, PlainError> {
+    let m = get_obj(item, path)?;
+    let actor = get_obj(key_or(m, "asserted_by", path)?, path)?;
+    let user = actor
+        .get("user")
+        .ok_or_else(|| shape(path, "an actor object with a `user` key"))?;
+    if actor.len() != 1 {
+        return Err(shape(path, "a one-key actor object"));
+    }
+    let confidence = match get_str(key_or(m, "confidence", path)?, path)? {
+        "asserted" => Confidence::Asserted,
+        "derived" => Confidence::Derived,
+        "heuristic" => Confidence::Heuristic,
+        _ => return Err(shape(path, "one of asserted / derived / heuristic")),
+    };
+    let origin = read_origin(key_or(m, "origin", path)?, path)?;
+    Ok(ProvenanceRecord {
+        id: ProvenanceId(read_ulid(key_or(m, "id", path)?, path)?),
+        origin,
+        asserted_at: Timestamp(get_u64(key_or(m, "asserted_at", path)?, path)?),
+        asserted_by: Actor::User(UserId(read_ulid(user, path)?)),
+        confidence,
+        supersedes: match m.get("supersedes") {
+            None => None,
+            Some(s) => Some(ProvenanceId(read_ulid(s, path)?)),
+        },
+    })
+}
+
+pub(crate) fn read_batch(item: &Json, path: &str) -> Result<Batch, PlainError> {
+    let m = get_obj(item, path)?;
+    let mut ops = Vec::new();
+    for (n, o) in get_arr(key_or(m, "ops", path)?, path)?.iter().enumerate() {
+        ops.push(read_op(o, &format!("{path}.ops[{n}]"))?);
+    }
+    Ok(Batch {
+        id: BatchId(read_ulid(key_or(m, "id", path)?, path)?),
+        label: get_str(key_or(m, "label", path)?, path)?.to_owned(),
+        ops,
+        // Both ADR-0053 §4 keys: absent on the wire reads as absent here.
+        comment: match m.get("comment") {
+            Some(v) => Some(Text(get_str(v, path)?.to_owned())),
+            None => None,
+        },
+        reverses: match m.get("reverses") {
+            Some(v) => Some(BatchId(read_ulid(v, path)?)),
+            None => None,
+        },
     })
 }
 

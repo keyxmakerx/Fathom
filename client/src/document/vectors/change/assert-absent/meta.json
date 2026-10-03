@@ -1,0 +1,5 @@
+{
+  "name": "assert-absent",
+  "description": "Chassis.serial is asserted absent where nothing was recorded before.",
+  "actor": "01HF7YAT000000000000000007"
+}

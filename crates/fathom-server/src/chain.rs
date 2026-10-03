@@ -242,6 +242,9 @@ pub enum EntryType {
     /// This stops a routine rotation looking like an attack, so operators do
     /// not learn to dismiss the alarm.
     Reencrypt,
+    /// A live change (ADR-0063): one batch applied to the design's head. It
+    /// takes a version number and binds the sealed change body.
+    Change,
 
     // ---- Site chain (§7.2) ------------------------------------------------
     /// This deployment started: the site chain's first entry, and one more on
@@ -478,6 +481,7 @@ impl EntryType {
             Self::Create => "create",
             Self::Update => "update",
             Self::Reencrypt => "reencrypt",
+            Self::Change => "change",
             Self::DeploymentStarted => "deployment_started",
             Self::ShipperGap => "shipper_gap",
             Self::SpoolPressure => "spool_pressure",
@@ -544,6 +548,7 @@ impl EntryType {
             "create" => Some(Self::Create),
             "update" => Some(Self::Update),
             "reencrypt" => Some(Self::Reencrypt),
+            "change" => Some(Self::Change),
             "deployment_started" => Some(Self::DeploymentStarted),
             "shipper_gap" => Some(Self::ShipperGap),
             "spool_pressure" => Some(Self::SpoolPressure),
@@ -614,7 +619,7 @@ impl EntryType {
     /// the rule also holds for statements this code never issued.
     pub fn kinds(self) -> &'static [ChainKind] {
         match self {
-            Self::Create | Self::Update | Self::Reencrypt => &[ChainKind::Design],
+            Self::Create | Self::Update | Self::Reencrypt | Self::Change => &[ChainKind::Design],
             Self::DeploymentStarted
             | Self::ShipperGap
             | Self::SpoolPressure

@@ -98,7 +98,7 @@ export interface BuildDrawingNodesResult {
 
 /** Which React Flow node a port's own owning box is — the chassis node,
  * the shelf node or the surface node, `null` when this view carries no such port. */
-function ownerNodeIdForPort(view: ClosetView, portId: string): string | null {
+export function ownerNodeIdForPort(view: ClosetView, portId: string): string | null {
   const location = locatePort(view, portId);
   if (location == null) return null;
   if (location.place === 'chassis') return chassisNodeId(location.chassis.id);

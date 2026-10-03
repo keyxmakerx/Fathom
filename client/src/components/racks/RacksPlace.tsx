@@ -226,6 +226,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The Cables list's own storage key (`fathom.cables.<designId>`), one
    * per design, never the document. */
   designId: string;
+  /** What is selected, by element id, for presence (ADR-0063 §12). */
+  onSelectedChange?: (id: string | null) => void;
 }
 
 /**
@@ -257,10 +259,15 @@ export function RacksPlace(props: RacksPlaceProps) {
     onActiveRackChange,
     onShownCablesChange,
     designId,
+    onSelectedChange,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  const selectedId = selection?.id ?? null;
+  useEffect(() => {
+    onSelectedChange?.(selectedId);
+  }, [onSelectedChange, selectedId]);
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
   // Rack or Diagram: this person's choice for this design, kept in this browser.
@@ -1299,6 +1306,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : (
         <Drawing
           view={displayView}
+          peers={session.live.people}
           selected={jot ? null : selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}

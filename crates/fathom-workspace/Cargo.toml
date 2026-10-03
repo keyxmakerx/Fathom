@@ -10,4 +10,5 @@ description = "17's format home. Today: the plaintext dev face — versioned hea
 fathom-canon = { path = "../fathom-canon" }
 fathom-graph = { path = "../fathom-graph" }
 fathom-id = { path = "../fathom-id" }
+fathom-ingest = { path = "../fathom-ingest" }
 fathom-ir = { path = "../fathom-ir" }

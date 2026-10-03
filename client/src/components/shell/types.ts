@@ -19,9 +19,11 @@ export interface ShellSearch {
   choose: (selection: SearchHit['selection']) => void;
 }
 
-/** One name chip in "who else is here". */
+/** One person in "who else is here", drawn as an initials dot. */
 export interface PresenceUser {
   id: string;
+  initials: string;
+  /** Their display name, for the dot's label and title. */
   name: string;
 }
 
@@ -60,8 +62,8 @@ export interface ShellProps {
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
-  /** Who else is here, as name chips. Empty renders no chips — never a
-   * placeholder name. */
+  /** Who else is in this view, as initials dots. Empty renders nothing —
+   * never a placeholder name. */
   presence: PresenceUser[];
 
   /** The zoom percentage shown between the sign buttons, e.g. `100`. */
@@ -112,6 +114,15 @@ export interface ShellProps {
    * landed anyway. */
   viewOnly?: boolean;
 
+  /** The live design's notices. Shown under the editor's fields, or at the
+   * canvas's top right while no editor is open. */
+  notices?: ReactNode;
+  /** The panel label of the field the notice sits under ("serial"). */
+  noticeField?: string | null;
+  /** The element the notice is about; it sits in the editor only if the panel shows this element. */
+  noticeElement?: string | null;
+  /** What the one always-present, visually hidden status region says. */
+  announce?: string;
   /** A chip for the bar's trailing group, before Undo (the Checks count). */
   barExtra?: ReactNode;
 

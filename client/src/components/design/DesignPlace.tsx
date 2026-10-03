@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
-import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
+import { skippedSentence } from '../../document/liveDoc';
+import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
@@ -27,6 +28,8 @@ import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
+import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
+import { presenceViewOf } from './liveSession';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip. The object URL is revoked a few
@@ -243,7 +246,14 @@ export function DesignPlace(props: DesignPlaceProps) {
     const target = undoCandidates[0];
     if (target == null) return;
     try {
-      session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
+      if (session.live.mode !== 'legacy') {
+        // Live: a field another person has changed since is left alone, and said so.
+        const r = undoSkipping(doc, target.id, { actor: accountId, now: Date.now() });
+        if (r.doc !== doc) session.applyDocChange(r.doc);
+        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+      } else {
+        session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
+      }
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
@@ -258,7 +268,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     if (!session.canDraw) return; // ADR-0052 §5: a reader redoes nothing, even via a stray Ctrl+Shift+Z
     if (doc == null || accountId == null || redoCandidate == null) return;
     try {
-      session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
+      if (session.live.mode !== 'legacy') {
+        const r = redoSkipping(doc, redoCandidate.id, { actor: accountId, now: Date.now() });
+        if (r.doc !== doc) session.applyDocChange(r.doc);
+        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+      } else {
+        session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
+      }
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That redo did not complete.');
@@ -453,8 +469,38 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     ) : null;
 
+  // Who else is in this view: initials only, shown as dots in the bar.
+  const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
+
+  // Presence: which view this person is in (ADR-0063 §12).
+  const { setPresence } = session;
+  const viewId = presenceViewOf(props.place);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => {
+    setPresence(viewId, selectedId);
+  }, [setPresence, viewId, selectedId]);
+
+  // The same letters for you as others see: the server's own initials, once live.
+  const account =
+    session.live.mode === 'live' && session.live.self != null
+      ? { ...shellProps.account, initials: session.live.self.initials }
+      : shellProps.account;
+
   const sharedShellProps = {
     ...shellProps,
+    account,
+    presence,
+    noticeField: session.live.overwrite?.anchor ?? null,
+    noticeElement: session.live.overwrite?.element ?? null,
+    announce: announcement(session.live),
+    notices: hasLiveNotices(session.live) ? (
+      <LiveNotices
+        live={session.live}
+        onKeepTheirs={session.dismissOverwrite}
+        onPutMineBack={session.putMineBack}
+        onDismissNote={session.dismissNote}
+      />
+    ) : null,
     search,
     trail,
     trailOpen,
@@ -497,6 +543,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onActiveRackChange={setActiveRackId}
         onShownCablesChange={setShownCableIds}
         designId={designId}
+        onSelectedChange={setSelectedId}
       />
     ) : (
       <InventoryPlace
@@ -504,6 +551,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onPlaceChange={onPlaceChange}
         session={session}
         onShowOnRack={showOnRack}
+        onSelectedChange={setSelectedId}
         notesActions={notesActions}
         tagsActions={tagsActions}
       />

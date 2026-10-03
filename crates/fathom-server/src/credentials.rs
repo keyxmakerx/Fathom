@@ -3051,6 +3051,7 @@ impl CredentialStore {
             .await?;
             tx.execute("DELETE FROM sessions WHERE id = $1", &[&id])
                 .await?;
+            crate::sessions::notify_session_ended(tx, &id).await?;
         }
         Ok(())
     }
