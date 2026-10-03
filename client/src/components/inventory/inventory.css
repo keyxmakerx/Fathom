@@ -419,10 +419,46 @@
 .inv-table__sort {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
   text-align: left;
   padding: 0 var(--s2);
   overflow: hidden;
+}
+
+/* the heading's words are cut short with an ellipsis; the sort marker beside them never is */
+.inv-table__label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-table__mark {
+  flex: none;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* a cable's sheath: a small square beside its word, the only colour in the Inventory */
+.inv-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: var(--rule-hair) solid var(--ink);
+  margin-right: var(--s1);
+  vertical-align: -1px;
+}
+
+.inv-sheath {
+  display: inline-flex;
+  align-items: center;
+}
+
+.inventory-place input[type='checkbox'] {
+  accent-color: var(--ink);
 }
 
 .inv-table__caret {
@@ -706,11 +742,80 @@
 }
 
 .inv-page__list li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--s2);
+  display: grid;
+  grid-template-columns: var(--cols, 1fr auto);
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
   padding: var(--s1) 0;
   border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+/* fixed columns, so every row of a list lines up with the one above */
+.inv-page__list--plug {
+  --cols: 10ch 14ch minmax(0, 1fr);
+}
+
+.inv-page__list--rack {
+  --cols: 6ch minmax(0, 1fr) auto;
+}
+
+.inv-page__list--touch {
+  --cols: 14ch minmax(0, 1fr);
+}
+
+.inv-page__ports {
+  --cols: var(--port-w, 8ch) minmax(0, 1fr) auto;
+}
+
+.inv-page__list li > button,
+.inv-page__list li > a {
+  justify-self: start;
+  text-align: left;
+}
+
+/* a port, as a compact button of the same width as its neighbours */
+.inv-page__list button.inv-port {
+  justify-self: stretch;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  padding: 0 var(--s1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv-page__list li.inv-page__muted {
+  display: block;
+}
+
+.inv-fp__kept {
+  margin: var(--s1) 0 0;
+  font-size: var(--t-micro);
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.inv-fp__kept code,
+.inv-cm__note code {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.inv-rackp > .inv-path__head {
+  margin-top: var(--s5);
+}
+
+.inv-page__typed {
+  margin: var(--s4) 0 0;
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.inv-page__typed b {
+  color: var(--ink);
 }
 
 .inv-paste {
@@ -1709,11 +1814,18 @@
   padding: 0 var(--s1);
 }
 
+/* the results open just below the Where bar, so the bar and its counts stay in view */
+.inv-find-slot {
+  position: relative;
+  flex: none;
+  height: 0;
+  z-index: var(--z-egress);
+}
+
 .inv-find__panel {
   position: absolute;
-  z-index: var(--z-egress);
   left: var(--s3);
-  top: calc(100% - var(--s2));
+  top: 0;
   width: min(720px, calc(100% - 2 * var(--s3)));
   max-height: 70vh;
   overflow: auto;

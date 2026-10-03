@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 
 import type { Column, InvRow } from './kinds';
 import type { SortKey } from './listState';
+import { SheathWord } from './Swatch';
 
 export const ROW_HEIGHT = 30;
 const OVERSCAN = 8;
@@ -299,11 +300,11 @@ export function DataTable(props: DataTableProps) {
                   aria-sort={sort ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
                   <button type="button" className="inv-table__sort" onClick={(e) => onSort(c.key, e.shiftKey)}>
-                    {c.label}
+                    <span className="inv-table__label">{c.label}</span>
                     {sort ? (
-                      <span aria-hidden="true">
-                        {sorts.length > 1 ? ` ${at + 1}` : ''}
-                        {sort.dir === 'asc' ? ' ▲' : ' ▼'}
+                      <span className="inv-table__mark" aria-hidden="true">
+                        {sorts.length > 1 ? `${at + 1}` : ''}
+                        {sort.dir === 'asc' ? '▲' : '▼'}
                       </span>
                     ) : null}
                   </button>
@@ -386,6 +387,10 @@ export function DataTable(props: DataTableProps) {
                               <span style={{ width: `${Math.min(100, Math.round(row.meter[col.key]! * 100))}%` }} />
                             </span>
                             <span className="inv-table__text">{text}</span>
+                          </span>
+                        ) : text !== '' && col.key === 'sheath' ? (
+                          <span className="inv-table__text" title={text}>
+                            <SheathWord name={text} />
                           </span>
                         ) : text !== '' ? (
                           <span className="inv-table__text" title={text}>

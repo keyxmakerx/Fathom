@@ -14,6 +14,7 @@ describe('a cable on its own', () => {
   it('is one cable between two stops, each with its place', () => {
     const path = cablePath(view, idx, e.cables['C-10412']!)!;
     expect(path.cables).toHaveLength(1);
+    expect(path.cables[0]!.sheath).toBe('blue');
     expect(path.stations.map((s) => s.kind)).toEqual(['end', 'end']);
     const names = path.stations.map((s) => s.host).sort();
     expect(names).toEqual(['lon1-a03-srv0001', 'lon1-a03-tor1']);

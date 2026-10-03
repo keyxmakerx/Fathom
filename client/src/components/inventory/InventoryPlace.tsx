@@ -276,6 +276,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
   const [findArmed, setFindArmed] = useState(false);
+  const [findSlot, setFindSlot] = useState<HTMLDivElement | null>(null);
   const searchIndex = useMemo(
     () =>
       findArmed || ls.find
@@ -564,8 +565,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       ) : (
         <PasteGateBoundary redact={redact}>
         <div className="inventory-place">
-          <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} />
+          <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
+          <div className="inv-find-slot" ref={setFindSlot} />
           <div className="inventory-place__body">
           <SideList
             kind={kind}

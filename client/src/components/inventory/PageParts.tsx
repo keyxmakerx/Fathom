@@ -6,6 +6,7 @@ import type { ClosetView, EditorActions, PortView, Selection } from '../drawing/
 import type { Document } from '../../document/model';
 import { cablePath, lastTracedOf, pluggedInto, selectionOfHost, stationPlace, type Station } from './cablePath';
 import { placeText, type PlaceIndex, type Where } from './placeIndex';
+import { SheathWord } from './Swatch';
 
 const ABSENT = '—';
 
@@ -56,7 +57,16 @@ export function PathStrip(props: { doc: Document; view: ClosetView; idx: PlaceIn
                       {cable.label || 'unlabelled'}
                     </button>
                   )}
-                  <span className="inv-path__meta">{[cable.media, cable.lengthM != null ? `${cable.lengthM} m` : ''].filter(Boolean).join(' · ')}</span>
+                  <span className="inv-path__meta">
+                    {cable.media}
+                    {cable.sheath ? (
+                      <>
+                        {cable.media ? ' · ' : ''}
+                        <SheathWord name={cable.sheath} />
+                      </>
+                    ) : null}
+                    {cable.lengthM != null ? `${cable.media || cable.sheath ? ' · ' : ''}${cable.lengthM} m` : ''}
+                  </span>
                 </div>
               ) : null}
             </li>
@@ -79,7 +89,7 @@ export function PluggedInto(props: { view: ClosetView; idx: PlaceIndex; hostId: 
       {list.length === 0 ? (
         <p className="inv-page__muted">Nothing is cabled to this yet.</p>
       ) : (
-        <ul className="inv-page__list">
+        <ul className="inv-page__list inv-page__list--plug">
           {list.map((l) => (
             <li key={l.port.portId}>
               <span className="inv-page__mono">{l.port.label || ABSENT}</span>
@@ -174,7 +184,7 @@ export function RackContents(props: { view: ClosetView; idx: PlaceIndex; rackId:
       {devices.length === 0 && rack.shelves.length === 0 ? (
         <p className="inv-page__muted">Empty.</p>
       ) : (
-        <ul className="inv-page__list">
+        <ul className="inv-page__list inv-page__list--rack">
           {devices.map((c) => (
             <li key={c.id}>
               <span className="inv-page__mono">U{c.positionU}</span>
@@ -197,7 +207,7 @@ export function RackContents(props: { view: ClosetView; idx: PlaceIndex; rackId:
       {cables.length === 0 ? (
         <p className="inv-page__muted">None.</p>
       ) : (
-        <ul className="inv-page__list">
+        <ul className="inv-page__list inv-page__list--touch">
           {cables.slice(0, 60).map((c) => (
             <li key={c.id}>
               <button type="button" onClick={() => actions.onSelect?.({ kind: 'cable', id: c.id })}>

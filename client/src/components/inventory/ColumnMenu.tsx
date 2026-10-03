@@ -9,6 +9,7 @@ import { COLUMN_ASKS, type Column, type InvRow, type Kind } from './kinds';
 import { fieldState, setField, setFieldTerm, stripField, quoteValue } from './query';
 import { fieldOfColumn, filterRows, type QuerySchema } from './rowQuery';
 import type { SortKey } from './listState';
+import { SheathWord } from './Swatch';
 
 export interface ColumnMenuProps {
   col: Column;
@@ -166,7 +167,7 @@ function Question(props: { field: string; label: string; schema: QuerySchema; ro
                   checked={chosen.has(k.toLowerCase())}
                   onChange={() => write({ values: chosen.has(k.toLowerCase()) ? st.values.filter((v) => v.toLowerCase() !== k.toLowerCase()) : [...st.values, k] })}
                 />
-                <span className="inv-cm__val">{k}</span>
+                <span className="inv-cm__val">{field === 'sheath' ? <SheathWord name={k} /> : k}</span>
                 <span className="inv-cm__n">{fmt(dv.counts.get(k) ?? 0)}</span>
               </label>
             ))}

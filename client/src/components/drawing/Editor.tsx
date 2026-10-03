@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -400,8 +400,12 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
  * so a present value here is always one a person typed. `extra`, used only
  * for `management_address`, is the board's own ADR-0041 sentence stated
  * once, muted. */
+/** 'each' marks every field (the canvas panel); 'once' leaves it to the page, which says it once (Inventory). */
+export const TypedNoteMode = createContext<'each' | 'once'>('each');
+
 function TypedNote({ shown, extra }: { shown: boolean; extra?: string }) {
-  if (!shown) return null;
+  const mode = useContext(TypedNoteMode);
+  if (!shown || mode === 'once') return null;
   return (
     <div style={TYPED_NOTE_STYLE}>
       <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>Stored as typed.</strong>

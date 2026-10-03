@@ -29,6 +29,8 @@ export interface PathCable {
   id: string;
   label: string | null;
   media: string;
+  /** The sheath colour's word, '' when unset. */
+  sheath: string;
   lengthM: number | null;
 }
 
@@ -94,7 +96,7 @@ export function cablePath(view: ClosetView, idx: PlaceIndex, cableId: string): C
   }
   const path: CablePath = {
     stations,
-    cables: cables.map((c) => ({ id: c.id, label: c.label, media: c.media, lengthM: c.lengthM ?? null })),
+    cables: cables.map((c) => ({ id: c.id, label: c.label, media: c.media, sheath: c.sheath ?? '', lengthM: c.lengthM ?? null })),
     at,
   };
   // The same run reads the same way from either end: the stop whose name sorts first comes first.

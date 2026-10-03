@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
-import { EditorFor, NotesSection } from '../drawing/Editor';
+import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
 import { historyOf } from './kinds';
 import { PanelMap, PathStrip, PluggedInto, RackContents } from './PageParts';
@@ -64,7 +64,10 @@ export function ItemPage(props: ItemPageProps) {
         {selection.kind === 'cable' ? <PathStrip doc={doc} view={view} idx={idx} cableId={selection.id} actions={actions} /> : null}
         {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
         {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
-        {EditorFor(selection, view, actions, palette)}
+        <TypedNoteMode.Provider value="once">{EditorFor(selection, view, actions, palette)}</TypedNoteMode.Provider>
+        <p className="inv-page__typed">
+          <b>Stored as typed.</b> Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.
+        </p>
         {notes > 0 ? (
           <button type="button" className="inv-page__link" onClick={() => setTab('notes')}>
             {notes} {notes === 1 ? 'note' : 'notes'}

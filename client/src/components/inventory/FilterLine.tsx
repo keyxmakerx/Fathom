@@ -8,6 +8,7 @@ import { BLANK, PANEL_LIMIT, distinctOf, type Distinct } from './facets';
 import type { InvRow } from './kinds';
 import { OPERATOR_HELP, boundText, fieldState, parseBound, readQuery, removeUnit, setField, stripField, units, type Parsed } from './query';
 import { filterRows, type QuerySchema } from './rowQuery';
+import { SheathWord } from './Swatch';
 import { applySuggestion, suggestAt, type Suggestion } from './suggest';
 
 export interface FilterLineProps {
@@ -311,7 +312,7 @@ function Panel(props: { q: string; onQ: (q: string) => void; schema: QuerySchema
                             write(f.key, { values });
                           }}
                         />
-                        <span className="inv-fp__val">{k}</span>
+                        <span className="inv-fp__val">{f.key === 'sheath' ? <SheathWord name={k} /> : k}</span>
                         <span className="inv-fp__n">{fmt(dv.counts.get(k) ?? 0)}</span>
                       </label>
                     );
