@@ -5,6 +5,7 @@ import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
 import { searchShouldCollapse } from './layout';
+import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
@@ -43,6 +44,8 @@ export interface BarProps {
   onLensChange: (lens: Lens) => void;
   /** The Rack | Diagram switch; omitted where the look does not apply. */
   look?: { value: Look; onChange: (look: Look) => void };
+  /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -88,6 +91,7 @@ export function Bar({
   lens,
   onLensChange,
   look,
+  layers,
   presence,
   zoom,
   onZoomIn,
@@ -277,6 +281,45 @@ export function Bar({
                   </button>
                 ))}
               </div>
+            )}
+            {layers != null && <Sep />}
+            {layers != null && (
+              <Popover
+                renderTrigger={({ open, triggerProps, triggerRef }) => (
+                  <button
+                    type="button"
+                    className={open ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                    data-testid="shell-show"
+                    ref={(el) => {
+                      triggerRef.current = el;
+                    }}
+                    {...triggerProps}
+                  >
+                    Show ▾
+                  </button>
+                )}
+              >
+                <div className="shell-show" role="group" aria-label="Show on the drawing">
+                  <div className="shell-show__head">Show on the drawing</div>
+                  {LAYERS.filter((l) => l.available).map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={layers.value[l.id]}
+                      className="shell-show__row"
+                      data-testid={`show-${l.id}`}
+                      onClick={() => layers.onToggle(l.id)}
+                    >
+                      <span aria-hidden="true">{layers.value[l.id] ? '☑' : '☐'}</span>
+                      <span>{l.label}</span>
+                      {l.onByDefault && <span className="shell-show__note">on by default</span>}
+                    </button>
+                  ))}
+                  {look?.value === 'rack' && <p className="shell-show__hint">The words are drawn in the Diagram look.</p>}
+                  <p className="shell-show__hint">Each adds words in ink, placed so they never overlap. Yours, per browser.</p>
+                </div>
+              </Popover>
             )}
           </>
         )}

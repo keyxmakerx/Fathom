@@ -57,6 +57,8 @@ export interface ShellProps {
   lens: Lens;
   onLensChange: (lens: Lens) => void;
 
+  /** The Show ▾ menu of canvas layers (Racks place only). */
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void };
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 

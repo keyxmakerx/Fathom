@@ -30,10 +30,10 @@ breaks one is not a contribution however good the code is:
 | **1** | No egress by default |
 | **2** | The application never touches a network device — copy-paste is the only input, permanently |
 | **3** | It stores no device credential; pasted captures are redacted at the ingest gate |
-| **4** | The server never holds secret key material |
+| **4** | Where customer-held keys are in force, the server never holds secret key material. The hosted server holds keys and says so (ADR-0040) |
 
-`docs/70-ops/71-roadmap.md` §13.1 lists thirteen things this product will permanently not do. They
-are refusals, not deferrals, and *"but it would be useful"* is not an argument against any of them.
+`docs/archive/70-ops/71-roadmap.md` §13.1 lists thirteen things this product will permanently not do.
+They are refusals, not deferrals, and *"but it would be useful"* is not an argument against any of them.
 
 Then read `.context/conventions.md` § *Currency*: **security is never answered from memory.** If you
 assert that something has no known vulnerability, name the databases you checked and the date. Two
@@ -41,23 +41,23 @@ independent sources, or it is not a result. ADR-0034 carries the reasoning.
 
 ## 3. How work is organised
 
-Building happens through **work orders** in `docs/70-ops/79-work-orders/`, governed by
-`docs/70-ops/78-execution-protocol.md`. If you intend to build rather than to fix a typo, read `78`
-first — particularly §3 (the loop), §5 (the ten things a session never does) and §4 (escalation).
+Read `docs/NEXT.md` (how to work) and `CLAUDE.md` (rules). Plan and backlog live in ADR-0060 and
+GitHub issues. The work-order queue (`docs/archive/70-ops/79-work-orders/`) is history.
 
-The single most important rule in it: **escalating is success, deciding is the defect.** A session
-that stops with a well-formed question has done its job. One that ships a guess has failed even if
-the guess was right, because a guess in the tree is a decision made by whoever typed first.
+**Escalating is success, deciding is the defect.** A session that stops with a well-formed question has
+done its job; one that ships a guess has failed even if the guess was right.
 
 ## 4. The verification floor
 
-Green before you open a pull request. CI runs the same four, in this order:
+Green before you open a pull request. CI runs these, among others (`.github/workflows/ci.yml`):
 
 ```
 cargo fmt --all --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo run --locked -p fathom-schema --bin fathom-schema-check
+./scripts/gate-zero.sh
+./scripts/gate-npm.sh
 ```
 
 The schema check exits 0 with **zero failures and zero warnings**. That is the standing baseline
@@ -65,9 +65,9 @@ since 2026-08-09, and a test pins it: any new warning, of any code, fails
 `crates/fathom-schema/tests/shipped_tree.rs`. If you add one, say why in the PR — do not re-pin it
 quietly.
 
-Two more, not yet gates but run them: `python3 scripts/check-citations.py` (58 unresolved on a clean
-tree — do not increase it), and, once external crates exist, the dependency-vulnerability scan
-ADR-0034 §4 puts on the floor.
+Two more, not yet gates but run them: `python3 scripts/check-citations.py` (its unresolved
+count on a clean tree is the baseline; do not increase it), and the dependency-vulnerability scan
+(`scripts/osv-gate.sh`, run in CI).
 
 ## 5. Two things about content
 

@@ -11,6 +11,8 @@ import { addSketchPort } from '../../document/commands';
 import { setDeviceField } from '../../document/edit';
 import { createFreeBox, foldFrom } from '../../document/freeform';
 import { edgesOut, findNode, parseNodeId, type Document, type GraphNode } from '../../document/model';
+import { EngineError, ERRORS } from '../../engine/engine';
+import { PASTE_PLATFORMS, type PastePlatform } from '../../engine/frames';
 import type { Mirror } from '../../engine/mirror';
 import { captureOf } from '../../document/capture';
 
@@ -48,6 +50,19 @@ export interface PastePreview {
 }
 
 type Actor = { actor?: string };
+
+/** The platform names as a person says them, for the "which device is this from?" question. */
+export const PLATFORM_WORDS: Readonly<Record<PastePlatform, string>> = {
+  'junos-srx': 'Juniper SRX',
+  'junos-ex': 'Juniper EX',
+  edgeos: 'Ubiquiti EdgeOS',
+  opnsense: 'OPNsense',
+};
+
+/** A platform the engine can be told, or null for anything else (a hand-typed or unknown model). */
+export function pastePlatform(value: string | null): PastePlatform | null {
+  return (PASTE_PLATFORMS as readonly string[]).includes(value ?? '') ? (value as PastePlatform) : null;
+}
 
 const PHYSICAL = /^(ge|xe|et|fe|me|fxp|em|eth|ether|gi|gig|fa|te|ten|port|lan|wan|sfp|igb|ix|vtnet|re)[-/]?\d/i;
 const FAST = /^(xe|te|ten|sfp)/i;
@@ -135,11 +150,18 @@ function withPorts(doc: Document, chassisId: string, names: readonly string[], o
  * `refusalSentence`. Leaves the module holding a scratch design, so the
  * caller must treat it as stale afterwards.
  */
-export function previewPaste(mirror: Mirror, doc: Document, text: string, at: { x: number; y: number }, opts?: Actor): PastePreview {
+export function previewPaste(
+  mirror: Mirror,
+  doc: Document,
+  text: string,
+  at: { x: number; y: number },
+  opts?: Actor,
+  platform?: PastePlatform,
+): PastePreview {
   const made = createFreeBox(doc, { ...opts, x: at.x, y: at.y });
   const device = made.deviceId;
   mirror.load(made.doc);
-  const { doc: parsed, result } = mirror.pasteInto(device, text);
+  const { doc: parsed, result } = mirror.pasteInto(device, text, platform);
 
   const interfaces = interfacesOf(parsed, device);
   const node = findNode(parsed, device);
@@ -155,7 +177,8 @@ export function previewPaste(mirror: Mirror, doc: Document, text: string, at: { 
   let attachDoc: Document | null = null;
   if (match !== null && !match.hasCapture && !match.ambiguous) {
     mirror.load(doc);
-    attachDoc = mirror.pasteInto(match.deviceId, text).doc;
+    // A paste into a device reads as that device's own platform when it has one.
+    attachDoc = mirror.pasteInto(match.deviceId, text, devicePlatform(doc, match.deviceId) ?? platform).doc;
   }
 
   return {
@@ -175,4 +198,17 @@ export function previewPaste(mirror: Mirror, doc: Document, text: string, at: { 
 /** A config is several lines; one pasted word or sentence is left alone. */
 export function worthReading(text: string): boolean {
   return text.trim().includes('\n');
+}
+
+/** The platform a placed device already carries, when the engine knows it. */
+export function devicePlatform(doc: Document, deviceId: string): PastePlatform | null {
+  const node = findNode(doc, deviceId);
+  return node ? pastePlatform(str(node, 'Device.platform')) : null;
+}
+
+/** The platforms to offer when the engine could not tell, from an `ERR_PLATFORM_CHOICE` refusal; null for any other error. */
+export function platformChoices(error: unknown): PastePlatform[] | null {
+  if (!(error instanceof EngineError) || error.code !== ERRORS.ERR_PLATFORM_CHOICE) return null;
+  const named = error.detail.split(',').filter((p): p is PastePlatform => pastePlatform(p) !== null);
+  return named.length > 1 ? named : null;
 }
