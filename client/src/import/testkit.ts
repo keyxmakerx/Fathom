@@ -12,6 +12,7 @@ import { setChassisField, setDeviceField } from '../document/edit';
 import { setFieldValue, type FieldDefView } from '../document/fields';
 import { emptyDocument, type Document } from '../document/model';
 import { gateTable, type Redact } from './gate';
+import { defaultMapping, looksLikeSecret, newFieldFor, type Mapping } from './mapping';
 import { readImport } from './read';
 import type { GatedTable, RawTable } from './table';
 import type { XEl, XmlParser } from './xml';
@@ -108,3 +109,11 @@ export function freshDefs(newFields: ReadonlyArray<{ name: string; type: FieldDe
 }
 
 export { readImport };
+
+/** The default mapping, then every unmapped column with values (not a secret-looking one) made a new field, as a person would. */
+export function fullMapping(table: GatedTable, defs: readonly FieldDefView[] = []): Mapping {
+  return defaultMapping(table, defs).map((t, i) => {
+    const filled = table.rows.some((r) => (r[i] ?? '') !== '');
+    return t.kind === 'ignore' && filled && !looksLikeSecret(table.headers[i] ?? '') ? newFieldFor(table, i) : t;
+  });
+}

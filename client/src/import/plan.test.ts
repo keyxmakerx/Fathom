@@ -4,8 +4,8 @@ import { applyPlan } from './apply';
 import { devicesByName } from './existing';
 import { fieldValue } from '../document/fields';
 import { defaultMapping, inferType, mappingErrors, type Mapping } from './mapping';
-import { addressFor, buildPlan, roleFor, type Bucket } from './plan';
-import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, gated, identity, readImport } from './testkit';
+import { addressFor, buildPlan, choiceKey, roleFor, type Bucket } from './plan';
+import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, fullMapping, gated, identity, readImport } from './testkit';
 import { gateTable } from './gate';
 
 const csv = async () => gated(readImport(fixture('netbox-devices.csv')));
@@ -15,7 +15,7 @@ async function csvPlan() {
   doc = addDevice(doc, 'sw-01', { serial: 'JN123456AB' });
   doc = addDevice(doc, 'fw-01', { serial: 'OLD-SERIAL', role: 'router', mgmt: '10.0.99.1' });
   const table = await csv();
-  const mapping = defaultMapping(table, [COST_CENTRE]);
+  const mapping = fullMapping(table, [COST_CENTRE]);
   return { doc, table, mapping, plan: buildPlan(table, mapping, { doc, catalogue: CATALOGUE, defs: [COST_CENTRE] }) };
 }
 
@@ -174,13 +174,13 @@ describe('match never overwrites (property)', () => {
     const { doc, plan } = await csvPlan();
     const kept = await applyPlan(doc, plan, { defs: freshDefs(plan.newFields).concat([COST_CENTRE]), fresh: freshDefs(plan.newFields), actor: ACTOR, now: NOW, label: 'import' });
     expect(devicesByName(kept.doc).get('fw-01')).toMatchObject({ serial: 'OLD-SERIAL', role: 'router', mgmt: '10.0.99.1' });
-    const row = plan.items.find((i) => i.bucket === 'differ')!.row;
+    const row = choiceKey(plan.items.find((i) => i.bucket === 'differ')!);
     const took = await applyPlan(doc, plan, { choices: new Map([[row, 'theirs']]), defs: freshDefs(plan.newFields), fresh: freshDefs(plan.newFields), actor: ACTOR, now: NOW, label: 'import' });
     expect(devicesByName(took.doc).get('fw-01')).toMatchObject({ serial: 'JN998877EF', role: 'firewall', mgmt: '10.0.99.1' });
     expect(took.overwritten).toBe(2);
     expect(kept.overwritten).toBe(0);
     // A choice for a Match row changes nothing.
-    const matchRow = plan.items.find((i) => i.bucket === 'match')!.row;
+    const matchRow = choiceKey(plan.items.find((i) => i.bucket === 'match')!);
     const forced = await applyPlan(doc, plan, { choices: new Map([[matchRow, 'theirs']]), defs: freshDefs(plan.newFields), fresh: freshDefs(plan.newFields), actor: ACTOR, now: NOW, label: 'import' });
     expect(devicesByName(forced.doc).get('sw-01')?.serial).toBe('JN123456AB');
     expect(forced.overwritten).toBe(0);

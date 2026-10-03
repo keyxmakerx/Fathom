@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import { ImportDialog } from './components/import/ImportDialog';
 import { devicesByName } from './import/existing';
+import { setChassisField } from './document/edit';
 import { undo, undoable } from './document/undo';
 import { writePlain } from './document/plain';
 import { fieldValue, type FieldDefView } from './document/fields';
@@ -23,6 +24,7 @@ declare global {
     __loadFailures__: string[];
     __requests__: string[];
     __applied__: number;
+    __editSerial__: (name: string, serial: string) => void;
   }
 }
 
@@ -44,6 +46,10 @@ function Scene({ initial, engine, catalogue }: { initial: Document; engine: Engi
     undoSteps: undoable(doc, ME).length,
     defs: defs.map((d) => `${d.name}:${d.type}`),
   });
+
+  // Another person's edit arriving while the dialog is open.
+  window.__editSerial__ = (name, serial) =>
+    setDoc((d) => setChassisField(d, devicesByName(d).get(name)!.chassisId, 'serial', serial, { actor: ME, now: Date.now() }));
 
   const check = (next: Document, what: string) => {
     try {

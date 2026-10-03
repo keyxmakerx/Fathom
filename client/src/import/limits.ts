@@ -16,6 +16,8 @@ export const LIMITS = {
   xmlElements: 50_000,
   /** A shared-field value (document/fields.ts refuses longer). */
   fieldChars: 1000,
+  /** New shared fields one import may make (they belong to the whole organisation). */
+  newFields: 10,
 } as const;
 
 /** The file cannot be read for a reason the person can act on; the message is shown as is. */

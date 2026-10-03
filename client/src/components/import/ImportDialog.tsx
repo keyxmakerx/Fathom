@@ -9,23 +9,24 @@ import type { CatalogueModel } from '../../api/catalogue';
 import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
 import type { FieldDefView } from '../../document/fields';
 import type { Document } from '../../document/model';
-import { applyPlan, type ApplyResult, type Pick } from '../../import/apply';
+import { applyPlan, importLabel, type ApplyResult, type Pick } from '../../import/apply';
 import { gateTable } from '../../import/gate';
 import { ImportRefusal } from '../../import/limits';
 import {
   CORE_KEYS,
   CORE_LABEL,
   NEW_FIELD_TYPES,
+  SECRET_REASON,
   defaultMapping,
-  fieldNameFor,
-  inferType,
+  looksLikeSecret,
   mappingErrors,
+  newFieldFor,
   sampleOf,
   type Mapping,
   type NewFieldType,
   type Target,
 } from '../../import/mapping';
-import { buildPlan, type Bucket, type Plan, type PlanItem } from '../../import/plan';
+import { buildPlan, choiceKey, holdChangedConflicts, type Bucket, type Plan, type PlanItem } from '../../import/plan';
 import { readFile } from '../../import/read';
 import type { GatedTable } from '../../import/table';
 import { oneLine } from '../../import/text';
@@ -94,7 +95,7 @@ export function ImportDialog(props: ImportDialogProps) {
   const [table, setTable] = useState<GatedTable | null>(null);
   const [mapping, setMapping] = useState<Mapping>([]);
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [choices, setChoices] = useState<ReadonlyMap<number, Pick>>(new Map());
+  const [choices, setChoices] = useState<ReadonlyMap<string, Pick>>(new Map());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
@@ -118,8 +119,11 @@ export function ImportDialog(props: ImportDialogProps) {
   const errors = useMemo(() => (table ? mappingErrors(table, mapping, fieldDefs) : []), [table, mapping, fieldDefs]);
   const liveDefs = useMemo(() => fieldDefs.filter((d) => d.appliesTo === 'device' && !d.archived).sort((a, b) => a.name.localeCompare(b.name)), [fieldDefs]);
 
+  // Without a signed-in account the import would not be the person's own undo step: refuse.
+  const canImport = actor !== undefined && actor !== '';
+
   const take = async (file: File | undefined) => {
-    if (!file || busy) return;
+    if (!file || busy || !canImport) return;
     setError(null);
     setTable(null);
     setFileName(oneLine(file.name).slice(0, 100));
@@ -159,7 +163,7 @@ export function ImportDialog(props: ImportDialogProps) {
       if (value === 'ignore') next[i] = { kind: 'ignore' };
       else if (value.startsWith('core:')) next[i] = { kind: 'core', key: value.slice(5) as (typeof CORE_KEYS)[number] };
       else if (value.startsWith('field:')) next[i] = { kind: 'field', defId: value.slice(6) };
-      else next[i] = { kind: 'new', name: fieldNameFor(table.headers[i] ?? ''), type: inferType(table.rows.map((r) => r[i] ?? '')) };
+      else next[i] = newFieldFor(table, i);
       return next;
     });
   };
@@ -182,8 +186,9 @@ export function ImportDialog(props: ImportDialogProps) {
   const importable = plan ? plan.counts.new + plan.counts.match + plan.counts.differ + plan.counts.nomodel : 0;
 
   const run = async () => {
-    if (!table || !plan || busy) return;
+    if (!table || !plan || busy || !canImport) return;
     setError(null);
+    const made: string[] = [];
     try {
       // 1. Shared fields the file introduced, made for the whole organisation first. One that now
       // exists by that name (an earlier try, or a colleague) is used instead of making a twin.
@@ -194,6 +199,7 @@ export function ImportDialog(props: ImportDialogProps) {
         setBusy(`Creating the shared field "${f.name}"…`);
         const r = await createField('device', f.name, f.type);
         if (r && 'refused' in r) throw new Error(`The shared field "${f.name}" was refused: ${r.refused} Nothing was imported.`);
+        made.push(f.name);
       }
       const fresh: FieldDefView[] = [];
       for (const f of plan.newFields) {
@@ -209,12 +215,15 @@ export function ImportDialog(props: ImportDialogProps) {
       setBusy('Importing…');
       const now = latest.current;
       const finalPlan = buildPlan(table, mapping, { doc: now.doc, catalogue, defs: now.fieldDefs });
+      // A Differ row that is not the one the person looked at is left alone and reported.
+      const held = holdChangedConflicts(plan, finalPlan);
+      const rows = finalPlan.items.filter((i) => i.bucket !== 'skipped').length;
       const result: ApplyResult = await applyPlan(now.doc, finalPlan, {
         choices,
         defs: now.fieldDefs.some((d) => fresh.some((f) => f.id === d.id)) ? now.fieldDefs : [...now.fieldDefs, ...fresh],
         fresh,
         actor,
-        label: `import ${fileName}`,
+        label: importLabel(rows),
         onProgress: (done, all) => setBusy(`Importing… ${done} of ${all} rows`),
       });
       const done: ImportSummary = {
@@ -224,19 +233,20 @@ export function ImportDialog(props: ImportDialogProps) {
         filled: result.filled,
         overwritten: result.overwritten,
         newFields: finalPlan.newFields.length,
-        refused: result.refused,
+        refused: [...held, ...result.refused],
       };
       setSummary(done);
       onApply(result.doc, done);
       setStep('done');
     } catch (e) {
-      setError(messageOf(e, 'The import failed, and nothing was imported.'));
+      const kept = made.length > 0 ? ` These shared fields were already created for the organisation and stay: ${made.join(', ')}.` : '';
+      setError(`${messageOf(e, 'The import failed, and nothing was imported.')}${kept}`);
     }
     setBusy(null);
   };
 
-  const pickFor = (row: number): Pick => choices.get(row) ?? 'mine';
-  const setPick = (row: number, p: Pick) => setChoices((c) => new Map(c).set(row, p));
+  const pickFor = (item: PlanItem): Pick => choices.get(choiceKey(item)) ?? 'mine';
+  const setPick = (item: PlanItem, p: Pick) => setChoices((c) => new Map(c).set(choiceKey(item), p));
 
   const itemsOf = (b: Bucket) => (plan ? plan.items.filter((i) => i.bucket === b) : []);
 
@@ -268,7 +278,7 @@ export function ImportDialog(props: ImportDialogProps) {
               <strong>Drop a file here</strong>
               <span className="imp__muted">CSV or spreadsheet · NetBox export · Proxmox (pvesh JSON) · nmap scan (XML)</span>
               <span>
-                <button type="button" disabled={busy !== null} onClick={() => fileInput.current?.click()}>
+                <button type="button" disabled={busy !== null || !canImport} onClick={() => fileInput.current?.click()}>
                   Choose a file
                 </button>
               </span>
@@ -284,6 +294,7 @@ export function ImportDialog(props: ImportDialogProps) {
                 }}
               />
             </div>
+            {!canImport ? <p role="alert" className="imp__error">You are not signed in, so an import could not be undone. Sign in to import.</p> : null}
             {busy ? <p role="status">{busy}</p> : null}
             {error ? <p role="alert" className="imp__error">{error}</p> : null}
             {table && !busy ? (
@@ -331,11 +342,15 @@ export function ImportDialog(props: ImportDialogProps) {
                 <tbody>
                   {table.headers.map((h, i) => {
                     const t = mapping[i] ?? { kind: 'ignore' as const };
+                    const secret = looksLikeSecret(h);
                     return (
                       <tr key={i} className={t.kind === 'new' ? 'imp__row--new' : undefined}>
                         <td>{h}</td>
                         <td className="imp__mono">{sampleOf(table, i).slice(0, 40)}</td>
                         <td>
+                          {secret ? (
+                            <span className="imp__muted">{SECRET_REASON}</span>
+                          ) : (
                           <select aria-label={`Fathom field for ${h}`} value={targetValue(t)} onChange={(e) => setTarget(i, e.currentTarget.value)}>
                             <optgroup label="Fathom">
                               {CORE_KEYS.map((k) => (
@@ -356,6 +371,7 @@ export function ImportDialog(props: ImportDialogProps) {
                             <option value="new">New shared field…</option>
                             <option value="ignore">Ignore this column</option>
                           </select>
+                          )}
                           {t.kind === 'new' ? (
                             <span className="imp__newfield">
                               <input aria-label={`Name of the new field for ${h}`} value={t.name} onChange={(e) => patchNew(i, { name: e.currentTarget.value })} />
@@ -377,7 +393,7 @@ export function ImportDialog(props: ImportDialogProps) {
             </div>
             {mapping.filter((t) => t.kind === 'new').length > 0 ? (
               <p className="imp__muted">
-                {mapping.filter((t) => t.kind === 'new').length} new shared fields will be made, and every device in the organisation can use them. A field in use cannot be deleted, only archived.
+                {mapping.filter((t) => t.kind === 'new').length} new shared fields will be made for the whole organisation. Undo does NOT remove them. A field in use cannot be deleted, only archived.
               </p>
             ) : null}
             {errors.length > 0 ? (
@@ -428,7 +444,7 @@ export function ImportDialog(props: ImportDialogProps) {
               </tbody>
             </table>
             {plan.newFields.length > 0 ? (
-              <p className="imp__muted">Also made for the organisation: {plan.newFields.map((f) => `${f.name} (${f.type === 'url' ? 'link' : f.type})`).join(', ')}.</p>
+              <p className="imp__muted">Also made for the organisation, and not removed by Undo: {plan.newFields.map((f) => `${f.name} (${f.type === 'url' ? 'link' : f.type})`).join(', ')}.</p>
             ) : null}
             {plan.warnings > 0 ? <p className="imp__muted">{plan.warnings} values were left out because they do not fit (see below).</p> : null}
 
@@ -436,7 +452,7 @@ export function ImportDialog(props: ImportDialogProps) {
               <div className="imp__differ">
                 <h3>Differ · yours vs the file</h3>
                 {itemsOf('differ').slice(0, LIST_LIMIT).map((item) => (
-                  <DifferRow key={item.row} item={item} pick={pickFor(item.row)} onPick={(p) => setPick(item.row, p)} />
+                  <DifferRow key={item.row} item={item} pick={pickFor(item)} onPick={(p) => setPick(item, p)} />
                 ))}
                 {itemsOf('differ').length > LIST_LIMIT ? <p className="imp__muted">And {itemsOf('differ').length - LIST_LIMIT} more, kept as yours.</p> : null}
               </div>
@@ -449,14 +465,14 @@ export function ImportDialog(props: ImportDialogProps) {
             {error ? <p role="alert" className="imp__error">{error}</p> : null}
             {busy ? <p role="status">{busy}</p> : null}
             <div className="imp__actions">
-              <button type="button" className="imp__primary" disabled={busy !== null || importable === 0 || !canDraw} onClick={() => void run()}>
+              <button type="button" className="imp__primary" disabled={busy !== null || importable === 0 || !canDraw || !canImport} onClick={() => void run()}>
                 Import {importable}
               </button>
               <button type="button" disabled={busy !== null} onClick={() => setStep('match')}>
                 Back
               </button>
             </div>
-            <p className="imp__mono imp__muted">One step in history: Undo removes the lot</p>
+            <p className="imp__mono imp__muted">One step in history: Undo removes the devices and values{plan.newFields.length > 0 ? ', not the new shared fields' : ''}</p>
           </section>
         ) : null}
 
@@ -465,7 +481,7 @@ export function ImportDialog(props: ImportDialogProps) {
             <h2>Imported {summary.fileName}</h2>
             <p role="status">
               {summary.created} added ({summary.placed} placed in racks), {summary.filled} blanks filled in, {summary.overwritten} values replaced at your choice
-              {summary.newFields > 0 ? `, ${summary.newFields} new shared fields` : ''}. Undo removes the lot.
+              {summary.newFields > 0 ? `, ${summary.newFields} new shared fields` : ''}. Undo removes the devices and values{summary.newFields > 0 ? ', not the new shared fields' : ''}.
             </p>
             {summary.refused.length > 0 ? (
               <details>

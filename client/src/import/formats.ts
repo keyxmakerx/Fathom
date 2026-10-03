@@ -153,6 +153,9 @@ export function proxmoxTable(items: Record<string, unknown>[], notes: string[]):
 // ---------------------------------------------------------------------------
 // nmap
 
+// A script that tries logins or reads defaults can print the credentials it found.
+const SCRIPT_REFUSED = /brute|default-accounts|creds|auth|password/i;
+
 function textOf(...parts: string[]): string {
   return parts.map((p) => oneLine(p)).filter(Boolean).join(' ');
 }
@@ -162,6 +165,7 @@ export function nmapTable(root: XEl): RawTable {
   const notes: string[] = [];
   const records: Array<Map<string, string>> = [];
   let down = 0;
+  let droppedScripts = 0;
   for (const host of kids(root, 'host')) {
     const state = attr(kid(host, 'status'), 'state');
     if (state !== '' && state !== 'up') {
@@ -184,18 +188,24 @@ export function nmapTable(root: XEl): RawTable {
     if (os) rec.set('os', oneLine(attr(os, 'name')));
     const open: string[] = [];
     const scripts: string[] = [];
+    const wanted = (s: XEl) => {
+      if (!SCRIPT_REFUSED.test(attr(s, 'id'))) return true;
+      droppedScripts += 1;
+      return false;
+    };
     for (const port of kids(kid(host, 'ports') ?? host, 'port')) {
       if (attr(kid(port, 'state'), 'state') !== 'open') continue;
       const at = `${attr(port, 'portid')}/${attr(port, 'protocol')}`;
       const svc = kid(port, 'service');
       open.push(textOf(at, attr(svc, 'name'), attr(svc, 'product'), attr(svc, 'version'), attr(svc, 'extrainfo')));
-      for (const s of kids(port, 'script')) scripts.push(`${at} ${oneLine(attr(s, 'id'))}: ${attr(s, 'output')}`);
+      for (const s of kids(port, 'script').filter(wanted)) scripts.push(`${at} ${oneLine(attr(s, 'id'))}: ${attr(s, 'output')}`);
     }
-    for (const s of kids(kid(host, 'hostscript') ?? host, 'script')) scripts.push(`${oneLine(attr(s, 'id'))}: ${attr(s, 'output')}`);
+    for (const s of kids(kid(host, 'hostscript') ?? host, 'script').filter(wanted)) scripts.push(`${oneLine(attr(s, 'id'))}: ${attr(s, 'output')}`);
     if (open.length > 0) rec.set('open ports', open.join('; '));
     if (scripts.length > 0) rec.set('scan output', scripts.join('\n'));
     records.push(rec);
   }
+  if (droppedScripts > 0) notes.push(`${droppedScripts} script results that could hold logins (brute-force, default-account and credential scripts) were dropped.`);
   if (down > 0) notes.push(`${down} hosts that were not up were skipped.`);
   if (records.length === 0) throw new ImportRefusal('This scan found no hosts that were up.');
   const { headers, rows } = tableOfRecords(records, notes);

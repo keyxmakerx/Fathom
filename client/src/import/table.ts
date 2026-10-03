@@ -50,17 +50,29 @@ export function checkRowCount(n: number): void {
   }
 }
 
+/** Keys read before further ones are ignored; a record of thousands of keys cannot make this slow. */
+const KEY_SCAN = 3 * LIMITS.columns;
+
 /** Records (key to text, in first-seen order) as a table. Keys are Map keys, never object keys. */
 export function tableOfRecords(records: ReadonlyArray<ReadonlyMap<string, string>>, notes: string[]): { headers: string[]; rows: string[][] } {
   checkRowCount(records.length);
-  const index = new Map<string, number>();
+  const index = new Set<string>();
+  const filled = new Set<string>();
   for (const r of records) {
-    for (const k of r.keys()) if (!index.has(k)) index.set(k, index.size);
+    for (const [k, v] of r) {
+      if (!index.has(k)) {
+        // Past the scan cap only `name` is still taken.
+        if (index.size >= KEY_SCAN && k !== 'name') continue;
+        index.add(k);
+      }
+      if (v !== '') filled.add(k);
+    }
   }
   // A key with no value in any record (a null in JSON) is not a column; `name` always stays.
-  const used = [...index.keys()].filter((k) => k === 'name' || records.some((r) => (r.get(k) ?? '') !== ''));
+  const used = [...index].filter((k) => k === 'name' || filled.has(k));
   if (used.length > LIMITS.columns) notes.push(`Only the first ${LIMITS.columns} of ${used.length} columns were read.`);
   const keys = used.slice(0, LIMITS.columns);
+  if (used.includes('name') && !keys.includes('name')) keys[keys.length - 1] = 'name';
   const rows = records.map((r) => keys.map((k) => r.get(k) ?? ''));
   return { headers: keys, rows };
 }

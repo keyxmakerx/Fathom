@@ -12,10 +12,9 @@ import { Engine } from '../engine/engine';
 import { fileLoader } from '../engine/wasm';
 import { applyPlan } from './apply';
 import { gateTable, type Redact } from './gate';
-import { defaultMapping } from './mapping';
 import { buildPlan } from './plan';
 import { readImport } from './read';
-import { ACTOR, CATALOGUE, NOW, docWithRack, fixture, miniXml, stubRedact } from './testkit';
+import { ACTOR, CATALOGUE, NOW, docWithRack, fixture, fullMapping, miniXml, stubRedact } from './testkit';
 
 const PSK_80 = `Tz9${'kQ4vL2mXa7Pw'.repeat(6)}Rb`;
 // Distinct, real-length secrets: community strings, an IKE pre-shared key, an 80-character BGP key.
@@ -68,7 +67,7 @@ describe('every value passes the gate (stand-in redactor)', () => {
     for (const [name] of FILES) {
       const gated = await gateTable(read(name), stubRedact);
       const { doc } = docWithRack();
-      const plan = buildPlan(gated, defaultMapping(gated, []), { doc, catalogue: CATALOGUE, defs: [] });
+      const plan = buildPlan(gated, fullMapping(gated, []), { doc, catalogue: CATALOGUE, defs: [] });
       const fresh = plan.newFields.map((f, i) => ({ id: `01ARZ3NDEKTSV4RRFFQ69G5F${String(i + 10)}`, appliesTo: 'device' as const, name: f.name, type: f.type, choices: [], version: 1, createdBy: ACTOR, archived: false }));
       const out = await applyPlan(doc, plan, { defs: fresh, fresh, actor: ACTOR, now: NOW, label: `import ${name}` });
       expect(out.created, name).toBeGreaterThan(0);
@@ -100,7 +99,7 @@ describe('every value passes the REAL gate (wasm engine)', () => {
   it('a device saved from the CSV carries none of the secrets, and an ordinary cell still arrives', async () => {
     const gated = await gateTable(read('netbox-devices.csv'), real);
     const { doc } = docWithRack();
-    const plan = buildPlan(gated, defaultMapping(gated, []), { doc, catalogue: CATALOGUE, defs: [] });
+    const plan = buildPlan(gated, fullMapping(gated, []), { doc, catalogue: CATALOGUE, defs: [] });
     const fresh = plan.newFields.map((f, i) => ({ id: `01ARZ3NDEKTSV4RRFFQ69G5F${String(i + 10)}`, appliesTo: 'device' as const, name: f.name, type: f.type, choices: [], version: 1, createdBy: ACTOR, archived: false }));
     const out = await applyPlan(doc, plan, { defs: fresh, fresh, actor: ACTOR, now: NOW, label: 'import csv' });
     const text = JSON.stringify(out.doc);

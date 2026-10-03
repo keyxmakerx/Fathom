@@ -9,13 +9,13 @@ import { fieldValue, setFieldValues, type FieldDefView, type FieldSet } from '..
 import { findNode, parseNodeId, type Document } from '../document/model';
 import { addNote } from '../document/notes';
 import { tagObject } from '../document/tags';
-import type { Diff, FieldRef, Plan, PlanItem } from './plan';
+import { choiceKey, type Diff, type FieldRef, type Plan, type PlanItem } from './plan';
 
 export type Pick = 'mine' | 'theirs';
 
 export interface ApplyOptions {
-  /** Differ rows by `PlanItem.row`; a row not listed keeps what is there. */
-  choices?: ReadonlyMap<number, Pick>;
+  /** Differ rows by `choiceKey`; a row not listed keeps what is there. */
+  choices?: ReadonlyMap<string, Pick>;
   /** Every live definition, including the ones just created. */
   defs: readonly FieldDefView[];
   /** The definition made for each of `plan.newFields`, same order. */
@@ -38,6 +38,11 @@ export interface ApplyResult {
   overwritten: number;
   /** Things the commands refused, by device. */
   refused: string[];
+}
+
+/** The history label. It never holds the file name: that is the person's, and history is shared. */
+export function importLabel(rows: number): string {
+  return `import (${rows} ${rows === 1 ? 'row' : 'rows'})`;
 }
 
 function addedNodeIds(before: Document, after: Document): string[] {
@@ -112,7 +117,7 @@ export async function applyPlan(doc: Document, plan: Plan, opts: ApplyOptions): 
       let w = working;
       if (item.existing) {
         const ids = { deviceId: item.existing.deviceId, chassisId: item.existing.chassisId };
-        const theirs = item.bucket === 'differ' && opts.choices?.get(item.row) === 'theirs';
+        const theirs = item.bucket === 'differ' && opts.choices?.get(choiceKey(item)) === 'theirs';
         const tags = new Set<string>();
         const notes = new Set<string>();
         for (const d of item.fills) {

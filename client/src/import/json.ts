@@ -27,10 +27,40 @@ export function scanJson(text: string): void {
   }
 }
 
+const NUMBER = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+
+/** A number with more than 15 digits would lose its tail as a double (a serial); keep it as text. */
+export function quoteLongNumbers(text: string): string {
+  if (!/(?:\d\.?){16}/.test(text)) return text;
+  const out: string[] = [];
+  let from = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    if (inString) {
+      if (c === 0x5c) i += 1;
+      else if (c === 0x22) inString = false;
+    } else if (c === 0x22) inString = true;
+    else if (c === 0x2d || (c >= 0x30 && c <= 0x39)) {
+      NUMBER.lastIndex = i;
+      const m = NUMBER.exec(text);
+      if (!m) continue;
+      const end = i + m[0].length;
+      if (m[0].replace(/[eE].*$/, '').replace(/\D/g, '').length > 15) {
+        out.push(text.slice(from, i), `"${m[0]}"`);
+        from = end;
+      }
+      i = end - 1;
+    }
+  }
+  out.push(text.slice(from));
+  return out.join('');
+}
+
 export function parseJson(text: string): unknown {
   scanJson(text);
   try {
-    return JSON.parse(text);
+    return JSON.parse(quoteLongNumbers(text));
   } catch {
     throw new ImportRefusal('This file is not valid JSON.');
   }

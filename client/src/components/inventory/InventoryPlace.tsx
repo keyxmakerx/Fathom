@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOf, type ClosetView } from '../../document/view';
@@ -113,6 +113,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
+  // the time a long import finishes). An import is applied only to the design it was made against.
+  const importBase = useRef<typeof doc>(null);
+  const liveDoc = useRef(doc);
+  liveDoc.current = doc;
   const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
@@ -408,7 +413,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   }
                   addHint={kind === 'cables' ? 'Draw cables on the canvas.' : kind === 'interfaces' ? 'Interfaces come with a device.' : kind === 'addresses' ? 'Addresses are read from your devices.' : ''}
                   onAdd={onAdd}
-                  onImport={canDraw && kind === 'devices' ? () => setImporting(true) : undefined}
+                  onImport={canDraw && kind === 'devices' ? () => { importBase.current = liveDoc.current; setImporting(true); } : undefined}
                   onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'interfaces' || kind === 'prefixes' || kind === 'vlans') ? () => setPasteText('') : undefined}
                   checkedRows={checkedRows}
                   bulkColumns={columnsAll.filter((c) => c.editable)}
@@ -464,8 +469,12 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               canDraw={canDraw}
               onCancel={() => setImporting(false)}
               onApply={(next, summary) => {
-                applyDocChange(next);
                 setImporting(false);
+                if (liveDoc.current !== importBase.current) {
+                  setNotice('The design changed while you were importing. Nothing was applied; try again.');
+                  return;
+                }
+                applyDocChange(next);
                 setNotice(`Imported ${summary.fileName}: ${summary.created} new, ${summary.filled} filled in. One undo step.`);
               }}
             />

@@ -17,9 +17,8 @@ import { redo, undo, undoable } from '../document/undo';
 import { writePlain } from '../document/plain';
 import { applyPlan } from './apply';
 import { devicesByName } from './existing';
-import { defaultMapping } from './mapping';
-import { buildPlan } from './plan';
-import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, gated, miniXml, readImport } from './testkit';
+import { buildPlan, choiceKey } from './plan';
+import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, fullMapping, gated, miniXml, readImport } from './testkit';
 
 const WASM_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/engine/fathom_wasm.wasm');
 let engine: Engine;
@@ -34,7 +33,7 @@ const liveEdges = (d: Document) => d.edges.filter((e) => e.absentSince === undef
 async function run(file: string, doc: Document) {
   const table = await gated(readImport(fixture(file), { xml: miniXml }));
   const defs = [COST_CENTRE];
-  const plan = buildPlan(table, defaultMapping(table, defs), { doc, catalogue: CATALOGUE, defs });
+  const plan = buildPlan(table, fullMapping(table, defs), { doc, catalogue: CATALOGUE, defs });
   const fresh = freshDefs(plan.newFields);
   const out = await applyPlan(doc, plan, { defs: [...defs, ...fresh], fresh, actor: ACTOR, now: NOW + 5, label: `import ${file}` });
   return { plan, fresh, out };
@@ -103,8 +102,8 @@ describe('importing the NetBox CSV', () => {
     let { doc } = docWithRack();
     doc = addDevice(doc, 'fw-01', { serial: 'OLD-SERIAL', role: 'router' });
     const table = await gated(readImport(fixture('netbox-devices.csv')));
-    const plan = buildPlan(table, defaultMapping(table, []), { doc, catalogue: CATALOGUE, defs: [] });
-    const row = plan.items.find((i) => i.name === 'fw-01')!.row;
+    const plan = buildPlan(table, fullMapping(table, []), { doc, catalogue: CATALOGUE, defs: [] });
+    const row = choiceKey(plan.items.find((i) => i.name === 'fw-01')!);
     const fresh = freshDefs(plan.newFields);
     const out = await applyPlan(doc, plan, { choices: new Map([[row, 'theirs']]), defs: fresh, fresh, actor: ACTOR, now: NOW + 5, label: 'import' });
     expect(devicesByName(out.doc).get('fw-01')).toMatchObject({ serial: 'JN998877EF', role: 'firewall' });
@@ -150,7 +149,7 @@ describe('a thousand rows', () => {
     const { doc } = docWithRack();
     const rows = Array.from({ length: 1000 }, (_, i) => `host-${i},${i % 7 === 0 ? 'switch' : 'server'},10.1.${Math.floor(i / 250)}.${(i % 250) + 1},SN${i},grp${i % 5}`).join('\n');
     const table = await gated(readImport(`name,role,ip,serial,tags\n${rows}\n`));
-    const plan = buildPlan(table, defaultMapping(table, []), { doc, catalogue: CATALOGUE, defs: [] });
+    const plan = buildPlan(table, fullMapping(table, []), { doc, catalogue: CATALOGUE, defs: [] });
     const t0 = performance.now();
     const out = await applyPlan(doc, plan, { defs: [], fresh: [], actor: ACTOR, now: NOW, label: 'import big.csv' });
     const ms = performance.now() - t0;

@@ -11,10 +11,10 @@ import type { Document } from '../document/model';
 import { notesOf } from '../document/notes';
 import { tagsOf } from '../document/tags';
 import { devicesByName, racksByLabel, type ExistingDevice } from './existing';
-import { LIMITS } from './limits';
-import type { Mapping, NewFieldType } from './mapping';
+import { ImportRefusal, LIMITS } from './limits';
+import { looksLikeSecret, type Mapping, type NewFieldType } from './mapping';
 import type { GatedTable } from './table';
-import { normKey, oneLine, toHostname, toSerial } from './text';
+import { neutraliseElement, normKey, oneLine, toHostname, toSerial } from './text';
 
 export type Bucket = 'new' | 'match' | 'differ' | 'nomodel' | 'skipped';
 
@@ -105,7 +105,7 @@ function splitTags(raw: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const t of raw.split(/[,;\n]/)) {
-    const name = oneLine(t);
+    const name = neutraliseElement(oneLine(t));
     if (name && !seen.has(name.toLowerCase())) {
       seen.add(name.toLowerCase());
       out.push(name);
@@ -129,9 +129,40 @@ export function findModel(catalogue: readonly CatalogueModel[], model: string, v
   return pool.length === 1 ? pool[0]! : 'ambiguous';
 }
 
+/** Names the person's choice for a Differ row by the device and the fields in dispute, not the row number. */
+export function choiceKey(item: PlanItem): string {
+  return `${item.name.toLowerCase()}\u0000${item.conflicts.map((c) => c.key).sort().join(',')}`;
+}
+
+const conflictSig = (item: PlanItem) => JSON.stringify(item.conflicts.map((c) => [c.key, c.mine, c.theirs]));
+
+/**
+ * `finalPlan` was made after the person looked at `shown`. A Differ row whose conflicts are not the
+ * ones they saw is turned into a skipped row (nothing is written for it) and reported.
+ */
+export function holdChangedConflicts(shown: Plan, finalPlan: Plan): string[] {
+  const before = new Map(shown.items.filter((i) => i.bucket === 'differ').map((i) => [i.name.toLowerCase(), conflictSig(i)]));
+  const held: string[] = [];
+  for (const item of finalPlan.items) {
+    if (item.bucket !== 'differ' || before.get(item.name.toLowerCase()) === conflictSig(item)) continue;
+    item.bucket = 'skipped';
+    item.reason = 'The design changed since you looked at this row.';
+    finalPlan.counts.differ -= 1;
+    finalPlan.counts.skipped += 1;
+    held.push(`${item.name}: this device changed while you were importing, so it was left as it is.`);
+  }
+  return held;
+}
+
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-export function buildPlan(table: GatedTable, mapping: Mapping, ctx: PlanContext): Plan {
+export function buildPlan(table: GatedTable, given: Mapping, ctx: PlanContext): Plan {
+  // A column that looks like a secret is never read, whatever the mapping says.
+  const mapping = given.map((t, i): Mapping[number] => (looksLikeSecret(table.headers[i] ?? '') ? { kind: 'ignore' } : t));
+  const extra = table.headers.filter((_, i) => mapping[i]?.kind === 'new').slice(LIMITS.newFields);
+  if (extra.length > 0) {
+    throw new ImportRefusal(`At most ${LIMITS.newFields} new shared fields can be made in one import. Set these columns to Ignore or to an existing field: ${extra.map((h) => `"${h}"`).join(', ')}.`);
+  }
   const cell = (r: string[], i: number) => (r[i] ?? '').trim();
   const col = (key: string) => mapping.findIndex((t) => t.kind === 'core' && t.key === key);
   const colsOf = (key: string) => mapping.flatMap((t, i) => (t.kind === 'core' && t.key === key ? [i] : []));

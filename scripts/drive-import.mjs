@@ -94,19 +94,20 @@ async function waitForServer(url, timeoutMs) {
   }
 }
 
-const CSV_A = `name,status,role,manufacturer,device_type,serial,rack,position,face,primary_ip4,comments,cf_owner,cf_warranty_end
-fw-01,active,Firewall,Juniper,SRX340,SRX-0001,A-04,3,front,10.0.0.1/24,,Security,2028-01-01
-core-sw-01,active,Switch,Ubiquiti,USW-48-PoE,US-CORE-9,A-04,6,front,10.0.0.2,"set snmp community DRIVEcommunity7731abcdef authorization read-only",IT,2028-02-02
-sw-03,active,Switch,Ubiquiti,USW-24-PoE,US-3,A-04,10,front,10.0.0.5,,Facilities,2028-03-03
-lab-box,active,Server,Acme,Box 1,,,,,10.0.0.9,,Lab,=1+1
-=cmd|' /C calc'!A0,active,Server,Acme,Box 2,,,,,10.0.0.10,,Lab,2028-04-04
+const SECRET_VALUE = 'S3cr3t-Pa55w0rd!2026xyz-Rk3vT9qLw2pX';
+const CSV_A = `name,status,role,manufacturer,device_type,serial,rack,position,face,primary_ip4,comments,cf_owner,cf_warranty_end,cf_snmp_community
+fw-01,active,Firewall,Juniper,SRX340,SRX-0001,A-04,3,front,10.0.0.1/24,,Security,2028-01-01,${SECRET_VALUE}
+core-sw-01,active,Switch,Ubiquiti,USW-48-PoE,US-CORE-9,A-04,6,front,10.0.0.2,"set snmp community DRIVEcommunity7731abcdef authorization read-only",IT,2028-02-02,${SECRET_VALUE}
+sw-03,active,Switch,Ubiquiti,USW-24-PoE,US-3,A-04,10,front,10.0.0.5,,Facilities,2028-03-03,${SECRET_VALUE}
+lab-box,active,Server,Acme,Box 1,,,,,10.0.0.9,,Lab,=1+1,${SECRET_VALUE}
+=cmd|' /C calc'!A0,active,Server,Acme,Box 2,,,,,10.0.0.10,,Lab,2028-04-04,${SECRET_VALUE}
 `;
 const CSV_B = 'name,serial\nfw-01,SRX-0002\n';
 const NMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
 <nmaprun scanner="nmap" version="7.94"><host><status state="up"/><address addr="10.0.99.2" addrtype="ipv4"/>
 <hostnames><hostname name="scan-sw.example" type="PTR"/></hostnames>
-<ports><port protocol="tcp" portid="80"><state state="open"/><service name="http" product="nginx"/><script id="banner" output="set snmp community DRIVEbannerComm99887766 authorization read-only"/></port></ports></host>
+<ports><port protocol="tcp" portid="80"><state state="open"/><service name="http" product="nginx"/><script id="banner" output="set snmp community DRIVEbannerComm99887766 authorization read-only"/><script id="ftp-brute" output="root:DRIVEbrutePw-5521"/></port></ports></host>
 <host><status state="up"/><address addr="10.0.99.50" addrtype="ipv4"/></host></nmaprun>`;
 const XXE = '<?xml version="1.0"?><!DOCTYPE nmaprun [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><nmaprun><host><hostnames><hostname name="&xxe;"/></hostnames></host></nmaprun>';
 
@@ -164,7 +165,11 @@ try {
   const sel = (h) => page.getByLabel(`Fathom field for ${h}`, { exact: true });
   check('device_type maps to Model', (await sel('device_type').inputValue()) === 'core:model');
   check('primary_ip4 maps to Management address', (await sel('primary_ip4').inputValue()) === 'core:mgmt');
-  check('cf_owner becomes a new shared field named Owner', (await sel('cf_owner').inputValue()) === 'new' && (await page.getByLabel('Name of the new field for cf_owner').inputValue()) === 'Owner');
+  check('an unknown column starts as Ignore, never as a new shared field', (await sel('cf_owner').inputValue()) === 'ignore');
+  check('a column that looks like a secret is refused, with the reason and no choice', (await page.getByText('Not imported: this column looks like it holds a secret').count()) === 1 && (await sel('cf_snmp_community').count()) === 0);
+  await sel('cf_owner').selectOption('new');
+  check('cf_owner chosen as a new shared field is named Owner', (await page.getByLabel('Name of the new field for cf_owner').inputValue()) === 'Owner');
+  check('the page says Undo does not remove new shared fields', /Undo does NOT remove them/.test(await dialog(page).innerText()));
   await shot('import-2-match.png');
 
   // 3 — Check.
@@ -183,6 +188,8 @@ try {
   check('the new switch was placed with its catalogue model', dev(s1, 'sw-03')?.model === 'USW-24-PoE' && dev(s1, 'sw-03')?.mgmt === '10.0.0.5');
   check('the whole import is ONE undo step', s1.undoSteps === startSteps + 1, `${startSteps} -> ${s1.undoSteps}`);
   check('the community string never reached the design', !s1.docText.includes('DRIVEcommunity7731abcdef'));
+  check('the secret in its own column never reached the design', !s1.docText.includes(SECRET_VALUE));
+  check('the history label has no file name', !s1.docText.includes('import netbox-devices') && s1.docText.includes('import (5 rows)'));
   check('a cell starting with = is stored as text', !s1.docText.includes('"=cmd') && s1.docText.includes("'=cmd"));
   check('the importer made no network request', (await page.evaluate(() => window.__requests__)).length === 0, JSON.stringify(await page.evaluate(() => window.__requests__)));
   check('the new shared fields were made once each', s1.defs.filter((d) => d.startsWith('Owner:')).length === 1, s1.defs.join(','));
@@ -222,6 +229,18 @@ try {
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(150);
 
+  // Another person edits fw-01 while the Check step is open: that row is left alone and reported.
+  await openAndDrop(page, 'late.csv', 'name,serial\nfw-01,LATE-FILE\n');
+  await page.getByRole('button', { name: 'Match columns' }).click();
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+  await page.waitForSelector('.imp__diff');
+  await page.getByLabel("Use the file's").check();
+  await page.evaluate(() => window.__editSerial__('fw-01', 'COLLEAGUE-1'));
+  await page.getByRole('button', { name: /^Import \d/ }).click();
+  await page.getByText(/Imported late\.csv/).waitFor({ timeout: 15_000 });
+  check('a Differ row that changed under the person is refused and reported', dev(await state(page), 'fw-01')?.serial === 'COLLEAGUE-1' && /1 things were refused/.test(await dialog(page).innerText()));
+  await page.getByRole('button', { name: 'Close' }).click();
+
   // nmap XML through the browser's own DOMParser.
   await openAndDrop(page, 'scan.xml', NMAP, 'text/xml');
   await page.waitForSelector('.imp__recognised', { timeout: 15_000 });
@@ -233,6 +252,7 @@ try {
   const sn = await state(page);
   check('the nmap hosts arrived as free boxes with management addresses', dev(sn, 'scan-sw.example')?.mgmt === '10.0.99.2' && dev(sn, '10.0.99.50')?.mgmt === '10.0.99.50');
   check('the banner secret from the nmap script output never reached the design', !sn.docText.includes('DRIVEbannerComm99887766'));
+  check('script output and brute-force results are not imported as notes by default', !sn.docText.includes('DRIVEbrutePw-5521') && !sn.docText.includes('ftp-brute'));
   await shot('import-5-done.png');
   await page.getByRole('button', { name: 'Close' }).click();
 
