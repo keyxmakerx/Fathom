@@ -8,6 +8,8 @@ import { type ClosetView, type EditorActions, type PaletteItem, type PortView, t
 import { EditorFor, NotesSection } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
 import { historyOf } from './kinds';
+import { PanelMap, PathStrip, PluggedInto, RackContents } from './PageParts';
+import type { PlaceIndex, Where } from './placeIndex';
 import { PortsList } from './PortsList';
 
 type TabKey = 'overview' | 'ports' | 'notes' | 'history';
@@ -23,6 +25,10 @@ export interface ItemPageProps {
   palette: readonly PaletteItem[];
   accountId: string | null;
   onShowOnCanvas: () => void;
+  /** Where everything is, for the cable's run, what a device is plugged into and what a rack holds. */
+  idx: PlaceIndex;
+  /** A rack page's "Set Where to this rack". */
+  onSetWhere?: (w: Where) => void;
   /** When the page was reached from another page (a port from a device), where back goes. */
   backLabel: string | null;
   onBack: () => void;
@@ -36,7 +42,7 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, backLabel, onBack } = props;
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, backLabel, onBack, idx, onSetWhere } = props;
   const [tab, setTab] = useState<TabKey>('overview');
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
   const ports = isDevice ? portsOf(view, selection) : [];
@@ -54,6 +60,9 @@ export function ItemPage(props: ItemPageProps) {
   if (active === 'overview') {
     body = (
       <div className="inv-page__overview">
+        {selection.kind === 'cable' ? <PathStrip doc={doc} view={view} idx={idx} cableId={selection.id} actions={actions} /> : null}
+        {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
+        {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
         {EditorFor(selection, view, actions, palette)}
         {notes > 0 ? (
           <button type="button" className="inv-page__link" onClick={() => setTab('notes')}>
@@ -63,7 +72,12 @@ export function ItemPage(props: ItemPageProps) {
       </div>
     );
   } else if (active === 'ports') {
-    body = <PortsList view={view} ports={ports} actions={actions} />;
+    body = (
+      <>
+        {ports.some((p) => p.passThroughId) ? <PanelMap view={view} ports={ports} actions={actions} /> : null}
+        <PortsList view={view} ports={ports} actions={actions} />
+      </>
+    );
   } else if (active === 'notes') {
     body = ownerId ? (
       <div className="drawing-editor__panel">

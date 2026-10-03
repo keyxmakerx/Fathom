@@ -478,6 +478,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         actions={editorActions}
         palette={palette}
         accountId={accountId}
+        idx={placeIdx}
+        onSetWhere={(w) => go({ where: w })}
         onShowOnCanvas={() => onShowOnRack(pageSelection)}
         backLabel={override ? (openRow?.title ?? 'Back') : null}
         onBack={() => setOverride(null)}

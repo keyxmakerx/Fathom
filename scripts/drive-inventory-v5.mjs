@@ -278,6 +278,51 @@ try {
   check('Undo puts every row back in one step', new RegExp('^' + servers.toLocaleString('en-GB') + '( of [\\d,]+)? devices').test(await page.locator('.inv-foot').innerText()), (await page.locator('.inv-foot').innerText()).replace(/\s+/g, ' '));
   await devLine.fill('');
 
+  // 7 — pages: a cable's run through patch panels, a device's "Plugged into" and port map, a rack.
+  await rail.getByRole('button', { name: /^Cables/ }).first().click();
+  await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
+  const cabLine2 = page.getByLabel('Filter cables');
+  await cabLine2.fill('device:lon1-a02-pp1 device:lon1-a01-cpp1');
+  await page.waitForTimeout(400);
+  await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
+  await page.waitForSelector('.inv-path', { timeout: 10_000 });
+  const run = await page.locator('.inv-path').innerText();
+  check('a cable page shows its run through two patch panels', /3 cables through 2 patch panels/i.test(run) && (run.match(/patch panel/gi) ?? []).length >= 2, run.replace(/\s+/g, ' ').slice(0, 200));
+  check('each stop says site, row, rack and unit', /Northwind › LON1 Row A › LON1-A0\d › U\d+/.test(run));
+  check('the run shows front and rear', /front/.test(run) && /rear/.test(run));
+  check('the run carries a Last traced stamp', /Last traced:/.test(run));
+  await shot('v5-10-cable-page.png');
+  await page.getByRole('button', { name: /^← Cables/ }).click();
+  await cabLine2.fill('');
+  await cabLine2.blur();
+  await find.fill('lon1-a02-tor1');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-plug', { timeout: 10_000 });
+  const plug = await page.locator('.inv-plug').innerText();
+  check('a device page says what it is plugged into', /Plugged into/i.test(plug) && /lon1-srv/.test(plug), plug.replace(/\s+/g, ' ').slice(0, 160));
+  await shot('v5-11-device-page.png');
+  await find.fill('lon1-a02-pp1');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-page', { timeout: 10_000 });
+  await page.getByRole('tab', { name: /^Ports/ }).click();
+  await page.waitForSelector('.inv-pm', { timeout: 5_000 });
+  check('a patch panel gets a port map', (await page.locator('.inv-pm__col').count()) === 6, String(await page.locator('.inv-pm__col').count()));
+  await shot('v5-12-port-map.png');
+  await find.fill('rack LON1-A02');
+  await find.press('Enter');
+  await page.waitForSelector('.inv-rackp', { timeout: 10_000 });
+  const rackText = await page.locator('.inv-rackp').innerText();
+  check('a rack page lists what is in it and the cables touching it', /In this rack/i.test(rackText) && /Cables touching this rack/i.test(rackText), rackText.replace(/\s+/g, ' ').slice(0, 120));
+  await shot('v5-13-rack-page.png');
+  await page.getByRole('button', { name: 'Set Where to this rack' }).click();
+  await page.waitForTimeout(300);
+  check('Set Where to this rack fills the Where bar', (await page.locator('.inv-where').getByLabel('Rack').inputValue()) === 'LON1-A02');
+  await page.locator('.inv-where').getByRole('button', { name: /^Clear/ }).click();
+
+  await page.getByRole('button', { name: /^← / }).click();
+  await rail.getByRole('button', { name: /^Devices/ }).first().click();
+  await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
+
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
   await page.getByLabel(/Name of the new/).fill('v5-added');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
