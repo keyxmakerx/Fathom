@@ -1986,7 +1986,7 @@ async fn list_field_definitions_handler(
 }
 
 /// `POST /organisations/{o}/field-definitions`: body `{kind, name, type, choices?}`.
-/// Any member.
+/// Needs `draw` somewhere in the organisation.
 async fn create_field_definition_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,

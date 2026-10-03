@@ -14,11 +14,13 @@ use std::collections::BTreeMap;
 use deadpool_postgres::Transaction;
 use fathom_canon::Json;
 
+use crate::authority::Capability;
 use crate::crypto;
 use crate::designs::DesignError;
-use crate::grants::{Authority, AuthorityError};
+use crate::grants::{self, Authority, AuthorityError};
 use crate::keys;
 use crate::repo::Role;
+use crate::repo::ScopeId;
 
 const AAD_FIELD_DEF: &[u8] = b"fathom/field-definition/v1";
 
@@ -257,7 +259,37 @@ pub async fn list(
     Ok(out)
 }
 
-/// Create a definition. Any member may.
+/// The caller must hold `draw` (or steward) on the organisation or at least one
+/// scope in it. A read-only member sees fields and values but changes no
+/// definition.
+async fn require_draw(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), DesignError> {
+    let verified = grants::verify_authority_state(tx, auth)
+        .await
+        .map_err(DesignError::Authority)?;
+    let mut candidates: Vec<Option<ScopeId>> = vec![None];
+    for row in tx
+        .query(
+            "SELECT id FROM scopes WHERE organisation_id = $1",
+            &[&auth.ctx.tenant().to_string()],
+        )
+        .await?
+    {
+        let id: String = row.get(0);
+        candidates.push(Some(id.parse().map_err(|_| bad("corrupt scope id"))?));
+    }
+    for scope in candidates {
+        match grants::authorise_in_verified_state(tx, auth, &verified, scope, Capability::Draw)
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {}
+            Err(other) => return Err(DesignError::Authority(other)),
+        }
+    }
+    Err(DesignError::Authority(AuthorityError::NotAuthorised))
+}
+
+/// Create a definition. Needs `draw` somewhere in the organisation.
 pub async fn create(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -266,6 +298,7 @@ pub async fn create(
     ty: &str,
     choices: &[String],
 ) -> Result<FieldDefinition, DesignError> {
+    require_draw(tx, auth).await?;
     if !KINDS.contains(&kind) {
         return Err(bad("kind is one of device, rack, cable, port, network"));
     }
@@ -361,6 +394,10 @@ async fn lock_and_authorise(
         .is_some_and(|r| r.get::<_, String>(3) == auth.ctx.actor().to_string());
     if !admin && !creator {
         return Err(DesignError::Authority(AuthorityError::NotAuthorised));
+    }
+    // A creator who has lost `draw` is a viewer now; an admin keeps the cleanup.
+    if !admin {
+        require_draw(tx, auth).await?;
     }
     row.ok_or(DesignError::NoSuchFieldDefinition)
 }

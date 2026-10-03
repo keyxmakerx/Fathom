@@ -1735,7 +1735,7 @@ async fn a_member_creates_renames_and_archives_a_field_and_every_member_sees_it(
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
-    let member = a_member_as(&pool, &ring, &estate, "member", repo::Role::Member).await;
+    let member = a_member_with(&pool, &ring, &estate, "member", Some(Capability::Draw)).await;
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
     let base = format!("/organisations/{}/field-definitions", estate.organisation);
 
@@ -1894,8 +1894,8 @@ async fn only_the_creator_or_an_admin_may_change_a_field_and_a_stranger_cannot_t
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
-    let creator = a_member_as(&pool, &ring, &estate, "creator", repo::Role::Member).await;
-    let other = a_member_as(&pool, &ring, &estate, "other", repo::Role::Member).await;
+    let creator = a_member_with(&pool, &ring, &estate, "creator", Some(Capability::Draw)).await;
+    let other = a_member_with(&pool, &ring, &estate, "other", Some(Capability::Draw)).await;
     let admin = a_member_as(&pool, &ring, &estate, "admin", repo::Role::Admin).await;
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
     let base = format!("/organisations/{}/field-definitions", estate.organisation);
@@ -1941,14 +1941,69 @@ async fn only_the_creator_or_an_admin_may_change_a_field_and_a_stranger_cannot_t
 }
 
 #[tokio::test]
+async fn a_read_only_member_sees_fields_but_may_not_create_rename_or_archive_one() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let viewer = a_member_with(&pool, &ring, &estate, "viewer", Some(Capability::Read)).await;
+    let ungranted = a_member_as(&pool, &ring, &estate, "ungranted", repo::Role::Member).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/field-definitions", estate.organisation);
+
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &base,
+        &create_body("device", "Owner", "text", &[]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let real = format!("{base}/{}", text_of(&parsed(&body), "id"));
+    let rename = canon(vec![("name", jstr("Mine")), if_version(1)]);
+    let archive = canon(vec![if_version(1)]);
+
+    for who in [&viewer, &ungranted] {
+        let (status, _) = call(addr, who, "GET", &base, b"").await;
+        assert_eq!(status, "200", "a read-only member still sees the fields");
+        let (status, _) = call(
+            addr,
+            who,
+            "POST",
+            &base,
+            &create_body("device", "Mine", "text", &[]),
+        )
+        .await;
+        assert_eq!(status, "403");
+        let (status, _) = call(addr, who, "PATCH", &real, &rename).await;
+        assert_eq!(status, "403");
+        let (status, _) = call(addr, who, "POST", &format!("{real}/archive"), &archive).await;
+        assert_eq!(status, "403");
+    }
+    let (status, body) = call(addr, &drawer, "GET", &base, b"").await;
+    assert_eq!(status, "200");
+    let all = list_of(&body);
+    assert_eq!(all.len(), 1, "the refused creates stored nothing");
+    assert_eq!(text_of(&all[0], "name"), "Owner");
+}
+
+#[tokio::test]
 async fn another_organisation_cannot_see_or_learn_that_a_field_exists() {
     let _site = support::lock_the_site_chain().await;
     let pool = support::migrated_pool().await;
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
     let outsider = bootstrap(&pool, &ring).await;
-    let outsider_member =
-        a_member_as(&pool, &ring, &outsider, "out-member", repo::Role::Member).await;
+    let outsider_member = a_member_with(
+        &pool,
+        &ring,
+        &outsider,
+        "out-member",
+        Some(Capability::Draw),
+    )
+    .await;
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
     let base = format!("/organisations/{}/field-definitions", estate.organisation);
     let theirs = format!("/organisations/{}/field-definitions", outsider.organisation);

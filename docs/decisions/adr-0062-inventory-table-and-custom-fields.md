@@ -17,7 +17,7 @@
 - A definition is `{id, kind, name, type, choices, version, createdBy, archived}`. `kind` is device,
   rack, cable, port or network; `type` is text, number, date, choice or url. Name, type and choices
   are one blob sealed under the organisation content key (tenant, id, kind and key epoch in the
-  associated data); the other fields are plain columns. Any member creates; only the creator or an
+  associated data); the other fields are plain columns. A member holding `draw` somewhere creates (a read-only member sees fields, changes none); only the creator (while still holding `draw`) or an
   organisation admin renames, changes choices or archives. `version` guards each change (409 on
   mismatch). Archive replaces delete, so a value never points at a missing definition.
 - API (canonical JSON bodies): `GET|POST /organisations/{o}/field-definitions`,
