@@ -60,6 +60,12 @@ describe('describeSave summaries', () => {
     expect(describeSave(null, withNas).summary).toBe('added nas-01');
   });
 
+  it('names a restore as one', () => {
+    const { doc } = base();
+    const next: Document = { ...doc, batches: [{ id: newUlid(NOW), label: 'Restored the save from Today 11:45', ops: [] }] };
+    expect(describeSave(doc, next).summary).toBe('Restored the save from Today 11:45');
+  });
+
   it('falls back to the batch labels', () => {
     const { doc } = base();
     const next: Document = { ...doc, batches: [{ id: newUlid(NOW), label: 'tidy up', ops: [] }] };
@@ -71,8 +77,8 @@ describe('describeRestore', () => {
   it('names what comes back and what goes', () => {
     const { doc, premisesId } = base();
     const withRack = createRack(doc, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', actor: ACTOR, now: NOW });
-    expect(describeRestore(withRack, doc)).toBe('This will remove 1 rack.');
-    expect(describeRestore(doc, withRack)).toBe('This will bring back 1 rack.');
+    expect(describeRestore(withRack, doc)).toBe('Compared with now: removed 1 rack.');
+    expect(describeRestore(doc, withRack)).toBe('Compared with now: added 1 rack.');
     expect(describeRestore(doc, doc)).toBe('Nothing drawn differs from now.');
   });
 });

@@ -37,7 +37,7 @@ describe('HistoryPanel', () => {
     expect(html).toContain('Checked: every save is intact');
     expect(html.indexOf('added nas-01')).toBeGreaterThan(0);
     expect(html.indexOf('added nas-01')).toBeLessThan(html.indexOf('…'));
-    expect(html).toContain('ABC12345');
+    expect(html).toContain('a colleague');
     expect(html).toContain('unknown');
   });
 

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 
-import { whoLabel } from '../racks/trail';
 import type { History } from './useHistory';
 import './history.css';
 
@@ -41,6 +40,7 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
         </button>
       </div>
       <p className="history__verify" data-testid="history-verify">
+        {history.verifyLine.startsWith('Checked') ? '\u2713 ' : ''}
         {history.verifyLine}
       </p>
       {history.error != null && <p className="history__note">{history.error}</p>}
@@ -60,7 +60,7 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
                 }}
               >
                 <span className="history__when">
-                  <b>{whenLabel(s.atUnix)}</b> · {s.actor == null ? 'unknown' : whoLabel(s.actor, accountId, accountAddress)}
+                  <b>{whenLabel(s.atUnix)}</b> · {s.actor == null ? 'unknown' : s.actor === accountId ? (accountAddress ?? 'you') : 'a colleague'}
                 </span>
                 <span className="history__what">{history.summaries.get(s.designVersion) ?? '…'}</span>
               </button>

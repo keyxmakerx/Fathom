@@ -67,6 +67,8 @@ export function describeSave(before: Document | null, after: Document): SaveChan
   const known = new Set((before?.batches ?? []).map((b) => b.id));
   const fresh = after.batches.filter((b) => !known.has(b.id));
   const changed = [...new Set(fresh.flatMap((b) => b.ops.flatMap(opElements)))];
+  const restored = fresh.find((b) => b.label.startsWith('Restored the save'));
+  if (restored) return { summary: restored.label, changed };
   const drawn = summaryOf(before ?? emptyDocument(), after);
   if (drawn !== '') return { summary: drawn, changed };
   if (fresh.length === 0) return { summary: before === null ? 'Design created' : 'Saved with no drawn change', changed: [] };
@@ -74,13 +76,6 @@ export function describeSave(before: Document | null, after: Document): SaveChan
   const shown = labels.slice(0, 2).join('; ');
   return { summary: labels.length > 2 ? `${shown}; +${labels.length - 2} more` : shown, changed };
 }
-
-const NOUN: Record<string, [string, string]> = {
-  Chassis: ['device', 'devices'],
-  Cable: ['cable', 'cables'],
-  Rack: ['rack', 'racks'],
-  Surface: ['board', 'boards'],
-};
 
 function fieldKey(n: GraphNode): string {
   return fieldKeyOf(n.fields);
@@ -96,29 +91,11 @@ function fieldKeyOf(fields: GraphNode['fields']): string {
     .join('|');
 }
 
-function plural(n: number, noun: [string, string]): string {
-  return `${n} ${n === 1 ? noun[0] : noun[1]}`;
-}
-
 /** The sentence for the Restore confirm: what restoring `past` over `current` would change. */
 export function describeRestore(current: Document, past: Document): string {
-  const live = (d: Document) => new Map(d.nodes.filter(isLive).map((n) => [n.id, n]));
-  const now = live(current);
-  const then = live(past);
-  const parts: string[] = [];
-  const count = (ids: string[], verb: string) => {
-    for (const kind of Object.keys(NOUN)) {
-      const n = ids.filter((id) => isNodeOfKind(id, kind as NodeKind)).length;
-      if (n > 0) parts.push(`${verb} ${plural(n, NOUN[kind]!)}`);
-    }
-  };
-  count([...then.keys()].filter((id) => !now.has(id)), 'bring back');
-  count([...now.keys()].filter((id) => !then.has(id)), 'remove');
-  const edited = [...then.keys()].filter((id) => now.has(id) && fieldKey(now.get(id)!) !== fieldKey(then.get(id)!)).length;
-  if (edited > 0) parts.push(`put back ${edited} edited ${edited === 1 ? 'item' : 'items'}`);
-  return parts.length === 0 ? 'Nothing drawn differs from now.' : `This will ${parts.join(', ')}.`;
+  const changes = summaryOf(current, past);
+  return changes === '' ? 'Nothing drawn differs from now.' : `Compared with now: ${changes}.`;
 }
-
 /** The canvas elements an outline for `changed` lands on: a port or device change outlines the
  * chassis it belongs to (one hop along the document's edges). */
 export function outlineIds(doc: Document, changed: readonly string[]): string[] {

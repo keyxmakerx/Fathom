@@ -44,7 +44,7 @@
   margin: 0;
   padding: 0;
   overflow-y: auto;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
 }
 .shell-editor .history__row {
@@ -86,6 +86,11 @@
   background: var(--ink);
   color: var(--page);
 }
+.shell-editor .history__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
 .history__confirm p {
   margin: 0 0 var(--s2);
 }
@@ -93,8 +98,9 @@
 /* Over the canvas while a past save is shown. */
 .history-banner {
   position: absolute;
-  bottom: var(--s4);
-  left: var(--s4);
+  top: var(--s3);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 5;
   background: var(--page);
   border: var(--rule-hair) solid var(--hairline);
@@ -106,7 +112,7 @@
 /* What the picked save changed: dashed ink, never a colour. */
 .history-changed {
   outline: 2px dashed var(--ink);
-  outline-offset: 4px;
+  outline-offset: 0;
 }
 .react-flow__edge.history-changed {
   outline: none;

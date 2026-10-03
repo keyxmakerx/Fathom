@@ -128,7 +128,7 @@ try {
   await page.waitForSelector('.history__row', { timeout: 10_000 });
   const summariesDone = () => document.querySelectorAll('.history__what').length > 0 && ![...document.querySelectorAll('.history__what')].some((e) => e.textContent === '…');
   await page.waitForFunction(summariesDone, null, { timeout: 15_000 });
-  check('the check reads in words', (await page.locator('[data-testid="history-verify"]').innerText()) === 'Checked: every save is intact');
+  check('the check reads in words', (await page.locator('[data-testid="history-verify"]').innerText()) .includes('Checked: every save is intact'));
   const whats = await page.locator('.history__what').allTextContents();
   console.log('    summaries: ' + JSON.stringify(whats));
   check('newest first, readable summaries', whats.length === 4 && whats[0].includes('renamed core-01') && whats[3].includes('added core-01'), whats.join(' | '));
@@ -154,7 +154,7 @@ try {
   await page.getByRole('button', { name: 'Restore this version' }).click();
   await page.waitForSelector('.history__confirm');
   const confirmText = await page.locator('.history__confirm').innerText();
-  check('the confirm names what will change', /This will/.test(confirmText), confirmText);
+  check('the confirm names what will change', /Compared with now/.test(confirmText), confirmText);
   await page.screenshot({ path: SHOTS + 'history-3-restore-confirm.png' });
   await page.getByRole('button', { name: 'Restore', exact: true }).click();
   await page.waitForTimeout(2500);
@@ -166,7 +166,7 @@ try {
   await page.waitForFunction(summariesDone, null, { timeout: 15_000 });
   const after = await page.locator('.history__what').allTextContents();
   console.log('    after restore: ' + JSON.stringify(after));
-  check('the restore is listed as a new save', after.length === 5 && /removed|edited|renamed/.test(after[0]), after[0]);
+  check('the restore is listed as a new save', after.length === 5 && /Restored the save/.test(after[0]), after[0]);
   await page.screenshot({ path: SHOTS + 'history-4-after-restore.png' });
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
