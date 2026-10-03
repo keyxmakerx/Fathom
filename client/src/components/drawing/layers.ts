@@ -19,7 +19,7 @@ export const LAYERS: readonly LayerSpec[] = [
   { id: 'addresses', label: 'Addresses', onByDefault: false, available: true },
   { id: 'vlans', label: 'VLANs', onByDefault: false, available: true },
   { id: 'docs', label: 'Docs', onByDefault: false, available: true },
-  { id: 'maintenance', label: 'Maintenance', onByDefault: false, available: false }, // #98
+  { id: 'maintenance', label: 'Maintenance', onByDefault: false, available: true },
   { id: 'tags', label: 'Tags', onByDefault: false, available: true },
 ];
 
