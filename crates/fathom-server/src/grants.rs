@@ -1352,8 +1352,10 @@ pub struct GrantProposal {
 
 impl GrantProposal {
     /// A proposal read back off the wire, with `bytes` rebuilt from its own fields.
-    /// [`sign_grant`] re-derives every server-chosen field, so a changed one is
-    /// refused there or fails the signature, which covers all of them.
+    /// This makes [`sign_grant`]'s bytes-equality check pass by construction; what
+    /// protects the caller is that `sign_grant` re-derives every server-chosen
+    /// field and verifies the signature over the rebuilt bytes. Do not call it
+    /// where a proposal's bytes were meant to be compared with what was signed.
     pub fn rebuilt(self) -> Self {
         Self {
             bytes: proposal_bytes(&self),
@@ -3528,6 +3530,28 @@ pub(crate) async fn verify_authority_state(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
 ) -> Result<VerifiedAuthorityState, AuthorityError> {
+    // READ COMMITTED: a share or revoke committing between the head read and the
+    // table reads would fail the digest check as if the store had been tampered
+    // with. Sharing makes that routine, so when the head moved while the state was
+    // read, read again. A head that stays put while the digest disagrees is real.
+    let mut moved = 0;
+    loop {
+        match verify_authority_state_once(tx, auth).await {
+            Err(AuthorityError::Stale(HEAD_MOVED)) if moved < 3 => moved += 1,
+            Err(AuthorityError::Stale(HEAD_MOVED)) => {
+                return Err(AuthorityError::Unverifiable("authority state"))
+            }
+            other => return other,
+        }
+    }
+}
+
+const HEAD_MOVED: &str = "the authority head moved while it was being read";
+
+async fn verify_authority_state_once(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<VerifiedAuthorityState, AuthorityError> {
     let (ring, ctx, watch) = (auth.ring, auth.ctx, auth.watch);
     let organisation = auth.organisation();
 
@@ -3573,6 +3597,17 @@ pub(crate) async fn verify_authority_state(
         &entries,
     );
     if stored_digest != recomputed_digest {
+        // A commit in between moves the head; tampering does not.
+        let now_epoch: Option<i32> = tx
+            .query_opt(
+                "SELECT auth_epoch FROM organisation_auth_head WHERE organisation_id = $1",
+                &[&organisation],
+            )
+            .await?
+            .map(|r| r.get(0));
+        if now_epoch != Some(auth_epoch) {
+            return Err(AuthorityError::Stale(HEAD_MOVED));
+        }
         return Err(AuthorityError::Unverifiable("authority state"));
     }
     // `live_count` is a second statement of the same fact; one nobody checks can

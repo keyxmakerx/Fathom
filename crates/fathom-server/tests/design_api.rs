@@ -3070,6 +3070,19 @@ async fn a_steward_shares_view_and_the_viewer_reads_but_every_write_route_refuse
     let mut well_formed_revoke = Vec::new();
     lp(&mut well_formed_revoke, now_unix().to_string().as_bytes());
     lp(&mut well_formed_revoke, "ab".repeat(64).as_bytes());
+    let mut well_formed_sign = Vec::new();
+    for field in [
+        viewer.account.to_string(),
+        "read".to_string(),
+        now_unix().to_string(),
+        "1".to_string(),
+        "ab".repeat(32),
+        "ab".repeat(32),
+        "ab".repeat(32),
+        "ab".repeat(64),
+    ] {
+        lp(&mut well_formed_sign, field.as_bytes());
+    }
     let refused: Vec<(&str, String, Vec<u8>)> = vec![
         ("POST", versions, save.clone()),
         ("POST", format!("{open}/name"), b"renamed".to_vec()),
@@ -3078,6 +3091,11 @@ async fn a_steward_shares_view_and_the_viewer_reads_but_every_write_route_refuse
             "POST",
             format!("/organisations/{}/scopes", estate.organisation),
             scope_body,
+        ),
+        (
+            "POST",
+            share_path(&estate, scope, "grants/sign"),
+            well_formed_sign,
         ),
         ("GET", share_path(&estate, scope, "access"), Vec::new()),
         (
@@ -3116,6 +3134,20 @@ async fn a_steward_shares_view_and_the_viewer_reads_but_every_write_route_refuse
     .await
     .expect("read");
     assert_eq!(latest.version, 1, "no write landed");
+
+    // A revocation dated in the future is refused outright.
+    let mut future = Vec::new();
+    lp(&mut future, (now_unix() + 200).to_string().as_bytes());
+    lp(&mut future, "ab".repeat(64).as_bytes());
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &share_path(&estate, scope, &format!("grants/{grant}/revoke")),
+        &future,
+    )
+    .await;
+    assert_eq!(status, "400", "a future-dated revoke must not be accepted");
 
     // Revoked: the next request is refused.
     let (status, prep) = call(

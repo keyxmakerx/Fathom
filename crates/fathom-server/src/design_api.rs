@@ -568,6 +568,11 @@ fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
             tracing::info!(reason = %e, "not authorised");
             (StatusCode::FORBIDDEN, "not authorised\n").into_response()
         }
+        // A proposal overtaken by another change: ask again.
+        grants::AuthorityError::Stale(_) => {
+            tracing::info!(reason = %e, "stale proposal");
+            (StatusCode::CONFLICT, "changed since it was proposed\n").into_response()
+        }
         _ => {
             tracing::error!(reason = %e, "integrity check failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
@@ -1159,7 +1164,7 @@ async fn require_other_member(
     tx: &Transaction<'_>,
     ctx: &TenantContext,
     subject: &str,
-) -> Result<(), SessionError> {
+) -> Result<String, SessionError> {
     let canonical: repo::AccountId = subject
         .parse()
         .map_err(|_| SessionError::Malformed("account id"))?;
@@ -1173,7 +1178,7 @@ async fn require_other_member(
     .await
     .map_err(SessionError::Db)?
     .ok_or(SessionError::Malformed("account id"))?;
-    Ok(())
+    Ok(canonical.to_string())
 }
 
 /// `GET .../scopes/{scope}/access`: every member and what they can do here.
@@ -1202,6 +1207,10 @@ async fn access_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
+    // The caller's own authority before anything about the organisation is read.
+    grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
     let people = tx
         .query(
             "SELECT a.id, a.email, a.display_name FROM memberships m \
@@ -1295,7 +1304,7 @@ async fn propose_share_handler(
     grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
         .await
         .map_err(SessionError::Authority)?;
-    require_other_member(&tx, &ctx, &subject).await?;
+    let subject = require_other_member(&tx, &ctx, &subject).await?;
     let proposal = grants::propose_grant(
         &tx,
         &auth,
@@ -1388,7 +1397,7 @@ async fn sign_share_handler(
     grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
         .await
         .map_err(SessionError::Authority)?;
-    require_other_member(&tx, &ctx, &subject).await?;
+    let subject = require_other_member(&tx, &ctx, &subject).await?;
     let proposal = grants::GrantProposal {
         organisation: ctx.tenant().to_string(),
         scope: Some(scope_id.to_string()),
@@ -1467,7 +1476,8 @@ async fn revoke_share_handler(
     let signature = unhex(lp_text(&mut rest, "signature")?)
         .filter(|s| s.len() == 64)
         .ok_or(SessionError::Malformed("signature"))?;
-    if (unix_now() - at).abs() > REVOKE_SKEW_SECONDS {
+    // Never in the future: a future time would leave the grant working after the 200.
+    if at > unix_now() || unix_now() - at > REVOKE_SKEW_SECONDS {
         return Err(SessionError::Malformed("revoke time").into());
     }
 
