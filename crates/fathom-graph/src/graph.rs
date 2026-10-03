@@ -979,7 +979,7 @@ impl Graph {
             );
     }
 
-    fn slot_map_mut(&mut self, element: ElementId) -> &mut BTreeMap<FieldKey, Slot> {
+    pub(crate) fn slot_map_mut(&mut self, element: ElementId) -> &mut BTreeMap<FieldKey, Slot> {
         match element {
             ElementId::Node(id) => &mut self.nodes.get_mut(&id).expect("checked").fields,
             ElementId::Edge(id) => &mut self.edges.get_mut(&id).expect("checked").fields,
@@ -993,11 +993,11 @@ impl Graph {
         }
     }
 
-    fn slot_prov(&self, element: ElementId, key: FieldKey) -> Option<ProvenanceId> {
+    pub(crate) fn slot_prov(&self, element: ElementId, key: FieldKey) -> Option<ProvenanceId> {
         self.slot(element, key).map(|s| s.prov)
     }
 
-    fn exists(&self, element: ElementId) -> bool {
+    pub(crate) fn exists(&self, element: ElementId) -> bool {
         match element {
             ElementId::Node(id) => self.nodes.contains_key(&id),
             ElementId::Edge(id) => self.edges.contains_key(&id),
