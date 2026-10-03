@@ -229,6 +229,14 @@ check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not 
 name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
 kind (#93), docs on maintenance plans (#98).
 
+**"It's down"** (ADR-0061, troubleshooting; schema 0.17): right-click a device, or the button on its page,
+opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address, gateway)
+answered OK / Not OK / Can't tell, with Why? cards, an optional typed note, where the answers point and Also
+affected. Plan a fix makes and opens a plan; Save as an issue puts it in the device's history and the
+Inventory's Issues list (an Issue page per record). A read holder sees saved issues only; the server refuses
+a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.ts`,
+`drawing/troubleMarks.ts`. Checked by `scripts/drive-troubleshoot.mjs`.
+
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
 organisation can be added. The grant is signed in the steward's enrolled browser and the server

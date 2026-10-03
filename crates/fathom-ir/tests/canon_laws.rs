@@ -171,7 +171,11 @@ fn schema_version_is_the_trees() {
     //
     // 0.14 -> 0.15: ADR-0061 round 7, maintenance plans. Two node kinds (`MaintenancePlan`,
     // `PlanStep`), two edge kinds (`HasPlan`, `HasStep`), seventeen field keys (364-380); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.15");
+    //
+    // 0.15 -> 0.17: ADR-0061 troubleshooting (0.16 is reserved elsewhere). Two node kinds
+    // (`Issue`, `IssueStep`), two edge kinds (`HasIssue`, `HasIssueStep`), fifteen field keys
+    // (381-395); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.17");
 }
 
 #[test]
@@ -695,7 +699,7 @@ fn dispatch_names_every_registry_key() {
     //
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343) -- appended after
     // `AttachedTo.address`.
-    assert_eq!(FIELD_KEYS.len(), 380, "the registry grew or shrank");
+    assert_eq!(FIELD_KEYS.len(), 395, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

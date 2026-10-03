@@ -142,7 +142,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 121 -> 123 (round 10): `HasDocFile` (Doc, DocFile) +1, `DocFile`'s pin +1.
     // 123 -> 126 (ADR-0061 round 7 plans, schema 0.15): `HasPlan` reads `from: [root]`, +0; `HasStep`,
     // +1; `MaintenancePlan` and `PlanStep` join `Placeable`, +2 (their pins).
-    assert_eq!(resolved, 126, "the containment pair set moved");
+    // 126 -> 129 (ADR-0061 troubleshooting, schema 0.17): `HasIssue` reads `from: [root]`, +0;
+    // `HasIssueStep`, +1; `Issue` and `IssueStep` join `Placeable`, +2 (their pins).
+    assert_eq!(resolved, 129, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -172,7 +174,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 54 (ADR-0060 step 7, schema 0.13): `HasLabel`, `HasLine` (root -> Label, Line).
     // 56 (ADR-0061 round 7, schema 0.14): `HasDoc` (root -> Doc), `HasDocLink` (Doc -> DocLink).
     // 59 (plans, schema 0.15): `HasPlan` (root -> MaintenancePlan), `HasStep` (plan -> step).
-    assert_eq!(containment, 59);
+    // 61 (troubleshooting, schema 0.17): `HasIssue` (root -> Issue), `HasIssueStep` (issue -> step).
+    assert_eq!(containment, 61);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -203,7 +206,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // ADR-0061 round 7: `HasDoc` reads `from: [root]`.
             "Doc",
             // schema 0.15: `HasPlan` reads `from: [root]`.
-            "MaintenancePlan"
+            "MaintenancePlan",
+            // schema 0.17: `HasIssue` reads `from: [root]`.
+            "Issue"
         ],
         "the set of kinds no node kind contains moved"
     );

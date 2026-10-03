@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.15";
+    pub const SCHEMA_VERSION: &str = "0.17";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -402,12 +402,20 @@ mod body {
         /// already knows how to make (a field set, a cable, a move) and applies it only when the
         /// step is marked done. `targets` names what it touches, one design id per line.
         PlanStep,
+        /// One "It's down" session saved: the device, ordered steps (HasIssueStep), and where the
+        /// answers pointed. Hung off the root through HasIssue. Fathom never names a cause; `outcome`
+        /// is the sentence frozen when it was saved, plus anything typed. Weak identity, as for a plan.
+        /// Anyone who can read the design can read its issues; only an editor writes one.
+        Issue,
+        /// One check of an issue, in `ordinal` order, with the answer given. `targets` names what it
+        /// lights, one design id per line, as for `PlanStep`.
+        IssueStep,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 66;
+        pub const COUNT: usize = 68;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 66] = [
+        pub const ALL: [NodeKind; 68] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -474,6 +482,8 @@ mod body {
             NodeKind::DocFile,
             NodeKind::MaintenancePlan,
             NodeKind::PlanStep,
+            NodeKind::Issue,
+            NodeKind::IssueStep,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -546,6 +556,8 @@ mod body {
                 NodeKind::DocFile => "DocFile",
                 NodeKind::MaintenancePlan => "MaintenancePlan",
                 NodeKind::PlanStep => "PlanStep",
+                NodeKind::Issue => "Issue",
+                NodeKind::IssueStep => "IssueStep",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -616,6 +628,8 @@ mod body {
                 "DocFile" => Some(NodeKind::DocFile),
                 "MaintenancePlan" => Some(NodeKind::MaintenancePlan),
                 "PlanStep" => Some(NodeKind::PlanStep),
+                "Issue" => Some(NodeKind::Issue),
+                "IssueStep" => Some(NodeKind::IssueStep),
                 _ => None,
             }
         }
@@ -692,6 +706,8 @@ mod body {
                 NodeKind::DocFile => &[],
                 NodeKind::MaintenancePlan => &[],
                 NodeKind::PlanStep => &[],
+                NodeKind::Issue => &[],
+                NodeKind::IssueStep => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -763,6 +779,8 @@ mod body {
                 NodeKind::DocFile => Layer::Physical,
                 NodeKind::MaintenancePlan => Layer::Physical,
                 NodeKind::PlanStep => Layer::Physical,
+                NodeKind::Issue => Layer::Physical,
+                NodeKind::IssueStep => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -835,6 +853,8 @@ mod body {
                 NodeKind::DocFile => false,
                 NodeKind::MaintenancePlan => false,
                 NodeKind::PlanStep => false,
+                NodeKind::Issue => false,
+                NodeKind::IssueStep => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -908,6 +928,8 @@ mod body {
                 NodeKind::DocFile => &[crate::bag::FieldKey(357), crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363)],
                 NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370)],
                 NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380)],
+                NodeKind::Issue => &[crate::bag::FieldKey(381), crate::bag::FieldKey(382), crate::bag::FieldKey(383), crate::bag::FieldKey(384), crate::bag::FieldKey(385), crate::bag::FieldKey(386), crate::bag::FieldKey(387)],
+                NodeKind::IssueStep => &[crate::bag::FieldKey(388), crate::bag::FieldKey(389), crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395)],
             }
         }
     }
@@ -1260,6 +1282,10 @@ mod body {
         HasPlan,
         /// ADR-0061 round 7. A plan's steps; their order is PlanStep.ordinal.
         HasStep,
+        /// ADR-0061 troubleshooting. Issues hang off the design root as plans do.
+        HasIssue,
+        /// ADR-0061 troubleshooting. An issue's steps; their order is IssueStep.ordinal.
+        HasIssueStep,
         /// ADR-0061 round 7. Docs hang off the design root as Tag does.
         HasDoc,
         /// ADR-0061 round 7. Which thing a doc is about. A REFERENCE EDGE because a Doc's
@@ -1272,9 +1298,9 @@ mod body {
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 109;
+        pub const COUNT: usize = 111;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 109] = [
+        pub const ALL: [EdgeKind; 111] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1380,6 +1406,8 @@ mod body {
             EdgeKind::LineEnd,
             EdgeKind::HasPlan,
             EdgeKind::HasStep,
+            EdgeKind::HasIssue,
+            EdgeKind::HasIssueStep,
             EdgeKind::HasDoc,
             EdgeKind::DocOn,
             EdgeKind::HasDocLink,
@@ -1495,6 +1523,8 @@ mod body {
                 EdgeKind::LineEnd => "LineEnd",
                 EdgeKind::HasPlan => "HasPlan",
                 EdgeKind::HasStep => "HasStep",
+                EdgeKind::HasIssue => "HasIssue",
+                EdgeKind::HasIssueStep => "HasIssueStep",
                 EdgeKind::HasDoc => "HasDoc",
                 EdgeKind::DocOn => "DocOn",
                 EdgeKind::HasDocLink => "HasDocLink",
@@ -1608,6 +1638,8 @@ mod body {
                 "LineEnd" => Some(EdgeKind::LineEnd),
                 "HasPlan" => Some(EdgeKind::HasPlan),
                 "HasStep" => Some(EdgeKind::HasStep),
+                "HasIssue" => Some(EdgeKind::HasIssue),
+                "HasIssueStep" => Some(EdgeKind::HasIssueStep),
                 "HasDoc" => Some(EdgeKind::HasDoc),
                 "DocOn" => Some(EdgeKind::DocOn),
                 "HasDocLink" => Some(EdgeKind::HasDocLink),
@@ -1723,6 +1755,8 @@ mod body {
                 EdgeKind::LineEnd => EdgeClass::Reference,
                 EdgeKind::HasPlan => EdgeClass::Containment,
                 EdgeKind::HasStep => EdgeClass::Containment,
+                EdgeKind::HasIssue => EdgeClass::Containment,
+                EdgeKind::HasIssueStep => EdgeClass::Containment,
                 EdgeKind::HasDoc => EdgeClass::Containment,
                 EdgeKind::DocOn => EdgeClass::Reference,
                 EdgeKind::HasDocLink => EdgeClass::Containment,
@@ -1904,7 +1938,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1928,6 +1962,8 @@ mod body {
                 EdgeKind::LineEnd => &[NodeKind::Line],
                 EdgeKind::HasPlan => &[],
                 EdgeKind::HasStep => &[NodeKind::MaintenancePlan],
+                EdgeKind::HasIssue => &[],
+                EdgeKind::HasIssueStep => &[NodeKind::Issue],
                 EdgeKind::HasDoc => &[],
                 EdgeKind::DocOn => &[NodeKind::Doc],
                 EdgeKind::HasDocLink => &[NodeKind::Doc],
@@ -2042,6 +2078,8 @@ mod body {
                 EdgeKind::LineEnd => &[NodeKind::Chassis],
                 EdgeKind::HasPlan => &[NodeKind::MaintenancePlan],
                 EdgeKind::HasStep => &[NodeKind::PlanStep],
+                EdgeKind::HasIssue => &[NodeKind::Issue],
+                EdgeKind::HasIssueStep => &[NodeKind::IssueStep],
                 EdgeKind::HasDoc => &[NodeKind::Doc],
                 EdgeKind::DocOn => &[NodeKind::Device, NodeKind::PassiveNode, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack],
                 EdgeKind::HasDocLink => &[NodeKind::DocLink],
@@ -2156,6 +2194,8 @@ mod body {
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: Some(2) },
                 EdgeKind::HasPlan => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasStep => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasIssue => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasIssueStep => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasDoc => EdgeCardBound { min: 0, max: None },
                 EdgeKind::DocOn => EdgeCardBound { min: 0, max: Some(1) },
                 EdgeKind::HasDocLink => EdgeCardBound { min: 0, max: None },
@@ -2270,6 +2310,8 @@ mod body {
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasPlan => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasStep => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasIssue => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasIssueStep => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasDoc => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::DocOn => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasDocLink => EdgeCardBound { min: 1, max: Some(1) },
@@ -2385,6 +2427,8 @@ mod body {
                 EdgeKind::LineEnd => false,
                 EdgeKind::HasPlan => false,
                 EdgeKind::HasStep => false,
+                EdgeKind::HasIssue => false,
+                EdgeKind::HasIssueStep => false,
                 EdgeKind::HasDoc => false,
                 EdgeKind::DocOn => false,
                 EdgeKind::HasDocLink => false,
@@ -2499,6 +2543,8 @@ mod body {
                 EdgeKind::LineEnd => false,
                 EdgeKind::HasPlan => true,
                 EdgeKind::HasStep => false,
+                EdgeKind::HasIssue => true,
+                EdgeKind::HasIssueStep => false,
                 EdgeKind::HasDoc => true,
                 EdgeKind::DocOn => false,
                 EdgeKind::HasDocLink => false,
@@ -2613,6 +2659,8 @@ mod body {
                 EdgeKind::LineEnd => &[crate::bag::FieldKey(349)],
                 EdgeKind::HasPlan => &[],
                 EdgeKind::HasStep => &[],
+                EdgeKind::HasIssue => &[],
+                EdgeKind::HasIssueStep => &[],
                 EdgeKind::HasDoc => &[],
                 EdgeKind::DocOn => &[],
                 EdgeKind::HasDocLink => &[],
@@ -5009,6 +5057,139 @@ mod body {
         }
     }
 
+    /// Inline enum on `Issue.stage` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IssueStage {
+        Open,
+        Closed,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IssueStage {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "open",
+            "closed",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IssueStage {
+            match token {
+                "open" => IssueStage::Open,
+                "closed" => IssueStage::Closed,
+                other => IssueStage::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IssueStage::Open => "open",
+                IssueStage::Closed => "closed",
+                IssueStage::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IssueStep.topic` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IssueStepTopic {
+        Power,
+        Neighbours,
+        Link,
+        Port,
+        Address,
+        Gateway,
+        Other,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IssueStepTopic {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 7] = [
+            "power",
+            "neighbours",
+            "link",
+            "port",
+            "address",
+            "gateway",
+            "other",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IssueStepTopic {
+            match token {
+                "power" => IssueStepTopic::Power,
+                "neighbours" => IssueStepTopic::Neighbours,
+                "link" => IssueStepTopic::Link,
+                "port" => IssueStepTopic::Port,
+                "address" => IssueStepTopic::Address,
+                "gateway" => IssueStepTopic::Gateway,
+                "other" => IssueStepTopic::Other,
+                other => IssueStepTopic::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IssueStepTopic::Power => "power",
+                IssueStepTopic::Neighbours => "neighbours",
+                IssueStepTopic::Link => "link",
+                IssueStepTopic::Port => "port",
+                IssueStepTopic::Address => "address",
+                IssueStepTopic::Gateway => "gateway",
+                IssueStepTopic::Other => "other",
+                IssueStepTopic::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IssueStep.answer` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IssueStepAnswer {
+        Unanswered,
+        Ok,
+        NotOk,
+        CantTell,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IssueStepAnswer {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 4] = [
+            "unanswered",
+            "ok",
+            "not_ok",
+            "cant_tell",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IssueStepAnswer {
+            match token {
+                "unanswered" => IssueStepAnswer::Unanswered,
+                "ok" => IssueStepAnswer::Ok,
+                "not_ok" => IssueStepAnswer::NotOk,
+                "cant_tell" => IssueStepAnswer::CantTell,
+                other => IssueStepAnswer::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IssueStepAnswer::Unanswered => "unanswered",
+                IssueStepAnswer::Ok => "ok",
+                IssueStepAnswer::NotOk => "not_ok",
+                IssueStepAnswer::CantTell => "cant_tell",
+                IssueStepAnswer::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -5855,6 +6036,42 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(PlanStepState::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IssueStage {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IssueStage::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IssueStepTopic {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IssueStepTopic::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IssueStepAnswer {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IssueStepAnswer::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -8916,6 +9133,114 @@ mod body {
         }
     }
 
+    /// Fields of kind `Issue`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IssueField {
+        Title,
+        Device,
+        Author,
+        OpenedAt,
+        Stage,
+        Outcome,
+        Plan,
+    }
+
+    impl IssueField {
+        pub const COUNT: usize = 7;
+        /// Every field, declaration order.
+        pub const ALL: [IssueField; 7] = [
+            IssueField::Title,
+            IssueField::Device,
+            IssueField::Author,
+            IssueField::OpenedAt,
+            IssueField::Stage,
+            IssueField::Outcome,
+            IssueField::Plan,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IssueField::Title => "title",
+                IssueField::Device => "device",
+                IssueField::Author => "author",
+                IssueField::OpenedAt => "opened_at",
+                IssueField::Stage => "stage",
+                IssueField::Outcome => "outcome",
+                IssueField::Plan => "plan",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IssueField::Title => crate::bag::FieldKey(381),
+                IssueField::Device => crate::bag::FieldKey(382),
+                IssueField::Author => crate::bag::FieldKey(383),
+                IssueField::OpenedAt => crate::bag::FieldKey(384),
+                IssueField::Stage => crate::bag::FieldKey(385),
+                IssueField::Outcome => crate::bag::FieldKey(386),
+                IssueField::Plan => crate::bag::FieldKey(387),
+            }
+        }
+    }
+
+    /// Fields of kind `IssueStep`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IssueStepField {
+        Ordinal,
+        Topic,
+        Question,
+        Detail,
+        Targets,
+        Answer,
+        Note,
+        AnsweredAt,
+    }
+
+    impl IssueStepField {
+        pub const COUNT: usize = 8;
+        /// Every field, declaration order.
+        pub const ALL: [IssueStepField; 8] = [
+            IssueStepField::Ordinal,
+            IssueStepField::Topic,
+            IssueStepField::Question,
+            IssueStepField::Detail,
+            IssueStepField::Targets,
+            IssueStepField::Answer,
+            IssueStepField::Note,
+            IssueStepField::AnsweredAt,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IssueStepField::Ordinal => "ordinal",
+                IssueStepField::Topic => "topic",
+                IssueStepField::Question => "question",
+                IssueStepField::Detail => "detail",
+                IssueStepField::Targets => "targets",
+                IssueStepField::Answer => "answer",
+                IssueStepField::Note => "note",
+                IssueStepField::AnsweredAt => "answered_at",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IssueStepField::Ordinal => crate::bag::FieldKey(388),
+                IssueStepField::Topic => crate::bag::FieldKey(389),
+                IssueStepField::Question => crate::bag::FieldKey(390),
+                IssueStepField::Detail => crate::bag::FieldKey(391),
+                IssueStepField::Targets => crate::bag::FieldKey(392),
+                IssueStepField::Answer => crate::bag::FieldKey(393),
+                IssueStepField::Note => crate::bag::FieldKey(394),
+                IssueStepField::AnsweredAt => crate::bag::FieldKey(395),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -9435,7 +9760,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 380] = [
+    pub const FIELD_KEYS: [(&str, u32); 395] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9816,15 +10141,31 @@ mod body {
         ("PlanStep.state", 378),
         ("PlanStep.note", 379),
         ("PlanStep.done_at", 380),
+        ("Issue.title", 381),
+        ("Issue.device", 382),
+        ("Issue.author", 383),
+        ("Issue.opened_at", 384),
+        ("Issue.stage", 385),
+        ("Issue.outcome", 386),
+        ("Issue.plan", 387),
+        ("IssueStep.ordinal", 388),
+        ("IssueStep.topic", 389),
+        ("IssueStep.question", 390),
+        ("IssueStep.detail", 391),
+        ("IssueStep.targets", 392),
+        ("IssueStep.answer", 393),
+        ("IssueStep.note", 394),
+        ("IssueStep.answered_at", 395),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 48] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 50] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x04,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
+        0x73, 0x02,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

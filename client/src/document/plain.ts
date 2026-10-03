@@ -43,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.15 move is additive, so a payload declared at an older
+// Every 0.10-to-0.17 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -80,29 +80,42 @@ const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn',
 const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
 const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
 
+// Kinds 0.17 (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_17: ReadonlySet<NodeKind> = new Set(['Issue', 'IssueStep']);
+const EDGE_KINDS_SINCE_0_17: ReadonlySet<EdgeKind> = new Set(['HasIssue', 'HasIssueStep']);
+
+// A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
+const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
+  [11, NODE_KINDS_SINCE_0_11],
+  [12, NODE_KINDS_SINCE_0_12],
+  [13, NODE_KINDS_SINCE_0_13],
+  [14, NODE_KINDS_SINCE_0_14],
+  [15, NODE_KINDS_SINCE_0_15],
+  [17, NODE_KINDS_SINCE_0_17],
+];
+const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
+  [11, EDGE_KINDS_SINCE_0_11],
+  [12, EDGE_KINDS_SINCE_0_12],
+  [13, EDGE_KINDS_SINCE_0_13],
+  [14, EDGE_KINDS_SINCE_0_14],
+  [15, EDGE_KINDS_SINCE_0_15],
+  [17, EDGE_KINDS_SINCE_0_17],
+];
+
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
   if (!ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) return;
+  const minor = Number.parseInt(declared.slice(2), 10);
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
-    const tooNew =
-      NODE_KINDS_SINCE_0_15.has(kind) ||
-      (declared !== '0.14' && NODE_KINDS_SINCE_0_14.has(kind)) ||
-      (declared !== '0.13' && declared !== '0.14' && NODE_KINDS_SINCE_0_13.has(kind)) ||
-      (!['0.12', '0.13', '0.14'].includes(declared) && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
-    if (tooNew) {
+    if (NODES_SINCE.some(([since, kinds]) => minor < since && kinds.has(kind))) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
-    const tooNew =
-      EDGE_KINDS_SINCE_0_15.has(kind) ||
-      (declared !== '0.14' && EDGE_KINDS_SINCE_0_14.has(kind)) ||
-      (declared !== '0.13' && declared !== '0.14' && EDGE_KINDS_SINCE_0_13.has(kind)) ||
-      (!['0.12', '0.13', '0.14'].includes(declared) && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
-    if (tooNew) {
+    if (EDGES_SINCE.some(([since, kinds]) => minor < since && kinds.has(kind))) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }

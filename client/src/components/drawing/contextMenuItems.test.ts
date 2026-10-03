@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -34,6 +34,21 @@ describe('menuItemsFor', () => {
     expect(a.onOpen).toHaveBeenCalledWith('c1');
     items[2].onSelect();
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
+  });
+
+  it("offers It's down on a device and a free box when it can be used, and not otherwise", () => {
+    const a = { ...actions(), onItsDown: vi.fn() };
+    const chassis = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
+    expect(chassis.map((i) => i.label)).toEqual(['Open', 'Inside', 'Details', "It's down", 'Duplicate', 'Remove']);
+    chassis[3].onSelect();
+    expect(a.onItsDown).toHaveBeenCalledWith('c1');
+    const free = menuItemsFor({ kind: 'free', id: 'f1' }, a);
+    expect(free.map((i) => i.label)).toContain("It's down");
+    free.find((i) => i.label === "It's down")!.onSelect();
+    expect(a.onItsDown).toHaveBeenCalledWith('f1');
+    // A reader's menu carries no action for it, so no item.
+    expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, { onSelect: vi.fn(), onOpen: vi.fn() }).map((i) => i.label)).not.toContain("It's down");
+    expect(menuItemsFor({ kind: 'label', id: 'l1' }, a).map((i) => i.label)).not.toContain("It's down");
   });
 
   it('offers a rack its details and a new device', () => {

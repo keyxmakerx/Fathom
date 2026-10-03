@@ -19,7 +19,7 @@ import {
 import { nextFreeSpot } from '../drawing/freeLayout';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
-import { parseNodeId, type Document } from '../../document/model';
+import { edgesIn, parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
@@ -63,6 +63,10 @@ import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
+import { DeviceIssues } from '../troubleshoot/DeviceIssues';
+import { TroublePanel } from '../troubleshoot/TroublePanel';
+import { TroubleContext } from '../troubleshoot/troubleStore';
+import { useTroubleController } from '../troubleshoot/useTroubleController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -205,6 +209,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
    * open — nothing is pre-selected just because a design loaded. */
   initialFocus?: Selection | null;
+  /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
+  initialIssue?: { id: string } | null;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
    * beside the editor for a selected chassis. Omitted (no button at all)
    * where no caller supplies it, the same "no action, not a disabled one"
@@ -256,6 +262,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     session,
     onZoomChange,
     initialFocus,
+    initialIssue,
     onOpenInventory,
     accountId,
     notesActions,
@@ -445,6 +452,28 @@ export function RacksPlace(props: RacksPlaceProps) {
     authorName: shellProps.account?.initials,
     canEdit: canDraw,
   });
+  // "It's down" (ADR-0061 troubleshooting): the draft stays in memory; Plan a fix opens the plan in the plans surface.
+  const trouble = useTroubleController({
+    doc,
+    boot: ensureMirror,
+    redact,
+    applyDocChange,
+    actor: actorOpts(accountId),
+    authorName: shellProps.account?.initials,
+    canEdit: canDraw,
+    openPlan: (id) => {
+      plans.openPlan(id);
+      plans.setPanelOpen(true);
+    },
+    foldPlans: () => plans.setPanelOpen(false),
+  });
+  const issueHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialIssue == null || doc == null || issueHandled.current === initialIssue) return;
+    issueHandled.current = initialIssue;
+    trouble.openIssue(initialIssue.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialIssue, doc]);
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -1254,6 +1283,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
+        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} /> : null}
         {selection?.kind === 'chassis' && onOpenInventory ? (
           <button type="button" className="racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
             Open in inventory
@@ -1308,6 +1338,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
+      <TroubleContext.Provider value={trouble.store}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1353,6 +1384,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           onPlanChange={canDraw ? plans.planChange : undefined}
+          onItsDown={canDraw ? trouble.start : undefined}
           onCalloutChange={setCalloutId}
           canDraw={canDraw && jot === null}
           openRequest={openRequest}
@@ -1425,6 +1457,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
+      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} /> : null}
+      </TroubleContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
       </ChecksContext.Provider>

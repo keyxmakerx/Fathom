@@ -1,0 +1,440 @@
+/* "It's down" (ADR-0061 troubleshooting). Ink only: the answers are the glyphs ✓ ✗ ? ○, never colours; the
+   current step is a heavy ink border, later steps are dotted and dimmed. Tokens only, so dark mode follows. */
+
+.trouble-panel {
+  position: absolute;
+  top: calc(var(--s2) * 6);
+  right: var(--s2);
+  /* Level with the Checks and Plans panels, under the paste card and the refusal card. */
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 92%);
+  max-height: calc(100% - 7 * var(--s2));
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  border-top: var(--rule-mast) solid var(--ink);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+}
+
+.trouble-panel--beside-checks {
+  right: calc(min(264px, 60%) + 2 * var(--s2));
+}
+
+/* A plan panel is open at the same dock: sit to its left (and to the Checks panel's, when both are). */
+.trouble-panel--beside-plans {
+  right: calc(min(320px, 92%) + 2 * var(--s2));
+}
+
+.trouble-panel--beside-checks.trouble-panel--beside-plans {
+  right: calc(min(264px, 60%) + min(320px, 92%) + 3 * var(--s2));
+}
+
+.trouble-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.trouble-panel__title {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-mast, 0.08em);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.trouble-panel__tools {
+  display: flex;
+  gap: var(--s3);
+  flex-shrink: 0;
+}
+
+.trouble-panel__body {
+  overflow-y: auto;
+  padding: var(--s2) var(--s3) var(--s3);
+}
+
+.trouble-panel__body:focus {
+  outline: none;
+}
+
+.trouble-panel__body p {
+  margin: var(--s1) 0;
+}
+
+.trouble-folded {
+  position: absolute;
+  top: calc(var(--s2) * 6);
+  right: var(--s2);
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  max-width: 92%;
+}
+
+.trouble-btn {
+  padding: 2px var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.trouble-btn--ink {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.trouble-btn--quiet {
+  border-color: var(--hairline);
+  color: var(--muted);
+}
+
+.trouble-btn[aria-pressed='true'] {
+  font-weight: 700;
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+}
+
+.trouble-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.trouble-btn[aria-disabled='true'] {
+  opacity: 0.55;
+}
+
+.trouble-btn:focus-visible,
+.trouble-link:focus-visible,
+.trouble-input:focus-visible,
+.trouble-step__head:focus-visible,
+.trouble-step:focus-visible,
+.trouble-why:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 2px;
+}
+
+.trouble-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.trouble-label {
+  margin: var(--s3) 0 var(--s1);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-mast, 0.08em);
+  text-transform: uppercase;
+}
+
+.trouble-hint,
+.trouble-note-line {
+  color: var(--muted);
+}
+
+.trouble-notice {
+  margin: var(--s2) 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-mast) solid var(--ink);
+}
+
+.trouble-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.trouble-step {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+}
+
+.trouble-step p {
+  margin: var(--s1) 0;
+}
+
+.trouble-step--answered {
+  border-color: var(--hairline);
+}
+
+.trouble-step--later {
+  border: 1px dotted var(--hairline);
+  color: var(--muted);
+}
+
+.trouble-step--current {
+  border: 2px solid var(--ink);
+  padding: var(--s3);
+}
+
+.trouble-step:focus {
+  outline: none;
+}
+
+.trouble-step__head {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trouble-step__head--read {
+  cursor: default;
+}
+
+.trouble-step__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.trouble-step__row .trouble-why-btn {
+  flex-shrink: 0;
+}
+
+.trouble-step--later .trouble-why-btn {
+  color: var(--muted);
+}
+
+.trouble-add-note {
+  margin: var(--s1) 0;
+  color: var(--muted);
+}
+
+.trouble-step__title {
+  font-size: var(--t-mast);
+  font-weight: 700;
+}
+
+.trouble-step__detail {
+  color: var(--muted);
+}
+
+.trouble-step__noted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.trouble-glyph {
+  display: inline-block;
+  min-width: 1em;
+  font-weight: 700;
+}
+
+.trouble-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+}
+
+.trouble-note {
+  display: grid;
+  gap: var(--s1);
+}
+
+.trouble-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 2px var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.trouble-why {
+  margin: var(--s2) 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-left: var(--rule-mast) solid var(--ink);
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.trouble-why p {
+  margin: var(--s1) 0;
+}
+
+.trouble-point {
+  margin: var(--s3) 0 var(--s2);
+}
+
+.trouble-point__sentence {
+  font-weight: 700;
+}
+
+.trouble-tests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.trouble-test {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+}
+
+.trouble-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+}
+
+.trouble-affected {
+  margin: var(--s1) 0;
+}
+
+.trouble-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Phone width: the panel sits along the bottom and leaves the canvas above it. */
+@media (max-width: 640px) {
+  .trouble-panel,
+  .trouble-panel--beside-checks,
+  .trouble-panel--beside-plans,
+  .trouble-panel--beside-checks.trouble-panel--beside-plans {
+    top: auto;
+    left: var(--s2);
+    right: var(--s2);
+    bottom: var(--s2);
+    width: auto;
+    max-height: 55%;
+  }
+  .trouble-folded {
+    top: auto;
+    bottom: var(--s2);
+    left: var(--s2);
+    right: var(--s2);
+  }
+}
+
+/* The "Issues" kind in the Inventory and a device's history. */
+.trouble-history {
+  margin: var(--s2) 0;
+}
+
+.trouble-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+/* The Issue page in the Inventory (mockup r8-trouble-b). */
+.issue-row {
+  cursor: pointer;
+}
+
+.issue-row:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -2px;
+}
+
+.issue-page {
+  padding: var(--s3);
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.issue-page__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.issue-page__title {
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.issue-page__line {
+  margin: var(--s2) 0 var(--s3);
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.issue-page__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.issue-page__table th {
+  padding: var(--s1) var(--s2);
+  border-bottom: var(--rule-mast) solid var(--ink);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-mast, 0.08em);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.issue-page__table td {
+  padding: var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  vertical-align: top;
+}
+
+.issue-page__table td:first-child {
+  width: 2.5em;
+}
+
+.issue-page__detail {
+  display: block;
+  color: var(--muted);
+}
+
+.issue-page__notes {
+  margin: var(--s3) 0;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.issue-page__outcome {
+  font-weight: 700;
+}

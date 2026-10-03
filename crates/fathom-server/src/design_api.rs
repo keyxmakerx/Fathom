@@ -3051,4 +3051,107 @@ mod tests {
         );
         assert_eq!(fathom_workspace::find_credential(&g), None);
     }
+
+    /// A graph with one issue and one step carrying exactly the given texts.
+    fn issue_graph(issue_fields: &[(u32, &str)], step: &[(u32, &str)]) -> Graph {
+        use fathom_graph::{
+            Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+        };
+        use fathom_id::Ulid;
+        let prov = |n: u128| ProvenanceRecord {
+            id: ProvenanceId(Ulid(n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(0),
+            asserted_by: Actor::User(UserId(Ulid(9_999))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        };
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(Ulid(1)), "fixture").unwrap();
+        let i = g.insert_node(NodeKind::Issue, Ulid(2), prov(3)).unwrap();
+        let st = g
+            .insert_node(NodeKind::IssueStep, Ulid(4), prov(5))
+            .unwrap();
+        for (n, (key, text)) in issue_fields.iter().enumerate() {
+            let k = fathom_ir::bag::FieldKey(*key);
+            let t = fathom_ir::scalar::Text((*text).to_owned());
+            g.set_field(i.into(), k, t, prov(10 + n as u128)).unwrap();
+        }
+        for (n, (key, text)) in step.iter().enumerate() {
+            let k = fathom_ir::bag::FieldKey(*key);
+            let t = fathom_ir::scalar::Text((*text).to_owned());
+            g.set_field(st.into(), k, t, prov(100 + n as u128)).unwrap();
+        }
+        g.end_batch().unwrap();
+        g
+    }
+
+    /// Issue and step text is scanned like a plan's; ids in `device`, `plan` and `targets` are not
+    /// mistaken for credentials, and a credential in any text part is caught.
+    #[test]
+    fn find_credential_reads_issue_and_step_text() {
+        use fathom_ir::generated::ir_types::{IssueField as I, IssueStepField as S};
+        let psk = "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3";
+        let id = "device:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let plan = "maintenance-plan:01ARZ3NDEKTSV4RRFFQ69G5FAW";
+
+        for k in [
+            I::Title.key().0,
+            I::Author.key().0,
+            I::OpenedAt.key().0,
+            I::Outcome.key().0,
+        ] {
+            let g = issue_graph(&[(k, psk)], &[]);
+            assert_eq!(
+                fathom_workspace::find_credential(&g),
+                Some(("Issue", 1)),
+                "{k}"
+            );
+        }
+        for k in [
+            S::Question.key().0,
+            S::Detail.key().0,
+            S::Note.key().0,
+            S::AnsweredAt.key().0,
+        ] {
+            let g = issue_graph(&[], &[(k, &format!("fine\n{psk}"))]);
+            assert_eq!(
+                fathom_workspace::find_credential(&g),
+                Some(("IssueStep", 2)),
+                "{k}"
+            );
+        }
+        let g = issue_graph(
+            &[],
+            &[(
+                S::Targets.key().0,
+                &format!("{id}\nenable secret 5 Abc12345"),
+            )],
+        );
+        assert_eq!(
+            fathom_workspace::find_credential(&g),
+            Some(("IssueStep", 2))
+        );
+        let g = issue_graph(&[(I::Plan.key().0, "enable secret 5 Abc12345")], &[]);
+        assert_eq!(fathom_workspace::find_credential(&g), Some(("Issue", 1)));
+
+        // Honest issues are not refused.
+        let g = issue_graph(
+            &[
+                (I::Title.key().0, "nas-01 is down"),
+                (I::Device.key().0, id),
+                (I::Plan.key().0, plan),
+                (
+                    I::Outcome.key().0,
+                    "Your answers point at the cable or port 23.",
+                ),
+            ],
+            &[
+                (S::Targets.key().0, id),
+                (S::Question.key().0, "Link light on sw-02 port 23?"),
+                (S::Note.key().0, "Light is off; cable 0412 is warm"),
+            ],
+        );
+        assert_eq!(fathom_workspace::find_credential(&g), None);
+    }
 }

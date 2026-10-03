@@ -57,7 +57,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.15\n",
+    "schema 0.17\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -767,4 +767,62 @@ fn a_0_14_header_opens_but_cannot_hold_a_plan() {
         read_plain(old.as_bytes()).err(),
         Some(PlainError::KindNotInDeclaredVersion { .. })
     ));
+}
+
+/// ADR-0061 troubleshooting: a 0.15 and a 0.16 design keep opening at 0.17, and neither header
+/// can hold an issue.
+#[test]
+fn a_0_15_or_0_16_header_opens_but_cannot_hold_an_issue() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    for old_version in ["0.15", "0.16"] {
+        let older = PINNED.replacen(
+            &format!("schema {SCHEMA_VERSION}"),
+            &format!("schema {old_version}"),
+            1,
+        );
+        assert_ne!(older, PINNED, "the substitution must have landed");
+        read_plain(older.as_bytes()).expect("an older payload opens");
+
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+        g.insert_node(NodeKind::Issue, ulid(1), prov(1))
+            .expect("issue");
+        g.end_batch().expect("close");
+        let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+        let old = text.replacen(
+            &format!("schema {SCHEMA_VERSION}"),
+            &format!("schema {old_version}"),
+            1,
+        );
+        match read_plain(old.as_bytes()).err() {
+            Some(PlainError::KindNotInDeclaredVersion {
+                declared_version,
+                element_kind,
+            }) => {
+                assert_eq!(declared_version, old_version);
+                assert_eq!(element_kind, "Issue");
+            }
+            other => panic!("a 0.17-only kind under a {old_version} header must refuse: {other:?}"),
+        }
+    }
+}
+
+/// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).
+#[test]
+fn a_0_15_header_holds_a_plan_and_a_0_16_one_too() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    for old_version in ["0.15", "0.16"] {
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+        g.insert_node(NodeKind::MaintenancePlan, ulid(1), prov(1))
+            .expect("plan");
+        g.end_batch().expect("close");
+        let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+        let old = text.replacen(
+            &format!("schema {SCHEMA_VERSION}"),
+            &format!("schema {old_version}"),
+            1,
+        );
+        read_plain(old.as_bytes()).expect("a plan is legitimate at this header");
+    }
 }
