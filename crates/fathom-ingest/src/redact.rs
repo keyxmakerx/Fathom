@@ -849,7 +849,13 @@ fn adjacent_secret_word(text: &str) -> bool {
         if ch != '=' && ch != ':' {
             continue;
         }
-        let before = text[..idx].trim_end();
+        // A name worth matching is short; looking back further made a long line without
+        // spaces cost the square of its length (a 25 MiB upload held a thread for hours).
+        let mut from = idx.saturating_sub(64);
+        while !text.is_char_boundary(from) {
+            from += 1;
+        }
+        let before = text[from..idx].trim_end();
         let word = before.rsplit(char::is_whitespace).next().unwrap_or("");
         let after = text[idx + ch.len_utf8()..].trim_start();
         if !word.is_empty() && !after.is_empty() && key_names_a_secret(word) {
