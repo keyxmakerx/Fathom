@@ -218,12 +218,12 @@ export function Bar({
         >
           {tree}
         </Popover>
-        {/* Others in this view: a round dot with their initials, nothing more. */}
+        {/* Others in this view: a round dot with their initials; the full name is its label. */}
         {presence.length > 0 && (
-          <div className="shell-bar__people" aria-label="Also here">
+          <div className="shell-bar__people" role="group" aria-label="Also in this view">
             {presence.map((person) => (
-              <span className="shell-person" key={person.id} title={person.name}>
-                {person.name}
+              <span className="shell-person" key={person.id} tabIndex={0} aria-label={person.name} title={person.name}>
+                {person.initials}
               </span>
             ))}
           </div>

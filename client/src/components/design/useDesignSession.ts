@@ -22,9 +22,8 @@ import type { DesignCapability } from '../../api/designs';
 import { LiveFeed, postChange, postPresence, type Person } from '../../api/live';
 import { openDesign } from '../../api/payload';
 import { writeChange } from '../../document/change';
-import type { Overwrite } from '../../document/liveDoc';
 import { ConditionalSave } from './conditionalSave';
-import { LiveEditing, type LiveMode } from './liveSession';
+import { LiveEditing, type LiveMode, type LiveView } from './liveSession';
 import type { EditorChange } from '../drawing';
 import {
   AlreadyPlacedError,
@@ -124,23 +123,25 @@ export interface LiveStatus {
   reconnecting: boolean;
   pendingCount: number;
   note: string | null;
-  overwrite: { sentence: string; overwrite: Overwrite } | null;
+  overwrite: LiveView['overwrite'];
+  merged: string | null;
+  self: Person | null;
   people: Person[];
 }
 
-const NO_LIVE: LiveStatus = { mode: 'connecting', connected: false, reconnecting: false, pendingCount: 0, note: null, overwrite: null, people: [] };
+const NO_LIVE: LiveStatus = { mode: 'connecting', connected: false, reconnecting: false, pendingCount: 0, note: null, overwrite: null, merged: null, self: null, people: [] };
 
 export interface DesignSession {
   doc: Document | null;
   live: LiveStatus;
-  /** Live editing: restore the value another person's change just replaced. */
-  putMineBack: () => void;
+  /** Live editing: restore the value another person's change just replaced (an item's `id` from `live.overwrite`). */
+  putMineBack: (id: string) => void;
   dismissOverwrite: () => void;
   dismissNote: () => void;
   /** One sentence in the live notice's place (e.g. what an undo left alone). */
   tell: (sentence: string) => void;
-  /** The view this person is in ("canvas", "rack:<id>", "inventory"), for presence. */
-  setView: (view: string) => void;
+  /** The view this person is in ("canvas" or "inventory") and what they have selected, for presence. */
+  setPresence: (view: string, selected: string | null) => void;
   catalogue: CatalogueModel[];
   loadError: string | null;
   saveRefusal: string | null;
@@ -185,7 +186,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   const [live, setLive] = useState<LiveStatus>(NO_LIVE);
   const liveRef = useRef<LiveEditing | null>(null);
-  const viewRef = useRef('');
+  const viewRef = useRef<{ view: string; selected: string | null } | null>(null);
 
   // ADR-0054 §1: the base a save is conditioned on, held here rather than in
   // state — it moves on every save that lands, which a document mid-drawing
@@ -230,13 +231,13 @@ export function useDesignSession(organisationId: string, designId: string, capab
               return { doc: readPlain(again.bytes), version: again.version };
             },
             post: (change, after) => postChange(organisationId, designId, writeChange(change), after),
-            postView: (view) => postPresence(organisationId, designId, view),
+            postView: (body) => postPresence(organisationId, designId, body),
             makeFeed: (since, events, view) => new LiveFeed({ organisationId, designId, since, events, view }),
             save: (next) => saveQueueRef.current?.push(writePlain(next)),
             onView: (v) => {
               if (cancelledRef.current) return;
               setDoc(v.doc);
-              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, people: v.people });
+              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, merged: v.merged, self: v.self, people: v.people });
             },
           },
           opened0,
@@ -245,7 +246,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
         liveRef.current = session;
         setDoc(opened0);
         session.start();
-        if (viewRef.current !== '') session.setView(viewRef.current);
+        if (viewRef.current !== null) session.setPresence(viewRef.current.view, viewRef.current.selected);
       })
       .catch((error: unknown) => {
         if (!cancelledRef.current) setLoadError(describeError(error));
@@ -325,13 +326,13 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [saveQueue, canDraw],
   );
 
-  const putMineBack = useCallback(() => liveRef.current?.putBack(), []);
+  const putMineBack = useCallback((id: string) => liveRef.current?.putBack(id), []);
   const dismissOverwrite = useCallback(() => liveRef.current?.dismissOverwrite(), []);
   const dismissNote = useCallback(() => liveRef.current?.dismissNote(), []);
   const tell = useCallback((sentence: string) => liveRef.current?.tell(sentence), []);
-  const setView = useCallback((view: string) => {
-    viewRef.current = view;
-    liveRef.current?.setView(view);
+  const setPresence = useCallback((view: string, selected: string | null) => {
+    viewRef.current = { view, selected };
+    liveRef.current?.setPresence(view, selected);
   }, []);
 
   const handleEdit = useCallback(
@@ -477,7 +478,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
     dismissOverwrite,
     dismissNote,
     tell,
-    setView,
+    setPresence,
     catalogue,
     loadError,
     saveRefusal,

@@ -1541,3 +1541,19 @@
   font-weight: 700;
   color: var(--ink);
 }
+
+/* Another person's selection (UI-SPEC "Presence"): an ink initials dot at the thing's top right. No ring, no animation, and it moves only when their selection does. */
+.drawing-peer {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--page);
+  font-size: var(--t-micro);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}

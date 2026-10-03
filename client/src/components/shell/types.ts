@@ -22,7 +22,8 @@ export interface ShellSearch {
 /** One person in "who else is here", drawn as an initials dot. */
 export interface PresenceUser {
   id: string;
-  /** Their initials, and nothing else. */
+  initials: string;
+  /** Their display name, for the dot's label and title. */
   name: string;
 }
 
@@ -94,6 +95,10 @@ export interface ShellProps {
    * bar. Omitted or `false` on Home and everywhere a reader could not have
    * landed anyway. */
   viewOnly?: boolean;
+
+  /** The live design's notices. Shown under the editor's fields, or at the
+   * canvas's top right while no editor is open. */
+  notices?: ReactNode;
 
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */

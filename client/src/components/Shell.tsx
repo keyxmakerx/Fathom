@@ -42,6 +42,7 @@ export function Shell({
   onPrint,
   account,
   editor,
+  notices,
   rail,
   trail,
   trailOpen,
@@ -85,8 +86,9 @@ export function Shell({
         {rail != null && <Strip rail={rail} />}
         <main className="shell__drawing" aria-label="Drawing">
           {children}
+          {editor == null && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
-        {editor != null && <Editor>{editor}</Editor>}
+        {editor != null && <Editor notices={notices}>{editor}</Editor>}
         {/* The trail folds to a strip on the right; it can be open beside the editor. */}
         {trail != null && (
           <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>

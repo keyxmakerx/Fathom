@@ -12,7 +12,14 @@ import {
   droppedSentence,
   localEdit,
   openLive,
-  overwriteSentence,
+  overwriteLines,
+  yoursLine,
+  keepLabel,
+  mergedSentence,
+  mergedWith,
+  panelLabel,
+  elementName,
+  PUT_BACK_LABEL,
   putMineBack,
   type Context,
   type LiveState,
@@ -111,16 +118,26 @@ describe('merge', () => {
     expect(findNode(r.state.visible, deviceId)!.fields['Device.hostname'].value).toBe('theirs');
     expect(r.overwrites).toHaveLength(1);
     const o = r.overwrites[0];
-    expect(o).toMatchObject({ element: deviceId, key: 'Device.hostname', by: THEM, mine: { presence: 'set', value: 'mine' } });
-    expect(overwriteSentence(o, 'SK')).toBe('SK changed hostname just after you.');
-    expect(overwriteSentence(o, undefined)).toBe('Someone changed hostname just after you.');
+    expect(o).toMatchObject({
+      element: deviceId,
+      key: 'Device.hostname',
+      by: THEM,
+      mine: { presence: 'set', value: 'mine' },
+      theirs: { presence: 'set', value: 'theirs' },
+      on: 'theirs',
+      putBack: false,
+    });
+    const nameOf = (a: string) => (a === THEM ? 'Bob' : 'Someone');
+    expect(overwriteLines([o], nameOf)).toEqual(['Bob changed the name on theirs just after you']);
+    expect(yoursLine(o, nameOf)).toBe("yours mine → Bob's theirs");
+    expect(keepLabel([o], nameOf)).toBe("Keep Bob's");
 
     // Put mine back is an ordinary new change.
     const back = putMineBack(r.state.visible, o, { actor: ME, now: T0 + 4000 })!;
     const again = localEdit(r.state, back);
     expect(again.changes).toHaveLength(1);
     expect(findNode(again.state.visible, deviceId)!.fields['Device.hostname'].value).toBe('mine');
-    expect(again.changes[0].batch.label).toBe('put mine back');
+    expect(again.changes[0].batch.label).toBe(PUT_BACK_LABEL);
     const history = again.state.visible.history.find((h) => h.element === deviceId && h.field === 'Device.hostname')!;
     expect(history.entries.map((e) => e.value)).toEqual(['mine', 'theirs']);
   });
@@ -312,5 +329,85 @@ describe('undo leaves what others changed', () => {
     const r = undoSkipping(a, a.batches[a.batches.length - 1].id, { actor: ME, now: T0 + 2000 });
     expect(r.skipped).toEqual([]);
     expect(findNode(r.doc, deviceId)!.fields['Device.hostname']).toBeUndefined();
+  });
+});
+
+describe('the words of a notice', () => {
+  const name = (a: string) => ({ [THEM]: 'Bob', [ME]: 'Ann' })[a] ?? 'Someone';
+  const o = (key: string, by: string, on: string, extra: Partial<import('./liveDoc').Overwrite> = {}): import('./liveDoc').Overwrite => ({
+    element: 'e',
+    key,
+    by,
+    mine: { presence: 'set', value: 'SN-ANN-1' },
+    theirs: { presence: 'set', value: 'SN-BOB-2' },
+    on,
+    putBack: false,
+    at: 1,
+    ...extra,
+  });
+
+  it('names the person, the field by its panel label and the device, once for several fields', () => {
+    expect(overwriteLines([o('Chassis.serial', THEM, 'core-sw-01')], name)).toEqual(['Bob changed the serial on core-sw-01 just after you']);
+    expect(overwriteLines([o('Chassis.serial', THEM, 'core-sw-01'), o('Device.management_address', THEM, 'core-sw-01')], name)).toEqual([
+      'Bob changed the serial and the mgmt address on core-sw-01 just after you',
+    ]);
+    expect(overwriteLines([o('Chassis.serial', THEM, 'a'), o('Rack.row', 'x', 'b')], name)).toHaveLength(2);
+  });
+
+  it('says a put-back as a put-back, without guessing a pronoun', () => {
+    expect(overwriteLines([o('Chassis.serial', ME, 'core-sw-01', { putBack: true })], name)).toEqual(['Ann put back the serial on core-sw-01']);
+  });
+
+  it('shows yours and theirs on one mono line, and an empty field as a dash', () => {
+    expect(yoursLine(o('Chassis.serial', THEM, 'x'), name)).toBe("yours SN-ANN-1 → Bob's SN-BOB-2");
+    expect(yoursLine(o('Chassis.serial', THEM, 'x', { theirs: { presence: 'unknown' } }), name)).toBe("yours SN-ANN-1 → Bob's –");
+  });
+
+  it('keeps one person’s name on the button and falls back to "theirs" for several', () => {
+    expect(keepLabel([o('Chassis.serial', THEM, 'x')], name)).toBe("Keep Bob's");
+    expect(keepLabel([o('Chassis.serial', THEM, 'x'), o('Rack.row', 'y', 'x')], name)).toBe('Keep theirs');
+  });
+
+  it('says a merge once, with the field the person changed', () => {
+    expect(mergedSentence(['Device.role'], 'Bob')).toBe("Your role change merged with Bob's. Both are in history.");
+    expect(mergedSentence(['Chassis.serial', 'Device.role'], 'Bob')).toBe("Your serial and role changes merged with Bob's. Both are in history.");
+  });
+
+  it('labels fields as the panel does and names an element by its device', () => {
+    expect(panelLabel('Chassis.serial')).toBe('serial');
+    expect(panelLabel('Device.management_address')).toBe('mgmt address');
+    expect(panelLabel('Foo.some_thing')).toBe('some thing');
+    const { base, deviceId, chassisId } = world();
+    const named = setDeviceField(base, deviceId, 'hostname', 'core-sw-01', { actor: ME, now: T0 + 5 });
+    expect(elementName(named, chassisId)).toBe('core-sw-01');
+    expect(elementName(named, deviceId)).toBe('core-sw-01');
+    expect(elementName(base, chassisId)).toBe('an unnamed device');
+  });
+});
+
+describe('a merge on the same thing', () => {
+  it('is found when another person changes a different field of the element this person changed', () => {
+    const { base, rackId } = world();
+    const mine = setRackField(base, rackId, 'row', 'Row A', { actor: ME, now: T0 + 1000 });
+    const edit = localEdit(openLive(base, 10), mine);
+    const s = applyRemote(edit.state, edit.changes[0], 11, ctx(T0 + 1500)).state;
+    const remote = theirs(mine, (d) => setRackField(d, rackId, 'bay', 2, { actor: THEM, now: T0 + 2000 }));
+    const r = applyRemote(s, remote.change, 12, ctx(T0 + 3000));
+    expect(r.overwrites).toEqual([]);
+    expect(r.merged).toEqual({ by: THEM, keys: ['Rack.row'] });
+    // Out of the window, or not this sitting, there is nothing to say.
+    expect(mergedWith(s.visible, remote.change, ctx(T0 + 1000 + OVERWRITE_WINDOW_MS + 1))).toBeNull();
+    expect(mergedWith(s.visible, remote.change, { ...ctx(T0 + 3000), sittingStart: T0 + 2500 })).toBeNull();
+  });
+
+  it('is not a merge when it is the same field', () => {
+    const { base, rackId } = world();
+    const mine = setRackField(base, rackId, 'row', 'Row A', { actor: ME, now: T0 + 1000 });
+    const edit = localEdit(openLive(base, 10), mine);
+    const s = applyRemote(edit.state, edit.changes[0], 11, ctx(T0 + 1500)).state;
+    const remote = theirs(mine, (d) => setRackField(d, rackId, 'row', 'Row B', { actor: THEM, now: T0 + 2000 }));
+    const r = applyRemote(s, remote.change, 12, ctx(T0 + 3000));
+    expect(r.merged).toBeNull();
+    expect(r.overwrites).toHaveLength(1);
   });
 });

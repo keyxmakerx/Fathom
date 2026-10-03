@@ -186,6 +186,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
+  /** What is selected, by element id, for presence (ADR-0063 §12). */
+  onSelectedChange?: (id: string | null) => void;
 }
 
 /**
@@ -209,10 +211,15 @@ export function RacksPlace(props: RacksPlaceProps) {
     notesActions,
     tagsActions,
     onActiveRackChange,
+    onSelectedChange,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
+  const selectedId = selection?.id ?? null;
+  useEffect(() => {
+    onSelectedChange?.(selectedId);
+  }, [onSelectedChange, selectedId]);
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
   // Bumped by the bar's percentage button; the drawing fits every rack.
@@ -867,6 +874,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : (
         <Drawing
           view={displayView}
+          peers={session.live.people}
           selected={selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}

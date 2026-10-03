@@ -9,17 +9,20 @@
 
 import { ApiRefusal } from '../../api/errors';
 import {
+  FRAME_AUTHOR,
   FRAME_CHANGE,
   FRAME_PRESENCE,
   FRAME_RELOAD,
   FRAME_RESYNC,
   isRefusal,
+  parseAuthor,
   parsePresence,
   presenceInView,
   type FeedEvents,
   type FeedStatus,
   type LiveFrame,
   type Person,
+  type PresenceBody,
 } from '../../api/live';
 import { ChangeError, readChange, type Change } from '../../document/change';
 import {
@@ -27,10 +30,13 @@ import {
   applyReload,
   applyRemote,
   droppedSentence,
+  keepLabel,
   localEdit,
+  mergedSentence,
   openLive,
-  overwriteSentence,
+  overwriteLines,
   putMineBack,
+  yoursLine,
   type LiveState,
   type Overwrite,
 } from '../../document/liveDoc';
@@ -49,9 +55,13 @@ export interface LiveView {
   pendingCount: number;
   /** A sentence about a change that was dropped or refused. */
   note: string | null;
-  /** "<who> changed <field> just after you", with what Put mine back restores. */
-  overwrite: { sentence: string; overwrite: Overwrite } | null;
-  /** The others in this view. */
+  /** "<who> changed <field> on <device> just after you": one notice, a line and a Put mine back for each field. */
+  overwrite: { lines: string[]; items: Array<{ id: string; yours: string }>; keep: string } | null;
+  /** Said once when this person's change merged with someone else's. */
+  merged: string | null;
+  /** This person, as the server names them. */
+  self: Person | null;
+  /** The others in this view, with what each has selected. */
   people: Person[];
 }
 
@@ -67,7 +77,7 @@ export interface LiveDeps {
   canDraw: boolean;
   reopen(): Promise<{ doc: Document; version: number }>;
   post(change: Change, after: number): Promise<number>;
-  postView(view: string): Promise<void>;
+  postView(body: PresenceBody): Promise<void>;
   makeFeed(since: () => number, events: FeedEvents, view: () => string): FeedLike;
   /** Legacy mode: save the whole document. */
   save(doc: Document): void;
@@ -77,6 +87,12 @@ export interface LiveDeps {
 
 const RETRY_MS = [1000, 2000, 4000, 8000, 15000];
 const PRESENCE_GAP_MS = 500;
+const MERGED_MS = 20_000;
+
+/** The view this person is looking at. A rack is never a view of its own: the canvas holds them all. */
+export function presenceViewOf(place: 'racks' | 'inventory'): string {
+  return place === 'inventory' ? 'inventory' : 'canvas';
+}
 
 export class LiveEditing {
   private readonly d: LiveDeps;
@@ -86,11 +102,15 @@ export class LiveEditing {
   private mode: LiveMode = 'connecting';
   private connected = false;
   private down = false;
+  private sendFailed = false;
   private note: string | null = null;
-  private overwrite: LiveView['overwrite'] = null;
+  private overwrites: Overwrite[] = [];
+  private merged: string | null = null;
+  private mergedTimer: ReturnType<typeof setTimeout> | undefined;
+  private self: Person | null = null;
   private people: Person[] = [];
   private heard: { people: Person[]; ownerView: string | undefined } = { people: [], ownerView: undefined };
-  private initialsOf = new Map<string, string>();
+  private directory = new Map<string, Person>();
   private readonly sent = new Set<string>();
   private sending = false;
   private retries = 0;
@@ -100,6 +120,7 @@ export class LiveEditing {
   private readonly feed: FeedLike;
 
   private view = '';
+  private selected: string | null = null;
   private viewSent: string | null = null;
   private viewAt = 0;
   private viewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -129,6 +150,7 @@ export class LiveEditing {
     this.feed.stop();
     clearTimeout(this.retryTimer);
     clearTimeout(this.viewTimer);
+    clearTimeout(this.mergedTimer);
   }
 
   get doc(): Document {
@@ -149,12 +171,25 @@ export class LiveEditing {
       doc: this.state.visible,
       mode: this.mode,
       connected: this.connected,
-      reconnecting: this.down,
+      reconnecting: this.down || (this.sendFailed && this.state.pending.length > 0),
       pendingCount: this.state.pending.length,
       note: this.note,
-      overwrite: this.overwrite,
+      overwrite: this.overwriteView(),
+      merged: this.merged,
+      self: this.self,
       people: this.people,
     });
+  }
+
+  private nameOf = (account: string): string => this.directory.get(account)?.name ?? 'Someone';
+
+  private overwriteView(): LiveView['overwrite'] {
+    if (this.overwrites.length === 0) return null;
+    return {
+      lines: overwriteLines(this.overwrites, this.nameOf),
+      items: this.overwrites.map((o) => ({ id: `${o.element}\n${o.key}`, yours: yoursLine(o, this.nameOf) })),
+      keep: keepLabel(this.overwrites, this.nameOf),
+    };
   }
 
   // ---- what the person does -------------------------------------------
@@ -181,11 +216,12 @@ export class LiveEditing {
     void this.pump();
   }
 
-  /** Put mine back: a new ordinary change restoring the earlier value. */
-  putBack(): void {
-    const o = this.overwrite?.overwrite;
-    this.overwrite = null;
-    if (!o || !this.d.me) return this.emit();
+  /** Put mine back: a new ordinary change restoring the earlier value of one field. */
+  putBack(id: string): void {
+    const o = this.overwrites.find((x) => `${x.element}\n${x.key}` === id);
+    if (!o) return;
+    this.overwrites = this.overwrites.filter((x) => x !== o);
+    if (!this.d.me) return this.emit();
     const next = putMineBack(this.state.visible, o, { actor: this.d.me, now: this.now() });
     if (next === undefined) {
       this.note = 'That part is gone now, so there was nothing to put back.';
@@ -194,8 +230,9 @@ export class LiveEditing {
     this.edit(next);
   }
 
+  /** Keep theirs: all the overwrites stand. */
   dismissOverwrite(): void {
-    this.overwrite = null;
+    this.overwrites = [];
     this.emit();
   }
 
@@ -217,9 +254,10 @@ export class LiveEditing {
 
   // ---- presence -------------------------------------------------------
 
-  /** The view this person is in: "canvas", "rack:<id>" or "inventory". At most twice a second. */
-  setView(view: string): void {
+  /** The view this person is in ("canvas" or "inventory") and what they have selected. At most twice a second. */
+  setPresence(view: string, selected: string | null): void {
     this.view = view;
+    this.selected = selected;
     const people = presenceInView(this.heard.people, this.heard.ownerView, view);
     if (people !== this.people && (people.length > 0 || this.people.length > 0)) {
       this.people = people;
@@ -228,18 +266,24 @@ export class LiveEditing {
     this.schedulePresence();
   }
 
+  private presenceKey(): string {
+    return `${this.view}\n${this.selected ?? ''}`;
+  }
+
   private schedulePresence(): void {
     if (this.mode !== 'live' || !this.connected || this.disposed) return;
-    if (this.view === '' || this.view === this.viewSent) return;
+    if (this.view === '' || this.presenceKey() === this.viewSent) return;
     clearTimeout(this.viewTimer);
     const wait = Math.max(0, this.viewAt + PRESENCE_GAP_MS - this.now());
     this.viewTimer = setTimeout(() => {
-      if (this.view === this.viewSent || !this.connected) return;
-      const view = this.view;
-      this.viewSent = view;
+      const key = this.presenceKey();
+      if (key === this.viewSent || !this.connected) return;
+      const body = { view: this.view, selected: this.selected };
+      this.viewSent = key;
       this.viewAt = this.now();
-      this.d.postView(view).catch(() => {
-        if (this.viewSent === view) this.viewSent = null;
+      this.d.postView(body).catch((e: unknown) => {
+        if (this.lostAccess(e)) return;
+        if (this.viewSent === key) this.viewSent = null;
       });
     }, wait);
   }
@@ -276,16 +320,27 @@ export class LiveEditing {
   private onFrame(frame: LiveFrame): void {
     if (this.disposed || this.mode === 'legacy') return;
     if (frame.type === FRAME_PRESENCE) {
-      this.heard = { people: parsePresence(frame.bytes), ownerView: frame.view };
-      for (const p of this.heard.people) this.initialsOf.set(p.account, p.initials);
+      const heard = parsePresence(frame.bytes);
+      this.heard = { people: heard.others, ownerView: frame.view };
+      if (heard.self) {
+        this.self = heard.self;
+        this.directory.set(heard.self.account, heard.self);
+      }
+      for (const p of heard.others) this.directory.set(p.account, p);
       this.people = presenceInView(this.heard.people, this.heard.ownerView, this.view);
       this.emit();
+    } else if (frame.type === FRAME_AUTHOR) {
+      const person = parseAuthor(frame.bytes);
+      if (person) this.directory.set(person.account, person);
     } else if (frame.type === FRAME_CHANGE) {
       this.onChange(frame);
     } else if (frame.type === FRAME_RELOAD) {
       void this.reopen();
     } else if (frame.type === FRAME_RESYNC) {
-      this.feed.restart();
+      // Reopening the same `since` would be told to resync again: take the design as it is now.
+      void this.reopen().then((ok) => {
+        if (ok) this.feed.restart();
+      });
     }
   }
 
@@ -307,8 +362,17 @@ export class LiveEditing {
         for (const c of r.dropped) this.sent.delete(c.batch.id);
         this.note = droppedSentence(r.dropped);
       }
-      const newest = r.overwrites[r.overwrites.length - 1];
-      if (newest) this.overwrite = { sentence: overwriteSentence(newest, this.initialsOf.get(newest.by)), overwrite: newest };
+      for (const o of r.overwrites) {
+        this.overwrites = [...this.overwrites.filter((x) => x.element !== o.element || x.key !== o.key), o];
+      }
+      if (r.merged) {
+        this.merged = mergedSentence(r.merged.keys, this.nameOf(r.merged.by));
+        clearTimeout(this.mergedTimer);
+        this.mergedTimer = setTimeout(() => {
+          this.merged = null;
+          this.emit();
+        }, MERGED_MS);
+      }
       this.emit();
       if (r.echoed) void this.pump();
     } catch (e) {
@@ -317,21 +381,36 @@ export class LiveEditing {
     }
   }
 
-  private async reopen(): Promise<void> {
-    if (this.reloading) return;
+  /** This tab's own requests were refused for want of access: stop listening. */
+  private lostAccess(e: unknown): boolean {
+    if (!(e instanceof ApiRefusal) || (e.status !== 401 && e.status !== 403)) return false;
+    this.feed.stop();
+    this.connected = false;
+    this.down = false;
+    this.people = [];
+    this.note = 'You no longer have access to this design here, so live updates have stopped.';
+    this.emit();
+    return true;
+  }
+
+  private async reopen(): Promise<boolean> {
+    if (this.reloading) return false;
     this.reloading = true;
     try {
       const { doc, version } = await this.d.reopen();
-      if (this.disposed) return;
+      if (this.disposed) return false;
       const r = applyReload(this.state, doc, version);
       this.state = r.state;
       this.sent.clear();
       if (r.dropped.length > 0) this.note = droppedSentence(r.dropped);
       this.emit();
       void this.pump();
-    } catch {
+      return true;
+    } catch (e) {
+      if (this.lostAccess(e)) return false;
       this.note = 'Could not reopen the design just now. Your changes are kept.';
       this.emit();
+      return false;
     } finally {
       this.reloading = false;
     }
@@ -350,8 +429,12 @@ export class LiveEditing {
           await this.d.post(next, this.state.version);
           this.sent.add(next.batch.id);
           this.retries = 0;
+          if (this.sendFailed) {
+            this.sendFailed = false;
+            this.emit();
+          }
         } catch (e) {
-          if (isRefusal(e)) {
+          if (isRefusal(e) && !(e instanceof ApiRefusal && e.status === 403)) {
             const r = applyRefusal(this.state, next.batch.id);
             this.state = r.state;
             this.note = e instanceof ApiRefusal ? e.message : 'The server refused that change.';
@@ -359,7 +442,9 @@ export class LiveEditing {
             this.emit();
             continue;
           }
-          if (e instanceof ApiRefusal && e.status === 401) break; // signed out: nothing to retry
+          if (this.lostAccess(e)) break;
+          this.sendFailed = true;
+          this.emit();
           this.retryLater();
           break;
         }

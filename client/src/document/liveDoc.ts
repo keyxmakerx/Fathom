@@ -10,6 +10,7 @@ import {
   assertHand,
   findEdge,
   findNode,
+  parseNodeId,
   withBatch,
   type Batch,
   type Document,
@@ -124,9 +125,18 @@ export interface Overwrite {
   by: string;
   /** What this person had written. */
   mine: { presence: FieldPresence | 'unknown'; value?: CanonValue };
+  /** What stands now. */
+  theirs: { presence: FieldPresence | 'unknown'; value?: CanonValue };
+  /** The device (or rack, label...) the field belongs to, by name. */
+  on: string;
+  /** The change was somebody putting their own value back. */
+  putBack: boolean;
   /** The version of `visible` the notice is about, for ordering only. */
   at: number;
 }
+
+/** The label `putMineBack` gives its change. */
+export const PUT_BACK_LABEL = 'put mine back';
 
 export interface Remote {
   state: LiveState;
@@ -136,6 +146,8 @@ export interface Remote {
   echoed: boolean;
   dropped: Change[];
   overwrites: Overwrite[];
+  /** Fields of this person's own, on the element another person just changed, that merged with it. */
+  merged: { by: string; keys: string[] } | null;
 }
 
 export interface Context {
@@ -172,15 +184,54 @@ export function overwritesBy(before: Document, after: Document, change: Change, 
     if (now !== undefined && !authors.has(now.prov)) continue; // someone else's again, not this change
     const by = authors.get(op.prov);
     if (by === undefined || by === ctx.me) continue;
-    out.push({ element: op.element, key: op.key, by, mine: { presence: was.presence, value: was.value }, at: ctx.now });
+    out.push({
+      element: op.element,
+      key: op.key,
+      by,
+      mine: { presence: was.presence, value: was.value },
+      theirs: { presence: now?.presence ?? 'unknown', value: now?.value },
+      on: elementName(after, op.element),
+      putBack: change.batch.label === PUT_BACK_LABEL,
+      at: ctx.now,
+    });
   }
   return out;
+}
+
+/** This person's own fields, written in this sitting within the window, on the
+ * element another person's `change` touched, that `change` did not touch. */
+export function mergedWith(before: Document, change: Change, ctx: Context): { by: string; keys: string[] } | null {
+  const authors = new Map(change.provenance.map((p) => [p.id, p.assertedBy]));
+  const theirs = new Map<string, Set<string>>();
+  for (const op of change.batch.ops) {
+    if (op.type !== 'set_field') continue;
+    const keys = theirs.get(op.element) ?? new Set<string>();
+    keys.add(op.key);
+    theirs.set(op.element, keys);
+  }
+  for (const op of change.batch.ops) {
+    if (op.type !== 'set_field') continue;
+    const by = authors.get(op.prov);
+    if (by === undefined || by === ctx.me) continue;
+    const holder = findNode(before, op.element) ?? findEdge(before, op.element);
+    if (!holder) continue;
+    const keys: string[] = [];
+    for (const [key, entry] of Object.entries(holder.fields)) {
+      if (theirs.get(op.element)!.has(key)) continue;
+      const rec = before.provenance.find((p) => p.id === entry.prov);
+      if (!rec || rec.assertedBy !== ctx.me) continue;
+      if (rec.assertedAt < ctx.sittingStart || ctx.now - rec.assertedAt > OVERWRITE_WINDOW_MS) continue;
+      keys.push(key);
+    }
+    if (keys.length > 0) return { by, keys };
+  }
+  return null;
 }
 
 /** A change the server has put at `version`. Throws `ChangeError` when it
  * cannot apply to `confirmed`: the caller reopens the design. */
 export function applyRemote(state: LiveState, change: Change, version: number, ctx: Context): Remote {
-  const none = { dropped: [], overwrites: [] };
+  const none = { dropped: [], overwrites: [], merged: null };
   if (version <= state.version) return { state, gap: false, echoed: false, ...none };
   if (version !== state.version + 1) return { state, gap: true, echoed: false, ...none };
 
@@ -192,7 +243,7 @@ export function applyRemote(state: LiveState, change: Change, version: number, c
       return { state: { ...state, confirmed, version, pending }, gap: false, echoed: true, ...none };
     }
     const r = rebase(confirmed, pending);
-    return { state: { confirmed, version, pending: r.kept, visible: r.visible }, gap: false, echoed: true, dropped: r.dropped, overwrites: [] };
+    return { state: { confirmed, version, pending: r.kept, visible: r.visible }, gap: false, echoed: true, dropped: r.dropped, overwrites: [], merged: null };
   }
 
   const r = rebase(confirmed, state.pending);
@@ -202,6 +253,7 @@ export function applyRemote(state: LiveState, change: Change, version: number, c
     echoed: false,
     dropped: r.dropped,
     overwrites: overwritesBy(state.visible, r.visible, change, ctx),
+    merged: mergedWith(state.visible, change, ctx),
   };
 }
 
@@ -244,7 +296,7 @@ export function putMineBack(doc: Document, o: Overwrite, opts: { actor: string; 
     ? { ...working, nodes: working.nodes.map((n) => (n.id === o.element ? { ...n, fields } : n)) }
     : { ...working, edges: working.edges.map((e) => (e.id === o.element ? { ...e, fields } : e)) };
   const op: Op = { type: 'set_field', element: o.element, key: o.key, presence, prov: prov.id };
-  return withBatch(working, { id: newUlid(opts.now), label: 'put mine back', ops: [op] });
+  return withBatch(working, { id: newUlid(opts.now), label: PUT_BACK_LABEL, ops: [op] });
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +307,104 @@ export function fieldWords(key: string): string {
   return name.replace(/_/g, ' ');
 }
 
-export function overwriteSentence(o: Overwrite, who: string | undefined): string {
-  return `${who ?? 'Someone'} changed ${fieldWords(o.key)} just after you.`;
+/** What the panel calls a field, as it reads in a sentence ("the serial"). */
+const PANEL_LABELS: Readonly<Record<string, string>> = {
+  'Device.hostname': 'name',
+  'Device.role': 'role',
+  'Device.management_address': 'mgmt address',
+  'Chassis.serial': 'serial',
+  'Chassis.model': 'model',
+  'Rack.row': 'row',
+  'Rack.bay': 'bay',
+  'Rack.label': 'name',
+  'Rack.height_u': 'height',
+  'Rack.unit_numbering': 'numbering',
+  'PassiveNode.label': 'name',
+  'PowerSupply.serial': 'serial',
+  'PowerSupply.model': 'model',
+  'PhysicalPort.label': 'label',
+  'Cable.length_m': 'length',
+  'Cable.sheath': 'sheath',
+  'Cable.media': 'media',
+  'Cable.ownership': 'ownership',
+  'Label.text': 'text',
+  'Line.label': 'label',
+  'MountedIn.position_u': 'unit',
+  'MountedIn.face': 'face',
+};
+
+export function panelLabel(key: string): string {
+  return PANEL_LABELS[key] ?? fieldWords(key);
+}
+
+/** A value as the panel shows it; an empty field reads as a dash. */
+export function valueText(v: { presence: string; value?: CanonValue }): string {
+  if (v.presence !== 'set' || v.value === undefined || v.value === null) return '–';
+  return typeof v.value === 'string' ? v.value : JSON.stringify(v.value);
+}
+
+const NAME_FIELDS = ['Device.hostname', 'Rack.label', 'PassiveNode.label', 'Surface.label', 'Premises.label', 'Label.text', 'Line.label'];
+
+/** What to call the thing a field is on: its device's hostname, or its own name. */
+export function elementName(doc: Document, id: string): string {
+  let cur = id;
+  for (let hop = 0; hop < 5; hop += 1) {
+    const edge = findEdge(doc, cur);
+    if (edge) {
+      cur = edge.from;
+      continue;
+    }
+    const node = findNode(doc, cur);
+    if (!node) break;
+    const own = NAME_FIELDS.map((k) => node.fields[k]).find((e) => e?.presence === 'set' && typeof e.value === 'string');
+    if (own) return own.value as string;
+    let kind = '';
+    try {
+      kind = parseNodeId(cur).kind;
+    } catch {
+      break;
+    }
+    if (kind === 'Device') return 'an unnamed device';
+    const up = doc.edges.find((e) => e.to === cur && e.absentSince === undefined);
+    if (!up) break;
+    cur = up.from;
+  }
+  return 'this item';
+}
+
+function listWords(words: readonly string[]): string {
+  return words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/** One bold line per person and device: "Bob changed the serial and the address on core-sw-01 just after you". */
+export function overwriteLines(os: readonly Overwrite[], nameOf: (account: string) => string): string[] {
+  const groups = new Map<string, Overwrite[]>();
+  for (const o of os) {
+    const k = `${o.by}\n${o.on}\n${o.putBack}`;
+    groups.set(k, [...(groups.get(k) ?? []), o]);
+  }
+  return [...groups.values()].map((g) => {
+    const fields = listWords([...new Set(g.map((o) => `the ${panelLabel(o.key)}`))]);
+    const who = nameOf(g[0].by);
+    return g[0].putBack ? `${who} put back ${fields} on ${g[0].on}` : `${who} changed ${fields} on ${g[0].on} just after you`;
+  });
+}
+
+/** `yours SN-ANN-1 → Bob's SN-BOB-2` */
+export function yoursLine(o: Overwrite, nameOf: (account: string) => string): string {
+  return `yours ${valueText(o.mine)} → ${nameOf(o.by)}'s ${valueText(o.theirs)}`;
+}
+
+/** "Keep Bob's", or "Keep theirs" when several people are involved. */
+export function keepLabel(os: readonly Overwrite[], nameOf: (account: string) => string): string {
+  const people = new Set(os.map((o) => o.by));
+  return people.size === 1 ? `Keep ${nameOf(os[0].by)}'s` : 'Keep theirs';
+}
+
+/** Said once when this person's change on the same element merged with someone else's. */
+export function mergedSentence(keys: readonly string[], who: string): string {
+  const fields = listWords([...new Set(keys.map(panelLabel))]);
+  return `Your ${fields} ${keys.length > 1 ? 'changes' : 'change'} merged with ${who}'s. Both are in history.`;
 }
 
 export function droppedSentence(dropped: readonly Change[]): string {

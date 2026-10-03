@@ -24,6 +24,7 @@ import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { LiveNotices } from './LiveNotices';
+import { presenceViewOf } from './liveSession';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip. The object URL is revoked a few
@@ -433,18 +434,34 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : null;
 
   // Who else is in this view: initials only, shown as dots in the bar.
-  const presence = session.live.people.map((p, i) => ({ id: `${p.account ?? p.initials}-${i}`, name: p.initials }));
+  const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
 
   // Presence: which view this person is in (ADR-0063 §12).
-  const { setView } = session;
-  const viewId = props.place === 'inventory' ? 'inventory' : activeRackId != null ? `rack:${activeRackId}` : 'canvas';
+  const { setPresence } = session;
+  const viewId = presenceViewOf(props.place);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => {
-    setView(viewId);
-  }, [setView, viewId]);
+    setPresence(viewId, selectedId);
+  }, [setPresence, viewId, selectedId]);
+
+  // The same letters for you as others see: the server's own initials, once live.
+  const account =
+    session.live.mode === 'live' && session.live.self != null
+      ? { ...shellProps.account, initials: session.live.self.initials }
+      : shellProps.account;
 
   const sharedShellProps = {
     ...shellProps,
+    account,
     presence,
+    notices: (
+      <LiveNotices
+        live={session.live}
+        onKeepTheirs={session.dismissOverwrite}
+        onPutMineBack={session.putMineBack}
+        onDismissNote={session.dismissNote}
+      />
+    ),
     search,
     trail,
     trailOpen,
@@ -485,6 +502,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         notesActions={notesActions}
         tagsActions={tagsActions}
         onActiveRackChange={setActiveRackId}
+        onSelectedChange={setSelectedId}
       />
     ) : (
       <InventoryPlace
@@ -492,6 +510,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onPlaceChange={onPlaceChange}
         session={session}
         onShowOnRack={showOnRack}
+        onSelectedChange={setSelectedId}
         notesActions={notesActions}
         tagsActions={tagsActions}
       />
@@ -515,7 +534,6 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
-      <LiveNotices live={session.live} onKeepTheirs={session.dismissOverwrite} onPutMineBack={session.putMineBack} onDismissNote={session.dismissNote} />
     </>
   );
 }

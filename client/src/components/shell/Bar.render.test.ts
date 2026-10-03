@@ -78,10 +78,19 @@ describe('Bar — what is present where', () => {
 });
 
 describe('Bar — who else is here', () => {
-  it('shows an initials dot per person, with the initials as the only title, and nothing when alone', () => {
-    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, presence: [{ id: 'a', name: 'SK' }, { id: 'b', name: 'AB' }] }));
-    expect(markup).toContain('<span class="shell-person" title="SK">SK</span>');
-    expect(markup).toContain('<span class="shell-person" title="AB">AB</span>');
+  it('shows a focusable initials dot per person, labelled with the full name, in a labelled group; nothing when alone', () => {
+    const markup = renderToStaticMarkup(
+      createElement(Bar, {
+        ...BASE,
+        presence: [
+          { id: 'a', initials: 'SK', name: 'Sam Kerr' },
+          { id: 'b', initials: 'AB', name: 'Ann Bell' },
+        ],
+      }),
+    );
+    expect(markup).toContain('role="group" aria-label="Also in this view"');
+    expect(markup).toContain('<span class="shell-person" tabindex="0" aria-label="Sam Kerr" title="Sam Kerr">SK</span>');
+    expect(markup).toContain('<span class="shell-person" tabindex="0" aria-label="Ann Bell" title="Ann Bell">AB</span>');
     expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-person');
   });
 });

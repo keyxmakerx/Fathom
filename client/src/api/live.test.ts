@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { setSession, type ActiveSession } from '../state/sessionState';
 import { ApiRefusal } from './errors';
-import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, parsePresence, presenceInView, type FeedStatus, type LiveFrame } from './live';
+import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, liveChannelName, parseAuthor, parsePresence, presenceInView, type FeedStatus, type LiveFrame } from './live';
 
 function frame(type: number, version: number, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(13 + body.length);
@@ -48,22 +49,33 @@ describe('FrameReader', () => {
   });
 });
 
+const ann = { account: '01A', initials: 'AN', name: 'Ann Lee' };
+const bob = { account: '01B', initials: 'BO', name: 'Bob Roe', selected: 'chassis:X' };
+
 describe('parsePresence', () => {
-  it('takes the fixed shape and nothing else', () => {
-    expect(parsePresence(text('[{"account":"01A","initials":"KM"}]'))).toEqual([{ account: '01A', initials: 'KM' }]);
-    expect(parsePresence(text('["SK"]'))).toEqual([]);
-    expect(parsePresence(text('[{"initials":"SK"},null]'))).toEqual([]);
-    expect(parsePresence(text('{"a":1}'))).toEqual([]);
-    expect(parsePresence(text('not json'))).toEqual([]);
+  it('takes {self, others} with names and what others have selected, and nothing else', () => {
+    expect(parsePresence(text(JSON.stringify({ self: ann, others: [bob, { ...bob, account: '01C', selected: null }] })))).toEqual({
+      self: ann,
+      others: [bob, { ...bob, account: '01C', selected: null }],
+    });
+    expect(parsePresence(text('[{"account":"01A","initials":"KM"}]'))).toEqual({ self: null, others: [] });
+    expect(parsePresence(text('{"others":["SK",{"initials":"SK"},null]}'))).toEqual({ self: null, others: [] });
+    expect(parsePresence(text('not json'))).toEqual({ self: null, others: [] });
+  });
+});
+
+describe('parseAuthor', () => {
+  it('reads one named person', () => {
+    expect(parseAuthor(text(JSON.stringify(ann)))).toEqual(ann);
+    expect(parseAuthor(text('{"account":"01A"}'))).toBeNull();
   });
 });
 
 describe('presenceInView', () => {
-  const people = [{ account: '01A', initials: 'KM' }];
   it('shows the dots only in the view the stream owner is in', () => {
+    const people = [bob];
     expect(presenceInView(people, 'canvas', 'canvas')).toEqual(people);
     expect(presenceInView(people, 'canvas', 'inventory')).toEqual([]);
-    expect(presenceInView(people, 'rack:a', 'rack:b')).toEqual([]);
     // The owner tab itself (no relayed view) shows what the server sent.
     expect(presenceInView(people, undefined, 'inventory')).toEqual(people);
   });
@@ -159,5 +171,80 @@ describe('LiveFeed (one tab, no Web Locks)', () => {
     await r.done;
     expect(r.statuses).toEqual(['unavailable']);
     expect(r.paths).toHaveLength(1);
+  });
+});
+
+describe('liveChannelName', () => {
+  it('differs by account and design, and not by tab, so one account shares one stream', () => {
+    const a = liveChannelName('d1', 'acct1');
+    expect(liveChannelName('d1', 'acct1')).toBe(a);
+    expect(liveChannelName('d1', 'acct2')).not.toBe(a);
+    expect(liveChannelName('d2', 'acct1')).not.toBe(a);
+  });
+});
+
+describe('LiveFeed and this tab’s own session', () => {
+  it('stops when the tab signs out', async () => {
+    const fake = { sessionId: 's', kind: 'steward', accountId: 'acct1' } as unknown as ActiveSession;
+    setSession(fake);
+    let signal!: AbortSignal;
+    const feed = new LiveFeed({
+      organisationId: 'o',
+      designId: 'd',
+      since: () => 0,
+      events: { frame() {}, status() {} },
+      open: (_p, s) => {
+        signal = s;
+        return new Promise<Response>(() => {});
+      },
+    });
+    feed.start();
+    await Promise.resolve();
+    expect(signal.aborted).toBe(false);
+    setSession(null);
+    expect(signal.aborted).toBe(true);
+  });
+});
+
+describe('LiveFeed on a half-dead connection', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('treats 60 s without any frame as dead, says down, aborts and opens again', async () => {
+    vi.useFakeTimers();
+    const statuses: FeedStatus[] = [];
+    const aborted: boolean[] = [];
+    let opens = 0;
+    const feed = new LiveFeed({
+      organisationId: 'o',
+      designId: 'd',
+      since: () => 0,
+      events: { frame() {}, status: (s) => statuses.push(s) },
+      open: async (_p, signal) => {
+        opens += 1;
+        aborted.push(false);
+        const i = opens - 1;
+        // A socket that never closes and never speaks again; it only ends when aborted.
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              signal.addEventListener('abort', () => {
+                aborted[i] = true;
+                c.error(new DOMException('aborted', 'AbortError'));
+              });
+            },
+          }),
+        );
+      },
+    });
+    feed.start();
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(statuses).toEqual(['up']);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(aborted[0]).toBe(true);
+    expect(statuses.slice(0, 2)).toEqual(['up', 'down']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(opens).toBe(2);
+    expect(statuses.slice(0, 3)).toEqual(['up', 'down', 'up']);
+    feed.stop();
   });
 });

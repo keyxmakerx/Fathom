@@ -3,6 +3,7 @@
 
 import { ApiRefusal } from './errors';
 import { withSchemaPrefix } from './payload';
+import { getSession, subscribe } from '../state/sessionState';
 import { signedFetchWithHeaders, signedStream } from './signedFetch';
 
 export const FRAME_CHANGE = 1;
@@ -10,6 +11,7 @@ export const FRAME_RELOAD = 2;
 export const FRAME_PRESENCE = 3;
 export const FRAME_HEARTBEAT = 4;
 export const FRAME_RESYNC = 5;
+export const FRAME_AUTHOR = 6;
 
 export interface LiveFrame {
   type: number;
@@ -58,25 +60,41 @@ export class FrameReader {
 export interface Person {
   account: string;
   initials: string;
+  /** The display name. */
+  name: string;
+  /** The element this person has selected (others only). */
+  selected?: string | null;
 }
 
-/** The people in the stream owner's view: `[{"account": "<ulid>", "initials": "KM"}]`. */
-export function parsePresence(bytes: Uint8Array): Person[] {
-  let json: unknown;
+function personFrom(item: unknown): Person | null {
+  const o = item as { account?: unknown; initials?: unknown; name?: unknown; selected?: unknown } | null;
+  if (o === null || typeof o !== 'object') return null;
+  if (typeof o.account !== 'string' || typeof o.initials !== 'string' || typeof o.name !== 'string') return null;
+  const person: Person = { account: o.account, initials: o.initials.slice(0, 3), name: o.name };
+  if (typeof o.selected === 'string') person.selected = o.selected;
+  else if (o.selected === null) person.selected = null;
+  return person;
+}
+
+function parseJson(bytes: Uint8Array): unknown {
   try {
-    json = JSON.parse(new TextDecoder().decode(bytes));
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return [];
+    return null;
   }
-  if (!Array.isArray(json)) return [];
-  const out: Person[] = [];
-  for (const item of json) {
-    const o = item as { account?: unknown; initials?: unknown } | null;
-    if (o !== null && typeof o === 'object' && typeof o.account === 'string' && typeof o.initials === 'string') {
-      out.push({ account: o.account, initials: o.initials.slice(0, 3) });
-    }
-  }
-  return out;
+}
+
+/** A presence frame: `{"self": P, "others": [P...]}`, `P` = `{account, initials, name}` plus `selected` for others. */
+export function parsePresence(bytes: Uint8Array): { self: Person | null; others: Person[] } {
+  const json = parseJson(bytes) as { self?: unknown; others?: unknown } | null;
+  if (json === null || typeof json !== 'object') return { self: null, others: [] };
+  const others = Array.isArray(json.others) ? json.others.map(personFrom).filter((p): p is Person => p !== null) : [];
+  return { self: personFrom(json.self), others };
+}
+
+/** An author frame: one `P`, sent before the first change from an author the stream has not named. */
+export function parseAuthor(bytes: Uint8Array): Person | null {
+  return personFrom(parseJson(bytes));
 }
 
 /** The server sends each browser only the people in the owner tab's view. A
@@ -101,9 +119,15 @@ export async function postChange(organisationId: string, designId: string, chang
   return version;
 }
 
-export async function postPresence(organisationId: string, designId: string, view: string): Promise<void> {
-  const body = new TextEncoder().encode(view.slice(0, 64));
-  await signedFetchWithHeaders('POST', `${base(organisationId, designId)}/presence`, body, true);
+export interface PresenceBody {
+  view: string;
+  selected: string | null;
+}
+
+export async function postPresence(organisationId: string, designId: string, body: PresenceBody): Promise<void> {
+  let bytes = new TextEncoder().encode(JSON.stringify({ view: body.view, selected: body.selected }));
+  if (bytes.length > 256) bytes = new TextEncoder().encode(JSON.stringify({ view: body.view, selected: null }));
+  await signedFetchWithHeaders('POST', `${base(organisationId, designId)}/presence`, bytes, true);
 }
 
 /** Whether a failed change was refused (drop it) rather than not delivered (send it again). */
@@ -114,6 +138,15 @@ export function isRefusal(error: unknown): boolean {
 
 // ---------------------------------------------------------------------------
 // The feed
+
+/** The lock and channel name: design and account, so only tabs of one account share a stream. */
+export function liveChannelName(designId: string, scope: string): string {
+  return `fathom-live-${scope}-${designId}`;
+}
+
+function scopeOfSession(): string {
+  return getSession()?.accountId ?? 'none';
+}
 
 export type FeedStatus = 'connecting' | 'up' | 'down' | 'unavailable';
 
@@ -128,6 +161,8 @@ export interface FeedOptions {
   /** The last version this tab has applied. */
   since(): number;
   events: FeedEvents;
+  /** Whose stream this is: tabs share one only within the same account. */
+  scope?: string;
   /** The view of this tab, relayed with presence frames when it owns the stream. */
   view?: () => string;
   /** Test seams. */
@@ -159,6 +194,7 @@ export class LiveFeed {
   private current: AbortController | null = null;
   private last: FeedStatus = 'connecting';
   private restarting = false;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(options: FeedOptions) {
     this.o = options;
@@ -169,7 +205,12 @@ export class LiveFeed {
   }
 
   start(): void {
-    const name = `fathom-live-${this.o.designId}`;
+    // This tab's own sign-out (or a different account) ends its part in the shared stream.
+    const account = getSession()?.accountId;
+    this.unsubscribe = subscribe(() => {
+      if (getSession()?.accountId !== account) this.stop();
+    });
+    const name = liveChannelName(this.o.designId, this.o.scope ?? scopeOfSession());
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (locks && typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel(name);
@@ -193,6 +234,8 @@ export class LiveFeed {
   }
 
   stop(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     this.stopped = true;
     this.abort.abort();
     this.current?.abort();

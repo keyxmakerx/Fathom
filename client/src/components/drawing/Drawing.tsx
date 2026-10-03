@@ -5,6 +5,7 @@ import {
   ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useReactFlow,
   type ConnectionLineComponentProps,
   type Edge,
@@ -63,7 +64,7 @@ import { PortalTrayNode, type PortalTrayNodeType } from './PortalTrayNode';
 import { RowLabelNode, type RowLabelNodeType } from './RowLabelNode';
 import { ShelfPlate, type ShelfPlateNodeType } from './ShelfPlate';
 import { SurfaceNode, type SurfaceNodeType } from './SurfaceNode';
-import { chassisNodeId, parseNodeId, rackNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { chassisNodeId, parseNodeId, rackNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, type PortalGroup } from './portals';
@@ -81,7 +82,9 @@ import {
   rowKey,
   type RowLayout,
 } from './rows';
-import { buildDrawingNodes } from './buildDrawingNodes';
+import type { Person } from '../../api/live';
+import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
+import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 
 const NODE_TYPES = {
@@ -207,6 +210,8 @@ function centreAboveDrawer(centre: { x: number; y: number }, zoomLevel: number, 
 
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
+  /** Others in this view; each gets an initials dot on the thing they have selected. */
+  peers?: readonly Person[];
   selected: Selection | null;
   /** The bar's zoom percentage, e.g. `100` — `Shell`'s own `zoom` prop
    * convention. Kept in agreement with React Flow's viewport: this
@@ -309,6 +314,7 @@ function LiveLitPath({ view, portalGroups, selected, liveStore }: LiveLitPathPro
 
 function DrawingInner({
   view,
+  peers,
   selected,
   zoom,
   onZoomChange,
@@ -1482,6 +1488,14 @@ function DrawingInner({
   }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
+  const marks = useMemo(
+    () =>
+      peerMarks(allNodes, peers ?? [], (id) => {
+        const owner = ownerNodeIdForPort(view, id);
+        return [chassisNodeId(id), rackNodeId(id), shelfNodeId(id), surfaceNodeId(id), ...(owner != null ? [owner] : [])];
+      }),
+    [allNodes, peers, view],
+  );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
 
   return (
@@ -1552,6 +1566,22 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
         {free.portal}
+        {marks.length > 0 && (
+          <ViewportPortal>
+            {marks.map((m) => (
+              <div
+                key={m.account}
+                className="drawing-peer"
+                style={{ transform: `translate(${m.x}px, ${m.y}px)`, width: PEER_DOT_PX, height: PEER_DOT_PX }}
+                role="img"
+                aria-label={`${m.name} has this selected`}
+                title={m.name}
+              >
+                {m.initials}
+              </div>
+            ))}
+          </ViewportPortal>
+        )}
       </ReactFlow>
       {free.overlay}
       {/* This session's brief item 1 — "a cables view control: a small

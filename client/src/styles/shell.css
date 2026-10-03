@@ -327,17 +327,20 @@ button.shell-search {
 
 /* A person in this view: an initials dot, ink on the page's own hairline. The one round thing in the bar, so it cannot be mistaken for a control. */
 .shell-person {
-  width: 20px;
-  height: 20px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: var(--rule-hair) solid var(--ink);
   background: var(--page);
   color: var(--ink);
   font-size: var(--t-micro);
   line-height: 1;
+  letter-spacing: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0 2px;
   cursor: default;
 }
 
@@ -573,6 +576,20 @@ button.shell-admin-pill {
   overflow: auto;
   background: var(--page);
   min-width: 0;
+}
+
+/* Live notices with no editor open: the canvas's top right. */
+.shell__notices-corner {
+  position: absolute;
+  top: var(--s3);
+  right: var(--s3);
+  z-index: var(--z-egress);
+  width: 280px;
+  max-width: calc(100% - var(--s6));
+}
+
+.shell-editor__notices {
+  margin-top: var(--s3);
 }
 
 .shell-editor {

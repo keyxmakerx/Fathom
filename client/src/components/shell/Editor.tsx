@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 
 export interface EditorProps {
   children: ReactNode;
+  /** Live notices, under the fields. */
+  notices?: ReactNode;
 }
 
 /**
@@ -11,10 +13,11 @@ export interface EditorProps {
  * prop is not `null`, so absence from the DOM is the caller not rendering
  * it, not this component hiding itself.
  */
-export function Editor({ children }: EditorProps) {
+export function Editor({ children, notices }: EditorProps) {
   return (
     <aside className="shell-editor" aria-label="Editor">
       {children}
+      {notices != null && <div className="shell-editor__notices">{notices}</div>}
     </aside>
   );
 }
