@@ -52,6 +52,7 @@ import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
+import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawing/diagramStyle';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
@@ -282,6 +283,16 @@ export function RacksPlace(props: RacksPlaceProps) {
       setLookState(next);
       setCalloutId(null);
       saveLook(accountId, session.designId, next);
+    },
+    [accountId, session.designId],
+  );
+  // Boxes or Icons in the Diagram look: this person's choice, kept in this browser.
+  const [diagramStyle, setDiagramStyleState] = useState<DiagramStyle>(() => loadDiagramStyle(accountId, session.designId));
+  useEffect(() => setDiagramStyleState(loadDiagramStyle(accountId, session.designId)), [accountId, session.designId]);
+  const changeDiagramStyle = useCallback(
+    (next: DiagramStyle) => {
+      setDiagramStyleState(next);
+      saveDiagramStyle(accountId, session.designId, next);
     },
     [accountId, session.designId],
   );
@@ -1279,7 +1290,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />
@@ -1310,6 +1321,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           drawnCableIds={cableDraw.drawnIds}
           dashedCableIds={cableDraw.dashedIds}
           words={words}
+          style={diagramStyle}
         />
       ) : (
         <Drawing
