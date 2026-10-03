@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { DICT_PLATFORMS, DICT_PLATFORMS_EXCLUDED, Engine, EngineError } from './engine';
-import { allDictPlatforms } from './frames';
+import { allDictPlatforms, PASTE_PLATFORMS } from './frames';
 import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
@@ -182,6 +182,57 @@ describe('OP_PASTE parity with crates/fathom-wasm/tests/paste.rs', () => {
   });
 });
 
+describe('all four dictionaries at once', () => {
+  const EX_ROOT = '$6$rounds=5000$saltEX01$odJFCrnl2edlBDdz1C5Jau2RJtBRnlWmTSHf6pWkLUyifDLkDmWJ6UuVTAIjvFu7WICPhDeOZIiBOB/Y6sHrFH';
+  const EDGE_PSK = 'Correct-Horse-Site-To-Site-Key-99';
+  const EDGE_PLAIN = 'Correct-Horse-Battery-2026';
+  const EX = [
+    'set system host-name ex-access-01',
+    `set system root-authentication encrypted-password "${EX_ROOT}"`,
+    'set interfaces ge-0/0/2 unit 0 family ethernet-switching interface-mode trunk',
+    'set interfaces ge-0/0/5 ether-options 802.3ad ae0',
+    'set interfaces ae0 aggregated-ether-options lacp active',
+    'set interfaces irb unit 10 family inet address 10.0.10.1/24',
+    '',
+  ].join('\n');
+  const EDGE = [
+    'set system host-name home-gw-01',
+    `set system login user admin authentication plaintext-password "${EDGE_PLAIN}"`,
+    `set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret "${EDGE_PSK}"`,
+    'set interfaces switch switch0 vif 20 address 172.16.20.1/24',
+    '',
+  ].join('\n');
+
+  it('detects each platform and keeps every secret out of the replies', () => {
+    expect(engine.paste(EX).summary.platform).toBe('junos-ex');
+    expect(engine.paste(EDGE).summary.platform).toBe('edgeos');
+    expect(engine.paste(PASTE, true).summary.platform).toBe('junos-srx');
+    for (const secret of [EX_ROOT, EDGE_PSK, EDGE_PLAIN]) {
+      expect(bytesInclude(engine.exportPlain(), secret)).toBe(false);
+    }
+  });
+
+  it('asks when it cannot tell, and obeys a named platform', () => {
+    const vague = 'set system host-name sw1\nset interfaces ge-0/0/1 description uplink\n';
+    try {
+      engine.paste(vague);
+      throw new Error('should have been refused');
+    } catch (e) {
+      expect(e).toBeInstanceOf(EngineError);
+      expect((e as EngineError).code).toBe(ERRORS.ERR_PLATFORM_CHOICE);
+      expect((e as EngineError).detail.split(',').sort()).toEqual(['edgeos', 'junos-ex', 'junos-srx']);
+    }
+    expect(engine.paste(vague, false, Date.now(), 'junos-ex').summary.platform).toBe('junos-ex');
+  });
+
+  it('keeps the frame flag table in step with protocol.rs', () => {
+    const rs = readFileSync(path.resolve(__dirname, '../../../crates/fathom-wasm/src/protocol.rs'), 'utf8');
+    const m = /PASTE_PLATFORMS: \[&str; \d+\] = \[([^\]]*)\]/.exec(rs);
+    const rust = [...(m?.[1] ?? '').matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    expect(PASTE_PLATFORMS).toEqual(rust);
+  });
+});
+
 describe('the six drive-reconciled-paste.mjs canaries', () => {
   it('are absent from every byte of the paste reply', () => {
     // A fresh engine: the parity test above already holds a device named
@@ -267,7 +318,7 @@ describe("ADR-0052 §4's three doors (opcodes 28/29/30)", () => {
   it('OP_PASTE_INTO (30) writes onto a device this test placed, not a literal id', () => {
     const deviceId = placeDevice('srx-placed-01', 'junos-srx');
 
-    const result = engine.pasteInto(deviceId, 'set system host-name srx-placed-01-renamed');
+    const result = engine.pasteInto(deviceId, 'set system host-name srx-placed-01-renamed', false, Date.now(), 'junos-srx');
 
     expect(result.summary.deviceId).toBe(deviceId);
     expect(result.summary.hostname).toBe('srx-placed-01-renamed');

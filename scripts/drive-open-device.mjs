@@ -187,6 +187,15 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await shot(page, 'S8-03-paste-refused');
     await page.keyboard.press('Escape');
 
+    // Too little to tell the platform: the card asks once, in words, and obeys the answer.
+    await pasteText(page, 'set system host-name which-sw\nset interfaces ge-0/0/1 description uplink\n');
+    await page.getByText('Which device is this from?').waitFor({ timeout: 15_000 });
+    check('the card offers the candidates as words', (await page.getByRole('button', { name: 'Juniper EX' }).count()) === 1);
+    await page.getByRole('button', { name: 'Juniper EX' }).click();
+    await page.waitForSelector('[data-testid=paste-destroyed]', { timeout: 15_000 });
+    check('the answer is used', (await page.locator('[data-testid=paste-card]').innerText()).includes('junos-ex'));
+    await page.keyboard.press('Escape');
+
     // The same, through the right-click menu, reading the clipboard.
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.evaluate((t) => navigator.clipboard.writeText(t), CONFIG('menu-box'));

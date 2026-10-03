@@ -442,6 +442,31 @@ pub const ERR_PLAIN_REFUSED: u16 = 21;
 /// module is unchanged. The detail names why, for a log, not for a person.
 pub const ERR_RESYNC: u16 = 22;
 
+/// `OP_PASTE` / `OP_PASTE_INTO` could not tell which set-form platform wrote the text
+/// and no platform was named: two or more dictionaries read it about equally. The
+/// detail is the candidate platforms, comma-separated. The page asks the person and
+/// re-posts naming one; it never picks. Nothing is stored on this refusal.
+pub const ERR_PLATFORM_CHOICE: u16 = 23;
+
+/// The platforms a paste frame's flag byte can name, in bits 1..=3 (value 0 = detect;
+/// bit 0 is `confirm`). Append-only, like the opcode table; `client/src/engine/frames.ts`
+/// mirrors it and a test holds the two together.
+pub const PASTE_PLATFORMS: [&str; 4] = ["junos-srx", "junos-ex", "edgeos", "opnsense"];
+
+/// The platform a paste frame's flag byte names, `None` for detect. Any other bit set
+/// is a bad frame, refused rather than ignored.
+pub fn paste_platform(flags: u8) -> Result<Option<&'static str>, Vec<u8>> {
+    let code = usize::from(flags >> 1);
+    match code {
+        0 => Ok(None),
+        1..=4 if flags & 0xf0 == 0 => Ok(Some(PASTE_PLATFORMS[code - 1])),
+        _ => Err(encode_error(
+            ERR_PASTE_FRAME,
+            &format!("the paste flag byte {flags:#04x} names no platform this build knows"),
+        )),
+    }
+}
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 

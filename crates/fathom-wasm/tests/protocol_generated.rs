@@ -247,6 +247,10 @@ fn errors() -> Vec<Entry> {
             name: "ERR_RESYNC",
             code: p::ERR_RESYNC as u32,
         },
+        Entry {
+            name: "ERR_PLATFORM_CHOICE",
+            code: p::ERR_PLATFORM_CHOICE as u32,
+        },
     ]
 }
 

@@ -4,12 +4,14 @@
 // or add a new one. Cancelling stores nothing.
 import { useEffect, useRef, useState, type JSX } from 'react';
 
-import type { PastePreview } from './pasteConfig';
+import type { PastePlatform } from '../../engine/frames';
+import { PLATFORM_WORDS, type PastePreview } from './pasteConfig';
 import './paste.css';
 
 export type PasteState =
   | { kind: 'ask' }
   | { kind: 'reading' }
+  | { kind: 'which'; candidates: PastePlatform[] }
   | { kind: 'card'; preview: PastePreview; base: unknown }
   | { kind: 'refused'; message: string };
 
@@ -17,13 +19,15 @@ export interface PasteCardProps {
   state: PasteState;
   /** The text typed or pasted into the card's own box, when the clipboard could not be read for it. */
   onText: (text: string) => void;
+  /** The answer to "which device is this from?". */
+  onPlatform: (platform: PastePlatform) => void;
   onChoose: (choice: 'attach' | 'add') => void;
   onCancel: () => void;
 }
 
 const SHOWN = 10;
 
-export function PasteCard({ state, onText, onChoose, onCancel }: PasteCardProps): JSX.Element {
+export function PasteCard({ state, onText, onPlatform, onChoose, onCancel }: PasteCardProps): JSX.Element {
   const [text, setText] = useState('');
   const preview = state.kind === 'card' ? state.preview : null;
   const canAttach = preview?.attachDoc != null;
@@ -67,6 +71,18 @@ export function PasteCard({ state, onText, onChoose, onCancel }: PasteCardProps)
       )}
 
       {state.kind === 'reading' && <p className="paste-card__note">Reading it through the gate…</p>}
+
+      {state.kind === 'which' && (
+        <>
+          <p className="paste-card__note">Which device is this from?</p>
+          <div className="paste-card__actions">
+            {state.candidates.map((p) => (
+              <button type="button" key={p} onClick={() => onPlatform(p)}>{PLATFORM_WORDS[p]}</button>
+            ))}
+            <button type="button" onClick={onCancel}>Cancel</button>
+          </div>
+        </>
+      )}
 
       {state.kind === 'refused' && (
         <>

@@ -1561,7 +1561,9 @@
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   padding: 0 var(--s4);
   border: 2px solid var(--ink);
   background: var(--page);
@@ -1571,6 +1573,34 @@
 .drawing-diagram-box--selected {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+.drawing-diagram-box__words {
+  max-width: 100%;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Show-menu words on the lines: ink on the page, no border, never a risk colour. */
+.drawing-layer-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink);
+  background: var(--page);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.drawing-layer-label__more {
+  color: var(--muted);
 }
 .drawing-diagram-box__name {
   font-size: var(--t-mast);

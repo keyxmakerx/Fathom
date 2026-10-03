@@ -4,16 +4,12 @@
 work. It no longer says what to build: that lives in two places only.
 
 - **The plan:** `docs/decisions/adr-0060-one-canvas-detail-by-degrees.md`, step by step, with the
-  order the owner approved on 2026-10-02 (one small pull request per step, each started on the
-  owner's go).
+  order the owner approved on 2026-10-02. Later rounds are in ADR-0061. The owner prefers related
+  work bundled into one PR.
 - **The backlog:** GitHub issues. A new ask becomes an issue. Issues labelled `later` wait until
   ADR-0060 is done.
 - **Questions for the owner:** the sign-off page (ADR-0060, decision 9). It opens on the questions
   still waiting; answered ones move out of that view.
-
-*Cut down on 2026-10-02.* The handover log, the session plan and the "after the first usable
-version" list this file used to carry were overtaken by ADR-0060 and the issues. The last full
-version is in git history, at the commit before this file was cut (2026-10-02).
 
 **"Usable" means beta** (the owner, 2026-09-22): polished, the app basically done, a few features
 allowed to be missing, and the owner reaches a saved diagram unaided. Green gates do not grant it;
@@ -37,9 +33,9 @@ a walkthrough by the owner does.
    Anything global in a shared database (a trigger, a counter, a rate-limit window, the site
    chain) needs a lock or a key of its own (`support::hold_the_tamper_lock`,
    `support::lock_the_site_chain`).
-4. **Commits.** Builders never commit. The lead runs the gates, commits with an explicit pathspec,
-   merges the worktree branch, pushes. Nothing unpassed by `cargo test --workspace --locked` on a
-   fresh database is pushed. Push only to the designated branch; a session cannot delete branches.
+4. **Commits and PRs.** Nothing unpassed by `cargo test --workspace --locked` on a fresh database is
+   pushed. Push only to your designated branch and open a draft PR; the owner merges. Bundle related
+   work in one PR. Keep docs concise: long docs and comments swell every later session's context.
 5. **Documents win, and they are the lead's.** Builders report where a design was wrong; the lead
    writes the correction in. Every label in code is a row in `docs/PHASE-2-STORAGE-DESIGN.md`
    §12.2. An applied migration is never edited (it is checksummed); corrections go in the next
@@ -52,11 +48,6 @@ a walkthrough by the owner does.
    (`.github/workflows/ci.yml`, "Provision a non-superuser test role"). Client engine tests need
    `bash scripts/build-wasm.sh` first. `api.osv.dev` is blocked here; `scripts/osv-gate.sh` fails
    closed and runs in CI.
-8. **Every brief opens with the base check.** Worktrees are cut from `main`, which lags the
-   working branch. Put this first in every brief:
-
-   > Run `git rev-parse --short HEAD` and `git rev-parse --short <branch>`. If they differ, run
-   > `git merge --ff-only <branch>` and confirm it succeeded. Do not build until they match.
 
 ---
 
