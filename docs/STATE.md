@@ -12,6 +12,12 @@ This page records what exists. It is not a changelog — history lives in `docs/
 fragment-to-store weld, the finder, emitters, layout. Zero external dependencies on the client side,
 deliberately. The schema is real and enforced; read counts off `fathom-schema-check`.
 
+**Paste, four platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
+(Junos SRX, Junos EX, EdgeOS, OPNsense). A paste names its platform (frame flag byte, bits 1-3) or the
+engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
+candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
+device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
