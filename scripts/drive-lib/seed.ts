@@ -808,3 +808,28 @@ export function seedCableGroupsSpeedScene(catalogue: CatalogueModel[], me: strin
   const a = frontRj45(doc, catalogue, 'dev-01');
   return addVlan(doc, { vlanId: 50, name: 'load', attach: [{ target: { kind: 'port', portId: a.portId, interfaceName: 'up' } }] }, { actor: me });
 }
+
+/** The canvas scene with VLAN 20 and an address on the firewall cable, and a tag: the Show-menu scene. */
+export function seedShowScene(catalogue: CatalogueModel[], me: string): Document {
+  let working = seedCanvasScene(catalogue, me);
+  const chassis = (host: string) => viewOf(working, catalogue).racks[0]!.chassis.find((c) => c.hostname === host)!;
+  const rj = (host: string, i: number) =>
+    chassis(host).ports.filter((p) => p.face === 'front' && p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label))[i]!;
+  const fwPort = rj('fw-01', 0);
+  const corePort = rj('core-sw-01', 10);
+  working = addVlan(
+    working,
+    {
+      vlanId: 20,
+      name: 'Clients',
+      subnet: '10.0.20.0/24',
+      gatewayAddress: '10.0.20.1/24',
+      attach: [
+        { target: { kind: 'port', portId: fwPort.id, interfaceName: fwPort.label }, gateway: true },
+        { target: { kind: 'port', portId: corePort.id, interfaceName: corePort.label } },
+      ],
+    },
+    { actor: me },
+  );
+  return tagObject(working, chassis('fw-01').deviceId, 'edge', { actor: me });
+}

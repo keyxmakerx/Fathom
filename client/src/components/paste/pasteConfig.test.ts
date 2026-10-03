@@ -13,7 +13,7 @@ import { writePlain } from '../../document/plain';
 import { Engine } from '../../engine/engine';
 import { Mirror } from '../../engine/mirror';
 import { fileLoader } from '../../engine/wasm';
-import { interfacesOf, previewPaste, sameNamed, worthReading } from './pasteConfig';
+import { devicePlatform, interfacesOf, platformChoices, previewPaste, sameNamed, worthReading } from './pasteConfig';
 
 const WASM_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../public/engine/fathom_wasm.wasm');
 if (!existsSync(WASM_PATH)) throw new Error(`${WASM_PATH} missing: run \`bash scripts/build-wasm.sh\` first.`);
@@ -125,6 +125,33 @@ describe('previewPaste', () => {
 
   it('refuses text the dictionary reads nothing from', () => {
     expect(() => previewPaste(mirror, emptyDocument(), 'hello\nworld\nthis is not a config\n', { x: 0, y: 0 })).toThrow();
+  });
+});
+
+describe('which device is this from', () => {
+  const VAGUE = 'set system host-name sw-vague\nset interfaces ge-0/0/1 description uplink\n';
+
+  it('surfaces the candidates when the engine cannot tell, and obeys the answer', () => {
+    let choices: ReturnType<typeof platformChoices> = null;
+    try {
+      previewPaste(mirror, emptyDocument(), VAGUE, { x: 0, y: 0 });
+    } catch (e) {
+      choices = platformChoices(e);
+    }
+    expect(choices).not.toBeNull();
+    expect(choices).toContain('junos-ex');
+    const p = previewPaste(mirror, emptyDocument(), VAGUE, { x: 0, y: 0 }, undefined, 'junos-ex');
+    expect(p.platform).toBe('junos-ex');
+    expect(p.hostname).toBe('sw-vague');
+  });
+
+  it('is not a choice for any other error', () => {
+    expect(platformChoices(new Error('no'))).toBeNull();
+  });
+
+  it('reads a placed device\'s own platform for the attach path', () => {
+    const doc = emptyDocument();
+    expect(devicePlatform(doc, 'device:missing')).toBeNull();
   });
 });
 
