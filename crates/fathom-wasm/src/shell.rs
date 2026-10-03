@@ -14,7 +14,7 @@ use crate::protocol::{
     self, ERR_BAD_FRAME, ERR_BAD_UTF8, ERR_CABLE_COUNT, ERR_CABLE_END, ERR_CORPUS_LOAD,
     ERR_EQUIP_FRAME, ERR_EQUIP_STORE, ERR_FIELD_VALUE, ERR_INGEST_REFUSED, ERR_LINK_CHOICE,
     ERR_NOTHING_UNDERSTOOD, ERR_NOT_INITIALISED, ERR_NO_CABLE, ERR_NO_DICTIONARY, ERR_NO_ELEMENT,
-    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_UNKNOWN_OP,
+    ERR_NO_LINK, ERR_PASTE_CHOICE, ERR_PASTE_FRAME, ERR_PLAIN_REFUSED, ERR_RESYNC, ERR_UNKNOWN_OP,
     ERR_WELD_REFUSED,
 };
 #[cfg(feature = "demo-estate")]
@@ -23,7 +23,7 @@ use crate::{
     OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
     OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY,
-    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT,
+    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC,
 };
 
 pub struct Shell {
@@ -86,6 +86,7 @@ impl Shell {
             OP_PASTE_INTO => self.paste_into(req),
             OP_REDACT_TEXT => self.redact_text(req),
             OP_LOAD_PLAIN => self.load_plain(req),
+            OP_SYNC => self.sync(req),
             OP_EXPORT_PLAIN => self.export_plain(req),
             OP_EQUIP_ADD => self.equip_add(req),
             OP_FIELD_SET => self.field_set(req),
@@ -490,6 +491,27 @@ impl Shell {
         let reply = load_plain_reply(&graph);
         self.estate = Some(graph);
         reply
+    }
+
+    /// `OP_SYNC`: append the batches the module has not seen. Frame in [`crate::OP_SYNC`].
+    fn sync(&mut self, req: &[u8]) -> Vec<u8> {
+        let resync = |why: String| protocol::encode_error(ERR_RESYNC, &why);
+        let Some(graph) = self.estate.as_mut() else {
+            return resync("no estate loaded".to_owned());
+        };
+        let delta = match fathom_workspace::read_delta(req) {
+            Ok(d) => d,
+            Err(e) => return resync(format!("{e:?}")),
+        };
+        if delta.base != graph.log().last().map(|b| b.id) {
+            return resync(
+                "the module does not end at the batch the delta starts after".to_owned(),
+            );
+        }
+        match graph.apply_batches(&delta.fragment) {
+            Ok(()) => Vec::new(),
+            Err(e) => resync(format!("{e:?}")),
+        }
     }
 
     /// `OP_EXPORT_PLAIN`: the held estate out as the plain face's raw bytes. See

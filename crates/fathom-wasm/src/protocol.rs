@@ -433,6 +433,10 @@ pub const ERR_NO_CABLE: u16 = 20;
 /// malformed body. The store's own words, as `ERR_WELD_REFUSED` carries.
 pub const ERR_PLAIN_REFUSED: u16 = 21;
 
+/// `OP_SYNC` could not append: the page should send the whole design (`OP_LOAD_PLAIN`). The
+/// module is unchanged. The detail names why, for a log, not for a person.
+pub const ERR_RESYNC: u16 = 22;
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 

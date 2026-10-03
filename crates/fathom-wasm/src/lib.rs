@@ -357,6 +357,20 @@ pub const OP_CHECKS: u32 = 32;
 /// nothing live answers with no rows: the write refuses those itself.
 pub const OP_CHECK_GESTURE: u32 = 33;
 
+/// Grow the held estate by the batches it has not seen, or say it cannot (ADR-0061 §5 made
+/// checks incremental; this keeps the estate they read from in step without a reload).
+///
+/// Request: `fathom_workspace::write_delta`'s bytes. They hold a fragment of the plain face
+/// (the new batches, the provenance they cite, the state of what they touched) and the id of the
+/// batch the sender believes the module ends at. No host clock or entropy: nothing new is minted.
+///
+/// Reply: empty on success. **Anything else is `ERR_RESYNC` and the module is unchanged**: no
+/// estate, a base that is not the module's last batch, a frame that does not parse, a batch the
+/// store refuses, or a fragment that disagrees with its own ops. The page answers with a full
+/// `OP_LOAD_PLAIN`. All batches apply or none do; the graph keeps its identity, so `OP_CHECKS`
+/// re-runs only the rules the new batches touched.
+pub const OP_SYNC: u32 = 34;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second
