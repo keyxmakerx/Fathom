@@ -523,6 +523,7 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const hintId = useId();
 
   async function pick(file: File | undefined) {
     if (!file || busy) return;
@@ -550,7 +551,9 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
               <th>File</th>
               <th>Size</th>
               <th>Checked</th>
-              <th />
+              <th>
+                <span className="docs-sr">Download</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -572,7 +575,10 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
                     <button
                       type="button"
                       className="docs-link"
-                      onClick={() => api.removeFile(f.id)}
+                      onClick={() => {
+                        const r = api.removeFile(f.id);
+                        if (r?.refused) setMessage({ text: r.refused, bad: true });
+                      }}
                       aria-label={`Remove file ${f.name}`}
                     >
                       {' '}
@@ -591,14 +597,20 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
             ref={input}
             type="file"
             aria-label="Add a file"
+            aria-describedby={hintId}
             disabled={busy}
             onChange={(e) => void pick(e.target.files?.[0])}
           />
-          <p className="docs-note">
+          <p className="docs-note" id={hintId}>
             PDF, image or text, up to 25 MB. Text is checked for passwords before it is uploaded; images and PDFs can't
             be read, so they are stored without a check. Files open as downloads, never inside Fathom.
           </p>
         </div>
+      ) : null}
+      {busy ? (
+        <p className="docs-note" role="status">
+          Checking and uploading…
+        </p>
       ) : null}
       {message != null ? (
         <p className={message.bad ? 'docs-problem' : 'docs-note'} role={message.bad ? 'alert' : 'status'}>

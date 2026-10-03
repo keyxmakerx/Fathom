@@ -8,6 +8,8 @@ import {
   docsOf,
   editDoc,
   MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_TITLE,
   removeDoc,
   removeDocFile,
   removeDocLink,
@@ -142,6 +144,11 @@ export function useDocsApi(opts: {
         try {
           if (file.size === 0) return { refused: `${file.name} is empty.` };
           if (file.size > MAX_FILE_BYTES) return { refused: `${file.name} is over 25 MB.` };
+          // What addDocFile would refuse is checked before anything is uploaded.
+          if (file.name.trim().length === 0 || file.name.length > MAX_TITLE)
+            return { refused: `A file name must be 1 to ${MAX_TITLE} characters.` };
+          if ((docView(latest.current ?? doc, docId)?.files.length ?? 0) >= MAX_FILES)
+            return { refused: `A doc has at most ${MAX_FILES} files.` };
           const raw = new Uint8Array(await file.arrayBuffer());
           const kind = sniffFile(raw);
           if (kind === 'refused')

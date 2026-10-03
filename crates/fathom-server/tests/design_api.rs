@@ -2693,6 +2693,16 @@ async fn doc_files_are_checked_by_content_sealed_served_as_downloads_and_survive
     let (status, _) = call(addr, &drawer, "POST", &files, ios).await;
     assert_eq!(status, "422");
 
+    // A byte-order mark does not hide a key line; a long line with no spaces is cheap to scan.
+    let bom = b"\xef\xbb\xbfusername admin privilege 15 secret 0 Cisco123\n";
+    let (status, _) = call(addr, &drawer, "POST", &files, bom).await;
+    assert_eq!(status, "422");
+    let long = "a:".repeat(20_000).into_bytes();
+    let started = std::time::Instant::now();
+    let (status, _) = call(addr, &drawer, "POST", &files, &long).await;
+    assert_eq!(status, "200");
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
+
     // Rotation re-seals files under the new key; the file still opens.
     designs::rotate_design(
         &pool,
@@ -2707,6 +2717,17 @@ async fn doc_files_are_checked_by_content_sealed_served_as_downloads_and_survive
     let (status, got) = call(addr, &reader, "GET", &one, b"").await;
     assert_eq!(status, "200");
     assert_eq!(got, notes);
+    let client = support::superuser_client_on_test_database().await;
+    let stale = client
+        .query_one(
+            "SELECT count(*) FROM design_files f WHERE f.design_id = $1 AND f.key_epoch < \
+             (SELECT max(key_epoch) FROM design_keys k WHERE k.design_id = f.design_id)",
+            &[&design.to_string()],
+        )
+        .await
+        .expect("count")
+        .get::<_, i64>(0);
+    assert_eq!(stale, 0, "every file was re-sealed under the new epoch");
 }
 
 #[tokio::test]

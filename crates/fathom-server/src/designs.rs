@@ -47,6 +47,9 @@ const AAD_FILE: &[u8] = b"fathom/design-file/v1";
 
 /// Largest file attached to a doc: 25 MiB, enforced here and not only in the browser.
 pub const MAX_FILE_BYTES: usize = 25 * 1024 * 1024;
+/// What one design may hold in doc files: a count and sealed bytes (rotation reseals them all).
+pub const MAX_DESIGN_FILES: i64 = 500;
+pub const MAX_DESIGN_FILE_BYTES: i64 = 256 * 1024 * 1024;
 
 /// Longest design name, in characters.
 pub const MAX_NAME_CHARS: usize = 100;
@@ -155,6 +158,8 @@ pub enum DesignError {
     FileTooLarge {
         bytes: usize,
     },
+    /// A design already holds as many doc files, or as many bytes of them, as it may.
+    FileQuota,
     /// A doc file that is not a PDF, an image or text, by what its bytes are.
     FileTypeRefused,
     /// No such file on this design.
@@ -244,6 +249,11 @@ impl fmt::Display for DesignError {
             Self::FileTooLarge { bytes } => write!(
                 f,
                 "that file is {bytes} bytes; a doc file may be at most {MAX_FILE_BYTES}"
+            ),
+            Self::FileQuota => write!(
+                f,
+                "this design already holds {MAX_DESIGN_FILES} files or {} MB of them",
+                MAX_DESIGN_FILE_BYTES / (1024 * 1024)
             ),
             Self::FileTypeRefused => f.write_str("a doc file must be a PDF, an image or text"),
             Self::NoSuchFile => f.write_str("no such file on this design"),
@@ -1122,7 +1132,7 @@ pub async fn rotate_design_under(
         entries += 1;
     }
 
-    // Files sealed under the old key move to the new one, so retiring it revokes them too.
+    // Files sealed under the old key move to the new one (all rows loaded at once; the per-design quota bounds that).
     let file_rows = tx
         .query(
             "SELECT file_id, ciphertext, nonce, key_epoch FROM design_files \
@@ -1886,6 +1896,18 @@ pub async fn store_file_in_tx(
     let tenant_text = auth.ctx.tenant().to_string();
     let design_text = design.to_string();
     lock_design(tx, &design_text, &tenant_text).await?;
+    let held = tx
+        .query_one(
+            "SELECT count(*), COALESCE(sum(octet_length(ciphertext)), 0)::bigint \
+             FROM design_files WHERE design_id = $1 AND organisation_id = $2",
+            &[&design_text, &tenant_text],
+        )
+        .await
+        .map_err(DesignError::Db)?;
+    let (count, total): (i64, i64) = (held.get(0), held.get(1));
+    if count >= MAX_DESIGN_FILES || total + bytes.len() as i64 > MAX_DESIGN_FILE_BYTES {
+        return Err(DesignError::FileQuota);
+    }
     let key = keys::design_key(tx, auth.ring, auth.ctx, design).await?;
 
     let id = {

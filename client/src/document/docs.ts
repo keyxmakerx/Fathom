@@ -393,7 +393,8 @@ export function addDocFile(
     throw new DocRefusalError('bad-file', 'A file is at most 25 MB.');
   if (edgesOut(doc, docId, 'HasDocFile').length >= MAX_FILES)
     throw new DocRefusalError('too-many-files', `A doc has at most ${MAX_FILES} files.`);
-  const name = cleanTitle(input.name, 'A file name');
+  // No direction-changing characters: they can make a name read as another extension.
+  const name = cleanTitle(input.name.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ''), 'A file name');
   const { actor, now } = resolve(opts);
   const existence = assertHand(doc, { assertedAt: now, assertedBy: actor });
   let working = existence.doc;

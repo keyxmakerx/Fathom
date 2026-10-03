@@ -285,3 +285,12 @@
   padding: var(--s1) var(--s2) var(--s1) 0;
   border-bottom: var(--rule-hair) solid var(--hairline);
 }
+
+.docs-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

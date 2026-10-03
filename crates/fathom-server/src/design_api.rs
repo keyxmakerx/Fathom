@@ -287,14 +287,7 @@ pub const MAX_SIGNED_BODY: usize = designs::MAX_PAYLOAD_BYTES + 4;
 /// A doc file upload reads at its own cap, [`designs::MAX_FILE_BYTES`].
 const MAX_FILE_BODY: usize = designs::MAX_FILE_BYTES;
 
-/// True for exactly the two `POST` routes whose legitimate body may run to
-/// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`) and a
-/// create (`.../scopes/{scope}/designs`). Every other route, including any `GET`,
-/// reads at `api::MAX_SIGNED_BODY`'s one mebibyte.
-///
-/// Decided from method and path alone, before the body is read, since the
-/// signature cannot be checked until after it. Path shape only, never the ids: this
-/// decides how many bytes `to_bytes` may buffer, nothing about authority.
+/// True for the doc file upload route, `POST .../designs/{design}/files`. Path shape only.
 fn is_file_route(method: &str, path: &str) -> bool {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     method == "POST"
@@ -304,6 +297,14 @@ fn is_file_route(method: &str, path: &str) -> bool {
         )
 }
 
+/// True for exactly the two `POST` routes whose legitimate body may run to
+/// [`MAX_SIGNED_BODY`]'s 64 MiB: a save (`.../designs/{design}/versions`) and a
+/// create (`.../scopes/{scope}/designs`). Every other route, including any `GET`,
+/// reads at `api::MAX_SIGNED_BODY`'s one mebibyte.
+///
+/// Decided from method and path alone, before the body is read, since the
+/// signature cannot be checked until after it. Path shape only, never the ids: this
+/// decides how many bytes `to_bytes` may buffer, nothing about authority.
 fn is_large_body_route(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
@@ -479,6 +480,7 @@ fn design_error_response(e: DesignError) -> Response {
             ),
         )
             .into_response(),
+        DesignError::FileQuota => (StatusCode::PAYLOAD_TOO_LARGE, format!("{e}\n")).into_response(),
         DesignError::FileTypeRefused => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "a doc file must be a PDF, an image or text\n",
@@ -1694,14 +1696,6 @@ async fn store_file_handler(
         .into());
     }
     let media = designs::sniff_file(&signed.body).ok_or(DesignError::FileTypeRefused)?;
-    if media == designs::FileMedia::Text {
-        // Valid UTF-8 by the sniff. A file is a device config as often as prose, so the
-        // bare-adjacency check a `Capture` gets applies; the browser's gate ran first.
-        let text = core::str::from_utf8(&signed.body).map_err(|_| DesignError::FileTypeRefused)?;
-        if let Some(line) = credential_line(text, true) {
-            return Err(DesignError::CredentialInPayload { kind: "File", line }.into());
-        }
-    }
 
     let mut client = state
         .sessions
@@ -1722,6 +1716,26 @@ async fn store_file_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
+    // The credential scan costs real time on a big file, so it waits for the signature and the
+    // Draw check and runs off the async threads.
+    grants::authorise_account(&tx, &auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    if media == designs::FileMedia::Text {
+        let body = signed.body.to_vec();
+        let found = tokio::task::spawn_blocking(move || {
+            // Valid UTF-8 by the sniff. A file is a device config as often as prose, so the
+            // bare-adjacency check a `Capture` gets applies; the browser's gate ran first.
+            let text = core::str::from_utf8(&body).ok()?;
+            Some(credential_line(text.trim_start_matches('\u{feff}'), true))
+        })
+        .await
+        .map_err(|_| DesignError::FileTypeRefused)?
+        .ok_or(DesignError::FileTypeRefused)?;
+        if let Some(line) = found {
+            return Err(DesignError::CredentialInPayload { kind: "File", line }.into());
+        }
+    }
     let id = designs::store_file_in_tx(&tx, &auth, design_id, scope, &signed.body).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok((
