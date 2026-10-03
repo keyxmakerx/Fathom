@@ -34,6 +34,10 @@ import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
+import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { mediaCandidates } from '../checks/checksModel';
+import { ChecksContext } from '../checks/checksStore';
+import { useChecksController } from '../checks/useChecksController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -312,23 +316,38 @@ export function RacksPlace(props: RacksPlaceProps) {
     return mirrorPromiseRef.current;
   }, []);
 
-  // On demand only, never on every document change: a design nobody has
-  // opened the drawer or the inside stop on yet never boots the module at
-  // all, and one already open only reloads the module when the document it
-  // holds is actually stale (`mirrorLoadedDocRef` above) — dragging a
-  // chassis, editing a hostname, fitting a PSU pay nothing here unless a
-  // call site below is about to actually use the module. Reference equality
-  // is enough: every `document/commands.ts`/`document/edit.ts` call and
-  // `mirror.pasteInto`'s own readback return a fresh `Document`, never
-  // mutate one in place.
+  // How long the last load of the module took, ms: Checks sizes its wait and its guard by it.
+  const loadCostRef = useRef<number | null>(null);
+  const loadInto = useCallback((mirror: Mirror, target: Document) => {
+    const t0 = performance.now();
+    mirror.load(target);
+    loadCostRef.current = performance.now() - t0;
+    mirrorLoadedDocRef.current = target;
+  }, []);
+
+  // The drawer and the inside stop load the module only when the document it holds is stale, at the moment they
+  // are about to use it (`mirrorLoadedDocRef` above). Checks (below) also boots it and keeps it current, but after
+  // the document has been quiet for a while, not on every change. Reference equality is enough: every
+  // `document/commands.ts`/`document/edit.ts` call and `mirror.pasteInto`'s readback return a fresh `Document`.
   const withMirror = useCallback(async (): Promise<Mirror> => {
     const mirror = await ensureMirror();
-    if (doc != null && mirrorLoadedDocRef.current !== doc) {
-      mirror.load(doc);
-      mirrorLoadedDocRef.current = doc;
-    }
+    if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
     return mirror;
-  }, [ensureMirror, doc]);
+  }, [ensureMirror, doc, loadInto]);
+
+  // Checks (ADR-0061 §5): the same engine and mirror. The standing run is debounced by the last load's cost; the
+  // gesture guard asks for `load = false` when that cost is high and uses what the module holds.
+  const mirrorNow = useCallback(
+    (load = true): Mirror | null => {
+      const mirror = mirrorRef.current;
+      if (mirror == null || doc == null) return null;
+      if (load && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
+      return mirror;
+    },
+    [doc, loadInto],
+  );
+  const loadCostMs = useCallback(() => loadCostRef.current, []);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs });
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -717,6 +736,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleJotConnect = useCallback(
     (fromPortId: string, toPortId: string) => {
       if (doc == null) return;
+      if (checks.api.guardCable(fromPortId, toPortId, mediaCandidates(realView, fromPortId, toPortId))) return;
       try {
         applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath: 'grey' }, actorOpts(accountId)));
       } catch (e) {
@@ -725,7 +745,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         else setCanvasNotice(refusalFor(e)?.refused ?? 'That cable could not be made.');
       }
     },
-    [doc, applyDocChange, accountId],
+    [doc, applyDocChange, accountId, checks.api, realView],
   );
   const handleJotAddPort = useCallback(
     (chassisId: string) => {
@@ -1013,7 +1033,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+      <ChecksContext.Provider value={checks.api}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1101,6 +1122,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
+      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      </ChecksContext.Provider>
     </Shell>
   );
 }

@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react';
 import type { Node, NodeProps } from '@xyflow/react';
 
+import { CheckBadge } from '../checks/CheckBadge';
 import { BOX_H, BOX_W, roleCode, type Side } from './freeLayout';
 import { useGripDrag, type GripDrag } from './useGripDrag';
 
@@ -40,9 +41,10 @@ function EdgeSquare({ side, data }: { side: Side; data: FreeBoxNodeData }) {
   );
 }
 
-export function FreeBoxNode({ data, selected }: NodeProps<FreeBoxNodeType>) {
+export function FreeBoxNode({ id, data, selected }: NodeProps<FreeBoxNodeType>) {
   return (
     <div className={selected ? 'free-box free-box--selected' : 'free-box'} style={{ width: BOX_W, height: BOX_H }}>
+      <CheckBadge id={id.replace(/^free:/, '')} />
       <span className="free-box__name">{data.name}</span>
       <span className="free-box__code">{roleCode(data.role)}</span>
       {SIDES.map(({ side, position }) => (

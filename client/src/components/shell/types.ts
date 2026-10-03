@@ -111,6 +111,8 @@ export interface ShellProps {
   noticeElement?: string | null;
   /** What the one always-present, visually hidden status region says. */
   announce?: string;
+  /** A chip for the bar's trailing group, before Undo (the Checks count). */
+  barExtra?: ReactNode;
 
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */

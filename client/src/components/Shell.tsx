@@ -56,6 +56,7 @@ export function Shell({
   onTrailOpenChange,
   children,
   viewOnly,
+  barExtra,
   menu,
   adminPill,
   onHome,
@@ -92,6 +93,7 @@ export function Shell({
         onShare={onShare}
         account={account}
         viewOnly={viewOnly}
+        barExtra={barExtra}
         menu={menu}
         adminPill={adminPill}
         onHome={onHome}

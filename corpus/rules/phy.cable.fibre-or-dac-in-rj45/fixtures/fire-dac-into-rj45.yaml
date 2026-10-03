@@ -1,0 +1,18 @@
+# A twinax direct-attach cable drawn to the RJ45 port ge-0/0/24 of a Juniper EX2300.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: edge-sw-01, platform: junos-ex, role: switch } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p1, kind: PhysicalPort, set: { label: "ge-0/0/24", connector: rj45, service: ethernet, speed_max: 1000000000 } }
+  - { id: d2, kind: Device, set: { hostname: dist-sw-02, platform: junos-ex, role: switch } }
+  - { id: d2_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: p2, kind: PhysicalPort, set: { label: "xe-0/1/0", connector: sfp_plus, service: ethernet, speed_max: 10000000000 }, present: [transceiver] }
+  - { id: c1, kind: Cable, set: { media: twinax } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+  - { kind: HasPort, from: d1_ch, to: p1 }
+  - { kind: HasChassis, from: d2, to: d2_ch }
+  - { kind: HasPort, from: d2_ch, to: p2 }
+  - { kind: Terminates, from: c1, to: p1, set: { end: a } }
+  - { kind: Terminates, from: c1, to: p2, set: { end: b } }
+anchor: c1
+involves: [p1, p2]
