@@ -205,12 +205,12 @@ export function PrintPreview({ job, onClose }: PrintPreviewProps) {
   }, [onClose]);
 
   return (
-    <div className="print-preview" data-testid="print-preview">
+    <div className="print-preview" role="dialog" aria-label="Print preview" data-testid="print-preview">
       <div className="print-preview__bar no-print">
         <span>
           {finalPages ? finalPages.length : '…'} page{finalPages?.length === 1 ? '' : 's'} {'·'} {job.paper} {'·'} Save as PDF is in the print dialog
         </span>
-        <button type="button" onClick={() => window.print()} data-testid="print-preview-print">
+        <button type="button" autoFocus onClick={() => window.print()} data-testid="print-preview-print">
           Print
         </button>
         <button type="button" onClick={onClose} data-testid="print-preview-close">

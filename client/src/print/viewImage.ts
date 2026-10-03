@@ -54,7 +54,39 @@ export async function captureViewPng(blackAndWhite: boolean): Promise<string | n
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/png');
+  return cropToContent(canvas).toDataURL('image/png');
+}
+
+/** Trims the empty paper around the drawing, keeping a small margin. */
+function cropToContent(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = canvas.getContext('2d');
+  if (ctx == null) return canvas;
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return canvas;
+  const pad = 32;
+  const x0 = Math.max(0, minX - pad);
+  const y0 = Math.max(0, minY - pad);
+  const out = document.createElement('canvas');
+  out.width = Math.min(width, maxX + pad) - x0;
+  out.height = Math.min(height, maxY + pad) - y0;
+  out.getContext('2d')?.drawImage(canvas, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
 }
 
 /** `inlineStyles`, matching a clone that had nodes removed: pair children by

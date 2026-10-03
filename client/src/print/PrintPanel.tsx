@@ -32,7 +32,7 @@ const LABEL: Record<PrintSection, string> = {
   racks: 'Rack elevations, front and back',
   cables: 'Cable schedule: each cable, both ends, label',
   ports: 'Port map per device',
-  inventory: 'Inventory table, with your columns and filters',
+  inventory: 'Inventory table, with your columns',
 };
 
 /** The page list (r10-print B): tick the pages, see how many each runs to, make one PDF.
@@ -68,6 +68,12 @@ export function PrintPanel({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Focus enters the panel on open and returns to whatever opened it on close.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    panelRef.current?.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)')?.focus();
+    return () => opener?.focus?.();
+  }, []);
 
   const options: PrintOptions = { paper, rackScope, cables, hideSensitive, blackAndWhite };
   const optionsKey = `${paper}|${rackScope}|${cables}|${hideSensitive}|${blackAndWhite}`;
@@ -142,10 +148,10 @@ export function PrintPanel({
   }, [onCancel]);
 
   return (
-    <div className="print-panel" role="dialog" aria-label="Print" data-testid="print-panel" ref={panelRef}>
+    <div className="print-panel" role="dialog" aria-labelledby="print-panel-title" data-testid="print-panel" ref={panelRef}>
       <PageCounter job={countJob} onCounts={setCounts} />
       <div className="print-panel__head">
-        <span className="print-panel__title">Print a pack · {designName}</span>
+        <span id="print-panel-title" className="print-panel__title">Print a pack · {designName}</span>
       </div>
 
       <table className="print-panel__pages" data-testid="print-pages">
@@ -158,7 +164,7 @@ export function PrintPanel({
           </tr>
         </thead>
         <tbody>
-          {PRINT_SECTIONS.filter((id) => available.includes(id) || id === 'view' || id === 'racks').map((id) => {
+          {PRINT_SECTIONS.map((id) => {
             const enabled = available.includes(id);
             return (
               <tr key={id}>
@@ -175,6 +181,7 @@ export function PrintPanel({
                       {LABEL[id]}
                       {!enabled && id === 'view' && <span className="print-panel__hint-block">open the canvas to print its view</span>}
                       {!enabled && id === 'racks' && <span className="print-panel__hint-block">no rack yet</span>}
+                      {!enabled && id === 'inventory' && <span className="print-panel__hint-block">open Inventory to print its table</span>}
                     </span>
                   </label>
                 </td>
@@ -193,6 +200,7 @@ export function PrintPanel({
           <button
             key={size}
             type="button"
+            aria-pressed={paper === size}
             className={paper === size ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'}
             onClick={() => setPaper(size)}
             data-testid={`print-paper-${size.toLowerCase()}`}
@@ -205,10 +213,10 @@ export function PrintPanel({
       {ticked.has('racks') && rackCount > 1 && (
         <div className="print-panel__row">
           <span className="print-panel__section-label print-panel__section-label--inline">Racks</span>
-          <button type="button" className={rackScope === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('all')} data-testid="print-racks-all">
+          <button type="button" aria-pressed={rackScope === 'all'} className={rackScope === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('all')} data-testid="print-racks-all">
             Every rack
           </button>
-          <button type="button" className={rackScope === 'active' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('active')} data-testid="print-racks-active">
+          <button type="button" aria-pressed={rackScope === 'active'} className={rackScope === 'active' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('active')} data-testid="print-racks-active">
             This rack
           </button>
         </div>
@@ -217,14 +225,14 @@ export function PrintPanel({
       {ticked.has('racks') && (
         <div className="print-panel__row">
           <span className="print-panel__section-label print-panel__section-label--inline">Cables on elevations</span>
-          <button type="button" className={cables === 'none' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('none')} data-testid="print-cables-none">
+          <button type="button" aria-pressed={cables === 'none'} className={cables === 'none' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('none')} data-testid="print-cables-none">
             None
           </button>
-          <button type="button" className={cables === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('all')} data-testid="print-cables-all">
+          <button type="button" aria-pressed={cables === 'all'} className={cables === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('all')} data-testid="print-cables-all">
             All
           </button>
           {cablesFiltered && (
-            <button type="button" className={cables === 'screen' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('screen')} data-testid="print-cables-screen">
+            <button type="button" aria-pressed={cables === 'screen'} className={cables === 'screen' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setCables('screen')} data-testid="print-cables-screen">
               As shown on screen
             </button>
           )}

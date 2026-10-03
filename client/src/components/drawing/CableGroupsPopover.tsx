@@ -158,6 +158,7 @@ export function CableGroupsPopover({ doc, view, state, rows, onStateChange, draw
       <div className="cable-groups-pop__shortcuts">
         <button
           type="button"
+          aria-pressed={isAllShortcutLit(state)}
           className={isAllShortcutLit(state) ? 'cable-groups-pop__fchip cable-groups-pop__fchip--lit' : 'cable-groups-pop__fchip'}
           onClick={() => onStateChange(withAllShortcut(state))}
         >
@@ -165,6 +166,7 @@ export function CableGroupsPopover({ doc, view, state, rows, onStateChange, draw
         </button>
         <button
           type="button"
+          aria-pressed={isNoneShortcutLit(state)}
           className={isNoneShortcutLit(state) ? 'cable-groups-pop__fchip cable-groups-pop__fchip--lit' : 'cable-groups-pop__fchip'}
           onClick={() => onStateChange(withNoneShortcut(state))}
         >
@@ -179,6 +181,7 @@ export function CableGroupsPopover({ doc, view, state, rows, onStateChange, draw
             <label className="cable-groups-pop__check">
               <input
                 type="checkbox"
+                aria-label={`Show ${resolved.name}`}
                 checked={stored.on}
                 onChange={(e) => onStateChange(withGroupTicked(state, key, e.target.checked))}
               />

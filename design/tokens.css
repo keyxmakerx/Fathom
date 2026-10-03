@@ -162,6 +162,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --ink:       #DFE4E8;  --muted:      #8A95A0;
   --surface:   #191C20;  --surface-2:  #141719;
   --hairline:  #2B3138;  --page:       #0F1215;
@@ -170,6 +171,7 @@
   --danger:    #EA6260;  --danger-wash:  #271817;
 }
 :root[data-theme="light"] {
+  color-scheme: light;
   --ink:       #14171A;  --muted:      #5C6772;
   --surface:   #F2F4F6;  --surface-2:  #FAFBFC;
   --hairline:  #D2D7DD;  --page:       #FFFFFF;

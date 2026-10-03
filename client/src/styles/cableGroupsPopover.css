@@ -141,11 +141,12 @@
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  visibility: hidden;
+  opacity: 0;
 }
 
-.cable-groups-pop__row:hover .cable-groups-pop__remove {
-  visibility: visible;
+.cable-groups-pop__row:hover .cable-groups-pop__remove,
+.cable-groups-pop__row:focus-within .cable-groups-pop__remove {
+  opacity: 1;
 }
 
 .cable-groups-pop__add {
