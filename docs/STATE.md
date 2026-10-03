@@ -257,6 +257,13 @@ Built at `client/` in React, Vite and React Flow. Typecheck, tests, build and `g
   tab if none) with a click callout; at 200%+ a bundle splits into cables with port labels; the details
   panel lists ports in words; Switch/Router are placed with a default faceplate; zoomed out, ports are
   not drawn. Logic: `drawing/faceplate.ts`, `drawing/cableEnds.ts`.
+- **The look switch** (ADR-0061 round 7): a Rack | Diagram switch in the top bar. Rack is faceplates and dressed
+  cables; Diagram is a plain labelled box per device (one column per rack) and square-cornered lines in the
+  sheath colour, view-and-select only (devices are placed, moved and cabled in Rack). Each person's choice is
+  kept in this browser per account and design (`drawing/look.ts`); new designs start on Rack. A design-held
+  starting choice is deferred until design names give the design a settings home. A cable whose far end is
+  off screen (24 px inset, settled after a pan or zoom) draws as stubs in both looks, each ending in a tag naming
+  the far end that pans to it; selected or tag-hovered, the whole cable draws (`drawing/stubs.ts`). Zoom never changes the look.
 - **The equipment list** (ADR-0060 decision 4) has a search box and headings: Common (Router,
   Switch, Firewall, Server, Access point, Any device), On a wall (Backboard), Exact models. Clicking a
   row, or Enter on it, adds it where there is room, the selected rack first and from the top down. A
