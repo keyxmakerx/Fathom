@@ -213,32 +213,21 @@ pub enum PolicyScope {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AddressValue {
     Prefix(scalar::IpPrefix),
-    Range {
-        low: scalar::IpAddr,
-        high: scalar::IpAddr,
-    },
+    Range(scalar::IpRange),
     Host(scalar::IpAddr),
     Fqdn(scalar::Fqdn),
     Any,
 }
 
-/// An inclusive port range; one port is `low == high`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PortRange {
-    pub low: u16,
-    pub high: u16,
-}
-
 /// L4 match, `{ protocol, source_ports, destination_ports }` or `Any`
-/// (schema doc, 11 §6.6). `protocol` is the IANA protocol number (6 TCP,
-/// 17 UDP, 1 ICMP); an empty port list means every port.
+/// (schema doc, 11 §6.6). An empty port list means every port.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum L4Spec {
     Any,
     Protocol {
-        protocol: u8,
-        source_ports: Vec<PortRange>,
-        destination_ports: Vec<PortRange>,
+        protocol: scalar::IpProtocol,
+        source_ports: Vec<scalar::PortRange>,
+        destination_ports: Vec<scalar::PortRange>,
     },
 }
 

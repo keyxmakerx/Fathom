@@ -235,11 +235,13 @@ schema:
                     # thirteen field keys (351-363). Whole change = MINOR.
                     #
                     # 0.17 is ADR-0061 path trace, part 1 (2026-10-03; 0.15 and 0.16 are claimed by
-                    # #98 and #93). No kind, edge, field or key moves. Five structured value types
+                    # #98 and #93). No kind or edge moves. Five structured value types
                     # that were unit structs get shapes: PolicyScope (ZonePair, InterfaceDirection,
                     # Global), AddressValue (Prefix, Range, Host, Fqdn, Any), L4Spec (Any, or a
                     # protocol with port ranges), NatScope and NatAction. A unit struct serialised
                     # as {}, and ingest never wrote one, so no stored payload holds the old form.
+                    # One optional field, SecurityPolicy.match_any_application (key 364), joins its
+                    # two siblings so a policy can say "any application" (62 §16.2: minor).
                     # Whole change = MINOR; the reader opens the same older versions as before.
 
 scalars:
@@ -917,6 +919,7 @@ kinds:
       - { name: action, type: enum(policy_action), card: "1", emit: R }
       - { name: match_any_source, type: bool, card: "0..1", emit: R, doc: Set(true) means the vendor's any keyword — distinct from an everything-set. }
       - { name: match_any_destination, type: bool, card: "0..1", emit: R }
+      - { name: match_any_application, type: bool, card: "0..1", emit: R, doc: Set(true) means the vendor's any keyword for applications (Junos match application any). }
       - { name: log_init, type: bool, card: "0..1", emit: O }
       - { name: log_close, type: bool, card: "0..1", emit: O }
       - { name: count, type: bool, card: "0..1", emit: O }

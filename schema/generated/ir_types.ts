@@ -457,7 +457,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ProtocolAdjacency: ["peer_address", "peer_as", "local_address", "area", "cost", "network_type", "import_policy", "export_policy", "route_reflector_client", "passive"],
   Zone: ["name", "description", "host_inbound_system_services", "host_inbound_protocols", "screen", "application_tracking", "tcp_rst"],
   PolicySet: ["scope", "evaluation", "default_action"],
-  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
+  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "match_any_application", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
   AddressObject: ["name", "value", "description"],
   AddressSet: ["name", "description"],
   Application: ["l4", "name", "app_id", "inactivity_timeout", "alg"],
@@ -869,4 +869,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "DocFile.removed": 361,
   "DocFile.file_id": 362,
   "DocFile.sha256": 363,
+  "SecurityPolicy.match_any_application": 364,
 };

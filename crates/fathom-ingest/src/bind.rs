@@ -16,9 +16,11 @@ use fathom_ir::generated::ir_types::{
     RoutingProtocolProtocol,
 };
 use fathom_ir::scalar::{self, Scalar};
-use fathom_ir::value::PeerSpec;
+use fathom_ir::value::{self, PeerSpec};
 
-use crate::dict::{Dictionary, EdgeTarget, Entry, KindSpec, Match, SetEnumTy, ValueSpec, ValueTy};
+use crate::dict::{
+    Dictionary, EdgeTarget, Entry, KindSpec, Match, NextHopConst, SetEnumTy, ValueSpec, ValueTy,
+};
 use crate::frame::{ByteSpan, Diag, LineOrdinal, LineOutcome, Outcome, ShapeError};
 use crate::redact;
 use crate::shape::{self, Stmt, StmtTree};
@@ -154,6 +156,28 @@ pub enum BoundValue {
     /// `SecurityPolicy.action` is the only slot of this type, and the CSV's
     /// `action` column is the only thing that reaches it today.
     PolicyAction(PolicyAction),
+    // --- values that name other nodes of the fragment (2026-10-03, schema 0.17) ---
+    /// `PolicySet.scope`. Holds fragment indices; the weld swaps in the store ids.
+    Scope(BoundScope),
+    /// `AddressObject.value`.
+    Address(value::AddressValue),
+    /// `StaticRoute.next_hop`, one or more, in the order the statements said them.
+    NextHops(Vec<BoundNextHop>),
+}
+
+/// `PolicyScope` as the fragment knows it: zones are fragment nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundScope {
+    ZonePair { from: FragNodeId, to: FragNodeId },
+}
+
+/// `NextHop` as the fragment knows it: an interface unit is a fragment node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundNextHop {
+    Address(scalar::IpAddr),
+    Discard,
+    Reject,
+    Interface(FragNodeId),
 }
 
 // ---------------------------------------------------------------------------
@@ -165,8 +189,22 @@ struct Deferred {
     kind: EdgeKind,
     from: FragNodeId,
     target: PendingTarget,
+    /// A second kind the name may belong to, tried when `target` finds nothing.
+    also: Option<NodeKind>,
     fields: Vec<FieldAssertion>,
     prov: BindProv,
+}
+
+/// A next hop that names an interface unit, resolved once every statement has
+/// been read (the unit's own lines may come after the route's).
+struct DeferredHop {
+    node: FragNodeId,
+    key: FieldKey,
+    target: PendingTarget,
+    prov: BindProv,
+    /// How far the statement was understood, for the residue row if the unit
+    /// never turns up.
+    consumed: u8,
 }
 
 struct Builder {
@@ -175,6 +213,7 @@ struct Builder {
     /// iteration order is part of the output (invariant 9).
     index: BTreeMap<(usize, Option<u32>, String), FragNodeId>,
     deferred: Vec<Deferred>,
+    hops: Vec<DeferredHop>,
 }
 
 pub(crate) fn bind(
@@ -192,6 +231,7 @@ pub(crate) fn bind(
         }],
         index: BTreeMap::new(),
         deferred: Vec::new(),
+        hops: Vec::new(),
     };
     b.index.insert(
         (NodeKind::Device.index(), None, String::new()),
@@ -239,12 +279,47 @@ pub(crate) fn bind(
         bind_statement(&mut b, tree, dict, stmt, m, outcomes);
     }
 
+    // Next hops that name an interface unit. One that does not resolve inside
+    // the fragment is not written (a route to a unit nobody said exists would
+    // be a guess) and is diagnosed on its own line.
+    for hop in std::mem::take(&mut b.hops) {
+        match resolve(&b, &hop.target) {
+            Some(unit) => {
+                let mut diags = Vec::new();
+                b.assert_node(
+                    hop.node,
+                    hop.key,
+                    BoundValue::NextHops(vec![BoundNextHop::Interface(unit)]),
+                    hop.prov,
+                    &mut diags,
+                );
+            }
+            None => {
+                // The route exists but its hop was not understood: the line is
+                // residue (with its own bytes), never reported as read.
+                if let Some(o) = outcomes.get_mut(hop.prov.line.0 as usize) {
+                    o.diags.push(Diag::ValueUnparsed { key: hop.key });
+                    o.outcome = LineOutcome::Unmapped {
+                        known_prefix: hop.consumed,
+                    };
+                }
+            }
+        }
+    }
+
     // 14 §7.3's deferred resolution, restricted to the fragment: scope is
     // pinned `Fragment`, so unresolved is always Pending, never Broken.
     let mut edges: Vec<FragEdge> = Vec::new();
     let mut pending: Vec<PendingEdge> = Vec::new();
     for deferred in &b.deferred {
-        match resolve(&b, &deferred.target) {
+        let found = resolve(&b, &deferred.target).or_else(|| {
+            let kind = deferred.also?;
+            match &deferred.target {
+                PendingTarget::ByName { name, .. } => b.find(kind, &name.0),
+                PendingTarget::InterfaceUnit { .. } => None,
+            }
+        });
+        match found {
             Some(to) => {
                 let edge = FragEdge {
                     kind: deferred.kind,
@@ -432,7 +507,20 @@ fn bind_statement(
                 Some(k) => FieldKey(k),
                 None => continue,
             };
-            match bound_value(dict, entry, stmt, tree, &field.value) {
+            // A next hop naming an interface unit waits for the whole paste.
+            if let ValueSpec::NextHopFrom { from } = &field.value {
+                if let Some(target) = hop_unit_target(entry, stmt, tree, from) {
+                    b.hops.push(DeferredHop {
+                        node: id,
+                        key: key_id,
+                        target,
+                        prov,
+                        consumed: cap_u8(m.consumed),
+                    });
+                    continue;
+                }
+            }
+            match bound_value(b, dict, entry, stmt, tree, &field.value, prov, &mut diags) {
                 Ok(value) => {
                     if b.assert_node(id, key_id, value, prov, &mut diags) {
                         fields_written = fields_written.saturating_add(1);
@@ -447,6 +535,10 @@ fn bind_statement(
         let from = match local.get(spec.from).copied() {
             Some(f) => f,
             None => continue,
+        };
+        let also = match &spec.to {
+            EdgeTarget::ByName { also, .. } => *also,
+            EdgeTarget::InterfaceUnit { .. } => None,
         };
         let target = match edge_target(entry, stmt, tree, &spec.to) {
             Some(t) => t,
@@ -472,7 +564,7 @@ fn bind_statement(
                 Some(k) => FieldKey(k),
                 None => continue,
             };
-            match bound_value(dict, entry, stmt, tree, &field.value) {
+            match bound_value(b, dict, entry, stmt, tree, &field.value, prov, &mut diags) {
                 Ok(value) => {
                     merge_assertion(&mut fields, key_id, value, prov, &mut diags);
                 }
@@ -483,6 +575,7 @@ fn bind_statement(
             kind: spec.kind,
             from,
             target,
+            also,
             fields,
             prov,
         });
@@ -621,6 +714,13 @@ fn merge_assertion(
             (BoundValue::HostProtocolSet(have), BoundValue::HostProtocolSet(add)) => {
                 have.extend(add.iter().cloned());
             }
+            (BoundValue::NextHops(have), BoundValue::NextHops(add)) => {
+                for hop in add {
+                    if !have.contains(hop) {
+                        have.push(*hop);
+                    }
+                }
+            }
             (have, add) if have == add => {}
             _ => diags.push(Diag::ValueUnparsed { key }),
         }
@@ -673,14 +773,44 @@ fn capture(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bound_value(
+    b: &mut Builder,
     dict: &Dictionary,
     entry: &Entry,
     stmt: &Stmt,
     tree: &StmtTree,
     spec: &ValueSpec,
+    prov: BindProv,
+    diags: &mut Vec<Diag>,
 ) -> Result<BoundValue, ()> {
     match spec {
+        ValueSpec::ZonePair { from, to } => {
+            let from = zone_ref(b, dict, entry, stmt, tree, from, prov, diags)?;
+            let to = zone_ref(b, dict, entry, stmt, tree, to, prov, diags)?;
+            Ok(BoundValue::Scope(BoundScope::ZonePair { from, to }))
+        }
+        ValueSpec::AddressPrefix { from } => {
+            let (text, redacted) = capture(entry, stmt, tree, from).ok_or(())?;
+            if redacted.is_some() {
+                return Err(());
+            }
+            Ok(BoundValue::Address(value::AddressValue::Prefix(parse(
+                &text,
+            )?)))
+        }
+        ValueSpec::NextHopFrom { from } => {
+            let (text, redacted) = capture(entry, stmt, tree, from).ok_or(())?;
+            if redacted.is_some() {
+                return Err(());
+            }
+            let addr: scalar::IpAddr = parse(&text)?;
+            Ok(BoundValue::NextHops(vec![BoundNextHop::Address(addr)]))
+        }
+        ValueSpec::NextHopConst { token } => Ok(BoundValue::NextHops(vec![match token {
+            NextHopConst::Discard => BoundNextHop::Discard,
+            NextHopConst::Reject => BoundNextHop::Reject,
+        }])),
         ValueSpec::Secret { .. } => redact::placeholder_of(spec)
             .map(BoundValue::Secret)
             .ok_or(()),
@@ -706,6 +836,57 @@ fn bound_value(
             scalar_value(dict, *ty, &text)
         }
     }
+}
+
+/// The `Zone` of a captured name: found, or made with its name (a policy that
+/// names a zone says the zone exists). The name is a key already vetted as an
+/// `Identifier`, so a redacted or odd capture refuses the whole value.
+#[allow(clippy::too_many_arguments)]
+fn zone_ref(
+    b: &mut Builder,
+    dict: &Dictionary,
+    entry: &Entry,
+    stmt: &Stmt,
+    tree: &StmtTree,
+    name: &str,
+    prov: BindProv,
+    diags: &mut Vec<Diag>,
+) -> Result<FragNodeId, ()> {
+    let (text, redacted) = capture(entry, stmt, tree, name).ok_or(())?;
+    if redacted.is_some() {
+        return Err(());
+    }
+    let ident: scalar::Identifier = parse(&text)?;
+    let (id, _) = b.upsert(NodeKind::Zone, None, &text);
+    let key = dict.field_key("Zone", "name").ok_or(())?;
+    b.assert_node(
+        id,
+        FieldKey(key),
+        BoundValue::Identifier(ident),
+        prov,
+        diags,
+    );
+    Ok(id)
+}
+
+/// A next hop token that is not an address but reads as `name.unit`: the unit
+/// it names, to be found once the paste is read.
+fn hop_unit_target(
+    entry: &Entry,
+    stmt: &Stmt,
+    tree: &StmtTree,
+    from: &str,
+) -> Option<PendingTarget> {
+    let (text, redacted) = capture(entry, stmt, tree, from)?;
+    if redacted.is_some() || scalar::IpAddr::parse(&text).is_ok() {
+        return None;
+    }
+    let (name, unit) = text.rsplit_once('.')?;
+    Some(PendingTarget::InterfaceUnit {
+        kind: interface_like(name),
+        name: scalar::Identifier::parse(name).ok()?,
+        unit: unit.parse::<u32>().ok()?,
+    })
 }
 
 fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue, ()> {
@@ -840,7 +1021,7 @@ fn edge_target(
     spec: &EdgeTarget,
 ) -> Option<PendingTarget> {
     match spec {
-        EdgeTarget::ByName { kind, from } => {
+        EdgeTarget::ByName { kind, from, .. } => {
             let (text, redacted) = capture(entry, stmt, tree, from)?;
             if redacted.is_some() {
                 return None;

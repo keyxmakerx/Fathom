@@ -84,7 +84,7 @@ fn shipped_tree_declaration_counts_hold() {
     assert_eq!(tree.classes.len(), 7, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 363, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 364, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so

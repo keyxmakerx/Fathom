@@ -25,13 +25,11 @@
 # *Configure Secure Local Branch Connectivity*, which is where
 # `tests/fixtures/junos-srx-branch-documented.txt` lines 84-104 come from.
 #
-# `PolicySet.scope` (`PolicyScope`) is `docs/10-core/11-ir-schema.md`'s own
-# empty struct — nothing here can assert it, so a `PolicySet` binds with no
-# fields at all, exactly as `corpus/dict/opnsense/firewall-rules.yaml` leaves
-# it (see that file's README §4, "the empty-struct finding"). `evaluation` is
-# left unset for the same reason `70` §7's own reasoning would demand it be
-# sourced fresh before it is asserted as a vendor fact — not done this pass;
-# see the dictionary's git history / the work order for the note.
+# `PolicySet.scope` is the zone pair (schema 0.17, `PolicyScope::ZonePair`): each
+# entry below re-asserts it, because a display-set line can name a policy by any
+# of its statements and no bare stanza line is ever printed. A zone the paste says
+# nothing else about is created with its name, since the policy names it.
+# `evaluation` is left unset: the first-match claim wants its own vendor citation.
 #
 # `PolicySet` is keyed on the zone PAIR (`["$fz", "$tz"]`), not on either zone
 # alone: three of the four pairs in the reference fixture share `trust` as the
@@ -48,26 +46,20 @@
 # the node.
 #
 # WHAT STAYS RESIDUE, deliberately:
-#   - `match source-address NAME` / `match destination-address NAME` for any
-#     REAL name (not the literal `any`): `AddressObject.value` is
-#     `AddressValue`, an empty struct and a REQUIRED (card 1) field, so an
-#     `AddressObject` cannot be honestly constructed at all — the same wall
-#     `corpus/dict/opnsense/firewall-rules.yaml`'s README documents. Only the
-#     literal `any` binds, onto `match_any_source` / `match_any_destination`.
-#   - `match application ANY-VALUE`, including the literal `any`:
-#     `SecurityPolicy` has no `match_any_application` field mirroring the two
-#     source/destination flags (checked `schema/schema.yaml` in full), so
-#     there is nowhere for even the `any` literal to bind. Whether a real
-#     application name should resolve a `MatchApplication` edge to a
-#     name-only `Application` node is a judgment call this pass does not
-#     make — flagged as an escalation, not decided here.
-#   - `then permit tunnel ipsec-vpn NAME` (`TunnelsVia`, policy-based VPN):
-#     not exercised by the reference fixture; left for the day it is.
-#   - `then deny`, `then reject`, `description`, `deactivate … policy NAME`
-#     (`enabled = false`): plausible mirrors of the four entries below, but
-#     not personally verified against Juniper's page this session (ADR-0034
-#     rule 1) and not needed by the reference fixture, which carries only
-#     `then permit`. Left for the day the vendor page is opened and cited.
+#   - `match source-address NAME` / `destination-address NAME` bind a MatchSource /
+#     MatchDestination edge to the address object or set of that name when the
+#     paste defines it (`security-address-book.yaml`); a name defined nowhere in
+#     the paste (a zone-scoped book, a predefined name) stays a pending edge.
+#     The literal `any` binds `match_any_*`.
+#   - `match application NAME` binds a MatchApplication edge to an `Application`
+#     named NAME, made if the paste does not define it. Predefined names such as
+#     `junos-http` therefore exist as name-only applications with no `l4`; their
+#     ports are not known from the config. `any` binds `match_any_application`.
+#   - `then permit tunnel ipsec-vpn NAME` (`TunnelsVia`, policy-based VPN) and
+#     `description`, `deactivate … policy NAME` (`enabled = false`): not exercised
+#     by the reference fixture, not bound.
+#   - `then deny` and `then reject` are in the syntax block transcribed above
+#     (same page, same date) and bind the same way `then permit` does.
 #
 # `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
 platform: junos-srx
@@ -82,7 +74,11 @@ entries:
     partial: true
     binds:
       nodes:
-        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
         - as: rule
           kind: SecurityPolicy
           owner: set
@@ -97,7 +93,11 @@ entries:
     path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, source-address, any]
     binds:
       nodes:
-        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
         - as: rule
           kind: SecurityPolicy
           owner: set
@@ -113,7 +113,11 @@ entries:
     path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, destination-address, any]
     binds:
       nodes:
-        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
         - as: rule
           kind: SecurityPolicy
           owner: set
@@ -125,11 +129,106 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
+  # `match application any` (the fixture's `trust-to-untrust`); the field joined its
+  # two siblings in schema 0.17.
+  - id: junos-srx/security.policies.match-application-any
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, application, any]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: match_any_application, const_bool: true }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # A name, not `any` (the literal entry above wins). The edge resolves in the paste
+  # after all statements are read; an address object and an address set share one
+  # namespace on the device, so either kind may answer.
+  - id: junos-srx/security.policies.match-source-address
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, source-address, "$a"]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+      edges:
+        - { kind: MatchSource, from: rule, to: { by_name: { kind: AddressObject, also: AddressSet, from: "$a" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.match-destination-address
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, destination-address, "$a"]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+      edges:
+        - { kind: MatchDestination, from: rule, to: { by_name: { kind: AddressObject, also: AddressSet, from: "$a" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # One statement per application (a policy lists several). The application node is
+  # made by name if the paste defines none; see the residue note above.
+  - id: junos-srx/security.policies.match-application
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", match, application, "$app"]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+        - { as: app, kind: Application, key: "$app", fields: [ { field: name, from: "$app", scalar: Identifier } ] }
+      edges:
+        - { kind: MatchApplication, from: rule, to: { by_name: { kind: Application, from: "$app" } } }
+    versions: "*"
+    reviewed_by: <named human>
+
   - id: junos-srx/security.policies.then-permit
     path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", then, permit]
     binds:
       nodes:
-        - { as: set, kind: PolicySet, key: ["$fz", "$tz"] }
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
         - as: rule
           kind: SecurityPolicy
           owner: set
@@ -138,5 +237,45 @@ entries:
           fields:
             - { field: name, from: "$policy", scalar: Identifier }
             - { field: action, const_enum: "PolicyAction.permit" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.then-deny
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", then, deny]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: action, const_enum: "PolicyAction.deny" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.policies.then-reject
+    path: [security, policies, from-zone, "$fz", to-zone, "$tz", policy, "$policy", then, reject]
+    binds:
+      nodes:
+        - as: set
+          kind: PolicySet
+          key: ["$fz", "$tz"]
+          fields:
+            - { field: scope, zone_pair: { from: "$fz", to: "$tz" } }
+        - as: rule
+          kind: SecurityPolicy
+          owner: set
+          key: "$policy"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$policy", scalar: Identifier }
+            - { field: action, const_enum: "PolicyAction.reject" }
     versions: "*"
     reviewed_by: <named human>

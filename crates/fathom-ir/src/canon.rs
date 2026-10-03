@@ -859,12 +859,7 @@ impl CanonicalValue for value::AddressValue {
     fn to_canon(&self) -> Result<Json, CanonError> {
         Ok(match self {
             value::AddressValue::Prefix(p) => tagged("prefix", p.to_canon()?),
-            value::AddressValue::Range { low, high } => {
-                let mut m = BTreeMap::new();
-                m.insert("high".to_owned(), high.to_canon()?);
-                m.insert("low".to_owned(), low.to_canon()?);
-                tagged("range", Json::Obj(m))
-            }
+            value::AddressValue::Range(r) => tagged("range", r.to_canon()?),
             value::AddressValue::Host(a) => tagged("host", a.to_canon()?),
             value::AddressValue::Fqdn(f) => tagged("fqdn", f.to_canon()?),
             value::AddressValue::Any => Json::Str("any".to_owned()),
@@ -884,47 +879,19 @@ impl CanonicalValue for value::AddressValue {
             "prefix" => Ok(value::AddressValue::Prefix(scalar::IpPrefix::from_canon(
                 payload,
             )?)),
-            "range" => {
-                let m = expect_obj(payload, "an AddressValue::Range payload")?;
-                known_keys(m, &["high", "low"])?;
-                let low = scalar::IpAddr::from_canon(required(m, "low")?)?;
-                let high = scalar::IpAddr::from_canon(required(m, "high")?)?;
-                if low > high {
-                    return Err(CanonError::Shape {
-                        expected: "a range with low <= high",
-                    });
-                }
-                Ok(value::AddressValue::Range { low, high })
-            }
+            "range" => Ok(value::AddressValue::Range(scalar::IpRange::from_canon(
+                payload,
+            )?)),
             "host" => Ok(value::AddressValue::Host(scalar::IpAddr::from_canon(
                 payload,
             )?)),
-            "fqdn" => Ok(value::AddressValue::Fqdn(scalar::Fqdn::from_canon(payload)?)),
+            "fqdn" => Ok(value::AddressValue::Fqdn(scalar::Fqdn::from_canon(
+                payload,
+            )?)),
             other => Err(CanonError::UnknownVariant {
                 token: other.to_owned(),
             }),
         }
-    }
-}
-
-impl CanonicalValue for value::PortRange {
-    fn to_canon(&self) -> Result<Json, CanonError> {
-        let mut m = BTreeMap::new();
-        m.insert("high".to_owned(), self.high.to_canon()?);
-        m.insert("low".to_owned(), self.low.to_canon()?);
-        Ok(Json::Obj(m))
-    }
-    fn from_canon(j: &Json) -> Result<Self, CanonError> {
-        let m = expect_obj(j, "a PortRange object")?;
-        known_keys(m, &["high", "low"])?;
-        let low = u16::from_canon(required(m, "low")?)?;
-        let high = u16::from_canon(required(m, "high")?)?;
-        if low > high {
-            return Err(CanonError::Shape {
-                expected: "a port range with low <= high",
-            });
-        }
-        Ok(value::PortRange { low, high })
     }
 }
 
@@ -938,7 +905,10 @@ impl CanonicalValue for value::L4Spec {
                 destination_ports,
             } => {
                 let mut m = BTreeMap::new();
-                m.insert("destination_ports".to_owned(), destination_ports.to_canon()?);
+                m.insert(
+                    "destination_ports".to_owned(),
+                    destination_ports.to_canon()?,
+                );
                 m.insert("protocol".to_owned(), protocol.to_canon()?);
                 m.insert("source_ports".to_owned(), source_ports.to_canon()?);
                 tagged("protocol", Json::Obj(m))
@@ -960,7 +930,7 @@ impl CanonicalValue for value::L4Spec {
                 let m = expect_obj(payload, "an L4Spec::Protocol payload")?;
                 known_keys(m, &["destination_ports", "protocol", "source_ports"])?;
                 Ok(value::L4Spec::Protocol {
-                    protocol: u8::from_canon(required(m, "protocol")?)?,
+                    protocol: scalar::IpProtocol::from_canon(required(m, "protocol")?)?,
                     source_ports: Vec::from_canon(required(m, "source_ports")?)?,
                     destination_ports: Vec::from_canon(required(m, "destination_ports")?)?,
                 })

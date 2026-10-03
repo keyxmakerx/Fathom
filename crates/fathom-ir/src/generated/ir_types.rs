@@ -839,7 +839,7 @@ mod body {
                 NodeKind::ProtocolAdjacency => &[crate::bag::FieldKey(96), crate::bag::FieldKey(97), crate::bag::FieldKey(98), crate::bag::FieldKey(99), crate::bag::FieldKey(100), crate::bag::FieldKey(101), crate::bag::FieldKey(102), crate::bag::FieldKey(103), crate::bag::FieldKey(104), crate::bag::FieldKey(105)],
                 NodeKind::Zone => &[crate::bag::FieldKey(106), crate::bag::FieldKey(107), crate::bag::FieldKey(108), crate::bag::FieldKey(109), crate::bag::FieldKey(110), crate::bag::FieldKey(111), crate::bag::FieldKey(112)],
                 NodeKind::PolicySet => &[crate::bag::FieldKey(113), crate::bag::FieldKey(114), crate::bag::FieldKey(115)],
-                NodeKind::SecurityPolicy => &[crate::bag::FieldKey(116), crate::bag::FieldKey(117), crate::bag::FieldKey(118), crate::bag::FieldKey(119), crate::bag::FieldKey(120), crate::bag::FieldKey(121), crate::bag::FieldKey(122), crate::bag::FieldKey(123), crate::bag::FieldKey(124), crate::bag::FieldKey(125), crate::bag::FieldKey(126)],
+                NodeKind::SecurityPolicy => &[crate::bag::FieldKey(116), crate::bag::FieldKey(117), crate::bag::FieldKey(118), crate::bag::FieldKey(119), crate::bag::FieldKey(120), crate::bag::FieldKey(364), crate::bag::FieldKey(121), crate::bag::FieldKey(122), crate::bag::FieldKey(123), crate::bag::FieldKey(124), crate::bag::FieldKey(125), crate::bag::FieldKey(126)],
                 NodeKind::AddressObject => &[crate::bag::FieldKey(127), crate::bag::FieldKey(128), crate::bag::FieldKey(129)],
                 NodeKind::AddressSet => &[crate::bag::FieldKey(130), crate::bag::FieldKey(131)],
                 NodeKind::Application => &[crate::bag::FieldKey(132), crate::bag::FieldKey(133), crate::bag::FieldKey(134), crate::bag::FieldKey(135), crate::bag::FieldKey(136)],
@@ -6582,6 +6582,7 @@ mod body {
         Action,
         MatchAnySource,
         MatchAnyDestination,
+        MatchAnyApplication,
         LogInit,
         LogClose,
         Count,
@@ -6591,14 +6592,15 @@ mod body {
     }
 
     impl SecurityPolicyField {
-        pub const COUNT: usize = 11;
+        pub const COUNT: usize = 12;
         /// Every field, declaration order.
-        pub const ALL: [SecurityPolicyField; 11] = [
+        pub const ALL: [SecurityPolicyField; 12] = [
             SecurityPolicyField::Name,
             SecurityPolicyField::Ordinal,
             SecurityPolicyField::Action,
             SecurityPolicyField::MatchAnySource,
             SecurityPolicyField::MatchAnyDestination,
+            SecurityPolicyField::MatchAnyApplication,
             SecurityPolicyField::LogInit,
             SecurityPolicyField::LogClose,
             SecurityPolicyField::Count,
@@ -6616,6 +6618,7 @@ mod body {
                 SecurityPolicyField::Action => "action",
                 SecurityPolicyField::MatchAnySource => "match_any_source",
                 SecurityPolicyField::MatchAnyDestination => "match_any_destination",
+                SecurityPolicyField::MatchAnyApplication => "match_any_application",
                 SecurityPolicyField::LogInit => "log_init",
                 SecurityPolicyField::LogClose => "log_close",
                 SecurityPolicyField::Count => "count",
@@ -6632,6 +6635,7 @@ mod body {
                 SecurityPolicyField::Action => crate::bag::FieldKey(118),
                 SecurityPolicyField::MatchAnySource => crate::bag::FieldKey(119),
                 SecurityPolicyField::MatchAnyDestination => crate::bag::FieldKey(120),
+                SecurityPolicyField::MatchAnyApplication => crate::bag::FieldKey(364),
                 SecurityPolicyField::LogInit => crate::bag::FieldKey(121),
                 SecurityPolicyField::LogClose => crate::bag::FieldKey(122),
                 SecurityPolicyField::Count => crate::bag::FieldKey(123),
@@ -9057,7 +9061,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 363] = [
+    pub const FIELD_KEYS: [(&str, u32); 364] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9421,6 +9425,7 @@ mod body {
         ("DocFile.removed", 361),
         ("DocFile.file_id", 362),
         ("DocFile.sha256", 363),
+        ("SecurityPolicy.match_any_application", 364),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
