@@ -488,7 +488,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `12` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 12;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 13;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -2828,4 +2828,110 @@ async fn a_grant_revoked_between_the_check_and_the_act_stops_the_write() {
         matches!(latest, Err(designs::DesignError::NoSuchVersion)),
         "{latest:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Design names (ADR-0060 step 3b)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_drawer_names_a_design_and_a_reader_cannot_and_the_name_is_never_stored_in_the_clear() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let list = format!("/organisations/{}/designs", estate.organisation);
+    let name_path = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, design
+    );
+
+    let (_, body) = call(addr, &estate.steward, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains("\"name\":null"));
+
+    let (status, body) = call(addr, &reader, "POST", &name_path, b"Nope").await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+
+    let secret = "Core switches, 4th floor";
+    let (status, body) = call(addr, &estate.steward, "POST", &name_path, secret.as_bytes()).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (_, body) = call(addr, &reader, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains(&format!("\"name\":\"{secret}\"")));
+
+    // Sealed at rest: the stored bytes do not contain the name.
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT name_ciphertext FROM designs WHERE id = $1",
+            &[&design.to_string()],
+        )
+        .await
+        .unwrap();
+    let stored: Vec<u8> = rows[0].get(0);
+    assert!(!stored.windows(secret.len()).any(|w| w == secret.as_bytes()));
+
+    // Too long and control characters are refused; empty clears.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &name_path,
+        "x".repeat(101).as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (status, _) = call(addr, &estate.steward, "POST", &name_path, b"a\x07b").await;
+    assert_eq!(status, "400");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &name_path,
+        "a\u{202E}b".as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (status, _) = call(addr, &estate.steward, "POST", &name_path, b"  ").await;
+    assert_eq!(status, "200");
+    let (_, body) = call(addr, &estate.steward, "GET", &list, b"").await;
+    assert!(String::from_utf8_lossy(&body).contains("\"name\":null"));
+}
+
+#[tokio::test]
+async fn naming_a_design_in_another_organisation_or_one_that_does_not_exist_is_refused_the_same_way(
+) {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let other = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    // `other`'s steward names `design` through its own organisation, and through ours.
+    let own = format!(
+        "/organisations/{}/designs/{}/name",
+        other.organisation, design
+    );
+    let (status, _) = call(addr, &other.steward, "POST", &own, b"Mine now").await;
+    assert_eq!(status, "404");
+    let across = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, design
+    );
+    let (status, _) = call(addr, &other.steward, "POST", &across, b"Mine now").await;
+    assert_eq!(status, "403");
+
+    let ghost = a_design_id_nothing_was_ever_created_under();
+    let path = format!(
+        "/organisations/{}/designs/{}/name",
+        estate.organisation, ghost
+    );
+    let (status, _) = call(addr, &estate.steward, "POST", &path, b"x").await;
+    assert_eq!(status, "404");
 }

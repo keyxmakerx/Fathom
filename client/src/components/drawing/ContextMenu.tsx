@@ -8,6 +8,8 @@ export interface ContextMenuProps {
   y: number;
   items: MenuItem[];
   onClose: () => void;
+  /** An uppercase spaced heading above the items, such as the NEW box menu's. */
+  title?: string;
 }
 
 /**
@@ -15,7 +17,7 @@ export interface ContextMenuProps {
  * pointer, kept inside the drawing. A choice, Escape or a press anywhere else
  * closes it; the arrow keys move between its items.
  */
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Placed here rather than through `style`, so a re-render never undoes the
@@ -73,6 +75,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       onKeyDown={handleKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
+      {title ? <div className="drawing-context-menu__title">{title}</div> : null}
       {items.map((item) => (
         <button
           key={item.label}

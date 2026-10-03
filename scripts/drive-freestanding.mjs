@@ -250,7 +250,7 @@ try {
     const midY = fwBoundingBox.y + fwBoundingBox.height / 2;
     await page.mouse.move(midX, midY);
     for (let i = 0; i < 10; i += 1) {
-      await page.mouse.wheel(0, -240);
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, -240); await page.keyboard.up('Control'); // wheel pans, Ctrl+wheel zooms
       await page.waitForTimeout(50);
     }
   }

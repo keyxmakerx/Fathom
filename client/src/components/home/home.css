@@ -190,8 +190,15 @@
   font-size: var(--t-small);
 }
 
-.home__design-id {
+.home__design-name {
   flex-shrink: 0;
+  font-weight: 600;
+}
+
+.home__design-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
 }
 
 .home__design-meta {

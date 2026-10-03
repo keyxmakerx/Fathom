@@ -20,7 +20,7 @@ import { newUlid } from './ulid';
 const PINNED =
   'fathom-plain 1\n' +
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n' +
-  'schema 0.12\n' +
+  'schema 0.13\n' +
   '\n' +
   '{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}\n';
 
@@ -317,7 +317,7 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses a mismatched schema version', () => {
-    const bumped = PINNED.replace('schema 0.12', 'schema 0.1');
+    const bumped = PINNED.replace('schema 0.13', 'schema 0.1');
     try {
       readPlain(bytesOf(bumped));
       throw new Error('expected a refusal');
@@ -326,7 +326,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.12',
+        supported: '0.13',
       });
     }
   });
@@ -335,7 +335,7 @@ describe('readPlain refusals', () => {
   // is no migration chain, so nothing shipped since is allowed to narrow
   // what already opened.
   it('opens a 0.10 vector and writes it back at the current version', () => {
-    const at010 = PINNED.replace('schema 0.12', 'schema 0.10');
+    const at010 = PINNED.replace('schema 0.13', 'schema 0.10');
     const doc = readPlain(bytesOf(at010));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
@@ -344,14 +344,23 @@ describe('readPlain refusals', () => {
   // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.12, and
   // saving it again writes the current version, not the one it arrived at.
   it('opens a 0.11 vector and writes it back at the current version', () => {
-    const at011 = PINNED.replace('schema 0.12', 'schema 0.11');
+    const at011 = PINNED.replace('schema 0.13', 'schema 0.11');
     const doc = readPlain(bytesOf(at011));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
+  it('opens a 0.12 vector and refuses a 0.12 header holding a 0.13-only kind', () => {
+    const at012 = PINNED.replace('schema 0.13', 'schema 0.12');
+    expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at012))))).toEqual(PINNED);
+    const doc = readPlain(bytesOf(PINNED));
+    const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
+    const bad = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.13', 'schema 0.12');
+    expect(() => readPlain(bytesOf(bad))).toThrow('Label does not exist in schema 0.12');
+  });
+
   it('refuses an unlisted older version', () => {
-    const at09 = PINNED.replace('schema 0.12', 'schema 0.9');
+    const at09 = PINNED.replace('schema 0.13', 'schema 0.9');
     try {
       readPlain(bytesOf(at09));
       throw new Error('expected a refusal');
@@ -371,7 +380,7 @@ describe('readPlain refusals', () => {
       ],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withNetwork));
-    const at010 = atCurrent.replace('schema 0.12', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.13', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -393,7 +402,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withTag));
-    const at010 = atCurrent.replace('schema 0.12', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.13', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -415,7 +424,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const at012 = new TextDecoder().decode(writePlain(withTag));
-    const at011 = at012.replace('schema 0.12', 'schema 0.11');
+    const at011 = at012.replace('schema 0.13', 'schema 0.11');
     try {
       readPlain(bytesOf(at011));
       throw new Error('expected a refusal');

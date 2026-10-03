@@ -1587,3 +1587,9 @@
 .drawing-diagram-line--selected path {
   stroke-width: 3px;
 }
+
+/* Rail numbers of the units a drag would cover. */
+.drawing-rack__u-number--lit {
+  font-weight: 700;
+  color: var(--ink);
+}

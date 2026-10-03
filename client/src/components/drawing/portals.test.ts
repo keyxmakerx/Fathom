@@ -6,7 +6,7 @@ import { groupPortals, portalCountLabel } from './portals';
 function view(overrides: Partial<ClosetView> = {}): ClosetView {
   return {
     premisesId: 'closet-1',
-    unplaced: [],
+    unplaced: [], free: [], lines: [], labels: [],
     rows: [],
     surfaces: [],
     racks: [

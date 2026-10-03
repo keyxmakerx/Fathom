@@ -50,6 +50,7 @@ export function Shell({
   children,
   viewOnly,
   menu,
+  adminPill,
   onHome,
   search,
 }: ShellProps) {
@@ -76,6 +77,7 @@ export function Shell({
         account={account}
         viewOnly={viewOnly}
         menu={menu}
+        adminPill={adminPill}
         onHome={onHome}
         search={search}
       />

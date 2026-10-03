@@ -14,6 +14,7 @@
 // this module's write-side mirror: exactly one of the three survives.
 
 import { connectorTokenOf } from './compat';
+import { labelView, lineEnds, lineLabelOf, liveLabelNodes, liveLineNodes, pinOf } from './freeform';
 import type {
   CataloguePort,
   CatalogueFaceplate,
@@ -248,6 +249,8 @@ export interface ShelfView {
   label: string;
   positionU: number;
   heightU: number;
+  /** `PassiveNode.slots`, or `null` when nobody set it. */
+  slots?: number | null;
   /** Sorted by `slot` ascending — left to right, the same order the shelf's
    * own render reads them (`design/places/renders/Shelf.png`). */
   occupants: OccupantView[];
@@ -351,6 +354,40 @@ export interface ClosetView {
    * `unplacedDeviceRows`), given here too so the editor can open one
    * (`placement.kind === 'none'`). */
   unplaced: ChassisView[];
+  /** ADR-0060 step 7: unplaced chassis that carry a canvas position — the free boxes. */
+  free: FreeBoxView[];
+  /** Lines between two free boxes. */
+  lines: FreeLineView[];
+  /** Text labels and areas. */
+  labels: LabelView[];
+}
+
+export interface FreeBoxView {
+  /** The chassis id, which is also its selection id. */
+  id: string;
+  hostname: string;
+  role: string | null;
+  x: number;
+  y: number;
+  portCount: number;
+}
+
+export interface FreeLineView {
+  id: string;
+  aId: string;
+  bId: string;
+  label: string | null;
+}
+
+export interface LabelView {
+  id: string;
+  text: string;
+  form: 'text' | 'area';
+  x: number;
+  y: number;
+  /** An area's size; a text label's are the defaults and unused. */
+  w: number;
+  h: number;
 }
 
 function rowNumber(row: 'top' | 'bottom' | 'single'): number {
@@ -867,6 +904,7 @@ function shelfView(
     label: passiveFields.label ?? '',
     positionU: mountedFields.positionU ?? 1,
     heightU,
+    slots: passiveFields.slots ?? null,
     occupants,
   };
 }
@@ -1166,7 +1204,8 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
     .filter((n) => isLiveNode(n) && isNodeOfKind(n.id, 'Cable'))
     .map((n) => cableView(doc, n));
   if (!premises) {
-    return { premisesId: '', racks: [], cables, rows: [], surfaces: [], unplaced: unplacedChassisViews(doc, catalogue, new Set()) };
+    const unplaced = unplacedChassisViews(doc, catalogue, new Set());
+    return { premisesId: '', racks: [], cables, rows: [], surfaces: [], unplaced, ...freeViews(doc, unplaced) };
   }
   const rackEdges = edgesOut(doc, premises.id, 'HasRack');
   const closetRackIds = new Set(rackEdges.map((e) => e.to));
@@ -1178,7 +1217,28 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
     .map((e) => surfaceView(doc, e.to, catalogue, closetRackIds))
     .filter((s): s is SurfaceView => s !== undefined);
   const unplaced = unplacedChassisViews(doc, catalogue, closetRackIds);
-  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces, unplaced };
+  return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces, unplaced, ...freeViews(doc, unplaced) };
+}
+
+/** The free boxes, lines and labels (`document/freeform.ts` writes them). */
+function freeViews(doc: Document, unplaced: readonly ChassisView[]): Pick<ClosetView, 'free' | 'lines' | 'labels'> {
+  const free: FreeBoxView[] = [];
+  for (const c of unplaced) {
+    const pin = pinOf(doc, c.id);
+    if (pin) free.push({ id: c.id, hostname: c.hostname, role: c.role, x: pin.x, y: pin.y, portCount: c.ports.length });
+  }
+  const freeIds = new Set(free.map((f) => f.id));
+  const lines: FreeLineView[] = [];
+  for (const n of liveLineNodes(doc)) {
+    const [aId, bId] = lineEnds(doc, n.id);
+    if (aId && bId && freeIds.has(aId) && freeIds.has(bId)) lines.push({ id: n.id, aId, bId, label: lineLabelOf(doc, n.id) });
+  }
+  const labels: LabelView[] = [];
+  for (const n of liveLabelNodes(doc)) {
+    const v = labelView(doc, n);
+    if (v) labels.push(v);
+  }
+  return { free, lines, labels };
 }
 
 /** A `Chassis` node with no live `MountedIn`/`SitsOn`/`FixedTo` at all — the

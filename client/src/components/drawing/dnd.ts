@@ -12,6 +12,14 @@ export interface PaletteDragPayload {
   role?: string;
 }
 
+/** Height of the item being dragged: browsers hide the payload during
+ * dragover, so the drop-target highlight reads it from here. */
+let draggedUnits: number | null = null;
+export const setDraggedUnits = (u: number | null) => {
+  draggedUnits = u;
+};
+export const getDraggedUnits = () => draggedUnits;
+
 export function encodePaletteDrag(item: PaletteItem): string {
   const payload: PaletteDragPayload = { vendor: item.vendor, model: item.model, rackUnits: item.rackUnits };
   if (item.role !== undefined) payload.role = item.role;

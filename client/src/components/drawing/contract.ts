@@ -109,6 +109,24 @@ export interface DrawingActions {
   onUndo?(): void;
   /** Ctrl Shift Z, the same site. */
   onRedo?(): void;
+  /** ADR-0060 step 7, free boxes, lines and areas. Each is optional, and a place that cannot do it
+   * leaves its control out. `fromBoxId` joins the new box to that box with a line. Return the id of
+   * the new chassis, or nothing when the add was refused. */
+  onAddFreeBox?(role: string | null, x: number, y: number, fromBoxId?: string): string | void;
+  /** A device into a free unit of a rack, by role (the edge squares on a racked device). */
+  onAddDeviceAt?(rackId: string, positionU: number, role: string | null): void;
+  /** One undo step: every moved box, label or area, by the id it is selected by, at its new top-left. */
+  onMoveFree?(moves: readonly { id: string; x: number; y: number }[]): void;
+  onConnectBoxes?(aChassisId: string, bChassisId: string): void;
+  /** Returns the new label's id. */
+  onAddLabel?(form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number): string | void;
+  onSetLabel?(labelId: string, patch: { text?: string; w?: number; h?: number }): void;
+  /** Removes boxes, labels, areas and lines together. */
+  onRemoveFree?(ids: readonly string[]): void;
+  /** Copies the named boxes, labels and areas, and the lines between them, offset by (dx, dy). Returns the copies' ids. */
+  onDuplicateFree?(ids: readonly string[], dx: number, dy: number): string[] | void;
+  /** A shelf resized by its grips; refused with a message that names what is in the way. */
+  onResizeShelf?(shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean): { refused: string } | void;
 }
 
 /** The one editor's own field set (ADR-0046 §2). `value: null` is a cleared
@@ -197,7 +215,14 @@ export type EditorChange =
    * `'supply-remove'` already are. `chassisId` is a live `Chassis` id
    * regardless of which panel raises it (rack, shelf occupant or surface
    * fixture) — `removeChassis` itself finds the `Device` that owns it. */
-  | { kind: 'device-remove'; chassisId: string };
+  | { kind: 'device-remove'; chassisId: string }
+  /** ADR-0060 step 7: a label or area's words and an area's size; a line's words. */
+  | { kind: 'label'; id: string; field: 'text'; value: string }
+  | { kind: 'area-size'; id: string; w: number; h: number }
+  | { kind: 'line'; id: string; field: 'label'; value: string | null }
+  | { kind: 'free-remove'; id: string }
+  /** A shelf's height in units or its slot count, from the details panel. */
+  | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through
@@ -311,7 +336,10 @@ export type Selection =
   | { kind: 'occupant'; id: string }
   /** ADR-0051 §1/§2 — a surface fixture (`FixtureView`, a board included —
    * a board is itself a fixture), selected by clicking it on its surface. */
-  | { kind: 'fixture'; id: string };
+  | { kind: 'fixture'; id: string }
+  /** ADR-0060 step 7: a text label or an area, and a line between two free boxes. */
+  | { kind: 'label'; id: string }
+  | { kind: 'line'; id: string };
 
 /** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
  * an omitted row. Shared by `ChassisNode` (the box) and `Editor` (the

@@ -170,6 +170,10 @@ pub fn router(state: DesignApiState) -> Router {
             get(open_design_handler),
         )
         .route(
+            "/organisations/{organisation}/designs/{design}/name",
+            post(rename_design_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}/versions",
             post(save_design_handler),
         )
@@ -428,6 +432,11 @@ fn design_error_response(e: DesignError) -> Response {
         DesignError::NoSuchDesign | DesignError::NoSuchVersion | DesignError::NoSuchScope => {
             (StatusCode::NOT_FOUND, "no such design\n").into_response()
         }
+        DesignError::InvalidName => (
+            StatusCode::BAD_REQUEST,
+            "a design name is at most 100 characters, without control characters\n",
+        )
+            .into_response(),
         DesignError::PayloadTooLarge { bytes } => (
             StatusCode::PAYLOAD_TOO_LARGE,
             format!(
@@ -715,18 +724,21 @@ async fn list_designs_handler(
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, extract(epoch FROM d.created_at)::bigint, d.created_by, \
-                    coalesce(max(p.design_version), 0) \
+                    coalesce(max(p.design_version), 0), \
+                    d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              FROM designs d \
              LEFT JOIN design_payload p \
                ON p.design_id = d.id AND p.organisation_id = d.organisation_id \
              WHERE d.organisation_id = $1 \
-             GROUP BY d.id, d.scope_id, d.created_at, d.created_by \
+             GROUP BY d.id, d.scope_id, d.created_at, d.created_by, \
+                      d.name_ciphertext, d.name_nonce, d.name_key_epoch \
              ORDER BY d.created_at",
             &[&ctx.tenant().to_string()],
         )
         .await
         .map_err(SessionError::Db)?;
 
+    let mut names = designs::NameOpener::new(&auth);
     let mut out = Vec::new();
     for row in rows {
         let id: String = row.get(0);
@@ -734,6 +746,14 @@ async fn list_designs_handler(
         let created_at_unix: i64 = row.get(2);
         let created_by: String = row.get(3);
         let latest_version: i64 = row.get(4);
+        let sealed_name = match (
+            row.get::<_, Option<Vec<u8>>>(5),
+            row.get::<_, Option<Vec<u8>>>(6),
+            row.get::<_, Option<i32>>(7),
+        ) {
+            (Some(c), Some(n), Some(e)) => Some((c, n, e)),
+            _ => None,
+        };
 
         let scope: ScopeId = scope_text
             .parse()
@@ -753,8 +773,10 @@ async fn list_designs_handler(
             | Err(grants::AuthorityError::QuorumNotMet { .. }) => continue,
             Err(other) => return Err(SessionError::Authority(other).into()),
         };
+        let name = names.open(&tx, &id, sealed_name).await?;
 
         let mut map = BTreeMap::new();
+        map.insert("name".to_string(), name.map_or(Json::Null, Json::Str));
         map.insert("design_id".to_string(), Json::Str(id));
         map.insert("scope_id".to_string(), Json::Str(scope_text));
         map.insert("created_at_unix".to_string(), Json::Int(created_at_unix));
@@ -1071,6 +1093,48 @@ async fn create_design_handler(
         Json::Str(capability.as_str().to_string()),
     );
     map.insert("latest_version".to_string(), Json::Int(version));
+    Ok(json_response(Json::Obj(map)))
+}
+
+// ---- Rename ----
+
+/// `POST /organisations/{organisation}/designs/{design}/name`: the body is the
+/// new name in UTF-8; empty clears it. Needs `draw` on the design's scope.
+async fn rename_design_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let name = core::str::from_utf8(&signed.body)
+        .map_err(|_| SessionError::Malformed("design name"))?
+        .to_string();
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    designs::rename_design_in_tx(&tx, &auth, design_id, scope, &name).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("design_id".to_string(), Json::Str(design_id.to_string()));
     Ok(json_response(Json::Obj(map)))
 }
 

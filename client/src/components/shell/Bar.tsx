@@ -68,6 +68,8 @@ export interface BarProps {
   /** The caller's own account-menu rows (Site, credentials, Home), above
    * Theme and Sign out. A row is present only when it acts. */
   menu?: ReactNode;
+  /** The amber Admin pill beside the account square (display only). */
+  adminPill?: { current?: boolean; onSelect?: () => void };
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -94,6 +96,7 @@ export function Bar({
   viewOnly,
   onHome,
   menu,
+  adminPill,
   search,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -335,6 +338,16 @@ export function Bar({
             <Sep />
           </>
         )}
+        {adminPill &&
+          (adminPill.onSelect && !adminPill.current ? (
+            <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect}>
+              Admin
+            </button>
+          ) : (
+            <span className="shell-admin-pill" data-testid="shell-admin-pill" aria-current={adminPill.current ? 'page' : undefined}>
+              Admin
+            </span>
+          ))}
         <Popover
           align="right"
           renderTrigger={({ toggle, triggerRef, triggerProps }) => (
