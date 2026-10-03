@@ -4,7 +4,7 @@
 
 import { connectPorts, setCableField } from '../../document/cables';
 import { addSketchPortRange, createRack, createSketchDevice, movePlacement } from '../../document/commands';
-import { setDeviceField, setRackField } from '../../document/edit';
+import { setChassisField, setDeviceField, setRackField } from '../../document/edit';
 import { emptyDocument, formatNodeId, parseNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
 import { viewOf, type ClosetView } from '../../document/view';
@@ -56,6 +56,7 @@ export function buildEstate(spec: EstateSpec): Estate {
     const deviceId = newIds(before, doc, 'Device')[0]!;
     chassis[d.name] = chassisId;
     doc = movePlacement(doc, chassisId, { kind: 'rack', rackId: rackIds[d.rack]!, positionU: d.u, face: 'front' }, { now: T0 });
+    if (d.serial) doc = setChassisField(doc, chassisId, 'serial', d.serial, { now: T0 });
     if (d.role) doc = setDeviceField(doc, deviceId, 'role', d.role, { now: T0 });
     if (d.ports) doc = addSketchPortRange(doc, chassisId, { labelPrefix: d.ports.prefix, first: d.ports.first, last: d.ports.last, connector: 'rj45', face: 'front' }, { now: T0 });
   }

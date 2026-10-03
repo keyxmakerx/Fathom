@@ -1,0 +1,169 @@
+import { describe, expect, it } from 'vitest';
+
+import { addAddress, interfaceChoices } from '../../document/ipam-write';
+import { deriveIpam } from '../../document/ipam';
+import { deriveNetworks } from '../../document/networks-derive';
+import { bulkEstate } from './bulkEstate';
+import { cableRows, deviceRows, portRows, rackRows, type InvRow } from './kinds';
+import { buildPlaceIndex, NO_WHERE } from './placeIndex';
+import { buildSearchIndex, macClue, portKey, search } from './search';
+import { smallEstate } from './testFixture';
+import { viewOf } from '../../document/view';
+import type { Document } from '../../document/model';
+
+const MAC = '00:1A:2B:3C:4D:5E';
+
+function indexOf(doc: Document, tweak?: (devices: InvRow[]) => InvRow[]) {
+  const view = viewOf(doc, []);
+  const idx = buildPlaceIndex(doc, view);
+  let devices = deviceRows(doc, view, [], idx);
+  if (tweak) devices = tweak(devices);
+  const prefixes = deriveIpam(doc, deriveNetworks(doc)).prefixes;
+  return buildSearchIndex({ devices, ports: portRows(doc, view, idx, []), racks: rackRows(doc, view, [], idx), cables: cableRows(doc, view, idx, []), idx, prefixes });
+}
+
+function estate() {
+  const e = smallEstate();
+  const view = viewOf(e.doc, []);
+  const idx0 = buildPlaceIndex(e.doc, view);
+  const tor = deviceRows(e.doc, view, [], idx0).find((r) => r.cells.name === 'lon1-a03-tor1')!;
+  const owner = interfaceChoices(e.doc, tor.deviceNodeId!)[0]!;
+  const doc = addAddress(e.doc, { address: '10.20.30.41/24', owner });
+  const ix = indexOf(doc, (ds) => ds.map((d) => (d.cells.name === 'lon1-b01-fw1' ? { ...d, cells: { ...d.cells, 'field:mac': MAC } } : d)));
+  return { e, doc, ix };
+}
+
+const names = (o: ReturnType<typeof search>): string[] => o.groups.flatMap((g) => g.hits.map((h) => h.row.title));
+
+describe('port names', () => {
+  it('reads every vendor spelling of the same port the same way', () => {
+    const a = portKey('ge-0/0/1');
+    expect(portKey('Gi0/0/1')).toEqual(a);
+    expect(portKey('GigabitEthernet0/0/1')).toEqual(a);
+    expect(portKey('ge0/0/1')).toEqual(a);
+    expect(portKey('Te1/1/1')).toEqual(portKey('xe-1/1/1'));
+    expect(portKey('eno1')).not.toEqual(portKey('eno2'));
+  });
+});
+
+describe('MAC clues', () => {
+  it('reads a MAC however it is written', () => {
+    for (const t of [MAC, MAC.toLowerCase(), '00-1a-2b-3c-4d-5e', '001a.2b3c.4d5e', '001A2B3C4D5E', '00 1a 2b 3c 4d 5e']) expect(macClue(t)).toEqual({ hex: '001a2b3c4d5e', full: true });
+  });
+  it('reads the start of one only when it has separators and letters', () => {
+    expect(macClue('00:1a:2b')).toEqual({ hex: '001a2b', full: false });
+    expect(macClue('123456')).toBeNull();
+    expect(macClue('lon1-a03')).toBeNull();
+  });
+});
+
+describe('finding things', () => {
+  const { ix } = estate();
+  const where = NO_WHERE;
+
+  it('a cable label, whole or in part', () => {
+    const o = search(ix, 'C-10412', where);
+    expect(o.reading).toContain('cable label');
+    expect(names(o)).toHaveLength(1);
+    expect(o.jump?.row.cells.name).toBe('C-10412');
+    expect(search(ix, 'c10412', where).jump?.row.cells.name).toBe('C-10412');
+    const part = search(ix, '10412', where);
+    expect(part.jump?.how).toBe('part');
+    expect(part.reading).toContain('part of a cable label');
+  });
+
+  it('a MAC address in any format, found in a field', () => {
+    for (const t of [MAC, '001a.2b3c.4d5e', '00-1a-2b-3c-4d-5e', '001a2b3c4d5e']) {
+      const o = search(ix, t, where);
+      expect(o.jump?.row.cells.name, t).toBe('lon1-b01-fw1');
+      expect(o.reading).toContain('00:1a:2b:3c:4d:5e');
+    }
+    expect(search(ix, '00:1a:2b', where).jump?.how).toBe('part');
+  });
+
+  it('an IP address finds the device that has it; a prefix finds the network', () => {
+    const o = search(ix, '10.20.30.41', where);
+    expect(o.jump?.row.cells.name).toBe('lon1-a03-tor1');
+    expect(o.reading).toContain('IP address');
+    expect(search(ix, '10.20.30.41/24', where).groups[0]?.kind).toBe('prefixes');
+    expect(search(ix, '10.20.30.0/24', where).jump?.row.cells.prefix).toBe('10.20.30.0/24');
+    // Nobody has .99, so it names the network it would sit in.
+    const none = search(ix, '10.20.30.99', where);
+    expect(none.groups[0]?.kind).toBe('prefixes');
+    expect(none.groups[0]?.hits[0]?.why).toContain('no device has 10.20.30.99');
+    expect(search(ix, '10.20.30', where).jump?.row.cells.name).toBe('lon1-a03-tor1');
+  });
+
+  it('a device and port, spelled any way', () => {
+    for (const t of ['core1 Gi1/0/24', 'core1 gi1/0/24', 'core1 GigabitEthernet1/0/24', 'core1 24', 'core1 1/0/24']) {
+      const o = search(ix, t, where);
+      expect(o.jump?.row.title, t).toBe('core1 · Gi1/0/24');
+      expect(o.reading).toContain('on core1');
+    }
+    // Juniper spellings of the same port.
+    expect(search(ix, 'lon1-a03-tor1 ge0/0/1', where).jump?.row.title).toBe('lon1-a03-tor1 · ge-0/0/1');
+    expect(search(ix, 'lon1-a03-tor1 Gi0/0/1', where).jump?.row.title).toBe('lon1-a03-tor1 · ge-0/0/1');
+  });
+
+  it('a port name on its own lists it on every device that has it', () => {
+    const o = search(ix, 'ge-0/0/0', where);
+    expect(o.groups[0]?.kind).toBe('ports');
+    expect(o.total).toBe(2);
+    expect(o.jump).toBeNull();
+  });
+
+  it('a serial number, whole or in part', () => {
+    expect(search(ix, 'XH12345678', where).jump?.row.cells.name).toBe('lon1-a03-tor1');
+    expect(search(ix, 'xh-1234 5678', where).jump?.how).toBe('exact');
+    expect(search(ix, 'H123456', where).jump?.how).toBe('part');
+  });
+
+  it('a rack, and device names', () => {
+    expect(search(ix, 'rack A04', where).jump?.row.key).toMatch(/^rack:/);
+    const o = search(ix, 'lon1-a03', where);
+    expect(o.jump).toBeNull();
+    expect(names(o)).toEqual(expect.arrayContaining(['lon1-a03-tor1', 'lon1-a03-srv0001']));
+    expect(search(ix, 'core1', where).jump?.row.cells.name).toBe('core1');
+  });
+
+  it('falls back to the nearest names and never jumps on a guess', () => {
+    const o = search(ix, 'lon1-a03-trr1', where);
+    expect(o.reading).toContain('nearest');
+    expect(o.groups[0]?.hits[0]?.row.cells.name).toBe('lon1-a03-tor1');
+    expect(o.jump).toBeNull();
+    const none = search(ix, 'zzzzzzzz', where);
+    expect(none.total).toBe(0);
+    expect(none.reading).not.toBe('');
+  });
+
+  it('says nothing for an empty clue', () => {
+    expect(search(ix, '   ', where)).toMatchObject({ total: 0, reading: '', jump: null });
+  });
+});
+
+describe('Where narrows search and says what it hid', () => {
+  const { ix } = estate();
+  it('counts the matches outside', () => {
+    const o = search(ix, 'lon1-a0', { site: 'LON1', room: 'Row A', rack: 'A03' });
+    expect(names(o).sort()).toEqual(['lon1-a03-srv0001', 'lon1-a03-tor1']);
+    expect(o.outside).toBe(1);
+    const other = search(ix, 'lon1-a03-tor1', { site: 'MAN1', room: '', rack: '' });
+    expect(other.total).toBe(0);
+    expect(other.outside).toBe(1);
+  });
+});
+
+describe('real-length values at scale', () => {
+  const big = bulkEstate({ scale: 0.1 });
+  const view = viewOf(big.doc, []);
+  const idx = buildPlaceIndex(big.doc, view);
+  const ix = buildSearchIndex({ devices: deviceRows(big.doc, view, [], idx), ports: portRows(big.doc, view, idx, []), racks: rackRows(big.doc, view, [], idx), cables: cableRows(big.doc, view, idx, []), idx });
+
+  it('finds a made-up serial, a trunk label, and a ToR port', () => {
+    expect(search(ix, big.known.serial, NO_WHERE).jump?.row.cells.name).toBe(big.known.serialDevice);
+    expect(search(ix, big.known.trunkLabel, NO_WHERE).jump?.row.cells.name).toBe(big.known.trunkLabel);
+    const p = search(ix, `${big.known.torDevice} ${big.known.torPort}`, NO_WHERE);
+    expect(p.jump?.row.title).toBe(`${big.known.torDevice} · ${big.known.torPort}`);
+    expect(search(ix, `${big.known.torDevice} 5`, NO_WHERE).total).toBeGreaterThan(0);
+  });
+});

@@ -91,6 +91,8 @@ class Builder {
   }
 
   edge(kind: EdgeKind, from: string, to: string, values: Record<string, CanonValue> = {}): string {
+    // A symmetric edge is stored with its lower end first, or the engine refuses the snapshot.
+    if (kind === 'PassThrough' && compareNodeId(to, from) < 0) [from, to] = [to, from];
     const id = formatEdgeId(kind, newUlid(this.now));
     const prov = this.hand();
     this.ops.push({ type: 'add_edge', edge: id, from, to, prov });

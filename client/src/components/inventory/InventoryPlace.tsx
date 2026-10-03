@@ -21,8 +21,10 @@ import { nextSorts, sortRows } from './sorting';
 import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
 import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
+import { FindBox } from './FindBox';
+import { buildSearchIndex, type Hit } from './search';
 import { WhereBar } from './WhereBar';
-import { buildPlaceIndex, hasWhere, inWhere, whereOptions } from './placeIndex';
+import { buildPlaceIndex, hasWhere, inWhere, NO_WHERE, whereOptions } from './placeIndex';
 import { FilterLine } from './FilterLine';
 import { ListHead } from './ListHead';
 import { SideList } from './SideList';
@@ -157,20 +159,22 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       return EMPTY_IPAM;
     }
   }, [doc, kind, networksDerived]);
-  const [background, setBackground] = useState<{ networks: number; addresses: number; prefixes: InvRow[]; vlans: InvRow[] } | null>(null);
+  const [background, setBackground] = useState<{ networks: number; addresses: number; prefixes: InvRow[]; vlans: InvRow[]; prefixData: IpamDerived['prefixes'] } | null>(null);
   useEffect(() => {
     if (!doc) return undefined;
     const timer = window.setTimeout(() => {
       try {
         const d = deriveNetworks(doc);
+        const derived = deriveIpam(doc, d);
         setBackground({
           networks: d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length,
           addresses: d.subnetRows.reduce((n, s) => n + s.members.length, 0),
-          prefixes: prefixRows(deriveIpam(doc, d).prefixes),
-          vlans: vlanKindRows(deriveIpam(doc, d).vlans),
+          prefixes: prefixRows(derived.prefixes),
+          vlans: vlanKindRows(derived.vlans),
+          prefixData: derived.prefixes,
         });
       } catch {
-        setBackground({ networks: 0, addresses: 0, prefixes: [], vlans: [] });
+        setBackground({ networks: 0, addresses: 0, prefixes: [], vlans: [], prefixData: [] });
       }
     }, 250);
     return () => window.clearTimeout(timer);
@@ -219,6 +223,26 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     prefixes: kind === 'prefixes' ? baseRows.length : scopedCount(background?.prefixes),
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
+  };
+
+  // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
+  const [findArmed, setFindArmed] = useState(false);
+  const searchIndex = useMemo(
+    () =>
+      findArmed || ls.find
+        ? buildSearchIndex({ devices: rowsByKind.devices ?? [], ports: rowsByKind.ports ?? [], racks: rowsByKind.racks ?? [], cables: rowsByKind.cables ?? [], idx: placeIdx, prefixes: background?.prefixData })
+        : null,
+    [findArmed, ls.find, rowsByKind, placeIdx, background],
+  );
+  const openHit = (h: Hit) => {
+    setOverride(null);
+    setChecked(new Set());
+    setPrefs(null);
+    setNotice(null);
+    setAdding(null);
+    setLastOpened(h.row.key);
+    scrollTop.current = 0;
+    go({ kind: h.kind, q: '', sorts: [], view: '', open: h.row.key, tab: '', find: '' }, 'push');
   };
 
   const columnsAll = useMemo(() => allColumns(kind, fieldDefs), [kind, fieldDefs]);
@@ -450,6 +474,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
         <div className="inventory-place">
+          <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
           <div className="inventory-place__body">
           <SideList

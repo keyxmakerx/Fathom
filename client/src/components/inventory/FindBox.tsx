@@ -1,0 +1,170 @@
+// "Find anything": one box above everything. It says how it read the clue, jumps when exactly one
+// thing matches, and otherwise lists what matched by kind. Where narrows it and the note says what
+// Where hid. Reading is search.ts; nothing here decides what matches.
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { placeText, whereText, type Where } from './placeIndex';
+import { search, type Hit, type SearchIndex } from './search';
+
+const SHOWN = 6;
+
+export interface FindBoxProps {
+  /** Built when the box is first used; null until then. */
+  index: SearchIndex | null;
+  arm: () => void;
+  value: string;
+  onValue: (v: string) => void;
+  where: Where;
+  onOpen: (hit: Hit) => void;
+  onClearWhere: () => void;
+}
+
+export function FindBox({ index, arm, value, onValue, where, onOpen, onClearWhere }: FindBoxProps) {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(-1);
+  const [more, setMore] = useState<ReadonlySet<string>>(new Set());
+  const input = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  const outcome = useMemo(() => (index ? search(index, value, where) : null), [index, value, where]);
+  const flat = useMemo(() => {
+    if (!outcome) return [];
+    return outcome.groups.flatMap((g) => (more.has(g.kind) ? g.hits : g.hits.slice(0, SHOWN)));
+  }, [outcome, more]);
+
+  useEffect(() => {
+    setAt(-1);
+    setMore(new Set());
+  }, [value, where]);
+
+  // "/" focuses the box from anywhere that is not typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      e.preventDefault();
+      input.current?.focus();
+    };
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, []);
+
+  const choose = (h: Hit) => {
+    setOpen(false);
+    onOpen(h);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (value) onValue('');
+      setOpen(false);
+      input.current?.blur();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setOpen(true);
+      setAt((a) => Math.min(flat.length - 1, a + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setAt((a) => Math.max(-1, a - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!outcome) return;
+      if (at >= 0 && flat[at]) choose(flat[at]!);
+      else if (outcome.jump) choose(outcome.jump);
+      else if (flat.length) {
+        setOpen(true);
+        setAt(0);
+      }
+    }
+  };
+
+  const showPanel = open && value.trim() !== '' && outcome !== null;
+  let n = -1;
+  return (
+    <div className="inv-find" ref={box} role="search">
+      <div className="inv-find__line">
+        <label className="inv-find__field">
+          <span className="inv-find__label">Find</span>
+          <input
+            ref={input}
+            type="search"
+            aria-label="Find anything"
+            placeholder="cable label, MAC, IP, device and port, serial, rack, name"
+            value={value}
+            autoComplete="off"
+            spellCheck={false}
+            onFocus={() => {
+              arm();
+              setOpen(true);
+            }}
+            onChange={(e) => {
+              arm();
+              onValue(e.currentTarget.value);
+              setOpen(true);
+            }}
+            onKeyDown={onKeyDown}
+          />
+        </label>
+        {value ? (
+          <button type="button" className="inv-find__x" aria-label="Clear the search" onClick={() => onValue('')}>
+            ✕
+          </button>
+        ) : (
+          <kbd className="inv-find__key" aria-hidden="true">
+            /
+          </kbd>
+        )}
+      </div>
+      {showPanel ? (
+        <div className="inv-find__panel" role="listbox" aria-label="Search results">
+          <p className="inv-find__reading">
+            Reading as: <b>{outcome.reading || '…'}</b>
+          </p>
+          {outcome.groups.map((g) => (
+            <section key={g.kind} className="inv-find__group">
+              <h4>
+                {g.label} <span className="inv-find__n">{g.hits.length}</span>
+              </h4>
+              {(more.has(g.kind) ? g.hits : g.hits.slice(0, SHOWN)).map((h) => {
+                n += 1;
+                const i = n;
+                const place = h.row.places?.[0];
+                return (
+                  <button key={h.row.key} type="button" role="option" aria-selected={i === at} className={`inv-find__hit${i === at ? ' inv-find__hit--at' : ''}`} onClick={() => choose(h)}>
+                    <span className="inv-find__title">{h.row.title}</span>
+                    <span className="inv-find__why">{h.why}</span>
+                    {place ? <span className="inv-find__place">{placeText(place)}</span> : null}
+                  </button>
+                );
+              })}
+              {!more.has(g.kind) && g.hits.length > SHOWN ? (
+                <button type="button" className="inv-find__more" onClick={() => setMore(new Set([...more, g.kind]))}>
+                  Show all {g.hits.length}
+                </button>
+              ) : null}
+            </section>
+          ))}
+          {outcome.total === 0 ? <p className="inv-find__none">Nothing found{outcome.outside > 0 ? ' here' : ''}.</p> : null}
+          {outcome.outside > 0 ? (
+            <p className="inv-find__outside">
+              {outcome.outside} more outside {whereText(where)}.{' '}
+              <button type="button" onClick={onClearWhere}>
+                Clear Where
+              </button>
+            </p>
+          ) : null}
+          {outcome.jump ? <p className="inv-find__foot">Enter opens it.</p> : outcome.total > 1 ? <p className="inv-find__foot">Arrow keys to choose, Enter to open.</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
