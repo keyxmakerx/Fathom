@@ -79,6 +79,18 @@ export interface BarProps {
   menu?: ReactNode;
   /** The amber Admin pill beside the account square (display only). */
   adminPill?: { current?: boolean; onSelect?: () => void };
+  /** The Cables list, hanging from the Cables lens: absent everywhere but
+   * the Racks place. The lens shows a ▾ while lit, and a click while it is
+   * ALREADY lit opens this as a popover; a click while some other lens is
+   * lit only switches to Cables, the same as every other lens button. */
+  cablesGroupsPopover?: ReactNode;
+  /** While anything is filtered, the lens reads "Cables · 5 of 38."
+   * `null`/absent leaves the lens reading plain "Cables". */
+  cablesGroupsSummary?: string | null;
+  /** The bar shows "3 hidden · show" in the Racks place while any cable in
+   * this closet is hidden one at a time. Zero or absent renders nothing. */
+  hiddenCablesCount?: number;
+  onShowAllHiddenCables?: () => void;
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -111,6 +123,10 @@ export function Bar({
   menu,
   adminPill,
   search,
+  cablesGroupsPopover,
+  cablesGroupsSummary,
+  hiddenCablesCount,
+  onShowAllHiddenCables,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -254,17 +270,58 @@ export function Bar({
           <>
             <Sep />
             <div className="shell-bar__lenses">
-              {LENSES_IN[place].map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  aria-pressed={candidate === lens}
-                  className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                  onClick={() => onLensChange(candidate)}
-                >
-                  {LENS_LABEL[candidate]}
-                </button>
-              ))}
+              {LENSES_IN[place].map((candidate) =>
+                candidate === 'cables' && cablesGroupsPopover != null ? (
+                  <Popover
+                    key={candidate}
+                    align="left"
+                    renderTrigger={({ toggle, triggerRef, triggerProps }) => (
+                      <button
+                        type="button"
+                        aria-pressed={candidate === lens}
+                        className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                        aria-haspopup={triggerProps['aria-haspopup']}
+                        aria-expanded={candidate === lens ? triggerProps['aria-expanded'] : false}
+                        aria-controls={triggerProps['aria-controls']}
+                        onClick={(event) => {
+                          triggerRef.current = event.currentTarget;
+                          // Clicking the Cables lens while it is lit opens
+                          // the list; while it is some other lens's turn, a
+                          // click only switches to Cables, the same as any
+                          // other lens button — it never also opens the
+                          // popover in the same click.
+                          if (candidate !== lens) {
+                            onLensChange(candidate);
+                            return;
+                          }
+                          toggle();
+                        }}
+                      >
+                        {LENS_LABEL[candidate]}
+                        {cablesGroupsSummary != null && ` · ${cablesGroupsSummary}`}
+                        {candidate === lens && (
+                          <span className="shell-lens__caret" aria-hidden="true">
+                            {' '}
+                            ▾
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  >
+                    {cablesGroupsPopover}
+                  </Popover>
+                ) : (
+                  <button
+                    key={candidate}
+                    type="button"
+                    aria-pressed={candidate === lens}
+                    className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                    onClick={() => onLensChange(candidate)}
+                  >
+                    {LENS_LABEL[candidate]}
+                  </button>
+                ),
+              )}
             </div>
             {look != null && <Sep />}
             {look != null && (
@@ -281,6 +338,17 @@ export function Bar({
                   </button>
                 ))}
               </div>
+            )}
+            {hiddenCablesCount != null && hiddenCablesCount > 0 && (
+              <>
+                <Sep />
+                <span className="shell-chip shell-bar__hidden-chip" data-testid="shell-hidden-cables-chip">
+                  {hiddenCablesCount} hidden ·{' '}
+                  <button type="button" className="shell-chip__link" onClick={onShowAllHiddenCables}>
+                    show
+                  </button>
+                </span>
+              </>
             )}
             {layers != null && <Sep />}
             {layers != null && (

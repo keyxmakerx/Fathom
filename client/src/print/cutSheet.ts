@@ -24,13 +24,13 @@ export interface CutSheetDevice {
   rows: CutSheetPortRow[];
 }
 
-interface PortOwner {
+export interface PortOwner {
   name: string;
 }
 
 /** Every port this closet carries, by id, paired with the name of whatever
  * owns it — built once, so `farEnd` below is a lookup, not a second walk. */
-function buildLookup(view: ClosetView): { owners: Map<string, PortOwner>; ports: Map<string, PortView> } {
+export function buildLookup(view: ClosetView): { owners: Map<string, PortOwner>; ports: Map<string, PortView> } {
   const owners = new Map<string, PortOwner>();
   const ports = new Map<string, PortView>();
 
