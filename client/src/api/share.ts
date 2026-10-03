@@ -29,7 +29,7 @@ export interface AccessPerson {
 /** This browser does not hold the signing key the grant needs. */
 export class NoSigningKeyHere extends Error {
   constructor() {
-    super('This browser does not hold your signing key. Open Fathom in the browser you enrolled with to share.');
+    super('Sharing needs the browser you set up your signing key in.');
     this.name = 'NoSigningKeyHere';
   }
 }

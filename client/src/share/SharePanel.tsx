@@ -138,6 +138,7 @@ export function SharePanel({ organisationId, scopeId, title, onClose }: SharePan
       <p className="share-panel__note">
         View: see everything, change nothing. Draw: edit. Only people already in your organisation can be added; they need to be in it first.
       </p>
+      <p className="share-panel__note">They&rsquo;ll see everything inside this, and keep access until you remove them.</p>
     </div>
   );
 }
