@@ -96,3 +96,18 @@ Each change costs a nonce round trip and a short locked transaction, so text sen
 per keystroke. The server holds decrypted heads in memory while a design is being edited, as it
 already holds payloads briefly on open and save. A cold head costs one load and replay. One HTTP/1.1
 connection per browser per open design.
+
+## Wire (settled while building)
+
+- **Change document:** `fathom-change 1`, then `schema <version>`, a blank line, then canonical
+  JSON (`fathom-canon`): `{"batch": B, "provenance": [P…], "values": [V…]}`. `B` is one entry of
+  the plain face's `batches`; `P` are the provenance records `B` introduces, ascending id; `values`
+  holds one canonical value per `set_field` op whose presence is `set`, in op order. Applying it is
+  `fathom_workspace::apply_change` in Rust and `applyChange` in `client/src/document/change.ts`;
+  both are proved byte for byte against Rust-made vectors under `client/src/document/vectors/`.
+- **POST `…/changes?after=N`:** body `u32_le(schema minor) ‖ change`; answers `version\n`, or a
+  refusal naming the reason.
+- **GET `…/live?since=N`:** frames of `u8 type ‖ u64_le version ‖ u32_le length ‖ bytes`. Types:
+  1 change (a change document), 2 reload (a whole save landed at `version`), 3 presence (JSON
+  list of the others in your view), 4 heartbeat, 5 resync (reopen from your last version).
+- **POST `…/presence`:** body the view id, UTF-8, at most 64 bytes.
