@@ -24,6 +24,8 @@ function portRow(r: CutSheetDevice['rows'][number]): CutSheetTableRow {
 export interface CutSheetBodyRow {
   row: CutSheetTableRow;
   isDeviceHeader: boolean;
+  /** What the row stands for (a cable's id), when a caller needs to filter by it. */
+  key?: string;
 }
 
 /** Every row after the column header, one device after another, no paging

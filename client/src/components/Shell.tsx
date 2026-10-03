@@ -58,6 +58,10 @@ export function Shell({
   adminPill,
   onHome,
   search,
+  cablesGroupsPopover,
+  cablesGroupsSummary,
+  hiddenCablesCount,
+  onShowAllHiddenCables,
 }: ShellProps) {
   return (
     <div className="shell">
@@ -89,6 +93,10 @@ export function Shell({
         adminPill={adminPill}
         onHome={onHome}
         search={search}
+        cablesGroupsPopover={cablesGroupsPopover}
+        cablesGroupsSummary={cablesGroupsSummary}
+        hiddenCablesCount={hiddenCablesCount}
+        onShowAllHiddenCables={onShowAllHiddenCables}
       />
       {band}
       <div className="shell__body">

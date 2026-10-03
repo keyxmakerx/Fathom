@@ -98,6 +98,14 @@ export interface ShellProps {
   /** Quick search. Absent where there is nothing to search yet (Home, Site). */
   search?: ShellSearch;
 
+  /** The Cables list, hanging from the Cables lens. `Bar.tsx`'s own doc:
+   * absent everywhere but the Racks place. */
+  cablesGroupsPopover?: ReactNode;
+  cablesGroupsSummary?: string | null;
+  /** The hidden-one-at-a-time chip. */
+  hiddenCablesCount?: number;
+  onShowAllHiddenCables?: () => void;
+
   /** ADR-0052 §5: the open design's `capability` is `'read'`
    * (`RacksPlace.tsx`'s own `canDraw`) — shows the "view only" chip in the
    * bar. Omitted or `false` on Home and everywhere a reader could not have

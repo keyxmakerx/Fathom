@@ -49,4 +49,18 @@ describe('searchDesign — quick search over the open design', () => {
     expect(searchDesign(view, 'a-04').map((h) => h.group)).toEqual(['Racks']);
     expect(searchDesign(view, '0').map((h) => h.group)[0]).toBe('Devices');
   });
+
+  it('finds a cable by its label or by a device at either end, and selects the cable', () => {
+    const withCables = {
+      ...view,
+      cables: [
+        { id: 'k1', label: 'UPLINK-7', ends: [{ portId: 'p1', chassisId: 'ch1', rackId: 'r1' }, { portId: 'p3', chassisId: 'ch3', rackId: 'r1' }] },
+        { id: 'k2', label: null, ends: [{ portId: 'p2', chassisId: 'ch1', rackId: 'r1' }, { outside: true, label: 'ISP' }] },
+      ],
+    } as unknown as Pick<ClosetView, 'racks' | 'cables'>;
+    const byLabel = searchDesign(withCables, 'uplink').filter((h) => h.group === 'Cables');
+    expect(byLabel).toEqual([{ group: 'Cables', name: 'UPLINK-7', why: 'acc-01 ↔ core-01', selection: { kind: 'cable', id: 'k1' } }]);
+    const byEnd = searchDesign(withCables, 'isp').filter((h) => h.group === 'Cables');
+    expect(byEnd.map((h) => h.selection)).toEqual([{ kind: 'cable', id: 'k2' }]);
+  });
 });
