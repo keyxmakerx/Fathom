@@ -20,7 +20,7 @@ import { isKind } from './kinds';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
 import { ListFoot } from './ListFoot';
-import { applyPlan, dryRun, type BulkPlan } from './bulk';
+import { applyPlan, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
 import { undo as undoBatch } from '../../document/undo';
 import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
 import { joinUnits, quoteValue, units } from './query';
@@ -36,6 +36,7 @@ import { PINNED_VIEWS, addMine, loadMine, removeMine, saveMine, updateMine, type
 import { NetworksPanel } from './NetworksPanel';
 import { AddPrefixForm, AddVlanForm, PrefixPage, VlanPage } from './IpamPages';
 import { PasteDialog, type CustomPaste } from './PasteDialog';
+import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import {
   CAN_ADD,
   FACETS,
@@ -353,15 +354,23 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [bulkUndo, setBulkUndo] = useState<{ id: string; notice: string } | null>(null);
   const onBulkApply = (plan: BulkPlan): string | void => {
     if (!doc) return;
-    const r = applyPlan(doc, kind, plan, ctx);
+    // Only rows ticked now (and still listed) are written, whatever the preview held.
+    const live = keepSelected(plan, new Set(checkedRows.map((r) => r.key)));
+    if (live.edits.length === 0) return 'Nothing is ticked that this would change.';
+    const r = applyPlan(doc, kind, live, ctx);
     if (r.changed <= 0) return r.refused[0] ?? 'Nothing changed.';
     applyDocChange(r.doc);
-    const text = `${plan.title} on ${r.changed.toLocaleString('en-GB')} ${kindLabel.toLowerCase()}.${r.refused.length ? ` ${r.refused.length} not changed: ${r.refused.slice(0, 3).join('; ')}` : ''}`;
+    const text = `${live.title} on ${r.changed.toLocaleString('en-GB')} ${kindLabel.toLowerCase()}.${r.refused.length ? ` ${r.refused.length} not changed: ${r.refused.slice(0, 3).join('; ')}` : ''}`;
     setNotice(text);
     setBulkUndo(r.batchId ? { id: r.batchId, notice: text } : null);
   };
   const runBulkUndo = () => {
     if (!doc || !bulkUndo || !accountId) return;
+    if (!bulkStillUndoable(doc, bulkUndo.id)) {
+      setBulkUndo(null);
+      setNotice('That change was already undone.');
+      return;
+    }
     try {
       applyDocChange(undoBatch(doc, bulkUndo.id, { actor: accountId, now: Date.now() }));
       setBulkUndo(null);
@@ -501,6 +510,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : (
+        <PasteGateBoundary redact={redact}>
         <div className="inventory-place">
           <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
@@ -573,7 +583,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 onSelectAllMatching={() => setChecked(new Set(rows.map((r) => r.key)))}
                 onClearChecked={() => setChecked(new Set())}
                 notice={notice}
-                undo={bulkUndo && bulkUndo.notice === notice ? { run: runBulkUndo } : null}
+                undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
               />
               <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} />
               <div
@@ -682,6 +692,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             />
           ) : null}
         </div>
+        </PasteGateBoundary>
       )}
     </Shell>
   );

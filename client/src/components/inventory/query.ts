@@ -144,6 +144,10 @@ function parseWord(tok: string, fields: readonly FieldSpec[], kindWord: string, 
     errors.push({ raw: tok, message: `${tok}: give “${spec.key}${op}” a value, for example ${spec.key}${op}${op === '>' || op === '<' || op === '>=' || op === '<=' ? '10' : 'x'}.` });
     return undefined;
   }
+  if (foldStars(value).split('*').length - 1 > MAX_WILDCARDS) {
+    errors.push({ raw: tok, message: `${tok}: more than ${MAX_WILDCARDS} wildcards (*) in one value. Use fewer.` });
+    return undefined;
+  }
   if ((op === '>' || op === '<' || op === '>=' || op === '<=') && !Number.isFinite(Number(value))) {
     errors.push({ raw: tok, message: `${tok}: “${value}” is not a number, and ${op} compares numbers.` });
     return undefined;
@@ -213,8 +217,43 @@ export function parseQuery(input: string, fields: readonly FieldSpec[], kindWord
 // ---------------------------------------------------------------------------
 // Evaluation
 
-function globRe(v: string): RegExp {
-  return new RegExp('^' + v.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
+/** A pattern may hold this many `*` once runs of them are folded into one. */
+export const MAX_WILDCARDS = 12;
+
+/** Runs of `*` mean the same as one. */
+const foldStars = (v: string): string => v.replace(/\*+/g, '*');
+
+/**
+ * A case-blind matcher for `a*b`, with no regular expression: it walks the text once, going back
+ * only to the last `*`, so a hostile pattern in a shared link cannot freeze the page.
+ */
+export function globMatcher(pattern: string): (text: string) => boolean {
+  const p = foldStars(pattern).toLowerCase();
+  return (text) => {
+    const t = text.toLowerCase();
+    let pi = 0;
+    let ti = 0;
+    let star = -1;
+    let mark = 0;
+    while (ti < t.length) {
+      if (pi < p.length && p[pi] === '*') {
+        star = pi;
+        mark = ti;
+        pi += 1;
+      } else if (pi < p.length && p[pi] === t[ti]) {
+        pi += 1;
+        ti += 1;
+      } else if (star >= 0) {
+        pi = star + 1;
+        mark += 1;
+        ti = mark;
+      } else {
+        return false;
+      }
+    }
+    while (pi < p.length && p[pi] === '*') pi += 1;
+    return pi === p.length;
+  };
 }
 
 export type Predicate = (p: Probe) => boolean;
@@ -237,14 +276,14 @@ function compileTerm(term: Term, numeric: ReadonlySet<string>): Predicate {
   }
   const { field, op, value } = term;
   const lv = value.toLowerCase();
-  const wild = value.includes('*') ? globRe(value) : null;
+  const wild = value.includes('*') ? globMatcher(value) : null;
   const n = Number(value);
   const isNum = numeric.has(field) && Number.isFinite(n) && value.trim() !== '';
   let test: Predicate;
   if (op === ':') {
     if (lv === 'empty') test = (p) => p.values(field).every((x) => x === '') ;
     else if (lv === 'any') test = (p) => p.values(field).some((x) => x !== '');
-    else if (wild) test = (p) => p.values(field).some((x) => wild.test(x));
+    else if (wild) test = (p) => p.values(field).some((x) => wild(x));
     else if (isNum) test = (p) => p.values(field).some((x) => x !== '' && Number(x) === n) || p.number(field) === n;
     else test = (p) => p.values(field).some((x) => x.toLowerCase() === lv);
   } else if (op === '!=') {

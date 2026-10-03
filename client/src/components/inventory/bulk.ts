@@ -85,3 +85,24 @@ export function dryRun(doc: Document, kind: Parameters<typeof applyCellEdits>[1]
   if (plan.edits.length > DRY_RUN_LIMIT) return null;
   return applyCellEdits(doc, kind, plan.edits, ctx).refused;
 }
+
+/** What the bulk bar asked for, kept apart from the rows so it can be re-planned against the live selection. */
+export type BulkSpec = { mode: 'set' | 'add-tag' | 'remove-tag'; col: Column; value: string };
+
+/** The plan for `spec` over exactly `rows`: call it again whenever the selection or the list moves. */
+export function planFor(spec: BulkSpec, rows: readonly InvRow[]): BulkPlan {
+  if (spec.mode === 'set') return planSet(rows, spec.col, spec.value);
+  return planTag(rows, spec.col, spec.value, spec.mode === 'add-tag' ? 'add' : 'remove');
+}
+
+/** `plan` without any row outside `keys`: the last guard before a write, so an unticked row is never changed. */
+export function keepSelected(plan: BulkPlan, keys: ReadonlySet<string>): BulkPlan {
+  const lines = plan.lines.filter((l) => keys.has(l.row.key));
+  return { ...plan, lines, edits: plan.edits.filter((e) => keys.has(e.row.key)) };
+}
+
+/** True while the bulk batch is in the history and nothing has reversed it (the header's Undo does). */
+export function bulkStillUndoable(doc: Document, batchId: string): boolean {
+  if (!doc.batches.some((b) => b.id === batchId)) return false;
+  return !doc.batches.some((b) => b.reverses === batchId);
+}

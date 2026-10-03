@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   compileQuery,
+  globMatcher,
   fieldState,
   parseQuery,
   readQuery,
@@ -238,5 +239,42 @@ describe('editing the line', () => {
     const r = setField(q, 'length', { values: [], min: '10', max: '50', has: 'x' });
     expect(r).toBe('site:LON1 (role:Switch | role:"Access point") length>=10 length<=50 length~x');
     expect(setField(r, 'role', { values: [], min: '', max: '', has: '' })).toBe('site:LON1 length>=10 length<=50 length~x');
+  });
+});
+
+describe('wildcards are linear, not a regular expression', () => {
+  it('matches the usual shapes, any case', () => {
+    expect(globMatcher('lon1-*-tor1')('LON1-a03-tor1')).toBe(true);
+    expect(globMatcher('lon1-*-tor1')('lon1-a03-tor2')).toBe(false);
+    expect(globMatcher('*core*')('xx-Core-1')).toBe(true);
+    expect(globMatcher('a*')('')).toBe(false);
+    expect(globMatcher('*')('')).toBe(true);
+  });
+
+  it('name:****************x is quick over a batch of long rows (runs of * fold to one)', () => {
+    const rows: Row[] = Array.from({ length: 5000 }, (_, i) => ({ name: `${'a'.repeat(200)}${i}`, role: '', site: '', length: '', label: '', tags: [] }));
+    const parsed = parseQuery('name:****************x', FIELDS);
+    expect(parsed.errors).toEqual([]);
+    const keep = compileQuery(parsed.terms, FIELDS);
+    const t0 = performance.now();
+    const hits = rows.filter((r) => keep(probe(r))).length;
+    expect(performance.now() - t0).toBeLessThan(50);
+    expect(hits).toBe(0);
+  });
+
+  it('many separate wildcards over a long text cannot freeze it', () => {
+    const rows: Row[] = Array.from({ length: 2000 }, () => ({ name: 'a'.repeat(300), role: '', site: '', length: '', label: '', tags: [] }));
+    const parsed = parseQuery('name:a*a*a*a*a*a*a*a*a*a*b', FIELDS);
+    const keep = compileQuery(parsed.terms, FIELDS);
+    const t0 = performance.now();
+    rows.filter((r) => keep(probe(r)));
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it('refuses a value with more wildcards than it should, naming the term', () => {
+    const q = `name:${'a*'.repeat(30)}`;
+    const parsed = parseQuery(q, FIELDS);
+    expect(parsed.terms).toEqual([]);
+    expect(parsed.errors[0]!.message.startsWith(q)).toBe(true);
   });
 });

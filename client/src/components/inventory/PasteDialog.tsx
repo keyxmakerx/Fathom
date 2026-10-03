@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import type { Column, InvRow } from './kinds';
-import { parseTable, planPaste, type PastePlan } from './paste';
+import { gatePastedTable, parseTable, planPaste, type PastePlan } from './paste';
 
 /** A kind whose rows are not matched by Name (prefixes, VLANs): it reads the pasted table itself. */
 export interface CustomPaste {
@@ -48,7 +48,7 @@ export function PasteDialog(props: PasteDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      const clean = await Promise.all(table.map((r) => Promise.all(r.map((c) => (c.trim() === '' ? Promise.resolve(c) : redact(c))))));
+      const { clean } = await gatePastedTable(table, redact);
       if (custom) custom.onApply(clean);
       else onApply(planPaste(clean, columns, rows, { canAdd }));
     } catch (e) {
@@ -66,7 +66,7 @@ export function PasteDialog(props: PasteDialogProps) {
           {custom ? custom.hint : `Rows copied from a spreadsheet (tab-separated or CSV). A first row of column names is used as the header; otherwise cells fill the
           columns shown, left to right. Rows are matched by name. An empty cell leaves the value alone. Pasted text passes the redaction gate.`}
         </p>
-        <textarea aria-label="Pasted rows" rows={8} value={text} onChange={(e) => setText(e.currentTarget.value)} autoFocus />
+        <textarea aria-label="Pasted rows" data-gate="self" rows={8} value={text} onChange={(e) => setText(e.currentTarget.value)} autoFocus />
         <p role="status">
           {table.length === 0
             ? 'Nothing pasted yet.'

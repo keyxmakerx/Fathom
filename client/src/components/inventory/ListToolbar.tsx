@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { planSet, planTag, type BulkPlan } from './bulk';
+import { planFor, type BulkPlan, type BulkSpec } from './bulk';
 import type { Column, InvRow } from './kinds';
 
 export interface ListToolbarProps {
@@ -63,17 +63,20 @@ export function ListToolbar(props: ListToolbarProps) {
 
   const bulkTarget = bulkColumns.find((c) => c.key === bulkCol);
   const tagsCol = bulkColumns.find((c) => c.type === 'tags');
-  const [plan, setPlan] = useState<BulkPlan | null>(null);
-  const preview = (mode: 'set' | 'add-tag' | 'remove-tag') => {
+  // The preview is planned again from the rows ticked now, so a row unticked after the preview (or
+  // dropped by a changed filter) is neither shown nor written.
+  const [spec, setSpec] = useState<BulkSpec | null>(null);
+  const plan = spec ? planFor(spec, checkedRows) : null;
+  const preview = (mode: BulkSpec['mode']) => {
     setBulkError(null);
     if (mode === 'set') {
-      if (bulkTarget) setPlan(planSet(checkedRows, bulkTarget, bulkValue));
+      if (bulkTarget) setSpec({ mode, col: bulkTarget, value: bulkValue });
     } else if (tagsCol && bulkValue.trim() !== '') {
-      setPlan(planTag(checkedRows, tagsCol, bulkValue, mode === 'add-tag' ? 'add' : 'remove'));
+      setSpec({ mode, col: tagsCol, value: bulkValue });
     }
   };
   useEffect(() => {
-    if (checkedRows.length === 0) setPlan(null);
+    if (checkedRows.length === 0) setSpec(null);
   }, [checkedRows.length]);
   const refusals = plan && bulkCheck ? bulkCheck(plan) : null;
   const noun = kindLabel.toLowerCase();
@@ -219,12 +222,12 @@ export function ListToolbar(props: ListToolbarProps) {
               onClick={() => {
                 const refused = onBulkApply?.(plan);
                 setBulkError(typeof refused === 'string' ? refused : null);
-                if (typeof refused !== 'string') setPlan(null);
+                if (typeof refused !== 'string') setSpec(null);
               }}
             >
               Apply to {plan.lines.length.toLocaleString('en-GB')}
             </button>
-            <button type="button" onClick={() => setPlan(null)}>
+            <button type="button" onClick={() => setSpec(null)}>
               Cancel
             </button>
             <span className="inv-bulkpv__more">One undo step.</span>

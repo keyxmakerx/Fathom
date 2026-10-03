@@ -143,3 +143,63 @@ export function planPaste(
   }
   return plan;
 }
+
+// ---------------------------------------------------------------------------
+// The redaction gate over a pasted table
+
+export type Redact = (text: string) => Promise<string>;
+
+const flat = (c: string): string => c.replace(/[\r\n\t]+/g, ' ');
+const yieldToUi = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Runs a pasted table through the gate twice over: each cell alone, then each row as one statement
+ * (cells joined with a space), because the gate reads keyword context ("enable secret" in one cell,
+ * the secret in the next). When the row pass changes anything, the gate's words are dealt back to
+ * the cells; if they cannot be dealt back one for one, every cell in the row becomes `<word>`. A
+ * failed gate throws, and nothing is returned.
+ */
+export async function gatePastedTable(table: string[][], redact: Redact): Promise<{ clean: string[][]; redactedRows: number }> {
+  const cache = new Map<string, string>();
+  let calls = 0;
+  const gate = async (text: string): Promise<string> => {
+    if (text.trim() === '') return text;
+    let out = cache.get(text);
+    if (out === undefined) {
+      out = await redact(text);
+      cache.set(text, out);
+      calls += 1;
+      if (calls % 100 === 0) await yieldToUi();
+    }
+    return out;
+  };
+  const clean: string[][] = [];
+  let redactedRows = 0;
+  for (const row of table) {
+    const cells = row.map(flat);
+    const alone: string[] = [];
+    for (const c of cells) alone.push(await gate(c));
+    const statement = cells.filter((c) => c.trim() !== '').join(' ');
+    const gated = await gate(statement);
+    let out = alone;
+    if (gated !== statement) {
+      const words = gated.split(/\s+/).filter(Boolean);
+      const counts = cells.map((c) => c.split(/\s+/).filter(Boolean).length);
+      const total = counts.reduce((n, x) => n + x, 0);
+      if (words.length === total) {
+        let at = 0;
+        out = cells.map((c, i) => {
+          const mine = words.slice(at, at + counts[i]!);
+          at += counts[i]!;
+          // Keep a cell's own text when the row pass left its words alone and the cell pass did too.
+          return mine.join(' ') === c.split(/\s+/).filter(Boolean).join(' ') ? alone[i]! : mine.join(' ');
+        });
+      } else {
+        out = cells.map((c) => (c.trim() === '' ? c : '<word>'));
+      }
+    }
+    if (out.some((c, i) => c !== cells[i])) redactedRows += 1;
+    clean.push(out);
+  }
+  return { clean, redactedRows };
+}
