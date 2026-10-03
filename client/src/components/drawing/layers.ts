@@ -15,10 +15,10 @@ export interface LayerSpec {
 }
 
 export const LAYERS: readonly LayerSpec[] = [
-  { id: 'checks', label: 'Checks', onByDefault: true, available: false }, // #97
+  { id: 'checks', label: 'Checks', onByDefault: true, available: true },
   { id: 'addresses', label: 'Addresses', onByDefault: false, available: true },
   { id: 'vlans', label: 'VLANs', onByDefault: false, available: true },
-  { id: 'docs', label: 'Docs', onByDefault: false, available: false }, // docs bundle
+  { id: 'docs', label: 'Docs', onByDefault: false, available: true },
   { id: 'maintenance', label: 'Maintenance', onByDefault: false, available: false }, // #98
   { id: 'tags', label: 'Tags', onByDefault: false, available: true },
 ];

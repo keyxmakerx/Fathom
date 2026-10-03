@@ -77,3 +77,6 @@ export function useChecksShow(): ShowState | null {
   const get = (): ShowState | null => api?.store.get().show ?? null;
   return useSyncExternalStore(api?.store.subscribe ?? NO_SUBSCRIBE, get, get);
 }
+
+/** Whether the Show menu's Checks layer is ticked: the marks on devices and cables draw only when it is. */
+export const CheckMarksContext = createContext<boolean>(true);

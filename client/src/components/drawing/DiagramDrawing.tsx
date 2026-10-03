@@ -20,6 +20,7 @@ import '../../styles/drawing.css';
 import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
 import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
+import { CableCheckBadge, CheckBadge } from '../checks/CheckBadge';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
 import { SHEATH_VAR, needsHairlineOutline } from './sheath';
@@ -31,6 +32,8 @@ import { endOffScreen, stubTagText, type StubEnd } from './stubs';
  * moved and cabled in Rack. */
 
 interface BoxData extends Record<string, unknown> {
+  /** The chassis id Checks counts against. */
+  deviceId: string;
   hostname: string;
   selected: boolean;
   /** Show-menu words under the name (tags). */
@@ -42,6 +45,7 @@ function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
     <div className={data.selected ? 'drawing-diagram-box drawing-diagram-box--selected' : 'drawing-diagram-box'}>
       <span className="drawing-diagram-box__name">{data.hostname === '' ? 'unnamed device' : data.hostname}</span>
       {data.words.length > 0 && <span className="drawing-diagram-box__words">{data.words.join(' · ')}</span>}
+      <CheckBadge id={data.deviceId} />
       <Handle type="source" position={Position.Right} className="drawing-diagram-box__handle" isConnectable={false} />
       <Handle type="target" position={Position.Left} className="drawing-diagram-box__handle" isConnectable={false} />
     </div>
@@ -95,6 +99,7 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
       {needsHairlineOutline(cable.sheath ?? 'grey') && <path d={route.d} fill="none" stroke="var(--hairline)" strokeWidth={`calc(${width} + 2px)`} strokeLinejoin="miter" />}
       <path d={route.d} fill="none" stroke={colour} strokeWidth={width} strokeLinejoin="miter" strokeLinecap="butt" />
       <path d={route.d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke" />
+      <CableCheckBadge id={cable.id} x={(route.a.x + route.b.x) / 2} y={(route.a.y + route.b.y) / 2} />
       {tags}
     </g>
   );
@@ -142,7 +147,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
-        data: { hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [] } satisfies BoxData,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [] } satisfies BoxData,
       })),
     [boxes, selectedId, words],
   );
