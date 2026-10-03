@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
-import { viewOf, type ClosetView } from '../../document/view';
+import { viewOfAll, type ClosetView } from '../../document/view';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
@@ -20,11 +20,14 @@ import { isKind } from './kinds';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
 import { ListFoot } from './ListFoot';
-import { applyPlan, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
+import { PROGRESS_FROM, applyPlan, applyPlanChunked, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
 import { undo as undoBatch } from '../../document/undo';
 import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
 import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
+import { linkTarget } from './links';
+import { listKey, loadMemory, saveMemory, type ListMemory } from './listView';
+import type { ListState } from './listState';
 import { FindBox } from './FindBox';
 import { buildSearchIndex, type Hit } from './search';
 import { WhereBar } from './WhereBar';
@@ -81,6 +84,13 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   accountId: string | null;
 }
 
+/** Lets the page paint before the next step of a long job. */
+const nextPaint = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0));
+    else setTimeout(resolve, 0);
+  });
+
 function kindLabelOf(kind: Kind): string {
   return KINDS.find((k) => k.key === kind)?.label ?? kind;
 }
@@ -119,18 +129,27 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { session, onShowOnRack, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
-  const { ls, go, back: listBack } = useListState();
+  const { ls, go, back: stepBack, backLabel, moves } = useListState();
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
   const q = ls.q;
   const sorts = ls.sorts;
-  const [override, setOverride] = useState<Selection | null>(null);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   /** Where the list was scrolled to, so Back returns there. */
   const scrollTop = useRef(0);
   /** The row last opened, marked when the list comes back. */
   const [lastOpened, setLastOpened] = useState<string | null>(null);
+  // Back, Forward, a reload and Back-after-Find put the list's scroll and ticks back from the
+  // session's memory of that list (listView.ts). The first render counts as a move.
+  const [seenMoves, setSeenMoves] = useState(-1);
+  if (seenMoves !== moves) {
+    setSeenMoves(moves);
+    const m = loadMemory(window.sessionStorage, listKey(ls));
+    scrollTop.current = m?.top ?? 0;
+    setChecked(new Set(m?.checked ?? []));
+    setLastOpened(m?.lastOpened ?? null);
+  }
   const [prefs, setPrefs] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
@@ -143,7 +162,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
   const [mine, setMine] = useState<SavedView[]>(loadMine);
 
-  const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
+  const view = useMemo<ClosetView>(() => (doc ? viewOfAll(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const placeIdx = useMemo(() => buildPlaceIndex(doc, view), [doc, view]);
 
   // Networks, addresses, prefixes and VLANs share one derivation, computed only when one of them
@@ -217,6 +236,31 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return scoped[kind] ?? [];
   }, [doc, kind, rowsByKind, scoped, networksDerived, ipam, where]);
 
+  const kindLabel = KINDS.find((k) => k.key === kind)!.label;
+  // A page opens from the whole design, not the Where-narrowed list: a link can lead outside Where.
+  const openRow = openKey ? ((rowsByKind[kind] ?? baseRows).find((r) => r.key === openKey) ?? baseRows.find((r) => r.key === openKey) ?? null) : null;
+  /** The place being left, as the next entry's Back label: the open item's name, else the list. */
+  const hereLabel = openKey ? openRow?.title || kindLabel : kindLabel;
+
+  // Writes what the list on screen remembers (scroll, ticks, the row opened) before it is left.
+  const checkedRef = useRef(checked);
+  checkedRef.current = checked;
+  const lastOpenedRef = useRef(lastOpened);
+  lastOpenedRef.current = lastOpened;
+  const rememberList = (extra?: Partial<ListMemory>) =>
+    saveMemory(window.sessionStorage, listKey(ls), { top: scrollTop.current, checked: [...checkedRef.current], lastOpened: lastOpenedRef.current, ...extra });
+  const scrollSave = useRef<number | null>(null);
+  const here = listKey(ls);
+  useEffect(() => {
+    if (!openKey && !adding) rememberList();
+  }, [checked, lastOpened, here]); // eslint-disable-line react-hooks/exhaustive-deps -- remember on a tick or a move, not on every render.
+  /** A move to another page or list: a new history entry whose Back goes to where this was. */
+  const push = (patch: Partial<ListState>, extra?: Partial<ListMemory>) => {
+    if (!openKey) rememberList(extra);
+    if (extra?.lastOpened !== undefined) setLastOpened(extra.lastOpened);
+    go(patch, 'push', hereLabel);
+  };
+
   const scopedCount = (rows: readonly InvRow[] | undefined): number | null => (rows ? rows.filter((r) => inWhere(r.places, where)).length : null);
 
   const counts: Record<Kind, number | null> = {
@@ -240,14 +284,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     [findArmed, ls.find, rowsByKind, placeIdx, background],
   );
   const openHit = (h: Hit) => {
-    setOverride(null);
-    setChecked(new Set());
     setPrefs(null);
     setNotice(null);
     setAdding(null);
-    setLastOpened(h.row.key);
-    scrollTop.current = 0;
-    go({ kind: h.kind, q: '', sorts: [], view: '', open: h.row.key, tab: '', find: '' }, 'push');
+    push({ kind: h.kind, q: '', sorts: [], view: '', open: h.row.key, tab: '', find: '' });
   };
 
   const columnsAll = useMemo(() => allColumns(kind, fieldDefs), [kind, fieldDefs]);
@@ -281,13 +321,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   }, [allViews, kind, baseRows, schema, scoped, kindSchemas]);
 
   const onView = (v: SavedView) => {
-    go({ kind: v.kind, q: v.q, sorts: v.sorts, view: v.id, open: '', tab: '' }, 'push');
-    setOverride(null);
-    setChecked(new Set());
+    push({ kind: v.kind, q: v.q, sorts: v.sorts, view: v.id, open: '', tab: '' });
     setPrefs(null);
     setNotice(null);
     setAdding(null);
-    scrollTop.current = 0;
   };
   const onSaveAs = (name: string) => {
     const id = `m${Date.now().toString(36)}`;
@@ -312,30 +349,23 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   };
 
   const switchKind = (next: Kind) => {
-    go({ kind: next, q: '', sorts: [], view: '', open: '', tab: '' }, 'push');
-    setOverride(null);
-    setChecked(new Set());
+    push({ kind: next, q: '', sorts: [], view: '', open: '', tab: '' });
     setPrefs(null);
     setNotice(null);
     setAdding(null);
-    scrollTop.current = 0;
   };
 
   const openPage = (row: InvRow) => {
-    setOverride(null);
-    setLastOpened(row.key);
-    go({ open: row.key, tab: '' }, 'push');
+    push({ open: row.key, tab: '' }, { lastOpened: row.key });
   };
 
+  /** One step back, as the browser's Back button does; the label says where it goes. */
   const closePage = () => {
-    setOverride(null);
     setAdding(null);
-    if (openKey) listBack();
+    if (openKey) stepBack();
   };
 
-  const kindLabel = KINDS.find((k) => k.key === kind)!.label;
-  const openRow = openKey ? (baseRows.find((r) => r.key === openKey) ?? null) : null;
-  const pageSelection = override ?? openRow?.selection ?? null;
+  const pageSelection = openRow?.selection ?? null;
 
   const ctx = useMemo(() => ({ catalogue, actor: getSession()?.accountId, defs: fieldDefs }), [catalogue, fieldDefs]);
 
@@ -352,17 +382,35 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   // A previewed bulk change is written as one undo step, and the notice carries an Undo for it.
   const [bulkUndo, setBulkUndo] = useState<{ id: string; notice: string } | null>(null);
-  const onBulkApply = (plan: BulkPlan): string | void => {
-    if (!doc) return;
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const finishBulk = (r: ReturnType<typeof applyPlan>, title: string): string | void => {
+    if (r.changed <= 0) return r.refused[0] ?? 'Nothing changed.';
+    applyDocChange(r.doc);
+    const text = `${title} on ${r.changed.toLocaleString('en-GB')} ${kindLabel.toLowerCase()}.${r.refused.length ? ` ${r.refused.length} not changed: ${r.refused.slice(0, 3).join('; ')}` : ''}`;
+    setNotice(text);
+    setBulkUndo(r.batchId ? { id: r.batchId, notice: text } : null);
+  };
+  const onBulkApply = (plan: BulkPlan): string | void | Promise<string | void> => {
+    if (!doc || bulkProgress) return;
     // Only rows ticked now (and still listed) are written, whatever the preview held.
     const live = keepSelected(plan, new Set(checkedRows.map((r) => r.key)));
     if (live.edits.length === 0) return 'Nothing is ticked that this would change.';
-    const r = applyPlan(doc, kind, live, ctx);
-    if (r.changed <= 0) return r.refused[0] ?? 'Nothing changed.';
-    applyDocChange(r.doc);
-    const text = `${live.title} on ${r.changed.toLocaleString('en-GB')} ${kindLabel.toLowerCase()}.${r.refused.length ? ` ${r.refused.length} not changed: ${r.refused.slice(0, 3).join('; ')}` : ''}`;
-    setNotice(text);
-    setBulkUndo(r.batchId ? { id: r.batchId, notice: text } : null);
+    if (live.edits.length <= PROGRESS_FROM) return finishBulk(applyPlan(doc, kind, live, ctx), live.title);
+    // A big change is written in steps with a progress line, and is still one undo step.
+    const base = doc;
+    setBulkProgress({ done: 0, total: live.edits.length });
+    return (async () => {
+      try {
+        const r = await applyPlanChunked(base, kind, live, ctx, {
+          onProgress: (done, total) => setBulkProgress({ done, total }),
+          yieldToUi: nextPaint,
+        });
+        if (liveDoc.current !== base) return 'The design changed while this was being written. Nothing was applied; try again.';
+        return finishBulk(r, live.title);
+      } finally {
+        setBulkProgress(null);
+      }
+    })();
   };
   const runBulkUndo = () => {
     if (!doc || !bulkUndo || !accountId) return;
@@ -380,14 +428,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     }
   };
 
+  /** New racks and devices go to the premises Where names, else the first. */
+  const addTo = placeIdx.premisesOfSite.get(where.site) ?? (view.premisesId === '' ? null : view.premisesId);
   const onAdd = (name: string): string | void => {
     if (!doc) return;
     try {
-      const made = addThing(doc, kind, name, view.premisesId === '' ? null : view.premisesId, ctx);
+      const made = addThing(doc, kind, name, addTo, ctx);
       applyDocChange(made.doc);
-      setOverride(null);
-      setLastOpened(made.row.key);
-      go({ open: made.row.key, tab: '' }, 'push');
+      push({ open: made.row.key, tab: '' }, { lastOpened: made.row.key });
       setNotice(null);
     } catch (e) {
       return e instanceof Error ? e.message : 'That was refused.';
@@ -415,7 +463,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const editorActions = {
     onEdit: canDraw ? handleEdit : undefined,
-    onSelect: (s: Selection) => setOverride(s),
+    // A link inside a page is a history entry like any other, so the browser's Back works.
+    onSelect: (s: Selection) => {
+      const t = linkTarget(s);
+      if (t) push({ kind: t.kind, q: '', sorts: [], view: '', open: t.open, tab: '' });
+    },
     notesOf: notesActions.notesOf,
     onAddNote: canDraw ? notesActions.onAddNote : undefined,
     onRemoveNote: canDraw ? notesActions.onRemoveNote : undefined,
@@ -436,7 +488,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     applyDocChange(next);
     setAdding(null);
     setNotice(null);
-    if (openNext) go({ open: openNext, tab: '' }, 'push');
+    if (openNext) push({ open: openNext, tab: '' }, { lastOpened: openNext });
   };
   const ipamPage = (() => {
     if (!doc) return null;
@@ -478,20 +530,20 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const page =
     showPage && pageSelection ? (
       <ItemPage
-        key={override ? `${override.kind}:${override.id}` : openKey ?? ''}
+        key={openKey ?? ''}
         doc={doc}
         view={view}
         selection={pageSelection}
-        ownerId={override ? ownerOfSelection(override) : (openRow?.ownerId ?? null)}
-        title={override ? `${override.kind} ${override.id.slice(-6)}` : (openRow?.title ?? '')}
+        ownerId={openRow?.ownerId ?? null}
+        title={openRow?.title ?? ''}
         actions={editorActions}
         palette={palette}
         accountId={accountId}
         idx={placeIdx}
         onSetWhere={(w) => go({ where: w })}
         onShowOnCanvas={() => onShowOnRack(pageSelection)}
-        backLabel={override ? (openRow?.title ?? 'Back') : null}
-        onBack={() => setOverride(null)}
+        tab={ls.tab}
+        onTab={(t) => go({ tab: t })}
       />
     ) : null;
 
@@ -536,11 +588,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               {refusal}
               <div className="inv-pageframe__bar">
                 <button type="button" className="inv-pageframe__back" onClick={closePage}>
-                  ← {kindLabel}
+                  ← Back to {adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel}
                 </button>
-                <span className="inv-pageframe__crumb">
-                  {kindLabel} › {adding ? (adding === 'prefix' ? 'New prefix' : 'New VLAN') : (openRow?.title ?? '')}
-                </span>
+                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : 'New VLAN'}</span> : null}
               </div>
               <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
             </div>
@@ -583,6 +633,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 onSelectAllMatching={() => setChecked(new Set(rows.map((r) => r.key)))}
                 onClearChecked={() => setChecked(new Set())}
                 notice={notice}
+                progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
               />
               <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} />
@@ -599,7 +650,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 }}
               >
                 <DataTable
-                  key={kind}
+                  key={`${kind}:${moves}`}
                   columns={columns}
                   rows={rows}
                   openKey={lastOpened}
@@ -629,6 +680,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   initialScrollTop={scrollTop.current}
                   onScrollTop={(top) => {
                     scrollTop.current = top;
+                    if (scrollSave.current !== null) window.clearTimeout(scrollSave.current);
+                    scrollSave.current = window.setTimeout(() => rememberList(), 200);
                   }}
                 />
               </div>
@@ -673,7 +726,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 const edits: CellEdit[] = [];
                 for (const add of plan.adds) {
                   try {
-                    const made = addThing(working, kind, add.name, view.premisesId === '' ? null : view.premisesId, ctx);
+                    const made = addThing(working, kind, add.name, addTo, ctx);
                     working = made.doc;
                     for (const e of add.edits) edits.push({ row: made.row, col: e.col, value: e.value });
                   } catch (e) {
@@ -696,11 +749,6 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       )}
     </Shell>
   );
-}
-
-function ownerOfSelection(s: Selection): string | null {
-  if (s.kind === 'rack' || s.kind === 'cable' || s.kind === 'port') return s.id;
-  return null;
 }
 
 function AddressNote({ row, onOpenDevice }: { row: InvRow | null; onOpenDevice: () => void }) {

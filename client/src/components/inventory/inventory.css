@@ -1388,13 +1388,8 @@
   padding-left: var(--s2);
 }
 
-/* suggestions: dropdown under the line */
+/* suggestions: in the flow under the line, so they push the table down and never cover its headings */
 .inv-sugg {
-  position: absolute;
-  z-index: var(--z-egress);
-  top: 100%;
-  left: 0;
-  margin-top: 2px;
   width: min(100%, 420px);
   background: var(--page);
   border: var(--rule-hair) solid var(--ink);

@@ -139,7 +139,7 @@ export function pluggedInto(view: ClosetView, idx: PlaceIndex, hostId: string): 
 export function stationPlace(s: Station): string {
   const p = s.place;
   if (!p) return '';
-  return [p.site, p.room, p.rack, p.u != null ? `U${p.u}` : ''].filter((x) => x !== '').join(' › ');
+  return [p.site, p.row, p.rack, p.u != null ? `U${p.u}` : ''].filter((x) => x !== '').join(' › ');
 }
 
 /** The page a stop opens: a chassis, a shelf occupant or a surface fixture. */

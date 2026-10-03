@@ -166,7 +166,7 @@ export function RackContents(props: { view: ClosetView; idx: PlaceIndex; rackId:
       <div className="inv-rackp__bar">
         <h3 className="inv-path__head">In this rack · {devices.length + rack.shelves.length}</h3>
         {onSetWhere ? (
-          <button type="button" onClick={() => onSetWhere({ site: place.site, room: place.room, rack: place.rack })}>
+          <button type="button" onClick={() => onSetWhere({ site: place.site, row: place.row, rack: place.rack })}>
             Set Where to this rack
           </button>
         ) : null}

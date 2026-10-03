@@ -52,7 +52,7 @@ export function formatHash(s: ListState): string {
   if (s.q) p.set('q', s.q);
   if (s.sorts.length) p.set('s', encodeSorts(s.sorts));
   if (s.where.site) p.set('site', s.where.site);
-  if (s.where.room) p.set('room', s.where.room);
+  if (s.where.row) p.set('row', s.where.row);
   if (s.where.rack) p.set('rack', s.where.rack);
   if (s.find) p.set('f', s.find);
   if (s.view) p.set('v', s.view);
@@ -71,7 +71,7 @@ export function parseHash(hash: string): ListState | null {
     kind: p.get('k') || DEFAULT_KIND,
     q: p.get('q') ?? '',
     sorts: decodeSorts(p.get('s') ?? ''),
-    where: { site: p.get('site') ?? '', room: p.get('room') ?? '', rack: p.get('rack') ?? '' },
+    where: { site: p.get('site') ?? '', row: p.get('row') ?? p.get('room') ?? '', rack: p.get('rack') ?? '' },
     find: p.get('f') ?? '',
     view: p.get('v') ?? '',
     open: p.get('o') ?? '',
@@ -81,4 +81,12 @@ export function parseHash(hash: string): ListState | null {
 
 export function sameState(a: ListState, b: ListState): boolean {
   return formatHash(a) === formatHash(b);
+}
+
+/**
+ * Back or Forward lands on an older entry, but Where is the one setting that is not the entry's:
+ * a Where changed while a page was open (or since) is kept, so it survives the trip.
+ */
+export function carryWhere(landed: ListState, current: ListState): ListState {
+  return { ...landed, where: current.where };
 }

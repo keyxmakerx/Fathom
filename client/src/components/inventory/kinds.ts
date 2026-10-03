@@ -89,7 +89,7 @@ export interface InvRow {
 
 const siteRoomRack: FacetSpec[] = [
   { key: 'site', label: 'Site' },
-  { key: 'room', label: 'Row' },
+  { key: 'row', label: 'Row' },
   { key: 'rack', label: 'Rack' },
 ];
 
@@ -100,7 +100,7 @@ export const FACETS: Partial<Record<Kind, readonly FacetSpec[]>> = {
   racks: [siteRoomRack[0]!, siteRoomRack[1]!],
   cables: [
     { key: 'site', label: 'Site at either end' },
-    { key: 'room', label: 'Row at either end' },
+    { key: 'row', label: 'Row at either end' },
     { key: 'rack', label: 'Rack at either end' },
     { key: 'role', label: 'What either end is' },
     { key: 'device', label: 'Device at either end' },
@@ -119,7 +119,7 @@ export const FACETS: Partial<Record<Kind, readonly FacetSpec[]>> = {
 
 /** Smaller questions a column's menu offers beyond its own values: facets about the same thing. */
 export const COLUMN_ASKS: Partial<Record<Kind, Readonly<Record<string, readonly string[]>>>> = {
-  devices: { where: ['site', 'room', 'rack', 'u'] },
+  devices: { where: ['site', 'row', 'rack', 'u'] },
   ports: { device: ['role', 'site', 'rack'], cable: ['connected'] },
   cables: {
     endA: ['a.site', 'a.rack', 'a.role', 'a.device', 'a.port'],
@@ -127,12 +127,12 @@ export const COLUMN_ASKS: Partial<Record<Kind, Readonly<Record<string, readonly 
   },
 };
 
-/** The facets every placed row answers: site, room and rack of each place. */
+/** The facets every placed row answers: site, row and rack of each place. */
 export function placeFacets(places: readonly Place[]): Record<string, string[]> {
   const uniq = (xs: string[]) => [...new Set(xs)];
   return {
     site: uniq(places.map((p) => p.site)),
-    room: uniq(places.map((p) => p.room)),
+    row: uniq(places.map((p) => p.row)),
     rack: uniq(places.map((p) => p.rack)),
   };
 }
@@ -473,7 +473,7 @@ export function addressRows(doc: Document, subnets: readonly SubnetRow[], device
 
 /** A prefix or VLAN is where its devices are; with none placed it belongs to no site and is never filtered out. */
 function sitePlaces(sites: readonly string[]): Place[] | undefined {
-  return sites.length ? sites.map((site) => ({ site, room: '', rack: '', rackId: '', u: null })) : undefined;
+  return sites.length ? sites.map((site) => ({ site, row: '', rack: '', rackId: '', u: null })) : undefined;
 }
 
 /** Prefix rows: derived from the addresses on devices, read-only here (typing writes to a device). */

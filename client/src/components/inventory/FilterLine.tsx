@@ -41,7 +41,7 @@ export function FilterLine(props: FilterLineProps) {
     return d;
   };
 
-  const sugg = useMemo(() => (focused && open === null ? suggestAt(q, cursor, schema.fields, valuesOf) : null), [focused, open, q, cursor, schema, cache]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sugg = useMemo(() => (focused && open === null && q.trim() !== '' ? suggestAt(q, cursor, schema.fields, valuesOf) : null), [focused, open, q, cursor, schema, cache]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (afterRender.current !== null && input.current) {
@@ -87,7 +87,7 @@ export function FilterLine(props: FilterLineProps) {
             aria-label={`Filter ${kindLabel.toLowerCase()}`}
             aria-autocomplete="list"
             aria-expanded={sugg !== null}
-            placeholder="Type a field, e.g. role:switch site:LON1 · press ? for every field"
+            placeholder="e.g. role:switch site:LON1"
             value={q}
             onChange={(e) => {
               setCursor(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
@@ -134,30 +134,30 @@ export function FilterLine(props: FilterLineProps) {
         <button type="button" className="inv-fq__more" aria-expanded={open === 'panel'} onClick={() => setOpen(open === 'panel' ? null : 'panel')}>
           Filters {open === 'panel' ? '▴' : '▾'}
         </button>
-        {sugg ? (
-          <div className="inv-sugg" role="listbox" aria-label="Suggestions">
-            <div className="inv-sugg__head">{sugg.head}</div>
-            {sugg.items.map((it, i) => (
-              <div
-                key={it.insert}
-                role="option"
-                aria-selected={i === at}
-                className={i === at ? 'inv-sugg__item inv-sugg__item--at' : 'inv-sugg__item'}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(it);
-                }}
-              >
-                <span className="inv-sugg__main">{it.main}</span>
-                {it.hint ? <span className="inv-sugg__hint">{it.hint}</span> : null}
-                <span className="inv-sugg__grow" />
-                {it.count != null ? <span className="inv-sugg__n">{fmt(it.count)}</span> : null}
-              </div>
-            ))}
-            <div className="inv-sugg__foot">↑↓ to choose · Enter or Tab to put it in · Esc to close</div>
-          </div>
-        ) : null}
       </div>
+
+      {sugg ? (
+        <div className="inv-sugg" role="listbox" aria-label="Suggestions">
+          <div className="inv-sugg__head">{sugg.head}</div>
+          {sugg.items.map((it, i) => (
+            <div
+              key={it.insert}
+              role="option"
+              aria-selected={i === at}
+              className={i === at ? 'inv-sugg__item inv-sugg__item--at' : 'inv-sugg__item'}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(it);
+              }}
+            >
+              <span className="inv-sugg__main">{it.main}</span>
+              {it.hint ? <span className="inv-sugg__hint">{it.hint}</span> : null}
+              <span className="inv-sugg__grow" />
+              {it.count != null ? <span className="inv-sugg__n">{fmt(it.count)}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {open === 'help' ? <Help schema={schema} rows={rows} valuesOf={valuesOf} kindLabel={kindLabel} onField={insertField} onClose={() => setOpen(null)} /> : null}
       {open === 'panel' ? <Panel q={q} onQ={onQ} schema={schema} rows={rows} kindLabel={kindLabel} onClose={() => setOpen(null)} /> : null}

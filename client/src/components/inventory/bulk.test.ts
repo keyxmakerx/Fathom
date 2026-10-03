@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { newUlid } from '../../document/ulid';
 import { undo } from '../../document/undo';
 import { viewOf } from '../../document/view';
-import { applyPlan, bulkStillUndoable, dryRun, keepSelected, planFor, planSet, planTag } from './bulk';
+import { applyPlan, applyPlanChunked, bulkStillUndoable, dryRun, keepSelected, planFor, planSet, planTag } from './bulk';
 import { allColumns, deviceRows } from './kinds';
 import { buildPlaceIndex } from './placeIndex';
 import { smallEstate } from './testFixture';
@@ -111,5 +111,44 @@ describe('Undo on the bulk notice', () => {
     const back = undo(out.doc, out.batchId!, { actor, now: Date.now() });
     expect(bulkStillUndoable(back, out.batchId!)).toBe(false);
     expect(bulkStillUndoable(e.doc, 'no-such-batch')).toBe(false);
+  });
+});
+
+describe('a large change is written in steps but is still one undo step', () => {
+  it('reports progress, gives the event loop back between steps, and undoes in one go', async () => {
+    const { e, rows, role } = setup();
+    const ctx = { catalogue: [], actor, defs: [] };
+    const plan = planSet(rows, role, 'router');
+    const seen: Array<[number, number]> = [];
+    let yields = 0;
+    const out = await applyPlanChunked(e.doc, 'devices', plan, ctx, {
+      chunk: 2,
+      onProgress: (d, t) => seen.push([d, t]),
+      yieldToUi: async () => {
+        yields += 1;
+      },
+    });
+    const total = plan.edits.length;
+    expect(seen.at(-1)).toEqual([total, total]);
+    expect(seen.map((s) => s[0])).toEqual([...seen.map((s) => s[0])].sort((a, b) => a - b));
+    expect(yields).toBe(Math.ceil(total / 2) - 1);
+    expect(out.changed).toBe(total);
+    expect(out.doc.batches.length).toBe(e.doc.batches.length + 1);
+    const view = viewOf(out.doc, []);
+    expect(deviceRows(out.doc, view, [], buildPlaceIndex(out.doc, view)).every((r) => r.cells.role === 'router')).toBe(true);
+    const back = undo(out.doc, out.batchId!, { actor, now: Date.now() });
+    const v2 = viewOf(back, []);
+    expect(deviceRows(back, v2, [], buildPlaceIndex(back, v2)).map((r) => r.cells.role)).toEqual(rows.map((r) => r.cells.role));
+  });
+
+  it('gives the same document content as writing it all at once', async () => {
+    const { e, rows, role } = setup();
+    const ctx = { catalogue: [], actor, defs: [] };
+    const plan = planSet(rows, role, 'router');
+    const once = applyPlan(e.doc, 'devices', plan, ctx);
+    const steps = await applyPlanChunked(e.doc, 'devices', plan, ctx, { chunk: 1, yieldToUi: async () => undefined });
+    expect(steps.changed).toBe(once.changed);
+    expect(steps.doc.batches.length).toBe(once.doc.batches.length);
+    expect(steps.doc.batches.at(-1)!.ops.length).toBe(once.doc.batches.at(-1)!.ops.length);
   });
 });

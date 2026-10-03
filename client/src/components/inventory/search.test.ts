@@ -191,10 +191,10 @@ describe('finding things', () => {
 describe('Where narrows search and says what it hid', () => {
   const { ix } = estate();
   it('counts the matches outside', () => {
-    const o = search(ix, 'lon1-a0', { site: 'LON1', room: 'Row A', rack: 'A03' });
+    const o = search(ix, 'lon1-a0', { site: 'LON1', row: 'Row A', rack: 'A03' });
     expect(names(o).sort()).toEqual(['lon1-a03-srv0001', 'lon1-a03-tor1']);
     expect(o.outside).toBe(1);
-    const other = search(ix, 'lon1-a03-tor1', { site: 'MAN1', room: '', rack: '' });
+    const other = search(ix, 'lon1-a03-tor1', { site: 'MAN1', row: '', rack: '' });
     expect(other.total).toBe(0);
     expect(other.outside).toBe(1);
   });

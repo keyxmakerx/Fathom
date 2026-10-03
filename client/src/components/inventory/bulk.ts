@@ -77,6 +77,49 @@ export function applyPlan(doc: Document, kind: Parameters<typeof applyCellEdits>
   return { doc: next, refused: r.refused, changed: r.changed, batchId: next.batches.length > doc.batches.length ? next.batches[next.batches.length - 1]!.id : null };
 }
 
+/** Above this many rows a bulk change shows a progress line and is written in steps. */
+export const PROGRESS_FROM = 200;
+const CHUNK = 100;
+
+export interface ChunkOptions {
+  /** Called after each step with how many edits are written and how many there are. */
+  onProgress?: (done: number, total: number) => void;
+  /** Lets the page paint between steps. */
+  yieldToUi: () => Promise<void>;
+  chunk?: number;
+}
+
+/**
+ * `applyPlan`, in steps with the event loop given back between them so a progress line can paint.
+ * The steps are folded into the same one undo step at the end; there is no batched write path
+ * and no cancel. The caller must check the design did not change while it ran.
+ */
+export async function applyPlanChunked(doc: Document, kind: Parameters<typeof applyCellEdits>[1], plan: BulkPlan, ctx: EditContext, opts: ChunkOptions): Promise<BulkResult> {
+  const size = Math.max(1, opts.chunk ?? CHUNK);
+  const total = plan.edits.length;
+  let working = doc;
+  let changed = 0;
+  const refused: string[] = [];
+  for (let at = 0; at < total; at += size) {
+    const r = applyCellEdits(working, kind, plan.edits.slice(at, at + size), ctx);
+    working = r.doc;
+    changed += r.changed;
+    refused.push(...r.refused);
+    opts.onProgress?.(Math.min(total, at + size), total);
+    if (at + size < total) await opts.yieldToUi();
+  }
+  if (working === doc) return { doc, refused, changed, batchId: null };
+  let next = working;
+  if (ctx.actor) {
+    try {
+      next = collapseBatches(doc, working, `${plan.title} on ${changed}`);
+    } catch {
+      next = working;
+    }
+  }
+  return { doc: next, refused, changed, batchId: next.batches.length > doc.batches.length ? next.batches[next.batches.length - 1]!.id : null };
+}
+
 /** Rows a dry run is cheap for; beyond this the preview says refusals are found as it applies. */
 export const DRY_RUN_LIMIT = 300;
 

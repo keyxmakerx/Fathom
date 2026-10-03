@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { planFor, type BulkPlan, type BulkSpec } from './bulk';
+import { PROGRESS_FROM, planFor, type BulkPlan, type BulkSpec } from './bulk';
 import type { Column, InvRow } from './kinds';
 
 export interface ListToolbarProps {
@@ -22,7 +22,7 @@ export interface ListToolbarProps {
   checkedRows: readonly InvRow[];
   bulkColumns: readonly Column[];
   /** Writes a previewed change; returns a sentence when it cannot. */
-  onBulkApply?: (plan: BulkPlan) => string | void;
+  onBulkApply?: (plan: BulkPlan) => string | void | Promise<string | void>;
   /** What a change would be refused for, found without writing; null when too many to try. */
   bulkCheck?: (plan: BulkPlan) => string[] | null;
   /** How many rows the line matches, and a way to tick them all. */
@@ -30,12 +30,14 @@ export interface ListToolbarProps {
   onSelectAllMatching: () => void;
   onClearChecked: () => void;
   notice: string | null;
+  /** A bulk change being written in steps: how far it has got. */
+  progress?: { done: number; total: number } | null;
   /** Shown beside the notice after a bulk change. */
   undo?: { run: () => void } | null;
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress } = props;
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [open, setOpen] = useState<'columns' | null>(null);
@@ -138,7 +140,12 @@ export function ListToolbar(props: ListToolbarProps) {
           {addError}
         </div>
       ) : null}
-      {notice ? (
+      {progress ? (
+        <div className="inv-toolbar__notice" role="status">
+          Changing {progress.done.toLocaleString('en-GB')} of {progress.total.toLocaleString('en-GB')}…
+        </div>
+      ) : null}
+      {notice && !progress ? (
         <div className="inv-toolbar__notice" role="status">
           {notice}
           {undo ? (
@@ -207,7 +214,7 @@ export function ListToolbar(props: ListToolbarProps) {
             </table>
           ) : null}
           {plan.lines.length > 8 ? <p className="inv-bulkpv__more">and {(plan.lines.length - 8).toLocaleString('en-GB')} more</p> : null}
-          {plan.lines.length > 300 ? <p className="inv-bulkpv__more">That is a large change: the page pauses while it is written, about {Math.ceil(plan.lines.length * 0.01)} seconds on a big design.</p> : null}
+          {plan.lines.length > PROGRESS_FROM ? <p className="inv-bulkpv__more">That is a large change: it is written in steps, with a progress line.</p> : null}
           {refusals && refusals.length > 0 ? (
             <p className="inv-toolbar__error" role="alert">
               {refusals.length} would be refused: {refusals.slice(0, 2).join('; ')}
@@ -218,18 +225,20 @@ export function ListToolbar(props: ListToolbarProps) {
           <div className="inv-bulkpv__acts">
             <button
               type="button"
-              disabled={plan.lines.length === 0}
-              onClick={() => {
-                const refused = onBulkApply?.(plan);
+              disabled={plan.lines.length === 0 || !!progress}
+              onClick={async () => {
+                const refused = await onBulkApply?.(plan);
                 setBulkError(typeof refused === 'string' ? refused : null);
                 if (typeof refused !== 'string') setSpec(null);
               }}
             >
               Apply to {plan.lines.length.toLocaleString('en-GB')}
             </button>
-            <button type="button" onClick={() => setSpec(null)}>
-              Cancel
-            </button>
+            {progress ? null : (
+              <button type="button" onClick={() => setSpec(null)}>
+                Cancel
+              </button>
+            )}
             <span className="inv-bulkpv__more">One undo step.</span>
           </div>
         </div>

@@ -1,7 +1,7 @@
 // The page beside the list (ADR-0062, ADR-0046): the canvas details panel's own editor under a
 // title and tabs. Overview is `EditorFor` itself, so an edit here is the edit the canvas makes.
 
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
@@ -29,9 +29,9 @@ export interface ItemPageProps {
   idx: PlaceIndex;
   /** A rack page's "Set Where to this rack". */
   onSetWhere?: (w: Where) => void;
-  /** When the page was reached from another page (a port from a device), where back goes. */
-  backLabel: string | null;
-  onBack: () => void;
+  /** The open tab, as the address holds it ('' is Overview), so Back lands on the same tab. */
+  tab: string;
+  onTab: (tab: string) => void;
 }
 
 function portsOf(view: ClosetView, selection: Selection): PortView[] {
@@ -42,8 +42,9 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, backLabel, onBack, idx, onSetWhere } = props;
-  const [tab, setTab] = useState<TabKey>('overview');
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere } = props;
+  const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
+  const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
   const ports = isDevice ? portsOf(view, selection) : [];
   const notes = ownerId && actions.notesOf ? actions.notesOf(ownerId).length : 0;
@@ -107,13 +108,7 @@ export function ItemPage(props: ItemPageProps) {
   return (
     <aside className="shell-editor inv-page" aria-label={`${title} page`}>
       <div className="inv-page__head">
-        {backLabel ? (
-          <button type="button" onClick={onBack}>
-            ← {backLabel}
-          </button>
-        ) : (
-          <span className="inv-page__title">{title}</span>
-        )}
+        <span className="inv-page__title">{title}</span>
         <button type="button" onClick={onShowOnCanvas}>
           Show on canvas
         </button>

@@ -29,7 +29,7 @@ describe('the list in the address bar', () => {
         { key: 'length', dir: 'desc' },
         { key: 'name', dir: 'asc' },
       ],
-      where: { site: 'LON1', room: 'Row A', rack: 'A03' },
+      where: { site: 'LON1', row: 'Row A', rack: 'A03' },
       find: 'ge0/0/24',
       view: 'v4',
       open: 'cable:01HZZZZZZZZZZZZZZZZZZZZZZZ',
@@ -50,7 +50,7 @@ describe('the list in the address bar', () => {
   });
 
   it('Back from a page is the same list: only the open row and tab differ', () => {
-    const list: ListState = { ...EMPTY_STATE, kind: 'devices', q: 'role:switch', sorts: [{ key: 'name', dir: 'asc' }], where: { site: 'LON1', room: '', rack: '' } };
+    const list: ListState = { ...EMPTY_STATE, kind: 'devices', q: 'role:switch', sorts: [{ key: 'name', dir: 'asc' }], where: { site: 'LON1', row: '', rack: '' } };
     const opened: ListState = { ...list, open: 'chassis:X', tab: '' };
     const page = parseHash(formatHash(opened))!;
     const back = { ...page, open: '', tab: '' };

@@ -41,7 +41,7 @@ describe.skipIf(!on)('the full estate', () => {
     const schemas = Object.fromEntries((['devices', 'ports', 'racks', 'cables'] as Kind[]).map((k) => [k, schemaFor(k, allColumns(k, []), FACETS[k] ?? [])]));
     // The side list's counts: every saved view, run over its kind.
     ms('side-list counts (all saved views)', t, () => PINNED_VIEWS.map((v) => filterRows(rows[v.kind] ?? [], schemas[v.kind]!, v.q).rows.length));
-    ms('Where: one row', t, () => Object.values(rows).map((rs) => rs.filter((r) => inWhere(r.places, { site: 'Northwind', room: 'LON2 Row A', rack: '' })).length));
+    ms('Where: one row', t, () => Object.values(rows).map((rs) => rs.filter((r) => inWhere(r.places, { site: 'Northwind', row: 'LON2 Row A', rack: '' })).length));
     ms('filter ports: connector:lc device~tor', t, () => filterRows(ports, schemas.ports!, 'connector:lc device~tor').rows.length);
     ms('filter cables: length>=30 sheath:aqua', t, () => filterRows(cables, schemas.cables!, 'length>=30 sheath:aqua').rows.length);
     ms('filter devices: bare word', t, () => filterRows(devices, schemas.devices!, 'srv00').rows.length);
@@ -51,7 +51,7 @@ describe.skipIf(!on)('the full estate', () => {
 
     const ix = ms('build the search index', t, () => buildSearchIndex({ devices, ports, racks, cables, idx }));
     const k = built.known;
-    const where = { site: '', room: '', rack: '' };
+    const where = { site: '', row: '', rack: '' };
     ms('find: cable label', t, () => search(ix, k.trunkLabel, where));
     ms('find: serial', t, () => search(ix, k.serial, where));
     ms('find: device and port', t, () => search(ix, `${k.torDevice} 24`, where));
