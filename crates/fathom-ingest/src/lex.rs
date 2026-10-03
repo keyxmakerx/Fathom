@@ -10,6 +10,10 @@ use crate::frame::{self, ByteSpan, ShapeError};
 #[derive(Debug, Clone, Copy)]
 pub struct LexTable {
     pub quote: char,
+    /// A second quote character. A token opened with it closes with it. EdgeOS/Vyatta
+    /// `show configuration commands` prints single-quoted values (`'a b c'`), and a lexer
+    /// that split them at spaces left the tail of a secret in the capture.
+    pub alt_quote: Option<char>,
     pub escape: char,
     /// Bracket-list delimiters (14 §5.1's bracket_list production).
     pub list_open: char,
@@ -23,6 +27,7 @@ pub struct LexTable {
 /// junos-srx `display set` (14 §5.1's eleven-line grammar).
 pub const JUNOS_SET: LexTable = LexTable {
     quote: '"',
+    alt_quote: Some('\''),
     escape: '\\',
     list_open: '[',
     list_close: ']',
@@ -79,27 +84,59 @@ pub(crate) fn scan(
             });
             continue;
         }
-        if ch == table.quote {
-            it.next();
-            let mut escaped = false;
-            let mut closed = None;
-            for (at2, ch2) in it.by_ref() {
-                if escaped {
-                    escaped = false;
-                } else if ch2 == table.escape {
-                    escaped = true;
-                } else if ch2 == table.quote {
-                    closed = Some(base + (at2 + ch2.len_utf8()) as u32);
-                    break;
+        let is_quote = |c: char| c == table.quote || Some(c) == table.alt_quote;
+        if is_quote(ch) {
+            // One token however many quoted and bare pieces are glued with no space
+            // between them (`'a'b c'` is one word, as a shell reads it), so a value split
+            // by an inner quote is not left half-gated. An unterminated quote still
+            // emits the rest of the line as a token before it errs: the gate looks back
+            // from tokens that exist, and a secret word followed by nothing finds none.
+            let mut end = start;
+            let mut open = Some(ch);
+            loop {
+                if let Some(close) = open.take() {
+                    it.next();
+                    let mut escaped = false;
+                    let mut closed = None;
+                    for (at2, ch2) in it.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if ch2 == table.escape {
+                            escaped = true;
+                        } else if ch2 == close {
+                            closed = Some(base + (at2 + ch2.len_utf8()) as u32);
+                            break;
+                        }
+                    }
+                    let Some(e) = closed else {
+                        out.push(Token {
+                            kind: TokenKind::Quoted,
+                            span: ByteSpan {
+                                start,
+                                end: base + text.len() as u32,
+                            },
+                        });
+                        return Err(ShapeError::UnterminatedQuote);
+                    };
+                    end = e;
+                }
+                match it.peek().copied() {
+                    Some((_, c)) if is_quote(c) => open = Some(c),
+                    Some((at2, c))
+                        if !table.bare_excludes.contains(&c)
+                            && c != table.list_open
+                            && c != table.list_close =>
+                    {
+                        end = base + (at2 + c.len_utf8()) as u32;
+                        it.next();
+                    }
+                    _ => break,
                 }
             }
-            match closed {
-                Some(end) => out.push(Token {
-                    kind: TokenKind::Quoted,
-                    span: ByteSpan { start, end },
-                }),
-                None => return Err(ShapeError::UnterminatedQuote),
-            }
+            out.push(Token {
+                kind: TokenKind::Quoted,
+                span: ByteSpan { start, end },
+            });
             continue;
         }
         // Bare: everything up to the next excluded character.
@@ -135,9 +172,10 @@ pub(crate) fn interned_text(capture: &str, token: &Token, table: &LexTable) -> S
     if token.kind != TokenKind::Quoted {
         return raw.to_owned();
     }
+    let q = raw.chars().next().unwrap_or(table.quote);
     let inner = raw
-        .strip_prefix(table.quote)
-        .and_then(|t| t.strip_suffix(table.quote))
+        .strip_prefix(q)
+        .and_then(|t| t.strip_suffix(q))
         .unwrap_or(raw);
     let mut out = String::with_capacity(inner.len());
     let mut escaped = false;

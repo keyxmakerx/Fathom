@@ -24,6 +24,7 @@
 use core::any::{Any, TypeId};
 use core::fmt;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use fathom_id::Ulid;
 use fathom_ir::bag::{FieldBag, FieldKey};
@@ -38,15 +39,18 @@ use crate::prov::{Actor, Origin, ProvenanceId, ProvenanceRecord, Timestamp};
 
 /// One stored field. `Unknown` is not representable here: it *is* the absence
 /// of a slot (`11` §5.2).
+#[derive(Clone)]
 pub(crate) struct Slot {
     pub(crate) presence: StoredPresence,
-    pub(crate) value: Option<Box<dyn Any>>,
+    // Shared, never mutated in place: this is what makes `Graph::clone` cheap.
+    pub(crate) value: Option<Rc<dyn Any>>,
     pub(crate) prov: ProvenanceId,
 }
 
 /// A node. Field slots are private: presence and provenance are read through
 /// `Graph::presence`, and typed values through the generated accessors over
 /// the `FieldBag` impl below.
+#[derive(Clone)]
 pub struct Node {
     pub id: NodeId,
     pub existence: ProvenanceId,
@@ -56,6 +60,7 @@ pub struct Node {
 }
 
 /// An edge. First-class: stable id, kind, typed fields (ADR-0007).
+#[derive(Clone)]
 pub struct Edge {
     pub id: EdgeId,
     pub from: NodeId,
@@ -335,7 +340,9 @@ impl fmt::Display for ReadError {
     }
 }
 
-/// The in-memory typed graph.
+/// The in-memory typed graph. `Clone` copies the structure and shares the
+/// immutable field values, so a trial write can run on a copy.
+#[derive(Clone)]
 pub struct Graph {
     pub(crate) nodes: BTreeMap<NodeId, Node>,
     pub(crate) edges: BTreeMap<EdgeId, Edge>,
@@ -344,7 +351,10 @@ pub struct Graph {
     pub(crate) by_ulid: BTreeMap<Ulid, ElementId>,
     pub(crate) out: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
     pub(crate) inn: BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
-    pub(crate) owner_edge: BTreeMap<NodeId, EdgeId>,
+    /// Every containment edge into a node, tombstoned or not, in `EdgeId` order. The owner is
+    /// whichever of them is effective (`live_owner_edge`): a function of the edges' state alone,
+    /// so a write, a replayed delta and a snapshot rebuild cannot disagree about it.
+    pub(crate) containment_in: BTreeMap<NodeId, Vec<EdgeId>>,
     pub(crate) prov: BTreeMap<ProvenanceId, ProvenanceRecord>,
     pub(crate) history: BTreeMap<(ElementId, FieldKey), FieldHistory>,
     pub(crate) log: Vec<Batch>,
@@ -370,7 +380,7 @@ impl Graph {
             by_ulid: BTreeMap::new(),
             out: BTreeMap::new(),
             inn: BTreeMap::new(),
-            owner_edge: BTreeMap::new(),
+            containment_in: BTreeMap::new(),
             prov: BTreeMap::new(),
             history: BTreeMap::new(),
             log: Vec::new(),
@@ -550,23 +560,14 @@ impl Graph {
 
         let id = EdgeId { kind, ulid };
         let prov = self.intern(filled);
-        self.edges.insert(
+        self.place_edge(Edge {
             id,
-            Edge {
-                id,
-                from,
-                to,
-                prov,
-                absent_since: None,
-                fields: BTreeMap::new(),
-            },
-        );
-        self.by_ulid.insert(ulid, ElementId::Edge(id));
-        insert_sorted(self.out.entry((from, kind)).or_default(), id);
-        insert_sorted(self.inn.entry((to, kind)).or_default(), id);
-        if kind.class() == EdgeClass::Containment {
-            self.owner_edge.insert(to, id);
-        }
+            from,
+            to,
+            prov,
+            absent_since: None,
+            fields: BTreeMap::new(),
+        });
         self.record(Op::AddEdge {
             edge: id,
             from,
@@ -574,6 +575,58 @@ impl Graph {
             prov,
         });
         Ok(id)
+    }
+
+    /// Put an edge in the store and in every index that reads it. The one way an edge enters:
+    /// a write, a replayed delta and a snapshot rebuild all come through here.
+    pub(crate) fn place_edge(&mut self, edge: Edge) {
+        let (id, from, to) = (edge.id, edge.from, edge.to);
+        self.by_ulid.insert(id.ulid, ElementId::Edge(id));
+        insert_sorted(self.out.entry((from, id.kind)).or_default(), id);
+        insert_sorted(self.inn.entry((to, id.kind)).or_default(), id);
+        if id.kind.class() == EdgeClass::Containment {
+            insert_sorted(self.containment_in.entry(to).or_default(), id);
+        }
+        self.edges.insert(id, edge);
+    }
+
+    /// The greatest id among the edges of one kind that are not effective.
+    pub(crate) fn newest_ineffective_edge(&self, kind: EdgeKind) -> Option<EdgeId> {
+        let lo = EdgeId {
+            kind,
+            ulid: Ulid(0),
+        };
+        let hi = EdgeId {
+            kind,
+            ulid: Ulid(u128::MAX),
+        };
+        self.edges
+            .range(lo..=hi)
+            .rev()
+            .find(|(_, e)| !self.is_effective(e))
+            .map(|(id, _)| *id)
+    }
+
+    /// The exact inverse of [`Graph::place_edge`], for a refused delta.
+    pub(crate) fn unplace_edge(&mut self, id: EdgeId) {
+        let Some(edge) = self.edges.remove(&id) else {
+            return;
+        };
+        self.by_ulid.remove(&id.ulid);
+        for (map, n) in [(&mut self.out, edge.from), (&mut self.inn, edge.to)] {
+            if let Some(v) = map.get_mut(&(n, id.kind)) {
+                v.retain(|e| *e != id);
+                if v.is_empty() {
+                    map.remove(&(n, id.kind));
+                }
+            }
+        }
+        if let Some(v) = self.containment_in.get_mut(&edge.to) {
+            v.retain(|e| *e != id);
+            if v.is_empty() {
+                self.containment_in.remove(&edge.to);
+            }
+        }
     }
 
     /// The L0 ladder for an edge that is about to exist, in the fixed order
@@ -585,6 +638,33 @@ impl Graph {
     /// runs *this* ladder rather than a second copy of it: loading is not
     /// trusting, and the refusal set on load must be the refusal set on write.
     pub(crate) fn check_edge_l0(
+        &self,
+        kind: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+    ) -> Result<(NodeId, NodeId), WriteError> {
+        self.check_edge_l0_at(kind, from, to, None)
+    }
+
+    /// [`Graph::check_edge_l0`] as a loader that has placed only the edges before `horizon`
+    /// would run it (`None`: all of them), against the nodes and tombstones as they stand now.
+    pub(crate) fn check_edge_l0_at(
+        &self,
+        kind: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+        horizon: Option<EdgeId>,
+    ) -> Result<(NodeId, NodeId), WriteError> {
+        let (from, to) = self.check_edge_shape(kind, from, to)?;
+        self.check_edge_counts(kind, from, to, horizon)?;
+        Ok((from, to))
+    }
+
+    /// The structural rungs of the ladder: root containment, endpoints and
+    /// their kinds. Returns the pair in stored order. All a loaded edge that is
+    /// not itself effective (tombstoned, or an endpoint is) must pass: it adds
+    /// to no count, so it is checked against no other edge.
+    pub(crate) fn check_edge_shape(
         &self,
         kind: EdgeKind,
         from: NodeId,
@@ -634,8 +714,20 @@ impl Graph {
         } else {
             (from, to)
         };
+        Ok((from, to))
+    }
+
+    /// The rungs that read other effective edges: duplicates, containment,
+    /// cycles and bounds, for an already normalised pair.
+    fn check_edge_counts(
+        &self,
+        kind: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+        horizon: Option<EdgeId>,
+    ) -> Result<(), WriteError> {
         if kind.symmetric() {
-            if let Some(existing) = self.live_edge_between(kind, from, to) {
+            if let Some(existing) = self.live_edge_between(kind, from, to, horizon) {
                 return Err(WriteError::SymmetricDuplicate {
                     edge: kind,
                     existing,
@@ -644,7 +736,7 @@ impl Graph {
         }
 
         if kind.class() == EdgeClass::Containment {
-            if let Some(existing) = self.live_owner_edge(to) {
+            if let Some(existing) = self.live_owner_edge_at(to, horizon) {
                 return Err(WriteError::SecondContainment { node: to, existing });
             }
             // Walking owner() up from `from` must never reach `to`.
@@ -662,14 +754,14 @@ impl Graph {
                     break;
                 }
                 guard -= 1;
-                cur = self.owner(n);
+                cur = self.owner_at(n, horizon);
             }
         }
 
         if matches!(kind, EdgeKind::Contains | EdgeKind::ContainsApp) {
             // A self-loop is a one-edge cycle; otherwise refuse a directed
             // path of same-kind live edges from `to` back to `from`.
-            if from == to || self.reaches(kind, to, from) {
+            if from == to || self.reaches(kind, to, from, horizon) {
                 return Err(WriteError::SetCycle {
                     edge: kind,
                     from,
@@ -683,7 +775,7 @@ impl Graph {
         // edges — not tombstoned, neither endpoint tombstoned — so that
         // tombstone-then-replace works without `Purge`.
         if let Some(max) = kind.out_bound_l0().max {
-            if self.effective_degree(&self.out, from, kind) >= max as usize {
+            if self.effective_degree(&self.out, from, kind, horizon) >= max as usize {
                 return Err(WriteError::OutBoundExceeded {
                     edge: kind,
                     from,
@@ -692,7 +784,7 @@ impl Graph {
             }
         }
         if let Some(max) = kind.in_bound_l0().max {
-            if self.effective_degree(&self.inn, to, kind) >= max as usize {
+            if self.effective_degree(&self.inn, to, kind, horizon) >= max as usize {
                 return Err(WriteError::InBoundExceeded {
                     edge: kind,
                     to,
@@ -701,10 +793,14 @@ impl Graph {
             }
         }
 
-        Ok((from, to))
+        Ok(())
     }
 
     /// Not tombstoned, and neither endpoint tombstoned.
+    pub(crate) fn edge_is_effective(&self, e: &Edge) -> bool {
+        self.is_effective(e)
+    }
+
     fn is_effective(&self, e: &Edge) -> bool {
         e.absent_since.is_none()
             && self
@@ -722,36 +818,49 @@ impl Graph {
         index: &BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
         n: NodeId,
         k: EdgeKind,
+        horizon: Option<EdgeId>,
     ) -> usize {
         index
             .get(&(n, k))
             .map_or(EMPTY_ADJACENCY, Vec::as_slice)
             .iter()
-            .filter(|id| self.edges.get(id).is_some_and(|e| self.is_effective(e)))
+            .filter(|id| {
+                seen_from(horizon, **id) && self.edges.get(id).is_some_and(|e| self.is_effective(e))
+            })
             .count()
     }
 
-    fn live_edge_between(&self, k: EdgeKind, from: NodeId, to: NodeId) -> Option<EdgeId> {
+    fn live_edge_between(
+        &self,
+        k: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+        horizon: Option<EdgeId>,
+    ) -> Option<EdgeId> {
         self.out
             .get(&(from, k))
             .map_or(EMPTY_ADJACENCY, Vec::as_slice)
             .iter()
             .find(|id| {
-                self.edges
-                    .get(id)
-                    .is_some_and(|e| e.to == to && self.is_effective(e))
+                seen_from(horizon, **id)
+                    && self
+                        .edges
+                        .get(id)
+                        .is_some_and(|e| e.to == to && self.is_effective(e))
             })
             .copied()
     }
 
-    fn live_owner_edge(&self, n: NodeId) -> Option<EdgeId> {
-        let id = *self.owner_edge.get(&n)?;
-        let e = self.edges.get(&id)?;
-        if self.is_effective(e) {
-            Some(id)
-        } else {
-            None
-        }
+    /// The effective containment edge into `n` among the edges before `horizon`, if any.
+    fn live_owner_edge_at(&self, n: NodeId, horizon: Option<EdgeId>) -> Option<EdgeId> {
+        self.containment_in.get(&n)?.iter().copied().find(|id| {
+            seen_from(horizon, *id) && self.edges.get(id).is_some_and(|e| self.is_effective(e))
+        })
+    }
+
+    fn owner_at(&self, n: NodeId, horizon: Option<EdgeId>) -> Option<NodeId> {
+        let id = self.live_owner_edge_at(n, horizon)?;
+        self.edges.get(&id).map(|e| e.from)
     }
 
     /// Is `target` reachable from `start` over live edges of one kind?
@@ -760,7 +869,7 @@ impl Graph {
     /// refuse the legal diamond (one `AddressObject` in two sets joins their
     /// components with no directed cycle), so this is a directed walk. The L0
     /// outcome `11` requires — cycles refused at write — is unchanged.
-    fn reaches(&self, k: EdgeKind, start: NodeId, target: NodeId) -> bool {
+    fn reaches(&self, k: EdgeKind, start: NodeId, target: NodeId, horizon: Option<EdgeId>) -> bool {
         let mut seen: Vec<NodeId> = vec![start];
         let mut stack = vec![start];
         while let Some(n) = stack.pop() {
@@ -768,7 +877,7 @@ impl Graph {
                 return true;
             }
             for e in self.out(n, k) {
-                if self.is_effective(e) && !seen.contains(&e.to) {
+                if seen_from(horizon, e.id) && self.is_effective(e) && !seen.contains(&e.to) {
                     seen.push(e.to);
                     stack.push(e.to);
                 }
@@ -801,7 +910,7 @@ impl Graph {
             key,
             Slot {
                 presence: StoredPresence::Set,
-                value: Some(Box::new(value)),
+                value: Some(Rc::new(value)),
                 prov: id,
             },
         );
@@ -854,7 +963,7 @@ impl Graph {
             key,
             Slot {
                 presence: StoredPresence::Set,
-                value: Some(value),
+                value: Some(Rc::from(value)),
                 prov: id,
             },
         );
@@ -979,7 +1088,7 @@ impl Graph {
             );
     }
 
-    fn slot_map_mut(&mut self, element: ElementId) -> &mut BTreeMap<FieldKey, Slot> {
+    pub(crate) fn slot_map_mut(&mut self, element: ElementId) -> &mut BTreeMap<FieldKey, Slot> {
         match element {
             ElementId::Node(id) => &mut self.nodes.get_mut(&id).expect("checked").fields,
             ElementId::Edge(id) => &mut self.edges.get_mut(&id).expect("checked").fields,
@@ -993,11 +1102,11 @@ impl Graph {
         }
     }
 
-    fn slot_prov(&self, element: ElementId, key: FieldKey) -> Option<ProvenanceId> {
+    pub(crate) fn slot_prov(&self, element: ElementId, key: FieldKey) -> Option<ProvenanceId> {
         self.slot(element, key).map(|s| s.prov)
     }
 
-    fn exists(&self, element: ElementId) -> bool {
+    pub(crate) fn exists(&self, element: ElementId) -> bool {
         match element {
             ElementId::Node(id) => self.nodes.contains_key(&id),
             ElementId::Edge(id) => self.edges.contains_key(&id),
@@ -1059,6 +1168,28 @@ impl Graph {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Tombstone exactly `element`: no cascade, one op. For replaying a
+    /// recorded batch, which already lists the cascade element by element.
+    pub fn tombstone_exact(
+        &mut self,
+        element: ElementId,
+        at: Timestamp,
+        by: Actor,
+    ) -> Result<(), WriteError> {
+        self.require_batch()?;
+        let slot = match element {
+            ElementId::Node(id) => self.nodes.get_mut(&id).map(|n| &mut n.absent_since),
+            ElementId::Edge(id) => self.edges.get_mut(&id).map(|e| &mut e.absent_since),
+        };
+        let slot = slot.ok_or(WriteError::UnknownElement { element })?;
+        if slot.is_some() {
+            return Err(WriteError::AlreadyTombstoned { element });
+        }
+        *slot = Some(at);
+        self.record(Op::Tombstone { element, at, by });
         Ok(())
     }
 
@@ -1203,8 +1334,7 @@ impl Graph {
     /// root-containment edge kinds are refused, so `Site`, `Tunnel`,
     /// `Premises`, `Cable`, `Tenant` and `ServiceType` are roots here.
     pub fn owner(&self, n: NodeId) -> Option<NodeId> {
-        let id = self.live_owner_edge(n)?;
-        self.edges.get(&id).map(|e| e.from)
+        self.owner_at(n, None)
     }
 
     /// Walk containment up to the owning `Device`, if there is one.
@@ -1245,6 +1375,11 @@ impl Graph {
     pub fn history(&self, element: ElementId, key: FieldKey) -> Option<&FieldHistory> {
         self.history.get(&(element, key))
     }
+}
+
+/// Does a store that has placed only the edges before `horizon` (`None`: all) hold this edge?
+fn seen_from(horizon: Option<EdgeId>, id: EdgeId) -> bool {
+    horizon.is_none_or(|h| id < h)
 }
 
 /// Is the key one of the element's kind's declared fields? The kind travels

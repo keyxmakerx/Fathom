@@ -805,13 +805,16 @@ async fn live_totp_secret_of(
     (secret, last_step)
 }
 
-/// A code for a step `last_step` has not already spent — waits for the
-/// clock, since `verify_totp`'s replay guard refuses a stale one.
+/// A code for a step `last_step` has not already spent. `verify_totp` accepts the step after
+/// the current one (its skew), so that comes before waiting for the clock; the replay guard
+/// still refuses any step at or below `last_step`.
 async fn fresh_totp_code(secret: &[u8], last_step: Option<i64>) -> String {
     loop {
-        let step = credentials::totp_step(now_unix());
-        if last_step.is_none_or(|last| step > last) {
-            return credentials::totp_code(secret, step);
+        let current = credentials::totp_step(now_unix());
+        for step in [current, current + 1] {
+            if last_step.is_none_or(|last| step > last) {
+                return credentials::totp_code(secret, step);
+            }
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
@@ -828,9 +831,21 @@ struct CachedEndorsement {
     scalar: [u8; 32],
     grace_token: Option<[u8; 32]>,
 }
+/// One lock per (tag, account), so a mint that waits for the next one-time-code step holds up
+/// only callers of the same account, not every test in the binary.
+type EndorsementSlot = Arc<tokio::sync::Mutex<Option<CachedEndorsement>>>;
 static FRESH_ENDORSEMENT: std::sync::OnceLock<
-    tokio::sync::Mutex<std::collections::HashMap<EndorsementCacheKey, CachedEndorsement>>,
+    std::sync::Mutex<std::collections::HashMap<EndorsementCacheKey, EndorsementSlot>>,
 > = std::sync::OnceLock::new();
+
+fn endorsement_slot(
+    cache_key: &EndorsementCacheKey,
+) -> Arc<tokio::sync::Mutex<Option<CachedEndorsement>>> {
+    let map =
+        FRESH_ENDORSEMENT.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut map = map.lock().unwrap_or_else(|e| e.into_inner());
+    Arc::clone(map.entry(cache_key.clone()).or_default())
+}
 
 async fn fresh_endorsing_session(
     tag: &str,
@@ -838,16 +853,15 @@ async fn fresh_endorsing_session(
     operators: &OperatorStore,
     account: &str,
 ) -> (SignedIn, SoftwareKey) {
-    let lock =
-        FRESH_ENDORSEMENT.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let cache_key = (tag.to_string(), account.to_string());
+    let slot = endorsement_slot(&cache_key);
     let now = now_unix();
     // Held across the whole mint, not just the check: a racing caller must
     // wait for the previous mint rather than stomp its password write.
-    let mut guard = lock.lock().await;
+    let mut guard = slot.lock().await;
     // A minute of margin inside the session's own lifetime and the
     // fifteen-minute freshness window, so a slow test never straddles the edge.
-    if let Some(cached) = guard.get(&cache_key) {
+    if let Some(cached) = guard.as_ref() {
         if now < cached.expires_at_unix - 60
             && now - cached.minted_at_unix < sessions::SECOND_FACTOR_FRESHNESS.as_secs() as i64 - 60
         {
@@ -865,7 +879,7 @@ async fn fresh_endorsing_session(
         }
     }
 
-    mint_and_cache(account, &mut guard, cache_key, now, store, operators).await
+    mint_and_cache(account, &mut guard, now, store, operators).await
 }
 
 /// Unconditionally mints and re-caches — [`try_sign_in_as_operator`]'s one
@@ -876,21 +890,16 @@ async fn mint_endorsing_session(
     operators: &OperatorStore,
     account: &str,
 ) -> (SignedIn, SoftwareKey) {
-    let lock =
-        FRESH_ENDORSEMENT.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let cache_key = (tag.to_string(), account.to_string());
+    let slot = endorsement_slot(&cache_key);
     let now = now_unix();
-    let mut guard = lock.lock().await;
-    mint_and_cache(account, &mut guard, cache_key, now, store, operators).await
+    let mut guard = slot.lock().await;
+    mint_and_cache(account, &mut guard, now, store, operators).await
 }
 
 async fn mint_and_cache(
     account: &str,
-    guard: &mut tokio::sync::MutexGuard<
-        '_,
-        std::collections::HashMap<EndorsementCacheKey, CachedEndorsement>,
-    >,
-    cache_key: EndorsementCacheKey,
+    guard: &mut Option<CachedEndorsement>,
     now: i64,
     store: &SessionStore,
     operators: &OperatorStore,
@@ -947,17 +956,14 @@ async fn mint_and_cache(
     let signed_in =
         signed_in.expect("the fixture account signs in with its password and a live code");
 
-    guard.insert(
-        cache_key,
-        CachedEndorsement {
-            session_id: signed_in.session_id.clone(),
-            token: signed_in.token,
-            expires_at_unix: signed_in.expires_at_unix,
-            minted_at_unix: now,
-            scalar,
-            grace_token: signed_in.grace_token,
-        },
-    );
+    *guard = Some(CachedEndorsement {
+        session_id: signed_in.session_id.clone(),
+        token: signed_in.token,
+        expires_at_unix: signed_in.expires_at_unix,
+        minted_at_unix: now,
+        scalar,
+        grace_token: signed_in.grace_token,
+    });
     (signed_in, session_key)
 }
 

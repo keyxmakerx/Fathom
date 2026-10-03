@@ -330,6 +330,19 @@ export interface AddContainerOptions {
   name: string;
 }
 
+/** Every live container on `deviceId`, with its name. */
+export function containersOnDevice(doc: Document, deviceId: string): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const hc of edgesOut(doc, deviceId, 'HasContainer')) {
+    if (hc.absentSince !== undefined) continue;
+    const n = findNode(doc, hc.to);
+    if (!n || n.absentSince !== undefined) continue;
+    const name = asString(fieldValue(n.fields, 'Container.name'));
+    if (name !== undefined) out.push({ id: n.id, name });
+  }
+  return out;
+}
+
 function containerExistsOnDevice(doc: Document, deviceId: string, name: string): boolean {
   for (const hc of edgesOut(doc, deviceId, 'HasContainer')) {
     if (hc.absentSince !== undefined) continue;

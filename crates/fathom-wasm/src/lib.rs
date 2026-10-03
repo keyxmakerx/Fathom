@@ -15,6 +15,7 @@
 
 pub mod checks;
 pub mod dictframe;
+pub mod plan;
 pub mod protocol;
 pub mod shell;
 pub mod wasmbin;
@@ -356,6 +357,38 @@ pub const OP_CHECKS: u32 = 32;
 /// display-id length `u16`, id, value to the end. A frame that does not parse or names
 /// nothing live answers with no rows: the write refuses those itself.
 pub const OP_CHECK_GESTURE: u32 = 33;
+
+/// Grow the held estate by the batches it has not seen, or say it cannot (ADR-0061 §5 made
+/// checks incremental; this keeps the estate they read from in step without a reload).
+///
+/// Request: `fathom_workspace::write_delta`'s bytes. They hold a fragment of the plain face
+/// (the new batches, the provenance they cite, the state of what they touched) and the id of the
+/// batch the sender believes the module ends at. No host clock or entropy: nothing new is minted.
+///
+/// Reply on success: 8 raw bytes, the node count then the edge count of the held estate
+/// (`u32` little-endian each, **live elements only**: a tombstoned one is not counted), which the
+/// page checks against its own document's live counts: a count that differs is a document change
+/// no batch told the module about, and the page loads the whole design. **Anything else is
+/// `ERR_RESYNC` and the module is unchanged**: no estate; a frame over [`SYNC_FRAME_MAX`]; a
+/// schema version other than the one the estate was loaded under; a base that is not the
+/// module's last batch (`none` only for an empty estate); a frame that does not parse; a batch
+/// the store refuses; a fragment that disagrees with its ops or holds an element, history or
+/// provenance record no op names; or a result `OP_LOAD_PLAIN` would refuse. The page answers with
+/// a full `OP_LOAD_PLAIN`. All batches apply or none do; the graph keeps its identity, so
+/// `OP_CHECKS` re-runs only the rules the new batches touched.
+pub const OP_SYNC: u32 = 34;
+
+/// The most bytes of request `OP_SYNC` reads (32 MiB), a generous ceiling, since an ordinary delta is
+/// kilobytes. A bigger one is a reason to load the design whole.
+pub const SYNC_FRAME_MAX: usize = 32 << 20;
+
+/// What a maintenance plan's remaining steps would do, nothing changed (ADR-0061 round 7).
+/// Request: the plan's display id. Reply: for each step still `planned`, in order, one
+/// `FACE_PLAN_STEP` then one `FACE_CHECK` per finding that step ADDS to the one before it
+/// (every severity; the same rows and Why? as `OP_CHECKS`). Steps run in order on a scratch
+/// copy through the same writes the canvas uses, so a step that cannot apply says why and the
+/// later ones still run. An id that is not a live plan answers with no rows.
+pub const OP_PLAN_PREVIEW: u32 = 35;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and

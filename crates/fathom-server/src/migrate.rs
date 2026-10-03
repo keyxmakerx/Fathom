@@ -198,11 +198,29 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0030_design_names.sql",
         sql: include_str!("../migrations/0030_design_names.sql"),
     },
-    // ADR-0062: organisation-wide custom-field definitions.
+    // ADR-0061 round 10: files on docs, sealed under the design key.
     Migration {
         version: 31,
-        name: "0031_field_definitions.sql",
-        sql: include_str!("../migrations/0031_field_definitions.sql"),
+        name: "0031_design_files.sql",
+        sql: include_str!("../migrations/0031_design_files.sql"),
+    },
+    // Docs files follow-up: delete for good.
+    Migration {
+        version: 33,
+        name: "0033_design_files_delete.sql",
+        sql: include_str!("../migrations/0033_design_files_delete.sql"),
+    },
+    // ADR-0063: live co-editing storage and its NOTIFY triggers.
+    Migration {
+        version: 34,
+        name: "0034_live_co_editing.sql",
+        sql: include_str!("../migrations/0034_live_co_editing.sql"),
+    },
+    // ADR-0062: organisation-wide custom-field definitions.
+    Migration {
+        version: 35,
+        name: "0035_field_definitions.sql",
+        sql: include_str!("../migrations/0035_field_definitions.sql"),
     },
     // Cable corrections from the floor. 0032-0035 are held by other branches.
     Migration {

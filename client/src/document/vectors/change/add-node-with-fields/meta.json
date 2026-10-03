@@ -1,0 +1,5 @@
+{
+  "name": "add-node-with-fields",
+  "description": "A second Rack with a HasRack edge from the Premises and three fields.",
+  "actor": "01HF7YAT000000000000000007"
+}

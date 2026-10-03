@@ -1,0 +1,5 @@
+{
+  "name": "history-retention",
+  "description": "Rack.label already has 20 superseded values; one more set triggers the retention rule (16 most recent plus the earliest of each origin) and a truncated count.",
+  "actor": "01HF7YAT000000000000000007"
+}
