@@ -56,6 +56,7 @@ export interface ShellProps {
   onLensChange: (lens: Lens) => void;
 
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void };
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
   /** Who else is here, as name chips. Empty renders no chips — never a

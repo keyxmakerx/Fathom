@@ -27,6 +27,8 @@ import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignS
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
+import { layerWords } from '../drawing/layerLabels';
+import { loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import type { ShellProps } from '../shell/types';
@@ -226,6 +228,18 @@ export function RacksPlace(props: RacksPlaceProps) {
       setCalloutId(null);
       saveLook(accountId, session.designId, next);
     },
+    [accountId, session.designId],
+  );
+  // The Show menu's ticked layers: this person's, this design's, this browser's.
+  const [layers, setLayers] = useState<LayerSet>(() => loadLayers(accountId, session.designId));
+  useEffect(() => setLayers(loadLayers(accountId, session.designId)), [accountId, session.designId]);
+  const toggleLayer = useCallback(
+    (id: LayerId) =>
+      setLayers((prev) => {
+        const next = { ...prev, [id]: !prev[id] };
+        saveLayers(accountId, session.designId, next);
+        return next;
+      }),
     [accountId, session.designId],
   );
   // Bumped by the bar's percentage button; the drawing fits every rack.
@@ -466,6 +480,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           },
     [realView],
   );
+  const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -874,7 +889,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   ) : null;
 
   return (
-    <Shell {...shellProps} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
+    <Shell {...shellProps} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -885,6 +900,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          words={words}
         />
       ) : (
         <Drawing
