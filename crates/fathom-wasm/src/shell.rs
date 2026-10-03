@@ -3386,6 +3386,11 @@ impl Shell {
     pub fn estate_for_test(&self) -> Option<&fathom_graph::Graph> {
         self.estate.as_ref()
     }
+
+    /// The rules the last `OP_CHECKS` ran again (indexes into `checks::RULES`).
+    pub fn checks_last_run_for_test(&self) -> &[usize] {
+        self.checks.last_run()
+    }
 }
 
 /// **IS THIS A BOX THE DESIGN ALREADY HOLDS?** The answer is never a merge, only a
