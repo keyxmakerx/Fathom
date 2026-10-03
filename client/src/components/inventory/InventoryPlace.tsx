@@ -280,7 +280,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const searchIndex = useMemo(
     () =>
       findArmed || ls.find
-        ? buildSearchIndex({ devices: rowsByKind.devices ?? [], ports: rowsByKind.ports ?? [], racks: rowsByKind.racks ?? [], cables: rowsByKind.cables ?? [], idx: placeIdx, prefixes: background?.prefixData })
+        ? buildSearchIndex({ devices: rowsByKind.devices ?? [], ports: rowsByKind.ports ?? [], racks: rowsByKind.racks ?? [], cables: rowsByKind.cables ?? [], idx: placeIdx, prefixes: background?.prefixData, vlans: background?.vlans })
         : null,
     [findArmed, ls.find, rowsByKind, placeIdx, background],
   );

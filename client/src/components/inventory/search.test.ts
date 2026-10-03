@@ -214,3 +214,54 @@ describe('real-length values at scale', () => {
     expect(search(ix, `${big.known.torDevice} 5`, NO_WHERE).total).toBeGreaterThan(0);
   });
 });
+
+describe('VLANs', () => {
+  const vlan = (id: number, name: string, site = 'LON1'): InvRow => ({
+    key: `vlan:${id}`,
+    selection: null,
+    ownerId: null,
+    cells: { vlan: String(id), label: name, site },
+    tags: [],
+    ids: {},
+    places: [{ site, row: '', rack: '', rackId: '', u: null }],
+    title: name ? `VLAN ${id} · ${name}` : `VLAN ${id}`,
+  });
+  const e = smallEstate();
+  const view = viewOf(e.doc, []);
+  const idx = buildPlaceIndex(e.doc, view);
+  const ix = buildSearchIndex({
+    devices: deviceRows(e.doc, view, [], idx),
+    ports: portRows(e.doc, view, idx, []),
+    racks: rackRows(e.doc, view, [], idx),
+    cables: cableRows(e.doc, view, idx, []),
+    idx,
+    vlans: [vlan(30, 'Cameras'), vlan(40, 'Voice'), vlan(300, 'Cameras-old', 'MAN1')],
+  });
+
+  it('"vlan 30" and "VLAN30" open that VLAN', () => {
+    for (const t of ['vlan 30', 'VLAN30', 'vlan:30']) {
+      const o = search(ix, t, NO_WHERE);
+      expect(o.jump?.row.key, t).toBe('vlan:30');
+      expect(o.reading).toBe('VLAN 30');
+    }
+  });
+
+  it('a name finds it exactly or in part; Enter jumps only on the exact one', () => {
+    expect(search(ix, 'Voice', NO_WHERE).jump?.row.key).toBe('vlan:40');
+    // "Cameras" is exact for one VLAN but also part of another's name: not a unique answer.
+    expect(search(ix, 'Cameras', NO_WHERE).jump).toBeNull();
+    const part = search(ix, 'camer', NO_WHERE);
+    expect(part.groups[0]?.kind).toBe('vlans');
+    expect(part.total).toBe(2);
+    expect(part.jump).toBeNull();
+  });
+
+  it('a bare number that is a VLAN id lists it without jumping, and Where narrows it', () => {
+    const o = search(ix, '40', NO_WHERE);
+    expect(o.groups[0]?.kind).toBe('vlans');
+    expect(o.jump).toBeNull();
+    const here = search(ix, 'camer', { site: 'LON1', row: '', rack: '' });
+    expect(here.total).toBe(1);
+    expect(here.outside).toBe(1);
+  });
+});

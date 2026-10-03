@@ -42,6 +42,8 @@ export interface SearchSource {
   cables: readonly InvRow[];
   idx: PlaceIndex;
   prefixes?: readonly PrefixRow[];
+  /** The VLANs kind's rows (`vlanKindRows`). */
+  vlans?: readonly InvRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +136,7 @@ export interface SearchIndex {
   ips: Map<number, Array<{ row: InvRow; text: string }>>;
   ipList: Array<{ row: InvRow; text: string }>;
   prefixes: Array<{ row: InvRow; p: PrefixRow }>;
+  vlans: Array<{ row: InvRow; id: number; name: string }>;
 }
 
 export function buildSearchIndex(src: SearchSource): SearchIndex {
@@ -189,8 +192,10 @@ export function buildSearchIndex(src: SearchSource): SearchIndex {
   for (const row of src.devices) if (row.cells.mgmt) addIp(row.cells.mgmt, row);
   for (const p of src.prefixes ?? []) for (const e of p.entries) addIp(e.address, deviceByNode.get(e.deviceId));
   const prefixes = (src.prefixes ?? []).map((p) => ({ row: prefixRows([p])[0]!, p }));
+  const vlans = (src.vlans ?? []).map((row) => ({ row, id: Number(row.cells.vlan), name: (row.cells.label ?? '').toLowerCase() }));
   return {
     src,
+    vlans,
     devices,
     racks: named(src.racks, 'name'),
     cables: named(src.cables, 'name'),
@@ -214,8 +219,8 @@ interface Reading {
   hits: Hit[];
 }
 
-const KIND_LABEL: Record<string, string> = { devices: 'Devices', ports: 'Ports', racks: 'Racks', cables: 'Cables', prefixes: 'Prefixes' };
-const KIND_ORDER = ['devices', 'ports', 'racks', 'cables', 'prefixes'];
+const KIND_LABEL: Record<string, string> = { devices: 'Devices', ports: 'Ports', racks: 'Racks', cables: 'Cables', prefixes: 'Prefixes', vlans: 'VLANs' };
+const KIND_ORDER = ['devices', 'ports', 'racks', 'cables', 'prefixes', 'vlans'];
 
 const hit = (kind: Kind, row: InvRow, how: How, why: string): Hit => ({ kind, row, how, why });
 
@@ -243,6 +248,28 @@ function macAddress(ix: SearchIndex, clue: string): Reading | null {
     }
   }
   return { text: m.full ? `a MAC address, ${prettyMac(m.hex)}` : `the start of a MAC address, ${prettyMac(m.hex)}`, hits };
+}
+
+/** "vlan 30", "VLAN30", "vlan cameras", a VLAN's name, or a bare number that is some VLAN's id. */
+function vlanNumber(ix: SearchIndex, clue: string): Reading | null {
+  if (ix.vlans.length === 0) return null;
+  const t = clue.trim();
+  const hits: Hit[] = [];
+  const named = /^vlan[\s:_-]*(.+)$/i.exec(t);
+  const rest = (named ? named[1]! : t).trim();
+  if (/^\d{1,4}$/.test(rest)) {
+    const id = Number(rest);
+    for (const v of ix.vlans) if (v.id === id) hits.push(hit('vlans', v.row, named ? 'exact' : 'part', named ? 'its VLAN number' : 'a VLAN with that number'));
+    return hits.length ? { text: `VLAN ${id}`, hits } : null;
+  }
+  const want = rest.toLowerCase();
+  if (want.length < 3) return null;
+  for (const v of ix.vlans) {
+    if (v.name === '') continue;
+    if (v.name === want) hits.push(hit('vlans', v.row, 'exact', 'its name'));
+    else if (v.name.includes(want)) hits.push(hit('vlans', v.row, 'part', 'part of its name'));
+  }
+  return hits.length ? { text: `a VLAN name, ${rest}`, hits } : null;
 }
 
 function ipAddress(ix: SearchIndex, clue: string): Reading | null {
@@ -404,7 +431,7 @@ export function search(ix: SearchIndex, clue: string, where: Where): Outcome {
   const t = clue.trim();
   const empty: Outcome = { clue: t, reading: '', groups: [], total: 0, outside: 0, jump: null };
   if (t === '') return empty;
-  const readers = [cableLabel, macAddress, ipAddress, devicePort, serialNumber, rackName, deviceName];
+  const readers = [cableLabel, macAddress, ipAddress, vlanNumber, devicePort, serialNumber, rackName, deviceName];
   const readings: Reading[] = [];
   for (const read of readers) {
     const r = read(ix, t);
