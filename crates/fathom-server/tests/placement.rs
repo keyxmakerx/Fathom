@@ -267,13 +267,16 @@ async fn write_fixture_password(account: &str, password: Option<&str>) {
     tx.commit().await.expect("commit");
 }
 
-/// A code for a step `last_step` has not already spent — waits for the
-/// clock, since `verify_totp`'s replay guard refuses a stale one.
+/// A code for a step `last_step` has not already spent. `verify_totp` accepts the step after
+/// the current one (its skew), so that comes before waiting for the clock; the replay guard
+/// still refuses any step at or below `last_step`.
 async fn fresh_totp_code(secret: &[u8], last_step: Option<i64>) -> String {
     loop {
-        let step = credentials::totp_step(now_seconds());
-        if last_step.is_none_or(|last| step > last) {
-            return credentials::totp_code(secret, step);
+        let current = credentials::totp_step(now_seconds());
+        for step in [current, current + 1] {
+            if last_step.is_none_or(|last| step > last) {
+                return credentials::totp_code(secret, step);
+            }
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
