@@ -27,7 +27,7 @@ export function stateWords(person: Person): string {
 
 /** Ink, not colour: a filled dot for someone in, an open one for someone not yet. */
 export function stateMark(person: Person): string {
-  return person.state === 'active' ? '●' : person.state === 'waiting' ? '◐' : '○';
+  return person.state === 'active' ? '●' : person.state === 'waiting' ? '◆' : '○';
 }
 
 /** What a person can do, one line: the rows, or what is asked of them. */

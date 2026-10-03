@@ -197,7 +197,7 @@ describe('Waiting for you', () => {
     const out = html(createElement(ReviewList, { checked: checkedOf(3), names: {}, labels: { }, busy: false, steward: null, onSign: noop, onBack: noop }));
     expect(out).toContain('You are about to sign 3 people');
     expect(out).toContain('Sign and confirm 3 people');
-    expect(out).toContain('3 signatures, made together');
+    expect(out).toContain('3 signatures, made together, in your browser');
     expect(out).toContain('each naming that person');
     expect((out.match(/QDMPW 1FAVF/g) ?? []).length).toBe(3);
   });

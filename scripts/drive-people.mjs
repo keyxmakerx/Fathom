@@ -8,9 +8,10 @@
 // Needs what drive-history-live.mjs needs: PostgreSQL on 127.0.0.1 with the
 // `fathom_test`/`fathom_app` roles, a built client (`cd client && npm run
 // build`), the fathom-server binary (`cargo build -p fathom-server --locked`)
-// and Playwright's Chromium. The seed is drive-lib/seed_live_coediting.rs
-// (Ann the steward, Bob a drawer, Cy a reader), copied under
-// crates/fathom-server/tests for the run and deleted.
+// and Playwright's Chromium. The seed is drive-lib/seed_people.rs (Ann the
+// steward, with a key made in her own browser), copied under
+// crates/fathom-server/tests for the run and deleted. Everyone else joins
+// through the real invitation flow.
 //
 // Screenshots: FATHOM_SHOTS (default /mnt/project-files/reviews/people-access/).
 // The server is killed BY PORT, never by name.
@@ -41,15 +42,12 @@ const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MASTER_KEY = join(WORK, 'master.key');
 const CHAIN_KEY = join(WORK, 'chain.key');
 const SEED_OUT = join(WORK, 'seed.json');
-const SEED_SRC = join(ROOT, 'scripts/drive-lib/seed_live_coediting.rs');
-const SEED_DST = join(ROOT, 'crates/fathom-server/tests/seed_live_coediting.rs');
+const SEED_SRC = join(ROOT, 'scripts/drive-lib/seed_people.rs');
+const SEED_DST = join(ROOT, 'crates/fathom-server/tests/seed_people.rs');
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
 const OPERATOR = 'operator@fathom.invalid';
-const PASSWORDS = {
-  steward: 'people-steward-passphrase-kept-for-this-proof-only',
-  drawer: 'people-drawer-passphrase-kept-for-this-proof-only',
-  reader: 'people-reader-passphrase-kept-for-this-proof-only',
-};
+const STEWARD_ADDRESS = 'ann.alder@northwind.example';
+const STEWARD_PASSWORD = 'people-steward-passphrase-kept-for-this-proof-only';
 
 const fails = [];
 function check(name, ok, detail) {
@@ -92,28 +90,68 @@ async function main() {
   rmSync(MASTER_KEY, { force: true });
   rmSync(CHAIN_KEY, { force: true });
 
-  console.log('==> seeding: steward Ann, drawer Bob, reader Cy');
-  copyFileSync(SEED_SRC, SEED_DST);
-  writeFileSync(
-    SEED_DST,
-    readFileSync(SEED_DST, 'utf8')
-      .replace('@@STEWARD_PW@@', PASSWORDS.steward)
-      .replace('@@DRAWER_PW@@', PASSWORDS.drawer)
-      .replace('@@READER_PW@@', PASSWORDS.reader),
-  );
-  const seedEnv = { ...process.env };
-  delete seedEnv.DATABASE_URL;
-  seedEnv.FATHOM_MIGRATE_DATABASE_URL = MIGRATE_URL;
-  seedEnv.FATHOM_MASTER_KEY = `file://${MASTER_KEY}`;
-  seedEnv.FATHOM_CHAIN_KEY = `file://${CHAIN_KEY}`;
-  seedEnv.SEED_OUTPUT = SEED_OUT;
-  sh('cargo', ['test', '-p', 'fathom-server', '--locked', '--test', 'seed_live_coediting', '--', '--nocapture'], {
-    cwd: ROOT,
-    env: seedEnv,
-    stdio: 'inherit',
-  });
-  const seed = JSON.parse(readFileSync(SEED_OUT, 'utf8'));
+  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  try {
+    // Ann's browser makes her key before the server exists: the page is a blank
+    // stand-in on the server's own origin, so the key lands in the storage the
+    // real page will read.
+    const ctxA = await browser.newContext({ viewport: VIEWPORT });
+    const pubkey = await makeBrowserKey(ctxA, STEWARD_ADDRESS);
 
+    console.log('==> seeding: steward Ann, with the key her browser made');
+    copyFileSync(SEED_SRC, SEED_DST);
+    writeFileSync(SEED_DST, readFileSync(SEED_DST, 'utf8').replace('@@STEWARD_PW@@', STEWARD_PASSWORD));
+    const seedEnv = { ...process.env };
+    delete seedEnv.DATABASE_URL;
+    seedEnv.FATHOM_MIGRATE_DATABASE_URL = MIGRATE_URL;
+    seedEnv.FATHOM_MASTER_KEY = `file://${MASTER_KEY}`;
+    seedEnv.FATHOM_CHAIN_KEY = `file://${CHAIN_KEY}`;
+    seedEnv.SEED_OUTPUT = SEED_OUT;
+    seedEnv.SEED_STEWARD_ADDRESS = STEWARD_ADDRESS;
+    seedEnv.SEED_STEWARD_PUBKEY = pubkey;
+    sh('cargo', ['test', '-p', 'fathom-server', '--locked', '--test', 'seed_people', '--', '--nocapture'], {
+      cwd: ROOT,
+      env: seedEnv,
+      stdio: 'inherit',
+    });
+    const seed = JSON.parse(readFileSync(SEED_OUT, 'utf8'));
+    await startServer();
+    await runProof(browser, ctxA, seed);
+  } finally {
+    await browser.close();
+  }
+}
+
+/** A non-extractable P-256 key in the client's own key store, under `address`;
+ * returns its public half as hex. */
+async function makeBrowserKey(ctx, address) {
+  await ctx.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>blank</title>' }));
+  const page = await ctx.newPage();
+  await page.goto(URL_);
+  const hex = await page.evaluate(async (slot) => {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+    await new Promise((resolve, reject) => {
+      const open = indexedDB.open('fathom-enrolled-keys', 2);
+      open.onupgradeneeded = () => {
+        for (const store of ['keys', 'pending']) if (!open.result.objectStoreNames.contains(store)) open.result.createObjectStore(store);
+      };
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction('keys', 'readwrite');
+        tx.objectStore('keys').put(pair, slot);
+        tx.oncomplete = () => { open.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+    return Array.from(raw, (b) => b.toString(16).padStart(2, '0')).join('');
+  }, address);
+  await page.close();
+  await ctx.unroute('**/*');
+  return hex;
+}
+
+async function startServer() {
   console.log('==> starting fathom-server on ' + URL_);
   try { sh('fuser', ['-k', `${PORT}/tcp`]); } catch {}
   serverProc = spawn(SERVER_BIN, [], {
@@ -144,12 +182,6 @@ async function main() {
   check('the operator finished first run', firstRun === 0, `exit ${firstRun}`);
   if (firstRun !== 0) throw new Error('first run did not complete');
 
-  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
-  try {
-    await runProof(browser, seed);
-  } finally {
-    await browser.close();
-  }
 }
 
 const VIEWPORT = { width: 1440, height: 900 };
@@ -195,15 +227,14 @@ async function invite(page, { name, email, capability, folder }) {
   };
 }
 
-async function runProof(browser, seed) {
-  const ctxA = await browser.newContext({ viewport: VIEWPORT });
+async function runProof(browser, ctxA, seed) {
   const A = await ctxA.newPage();
   A.on('pageerror', (e) => console.log(`[A pageerror] ${e}`));
   A.on('console', (m) => { if (m.type() === 'error') console.log(`[A console.error] ${m.text()}`); });
   const shotA = (name) => A.screenshot({ path: `${SHOTS}${name}.png` });
 
   // ---- Ann makes two folders ------------------------------------------------
-  await signIn(A, seed.steward, PASSWORDS.steward);
+  await signIn(A, seed.steward, STEWARD_PASSWORD);
   await A.getByRole('tab', { name: 'Organisation' }).click();
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
   for (const folder of ['LON1', 'MAN1']) {
@@ -213,8 +244,8 @@ async function runProof(browser, seed) {
     await A.getByText(folder, { exact: true }).first().waitFor({ timeout: 10000 });
   }
   await A.locator('.org-rail__item', { hasText: 'People' }).click();
-  await A.getByText('Bob Birch').waitFor({ timeout: 10000 });
-  check('P0. People lists the existing members with what they can do', (await A.locator('.org-table tbody tr').count()) >= 3);
+  await A.getByText('Ann Alder').waitFor({ timeout: 10000 });
+  check('P0. People lists the existing members with what they can do', (await A.locator('.org-table tbody tr').count()) >= 1);
   await shotA('p1-people-before');
 
   // ---- invite: the form, then the one-time link ----------------------------------
@@ -251,7 +282,7 @@ async function runProof(browser, seed) {
   joined.lee = await joinAs(browser, lee, null, 'Lee');
   check('J1. each person is shown a 10-character key-check code', Object.values(joined).every((j) => /^[0-9A-Z]{10}$/.test(j.code)), JSON.stringify(Object.fromEntries(Object.entries(joined).map(([k, v]) => [k, v.code]))));
   const waitingText = (await joined.jo.page.getByTestId('awaiting-steward').innerText()).replace(/\s+/g, ' ');
-  check('J1. after joining, the person is told a steward has to confirm them', /Waiting for a steward to confirm you/.test(waitingText));
+  check('J1. after joining, the person is told a steward has to confirm them', /waiting for a steward to confirm you/i.test(waitingText));
 
   // an old link is dead
   const reuse = await browser.newContext({ viewport: VIEWPORT });
@@ -290,7 +321,11 @@ async function runProof(browser, seed) {
   check('W3. Change shows what it was changed from', /changed from Read · MAN1/.test((await anaRow.innerText()).replace(/\s+/g, ' ')));
 
   await A.getByRole('button', { name: 'Confirm 3 people' }).click();
-  await A.getByTestId('waiting-review').waitFor({ timeout: 20000 });
+  await A.getByTestId('waiting-review').waitFor({ timeout: 20000 }).catch(async (e) => {
+    console.log('     page said: ' + (await A.locator('.org-page').innerText()).replace(/\s+/g, ' ').slice(0, 600));
+    await shotA('debug-no-review');
+    throw e;
+  });
   await shotA('w3-review-before-signing');
   const reviewText = (await A.getByTestId('waiting-review').innerText()).replace(/\s+/g, ' ');
   check('W4. the full list is shown before signing, with the changed access', /Jo Kim/.test(reviewText) && /Ana Silva · Read · LON1/.test(reviewText) && /Sam Okafor/.test(reviewText), reviewText.slice(0, 300));
@@ -351,16 +386,11 @@ async function runProof(browser, seed) {
     check('R2. removing a steward says the 24 hour rule in words', false, 'no Remove on the steward row: ' + leePage.slice(0, 200));
   }
 
-  // ---- a member who is not a steward ----------------------------------------------
-  const ctxBob = await browser.newContext({ viewport: VIEWPORT });
-  const B = await ctxBob.newPage();
-  await signIn(B, seed.drawer, PASSWORDS.drawer);
-  await B.waitForTimeout(1500);
-  const bobTabs = await B.getByRole('tab').allInnerTexts();
-  check('N1. a drawer sees no Organisation tab, so no People, Waiting or emails', !bobTabs.some((t) => /organisation/i.test(t)), JSON.stringify(bobTabs));
-  const bobHtml = await B.content();
-  check('N1. no contact email is anywhere on a non-steward\'s page', !/@northwind\.example/.test(bobHtml));
-  await ctxBob.close();
+  // ---- a member who is not a steward: Jo, confirmed with Draw --------------------
+  const joTabs = await joined.jo.page.getByRole('tab').allInnerTexts();
+  check('N1. a drawer sees no Organisation tab, so no People, Waiting or emails', !joTabs.some((t) => /organisation/i.test(t)), JSON.stringify(joTabs));
+  const joHtml = await joined.jo.page.content();
+  check('N1. no contact email is anywhere on a non-steward\'s page', !/@northwind\.example/.test(joHtml));
 
   for (const j of Object.values(joined)) await j.ctx.close();
   await ctxA.close();

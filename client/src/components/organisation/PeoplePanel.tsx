@@ -140,7 +140,9 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                       {row.expiresAtUnix !== null ? ` · until ${dateLabel(row.expiresAtUnix)}` : ''}
                       {row.awaitingSecond ? ' · waiting for a second steward' : ''}
                       {row.suspended ? ' · suspended' : ''}
-                      {` · since ${dateLabel(row.effectiveFromUnix)}`}
+                      {row.effectiveFromUnix * 1000 > Date.now()
+                        ? ` · starts ${dateLabel(row.effectiveFromUnix)}, not yet in force`
+                        : ` · since ${dateLabel(row.effectiveFromUnix)}`}
                     </span>
                     {open && <p className="org-note">{removalWords(row, person.name)}</p>}
                   </div>

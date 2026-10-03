@@ -105,7 +105,8 @@ export function WaitingTable(p: WaitingTableProps) {
                 {i.issuedByName}
                 <div className="org-sub">{i.joinedAtUnix === null ? '' : whenLabel(i.joinedAtUnix, p.nowMs)}</div>
               </td>
-              <td className="org-table__actions">
+              <td>
+                <div className="org-table__actions">
                 {p.refusing === i.id ? (
                   <>
                     <button type="button" className="org-btn org-btn--primary" disabled={p.busy} onClick={() => p.onRefuse(i.id)}>
@@ -125,6 +126,7 @@ export function WaitingTable(p: WaitingTableProps) {
                     </button>
                   </>
                 )}
+                </div>
               </td>
             </tr>
           );
@@ -223,8 +225,9 @@ export function ReviewList({ checked, names, labels, busy, steward, onSign, onBa
         </>
       )}
       <p className="org-note">
-        {n === 1 ? 'One signature' : `${n} signatures, made together`}, in your browser, each naming that person&apos;s own key. All of them are
-        recorded or none are.
+        {n === 1
+          ? 'One signature, in your browser, naming that person\u2019s own key.'
+          : `${n} signatures, made together, in your browser, each naming that person\u2019s own key. All of them are recorded or none are.`}
         {n > 50 ? ' This many can take a minute or more. Keep this page open.' : ''}
       </p>
       <div className="org-actions">

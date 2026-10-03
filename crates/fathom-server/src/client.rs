@@ -376,9 +376,16 @@ mod tests {
     fn the_invitation_address_is_the_client_too() {
         // The token is in the fragment, which never reaches this function.
         for p in ["/invite", "/invite/"] {
-            assert_eq!(safe_relative_path(p), Some(PathBuf::from("index.html")), "{p}");
+            assert_eq!(
+                safe_relative_path(p),
+                Some(PathBuf::from("index.html")),
+                "{p}"
+            );
         }
-        assert_eq!(safe_relative_path("/invite/x"), Some(PathBuf::from("invite/x")));
+        assert_eq!(
+            safe_relative_path("/invite/x"),
+            Some(PathBuf::from("invite/x"))
+        );
     }
 
     #[test]

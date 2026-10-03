@@ -145,10 +145,10 @@
 }
 
 .org-table__actions {
-  white-space: nowrap;
   display: flex;
   gap: var(--s2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
 }
 
 .org-form {
@@ -280,4 +280,12 @@
   height: 14px;
   margin: 0 var(--s1) 0 0;
   flex-shrink: 0;
+}
+
+.org-field > .org-btn {
+  align-self: flex-start;
+}
+
+.org-box > .org-btn {
+  align-self: flex-start;
 }
