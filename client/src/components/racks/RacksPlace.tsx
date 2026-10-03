@@ -21,7 +21,7 @@ import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel }
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
-import { Engine } from '../../engine/engine';
+import { Engine, EngineTrap } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
@@ -51,6 +51,10 @@ import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
+import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { mediaCandidates } from '../checks/checksModel';
+import { ChecksContext } from '../checks/checksStore';
+import { useChecksController } from '../checks/useChecksController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
@@ -317,7 +321,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   // actually ready.
   const [, forceMirrorRerender] = useState(0);
 
+  // A trapped module is never reused: drop it, so the next need boots another and loads the design whole.
+  const discardTrapped = useCallback(() => {
+    mirrorRef.current = null;
+    mirrorPromiseRef.current = null;
+    mirrorLoadedDocRef.current = null;
+    forceMirrorRerender((n) => n + 1);
+  }, []);
+
   const ensureMirror = useCallback((): Promise<Mirror> => {
+    if (mirrorRef.current?.trapped) discardTrapped();
     if (mirrorPromiseRef.current == null) {
       mirrorPromiseRef.current = Engine.init().then((engine) => {
         const mirror = new Mirror(engine);
@@ -327,25 +340,51 @@ export function RacksPlace(props: RacksPlaceProps) {
       });
     }
     return mirrorPromiseRef.current;
-  }, []);
+  }, [discardTrapped]);
 
-  // On demand only, never on every document change: a design nobody has
-  // opened the drawer or the inside stop on yet never boots the module at
-  // all, and one already open only reloads the module when the document it
-  // holds is actually stale (`mirrorLoadedDocRef` above) — dragging a
-  // chassis, editing a hostname, fitting a PSU pay nothing here unless a
-  // call site below is about to actually use the module. Reference equality
-  // is enough: every `document/commands.ts`/`document/edit.ts` call and
-  // `mirror.pasteInto`'s own readback return a fresh `Document`, never
-  // mutate one in place.
+  // How long the last sync of the module took, ms: Checks sizes its wait and its guard by it. After the first
+  // full load the next sync is a delta, so one full load says little about it and is not counted; a second
+  // full load in a row (the module keeps answering "resync needed") is the real cost and is.
+  const loadCostRef = useRef<number | null>(null);
+  const fullStreakRef = useRef(0);
+  const loadInto = useCallback((mirror: Mirror, target: Document, discard: () => void = discardTrapped) => {
+    const t0 = performance.now();
+    let kind: ReturnType<Mirror['sync']>;
+    try {
+      kind = mirror.sync(target);
+    } catch (e) {
+      if (e instanceof EngineTrap) discard();
+      throw e;
+    }
+    const ms = performance.now() - t0;
+    fullStreakRef.current = kind === 'full' ? fullStreakRef.current + 1 : 0;
+    if (kind === 'delta' || (kind === 'full' && fullStreakRef.current > 1)) loadCostRef.current = ms;
+    mirrorLoadedDocRef.current = target;
+  }, [discardTrapped]);
+
+  // The drawer and the inside stop load the module only when the document it holds is stale, at the moment they
+  // are about to use it (`mirrorLoadedDocRef` above). Checks (below) also boots it and keeps it current, but after
+  // the document has been quiet for a while, not on every change. Reference equality is enough: every
+  // `document/commands.ts`/`document/edit.ts` call and `mirror.pasteInto`'s readback return a fresh `Document`.
   const withMirror = useCallback(async (): Promise<Mirror> => {
     const mirror = await ensureMirror();
-    if (doc != null && mirrorLoadedDocRef.current !== doc) {
-      mirror.load(doc);
-      mirrorLoadedDocRef.current = doc;
-    }
+    if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
     return mirror;
-  }, [ensureMirror, doc]);
+  }, [ensureMirror, doc, loadInto]);
+
+  // Checks (ADR-0061 §5): the same engine and mirror. The standing run is debounced by the last load's cost; the
+  // gesture guard asks for `load = false` when that cost is high and uses what the module holds.
+  const mirrorNow = useCallback(
+    (load = true): Mirror | null => {
+      const mirror = mirrorRef.current;
+      if (mirror == null || doc == null) return null;
+      if (load && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc);
+      return mirror;
+    },
+    [doc, loadInto],
+  );
+  const loadCostMs = useCallback(() => loadCostRef.current, []);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs });
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -464,14 +503,23 @@ export function RacksPlace(props: RacksPlaceProps) {
       // above uses: this stop needs the module in step with `doc` right
       // now, synchronously (`Mirror.inside` has no async door to await
       // one), but only pays the reload when the module is actually stale.
-      if (doc != null && mirrorLoadedDocRef.current !== doc) {
-        mirrorRef.current.load(doc);
-        mirrorLoadedDocRef.current = doc;
+      // A trapped or refused mirror is dropped, never thrown from a render: the discard is deferred
+      // (it sets state) and the stop shows nothing until the next need boots another.
+      const mirror = mirrorRef.current;
+      const discardLater = () =>
+        queueMicrotask(() => {
+          if (mirrorRef.current === mirror) discardTrapped();
+        });
+      try {
+        if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc, discardLater);
+        const faces = mirror.inside(chassis.deviceId);
+        return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
+      } catch {
+        discardLater();
+        return null;
       }
-      const faces = mirrorRef.current.inside(chassis.deviceId);
-      return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
     },
-    [litPortLabel, doc],
+    [litPortLabel, doc, loadInto, discardTrapped],
   );
 
   const realView = useMemo<ClosetView>(
@@ -864,6 +912,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleJotConnect = useCallback(
     (fromPortId: string, toPortId: string) => {
       if (doc == null) return;
+      if (checks.api.guardCable(fromPortId, toPortId, mediaCandidates(realView, fromPortId, toPortId))) return;
       try {
         applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath: 'grey' }, actorOpts(accountId)));
       } catch (e) {
@@ -872,7 +921,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         else setCanvasNotice(refusalFor(e)?.refused ?? 'That cable could not be made.');
       }
     },
-    [doc, applyDocChange, accountId],
+    [doc, applyDocChange, accountId, checks.api, realView],
   );
   const handleJotAddPort = useCallback(
     (chassisId: string) => {
@@ -1164,19 +1213,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell
-      {...shellProps}
-      path={jotPath}
-      look={{ value: look, onChange: changeLook }}
-      onZoomFit={() => setFitRequest((n) => n + 1)}
-      editor={editor}
-      rail={rail}
-      viewOnly={!canDraw}
-      cablesGroupsPopover={cablesGroupsPopover}
-      cablesGroupsSummary={cablesGroupsSummary}
-      hiddenCablesCount={hiddenCablesInClosetCount}
-      onShowAllHiddenCables={handleShowAllHiddenCables}
-    >
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+      <ChecksContext.Provider value={checks.api}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1267,6 +1305,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
+      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      </ChecksContext.Provider>
     </Shell>
   );
 }

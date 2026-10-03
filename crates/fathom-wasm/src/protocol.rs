@@ -219,6 +219,15 @@ pub const FACE_PASTE_LINE: u8 = 30;
 /// per label (`<REDACTED:psk>`), so its width depends on the LABEL, not the secret.
 pub const FACE_DROP: u8 = 31;
 
+/// `OP_CHECKS` reply head: `<refuse> <warn> <idea> <rules loaded> <load failed: "1" or "">
+/// <rules that ran out of budget>`.
+pub const FACE_CHECK_HEAD: u8 = 32;
+
+/// One finding: `<rule id> <severity word> <title> <fix> <why> <concept id> <source>
+/// <elements>`. Source is publisher and document, url, note, one per line; elements are
+/// `display id TAB name`, one per line, anchor first.
+pub const FACE_CHECK: u8 = 33;
+
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
 /// The held estate's shape digest: one row, slot 0, 16 lowercase hex characters
@@ -423,6 +432,10 @@ pub const ERR_NO_CABLE: u16 = 20;
 /// unsupported face version, missing plaintext banner, schema version mismatch, or
 /// malformed body. The store's own words, as `ERR_WELD_REFUSED` carries.
 pub const ERR_PLAIN_REFUSED: u16 = 21;
+
+/// `OP_SYNC` could not append: the page should send the whole design (`OP_LOAD_PLAIN`). The
+/// module is unchanged. The detail names why, for a log, not for a person.
+pub const ERR_RESYNC: u16 = 22;
 
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
@@ -1272,6 +1285,58 @@ pub fn encode_findings_reply(f: &fathom_inventory::Findings) -> Vec<u8> {
         count += 1;
     }
 
+    face_reply(records, count, blob)
+}
+
+/// `OP_CHECKS`'s reply, or `OP_CHECK_GESTURE`'s (`head` None).
+pub fn encode_checks_reply(
+    head: Option<([usize; 3], bool, usize, usize)>,
+    rows: &[crate::checks::Row],
+) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let mut count = 0usize;
+    if let Some((c, failed, loaded, unfinished)) = head {
+        let n: Vec<String> = c
+            .iter()
+            .chain([&loaded, &unfinished])
+            .map(|v| v.to_string())
+            .collect();
+        let rec = face_slots(
+            &mut blob,
+            FACE_CHECK_HEAD,
+            6,
+            &[
+                &n[0],
+                &n[1],
+                &n[2],
+                &n[3],
+                if failed { "1" } else { "" },
+                &n[4],
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
+    for r in rows {
+        let rec = face_slots(
+            &mut blob,
+            FACE_CHECK,
+            8,
+            &[
+                &r.rule,
+                r.severity,
+                &r.title,
+                &r.fix,
+                &r.why,
+                &r.concept,
+                &r.source,
+                &r.elements,
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+    }
     face_reply(records, count, blob)
 }
 

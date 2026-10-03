@@ -2,7 +2,7 @@
 // dictionaries, paste, and read the typed reply back. The redaction gate
 // itself never runs here — it runs inside `fathom-wasm` (CLAUDE.md rule 4)
 // — this file only speaks the wire protocol to it.
-import { packDict, pasteFrame } from './frames';
+import { cableGestureFrame, fieldGestureFrame, packDict, pasteFrame, type CableEnd } from './frames';
 import { decodeReply, type FaceRow } from './protocol';
 import { ERRORS, FACES, OPCODES, errorName } from './protocol.constants';
 import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm';
@@ -63,6 +63,18 @@ export class EngineError extends Error {
     this.name = 'EngineError';
     this.code = code;
     this.detail = detail;
+  }
+}
+
+/** The module trapped (a panic is an `unreachable`) or ran out of memory mid-call. Its memory is in an
+ * unknown state, so the `Engine` that threw this answers nothing afterwards: discard it and boot another. */
+export class EngineTrap extends Error {
+  readonly cause: unknown;
+
+  constructor(detail: string, cause: unknown) {
+    super(`fathom-wasm trapped: ${detail}`);
+    this.name = 'EngineTrap';
+    this.cause = cause;
   }
 }
 
@@ -461,11 +473,128 @@ function readPasteReply(rows: FaceRow[]): PasteResult {
   return { summary, residue, unresolved, capture, shape, lines, drops };
 }
 
+// --- OP_CHECKS (32) and OP_CHECK_GESTURE (33), ADR-0061 §5 -----------------
+
+export type CheckSeverity = 'refuse' | 'warn' | 'idea';
+
+/** One element of a finding: `id` is empty for one the gesture would mint. */
+export interface CheckElement {
+  id: string;
+  name: string;
+}
+
+/** The rule's source. A rule with none says so in one sentence (`note` only). */
+export interface CheckSource {
+  /** "Publisher, document"; empty for a definitional rule. */
+  title: string;
+  url: string;
+  note: string;
+}
+
+/** `FACE_CHECK`: one finding. */
+export interface CheckFinding {
+  rule: string;
+  severity: CheckSeverity;
+  title: string;
+  fix: string;
+  why: string;
+  concept: string;
+  source: CheckSource;
+  /** Anchor first. */
+  elements: CheckElement[];
+}
+
+/** `OP_CHECKS` decoded. `loadFailed` means no rule ran; `unfinished` counts rules that ran out of budget. */
+export interface ChecksResult {
+  refuse: number;
+  warn: number;
+  idea: number;
+  rulesLoaded: number;
+  loadFailed: boolean;
+  unfinished: number;
+  findings: CheckFinding[];
+}
+
+function parseSource(raw: string): CheckSource {
+  // `checks.rs`: "publisher, doc \n url \n note", or the rule's one plain sentence.
+  const parts = raw.split('\n');
+  if (parts.length === 3) return { title: parts[0], url: parts[1], note: parts[2] };
+  return { title: '', url: '', note: raw.trim() };
+}
+
+function parseElements(raw: string): CheckElement[] {
+  if (raw === '') return [];
+  return raw.split('\n').map((line) => {
+    const tab = line.indexOf('\t');
+    return tab < 0 ? { id: line, name: '' } : { id: line.slice(0, tab), name: line.slice(tab + 1) };
+  });
+}
+
+function severityOf(word: string): CheckSeverity {
+  return word === 'refuse' || word === 'warn' ? word : 'idea';
+}
+
+function readFinding(row: FaceRow): CheckFinding {
+  const s = row.strings;
+  return {
+    rule: s[0],
+    severity: severityOf(s[1]),
+    title: s[2],
+    fix: s[3],
+    why: s[4],
+    concept: s[5],
+    source: parseSource(s[6]),
+    elements: parseElements(s[7]),
+  };
+}
+
+function readFindings(rows: FaceRow[], op: string): CheckFinding[] {
+  return rows.map((row) => {
+    if (row.role !== FACES.FACE_CHECK) {
+      throw new Error(`${op} reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+    return readFinding(row);
+  });
+}
+
+function readChecksReply(rows: FaceRow[]): ChecksResult {
+  const head = rows[0];
+  if (!head || head.role !== FACES.FACE_CHECK_HEAD) {
+    throw new Error(`OP_CHECKS reply: record 0 is not the FACE_CHECK_HEAD (got role ${head?.role})`);
+  }
+  const s = head.strings;
+  return {
+    refuse: parseCount(s[0], 'checks head refuse'),
+    warn: parseCount(s[1], 'checks head warn'),
+    idea: parseCount(s[2], 'checks head idea'),
+    rulesLoaded: parseCount(s[3], 'checks head rules loaded'),
+    loadFailed: s[4] === '1',
+    unfinished: parseCount(s[5], 'checks head unfinished'),
+    findings: readFindings(rows.slice(1), 'OP_CHECKS'),
+  };
+}
+
 export class Engine {
   private readonly wasm: EngineWasm;
+  private trap: EngineTrap | null = null;
 
   private constructor(wasm: EngineWasm) {
-    this.wasm = wasm;
+    this.wasm = {
+      call: (op, req) => {
+        if (this.trap != null) throw new EngineTrap('the module trapped earlier and is discarded', this.trap);
+        try {
+          return wasm.call(op, req);
+        } catch (e) {
+          this.trap = new EngineTrap(e instanceof Error ? e.message : String(e), e);
+          throw this.trap;
+        }
+      },
+    };
+  }
+
+  /** The module trapped; this instance answers nothing more. */
+  get trapped(): boolean {
+    return this.trap != null;
   }
 
   /** Load the module and hand it both dictionaries (ADR-0052 §1). Defaults
@@ -540,6 +669,24 @@ export class Engine {
     if (view.kind === 'error') {
       throw new EngineError(view.error.code, view.error.detail);
     }
+  }
+
+  /** `OP_SYNC`: append the batches the module has not seen (`writeDelta`'s bytes). On success the
+   * live node and edge counts the module now holds, for the caller to check against its document;
+   * `null` on ERR_RESYNC, which leaves the module unchanged and means "send the whole design".
+   * Any other refusal is a real fault and throws. */
+  syncDelta(bytes: Uint8Array): { nodes: number; edges: number } | null {
+    const reply = this.wasm.call(OPCODES.OP_SYNC, bytes);
+    if (reply.length === 8) {
+      const v = new DataView(reply.buffer, reply.byteOffset, 8);
+      return { nodes: v.getUint32(0, true), edges: v.getUint32(4, true) };
+    }
+    const view = decodeReply(reply);
+    if (view.kind === 'error') {
+      if (view.error.code === ERRORS.ERR_RESYNC) return null;
+      throw new EngineError(view.error.code, view.error.detail);
+    }
+    throw new EngineError(0, 'OP_SYNC answered something that is neither counts nor an error');
   }
 
   /** Door two: export the module's held estate as plain-face bytes — the
@@ -636,6 +783,22 @@ export class Engine {
     const rows = this.callFaces(OPCODES.OP_INSIDE, req);
     return readInsideReply(rows);
   }
+
+  /** `OP_CHECKS`: the standing findings over the estate the module holds (`Mirror.load` puts it there). */
+  checks(): ChecksResult {
+    return readChecksReply(this.callFaces(OPCODES.OP_CHECKS, new Uint8Array(0)));
+  }
+
+  /** `OP_CHECK_GESTURE`, a cable: the findings it would cause. Zero rows is go ahead. Never writes. */
+  checkCable(near: CableEnd, far: CableEnd, media = ''): CheckFinding[] {
+    return readFindings(this.callFaces(OPCODES.OP_CHECK_GESTURE, cableGestureFrame(near, far, media)), 'OP_CHECK_GESTURE');
+  }
+
+  /** `OP_CHECK_GESTURE`, a field edit: `key` is a field key id from the registry. */
+  checkFieldEdit(key: number, displayId: string, value: string): CheckFinding[] {
+    return readFindings(this.callFaces(OPCODES.OP_CHECK_GESTURE, fieldGestureFrame(key, displayId, value)), 'OP_CHECK_GESTURE');
+  }
 }
 
 export { ERRORS };
+export type { CableEnd };

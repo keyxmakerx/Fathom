@@ -22,6 +22,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
 import { TagChips } from '../TagChips';
+import { DocsSection } from '../docs/DocsSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -1549,6 +1550,7 @@ export function EditorFor(
             `Rack` itself declares. */}
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
+        <DocsSection ownerId={rack.id} />
       </div>
     );
   }
@@ -1814,6 +1816,7 @@ export function EditorFor(
             `chassis.deviceId`, not `chassis.id`. */}
         <NotesSection ownerId={chassis.deviceId} actions={actions} />
         <TagsSection ownerId={chassis.deviceId} actions={actions} />
+        <DocsSection ownerId={chassis.deviceId} model={chassis.model} />
 
         {/* UI-SPEC's cable-delete rule — the same one-shot action shape
             `SupplyAction` already gives "remove"/"Disconnect", raising
@@ -2058,6 +2061,7 @@ export function EditorFor(
 
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
         <TagsSection ownerId={cable.id} actions={actions} />
+        <DocsSection ownerId={cable.id} />
       </div>
     );
   }
@@ -2088,6 +2092,7 @@ export function EditorFor(
             either way, `locatePort`'s own contract). */}
         <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
+        <DocsSection ownerId={port.id} />
       </div>
     );
   }
@@ -2105,6 +2110,7 @@ export function EditorFor(
         <PortCableSection view={view} port={port} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
+        <DocsSection ownerId={port.id} />
       </div>
     );
   }
@@ -2121,6 +2127,7 @@ export function EditorFor(
       <PortCableSection view={view} port={port} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />
+      <DocsSection ownerId={port.id} />
     </div>
   );
 }

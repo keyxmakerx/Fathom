@@ -13,6 +13,7 @@
 //! allows is the narrowest working form; there is no `unsafe` block to allow.
 #![deny(unsafe_code)]
 
+pub mod checks;
 pub mod dictframe;
 pub mod protocol;
 pub mod shell;
@@ -342,6 +343,43 @@ pub const OP_PASTE_INTO: u32 = 30;
 /// statement path needs — the same refusal `OP_PASTE` gives for the same
 /// reason.
 pub const OP_REDACT_TEXT: u32 = 31;
+
+/// Standing checks over the held estate (ADR-0061 §5). No request bytes. Reply: one
+/// `FACE_CHECK_HEAD` (counts), then one `FACE_CHECK` per finding, most severe first.
+/// Incremental: only rules whose read set a new batch touched run again. Not initialised
+/// is `ERR_NOT_INITIALISED`, never "no problems".
+pub const OP_CHECKS: u32 = 32;
+
+/// Dry-run a gesture, change nothing: the refusals it would cause, as `FACE_CHECK` rows
+/// (none = go ahead). Frame: `kind u8`; `0` cable = near end spec, far end spec (as
+/// `OP_CABLE`), media (`len u8` + token, empty = unset); `1` field edit = key `u32`,
+/// display-id length `u16`, id, value to the end. A frame that does not parse or names
+/// nothing live answers with no rows: the write refuses those itself.
+pub const OP_CHECK_GESTURE: u32 = 33;
+
+/// Grow the held estate by the batches it has not seen, or say it cannot (ADR-0061 §5 made
+/// checks incremental; this keeps the estate they read from in step without a reload).
+///
+/// Request: `fathom_workspace::write_delta`'s bytes. They hold a fragment of the plain face
+/// (the new batches, the provenance they cite, the state of what they touched) and the id of the
+/// batch the sender believes the module ends at. No host clock or entropy: nothing new is minted.
+///
+/// Reply on success: 8 raw bytes, the node count then the edge count of the held estate
+/// (`u32` little-endian each, **live elements only**: a tombstoned one is not counted), which the
+/// page checks against its own document's live counts: a count that differs is a document change
+/// no batch told the module about, and the page loads the whole design. **Anything else is
+/// `ERR_RESYNC` and the module is unchanged**: no estate; a frame over [`SYNC_FRAME_MAX`]; a
+/// schema version other than the one the estate was loaded under; a base that is not the
+/// module's last batch (`none` only for an empty estate); a frame that does not parse; a batch
+/// the store refuses; a fragment that disagrees with its ops or holds an element, history or
+/// provenance record no op names; or a result `OP_LOAD_PLAIN` would refuse. The page answers with
+/// a full `OP_LOAD_PLAIN`. All batches apply or none do; the graph keeps its identity, so
+/// `OP_CHECKS` re-runs only the rules the new batches touched.
+pub const OP_SYNC: u32 = 34;
+
+/// The most bytes of request `OP_SYNC` reads (32 MiB), a generous ceiling, since an ordinary delta is
+/// kilobytes. A bigger one is a reason to load the design whole.
+pub const SYNC_FRAME_MAX: usize = 32 << 20;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and

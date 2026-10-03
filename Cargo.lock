@@ -456,6 +456,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fathom-rules"
+version = "0.1.0"
+dependencies = [
+ "fathom-graph",
+ "fathom-id",
+ "fathom-ir",
+ "fathom-schema",
+]
+
+[[package]]
 name = "fathom-schema"
 version = "0.1.0"
 
@@ -510,6 +520,8 @@ dependencies = [
  "fathom-inventory",
  "fathom-ir",
  "fathom-layout",
+ "fathom-rules",
+ "fathom-schema",
  "fathom-wasm",
  "fathom-weld",
  "fathom-workspace",

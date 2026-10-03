@@ -43,6 +43,12 @@ export const OPCODES = {
   /** ADR-0053 §6: the redaction gate alone, for a pasted note — frames,
    * lexes, shapes and redacts, stops before binding, writes nothing. */
   OP_REDACT_TEXT: 31,
+  /** ADR-0061 §5: standing checks over the held estate. */
+  OP_CHECKS: 32,
+  /** ADR-0061 §5: dry-run a cable or field edit; the refusals it would cause. */
+  OP_CHECK_GESTURE: 33,
+  /** Append the batches the module has not seen, or answer ERR_RESYNC (the page then loads the whole design). */
+  OP_SYNC: 34,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,
@@ -82,6 +88,10 @@ export const FACES = {
   FACE_PASTE_LINE: 30,
   /** ADR-0052 §2: one row per value the gate destroyed. */
   FACE_DROP: 31,
+  /** ADR-0061 §5: the checks head — counts by severity. */
+  FACE_CHECK_HEAD: 32,
+  /** ADR-0061 §5: one finding. */
+  FACE_CHECK: 33,
 } as const;
 
 /** `protocol.rs`'s `ERR_*` codes carried on a `KIND_ERROR` (0) reply. */
@@ -107,6 +117,8 @@ export const ERRORS = {
   ERR_CABLE_END: 19,
   ERR_NO_CABLE: 20,
   ERR_PLAIN_REFUSED: 21,
+  /** OP_SYNC could not append; the module is unchanged and the page sends OP_LOAD_PLAIN. */
+  ERR_RESYNC: 22,
 } as const;
 
 /** The FDLT reply header (`protocol.rs`'s `header()`, `HEADER_LEN`). */

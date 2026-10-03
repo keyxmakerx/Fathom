@@ -1,6 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
 
+import { CableCheckBadge } from '../checks/CheckBadge';
 import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cableEnds';
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';
@@ -10,6 +11,8 @@ import type { StubEnd } from './stubs';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 
 export interface CableEdgeData extends Record<string, unknown> {
+  /** Set by Checks' Show on an edge it fades. */
+  checksFaded?: boolean;
   cable: CableView;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
@@ -66,7 +69,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
   const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
-  const dimmed = litCableId != null && !lit;
+  // Checks' Show fades the whole edge already: do not dim it a second time.
+  const dimmed = data.checksFaded !== true && litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
   const colour = SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
@@ -145,6 +149,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
+      <CableCheckBadge id={cable.id} x={midX} y={midY} />
       {portPairLabel != null && (
         // UI-SPEC #2: "each with its own sheath and its port pair
         // labelled" — drawn only for a fanned bundle member, never for an

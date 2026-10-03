@@ -54,10 +54,10 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.13 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.14 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12"];
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13"];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
 /// legitimately hold one — its editor never had the kind — so finding one
@@ -92,25 +92,34 @@ const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::Label, NodeKind::Line];
 const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
     &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
 
+/// Kinds `0.14` (ADR-0061 round 7) added; same reasoning, now for `0.10` to `0.13`.
+const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile];
+const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
+    EdgeKind::HasDoc,
+    EdgeKind::DocOn,
+    EdgeKind::HasDocLink,
+    EdgeKind::HasDocFile,
+];
+
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` or `0.12` added, `0.11` cannot hold anything `0.12`
-/// added.
+/// anything `0.11` to `0.14` added, and so on up the chain.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.13`, everything is
+    // Nothing to check for the current version (`0.14`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
-    // refused above this call — only the two accepted older headers name a
+    // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
     if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());
     }
     for n in &snapshot.nodes {
-        let too_new = NODE_KINDS_SINCE_0_13.contains(&n.id.kind)
-            || (declared != "0.12" && NODE_KINDS_SINCE_0_12.contains(&n.id.kind))
+        let too_new = NODE_KINDS_SINCE_0_14.contains(&n.id.kind)
+            || (declared != "0.13" && NODE_KINDS_SINCE_0_13.contains(&n.id.kind))
+            || (!matches!(declared, "0.12" | "0.13") && NODE_KINDS_SINCE_0_12.contains(&n.id.kind))
             || (declared == "0.10" && NODE_KINDS_SINCE_0_11.contains(&n.id.kind));
         if too_new {
             return Err(PlainError::KindNotInDeclaredVersion {
@@ -120,8 +129,9 @@ fn reject_kinds_too_new_for_declared_version(
         }
     }
     for e in &snapshot.edges {
-        let too_new = EDGE_KINDS_SINCE_0_13.contains(&e.id.kind)
-            || (declared != "0.12" && EDGE_KINDS_SINCE_0_12.contains(&e.id.kind))
+        let too_new = EDGE_KINDS_SINCE_0_14.contains(&e.id.kind)
+            || (declared != "0.13" && EDGE_KINDS_SINCE_0_13.contains(&e.id.kind))
+            || (!matches!(declared, "0.12" | "0.13") && EDGE_KINDS_SINCE_0_12.contains(&e.id.kind))
             || (declared == "0.10" && EDGE_KINDS_SINCE_0_11.contains(&e.id.kind));
         if too_new {
             return Err(PlainError::KindNotInDeclaredVersion {
@@ -236,6 +246,12 @@ pub fn write_plain(graph: &Graph) -> Result<Vec<u8>, PlainError> {
 /// refusal deterministic: magic, face version, banner, schema version, the
 /// blank line, then the body.
 pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
+    read_plain_declared(bytes).map(|(graph, _)| graph)
+}
+
+/// [`read_plain`], and the schema version the file declared: the version the graph was loaded
+/// under, which a delta for it must also declare.
+pub fn read_plain_declared(bytes: &[u8]) -> Result<(Graph, String), PlainError> {
     // 1 — the magic, before the file is even shaped into lines. The sealed
     // envelope's `FTHM\x1fREC` lands here, which is the point: a build must
     // know what it is not holding before it does anything with it.
@@ -281,7 +297,91 @@ pub fn read_plain(bytes: &[u8]) -> Result<Graph, PlainError> {
     let json = Json::parse_canonical(body)?;
     let snapshot = snapshot_from_json(&json)?;
     reject_kinds_too_new_for_declared_version(declared, &snapshot)?;
-    Ok(Graph::from_snapshot(&snapshot)?)
+    Ok((Graph::from_snapshot(&snapshot)?, declared.to_owned()))
+}
+
+/// Line 1's magic for a delta (`Graph::apply_batches`'s input). Not a plain face: it holds a
+/// fragment, never a whole design, and `read_plain` refuses it by its magic.
+pub const DELTA_MAGIC: &str = "fathom-delta";
+
+/// The delta format version, checked for exact equality.
+pub const DELTA_FACE_VERSION: u32 = 1;
+
+/// A fragment and the batch the sender believes the receiver already ends at.
+#[derive(Debug)]
+pub struct Delta {
+    /// The schema version the delta declares.
+    pub schema: String,
+    /// The last batch the receiver holds; `None` for a receiver with an empty log.
+    pub base: Option<BatchId>,
+    pub fragment: Snapshot,
+}
+
+/// A delta as bytes, in the plain face's own canonical encoding of batches, ops, nodes, edges,
+/// provenance and history. Four header lines, then the fragment as canonical JSON:
+///
+/// ```text
+/// fathom-delta 1
+/// schema <SCHEMA_VERSION>
+/// base <batch ulid | none>
+/// (empty)
+/// <the fragment, as the plain face's snapshot object>
+/// ```
+pub fn write_delta(base: Option<BatchId>, fragment: &Snapshot) -> Vec<u8> {
+    let base = base.map_or_else(|| "none".to_owned(), |b| b.0.encode());
+    let mut bytes =
+        format!("{DELTA_MAGIC} {DELTA_FACE_VERSION}\nschema {SCHEMA_VERSION}\nbase {base}\n\n")
+            .into_bytes();
+    bytes.extend_from_slice(&snapshot_to_json(fragment).to_canonical_bytes());
+    bytes
+}
+
+/// The delta a holder of `graph`'s first `from` batches needs to reach all of it. The Rust
+/// reference for what the browser sends; the wasm module never calls it.
+pub fn write_delta_since(graph: &Graph, from: usize) -> Result<Vec<u8>, PlainError> {
+    let base = from.checked_sub(1).map(|i| graph.log()[i].id);
+    Ok(write_delta(base, &graph.to_snapshot()?.since(from)))
+}
+
+/// The inverse of [`write_delta`]. Header checks run in the plain face's order and with its
+/// schema rule; nothing of the fragment is trusted until `Graph::apply_batches` has run it.
+pub fn read_delta(bytes: &[u8]) -> Result<Delta, PlainError> {
+    let magic = format!("{DELTA_MAGIC} ");
+    if !bytes.starts_with(magic.as_bytes()) {
+        return Err(PlainError::NotPlainFace);
+    }
+    let (header, body) = split_header(bytes)?;
+    let version = String::from_utf8_lossy(&header[0][magic.len()..]).into_owned();
+    if version != DELTA_FACE_VERSION.to_string() {
+        return Err(PlainError::UnsupportedFaceVersion { found: version });
+    }
+    let line = |i: usize, prefix: &str| {
+        core::str::from_utf8(header[i])
+            .ok()
+            .and_then(|l| l.strip_prefix(prefix))
+            .ok_or(PlainError::MalformedHeader { line: i as u32 + 1 })
+    };
+    let declared = line(1, "schema ")?;
+    if declared != SCHEMA_VERSION && !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
+        return Err(PlainError::SchemaVersionMismatch {
+            found: declared.to_owned(),
+            supported: SCHEMA_VERSION,
+        });
+    }
+    let base = match line(2, "base ")? {
+        "none" => None,
+        text => Some(BatchId(read_ulid(&Json::Str(text.to_owned()), "base")?)),
+    };
+    if !header[3].is_empty() {
+        return Err(PlainError::MalformedHeader { line: 4 });
+    }
+    let fragment = snapshot_from_json(&Json::parse_canonical(body)?)?;
+    reject_kinds_too_new_for_declared_version(declared, &fragment)?;
+    Ok(Delta {
+        schema: declared.to_owned(),
+        base,
+        fragment,
+    })
 }
 
 /// The refuse-to-masquerade rule for anyone naming a file after these bytes:

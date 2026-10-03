@@ -35,7 +35,7 @@ mod render;
 pub use author::{is_authorable, parse_into_slot, AuthorError};
 #[cfg(feature = "demo-estate")]
 pub use demo::demo_estate;
-pub use element::{element_page, parse_display_id, role_word, ElementPage, FieldRow};
+pub use element::{display_name, element_page, parse_display_id, role_word, ElementPage, FieldRow};
 pub use equipment::{equipment_page, CabledPeer, EquipmentPage, IfaceRow, PortRow};
 pub use gaps::{findings, EmptyKind, Findings, Gap, GapExample, EXAMPLES_PER_GAP};
 pub use inside::{

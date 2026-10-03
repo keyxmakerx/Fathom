@@ -138,6 +138,18 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_REDACT_TEXT",
             code: m::OP_REDACT_TEXT,
         },
+        Entry {
+            name: "OP_CHECKS",
+            code: m::OP_CHECKS,
+        },
+        Entry {
+            name: "OP_CHECK_GESTURE",
+            code: m::OP_CHECK_GESTURE,
+        },
+        Entry {
+            name: "OP_SYNC",
+            code: m::OP_SYNC,
+        },
     ]
 }
 
@@ -226,6 +238,10 @@ fn errors() -> Vec<Entry> {
         Entry {
             name: "ERR_PLAIN_REFUSED",
             code: p::ERR_PLAIN_REFUSED as u32,
+        },
+        Entry {
+            name: "ERR_RESYNC",
+            code: p::ERR_RESYNC as u32,
         },
     ]
 }
@@ -553,6 +569,27 @@ fn faces() -> Vec<FaceEntry> {
                 "",
                 "",
                 "",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_CHECK_HEAD",
+            code: p::FACE_CHECK_HEAD as u32,
+            columns: &[
+                "refuse",
+                "warn",
+                "idea",
+                "rules",
+                "load_failed",
+                "unfinished",
+                "",
+                "",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_CHECK",
+            code: p::FACE_CHECK as u32,
+            columns: &[
+                "rule", "severity", "title", "fix", "why", "concept", "source", "elements",
             ],
         },
     ]
