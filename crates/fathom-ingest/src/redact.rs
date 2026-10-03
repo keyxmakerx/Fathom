@@ -660,9 +660,22 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         .iter()
         .map(|t| lex::interned_text(capture, t, &lex::JUNOS_SET))
         .collect();
+    // Detection reads WORDS: a quoted token (`'snmp community X'`) is one lexer token but
+    // the leaf-name walk and the shape detectors work on whitespace-separated words,
+    // so each token's words are laid out flat. The sketch below still uses the tokens.
+    let words: Vec<String> = texts
+        .iter()
+        .flat_map(|t| {
+            let mut w: Vec<String> = t.split_whitespace().map(str::to_owned).collect();
+            if w.is_empty() {
+                w.push(t.clone());
+            }
+            w
+        })
+        .collect();
     let mut detectors = 0u8;
     let mut label = RedactLabel::Unknown;
-    for (at, text) in texts.iter().enumerate() {
+    for (at, text) in words.iter().enumerate() {
         if text.starts_with("-----BEGIN") {
             detectors |= DetectorSet::PEM_ARMOUR;
             label = RedactLabel::CertKey;
@@ -712,7 +725,7 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         // one preceding token is enough for it to have something to read — and
         // at `>= 2` the shape `key-string <secret>` was missed outright, which
         // is a live secret form on Arista, Omada and Sodola.
-        if at >= 1 && raw_walk(&texts, at) {
+        if at >= 1 && raw_walk(&words, at) {
             detectors |= DetectorSet::LEAF_NAME;
         }
     }

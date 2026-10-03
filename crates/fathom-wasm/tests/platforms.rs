@@ -364,6 +364,9 @@ fn odd_quoting_never_leaves_a_secret() {
         (format!("set vpn ipsec site-to-site peer bob's-office authentication pre-shared-secret \\\n{psk}"), vec![psk]),
         ("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret 'QkA9it's QkA9tail'".to_owned(), vec!["QkA9tail"]),
         ("set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret 'QkD4a'QkD4b QkD4c".to_owned(), vec!["QkD4b", "QkD4c"]),
+        ("mysql -e 'SET PASSWORD = QkQ1pw'".to_owned(), vec!["QkQ1pw"]),
+        ("echo 'snmp community QkQ2com'".to_owned(), vec!["QkQ2com"]),
+        ("echo \"snmp community QkQ3com\"".to_owned(), vec!["QkQ3com"]),
     ];
     for (text, secrets) in cases {
         let text = format!("set system host-name odd-gw\n{text}\n");
