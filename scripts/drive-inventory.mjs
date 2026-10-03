@@ -129,11 +129,12 @@ try {
   await shot('inventory-01-table.png');
 
   // 2 — filter by name.
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  await page.getByLabel('Contains').fill('bulk-0042');
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  const line = page.getByLabel('Filter devices');
+  await line.fill('name~bulk-0042');
   check('a filter narrows to one row', (await page.locator('.inv-table__row').count()) === 1);
+  check('the line is read back in words', (await page.locator('.inv-fq__reading').innerText()).includes('Name contains bulk-0042'));
   await page.locator('.inv-chip button').click();
+  check('removing the chip empties the line', (await line.inputValue()) === '');
 
   // 3 — add by name, then the page opens on it.
   await page.getByLabel(/Name of the new/).fill('edge-fw');
@@ -146,9 +147,7 @@ try {
   check('Back returns to the list', (await page.locator('.inv-table__row').count()) > 10);
 
   // 4 — edit a cell in place: Role, then Tab to Mgmt address.
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  await page.getByLabel('Contains').fill('edge-fw');
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await line.fill('name~edge-fw');
   await page.getByRole('button', { name: 'Columns' }).click();
   for (const label of ['Role', 'Mgmt address']) await page.getByLabel(label, { exact: true }).check();
   await page.getByRole('button', { name: 'Columns' }).click();
@@ -204,9 +203,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.inv-paste [role=status]')?.textContent?.includes('1 to add, 1 to update'));
   await page.getByRole('button', { name: 'Apply' }).click();
   await page.waitForTimeout(800);
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  await page.getByLabel('Contains').fill('pasted-sw');
-  await page.getByRole('button', { name: 'Add filter' }).click();
+  await line.fill('name~pasted-sw');
   check('a pasted row was added', (await page.locator('.inv-table__row').count()) === 1);
   await page.getByLabel('Select all rows').check();
   await page.getByLabel('Value').fill('lab');

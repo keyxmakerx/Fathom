@@ -23,6 +23,7 @@ import { joinUnits, quoteValue, units } from './query';
 import { useListState } from './useListState';
 import { WhereBar } from './WhereBar';
 import { buildPlaceIndex, hasWhere, inWhere, whereOptions } from './placeIndex';
+import { FilterLine } from './FilterLine';
 import { ListHead } from './ListHead';
 import { SideList } from './SideList';
 import { PINNED_VIEWS, addMine, loadMine, removeMine, saveMine, updateMine, type SavedView } from './views';
@@ -501,9 +502,6 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   setPrefs(keys);
                   saveColumnPrefs(kind, keys);
                 }}
-                q={q}
-                onQ={(next) => go({ q: next })}
-                fieldOptions={schema.fields}
                 canAdd={canDraw && CAN_ADD.has(kind)}
                 addAction={
                   canDraw && (kind === 'prefixes' || kind === 'vlans')
@@ -520,11 +518,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 onClearChecked={() => setChecked(new Set())}
                 notice={notice}
               />
-              {filtered.parsed.errors.length > 0 ? (
-                <div className="inv-toolbar__error" role="alert">
-                  {filtered.parsed.errors.map((e) => e.message).join(' ')}
-                </div>
-              ) : null}
+              <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} />
               <div
                 className="inv-list__grid"
                 onPaste={(e) => {

@@ -4,18 +4,12 @@
 import { useState } from 'react';
 
 import type { CellEdit, Column, InvRow } from './kinds';
-import { joinUnits, quoteValue, removeUnit, units } from './query';
 
 export interface ListToolbarProps {
   kindLabel: string;
   columnsAll: readonly Column[];
   columns: readonly Column[];
   onColumns: (keys: string[]) => void;
-  /** The filter line (query language). */
-  q: string;
-  onQ: (q: string) => void;
-  /** Fields the filter box can name: query key and label. */
-  fieldOptions: ReadonlyArray<{ key: string; label: string }>;
   canAdd: boolean;
   addHint: string;
   onAdd: (name: string) => string | void;
@@ -32,12 +26,10 @@ export interface ListToolbarProps {
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, q, onQ, fieldOptions, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulk, onClearChecked, notice } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulk, onClearChecked, notice } = props;
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
-  const [filterCol, setFilterCol] = useState('*');
-  const [filterValue, setFilterValue] = useState('');
-  const [open, setOpen] = useState<'columns' | 'filter' | null>(null);
+  const [open, setOpen] = useState<'columns' | null>(null);
   const [bulkCol, setBulkCol] = useState('');
   const [bulkValue, setBulkValue] = useState('');
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -109,17 +101,6 @@ export function ListToolbar(props: ListToolbarProps) {
         ) : addHint ? (
           <span className="inv-toolbar__hint">{addHint}</span>
         ) : null}
-        {units(q).map((u, i) => (
-          <span key={`${u}:${i}`} className="inv-chip">
-            {u}
-            <button type="button" aria-label="Remove filter" onClick={() => onQ(removeUnit(q, i))}>
-              ×
-            </button>
-          </span>
-        ))}
-        <button type="button" aria-expanded={open === 'filter'} onClick={() => setOpen(open === 'filter' ? null : 'filter')}>
-          + Filter
-        </button>
         <span className="inv-toolbar__grow" />
         {onImport ? (
           <button type="button" onClick={onImport}>
@@ -135,30 +116,6 @@ export function ListToolbar(props: ListToolbarProps) {
           Columns
         </button>
       </div>
-      {open === 'filter' ? (
-        <form
-          className="inv-toolbar__pop"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (filterValue.trim() === '') return;
-            const v = filterValue.trim();
-            onQ(joinUnits([...units(q), filterCol === '*' ? quoteValue(v) : `${filterCol}~${quoteValue(v)}`]));
-            setFilterValue('');
-            setOpen(null);
-          }}
-        >
-          <select aria-label="Filter column" value={filterCol} onChange={(e) => setFilterCol(e.currentTarget.value)}>
-            <option value="*">Any column</option>
-            {fieldOptions.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <input aria-label="Contains" placeholder="contains" value={filterValue} onChange={(e) => setFilterValue(e.currentTarget.value)} autoFocus />
-          <button type="submit">Add filter</button>
-        </form>
-      ) : null}
       {open === 'columns' ? (
         <div className="inv-toolbar__pop inv-toolbar__pop--columns" role="group" aria-label="Columns">
           {columnsAll.map((c) => (
