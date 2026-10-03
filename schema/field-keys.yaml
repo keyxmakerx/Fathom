@@ -442,3 +442,21 @@ fields:
   Line.label: 348
   LineEnd.end: 349
   PassiveNode.slots: 350
+  # ADR-0061 round 7, maintenance plans (2026-10-03). Appended at the tail with the next integers.
+  MaintenancePlan.title: 351
+  MaintenancePlan.window_start: 352
+  MaintenancePlan.window_end: 353
+  MaintenancePlan.author: 354
+  MaintenancePlan.stage: 355
+  MaintenancePlan.outcome: 356
+  MaintenancePlan.record: 357
+  PlanStep.ordinal: 358
+  PlanStep.kind: 359
+  PlanStep.targets: 360
+  PlanStep.change: 361
+  PlanStep.before: 362
+  PlanStep.after: 363
+  PlanStep.edit: 364
+  PlanStep.state: 365
+  PlanStep.note: 366
+  PlanStep.done_at: 367

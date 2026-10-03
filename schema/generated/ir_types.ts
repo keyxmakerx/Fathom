@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.13";
+export const SCHEMA_VERSION = "0.14";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -67,7 +67,9 @@ export type NodeKind =
   | "PublishedPort"
   | "Tag"
   | "Label"
-  | "Line";
+  | "Line"
+  | "MaintenancePlan"
+  | "PlanStep";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -130,6 +132,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Tag",
   "Label",
   "Line",
+  "MaintenancePlan",
+  "PlanStep",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -236,7 +240,9 @@ export type EdgeKind =
   | "TaggedWith"
   | "HasLabel"
   | "HasLine"
-  | "LineEnd";
+  | "LineEnd"
+  | "HasPlan"
+  | "HasStep";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -341,6 +347,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLabel",
   "HasLine",
   "LineEnd",
+  "HasPlan",
+  "HasStep",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -485,6 +493,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Tag: ["name"],
   Label: ["text", "form", "w", "h"],
   Line: ["label"],
+  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
+  PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -839,4 +849,21 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Line.label": 348,
   "LineEnd.end": 349,
   "PassiveNode.slots": 350,
+  "MaintenancePlan.title": 351,
+  "MaintenancePlan.window_start": 352,
+  "MaintenancePlan.window_end": 353,
+  "MaintenancePlan.author": 354,
+  "MaintenancePlan.stage": 355,
+  "MaintenancePlan.outcome": 356,
+  "MaintenancePlan.record": 357,
+  "PlanStep.ordinal": 358,
+  "PlanStep.kind": 359,
+  "PlanStep.targets": 360,
+  "PlanStep.change": 361,
+  "PlanStep.before": 362,
+  "PlanStep.after": 363,
+  "PlanStep.edit": 364,
+  "PlanStep.state": 365,
+  "PlanStep.note": 366,
+  "PlanStep.done_at": 367,
 };

@@ -1775,6 +1775,97 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(348))
         }
     }
+    /// Typed reads for `MaintenancePlan` fields.
+    pub mod maintenance_plan {
+        /// `MaintenancePlan.title` — `Text`, card `1`, emit `—`.
+        /// What the plan is called.
+        pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(351))
+        }
+        /// `MaintenancePlan.window_start` — `Text`, card `0..1`, emit `—`.
+        /// When the work may start, as typed (an ISO date or date and time).
+        pub fn window_start<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(352))
+        }
+        /// `MaintenancePlan.window_end` — `Text`, card `0..1`, emit `—`.
+        /// When the work must be finished by.
+        pub fn window_end<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(353))
+        }
+        /// `MaintenancePlan.author` — `Text`, card `0..1`, emit `—`.
+        /// Who wrote the plan.
+        pub fn author<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(354))
+        }
+        /// `MaintenancePlan.stage` — `enum { planned, doing, recorded }`, card `1`, emit `—`.
+        /// Where the plan is.
+        pub fn stage<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::MaintenancePlanStage, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(355))
+        }
+        /// `MaintenancePlan.outcome` — `enum { succeeded, partial, failed }`, card `0..1`, emit `—`.
+        /// How it went; set when recorded.
+        pub fn outcome<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::MaintenancePlanOutcome, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(356))
+        }
+        /// `MaintenancePlan.record` — `Text`, card `0..1`, emit `—`.
+        /// What went wrong, or anything worth keeping; set when recorded.
+        pub fn record<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(357))
+        }
+    }
+    /// Typed reads for `PlanStep` fields.
+    pub mod plan_step {
+        /// `PlanStep.ordinal` — `u32`, card `1`, emit `—`.
+        /// Position in the plan. Steps run in this order.
+        pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(358))
+        }
+        /// `PlanStep.kind` — `enum { address, route, cable, move, other }`, card `1`, emit `—`.
+        /// What sort of change.
+        pub fn kind<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PlanStepKind, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(359))
+        }
+        /// `PlanStep.targets` — `Text`, card `0..1`, emit `—`.
+        /// Design ids of what the step touches, one per line.
+        pub fn targets<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(360))
+        }
+        /// `PlanStep.change` — `Text`, card `1`, emit `—`.
+        /// The step in a sentence.
+        pub fn change<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(361))
+        }
+        /// `PlanStep.before` — `Text`, card `0..1`, emit `—`.
+        /// How it is now.
+        pub fn before<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(362))
+        }
+        /// `PlanStep.after` — `Text`, card `0..1`, emit `—`.
+        /// How it will be.
+        pub fn after<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(363))
+        }
+        /// `PlanStep.edit` — `Text`, card `0..1`, emit `—`.
+        /// The edit applied on Done: one line, tab-separated, `field`, `cable` or `move` first. Absent for a step done by hand.
+        pub fn edit<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(364))
+        }
+        /// `PlanStep.state` — `enum { planned, done, went_differently }`, card `1`, emit `—`.
+        /// Where the step is.
+        pub fn state<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PlanStepState, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(365))
+        }
+        /// `PlanStep.note` — `Text`, card `0..1`, emit `—`.
+        /// What happened instead; required for went_differently.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(366))
+        }
+        /// `PlanStep.done_at` — `Text`, card `0..1`, emit `—`.
+        /// When it was marked, as an ISO time.
+        pub fn done_at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(367))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2131,6 +2222,23 @@ mod body {
             348 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             349 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableEnd>(), "crate::generated::ir_types::CableEnd")),
             350 => Some((core::any::TypeId::of::<u8>(), "u8")),
+            351 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            352 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            353 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            354 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            355 => Some((core::any::TypeId::of::<crate::generated::ir_types::MaintenancePlanStage>(), "crate::generated::ir_types::MaintenancePlanStage")),
+            356 => Some((core::any::TypeId::of::<crate::generated::ir_types::MaintenancePlanOutcome>(), "crate::generated::ir_types::MaintenancePlanOutcome")),
+            357 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            358 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            359 => Some((core::any::TypeId::of::<crate::generated::ir_types::PlanStepKind>(), "crate::generated::ir_types::PlanStepKind")),
+            360 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            361 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            362 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            363 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            364 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            365 => Some((core::any::TypeId::of::<crate::generated::ir_types::PlanStepState>(), "crate::generated::ir_types::PlanStepState")),
+            366 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            367 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2489,6 +2597,23 @@ mod body {
             348 => crate::canon::slot_to::<crate::scalar::Text>(348, "crate::scalar::Text", value),
             349 => crate::canon::slot_to::<crate::generated::ir_types::CableEnd>(349, "crate::generated::ir_types::CableEnd", value),
             350 => crate::canon::slot_to::<u8>(350, "u8", value),
+            351 => crate::canon::slot_to::<crate::scalar::Text>(351, "crate::scalar::Text", value),
+            352 => crate::canon::slot_to::<crate::scalar::Text>(352, "crate::scalar::Text", value),
+            353 => crate::canon::slot_to::<crate::scalar::Text>(353, "crate::scalar::Text", value),
+            354 => crate::canon::slot_to::<crate::scalar::Text>(354, "crate::scalar::Text", value),
+            355 => crate::canon::slot_to::<crate::generated::ir_types::MaintenancePlanStage>(355, "crate::generated::ir_types::MaintenancePlanStage", value),
+            356 => crate::canon::slot_to::<crate::generated::ir_types::MaintenancePlanOutcome>(356, "crate::generated::ir_types::MaintenancePlanOutcome", value),
+            357 => crate::canon::slot_to::<crate::scalar::Text>(357, "crate::scalar::Text", value),
+            358 => crate::canon::slot_to::<u32>(358, "u32", value),
+            359 => crate::canon::slot_to::<crate::generated::ir_types::PlanStepKind>(359, "crate::generated::ir_types::PlanStepKind", value),
+            360 => crate::canon::slot_to::<crate::scalar::Text>(360, "crate::scalar::Text", value),
+            361 => crate::canon::slot_to::<crate::scalar::Text>(361, "crate::scalar::Text", value),
+            362 => crate::canon::slot_to::<crate::scalar::Text>(362, "crate::scalar::Text", value),
+            363 => crate::canon::slot_to::<crate::scalar::Text>(363, "crate::scalar::Text", value),
+            364 => crate::canon::slot_to::<crate::scalar::Text>(364, "crate::scalar::Text", value),
+            365 => crate::canon::slot_to::<crate::generated::ir_types::PlanStepState>(365, "crate::generated::ir_types::PlanStepState", value),
+            366 => crate::canon::slot_to::<crate::scalar::Text>(366, "crate::scalar::Text", value),
+            367 => crate::canon::slot_to::<crate::scalar::Text>(367, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2845,6 +2970,23 @@ mod body {
             348 => crate::canon::slot_from::<crate::scalar::Text>(j),
             349 => crate::canon::slot_from::<crate::generated::ir_types::CableEnd>(j),
             350 => crate::canon::slot_from::<u8>(j),
+            351 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            352 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            353 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            354 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            355 => crate::canon::slot_from::<crate::generated::ir_types::MaintenancePlanStage>(j),
+            356 => crate::canon::slot_from::<crate::generated::ir_types::MaintenancePlanOutcome>(j),
+            357 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            358 => crate::canon::slot_from::<u32>(j),
+            359 => crate::canon::slot_from::<crate::generated::ir_types::PlanStepKind>(j),
+            360 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            361 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            362 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            363 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            364 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            365 => crate::canon::slot_from::<crate::generated::ir_types::PlanStepState>(j),
+            366 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            367 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
