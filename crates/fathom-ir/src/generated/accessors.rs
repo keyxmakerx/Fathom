@@ -627,7 +627,7 @@ mod body {
     /// Typed reads for `PolicySet` fields.
     pub mod policy_set {
         /// `PolicySet.scope` — `PolicyScope`, card `1`, emit `R`.
-        /// ZonePair / InterfaceDirection / Global / Vsys. Registered contains_reference.
+        /// ZonePair / InterfaceDirection / Global (Vsys is not shaped). Registered contains_reference.
         pub fn scope<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PolicyScope, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(113))
         }
@@ -699,7 +699,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(127))
         }
         /// `AddressObject.value` — `AddressValue`, card `1`, emit `R`.
-        /// Prefix / Range / Dns / Wildcard.
+        /// Prefix / Range / Host / Fqdn / Any.
         pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::AddressValue, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(128))
         }

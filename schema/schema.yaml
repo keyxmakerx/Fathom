@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.14"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.17"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -233,6 +233,14 @@ schema:
                     # edge kinds, HasDoc (root containment, HasTag's shape), DocOn (reference, Doc to
                     # Docable), HasDocLink and HasDocFile (containment, Doc to DocLink or DocFile);
                     # thirteen field keys (351-363). Whole change = MINOR.
+                    #
+                    # 0.17 is ADR-0061 path trace, part 1 (2026-10-03; 0.15 and 0.16 are claimed by
+                    # #98 and #93). No kind, edge, field or key moves. Five structured value types
+                    # that were unit structs get shapes: PolicyScope (ZonePair, InterfaceDirection,
+                    # Global), AddressValue (Prefix, Range, Host, Fqdn, Any), L4Spec (Any, or a
+                    # protocol with port ranges), NatScope and NatAction. A unit struct serialised
+                    # as {}, and ingest never wrote one, so no stored payload holds the old form.
+                    # Whole change = MINOR; the reader opens the same older versions as before.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -894,7 +902,7 @@ kinds:
       The ordered container that absorbs the deepest cross-vendor break (11 §6.6, §12.2):
       Junos zone-pair lists, PAN one global list.
     fields:
-      - { name: scope, type: PolicyScope, card: "1", emit: R, doc: ZonePair / InterfaceDirection / Global / Vsys. Registered contains_reference. }
+      - { name: scope, type: PolicyScope, card: "1", emit: R, doc: ZonePair / InterfaceDirection / Global (Vsys is not shaped). Registered contains_reference. }
       - { name: evaluation, type: "enum { first_match, first_match_global }", card: "1", emit: "—" }
       - { name: default_action, type: enum(policy_action), card: "0..1", emit: "—", doc: "Batfish Default_Cross_Zone_Action, per set." }
     identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for PolicySet.
@@ -927,7 +935,7 @@ kinds:
       edge, not a field — the global book is simply the absence of the edge.
     fields:
       - { name: name, type: Identifier, card: "1", emit: R }
-      - { name: value, type: AddressValue, card: "1", emit: R, doc: Prefix / Range / Dns / Wildcard. }
+      - { name: value, type: AddressValue, card: "1", emit: R, doc: Prefix / Range / Host / Fqdn / Any. }
       - { name: description, type: Text, card: "0..1", emit: O }
     identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for AddressObject.
 

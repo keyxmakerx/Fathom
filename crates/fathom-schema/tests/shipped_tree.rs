@@ -154,7 +154,7 @@ fn shipped_tree_declaration_counts_hold() {
     // (`Tag`, 58 -> 59), +2 edges (`HasTag`, `TaggedWith`, 106 -> 108), +1 class
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343). Scalars, enum
     // FILE count and import scopes are unmoved -- `Tag.name` reuses `Text`.
-    assert_eq!(tree.version.as_deref(), Some("0.14"));
+    assert_eq!(tree.version.as_deref(), Some("0.17"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

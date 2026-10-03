@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.14";
+export const SCHEMA_VERSION = "0.17";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =

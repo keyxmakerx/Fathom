@@ -539,11 +539,6 @@ unit_canon! {
     value::IkeId,
     value::Dpd,
     value::OspfArea,
-    value::PolicyScope,
-    value::AddressValue,
-    value::L4Spec,
-    value::NatScope,
-    value::NatAction,
     value::VpnMonitor,
     value::PortPosition,
     value::Transceiver,
@@ -778,6 +773,252 @@ impl CanonicalValue for value::NextHop {
                 payload,
             )?)),
             "next_table" => Ok(value::NextHop::NextTable(scalar::Identifier::from_canon(
+                payload,
+            )?)),
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::PolicyDirection {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(Json::Str(
+            match self {
+                value::PolicyDirection::In => "in",
+                value::PolicyDirection::Out => "out",
+            }
+            .to_owned(),
+        ))
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        match expect_str(j, "\"in\" or \"out\"")? {
+            "in" => Ok(value::PolicyDirection::In),
+            "out" => Ok(value::PolicyDirection::Out),
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::PolicyScope {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(match self {
+            value::PolicyScope::ZonePair { from, to } => {
+                let mut m = BTreeMap::new();
+                m.insert("from".to_owned(), from.to_canon()?);
+                m.insert("to".to_owned(), to.to_canon()?);
+                tagged("zone_pair", Json::Obj(m))
+            }
+            value::PolicyScope::InterfaceDirection { unit, direction } => {
+                let mut m = BTreeMap::new();
+                m.insert("direction".to_owned(), direction.to_canon()?);
+                m.insert("unit".to_owned(), unit.to_canon()?);
+                tagged("interface_direction", Json::Obj(m))
+            }
+            value::PolicyScope::Global => Json::Str("global".to_owned()),
+        })
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        if let Json::Str(s) = j {
+            return match s.as_str() {
+                "global" => Ok(value::PolicyScope::Global),
+                other => Err(CanonError::UnknownVariant {
+                    token: other.to_owned(),
+                }),
+            };
+        }
+        let (tag, payload) = untag(j, "a one-key PolicyScope object")?;
+        match tag {
+            "zone_pair" => {
+                let m = expect_obj(payload, "a PolicyScope::ZonePair payload")?;
+                known_keys(m, &["from", "to"])?;
+                Ok(value::PolicyScope::ZonePair {
+                    from: fathom_id::NodeId::from_canon(required(m, "from")?)?,
+                    to: fathom_id::NodeId::from_canon(required(m, "to")?)?,
+                })
+            }
+            "interface_direction" => {
+                let m = expect_obj(payload, "a PolicyScope::InterfaceDirection payload")?;
+                known_keys(m, &["direction", "unit"])?;
+                Ok(value::PolicyScope::InterfaceDirection {
+                    unit: fathom_id::NodeId::from_canon(required(m, "unit")?)?,
+                    direction: value::PolicyDirection::from_canon(required(m, "direction")?)?,
+                })
+            }
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::AddressValue {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(match self {
+            value::AddressValue::Prefix(p) => tagged("prefix", p.to_canon()?),
+            value::AddressValue::Range { low, high } => {
+                let mut m = BTreeMap::new();
+                m.insert("high".to_owned(), high.to_canon()?);
+                m.insert("low".to_owned(), low.to_canon()?);
+                tagged("range", Json::Obj(m))
+            }
+            value::AddressValue::Host(a) => tagged("host", a.to_canon()?),
+            value::AddressValue::Fqdn(f) => tagged("fqdn", f.to_canon()?),
+            value::AddressValue::Any => Json::Str("any".to_owned()),
+        })
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        if let Json::Str(s) = j {
+            return match s.as_str() {
+                "any" => Ok(value::AddressValue::Any),
+                other => Err(CanonError::UnknownVariant {
+                    token: other.to_owned(),
+                }),
+            };
+        }
+        let (tag, payload) = untag(j, "a one-key AddressValue object")?;
+        match tag {
+            "prefix" => Ok(value::AddressValue::Prefix(scalar::IpPrefix::from_canon(
+                payload,
+            )?)),
+            "range" => {
+                let m = expect_obj(payload, "an AddressValue::Range payload")?;
+                known_keys(m, &["high", "low"])?;
+                let low = scalar::IpAddr::from_canon(required(m, "low")?)?;
+                let high = scalar::IpAddr::from_canon(required(m, "high")?)?;
+                if low > high {
+                    return Err(CanonError::Shape {
+                        expected: "a range with low <= high",
+                    });
+                }
+                Ok(value::AddressValue::Range { low, high })
+            }
+            "host" => Ok(value::AddressValue::Host(scalar::IpAddr::from_canon(
+                payload,
+            )?)),
+            "fqdn" => Ok(value::AddressValue::Fqdn(scalar::Fqdn::from_canon(payload)?)),
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::PortRange {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        let mut m = BTreeMap::new();
+        m.insert("high".to_owned(), self.high.to_canon()?);
+        m.insert("low".to_owned(), self.low.to_canon()?);
+        Ok(Json::Obj(m))
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        let m = expect_obj(j, "a PortRange object")?;
+        known_keys(m, &["high", "low"])?;
+        let low = u16::from_canon(required(m, "low")?)?;
+        let high = u16::from_canon(required(m, "high")?)?;
+        if low > high {
+            return Err(CanonError::Shape {
+                expected: "a port range with low <= high",
+            });
+        }
+        Ok(value::PortRange { low, high })
+    }
+}
+
+impl CanonicalValue for value::L4Spec {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(match self {
+            value::L4Spec::Any => Json::Str("any".to_owned()),
+            value::L4Spec::Protocol {
+                protocol,
+                source_ports,
+                destination_ports,
+            } => {
+                let mut m = BTreeMap::new();
+                m.insert("destination_ports".to_owned(), destination_ports.to_canon()?);
+                m.insert("protocol".to_owned(), protocol.to_canon()?);
+                m.insert("source_ports".to_owned(), source_ports.to_canon()?);
+                tagged("protocol", Json::Obj(m))
+            }
+        })
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        if let Json::Str(s) = j {
+            return match s.as_str() {
+                "any" => Ok(value::L4Spec::Any),
+                other => Err(CanonError::UnknownVariant {
+                    token: other.to_owned(),
+                }),
+            };
+        }
+        let (tag, payload) = untag(j, "a one-key L4Spec object")?;
+        match tag {
+            "protocol" => {
+                let m = expect_obj(payload, "an L4Spec::Protocol payload")?;
+                known_keys(m, &["destination_ports", "protocol", "source_ports"])?;
+                Ok(value::L4Spec::Protocol {
+                    protocol: u8::from_canon(required(m, "protocol")?)?,
+                    source_ports: Vec::from_canon(required(m, "source_ports")?)?,
+                    destination_ports: Vec::from_canon(required(m, "destination_ports")?)?,
+                })
+            }
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::NatScope {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(match self {
+            value::NatScope::Zone(n) => tagged("zone", n.to_canon()?),
+            value::NatScope::Interface(n) => tagged("interface", n.to_canon()?),
+            value::NatScope::RoutingInstance(n) => tagged("routing_instance", n.to_canon()?),
+        })
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        let (tag, payload) = untag(j, "a one-key NatScope object")?;
+        let node = || fathom_id::NodeId::from_canon(payload);
+        match tag {
+            "zone" => Ok(value::NatScope::Zone(node()?)),
+            "interface" => Ok(value::NatScope::Interface(node()?)),
+            "routing_instance" => Ok(value::NatScope::RoutingInstance(node()?)),
+            other => Err(CanonError::UnknownVariant {
+                token: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl CanonicalValue for value::NatAction {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        Ok(match self {
+            value::NatAction::Interface => Json::Str("interface".to_owned()),
+            value::NatAction::Off => Json::Str("off".to_owned()),
+            value::NatAction::Pool(p) => tagged("pool", p.to_canon()?),
+            value::NatAction::Static(p) => tagged("static", p.to_canon()?),
+        })
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        if let Json::Str(s) = j {
+            return match s.as_str() {
+                "interface" => Ok(value::NatAction::Interface),
+                "off" => Ok(value::NatAction::Off),
+                other => Err(CanonError::UnknownVariant {
+                    token: other.to_owned(),
+                }),
+            };
+        }
+        let (tag, payload) = untag(j, "a one-key NatAction object")?;
+        match tag {
+            "pool" => Ok(value::NatAction::Pool(scalar::Identifier::from_canon(
+                payload,
+            )?)),
+            "static" => Ok(value::NatAction::Static(scalar::IpPrefix::from_canon(
                 payload,
             )?)),
             other => Err(CanonError::UnknownVariant {
