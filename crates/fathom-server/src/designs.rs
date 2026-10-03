@@ -33,11 +33,16 @@ use crate::authority::Capability;
 use crate::chain::{self, EntryType};
 use crate::crypto::{self};
 use crate::grants::{self, Authority, AuthorityError};
+use crate::heads::{self, HeadError, HeadKey, HeadStore, Rebuild};
 use crate::keys::{self, DataKey, KeyRing, KeyStoreError};
 use crate::repo::{self, AccountId, DesignId, OrganisationId, RepoError, ScopeId, TenantContext};
 
 /// The domain tag in a payload seal's associated data.
 const AAD_PAYLOAD: &[u8] = b"fathom/payload/v1";
+
+/// The domain tags of a live change's and a checkpoint's seals (ADR-0063).
+const AAD_CHANGE: &[u8] = b"fathom/change/v1";
+const AAD_CHECKPOINT: &[u8] = b"fathom/checkpoint/v1";
 
 /// The domain tag in a design name's seal (ADR-0060 step 3b).
 const AAD_NAME: &[u8] = b"fathom/design-name/v1";
@@ -109,8 +114,11 @@ pub struct RotationReport {
     pub design: DesignId,
     pub from_key_epoch: i32,
     pub to_key_epoch: i32,
+    /// Whole saves and live changes.
     pub versions_reencrypted: usize,
     pub chain_entries_written: usize,
+    /// Checkpoints (ADR-0063): re-encrypted, with no chain entry of their own.
+    pub checkpoints_reencrypted: usize,
 }
 
 impl fmt::Display for RotationReport {
@@ -237,6 +245,15 @@ pub enum DesignError {
     /// string so the caller answers exactly as every other authority
     /// refusal in this crate does.
     Authority(AuthorityError),
+    /// ADR-0063: the head refused a change; the reason is one sentence.
+    ChangeRefused(String),
+    /// ADR-0063 #9: a batch id already stored under a different change.
+    BatchIdUsed,
+    /// A change `after` a version the design has not reached.
+    ChangeAhead {
+        after: i64,
+        current: i64,
+    },
 }
 
 impl fmt::Display for DesignError {
@@ -312,6 +329,14 @@ impl fmt::Display for DesignError {
             ),
             Self::InvalidName => write!(f, "invalid design name"),
             Self::Authority(e) => write!(f, "{e}"),
+            Self::ChangeRefused(reason) => f.write_str(reason),
+            Self::BatchIdUsed => f.write_str(
+                "that batch id was already used for a different change; a retry must send the                  same bytes",
+            ),
+            Self::ChangeAhead { after, current } => write!(
+                f,
+                "your copy is at version {after} but this design is only at {current}; reopen it"
+            ),
         }
     }
 }
@@ -363,8 +388,26 @@ fn payload_aad(
     key_epoch: i32,
     payload_schema_version: i32,
 ) -> Vec<u8> {
+    sealed_aad(
+        AAD_PAYLOAD,
+        tenant,
+        design,
+        version,
+        key_epoch,
+        payload_schema_version,
+    )
+}
+
+fn sealed_aad(
+    tag: &[u8],
+    tenant: &str,
+    design: &str,
+    version: i64,
+    key_epoch: i32,
+    payload_schema_version: i32,
+) -> Vec<u8> {
     let mut aad = Vec::new();
-    crypto::lp(&mut aad, AAD_PAYLOAD);
+    crypto::lp(&mut aad, tag);
     crypto::lp(&mut aad, tenant.as_bytes());
     crypto::lp(&mut aad, design.as_bytes());
     crypto::u64_le(&mut aad, version as u64);
@@ -786,14 +829,7 @@ async fn write_version_locked(
 
     let key = keys::design_key(tx, ring, ctx, design).await?;
 
-    let current: i64 = tx
-        .query_one(
-            "SELECT coalesce(max(design_version), 0) FROM design_payload \
-             WHERE design_id = $1 AND organisation_id = $2",
-            &[&design_text, &tenant_text],
-        )
-        .await?
-        .get(0);
+    let (current, _) = head_snapshot(tx, &design_text, &tenant_text).await?;
 
     if let Some(base) = expected_base {
         if current != base {
@@ -866,7 +902,8 @@ async fn write_version_locked(
 // Reading a version
 // ---------------------------------------------------------------------------
 
-/// Read one version, or the latest if `version` is `None`.
+/// Read one version, or the head if `version` is `None`. A head that has
+/// changes after its newest full face is replayed from storage.
 pub async fn read_version(
     pool: &Pool,
     ring: &KeyRing,
@@ -878,7 +915,7 @@ pub async fn read_version(
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
     let ctx = repo::open_tenant_context(&tx, tenant, actor).await?;
-    let result = read_version_locked(&tx, ring, &ctx, design, version).await?;
+    let result = read_version_locked(&tx, ring, &ctx, design, version, None).await?;
     tx.commit().await?;
     Ok(result)
 }
@@ -890,6 +927,7 @@ pub async fn read_version(
 pub async fn read_version_in_tx(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
+    heads: Option<&HeadStore>,
     design: DesignId,
     scope: Option<ScopeId>,
     version: Option<i64>,
@@ -897,7 +935,15 @@ pub async fn read_version_in_tx(
     grants::authorise_account(tx, auth, scope, Capability::Read)
         .await
         .map_err(DesignError::Authority)?;
-    read_version_locked(tx, auth.ring, auth.ctx, design, version).await
+    read_version_locked(tx, auth.ring, auth.ctx, design, version, heads).await
+}
+
+/// The wire number of this build's schema version (`"0.13"` is 13).
+fn current_schema_number() -> i32 {
+    fathom_ir::generated::ir_types::SCHEMA_VERSION
+        .strip_prefix("0.")
+        .and_then(|minor| minor.parse().ok())
+        .unwrap_or(1)
 }
 
 async fn read_version_locked(
@@ -906,57 +952,116 @@ async fn read_version_locked(
     ctx: &TenantContext,
     design: DesignId,
     version: Option<i64>,
+    store: Option<&HeadStore>,
 ) -> Result<DesignVersion, DesignError> {
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
 
-    let row = match version {
-        Some(v) => {
-            tx.query_opt(
-                "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
-                 FROM design_payload \
-                 WHERE design_id = $1 AND organisation_id = $2 AND design_version = $3",
-                &[&design_text, &tenant_text, &v],
-            )
-            .await?
-        }
-        None => {
-            tx.query_opt(
-                "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
-                 FROM design_payload \
-                 WHERE design_id = $1 AND organisation_id = $2 \
-                 ORDER BY design_version DESC LIMIT 1",
-                &[&design_text, &tenant_text],
-            )
-            .await?
-        }
-    };
-    let row = row.ok_or(DesignError::NoSuchVersion)?;
+    // One snapshot of "now": the head's version and the chain's tip seal.
+    let (current, tip) = head_snapshot(tx, &design_text, &tenant_text).await?;
+    let target = version.unwrap_or(current);
+    if target < 1 || target > current {
+        return Err(DesignError::NoSuchVersion);
+    }
 
-    let version: i64 = row.get(0);
-    let ciphertext: Vec<u8> = row.get(1);
-    let nonce: Vec<u8> = row.get(2);
-    let key_epoch: i32 = row.get(3);
-    let payload_schema_version: i32 = row.get(4);
+    let row = tx
+        .query_opt(
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
+             FROM design_payload \
+             WHERE design_id = $1 AND organisation_id = $2 AND design_version = $3",
+            &[&design_text, &tenant_text, &target],
+        )
+        .await?;
 
-    let key = design_key_at_epoch(tx, ring, ctx, design, key_epoch).await?;
-    let payload = open_payload(
-        &key,
-        &tenant_text,
-        &design_text,
-        version,
-        key_epoch,
-        payload_schema_version,
-        &nonce,
-        &ciphertext,
-    )?;
+    if let Some(row) = row {
+        let version: i64 = row.get(0);
+        let ciphertext: Vec<u8> = row.get(1);
+        let nonce: Vec<u8> = row.get(2);
+        let key_epoch: i32 = row.get(3);
+        let payload_schema_version: i32 = row.get(4);
 
+        let key = design_key_at_epoch(tx, ring, ctx, design, key_epoch).await?;
+        let payload = open_payload(
+            &key,
+            &tenant_text,
+            &design_text,
+            version,
+            key_epoch,
+            payload_schema_version,
+            &nonce,
+            &ciphertext,
+        )?;
+        return Ok(DesignVersion {
+            design,
+            version,
+            payload_schema_version,
+            payload,
+        });
+    }
+
+    // A change version: the head at that version, replayed from the newest
+    // full face (ADR-0063 #8). Only the live head is worth caching.
+    let key = (target == current).then(|| HeadKey {
+        design: design_text.clone(),
+        version: target,
+        tip: tip.clone().unwrap_or_default(),
+    });
+    let payload = materialise(tx, ring, ctx, design, target, key.as_ref(), store).await?;
     Ok(DesignVersion {
         design,
-        version,
-        payload_schema_version,
+        version: target,
+        payload_schema_version: current_schema_number(),
         payload,
     })
+}
+
+fn head_failure(e: HeadError) -> DesignError {
+    match e {
+        HeadError::Refused(reason) => DesignError::ChangeRefused(reason),
+        HeadError::NeedRebuild | HeadError::Rebuild(_) | HeadError::Gone => {
+            DesignError::Corrupt("design head")
+        }
+    }
+}
+
+/// How many older bases a head build may fall back through.
+const BASE_FALLBACKS: usize = 4;
+
+/// The full face of `design` at `target`, from the cache when `key` is given
+/// and the head is there, else rebuilt from the newest base that loads.
+async fn materialise(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    target: i64,
+    key: Option<&HeadKey>,
+    store: Option<&HeadStore>,
+) -> Result<Vec<u8>, DesignError> {
+    if let (Some(store), Some(key)) = (store, key) {
+        match store.plain(key, None).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(HeadError::NeedRebuild) => {}
+            Err(e) => return Err(head_failure(e)),
+        }
+    }
+    for skip in 0..BASE_FALLBACKS {
+        let Some(rebuild) = rebuild_inputs(tx, ring, ctx, design, target, skip, true).await? else {
+            break;
+        };
+        let built = match (store, key) {
+            (Some(store), Some(key)) => store.plain(key, Some(rebuild)).await,
+            _ => heads::replay(rebuild).await,
+        };
+        match built {
+            Ok(bytes) => return Ok(bytes),
+            Err(HeadError::Rebuild(why)) => {
+                tracing::warn!(%design, %why, "a base would not load; trying an older one");
+            }
+            Err(e) => return Err(head_failure(e)),
+        }
+    }
+    Err(DesignError::Corrupt("design head"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,15 +1291,158 @@ pub async fn rotate_design_under(
         keys::count_write_under_key(&tx, design, rotation.current.epoch).await?;
     }
 
+    // ADR-0063 #8: live changes and checkpoints, in pages, with the spool
+    // bound re-checked before each page. All inside this transaction, so a
+    // refusal part way leaves no key retired and nothing re-encrypted.
+    let changes = rotate_sealed_rows(
+        &tx,
+        ring,
+        &ctx,
+        design,
+        &rotation,
+        reason,
+        &bounds,
+        Sealed::Change,
+    )
+    .await?;
+    let checkpoints = rotate_sealed_rows(
+        &tx,
+        ring,
+        &ctx,
+        design,
+        &rotation,
+        reason,
+        &bounds,
+        Sealed::Checkpoint,
+    )
+    .await?;
+
     tx.commit().await?;
 
     Ok(RotationReport {
         design,
         from_key_epoch: rotation.previous.epoch,
         to_key_epoch: rotation.current.epoch,
-        versions_reencrypted: versions,
-        chain_entries_written: entries,
+        versions_reencrypted: versions + changes,
+        chain_entries_written: entries + changes,
+        checkpoints_reencrypted: checkpoints,
     })
+}
+
+/// Rows per rotation page.
+const ROTATION_PAGE: i64 = 200;
+
+/// Re-encrypt every `kind` row of a design under the new key. A change gets a
+/// `reencrypt` entry, as a whole save does; a checkpoint is derived data and
+/// gets none. Returns how many rows.
+#[allow(clippy::too_many_arguments)]
+async fn rotate_sealed_rows(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    rotation: &keys::Rotation,
+    reason: &str,
+    bounds: &audit::SpoolBounds,
+    kind: Sealed,
+) -> Result<usize, DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let mut done = 0usize;
+    let mut after = 0i64;
+    loop {
+        refuse_if_spool_beyond_bounds(tx, bounds).await?;
+        let rows = tx
+            .query(
+                &format!(
+                    "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version                        FROM {} WHERE design_id = $1 AND organisation_id = $2                         AND design_version > $3 ORDER BY design_version LIMIT $4",
+                    kind.table()
+                ),
+                &[&design_text, &tenant, &after, &ROTATION_PAGE],
+            )
+            .await?;
+        if rows.is_empty() {
+            return Ok(done);
+        }
+        for row in rows {
+            let version: i64 = row.get(0);
+            let old_epoch: i32 = row.get(3);
+            let schema: i32 = row.get(4);
+            if old_epoch != rotation.previous.epoch {
+                return Err(DesignError::Corrupt("sealed row key epoch"));
+            }
+            let plaintext = open_sealed(
+                kind,
+                &rotation.previous,
+                &tenant,
+                &design_text,
+                version,
+                old_epoch,
+                schema,
+                &row.get::<_, Vec<u8>>(2),
+                &row.get::<_, Vec<u8>>(1),
+            )?;
+            let nonce = crypto::random_nonce()?;
+            let aad = sealed_aad(
+                kind.tag(),
+                &tenant,
+                &design_text,
+                version,
+                rotation.current.epoch,
+                schema,
+            );
+            let ciphertext = crypto::seal(&rotation.current.key, &nonce, &plaintext, &aad)?;
+            tx.execute(
+                &format!(
+                    "UPDATE {} SET ciphertext = $4, nonce = $5, key_epoch = $6 \
+                      WHERE design_id = $1 AND organisation_id = $2 AND design_version = $3",
+                    kind.table()
+                ),
+                &[
+                    &design_text,
+                    &tenant,
+                    &version,
+                    &ciphertext,
+                    &nonce.to_vec(),
+                    &rotation.current.epoch,
+                ],
+            )
+            .await?;
+            keys::count_write_under_key(tx, design, rotation.current.epoch).await?;
+            if kind == Sealed::Change {
+                let previous = last_entry_for_version(tx, &design_text, &tenant, version).await?;
+                let metadata = metadata_for_reencrypt(
+                    ctx,
+                    version,
+                    schema,
+                    old_epoch,
+                    rotation.current.epoch,
+                    &previous.storage_binding,
+                    reason,
+                );
+                append_entry(
+                    tx,
+                    ring,
+                    ctx,
+                    design,
+                    AppendFacts {
+                        entry_type: EntryType::Reencrypt,
+                        design_version: version,
+                        plaintext: Some(&plaintext),
+                        payload_schema_version: schema,
+                        key: &rotation.current,
+                        nonce: &nonce,
+                        ciphertext: &ciphertext,
+                        carried_plaintext_binding: Some(&previous.plaintext_binding),
+                        metadata: &metadata,
+                    },
+                )
+                .await?;
+            }
+            after = version;
+            done += 1;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,7 +1513,7 @@ async fn verify_design_locked(
     };
 
     let entries = read_entries(tx, &design_text, &tenant_text).await?;
-    let payloads = read_payload_facts(tx, &design_text, &tenant_text).await?;
+    let facts = read_payload_facts(tx, &design_text, &tenant_text).await?;
 
     // **Every chain key epoch the entries name, derived.** `chain::chain_key`
     // takes the epoch as an input and the chain master in hand produces any of
@@ -1292,9 +1540,10 @@ async fn verify_design_locked(
 
     let deep_payloads = if deep {
         let mut out: Vec<(i64, Vec<u8>)> = Vec::new();
-        for p in &payloads {
+        for (kind, p) in &facts {
             let key = design_key_at_epoch(tx, ring, ctx, design, p.key_epoch).await?;
-            let bytes = open_payload(
+            let bytes = open_sealed(
+                *kind,
                 &key,
                 &tenant_text,
                 &design_text,
@@ -1311,6 +1560,13 @@ async fn verify_design_locked(
         None
     };
 
+    // ADR-0063 #8: a checkpoint has no chain entry, so verify replays to check
+    // it: each one must open, read, and equal the face replayed from whole
+    // saves and changes alone.
+    if deep {
+        verify_checkpoints(tx, ring, ctx, design).await?;
+    }
+
     // A design chain stores its metadata in the clear (§7.3: it is an actor,
     // an entry type and two version numbers), so `DeepInputs::metadata` is
     // empty and the verifier reads the column directly -- which means the
@@ -1324,6 +1580,7 @@ async fn verify_design_locked(
         refused_metadata: &[],
     });
 
+    let payloads: Vec<chain::StoredPayload> = facts.into_iter().map(|(_, p)| p).collect();
     let report = chain::verify(
         design_chain,
         &entries,
@@ -1333,6 +1590,713 @@ async fn verify_design_locked(
     );
 
     Ok(report)
+}
+
+// ---------------------------------------------------------------------------
+// Live changes and checkpoints (ADR-0063)
+// ---------------------------------------------------------------------------
+
+/// Every checkpoint of `design` against a replay that does not use any.
+async fn verify_checkpoints(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+) -> Result<(), DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let rows = tx
+        .query(
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version \
+               FROM design_checkpoint WHERE design_id = $1 AND organisation_id = $2 \
+              ORDER BY design_version",
+            &[&design_text, &tenant],
+        )
+        .await?;
+    let mut keys = KeyCache::default();
+    for row in rows {
+        let version: i64 = row.get(0);
+        let key_epoch: i32 = row.get(3);
+        let schema: i32 = row.get(4);
+        let stored = open_sealed(
+            Sealed::Checkpoint,
+            keys.get(tx, ring, ctx, design, key_epoch).await?,
+            &tenant,
+            &design_text,
+            version,
+            key_epoch,
+            schema,
+            &row.get::<_, Vec<u8>>(2),
+            &row.get::<_, Vec<u8>>(1),
+        )?;
+        let rebuild = rebuild_inputs(tx, ring, ctx, design, version, 0, false)
+            .await?
+            .ok_or(DesignError::Corrupt("checkpoint with no base to replay"))?;
+        let replayed = heads::replay(rebuild).await.map_err(head_failure)?;
+        if replayed != stored {
+            tracing::error!(%design, version, "a checkpoint differs from its replay");
+            return Err(DesignError::Corrupt("checkpoint differs from its replay"));
+        }
+    }
+    Ok(())
+}
+
+/// A change body above this is refused before the signature is checked.
+pub const MAX_CHANGE_BYTES: usize = 4 * 1024 * 1024;
+
+/// The server writes a checkpoint after this many changes past the newest
+/// full face.
+pub const CHECKPOINT_EVERY: i64 = 100;
+
+/// A stream more than this far behind resyncs instead of catching up.
+pub const MAX_BEHIND_BYTES: i64 = 8 * 1024 * 1024;
+
+/// The design's current version (the highest across whole saves and changes)
+/// and the newest seal on its chain, read in one statement so they describe
+/// the same instant.
+pub(crate) async fn head_snapshot(
+    tx: &Transaction<'_>,
+    design: &str,
+    tenant: &str,
+) -> Result<(i64, Option<Vec<u8>>), DesignError> {
+    let row = tx
+        .query_one(
+            "SELECT greatest( \
+                 coalesce((SELECT max(design_version) FROM design_payload \
+                            WHERE design_id = $1 AND organisation_id = $2), 0), \
+                 coalesce((SELECT max(design_version) FROM design_change \
+                            WHERE design_id = $1 AND organisation_id = $2), 0)), \
+                    (SELECT seal FROM chain_entries \
+                      WHERE design_id = $1 AND organisation_id = $2 \
+                      ORDER BY seq DESC LIMIT 1)",
+            &[&design, &tenant],
+        )
+        .await?;
+    Ok((row.get(0), row.get(1)))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sealed {
+    Payload,
+    Change,
+    Checkpoint,
+}
+
+impl Sealed {
+    fn tag(self) -> &'static [u8] {
+        match self {
+            Self::Payload => AAD_PAYLOAD,
+            Self::Change => AAD_CHANGE,
+            Self::Checkpoint => AAD_CHECKPOINT,
+        }
+    }
+
+    fn table(self) -> &'static str {
+        match self {
+            Self::Payload => "design_payload",
+            Self::Change => "design_change",
+            Self::Checkpoint => "design_checkpoint",
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_sealed(
+    kind: Sealed,
+    key: &DataKey,
+    tenant: &str,
+    design: &str,
+    version: i64,
+    key_epoch: i32,
+    schema: i32,
+    nonce: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, DesignError> {
+    let nonce: [u8; crypto::NONCE_LEN] = nonce
+        .try_into()
+        .map_err(|_| DesignError::Corrupt("sealed row nonce"))?;
+    let aad = sealed_aad(kind.tag(), tenant, design, version, key_epoch, schema);
+    crypto::open(&key.key, &nonce, ciphertext, &aad).map_err(|_| DesignError::Refused)
+}
+
+/// Design keys by epoch, fetched once per call.
+#[derive(Default)]
+struct KeyCache(BTreeMap<i32, DataKey>);
+
+impl KeyCache {
+    async fn get(
+        &mut self,
+        tx: &Transaction<'_>,
+        ring: &KeyRing,
+        ctx: &TenantContext,
+        design: DesignId,
+        epoch: i32,
+    ) -> Result<&DataKey, DesignError> {
+        Ok(match self.0.entry(epoch) {
+            std::collections::btree_map::Entry::Occupied(o) => o.into_mut(),
+            std::collections::btree_map::Entry::Vacant(v) => {
+                v.insert(design_key_at_epoch(tx, ring, ctx, design, epoch).await?)
+            }
+        })
+    }
+}
+
+/// The bases a head at `target` can start from, newest first: whole saves and
+/// checkpoints at or below it.
+async fn base_candidates(
+    tx: &Transaction<'_>,
+    design: &str,
+    tenant: &str,
+    target: i64,
+    checkpoints: bool,
+) -> Result<Vec<(i64, Sealed)>, DesignError> {
+    let rows = tx
+        .query(
+            "SELECT design_version, false FROM design_payload \
+              WHERE design_id = $1 AND organisation_id = $2 AND design_version <= $3 \
+             UNION ALL \
+             SELECT design_version, true FROM design_checkpoint \
+              WHERE design_id = $1 AND organisation_id = $2 AND design_version <= $3 \
+                AND $4 \
+             ORDER BY 1 DESC LIMIT 8",
+            &[&design, &tenant, &target, &checkpoints],
+        )
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let checkpoint: bool = r.get(1);
+            (
+                r.get(0),
+                if checkpoint {
+                    Sealed::Checkpoint
+                } else {
+                    Sealed::Payload
+                },
+            )
+        })
+        .collect())
+}
+
+/// The inputs for a head at `target`: the `skip`th newest base and every
+/// change after it. `None` when there is no such base. Only a checkpoint may
+/// be skipped (a failing whole save is not replaceable by an older one).
+/// With `checkpoints` false only whole saves are bases: a replay that does not
+/// trust the derived data (verify).
+pub(crate) async fn rebuild_inputs(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    target: i64,
+    skip: usize,
+    checkpoints: bool,
+) -> Result<Option<Rebuild>, DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let candidates = base_candidates(tx, &design_text, &tenant, target, checkpoints).await?;
+    if candidates[..skip.min(candidates.len())]
+        .iter()
+        .any(|(_, kind)| *kind != Sealed::Checkpoint)
+    {
+        return Ok(None);
+    }
+    let Some(&(base_version, kind)) = candidates.get(skip) else {
+        return Ok(None);
+    };
+
+    let mut keys = KeyCache::default();
+    let row = tx
+        .query_opt(
+            &format!(
+                "SELECT ciphertext, nonce, key_epoch, payload_schema_version FROM {} \
+                  WHERE design_id = $1 AND organisation_id = $2 AND design_version = $3",
+                kind.table()
+            ),
+            &[&design_text, &tenant, &base_version],
+        )
+        .await?
+        .ok_or(DesignError::Corrupt("base version"))?;
+    let key_epoch: i32 = row.get(2);
+    let schema: i32 = row.get(3);
+    let base = open_sealed(
+        kind,
+        keys.get(tx, ring, ctx, design, key_epoch).await?,
+        &tenant,
+        &design_text,
+        base_version,
+        key_epoch,
+        schema,
+        &row.get::<_, Vec<u8>>(1),
+        &row.get::<_, Vec<u8>>(0),
+    )?;
+
+    let rows = tx
+        .query(
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version, \
+                    created_by \
+               FROM design_change \
+              WHERE design_id = $1 AND organisation_id = $2 \
+                AND design_version > $3 AND design_version <= $4 \
+              ORDER BY design_version",
+            &[&design_text, &tenant, &base_version, &target],
+        )
+        .await?;
+    let mut changes = Vec::with_capacity(rows.len());
+    let mut expected = base_version + 1;
+    for row in rows {
+        let version: i64 = row.get(0);
+        if version != expected {
+            return Err(DesignError::Corrupt("change sequence"));
+        }
+        expected += 1;
+        let key_epoch: i32 = row.get(3);
+        let schema: i32 = row.get(4);
+        let author: String = row.get(5);
+        let author: AccountId = author
+            .parse()
+            .map_err(|_| DesignError::Corrupt("change author"))?;
+        let doc = open_sealed(
+            Sealed::Change,
+            keys.get(tx, ring, ctx, design, key_epoch).await?,
+            &tenant,
+            &design_text,
+            version,
+            key_epoch,
+            schema,
+            &row.get::<_, Vec<u8>>(2),
+            &row.get::<_, Vec<u8>>(1),
+        )?;
+        changes.push((doc, author.0));
+    }
+    if expected != target + 1 {
+        return Err(DesignError::Corrupt("change sequence"));
+    }
+    Ok(Some(Rebuild { base, changes }))
+}
+
+/// The keyed digest a change's batch id is idempotent against.
+fn change_digest(ring: &KeyRing, tenant: &str, design: &str, body: &[u8]) -> [u8; 32] {
+    let design_chain = chain::ChainRef::Design {
+        organisation: tenant,
+        design,
+    };
+    let ck = chain::chain_key(ring.chain_master(), design_chain, CHAIN_KEY_EPOCH);
+    let sub = chain::Subkeys::derive(&ck);
+    let mut message = Vec::new();
+    crypto::lp(&mut message, b"fathom/change/digest/v1");
+    message.extend_from_slice(body);
+    crypto::mac(sub.content.expose(), &message)
+}
+
+/// The newest version that is a full face (a whole save or a checkpoint).
+async fn newest_base(tx: &Transaction<'_>, design: &str, tenant: &str) -> Result<i64, DesignError> {
+    let row = tx
+        .query_one(
+            "SELECT greatest( \
+                 coalesce((SELECT max(design_version) FROM design_payload \
+                            WHERE design_id = $1 AND organisation_id = $2), 0), \
+                 coalesce((SELECT max(design_version) FROM design_checkpoint \
+                            WHERE design_id = $1 AND organisation_id = $2), 0))",
+            &[&design, &tenant],
+        )
+        .await?;
+    Ok(row.get(0))
+}
+
+/// A stored change: the new version and the head that goes with it once the
+/// transaction commits.
+pub struct ChangeWritten {
+    pub version: i64,
+    /// `Some` unless this was a retry of a change already stored.
+    pub applied: Option<AppliedChange>,
+}
+
+pub struct AppliedChange {
+    pub ticket: u64,
+    /// The chain tip after this change's entry.
+    pub tip: Vec<u8>,
+}
+
+/// ADR-0063 #3: apply a signed-in account's change to the design's head, and
+/// if the head accepts it, store it as the next version with its chain entry,
+/// all in `tx`. The caller commits, then reports to `store`
+/// ([`HeadStore::commit`]); on any refusal here the pending copy is dropped.
+///
+/// Order, which matters: spool bound, `draw`, the row lock, then (only for an
+/// authorised caller) the idempotency lookup, then the head.
+#[allow(clippy::too_many_arguments)]
+pub async fn write_change_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    store: &HeadStore,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    doc: &[u8],
+    schema: i32,
+    after: i64,
+    bounds: &audit::SpoolBounds,
+) -> Result<ChangeWritten, DesignError> {
+    refuse_if_spool_beyond_bounds(tx, bounds).await?;
+    grants::authorise_account(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    let ctx = auth.ctx;
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    lock_design(tx, &design_text, &tenant).await?;
+
+    let parsed = fathom_workspace::read_change(doc)
+        .map_err(|e| DesignError::ChangeRefused(e.to_string()))?;
+    let batch_id = parsed.batch.id.0.encode();
+    let digest = change_digest(auth.ring, &tenant, &design_text, doc);
+
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT design_version, body_digest FROM design_change \
+              WHERE design_id = $1 AND organisation_id = $2 AND batch_id = $3",
+            &[&design_text, &tenant, &batch_id],
+        )
+        .await?
+    {
+        let stored: Vec<u8> = row.get(1);
+        return if stored == digest {
+            Ok(ChangeWritten {
+                version: row.get(0),
+                applied: None,
+            })
+        } else {
+            Err(DesignError::BatchIdUsed)
+        };
+    }
+
+    let (current, tip) = head_snapshot(tx, &design_text, &tenant).await?;
+    if current == 0 {
+        return Err(DesignError::NoSuchVersion);
+    }
+    if after > current {
+        return Err(DesignError::ChangeAhead { after, current });
+    }
+    let version = current + 1;
+    let want_checkpoint =
+        version - newest_base(tx, &design_text, &tenant).await? >= CHECKPOINT_EVERY;
+
+    let key = HeadKey {
+        design: design_text.clone(),
+        version: current,
+        tip: tip.unwrap_or_default(),
+    };
+    let mut rebuild: Option<Rebuild> = None;
+    let mut skip = 0usize;
+    let applied = loop {
+        match store
+            .apply(
+                &key,
+                rebuild.take(),
+                doc.to_vec(),
+                ctx.actor().0,
+                want_checkpoint,
+            )
+            .await
+        {
+            Ok(applied) => break applied,
+            Err(HeadError::NeedRebuild) => {}
+            Err(HeadError::Rebuild(why)) => {
+                tracing::warn!(%design, %why, "a base would not load; trying an older one");
+                skip += 1;
+            }
+            Err(e) => return Err(head_failure(e)),
+        }
+        if skip >= BASE_FALLBACKS {
+            return Err(DesignError::Corrupt("design head"));
+        }
+        rebuild = Some(
+            rebuild_inputs(tx, auth.ring, ctx, design, current, skip, true)
+                .await?
+                .ok_or(DesignError::Corrupt("design head"))?,
+        );
+    };
+
+    let stored = store_change(
+        tx, auth.ring, ctx, design, version, &batch_id, &digest, doc, schema,
+    )
+    .await;
+    let tip = match stored {
+        Ok(tip) => tip,
+        Err(e) => {
+            store.abort(&design_text, applied.ticket);
+            return Err(e);
+        }
+    };
+    if let Some(plain) = &applied.plain {
+        if let Err(e) = insert_checkpoint(tx, auth.ring, ctx, design, version, plain).await {
+            store.abort(&design_text, applied.ticket);
+            return Err(e);
+        }
+    }
+    Ok(ChangeWritten {
+        version,
+        applied: Some(AppliedChange {
+            ticket: applied.ticket,
+            tip,
+        }),
+    })
+}
+
+/// Seal and insert one change, and append its chain entry. Returns the new
+/// chain tip.
+#[allow(clippy::too_many_arguments)]
+async fn store_change(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    version: i64,
+    batch_id: &str,
+    digest: &[u8; 32],
+    doc: &[u8],
+    schema: i32,
+) -> Result<Vec<u8>, DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let key = keys::design_key(tx, ring, ctx, design).await?;
+    let nonce = crypto::random_nonce()?;
+    let aad = sealed_aad(
+        AAD_CHANGE,
+        &tenant,
+        &design_text,
+        version,
+        key.epoch,
+        schema,
+    );
+    let ciphertext = crypto::seal(&key.key, &nonce, doc, &aad)?;
+    tx.execute(
+        "INSERT INTO design_change \
+             (design_id, organisation_id, design_version, batch_id, body_digest, ciphertext, \
+              nonce, key_epoch, wrap_version, aead_alg_id, payload_schema_version, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        &[
+            &design_text,
+            &tenant,
+            &version,
+            &batch_id,
+            &digest.to_vec(),
+            &ciphertext,
+            &nonce.to_vec(),
+            &key.epoch,
+            &crypto::WRAP_VERSION,
+            &crypto::AEAD_ALG_CHACHA20POLY1305_IETF,
+            &schema,
+            &ctx.actor().to_string(),
+        ],
+    )
+    .await?;
+    keys::count_write_under_key(tx, design, key.epoch).await?;
+
+    let metadata = metadata_for_write(ctx, version, schema, EntryType::Change);
+    append_entry(
+        tx,
+        ring,
+        ctx,
+        design,
+        AppendFacts {
+            entry_type: EntryType::Change,
+            design_version: version,
+            plaintext: Some(doc),
+            payload_schema_version: schema,
+            key: &key,
+            nonce: &nonce,
+            ciphertext: &ciphertext,
+            carried_plaintext_binding: None,
+            metadata: &metadata,
+        },
+    )
+    .await
+}
+
+/// Seal `plain` as the checkpoint at `version`, under the acting account.
+/// No chain entry: it is derived from chained data.
+async fn insert_checkpoint(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    version: i64,
+    plain: &[u8],
+) -> Result<(), DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let schema = current_schema_number();
+    let key = keys::design_key(tx, ring, ctx, design).await?;
+    let nonce = crypto::random_nonce()?;
+    let aad = sealed_aad(
+        AAD_CHECKPOINT,
+        &tenant,
+        &design_text,
+        version,
+        key.epoch,
+        schema,
+    );
+    let ciphertext = crypto::seal(&key.key, &nonce, plain, &aad)?;
+    let inserted = tx
+        .execute(
+            "INSERT INTO design_checkpoint \
+                 (design_id, organisation_id, design_version, ciphertext, nonce, key_epoch, \
+                  wrap_version, aead_alg_id, payload_schema_version, written_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+             ON CONFLICT (design_id, design_version) DO NOTHING",
+            &[
+                &design_text,
+                &tenant,
+                &version,
+                &ciphertext,
+                &nonce.to_vec(),
+                &key.epoch,
+                &crypto::WRAP_VERSION,
+                &crypto::AEAD_ALG_CHACHA20POLY1305_IETF,
+                &schema,
+                &ctx.actor().to_string(),
+            ],
+        )
+        .await?;
+    if inserted == 1 {
+        keys::count_write_under_key(tx, design, key.epoch).await?;
+    }
+    Ok(())
+}
+
+/// When the last stream on a design closes: write a checkpoint at the current
+/// version if changes landed since the newest full face. Under `auth`'s
+/// account, after a `read` check; takes the design lock so it cannot race a
+/// change.
+pub async fn checkpoint_if_due_in_tx(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    store: &HeadStore,
+    design: DesignId,
+    scope: Option<ScopeId>,
+) -> Result<bool, DesignError> {
+    grants::authorise_account(tx, auth, scope, Capability::Read)
+        .await
+        .map_err(DesignError::Authority)?;
+    let ctx = auth.ctx;
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    lock_design(tx, &design_text, &tenant).await?;
+    let (current, tip) = head_snapshot(tx, &design_text, &tenant).await?;
+    if current == 0 || current <= newest_base(tx, &design_text, &tenant).await? {
+        return Ok(false);
+    }
+    let key = HeadKey {
+        design: design_text,
+        version: current,
+        tip: tip.unwrap_or_default(),
+    };
+    let plain = materialise(tx, auth.ring, ctx, design, current, Some(&key), Some(store)).await?;
+    if fathom_workspace::read_plain(&plain).is_err() {
+        tracing::error!(%design, "a checkpoint did not read back; skipped");
+        return Ok(false);
+    }
+    insert_checkpoint(tx, auth.ring, ctx, design, current, &plain).await?;
+    Ok(true)
+}
+
+/// What a stream has to say about a design since a version.
+pub enum LiveBatch {
+    /// Frames to send, oldest first. A whole save is a `Reload` with no body.
+    Rows(Vec<LiveRow>),
+    /// Too far behind to catch up in frames.
+    Resync,
+}
+
+pub struct LiveRow {
+    pub version: i64,
+    /// `Some(change document)`, or `None` for a whole save that landed.
+    pub change: Option<Vec<u8>>,
+    /// The account that made the change.
+    pub author: Option<String>,
+}
+
+/// The rows after `since`, at most `limit` of them. If a whole save landed
+/// after `since`, the first row is that save and the changes follow it.
+pub(crate) async fn live_rows_after(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    design: DesignId,
+    since: i64,
+    limit: i64,
+) -> Result<LiveBatch, DesignError> {
+    let tenant = ctx.tenant().to_string();
+    let design_text = design.to_string();
+    let (current, _) = head_snapshot(tx, &design_text, &tenant).await?;
+    if since > current {
+        return Ok(LiveBatch::Resync);
+    }
+    let mut rows = Vec::new();
+    let mut floor = since;
+    let save: Option<i64> = tx
+        .query_one(
+            "SELECT max(design_version) FROM design_payload \
+              WHERE design_id = $1 AND organisation_id = $2 AND design_version > $3",
+            &[&design_text, &tenant, &since],
+        )
+        .await?
+        .get(0);
+    if let Some(save) = save {
+        rows.push(LiveRow {
+            version: save,
+            change: None,
+            author: None,
+        });
+        floor = save;
+    }
+    let behind: i64 = tx
+        .query_one(
+            "SELECT coalesce(sum(octet_length(ciphertext)), 0)::bigint FROM design_change \
+              WHERE design_id = $1 AND organisation_id = $2 AND design_version > $3 \
+                AND design_version <= $4",
+            &[&design_text, &tenant, &floor, &current],
+        )
+        .await?
+        .get(0);
+    if behind > MAX_BEHIND_BYTES {
+        return Ok(LiveBatch::Resync);
+    }
+    let found = tx
+        .query(
+            "SELECT design_version, ciphertext, nonce, key_epoch, payload_schema_version, \
+                    created_by \
+               FROM design_change \
+              WHERE design_id = $1 AND organisation_id = $2 \
+                AND design_version > $3 AND design_version <= $4 \
+              ORDER BY design_version LIMIT $5",
+            &[&design_text, &tenant, &floor, &current, &limit],
+        )
+        .await?;
+    let mut keys = KeyCache::default();
+    for row in found {
+        let version: i64 = row.get(0);
+        let key_epoch: i32 = row.get(3);
+        let schema: i32 = row.get(4);
+        let doc = open_sealed(
+            Sealed::Change,
+            keys.get(tx, ring, ctx, design, key_epoch).await?,
+            &tenant,
+            &design_text,
+            version,
+            key_epoch,
+            schema,
+            &row.get::<_, Vec<u8>>(2),
+            &row.get::<_, Vec<u8>>(1),
+        )?;
+        rows.push(LiveRow {
+            version,
+            change: Some(doc),
+            author: Some(row.get(5)),
+        });
+    }
+    Ok(LiveBatch::Rows(rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -1360,7 +2324,7 @@ async fn append_entry(
     ctx: &TenantContext,
     design: DesignId,
     facts: AppendFacts<'_>,
-) -> Result<(), DesignError> {
+) -> Result<Vec<u8>, DesignError> {
     let tenant_text = ctx.tenant().to_string();
     let design_text = design.to_string();
 
@@ -1480,7 +2444,7 @@ async fn append_entry(
     )
     .await?;
 
-    Ok(())
+    Ok(seal.to_vec())
 }
 
 /// Take the design's own row as the lock for everything that writes under it.
@@ -1573,40 +2537,51 @@ async fn read_entries(
     Ok(out)
 }
 
+/// The stored bodies the chain's entries bind: whole saves and live changes
+/// (never checkpoints, which have no entry), each tagged with what it is.
 async fn read_payload_facts(
     tx: &Transaction<'_>,
     design: &str,
     tenant: &str,
-) -> Result<Vec<chain::StoredPayload>, DesignError> {
+) -> Result<Vec<(Sealed, chain::StoredPayload)>, DesignError> {
     // The key id comes from `design_keys`, which is where a verifier holding
     // only the chain key finds it: it is the data key's NON-SECRET id, not the
     // key.
-    let rows = tx
-        .query(
-            "SELECT p.design_version, k.key_id, p.key_epoch, p.wrap_version, p.aead_alg_id, \
-                    p.nonce, p.ciphertext, p.payload_schema_version \
-             FROM design_payload p \
-             JOIN design_keys k \
-               ON k.design_id = p.design_id AND k.key_epoch = p.key_epoch \
-             WHERE p.design_id = $1 AND p.organisation_id = $2 ORDER BY p.design_version",
-            &[&design, &tenant],
-        )
-        .await?;
-
-    let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
-        let key_id: String = row.get(1);
-        out.push(chain::StoredPayload {
-            design_version: row.get(0),
-            key_id: crypto::KeyId::parse(&key_id).ok_or(DesignError::Corrupt("key id"))?,
-            key_epoch: row.get(2),
-            wrap_version: row.get(3),
-            aead_alg_id: row.get(4),
-            nonce: row.get(5),
-            ciphertext: row.get(6),
-            payload_schema_version: row.get(7),
-        });
+    let mut out = Vec::new();
+    for kind in [Sealed::Payload, Sealed::Change] {
+        let rows = tx
+            .query(
+                &format!(
+                    "SELECT p.design_version, k.key_id, p.key_epoch, p.wrap_version, \
+                            p.aead_alg_id, p.nonce, p.ciphertext, p.payload_schema_version \
+                     FROM {} p \
+                     JOIN design_keys k \
+                       ON k.design_id = p.design_id AND k.key_epoch = p.key_epoch \
+                     WHERE p.design_id = $1 AND p.organisation_id = $2 \
+                     ORDER BY p.design_version",
+                    kind.table()
+                ),
+                &[&design, &tenant],
+            )
+            .await?;
+        for row in rows {
+            let key_id: String = row.get(1);
+            out.push((
+                kind,
+                chain::StoredPayload {
+                    design_version: row.get(0),
+                    key_id: crypto::KeyId::parse(&key_id).ok_or(DesignError::Corrupt("key id"))?,
+                    key_epoch: row.get(2),
+                    wrap_version: row.get(3),
+                    aead_alg_id: row.get(4),
+                    nonce: row.get(5),
+                    ciphertext: row.get(6),
+                    payload_schema_version: row.get(7),
+                },
+            ));
+        }
     }
+    out.sort_by_key(|(_, p)| p.design_version);
     Ok(out)
 }
 

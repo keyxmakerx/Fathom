@@ -256,6 +256,16 @@ export function Bar({
         >
           {tree}
         </Popover>
+        {/* Others in this view: a round dot with their initials; the full name is its label. */}
+        {presence.length > 0 && (
+          <div className="shell-bar__people" role="group" aria-label="Also in this view">
+            {presence.map((person) => (
+              <span className="shell-person" key={person.id} role="img" tabIndex={0} aria-label={person.name} title={person.name}>
+                {person.initials}
+              </span>
+            ))}
+          </div>
+        )}
         {/* A lens is what is drawn on top of the drawing's boxes, so it
             belongs to the camera and not to every screen. On Home
             (`place === null`) there is nothing for a lens to act on, and
@@ -393,19 +403,6 @@ export function Bar({
       {search && <SearchBox search={search} collapsed={searchCollapsed} />}
 
       <div className="shell-bar__trailing" ref={trailingRef}>
-        {presence.length > 0 && (
-          <>
-            <div className="shell-bar__presence">
-              {presence.map((person) => (
-                <span className="shell-chip" key={person.id}>
-                  {person.name}
-                </span>
-              ))}
-            </div>
-            <Sep />
-          </>
-        )}
-
         {/* ADR-0052 §5: "view only" reads with the same plain hairline chip
             as everything else in this group — UI-SPEC "Look" reserves
             colour for an error, a warning, a recommendation or a

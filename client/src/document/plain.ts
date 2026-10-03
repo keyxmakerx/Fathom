@@ -43,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.14 move is additive, so a payload declared at an older
+// Every 0.10-to-0.15 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -72,9 +72,13 @@ const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedW
 const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
 const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
 
-// Kinds 0.14 (ADR-0061 round 7) added; same reasoning, for 0.10 to 0.13.
+// Kinds 0.14 (ADR-0061 round 7, docs) added; same reasoning, for 0.10 to 0.13.
 const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
 const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
+
+// Kinds 0.15 (ADR-0061 round 7, maintenance plans) added; same reasoning, for 0.10 to 0.14.
+const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
+const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
@@ -83,9 +87,10 @@ function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): v
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
     const tooNew =
-      NODE_KINDS_SINCE_0_14.has(kind) ||
-      (declared !== '0.13' && NODE_KINDS_SINCE_0_13.has(kind)) ||
-      (declared !== '0.12' && declared !== '0.13' && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
+      NODE_KINDS_SINCE_0_15.has(kind) ||
+      (declared !== '0.14' && NODE_KINDS_SINCE_0_14.has(kind)) ||
+      (declared !== '0.13' && declared !== '0.14' && NODE_KINDS_SINCE_0_13.has(kind)) ||
+      (!['0.12', '0.13', '0.14'].includes(declared) && NODE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && NODE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
@@ -93,9 +98,10 @@ function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): v
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
     const tooNew =
-      EDGE_KINDS_SINCE_0_14.has(kind) ||
-      (declared !== '0.13' && EDGE_KINDS_SINCE_0_13.has(kind)) ||
-      (declared !== '0.12' && declared !== '0.13' && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
+      EDGE_KINDS_SINCE_0_15.has(kind) ||
+      (declared !== '0.14' && EDGE_KINDS_SINCE_0_14.has(kind)) ||
+      (declared !== '0.13' && declared !== '0.14' && EDGE_KINDS_SINCE_0_13.has(kind)) ||
+      (!['0.12', '0.13', '0.14'].includes(declared) && EDGE_KINDS_SINCE_0_12.has(kind)) || (declared === '0.10' && EDGE_KINDS_SINCE_0_11.has(kind));
     if (tooNew) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
@@ -145,7 +151,7 @@ function plainErrorMessage(r: PlainErrorReason): string {
   }
 }
 
-function shapeErr(path: string, expected: string): PlainError {
+export function shapeErr(path: string, expected: string): PlainError {
   return new PlainError({ kind: 'shape', path, expected });
 }
 
@@ -391,7 +397,7 @@ function originToJson(o: Origin): CanonValue {
   };
 }
 
-function provenanceToJson(r: ProvenanceRecord): CanonValue {
+export function provenanceToJson(r: ProvenanceRecord): CanonValue {
   const out: { [key: string]: CanonValue } = {
     asserted_at: r.assertedAt,
     asserted_by: { user: r.assertedBy },
@@ -435,7 +441,7 @@ function opToJson(op: Op): CanonValue {
   }
 }
 
-function batchToJson(b: Batch): CanonValue {
+export function batchToJson(b: Batch): CanonValue {
   const out: { [key: string]: CanonValue } = { id: b.id, label: b.label, ops: b.ops.map(opToJson) };
   // ADR-0053 §4: both optional, written only when present.
   if (b.comment !== undefined) out.comment = b.comment;
@@ -456,14 +462,14 @@ function documentToJson(doc: Document): CanonValue {
 // ---------------------------------------------------------------------------
 // canonical JSON -> Document
 
-function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
+export function isObj(v: CanonValue, path: string): { [key: string]: CanonValue } {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     throw shapeErr(path, 'a JSON object');
   }
   return v;
 }
 
-function isArr(v: CanonValue, path: string): CanonValue[] {
+export function isArr(v: CanonValue, path: string): CanonValue[] {
   if (!Array.isArray(v)) throw shapeErr(path, 'a JSON array');
   return v;
 }
@@ -478,7 +484,7 @@ function isNum(v: CanonValue, path: string): number {
   return v;
 }
 
-function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
+export function req(m: { [key: string]: CanonValue }, key: string, path: string): CanonValue {
   if (!(key in m)) throw shapeErr(`${path}.${key}`, 'a required key');
   return m[key];
 }
@@ -551,7 +557,7 @@ function readOrigin(v: CanonValue, path: string): Origin {
   };
 }
 
-function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
+export function readProvenance(v: CanonValue, path: string): ProvenanceRecord {
   const m = isObj(v, path);
   const actor = isObj(req(m, 'asserted_by', path), path);
   if (!('user' in actor) || Object.keys(actor).length !== 1) {
@@ -642,7 +648,7 @@ function readOp(v: CanonValue, path: string): Op {
   }
 }
 
-function readBatch(v: CanonValue, path: string): Batch {
+export function readBatch(v: CanonValue, path: string): Batch {
   const m = isObj(v, path);
   const ops = isArr(req(m, 'ops', path), `${path}.ops`).map((o, i) => readOp(o, `${path}.ops[${i}]`));
   const batch: Batch = { id: isStr(req(m, 'id', path), path), label: isStr(req(m, 'label', path), path), ops };

@@ -10,11 +10,14 @@ import {
   UnknownReferenceError,
   appendHistory,
   archiveField,
+  asString,
   assertHand,
   edgesIn,
   findEdge,
+  fieldValue,
   findNode,
   parseEdgeId,
+  parseNodeId,
   readMountedInFields,
   replaceEdge,
   replaceNode,
@@ -102,13 +105,16 @@ export type UndoConflict =
   /** ADR-0053 §1 — reviving this batch's tombstoned element would land it
    * where something else now stands (the same check `check_edge_l0` runs for
    * an ordinary add, re-run here for the edge kinds this client revives). */
-  | { kind: 'revive-refused'; element: string; reason: string };
+  | { kind: 'revive-refused'; element: string; reason: string }
+  /** The batch set a field on a recorded plan or one of its steps: a recorded plan is
+   * history as written and is never reversed. */
+  | { kind: 'recorded-plan'; element: string };
 
 /** Every element `batch` touched: each op's own element, plus — when that
  * element is (or was) an edge — its two endpoints, so a colleague's edit to
  * either end of an edge this batch added or removed still counts as
  * touching what the batch touched. */
-function touchedElements(doc: Document, batch: Batch): Set<string> {
+function touchedElements(doc: Document, batch: Batch, withoutFieldWrites = false): Set<string> {
   const out = new Set<string>();
   const addEdgeAndEndpoints = (edgeId: string, from?: string, to?: string): void => {
     out.add(edgeId);
@@ -132,7 +138,7 @@ function touchedElements(doc: Document, batch: Batch): Set<string> {
         addEdgeAndEndpoints(op.edge, op.from, op.to);
         break;
       case 'set_field':
-        addEdgeAndEndpoints(op.element);
+        if (!withoutFieldWrites) addEdgeAndEndpoints(op.element);
         break;
       case 'tombstone':
       case 'revive':
@@ -141,6 +147,23 @@ function touchedElements(doc: Document, batch: Batch): Set<string> {
     }
   }
   return out;
+}
+
+/** The first element `batch` sets a field on that is a recorded plan, or a step of one. */
+function recordedPlanTouched(doc: Document, batch: Batch): string | undefined {
+  for (const op of batch.ops) {
+    if (op.type !== 'set_field') continue;
+    const node = findNode(doc, op.element);
+    if (!node) continue;
+    const kind = parseNodeId(node.id).kind;
+    let plan = kind === 'MaintenancePlan' ? node : undefined;
+    if (kind === 'PlanStep') {
+      const from = edgesIn(doc, node.id, 'HasStep')[0]?.from;
+      plan = from === undefined ? undefined : findNode(doc, from);
+    }
+    if (plan && asString(fieldValue(plan.fields, 'MaintenancePlan.stage')) === 'recorded') return op.element;
+  }
+  return undefined;
 }
 
 /** The wall-clock millisecond a ulid was minted at — its top 48 bits
@@ -158,7 +181,13 @@ function ulidTimestampMs(id: string): number {
  * skipped — a caller that has not settled who is asking (or is checking a
  * batch's OWN standing, not a specific request to reverse it) gets the
  * older, ownership-blind answer. */
-export function conflict(doc: Document, batchId: string, requestingActor?: string): UndoConflict | undefined {
+export function conflict(
+  doc: Document,
+  batchId: string,
+  requestingActor?: string,
+  /** Live sessions: another person's later field write does not refuse the undo; that field is skipped instead. */
+  opts?: { skipChangedFields?: boolean },
+): UndoConflict | undefined {
   const batch = doc.batches.find((b) => b.id === batchId);
   if (!batch) throw new UnknownReferenceError(batchId, 'a batch');
 
@@ -171,12 +200,15 @@ export function conflict(doc: Document, batchId: string, requestingActor?: strin
     return { kind: 'not-yours', actor };
   }
 
+  const recorded = recordedPlanTouched(doc, batch);
+  if (recorded !== undefined) return { kind: 'recorded-plan', element: recorded };
+
   const touched = touchedElements(doc, batch);
   const index = doc.batches.indexOf(batch);
   for (const later of doc.batches.slice(index + 1)) {
     const laterActor = batchActor(doc, later);
     if (laterActor === undefined || laterActor === actor) continue;
-    const laterTouched = touchedElements(doc, later);
+    const laterTouched = touchedElements(doc, later, opts?.skipChangedFields === true);
     let hit = false;
     for (const el of laterTouched) {
       if (touched.has(el)) {
@@ -207,6 +239,8 @@ function conflictMessage(c: UndoConflict): string {
       return `this change is ${c.actor}'s, not yours to undo`;
     case 'revive-refused':
       return `undo refused: ${c.reason}`;
+    case 'recorded-plan':
+      return 'a recorded plan is history as written and cannot be undone';
   }
 }
 
@@ -226,17 +260,20 @@ export class UndoConflictError extends Error {
  * imported (it is `pub(crate)`, not part of the schema or the wire): the
  * bound a batch label is refused past, so "undo of <label>"/"redo of
  * <label>" never mints a label the engine would refuse. */
-const LABEL_MAX_BYTES = 60;
+export const LABEL_MAX_BYTES = 60;
 
 /** Cut `s` at `maxBytes` UTF-8 bytes, on a character boundary — never
  * mid-codepoint. */
-function truncateUtf8(s: string, maxBytes: number): string {
+export function truncateUtf8(s: string, maxBytes: number = LABEL_MAX_BYTES): string {
   const encoder = new TextEncoder();
-  if (encoder.encode(s).length <= maxBytes) return s;
-  let end = s.length;
+  // Every UTF-16 unit is at least one byte, so nothing past `maxBytes` units can fit.
+  let end = Math.min(s.length, maxBytes);
   while (end > 0 && encoder.encode(s.slice(0, end)).length > maxBytes) {
     end -= 1;
   }
+  // Never leave half of a surrogate pair.
+  const last = end > 0 ? s.charCodeAt(end - 1) : 0;
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
   return s.slice(0, end);
 }
 
@@ -400,24 +437,43 @@ function refuseIfReviveConflicts(doc: Document, edgeId: string): UndoConflict | 
   return undefined;
 }
 
+/** Whether a later batch by someone else wrote this field. */
+function changedByOther(doc: Document, target: Batch, actor: string, op: Extract<Op, { type: 'set_field' }>): boolean {
+  return doc.batches.slice(doc.batches.indexOf(target) + 1).some((later) => {
+    const by = batchActor(doc, later);
+    if (by === undefined || by === actor) return false;
+    return later.ops.some((o) => o.type === 'set_field' && o.element === op.element && o.key === op.key);
+  });
+}
+
+export interface SkippedField {
+  element: string;
+  key: string;
+}
+
 function reverseBatch(
   doc: Document,
   batchId: string,
   opts: { actor: string; now: number },
   prefix: 'undo' | 'redo',
+  skipped?: SkippedField[],
 ): Document {
   const target = doc.batches.find((b) => b.id === batchId);
   if (!target) throw new UnknownReferenceError(batchId, 'a batch');
 
   const { actor, now } = opts;
 
-  const c = conflict(doc, batchId, actor);
+  const c = conflict(doc, batchId, actor, { skipChangedFields: skipped !== undefined });
   if (c) throw new UndoConflictError(c);
 
   let working = doc;
   const ops: Op[] = [];
   const revivedEdgeIds: string[] = [];
   for (const op of [...target.ops].reverse()) {
+    if (skipped && op.type === 'set_field' && changedByOther(doc, target, actor, op)) {
+      skipped.push({ element: op.element, key: op.key });
+      continue;
+    }
     const r = reverseOp(working, actor, now, op);
     working = r.doc;
     if (!r.op) continue;
@@ -433,6 +489,7 @@ function reverseBatch(
     if (revived) throw new UndoConflictError(revived);
   }
 
+  if (skipped && ops.length === 0) return doc; // every part was someone else's now
   const label = truncateUtf8(`${prefix} of ${target.label}`, LABEL_MAX_BYTES);
   const batch: Batch = { id: newUlid(now), label, ops, reverses: target.id };
   return withBatch(working, batch);
@@ -452,4 +509,25 @@ export function undo(doc: Document, batchId: string, opts: { actor: string; now:
 /** Redo: the undo of the undo — same mechanism, labelled "redo of <label>". */
 export function redo(doc: Document, undoBatchId: string, opts: { actor: string; now: number }): Document {
   return reverseBatch(doc, undoBatchId, opts, 'redo');
+}
+
+/** `undo` for a live design: a field another person has written since is left
+ * as it is and named in `skipped`. `doc` comes back unchanged when nothing was
+ * left to undo. */
+export function undoSkipping(
+  doc: Document,
+  batchId: string,
+  opts: { actor: string; now: number },
+): { doc: Document; skipped: SkippedField[] } {
+  const skipped: SkippedField[] = [];
+  return { doc: reverseBatch(doc, batchId, opts, 'undo', skipped), skipped };
+}
+
+export function redoSkipping(
+  doc: Document,
+  undoBatchId: string,
+  opts: { actor: string; now: number },
+): { doc: Document; skipped: SkippedField[] } {
+  const skipped: SkippedField[] = [];
+  return { doc: reverseBatch(doc, undoBatchId, opts, 'redo', skipped), skipped };
 }

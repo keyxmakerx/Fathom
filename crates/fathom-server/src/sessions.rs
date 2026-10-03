@@ -774,6 +774,19 @@ pub struct PendingRequest {
     counter: i64,
     signature: [u8; 64],
     issued_counter: i64,
+    /// A background request (a live stream, presence) does not refresh
+    /// `last_seen_at`, so an unattended tab cannot keep a session alive
+    /// (ADR-0063 #13).
+    background: bool,
+}
+
+impl PendingRequest {
+    /// Mark this request as background: it is verified like any other but does
+    /// not count as the person being there.
+    pub fn background(mut self) -> Self {
+        self.background = true;
+        self
+    }
 }
 
 /// A session that has just proved itself on this request.
@@ -3145,6 +3158,7 @@ impl SessionStore {
             counter: request.counter,
             signature: request.signature,
             issued_counter: consumed.get(0),
+            background: false,
         })
     }
 
@@ -3304,22 +3318,21 @@ impl SessionStore {
         Ok(())
     }
 
-    async fn verify_inside(
+    /// Steps (1) to (5) of [`SessionStore::verify_inside`]: everything about a
+    /// session that does not need a request. A stream that was authorised once
+    /// calls this before each delivery.
+    async fn check_standing(
         &self,
         tx: &Transaction<'_>,
-        request: &PendingRequest,
-    ) -> Result<VerifiedSession, SessionError> {
-        let Some(row) = read_session(tx, &request.session_id).await? else {
-            return Err(SessionError::NoSuchSession);
-        };
-
+        row: &SessionRow,
+    ) -> Result<(), SessionError> {
         // (1) Signed out, and recorded as signed out.
         if is_revoked(tx, &row.id).await? {
             return Err(SessionError::SessionRevoked);
         }
 
         // (2) The row MAC.
-        self.check_row_mac(tx, &row).await?;
+        self.check_row_mac(tx, row).await?;
 
         // (3) Expiry.
         let now = now_unix();
@@ -3411,6 +3424,38 @@ impl SessionStore {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    /// Is `session` still standing: not signed out, MAC true, unexpired, not
+    /// idle, account enabled, evidence key in service? ADR-0063 #13.
+    pub async fn check_session_standing(
+        &self,
+        tx: &Transaction<'_>,
+        session: &VerifiedSession,
+    ) -> Result<(), SessionError> {
+        enter_session_custody(tx).await?;
+        let result = match read_session(tx, &session.id).await {
+            Ok(Some(row)) => self.check_standing(tx, &row).await,
+            Ok(None) => Err(SessionError::NoSuchSession),
+            Err(e) => Err(e),
+        };
+        let _ = leave_session_custody(tx).await;
+        result
+    }
+
+    async fn verify_inside(
+        &self,
+        tx: &Transaction<'_>,
+        request: &PendingRequest,
+    ) -> Result<VerifiedSession, SessionError> {
+        let Some(row) = read_session(tx, &request.session_id).await? else {
+            return Err(SessionError::NoSuchSession);
+        };
+
+        self.check_standing(tx, &row).await?;
+        let now = now_unix();
 
         // (4a) **ADR-0055 stream (a): the setup session.** An account that holds
         // the operator custody and has not enrolled its app code gets a session
@@ -3511,11 +3556,11 @@ impl SessionStore {
         let touched = tx
             .query_opt(
                 "UPDATE sessions \
-                    SET last_seen_at = now(), \
+                    SET last_seen_at = CASE WHEN $3 THEN now() ELSE last_seen_at END, \
                         request_counter = GREATEST(request_counter, $2) \
                   WHERE id = $1 \
                   RETURNING id",
-                &[&row.id, &request.counter],
+                &[&row.id, &request.counter, &!request.background],
             )
             .await?;
         if touched.is_none() {
@@ -4278,15 +4323,20 @@ async fn sweep_expired_nonces(tx: &Transaction<'_>) -> Result<(), SessionError> 
 /// No revocation row is recorded for a swept session, unlike a sign-out: `expires_at` is inside
 /// the row's own MAC, so a restored expired row is refused by the expiry check on its own bytes.
 async fn sweep_expired_sessions(tx: &Transaction<'_>) -> Result<(), SessionError> {
-    tx.execute(
-        "DELETE FROM sessions \
-          WHERE id IN (SELECT id FROM sessions \
-                        WHERE expires_at <= now() \
-                        ORDER BY expires_at \
-                        LIMIT $1)",
-        &[&SWEEP_BATCH],
-    )
-    .await?;
+    let ended = tx
+        .query(
+            "DELETE FROM sessions \
+              WHERE id IN (SELECT id FROM sessions \
+                            WHERE expires_at <= now() \
+                            ORDER BY expires_at \
+                            LIMIT $1) \
+              RETURNING id",
+            &[&SWEEP_BATCH],
+        )
+        .await?;
+    for row in ended {
+        notify_session_ended(tx, &row.get::<_, String>(0)).await?;
+    }
     Ok(())
 }
 
@@ -4421,6 +4471,22 @@ async fn query_sessions_of(
 async fn delete_session(tx: &Transaction<'_>, id: &str) -> Result<(), SessionError> {
     tx.execute("DELETE FROM sessions WHERE id = $1", &[&id])
         .await?;
+    notify_session_ended(tx, id).await?;
+    Ok(())
+}
+
+/// Tell every process a session ended, so open live streams recheck (ADR-0063
+/// #13). Delivered at commit; sent by the code that ends the session, not by a
+/// trigger (the `sessions` table carries none).
+pub(crate) async fn notify_session_ended(
+    tx: &Transaction<'_>,
+    id: &str,
+) -> Result<(), tokio_postgres::Error> {
+    tx.execute(
+        "SELECT pg_notify('fathom_authority', 'session:' || $1::text)",
+        &[&id],
+    )
+    .await?;
     Ok(())
 }
 

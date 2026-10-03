@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -1497,7 +1497,31 @@ function AddNoteForm({
  * page — this file draws the fields and raises `actions.onEdit`; it never
  * reads or writes a `Document` itself.
  */
+/** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
+function elementsOf(selection: Selection, view: ClosetView): string {
+  const ids = [selection.id];
+  if (selection.kind === 'chassis') {
+    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+    if (chassis != null) {
+      ids.push(chassis.deviceId);
+      for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
+    }
+  }
+  return ids.join(' ');
+}
+
 export function EditorFor(
+  selection: Selection | null,
+  view: ClosetView,
+  actions: EditorActions,
+  catalogue: readonly PaletteItem[] = [],
+): ReactNode {
+  const panel = panelFor(selection, view, actions, catalogue);
+  if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
+  return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
+}
+
+function panelFor(
   selection: Selection | null,
   view: ClosetView,
   actions: EditorActions,

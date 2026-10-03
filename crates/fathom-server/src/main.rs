@@ -526,12 +526,28 @@ async fn main() -> ExitCode {
     };
     let sessions_for_firmware = Arc::clone(&sessions);
     let watch_for_firmware = Arc::clone(&watch);
+    // ADR-0063: the design heads and the stream hub, and the one connection that
+    // listens for commits and authority changes made by any process.
+    let head_bytes = std::env::var("FATHOM_HEAD_CACHE_BYTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(fathom_server::live::DEFAULT_HEAD_BYTES);
+    let live =
+        fathom_server::live::Live::new(fathom_server::live::DEFAULT_HEAD_THREADS, head_bytes);
+    match fathom_server::db::listener_config(&config) {
+        Ok(listener) => live.listen(listener),
+        Err(e) => {
+            tracing::error!(error = %e, "the live listener could not be configured; refusing to start");
+            return ExitCode::from(8);
+        }
+    }
     let designs = fathom_server::design_api::DesignApiState {
         sessions: Arc::clone(&sessions),
         watch,
         ring: Arc::clone(&ring),
         catalogue,
         client_address: client_address.clone(),
+        live,
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live

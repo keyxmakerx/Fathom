@@ -5,6 +5,7 @@ import {
   ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useReactFlow,
   type ConnectionLineComponentProps,
   type Edge,
@@ -21,11 +22,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import '../../styles/drawing.css';
+import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
+import { PlanGhostEdge } from './PlanGhostEdge';
+import { PlansCanvasBridge, usePlansFade } from './plansFade';
+import type { PortTarget } from './plansMarks';
 import { Callout } from './Callout';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
@@ -67,7 +72,7 @@ import { PortalTrayNode, type PortalTrayNodeType } from './PortalTrayNode';
 import { RowLabelNode, type RowLabelNodeType } from './RowLabelNode';
 import { ShelfPlate, type ShelfPlateNodeType } from './ShelfPlate';
 import { SurfaceNode, type SurfaceNodeType } from './SurfaceNode';
-import { chassisNodeId, parseNodeId, rackNodeId, surfaceNodeId, trayNodeId } from './nodeId';
+import { chassisNodeId, parseNodeId, rackNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
 import { groupPortals, type PortalGroup } from './portals';
@@ -85,7 +90,9 @@ import {
   rowKey,
   type RowLayout,
 } from './rows';
-import { buildDrawingNodes } from './buildDrawingNodes';
+import type { Person } from '../../api/live';
+import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
+import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 
 const NODE_TYPES = {
@@ -96,7 +103,7 @@ const NODE_TYPES = {
   surface: SurfaceNode,
   shelf: ShelfPlate,
 };
-const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge };
+const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
 const PAN_BUTTONS = [1];
@@ -211,12 +218,16 @@ function centreAboveDrawer(centre: { x: number; y: number }, zoomLevel: number, 
 
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
+  /** Others in this view; each gets an initials dot on the thing they have selected. */
+  peers?: readonly Person[];
   selected: Selection | null;
   /** The bar's zoom percentage, e.g. `100` — `Shell`'s own `zoom` prop
    * convention. Kept in agreement with React Flow's viewport: this
    * component is the one place that converts between the two. */
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  /** Right-click "Plan a change" on a device (ADR-0061 round 7). Absent, or a reader: no menu item. */
+  onPlanChange?: (elementId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
@@ -328,6 +339,7 @@ function LiveLitPath({ view, portalGroups, selected, liveStore, drawnCableIds }:
 
 function DrawingInner({
   view,
+  peers,
   selected,
   zoom,
   onZoomChange,
@@ -343,6 +355,7 @@ function DrawingInner({
   onAddRack,
   onAddWall,
   onPasteConfig,
+  onPlanChange,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -454,7 +467,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -1057,6 +1070,14 @@ function DrawingInner({
     return box == null ? null : { x: plate.x + box.x, y: plate.y + box.y, w: box.w, h: box.h, row: box.row };
   }
   type RealEnd = { portId: string; chassisId: string; rackId: string | null };
+  // Where a planned cable's end lands: the node and handle a real cable to that port would use.
+  const resolvePlanPort = (portId: string): PortTarget | null => {
+    const at = locatePort(view, portId);
+    if (at == null) return null;
+    const end: RealEnd = at.place === 'chassis' ? { portId, chassisId: at.chassis.id, rackId: at.rack.id } : { portId, chassisId: '', rackId: null };
+    const target = resolveEnd(end);
+    return target == null ? null : { ...target, box: portBox(end) };
+  };
   const realEndsOf = (cable: CableView): RealEnd[] => cable.ends.filter((e): e is RealEnd => 'portId' in e);
 
   // Far-apart cables draw as stubs with a tag naming the far end (ADR-0061 round 7).
@@ -1553,8 +1574,18 @@ function DrawingInner({
   }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
+  const marks = useMemo(
+    () =>
+      peerMarks(allNodes, peers ?? [], (id) => {
+        const owner = ownerNodeIdForPort(view, id);
+        return [chassisNodeId(id), rackNodeId(id), shelfNodeId(id), surfaceNodeId(id), ...(owner != null ? [owner] : [])];
+      }),
+    [allNodes, peers, view],
+  );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
-  const shown = useChecksFade(allNodes, allEdges);
+  // An open plan's marks and focus first; a Checks Show then fades on top and wins.
+  const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
+  const shown = useChecksFade(planned.nodes, planned.edges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1624,9 +1655,26 @@ function DrawingInner({
       >
         <Background gap={U_PX} size={1} />
         {free.portal}
+        {marks.length > 0 && (
+          <ViewportPortal>
+            {marks.map((m) => (
+              <div
+                key={m.account}
+                className="drawing-peer"
+                style={{ transform: `translate(${m.x}px, ${m.y}px)`, width: PEER_DOT_PX, height: PEER_DOT_PX }}
+                role="img"
+                aria-label={`${m.name} has this selected`}
+                title={m.name}
+              >
+                {m.initials}
+              </div>
+            ))}
+          </ViewportPortal>
+        )}
       </ReactFlow>
       {free.overlay}
       <ChecksCanvasBridge />
+      <PlansCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout
           chassis={selectedChassis}

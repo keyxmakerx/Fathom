@@ -22,8 +22,8 @@ use crate::OP_ESTATE_DEMO;
 use crate::{
     OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
-    OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_QUERY,
-    OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC,
+    OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_PLAN_PREVIEW,
+    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC,
 };
 
 pub struct Shell {
@@ -99,6 +99,7 @@ impl Shell {
             OP_FINDINGS => self.findings(req),
             OP_CHECKS => self.checks(req),
             OP_CHECK_GESTURE => self.check_gesture(req),
+            OP_PLAN_PREVIEW => self.plan_preview(req),
             OP_INSIDE => self.inside(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
@@ -1820,6 +1821,106 @@ impl Shell {
             self.checks.unfinished,
         );
         protocol::encode_checks_reply(Some(head), &rows)
+    }
+
+    /// `OP_PLAN_PREVIEW`: the plan's remaining steps applied in order to a scratch copy of the
+    /// estate, with the checks run after each. The held estate and its check cache never change.
+    fn plan_preview(&mut self, req: &[u8]) -> Vec<u8> {
+        use crate::plan::{self, Edit, StepOut};
+        let none = || protocol::encode_plan_reply(&[]);
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let Ok(id) = core::str::from_utf8(req) else {
+            return none();
+        };
+        let Some(plan_node) = self
+            .resolve_node(id)
+            .filter(|n| n.kind == fathom_ir::generated::ir_types::NodeKind::MaintenancePlan)
+        else {
+            return none();
+        };
+        let steps = plan::planned_steps(estate, plan_node);
+        if steps.is_empty() {
+            return none();
+        }
+        // A copy the rules can run over and the writes can change: the estate has no clone.
+        let Ok(bytes) = fathom_workspace::write_plain(estate) else {
+            return none();
+        };
+        let Ok(copy) = fathom_workspace::read_plain(&bytes) else {
+            return none();
+        };
+        let mut scratch = Shell::new();
+        scratch.estate = Some(copy);
+        let key = |rows: &[crate::checks::Row]| -> std::collections::BTreeSet<String> {
+            rows.iter()
+                .map(|r| format!("{}|{}", r.rule, r.elements))
+                .collect()
+        };
+        let mut before = key(&scratch.checks.standing(scratch.estate.as_ref().unwrap()));
+        // Ids and times for the scratch writes: fixed, because nothing here is kept.
+        let seed = id.bytes().fold(0xcbf29ce484222325u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+        });
+
+        let mut out = Vec::with_capacity(steps.len());
+        for (i, step) in steps.iter().enumerate() {
+            let mut prefix = [0u8; 24];
+            prefix[..8].copy_from_slice(&(1_000_000_000_000u64 + i as u64).to_le_bytes());
+            prefix[8..].copy_from_slice(&(u128::from(seed) << 64 | (i as u128 + 1)).to_le_bytes());
+            let g = scratch.estate.as_ref().unwrap();
+            let (lines, touches) = plan::impact(g, &step.edit);
+            let reply = match &step.edit {
+                Edit::None | Edit::Move { .. } => Vec::new(),
+                Edit::Field { id, key, value } => {
+                    // A key the target's kind does not have is never written.
+                    let foreign = scratch
+                        .resolve_node(id)
+                        .is_some_and(|n| !n.kind.fields().iter().any(|k| k.0 == key.0));
+                    if foreign {
+                        protocol::encode_error(
+                            ERR_FIELD_VALUE,
+                            "this field does not belong to what the step changes",
+                        )
+                    } else {
+                        scratch.field_set(&plan::field_frame(&prefix, *key, id, value))
+                    }
+                }
+                Edit::Cable { a, b } => scratch.cable(&plan::cable_frame(&prefix, a, b)),
+                Edit::Cut { cable } => scratch.cable(&plan::cut_frame(&prefix, cable)),
+            };
+            // A refusal is an error record; anything else is the write's own short reply.
+            let error = protocol::error_detail(&reply)
+                .map(|(code, d)| match code {
+                    ERR_CABLE_END => "a port in this step is not in the design".to_owned(),
+                    ERR_NO_CABLE => "the cable to cut is not in the design".to_owned(),
+                    ERR_NO_ELEMENT => "what this step changes is not in the design".to_owned(),
+                    _ if d.is_empty() => "this change does not apply as planned".to_owned(),
+                    _ => d,
+                })
+                .unwrap_or_default();
+            let rows = scratch.checks.standing(scratch.estate.as_ref().unwrap());
+            let now = key(&rows);
+            let added: Vec<crate::checks::Row> = rows
+                .into_iter()
+                .filter(|r| !before.contains(&format!("{}|{}", r.rule, r.elements)))
+                .collect();
+            before = now;
+            out.push(StepOut {
+                id: step.id.to_string(),
+                ordinal: step.ordinal,
+                error,
+                impact: lines.join("\n"),
+                touches: touches
+                    .iter()
+                    .map(|(d, n)| format!("{d}\t{n}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                rows: added,
+            });
+        }
+        protocol::encode_plan_reply(&out)
     }
 
     /// `OP_CHECK_GESTURE`: what a proposed cable or field edit would break, if anything.

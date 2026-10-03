@@ -6,6 +6,8 @@ import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cab
 import type { CableView } from './contract';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
+import { PlanEdgeTag } from './PlanGhostEdge';
+import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
 import { StubTags } from './StubTags';
 import type { StubEnd } from './stubs';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
@@ -13,6 +15,8 @@ import { needsHairlineOutline, SHEATH_VAR } from './sheath';
 export interface CableEdgeData extends Record<string, unknown> {
   /** Set by Checks' Show on an edge it fades. */
   checksFaded?: boolean;
+  /** Set while an open plan touches this cable: its stage colour and tag. */
+  planMark?: PlanEdgeMark;
   cable: CableView;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
@@ -127,6 +131,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           className="drawing-cable__halo"
         />
       )}
+      {data.planMark != null && (
+        <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__wash" strokeLinecap="round" />
+      )}
       {needsHairlineOutline(sheath) && (
         <path
           d={d}
@@ -149,6 +156,10 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
+      {data.planMark != null && data.planMark.dashed && (
+        <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__dash" strokeDasharray="5 3" strokeLinecap="round" pointerEvents="none" />
+      )}
+      {data.planMark != null && <PlanEdgeTag x={midX} y={midY - 14} mark={data.planMark} />}
       <CableCheckBadge id={cable.id} x={midX} y={midY} />
       {portPairLabel != null && (
         // UI-SPEC #2: "each with its own sheath and its port pair

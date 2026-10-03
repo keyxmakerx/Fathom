@@ -179,10 +179,12 @@ denied · says "could not establish" over a guess · never changes the estate.
 
 ## Presence
 
-No cursors. A dashed ring on the device someone is editing, a dashed ring on a port someone is holding
-mid-drag, and a name chip on the rack rail: solid when editing, outlined when only looking. Scoped to
-the view. Two people on one device get two offset rings. That shows the collision; **who wins is a plan
-question** (`REBUILD-PLAN.md`, open before Phase 4), not a drawing one.
+No cursors (ADR-0063 §12). Each other person in your view is a small initials dot in the bar, and
+an ink initials dot, no ring and no animation, at the top-right of the first thing they have
+selected. It moves only when their selection changes, never with their pointer. People in another
+view are not shown. Same field, same moment: the later change wins and the overwritten person sees
+"Bob changed the serial on core-sw-01 just after you" under the field, with Keep Bob's / Put mine
+back.
 
 ## Motion
 
