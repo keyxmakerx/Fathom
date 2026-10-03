@@ -31,15 +31,32 @@ import { devicePlatform, platformChoices, previewPaste, worthReading } from '../
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
+import {
+  cableGroupsStorageKey,
+  closetCableIdSet,
+  closetHiddenCableCount,
+  computeCableDraw,
+  isCableGroupsFiltered,
+  loadCableGroupsState,
+  migratedOrDefaultCableGroupsState,
+  resolveStoredGroups,
+  saveCableGroupsState,
+  withAllCablesShown,
+  withCableHidden,
+  withCableShown,
+  withHiddenCablesPruned,
+  type StoredCableGroupsState,
+} from '../drawing/cableGroups';
+import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
 import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
-import { loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
+import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
 import { mediaCandidates } from '../checks/checksModel';
-import { ChecksContext } from '../checks/checksStore';
+import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
@@ -203,6 +220,11 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** The History panel, shown in the editor's place, and the line over the canvas while a
    * past save is shown. Absent unless History is open. */
   historyView?: { panel: ReactNode; banner: string | null };
+  /** The cable ids the Cables list shows, or `null` when it shows them all — for "as shown on screen" in print. */
+  onShownCablesChange?: (ids: ReadonlySet<string> | null) => void;
+  /** The Cables list's own storage key (`fathom.cables.<designId>`), one
+   * per design, never the document. */
+  designId: string;
 }
 
 /**
@@ -233,6 +255,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     tagsActions,
     onActiveRackChange,
     historyView,
+    onShownCablesChange,
+    designId,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -553,6 +577,136 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
+
+  // The Cables list. `cableGroupsState`'s own initial value is read from
+  // storage synchronously (never a placeholder that then flashes every
+  // cable): the lazy `useState` initialiser runs before the first render,
+  // and the only case it cannot cover — nothing stored yet, needing the
+  // real `view` to pick a default type list — starts at the empty state,
+  // which draws exactly the same as that default (every group unticked)
+  // until the effect below replaces it.
+  const EMPTY_CABLE_GROUPS_STATE: StoredCableGroupsState = { groups: [], none: false, hiddenCableIds: [] };
+  const [cableGroupsDesignId, setCableGroupsDesignId] = useState(designId);
+  const [cableGroupsState, setCableGroupsStateRaw] = useState<StoredCableGroupsState>(
+    () => loadCableGroupsState(designId) ?? EMPTY_CABLE_GROUPS_STATE,
+  );
+  const [cableGroupsNeedsDefault, setCableGroupsNeedsDefault] = useState(() => loadCableGroupsState(designId) == null);
+
+  // Switching design without remounting this component: reset during
+  // render, the moment the prop itself changes, rather than one render
+  // late through an effect — the same "derived state" pattern React's own
+  // docs give for a prop-keyed reset.
+  if (designId !== cableGroupsDesignId) {
+    setCableGroupsDesignId(designId);
+    const stored = loadCableGroupsState(designId);
+    setCableGroupsStateRaw(stored ?? EMPTY_CABLE_GROUPS_STATE);
+    setCableGroupsNeedsDefault(stored == null);
+  }
+
+  useEffect(() => {
+    if (!cableGroupsNeedsDefault || doc == null) return;
+    const initial = migratedOrDefaultCableGroupsState(displayView);
+    setCableGroupsStateRaw(initial);
+    saveCableGroupsState(designId, initial);
+    setCableGroupsNeedsDefault(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `displayView` is read fresh at the one moment this runs (doc arriving, or nothing stored for this design); it is not meant to re-run on every later view change.
+  }, [doc, designId, cableGroupsNeedsDefault]);
+
+  // Two tabs open on the same design: another tab's own save fires a
+  // `storage` event in this one: take its state rather than keep drawing a
+  // filter this tab's own click never made.
+  useEffect(() => {
+    const key = cableGroupsStorageKey(designId);
+    function onStorage(event: StorageEvent): void {
+      if (event.key !== key) return;
+      const next = loadCableGroupsState(designId);
+      if (next) setCableGroupsStateRaw(next);
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [designId]);
+
+  const setCableGroupsState = useCallback(
+    (next: StoredCableGroupsState) => {
+      setCableGroupsStateRaw(next);
+      saveCableGroupsState(designId, next);
+    },
+    [designId],
+  );
+
+  // A hidden id whose cable no longer exists anywhere in the design drops
+  // here, once; a stored group that stops resolving drops in
+  // `resolveStoredGroups` itself. Either dropping something is what makes
+  // `effectiveCableGroupsState` differ from the raw stored value below —
+  // the effect right after persists that drop, once, rather than on every
+  // render.
+  const existingCableIds = useMemo(() => new Set(displayView.cables.map((c) => c.id)), [displayView.cables]);
+  const prunedCableGroupsState = useMemo(
+    () => withHiddenCablesPruned(cableGroupsState, existingCableIds),
+    [cableGroupsState, existingCableIds],
+  );
+  const { state: effectiveCableGroupsState, rows: resolvedCableGroupRows } = useMemo(
+    () => (doc ? resolveStoredGroups(doc, displayView, prunedCableGroupsState) : { state: prunedCableGroupsState, rows: [], droppedRefKeys: [] }),
+    [doc, displayView, prunedCableGroupsState],
+  );
+  useEffect(() => {
+    if (effectiveCableGroupsState !== cableGroupsState) {
+      setCableGroupsStateRaw(effectiveCableGroupsState);
+      saveCableGroupsState(designId, effectiveCableGroupsState);
+    }
+  }, [effectiveCableGroupsState, cableGroupsState, designId]);
+
+  const tickedCableGroups = useMemo(
+    () => resolvedCableGroupRows.filter((r) => r.stored.on).map((r) => r.resolved),
+    [resolvedCableGroupRows],
+  );
+  const closetCableIds = useMemo(() => closetCableIdSet(displayView), [displayView]);
+  const hiddenCableIdSet = useMemo(() => new Set(effectiveCableGroupsState.hiddenCableIds), [effectiveCableGroupsState.hiddenCableIds]);
+  const cableDraw = useMemo(
+    () => computeCableDraw([...closetCableIds], hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups),
+    [closetCableIds, hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups],
+  );
+  const cablesGroupsSummary = isCableGroupsFiltered(effectiveCableGroupsState)
+    ? `${cableDraw.drawnIds.size} of ${closetCableIds.size}`
+    : null;
+  const cablesFiltered = isCableGroupsFiltered(effectiveCableGroupsState);
+  useEffect(() => {
+    onShownCablesChange?.(cablesFiltered ? cableDraw.drawnIds : null);
+  }, [onShownCablesChange, cablesFiltered, cableDraw]);
+  const hiddenCablesInClosetCount = closetHiddenCableCount(displayView, effectiveCableGroupsState.hiddenCableIds);
+
+  const handleToggleCableHidden = useCallback(
+    (cableId: string) => {
+      setCableGroupsState(
+        effectiveCableGroupsState.hiddenCableIds.includes(cableId)
+          ? withCableShown(effectiveCableGroupsState, cableId)
+          : withCableHidden(effectiveCableGroupsState, cableId),
+      );
+    },
+    [effectiveCableGroupsState, setCableGroupsState],
+  );
+  const handleIsCableHidden = useCallback(
+    (cableId: string) => effectiveCableGroupsState.hiddenCableIds.includes(cableId),
+    [effectiveCableGroupsState],
+  );
+  const handleShowAllHiddenCables = useCallback(
+    () => setCableGroupsState(withAllCablesShown(effectiveCableGroupsState)),
+    [effectiveCableGroupsState, setCableGroupsState],
+  );
+
+  const cablesGroupsPopover =
+    doc != null ? (
+      <CableGroupsPopover
+        doc={doc}
+        view={displayView}
+        state={effectiveCableGroupsState}
+        rows={resolvedCableGroupRows}
+        onStateChange={setCableGroupsState}
+        drawnCount={cableDraw.drawnIds.size}
+        totalCount={closetCableIds.size}
+        onShowAllHidden={handleShowAllHiddenCables}
+      />
+    ) : undefined;
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1040,6 +1194,10 @@ export function RacksPlace(props: RacksPlaceProps) {
             onAddTag: canDraw ? tagsActions.onAddTag : undefined,
             onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
             onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
+            // A view choice, offered to every reader regardless of
+            // `canDraw`.
+            isCableHidden: handleIsCableHidden,
+            onToggleCableHidden: handleToggleCableHidden,
           },
           paletteFromCatalogue(catalogue),
         )
@@ -1091,13 +1249,14 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={doc != null ? <ChecksBarChip controller={checks} /> : undefined}>
       <ChecksContext.Provider value={checks.api}>
       {historyView?.banner != null ? (
         <div className="history-banner" role="status" data-testid="history-banner">
           {historyView.banner}
         </div>
       ) : null}
+      <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1108,6 +1267,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          drawnCableIds={cableDraw.drawnIds}
+          dashedCableIds={cableDraw.dashedIds}
           words={words}
         />
       ) : (
@@ -1145,6 +1306,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
           litPortLabel={litPortLabel}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
+          drawnCableIds={cableDraw.drawnIds}
+          dashedCableIds={cableDraw.dashedIds}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}
@@ -1207,6 +1370,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </div>
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      </CheckMarksContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );

@@ -83,63 +83,6 @@
   --xy-background-pattern-dots-color: var(--hairline);
 }
 
-/* This session's brief item 1 — the cables view control: "a small control
-   on the canvas near the lens row... a view control, not a lens." Flat,
-   hairline, zero radius, no shadow — the plan control on the Room board
-   (`design/places/Room.dc.html`) is the precedent for the form, redrawn in
-   this drawing's own segmented-button language (`Editor.tsx`'s own "PLACED
-   ON" control's inline styles, moved to real CSS here since this file, not
-   that one, owns `drawing.css`). Positioned near the bar's own lens row —
-   top-left of the canvas, never inside the React Flow pane, so it survives
-   a pan or zoom untouched. */
-.drawing-cables-control {
-  position: absolute;
-  top: var(--s2);
-  left: var(--s2);
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: stretch;
-  background: var(--surface);
-  border: var(--rule-hair) solid var(--hairline);
-  border-radius: var(--radius);
-  font-family: var(--sans);
-  font-size: var(--t-micro);
-}
-
-.drawing-cables-control__label {
-  padding: var(--s1) var(--s2);
-  color: var(--muted);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  border-right: var(--rule-hair) solid var(--hairline);
-}
-
-.drawing-cables-control__option {
-  appearance: none;
-  border: none;
-  border-right: var(--rule-hair) solid var(--hairline);
-  background: var(--surface);
-  color: var(--ink);
-  padding: var(--s1) var(--s2);
-  cursor: pointer;
-  font: inherit;
-}
-
-.drawing-cables-control__option:last-child {
-  border-right: none;
-}
-
-/* The one lit choice — ink background, page-coloured text, the exact pair
-   `shell.css`'s own `.shell-lens--on` already uses for "a lens, one lit" —
-   never a risk colour (UI-SPEC "Look": this names a view choice, not an
-   error/warning/recommendation/confirmation). */
-.drawing-cables-control__option--on {
-  background: var(--ink);
-  color: var(--page);
-}
-
 /* ADR-0050 §2: "the flip is one camera, never a page: racks move to their
    mirrored places with the standard motion, nothing remounts." The same
    node ids stay mounted (`Drawing.tsx`'s own `rackPositions`, keyed by rack
@@ -659,6 +602,18 @@
   font-size: var(--t-body);
   color: var(--ink);
   font-variant-numeric: var(--num-tabular);
+}
+
+/* "Hide this cable" / "Show this cable". */
+.drawing-editor__hide-cable {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.drawing-editor__hide-cable-note {
+  font-size: var(--t-micro);
+  color: var(--muted);
 }
 
 /* ---- the palette -------------------------------------------------------- */

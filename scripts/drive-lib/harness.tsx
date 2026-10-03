@@ -17,6 +17,8 @@ import {
   catalogueFrom,
   seedCanvasScene,
   seedLookScene,
+  seedCableGroupsScene,
+  seedCableGroupsSpeedScene,
   seedShowScene,
   seedConflictingChange,
   seedConnectedDevices,
@@ -38,6 +40,11 @@ import {
 const ORG_ID = 'org-drive';
 const SCOPE_ID = 'scope-drive';
 const DESIGN_ID = 'design-drive';
+/** GitHub issue #54's own drive — "open a second design: it has its own
+ * list." Every other scene still opens exactly one design (`DESIGN_ID`
+ * alone); this one is seeded too only when `scene === 'cable-groups'`,
+ * below. */
+const DESIGN_ID_2 = 'design-drive-2';
 /** The signed-in account this harness installs — every seeded batch below
  * is stamped with this same id, so `document/undo.ts`'s `undoable` finds
  * them as "mine". A real ulid, not a readable string: the wasm engine
@@ -133,20 +140,20 @@ async function main() {
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
+  else if (scene === 'cable-groups') doc = seedCableGroupsScene(catalogue, ME);
+  else if (scene === 'cable-groups-speed') doc = seedCableGroupsSpeedScene(catalogue, ME, Number(params.get('count') ?? '2100'));
   else doc = seedEmptyDesign();
 
-  // Every saved version, for the History panel: `stored[v - 1]`. Normal scenes start with one.
-  const stored: { bytes: Uint8Array; atUnix: number; actor: string }[] = [];
+  // Every saved version of DESIGN_ID, for the History panel: `log[v - 1]`.
   const nowUnix = Math.floor(Date.now() / 1000);
+  const log: { bytes: Uint8Array; atUnix: number; actor: string }[] = [];
   if (scene === 'history') {
     const docs = seedHistoryVersions(catalogue, ME, COLLEAGUE);
-    docs.forEach((d, i) => stored.push({ bytes: writePlain(d), atUnix: nowUnix - (docs.length - i) * 3600, actor: i === 1 ? COLLEAGUE : ME }));
+    docs.forEach((d, i) => log.push({ bytes: writePlain(d), atUnix: nowUnix - (docs.length - i) * 3600, actor: i === 1 ? COLLEAGUE : ME }));
     doc = docs[docs.length - 1]!;
-  } else {
-    stored.push({ bytes: writePlain(doc), atUnix: nowUnix, actor: ME });
   }
-  let version = stored.length;
-  let bytes = stored[version - 1]!.bytes;
+  let bytes = writePlain(doc);
+  if (log.length === 0) log.push({ bytes, atUnix: nowUnix, actor: ME });
   // ADR-0058's drive check: "open a 0.10 design" — the header alone is
   // downgraded (decision 6 is additive, and ACCEPTED_OLDER_SCHEMA_VERSIONS
   // accumulates rather than replaces, so a 0.10 declaration over this
@@ -159,6 +166,19 @@ async function main() {
     bytes = new TextEncoder().encode(downgraded);
   }
   const minor = schemaMinor();
+
+  // GitHub issue #54's own drive: a second, wholly separate design —
+  // `fathom.cables.<designId>` (`cableGroups.ts`) is per design, so a second
+  // one must open with no list of its own. Every other scene keeps carrying
+  // exactly the one entry every earlier version of this harness held as
+  // plain `version`/`bytes` locals; `designs` below is that same pair,
+  // generalised to a map so the two id-addressed routes further down can
+  // serve either design by id rather than only ever `DESIGN_ID`.
+  const designs = new Map<string, { version: number; bytes: Uint8Array }>();
+  designs.set(DESIGN_ID, { version: log.length, bytes });
+  if (scene === 'cable-groups') {
+    designs.set(DESIGN_ID_2, { version: 1, bytes: writePlain(seedEmptyDesign()) });
+  }
 
   // Boot the real engine once, so every mocked save below can be checked
   // against it — the same `engine.loadPlain` the lead's "a design stays
@@ -176,7 +196,7 @@ async function main() {
   }
 
   window.__savedPositionU__ = (hostname) => {
-    const saved = viewOf(readPlain(bytes), catalogue);
+    const saved = viewOf(readPlain(designs.get(DESIGN_ID)!.bytes), catalogue);
     return saved.racks.flatMap((r) => r.chassis).find((c) => c.hostname === hostname)?.positionU ?? null;
   };
 
@@ -220,59 +240,66 @@ async function main() {
       ]);
     }
     if (method === 'GET' && p === `${org}/designs`) {
-      return json([
-        {
-          design_id: DESIGN_ID,
+      return json(
+        [...designs.entries()].map(([id, entry]) => ({
+          design_id: id,
           scope_id: SCOPE_ID,
           created_at_unix: Math.floor(Date.now() / 1000),
           created_by: ME,
           capability,
-          latest_version: version,
-        },
-      ]);
+          latest_version: entry.version,
+        })),
+      );
     }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/history`) {
-      return json(stored.map((e, i) => ({ seq: i + 1, entry_type: i === 0 ? 'create' : 'update', chain_key_epoch: 1, design_version: i + 1, at_unix: e.atUnix, actor: e.actor })));
+      return json(log.map((e, i) => ({ seq: i + 1, entry_type: i === 0 ? 'create' : 'update', chain_key_epoch: 1, design_version: i + 1, at_unix: e.atUnix, actor: e.actor })));
     }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/verify`) {
-      return json({ outcome: 'verified', entries: stored.length });
+      return json({ outcome: 'verified', entries: log.length });
     }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}` && u.searchParams.has('version')) {
-      const hit = stored[Number(u.searchParams.get('version')) - 1];
+      const hit = log[Number(u.searchParams.get('version')) - 1];
       if (!hit) return new Response('no such version\n', { status: 404 });
       return new Response(hit.bytes as BodyInit, {
         status: 200,
         headers: { 'fathom-design-version': u.searchParams.get('version')!, 'fathom-payload-schema-version': String(minor) },
       });
     }
-    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}`) {
-      return new Response(bytes as BodyInit, {
+    const designMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)$/.exec(p);
+    if (method === 'GET' && designMatch) {
+      const entry = designs.get(designMatch[1]);
+      if (!entry) return new Response('no such design\n', { status: 404 });
+      return new Response(entry.bytes as BodyInit, {
         status: 200,
         headers: {
-          'fathom-design-version': String(version),
+          'fathom-design-version': String(entry.version),
           'fathom-payload-schema-version': String(minor),
         },
       });
     }
-    if (method === 'POST' && p === `${org}/designs/${DESIGN_ID}/versions`) {
+    const versionsMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)\/versions$/.exec(p);
+    if (method === 'POST' && versionsMatch) {
+      const entry = designs.get(versionsMatch[1]);
+      if (!entry) return new Response('no such design\n', { status: 404 });
       const base = Number(u.searchParams.get('base'));
-      if (base !== version) {
-        return new Response(`the design is at version ${version}; this save was based on version ${base}\n`, {
+      if (base !== entry.version) {
+        return new Response(`the design is at version ${entry.version}; this save was based on version ${base}\n`, {
           status: 409,
         });
       }
-      version += 1;
-      bytes = requestBody.slice(4);
-      stored.push({ bytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
+      const nextVersion = entry.version + 1;
+      const nextBytes = requestBody.slice(4);
+      designs.set(versionsMatch[1], { version: nextVersion, bytes: nextBytes });
+      if (versionsMatch[1] === DESIGN_ID) log.push({ bytes: nextBytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
       window.__saveCount__ += 1;
       if (verifyEngine) {
         try {
-          verifyEngine.loadPlain(bytes);
+          verifyEngine.loadPlain(nextBytes);
         } catch (e) {
-          window.__saveLoadFailures__.push(`save at version ${version} does not load through the engine: ${e instanceof Error ? e.message : String(e)}`);
+          window.__saveLoadFailures__.push(`save at version ${nextVersion} does not load through the engine: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
-      return new Response(`${version}\n`, { status: 200 });
+      return new Response(`${nextVersion}\n`, { status: 200 });
     }
     // Doc files: kept in memory, answered the way `store_file_handler` does (`{id} {media}`).
     if (method === 'POST' && p === `${org}/designs/${DESIGN_ID}/files`) {
