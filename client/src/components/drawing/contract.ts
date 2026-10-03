@@ -100,6 +100,10 @@ export interface DrawingActions {
   onAddDevice?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
+  /** ADR-0061 §7: read a device config from the clipboard (the card then asks what to do). */
+  onPasteConfig?(): void;
+  /** Open goes into a device (jot mode). `at` is its place on this canvas, when it has one. Without this, Open shows the config drawer. */
+  onOpenDevice?(chassisId: string, inside: boolean, at: { x: number; y: number } | null): void;
   /** ADR-0053 §1/§3 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete
