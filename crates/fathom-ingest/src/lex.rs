@@ -10,6 +10,10 @@ use crate::frame::{self, ByteSpan, ShapeError};
 #[derive(Debug, Clone, Copy)]
 pub struct LexTable {
     pub quote: char,
+    /// A second quote character. A token opened with it closes with it. EdgeOS/Vyatta
+    /// `show configuration commands` prints single-quoted values (`'a b c'`), and a lexer
+    /// that split them at spaces left the tail of a secret in the capture.
+    pub alt_quote: Option<char>,
     pub escape: char,
     /// Bracket-list delimiters (14 §5.1's bracket_list production).
     pub list_open: char,
@@ -23,6 +27,7 @@ pub struct LexTable {
 /// junos-srx `display set` (14 §5.1's eleven-line grammar).
 pub const JUNOS_SET: LexTable = LexTable {
     quote: '"',
+    alt_quote: Some('\''),
     escape: '\\',
     list_open: '[',
     list_close: ']',
@@ -79,7 +84,8 @@ pub(crate) fn scan(
             });
             continue;
         }
-        if ch == table.quote {
+        if ch == table.quote || Some(ch) == table.alt_quote {
+            let close = ch;
             it.next();
             let mut escaped = false;
             let mut closed = None;
@@ -88,7 +94,7 @@ pub(crate) fn scan(
                     escaped = false;
                 } else if ch2 == table.escape {
                     escaped = true;
-                } else if ch2 == table.quote {
+                } else if ch2 == close {
                     closed = Some(base + (at2 + ch2.len_utf8()) as u32);
                     break;
                 }
@@ -135,9 +141,10 @@ pub(crate) fn interned_text(capture: &str, token: &Token, table: &LexTable) -> S
     if token.kind != TokenKind::Quoted {
         return raw.to_owned();
     }
+    let q = raw.chars().next().unwrap_or(table.quote);
     let inner = raw
-        .strip_prefix(table.quote)
-        .and_then(|t| t.strip_suffix(table.quote))
+        .strip_prefix(q)
+        .and_then(|t| t.strip_suffix(q))
         .unwrap_or(raw);
     let mut out = String::with_capacity(inner.len());
     let mut escaped = false;

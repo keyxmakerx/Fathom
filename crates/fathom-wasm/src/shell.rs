@@ -2673,11 +2673,11 @@ fn nothing_understood(ingest: &fathom_ingest::IngestOutput) -> String {
     if not_verb_initial > 0 {
         return format!(
             "none of these {} lines starts with a Junos configuration verb, so nothing here \
-             could be read as a Juniper `set` statement — the first line reads `{}`. If this is \
-             a different vendor, Fathom only knows Juniper SRX today. Nothing was changed; what \
-             you had is still loaded.",
+             could be read as a Juniper `set` statement — it stopped at line {}. If this is \
+             a different vendor, Fathom reads Junos, EdgeOS and OPNsense today. Nothing was \
+             changed; what you had is still loaded.",
             lines.len(),
-            lines.first().copied().unwrap_or_default()
+            ingest.residue.first().map_or(1, |r| r.ordinal.0 + 1)
         );
     }
 

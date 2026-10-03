@@ -296,3 +296,55 @@ fn a_pasted_note_is_redacted_once_per_secret_with_the_platforms_label() {
         other => panic!("{other:?}"),
     }
 }
+
+/// EdgeOS prints single-quoted values; a multi-word one must go whole, through both doors
+/// and with or without a platform named.
+#[test]
+fn single_quoted_secrets_are_destroyed_whole() {
+    let psk = "correct horse battery staple of a realistic length 2026";
+    let community = "my read only community string";
+    let text = format!(
+        "set system host-name quote-gw\n\
+         set vpn ipsec site-to-site peer 203.0.113.9 authentication pre-shared-secret '{psk}'\n\
+         set service snmp community '{community}' authorization ro\n\
+         set interfaces ethernet eth0 description 'WAN uplink'\n"
+    );
+    let words = [
+        "correct",
+        "horse",
+        "battery",
+        "staple",
+        "realistic",
+        "length",
+        "2026",
+        "read",
+        "only",
+        "string",
+    ];
+    let clean = |bytes: &[u8], door: &str| {
+        for w in words {
+            assert!(!contains(bytes, w), "{door}: `{w}` survived");
+        }
+    };
+    for flags in [0, named("edgeos")] {
+        let mut shell = common::all_booted_shell();
+        let reply = shell.handle(OP_PASTE, &frame(flags, &text));
+        assert_eq!(platform_of(&reply), "edgeos");
+        clean(&reply, "paste reply");
+        clean(&shell.handle(OP_EXPORT_PLAIN, &[]), "paste stored");
+
+        let mut shell = common::all_booted_shell();
+        let display = place(&mut shell, "edgeos");
+        let reply = shell.handle(OP_PASTE_INTO, &into_frame(flags, &display, &text));
+        clean(&reply, "paste-into reply");
+        clean(&shell.handle(OP_EXPORT_PLAIN, &[]), "paste-into stored");
+    }
+    clean(
+        &common::all_booted_shell().handle(OP_REDACT_TEXT, text.as_bytes()),
+        "note",
+    );
+    // The harmless quoted value still binds.
+    let mut shell = common::all_booted_shell();
+    platform_of(&shell.handle(OP_PASTE, &frame(0, &text)));
+    assert!(contains(&shell.handle(OP_EXPORT_PLAIN, &[]), "WAN uplink"));
+}

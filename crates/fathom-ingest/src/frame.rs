@@ -275,27 +275,27 @@ fn normalise(text: &str) -> String {
 /// True when the physical line ends with a `\` that is not inside a quoted
 /// token (`14` §4.3's backslash row).
 fn ends_with_unquoted_backslash(text: &str) -> bool {
-    let mut in_quote = false;
+    let mut in_quote: Option<char> = None;
     let mut escaped = false;
     let mut trailing_backslash = false;
     for ch in text.chars() {
-        if in_quote {
+        if let Some(close) = in_quote {
             if escaped {
                 escaped = false;
             } else if ch == '\\' {
                 escaped = true;
-            } else if ch == '"' {
-                in_quote = false;
+            } else if ch == close {
+                in_quote = None;
             }
             trailing_backslash = false;
-        } else if ch == '"' {
-            in_quote = true;
+        } else if ch == '"' || ch == '\'' {
+            in_quote = Some(ch);
             trailing_backslash = false;
         } else {
             trailing_backslash = ch == '\\';
         }
     }
-    !in_quote && trailing_backslash
+    in_quote.is_none() && trailing_backslash
 }
 
 /// §4.3 rule 4's four noise patterns, exact, plus Blank. Everything else is
