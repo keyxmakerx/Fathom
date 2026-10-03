@@ -108,3 +108,15 @@
 .enrol__switch:hover {
   color: var(--ink);
 }
+
+/* The key-check code a person reads out after joining. */
+.enrol__code {
+  font-family: var(--mono);
+  font-size: var(--t-title);
+  font-weight: 700;
+  letter-spacing: var(--track-head);
+  border: var(--rule-hair) dashed var(--ink);
+  padding: var(--s3);
+  margin: 0 0 var(--s5) 0;
+  text-align: center;
+}
