@@ -211,6 +211,23 @@ fn a_batch_already_held_is_refused_not_merged() {
         } => {}
         other => panic!("{other:?}"),
     }
+    // Twice inside one delta.
+    let mut twice = p.doc.to_snapshot().unwrap().since(p.doc.log().len());
+    let b = Batch {
+        id: BatchId(ulid(30)),
+        label: "empty".into(),
+        ops: vec![],
+        comment: None,
+        reverses: None,
+    };
+    twice.batches = vec![b.clone(), b];
+    assert!(matches!(
+        refuses(&mut p, &twice),
+        SyncError::Refused {
+            error: WriteError::BatchIdReused { .. },
+            ..
+        }
+    ));
 }
 
 #[test]

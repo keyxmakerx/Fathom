@@ -16,9 +16,9 @@
 //!
 //! **Loadable.** A store this accepts must reload through `Graph::from_snapshot`, whose edge
 //! ladder (in `EdgeId` order, against the final tombstones) is stricter than the write path's
-//! (in time order). A delta that revives something, or adds an edge ordered before one the store
-//! holds, is therefore re-run through that ladder (`Graph::check_loadable`) and refused if the
-//! loader would refuse. Any other delta can only shrink what the loader sees, and is not.
+//! (in time order). A delta that revives a node, or adds or revives an edge ordered before an
+//! ineffective one, is therefore re-run through that ladder (`Graph::check_loadable`) and refused
+//! if the loader would refuse. Any other delta cannot make the loader refuse, and is not.
 //!
 //! **All or nothing.** Every mutation leaves an undo entry; a refusal runs them back, so a
 //! failed delta leaves the store as it was, including its log and its adjacency maps.
@@ -146,8 +146,10 @@ struct Run {
     ops: BTreeMap<(ElementId, FieldKey), Vec<(StoredPresence, ProvenanceId)>>,
     /// Provenance ids the ops cite; the fragment may carry no other record.
     cited: BTreeSet<ProvenanceId>,
-    /// Something happened that the loader's ladder must be re-run for (module docs).
-    recheck: bool,
+    /// Edges the delta added or revived, and whether it revived a node: what the loader's
+    /// ladder may need re-running for (module docs).
+    newly: Vec<EdgeId>,
+    node_revived: bool,
 }
 
 impl Graph {
@@ -163,7 +165,7 @@ impl Graph {
         let r = self
             .replay(d, &ix, &mut run)
             .and_then(|()| self.settle(&ix, &mut run))
-            .and_then(|()| match run.recheck {
+            .and_then(|()| match self.loader_may_differ(&run) {
                 true => self.check_loadable().map_err(SyncError::NotLoadable),
                 false => Ok(()),
             });
@@ -263,16 +265,6 @@ impl Graph {
                     });
                 }
                 self.sync_prov(*prov, None, ix, run)?;
-                // An edge ordered before one the loader will already have placed (module docs).
-                let rival = |k| self.newest_edge_id(k).is_some_and(|m| m > *edge);
-                if rival(edge.kind)
-                    || (edge.kind.class() == EdgeClass::Containment
-                        && EdgeKind::ALL
-                            .into_iter()
-                            .any(|k| k.class() == EdgeClass::Containment && rival(k)))
-                {
-                    run.recheck = true;
-                }
                 self.place_edge(Edge {
                     id: *edge,
                     from: f,
@@ -282,6 +274,7 @@ impl Graph {
                     fields: BTreeMap::new(),
                 });
                 run.undo.push(Undo::Edge(*edge));
+                run.newly.push(*edge);
                 run.added.insert(el);
                 run.touched.insert(el);
             }
@@ -336,7 +329,10 @@ impl Graph {
                     self.check_edge_l0(id.kind, e.from, e.to).map_err(refused)?;
                 }
                 self.set_absent(*element, None);
-                run.recheck = true;
+                match element {
+                    ElementId::Edge(id) => run.newly.push(*id),
+                    ElementId::Node(_) => run.node_revived = true,
+                }
                 run.undo.push(Undo::Absent {
                     element: *element,
                     was,
@@ -375,6 +371,37 @@ impl Graph {
                 Ok(())
             }
         }
+    }
+
+    /// Can the loader refuse what this delta left? Not when it only added or revived edges
+    /// through the write ladder, which counted every effective edge, and no edge the loader
+    /// places after one of them is ineffective in the end (an ineffective edge is checked as if
+    /// fresh, against the effective ones before it). A revived node needs no such argument:
+    /// it makes edges effective unchecked.
+    fn loader_may_differ(&self, run: &Run) -> bool {
+        if run.node_revived {
+            return true;
+        }
+        let mut newest: BTreeMap<EdgeKind, Option<EdgeId>> = BTreeMap::new();
+        for x in &run.newly {
+            // Containment edges of every kind share the owner slot and the ancestor walk.
+            let kinds: Vec<EdgeKind> = match x.kind.class() {
+                EdgeClass::Containment => EdgeKind::ALL
+                    .into_iter()
+                    .filter(|k| k.class() == EdgeClass::Containment)
+                    .collect(),
+                _ => vec![x.kind],
+            };
+            for k in kinds {
+                let m = *newest
+                    .entry(k)
+                    .or_insert_with(|| self.newest_ineffective_edge(k));
+                if m.is_some_and(|m| m > *x) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn absent_since(&self, el: ElementId) -> Option<Option<Timestamp>> {

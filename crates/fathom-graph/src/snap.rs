@@ -337,33 +337,14 @@ impl Loader<'_> {
 }
 
 impl Graph {
-    /// Would [`Graph::from_snapshot`] take this store's edges? It runs each edge, tombstoned
-    /// ones included, through the write ladder in `EdgeId` order against the effective edges
-    /// before it, so a design the write path built (re-parent, then revive the old parent's edge)
-    /// can be one the loader refuses. Replays that ladder on a copy without fields or history.
+    /// Would [`Graph::from_snapshot`] take this store's edges? The loader runs each edge,
+    /// tombstoned ones included, through the write ladder in `EdgeId` order against the effective
+    /// edges before it, so a design the write path built (re-parent, then revive the old
+    /// parent's edge) can be one the loader refuses. This runs that ladder, in place, with each
+    /// edge's own id as the horizon.
     pub fn check_loadable(&self) -> Result<(), WriteError> {
-        let mut scratch = Graph::new();
-        for n in self.nodes.values() {
-            scratch.nodes.insert(
-                n.id,
-                Node {
-                    id: n.id,
-                    existence: n.existence,
-                    absent_since: n.absent_since,
-                    fields: BTreeMap::new(),
-                },
-            );
-        }
         for e in self.edges.values() {
-            scratch.check_edge_l0(e.id.kind, e.from, e.to)?;
-            scratch.place_edge(Edge {
-                id: e.id,
-                from: e.from,
-                to: e.to,
-                prov: e.prov,
-                absent_since: e.absent_since,
-                fields: BTreeMap::new(),
-            });
+            self.check_edge_l0_at(e.id.kind, e.from, e.to, Some(e.id))?;
         }
         Ok(())
     }

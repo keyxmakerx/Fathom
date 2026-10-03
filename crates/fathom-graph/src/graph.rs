@@ -583,8 +583,8 @@ impl Graph {
         self.edges.insert(id, edge);
     }
 
-    /// The greatest id among the edges of one kind, tombstoned or not.
-    pub(crate) fn newest_edge_id(&self, kind: EdgeKind) -> Option<EdgeId> {
+    /// The greatest id among the edges of one kind that are not effective.
+    pub(crate) fn newest_ineffective_edge(&self, kind: EdgeKind) -> Option<EdgeId> {
         let lo = EdgeId {
             kind,
             ulid: Ulid(0),
@@ -593,7 +593,11 @@ impl Graph {
             kind,
             ulid: Ulid(u128::MAX),
         };
-        self.edges.range(lo..=hi).next_back().map(|(id, _)| *id)
+        self.edges
+            .range(lo..=hi)
+            .rev()
+            .find(|(_, e)| !self.is_effective(e))
+            .map(|(id, _)| *id)
     }
 
     /// The exact inverse of [`Graph::place_edge`], for a refused delta.
@@ -631,6 +635,18 @@ impl Graph {
         kind: EdgeKind,
         from: NodeId,
         to: NodeId,
+    ) -> Result<(NodeId, NodeId), WriteError> {
+        self.check_edge_l0_at(kind, from, to, None)
+    }
+
+    /// [`Graph::check_edge_l0`] as a loader that has placed only the edges before `horizon`
+    /// would run it (`None`: all of them), against the nodes and tombstones as they stand now.
+    pub(crate) fn check_edge_l0_at(
+        &self,
+        kind: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+        horizon: Option<EdgeId>,
     ) -> Result<(NodeId, NodeId), WriteError> {
         if kind.root_containment() {
             return Err(WriteError::RootContainment { edge: kind });
@@ -677,7 +693,7 @@ impl Graph {
             (from, to)
         };
         if kind.symmetric() {
-            if let Some(existing) = self.live_edge_between(kind, from, to) {
+            if let Some(existing) = self.live_edge_between(kind, from, to, horizon) {
                 return Err(WriteError::SymmetricDuplicate {
                     edge: kind,
                     existing,
@@ -686,7 +702,7 @@ impl Graph {
         }
 
         if kind.class() == EdgeClass::Containment {
-            if let Some(existing) = self.live_owner_edge(to) {
+            if let Some(existing) = self.live_owner_edge_at(to, horizon) {
                 return Err(WriteError::SecondContainment { node: to, existing });
             }
             // Walking owner() up from `from` must never reach `to`.
@@ -704,14 +720,14 @@ impl Graph {
                     break;
                 }
                 guard -= 1;
-                cur = self.owner(n);
+                cur = self.owner_at(n, horizon);
             }
         }
 
         if matches!(kind, EdgeKind::Contains | EdgeKind::ContainsApp) {
             // A self-loop is a one-edge cycle; otherwise refuse a directed
             // path of same-kind live edges from `to` back to `from`.
-            if from == to || self.reaches(kind, to, from) {
+            if from == to || self.reaches(kind, to, from, horizon) {
                 return Err(WriteError::SetCycle {
                     edge: kind,
                     from,
@@ -725,7 +741,7 @@ impl Graph {
         // edges — not tombstoned, neither endpoint tombstoned — so that
         // tombstone-then-replace works without `Purge`.
         if let Some(max) = kind.out_bound_l0().max {
-            if self.effective_degree(&self.out, from, kind) >= max as usize {
+            if self.effective_degree(&self.out, from, kind, horizon) >= max as usize {
                 return Err(WriteError::OutBoundExceeded {
                     edge: kind,
                     from,
@@ -734,7 +750,7 @@ impl Graph {
             }
         }
         if let Some(max) = kind.in_bound_l0().max {
-            if self.effective_degree(&self.inn, to, kind) >= max as usize {
+            if self.effective_degree(&self.inn, to, kind, horizon) >= max as usize {
                 return Err(WriteError::InBoundExceeded {
                     edge: kind,
                     to,
@@ -764,35 +780,49 @@ impl Graph {
         index: &BTreeMap<(NodeId, EdgeKind), Vec<EdgeId>>,
         n: NodeId,
         k: EdgeKind,
+        horizon: Option<EdgeId>,
     ) -> usize {
         index
             .get(&(n, k))
             .map_or(EMPTY_ADJACENCY, Vec::as_slice)
             .iter()
-            .filter(|id| self.edges.get(id).is_some_and(|e| self.is_effective(e)))
+            .filter(|id| {
+                seen_from(horizon, **id) && self.edges.get(id).is_some_and(|e| self.is_effective(e))
+            })
             .count()
     }
 
-    fn live_edge_between(&self, k: EdgeKind, from: NodeId, to: NodeId) -> Option<EdgeId> {
+    fn live_edge_between(
+        &self,
+        k: EdgeKind,
+        from: NodeId,
+        to: NodeId,
+        horizon: Option<EdgeId>,
+    ) -> Option<EdgeId> {
         self.out
             .get(&(from, k))
             .map_or(EMPTY_ADJACENCY, Vec::as_slice)
             .iter()
             .find(|id| {
-                self.edges
-                    .get(id)
-                    .is_some_and(|e| e.to == to && self.is_effective(e))
+                seen_from(horizon, **id)
+                    && self
+                        .edges
+                        .get(id)
+                        .is_some_and(|e| e.to == to && self.is_effective(e))
             })
             .copied()
     }
 
-    /// The effective containment edge into `n`, if any.
-    fn live_owner_edge(&self, n: NodeId) -> Option<EdgeId> {
-        self.containment_in
-            .get(&n)?
-            .iter()
-            .copied()
-            .find(|id| self.edges.get(id).is_some_and(|e| self.is_effective(e)))
+    /// The effective containment edge into `n` among the edges before `horizon`, if any.
+    fn live_owner_edge_at(&self, n: NodeId, horizon: Option<EdgeId>) -> Option<EdgeId> {
+        self.containment_in.get(&n)?.iter().copied().find(|id| {
+            seen_from(horizon, *id) && self.edges.get(id).is_some_and(|e| self.is_effective(e))
+        })
+    }
+
+    fn owner_at(&self, n: NodeId, horizon: Option<EdgeId>) -> Option<NodeId> {
+        let id = self.live_owner_edge_at(n, horizon)?;
+        self.edges.get(&id).map(|e| e.from)
     }
 
     /// Is `target` reachable from `start` over live edges of one kind?
@@ -801,7 +831,7 @@ impl Graph {
     /// refuse the legal diamond (one `AddressObject` in two sets joins their
     /// components with no directed cycle), so this is a directed walk. The L0
     /// outcome `11` requires — cycles refused at write — is unchanged.
-    fn reaches(&self, k: EdgeKind, start: NodeId, target: NodeId) -> bool {
+    fn reaches(&self, k: EdgeKind, start: NodeId, target: NodeId, horizon: Option<EdgeId>) -> bool {
         let mut seen: Vec<NodeId> = vec![start];
         let mut stack = vec![start];
         while let Some(n) = stack.pop() {
@@ -809,7 +839,7 @@ impl Graph {
                 return true;
             }
             for e in self.out(n, k) {
-                if self.is_effective(e) && !seen.contains(&e.to) {
+                if seen_from(horizon, e.id) && self.is_effective(e) && !seen.contains(&e.to) {
                     seen.push(e.to);
                     stack.push(e.to);
                 }
@@ -1244,8 +1274,7 @@ impl Graph {
     /// root-containment edge kinds are refused, so `Site`, `Tunnel`,
     /// `Premises`, `Cable`, `Tenant` and `ServiceType` are roots here.
     pub fn owner(&self, n: NodeId) -> Option<NodeId> {
-        let id = self.live_owner_edge(n)?;
-        self.edges.get(&id).map(|e| e.from)
+        self.owner_at(n, None)
     }
 
     /// Walk containment up to the owning `Device`, if there is one.
@@ -1286,6 +1315,11 @@ impl Graph {
     pub fn history(&self, element: ElementId, key: FieldKey) -> Option<&FieldHistory> {
         self.history.get(&(element, key))
     }
+}
+
+/// Does a store that has placed only the edges before `horizon` (`None`: all) hold this edge?
+fn seen_from(horizon: Option<EdgeId>, id: EdgeId) -> bool {
+    horizon.is_none_or(|h| id < h)
 }
 
 /// Is the key one of the element's kind's declared fields? The kind travels
