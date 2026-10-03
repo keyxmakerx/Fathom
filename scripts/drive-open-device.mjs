@@ -273,7 +273,7 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     check('the back button leaves too', (await page.locator('[data-testid=jot]').count()) === 0);
     await page.locator('.react-flow__node-chassis').first().dblclick();
     await page.waitForSelector('[data-testid=jot]');
-    await page.locator('.shell-bar__path-label', { hasText: 'Drive network' }).click();
+    await page.locator('.shell-bar__path-label').nth(-2).click();
     await page.waitForTimeout(300);
     check('the path leads back out', (await page.locator('[data-testid=jot]').count()) === 0);
     check('no uncaught page errors (open device)', pageErrors.length === 0, pageErrors.join(' | '));

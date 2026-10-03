@@ -2,7 +2,7 @@ import { Fragment, useState, type DragEvent, type KeyboardEvent } from 'react';
 
 import '../../styles/drawing.css';
 import type { PaletteItem } from './contract';
-import { PALETTE_DRAG_MIME, encodePaletteDrag } from './dnd';
+import { PALETTE_DRAG_MIME, encodePaletteDrag, setDraggedUnits } from './dnd';
 
 export interface PaletteProps {
   palette: PaletteItem[];
@@ -27,6 +27,7 @@ export function Palette({ palette, onPick }: PaletteProps) {
   function handleDragStart(event: DragEvent<HTMLLIElement>, item: PaletteItem) {
     event.dataTransfer.effectAllowed = 'copy';
     event.dataTransfer.setData(PALETTE_DRAG_MIME, encodePaletteDrag(item));
+    setDraggedUnits(item.rackUnits);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLLIElement>, item: PaletteItem) {
@@ -71,6 +72,7 @@ export function Palette({ palette, onPick }: PaletteProps) {
                 className={item.vendor !== '' ? 'drawing-palette__item drawing-palette__item--model' : 'drawing-palette__item'}
                 draggable
                 onDragStart={(event) => handleDragStart(event, item)}
+                onDragEnd={() => setDraggedUnits(null)}
                 role={onPick ? 'button' : undefined}
                 tabIndex={onPick ? 0 : undefined}
                 title={onPick ? `Click to add ${nameOf(item)}, or drag it where you want it` : undefined}

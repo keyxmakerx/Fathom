@@ -192,6 +192,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0029_signed_in_browsers.sql",
         sql: include_str!("../migrations/0029_signed_in_browsers.sql"),
     },
+    // ADR-0060 step 3b: encrypted design names.
+    Migration {
+        version: 30,
+        name: "0030_design_names.sql",
+        sql: include_str!("../migrations/0030_design_names.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
@@ -276,6 +282,32 @@ pub const MIGRATION_LOCK_KEY: i64 = 0x4641_5448_4d47_5231; // "FATHMGR1", read a
 /// Migration 1 is special and has to be: it creates the table the others are
 /// recorded in, so it runs before the table can be read.
 pub async fn run(client: &mut Client) -> Result<u32, MigrateError> {
+    // The advisory lock below is per database, but `CREATE ROLE` writes the
+    // cluster-wide `pg_authid`: two databases migrating at once (parallel test
+    // binaries, or two containers starting together) can both pass migration
+    // 5's "role missing?" check and one then loses. A migration is one
+    // transaction, so the loser rolled back whole; running again finds the role.
+    let mut attempts = 0;
+    loop {
+        match run_once(client).await {
+            Err(MigrateError::Database(e)) if is_role_race(&e) && attempts < 5 => {
+                attempts += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(100 * attempts)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// `CREATE ROLE` lost a race with another database's migration.
+fn is_role_race(e: &tokio_postgres::Error) -> bool {
+    e.as_db_error().is_some_and(|d| {
+        d.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION
+            && d.constraint() == Some("pg_authid_rolname_index")
+    })
+}
+
+async fn run_once(client: &mut Client) -> Result<u32, MigrateError> {
     client
         .execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK_KEY])
         .await?;

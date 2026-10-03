@@ -43,6 +43,9 @@ export function ColourPicker({ kind, initial, screenX, screenY, onConfirm, onCan
         event.stopPropagation();
         onCancel();
       } else if (event.key === 'Enter') {
+        // Without this the focused port glyph also "clicks", selecting the
+        // port and gliding the camera to it a moment after the cable lands.
+        event.preventDefault();
         event.stopPropagation();
         onConfirm(selectedRef.current);
       }

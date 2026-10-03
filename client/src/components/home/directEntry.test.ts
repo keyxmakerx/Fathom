@@ -10,6 +10,7 @@ const ORG_B: Organisation = { organisationId: 'org-b', displayName: 'Acme Dental
 const DESIGN_1: DesignSummary = {
   designId: 'design-1',
   scopeId: 'scope-1',
+  name: null,
   createdAtUnix: 1,
   createdBy: 'acct',
   capability: 'steward',
@@ -19,6 +20,7 @@ const DESIGN_1: DesignSummary = {
 const DESIGN_2: DesignSummary = {
   designId: 'design-2',
   scopeId: 'scope-2',
+  name: null,
   createdAtUnix: 2,
   createdBy: 'acct',
   capability: 'read',
