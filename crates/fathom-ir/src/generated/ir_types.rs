@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.14";
+    pub const SCHEMA_VERSION: &str = "0.15";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -370,6 +370,28 @@ mod body {
         /// LineEnd edges to Chassis; a line with one end is a line still being drawn. Hung off the
         /// root through HasLine. Not a Cable: a Cable terminates on a PhysicalPort.
         Line,
+        /// A titled, longer text about one thing, a catalogue model, or the whole design
+        /// (ADR-0061 round 7). A note stays a quick line on one thing (ADR-0053); a doc has a
+        /// title and can be shared across a model. Hangs off the design root as Tag does (no
+        /// containment edge is written for a root child). What it is about: a DocOn edge to a
+        /// Docable, or `model` set (shows on every thing of that model), or neither (design-wide).
+        ///
+        /// Pasted body text goes through OP_REDACT_TEXT first; typed text is stored as typed
+        /// (ADR-0053 §6), `how` tells the two apart. Who and when come from the provenance of the
+        /// body and title fields, as Note's do. Weak identity, Note's precedent.
+        Doc,
+        /// One link on a Doc: a title and a URL, hung off its Doc through HasDocLink. The client
+        /// links only http and https URLs and shows the host.
+        DocLink,
+        /// A file attached to a Doc (ADR-0061 round 10, r10-files A): PDF, image or text, at most 25 MiB.
+        /// The bytes are not in the graph: they are stored sealed by the server under `file_id`, and
+        /// the graph holds what the person sees (name, size, what the gate found) and `sha256`, the
+        /// hash of the stored bytes, which the chained payload therefore covers. The browser ran
+        /// text through the redaction gate before upload and stored only the redacted copy;
+        /// `checked` says what happened: clean (nothing found), removed (`removed` values destroyed),
+        /// unread (an image, or a PDF or text the gate could not read: stored, and said so).
+        /// Hung off its Doc through HasDocFile.
+        DocFile,
         /// A planned change: a title, a window, and ordered steps (HasStep). Hung off the root
         /// through HasPlan. The plan never changes the live design; applying a step does, through
         /// the same edit a person would make by hand. `stage` runs planned, doing, recorded;
@@ -383,9 +405,9 @@ mod body {
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 63;
+        pub const COUNT: usize = 66;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 63] = [
+        pub const ALL: [NodeKind; 66] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -447,6 +469,9 @@ mod body {
             NodeKind::Tag,
             NodeKind::Label,
             NodeKind::Line,
+            NodeKind::Doc,
+            NodeKind::DocLink,
+            NodeKind::DocFile,
             NodeKind::MaintenancePlan,
             NodeKind::PlanStep,
         ];
@@ -516,6 +541,9 @@ mod body {
                 NodeKind::Tag => "Tag",
                 NodeKind::Label => "Label",
                 NodeKind::Line => "Line",
+                NodeKind::Doc => "Doc",
+                NodeKind::DocLink => "DocLink",
+                NodeKind::DocFile => "DocFile",
                 NodeKind::MaintenancePlan => "MaintenancePlan",
                 NodeKind::PlanStep => "PlanStep",
             }
@@ -583,6 +611,9 @@ mod body {
                 "Tag" => Some(NodeKind::Tag),
                 "Label" => Some(NodeKind::Label),
                 "Line" => Some(NodeKind::Line),
+                "Doc" => Some(NodeKind::Doc),
+                "DocLink" => Some(NodeKind::DocLink),
+                "DocFile" => Some(NodeKind::DocFile),
                 "MaintenancePlan" => Some(NodeKind::MaintenancePlan),
                 "PlanStep" => Some(NodeKind::PlanStep),
                 _ => None,
@@ -656,6 +687,9 @@ mod body {
                 NodeKind::Tag => &[&["name"]],
                 NodeKind::Label => &[],
                 NodeKind::Line => &[],
+                NodeKind::Doc => &[],
+                NodeKind::DocLink => &[],
+                NodeKind::DocFile => &[],
                 NodeKind::MaintenancePlan => &[],
                 NodeKind::PlanStep => &[],
             }
@@ -724,6 +758,9 @@ mod body {
                 NodeKind::Tag => Layer::Physical,
                 NodeKind::Label => Layer::Physical,
                 NodeKind::Line => Layer::Physical,
+                NodeKind::Doc => Layer::Physical,
+                NodeKind::DocLink => Layer::Physical,
+                NodeKind::DocFile => Layer::Physical,
                 NodeKind::MaintenancePlan => Layer::Physical,
                 NodeKind::PlanStep => Layer::Physical,
             }
@@ -793,6 +830,9 @@ mod body {
                 NodeKind::Tag => false,
                 NodeKind::Label => false,
                 NodeKind::Line => false,
+                NodeKind::Doc => false,
+                NodeKind::DocLink => false,
+                NodeKind::DocFile => false,
                 NodeKind::MaintenancePlan => false,
                 NodeKind::PlanStep => false,
             }
@@ -863,8 +903,11 @@ mod body {
                 NodeKind::Tag => &[crate::bag::FieldKey(343)],
                 NodeKind::Label => &[crate::bag::FieldKey(344), crate::bag::FieldKey(345), crate::bag::FieldKey(346), crate::bag::FieldKey(347)],
                 NodeKind::Line => &[crate::bag::FieldKey(348)],
-                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(351), crate::bag::FieldKey(352), crate::bag::FieldKey(353), crate::bag::FieldKey(354), crate::bag::FieldKey(355), crate::bag::FieldKey(356), crate::bag::FieldKey(357)],
-                NodeKind::PlanStep => &[crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363), crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367)],
+                NodeKind::Doc => &[crate::bag::FieldKey(351), crate::bag::FieldKey(352), crate::bag::FieldKey(353), crate::bag::FieldKey(354)],
+                NodeKind::DocLink => &[crate::bag::FieldKey(355), crate::bag::FieldKey(356)],
+                NodeKind::DocFile => &[crate::bag::FieldKey(357), crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363)],
+                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370)],
+                NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380)],
             }
         }
     }
@@ -1217,12 +1260,21 @@ mod body {
         HasPlan,
         /// ADR-0061 round 7. A plan's steps; their order is PlanStep.ordinal.
         HasStep,
+        /// ADR-0061 round 7. Docs hang off the design root as Tag does.
+        HasDoc,
+        /// ADR-0061 round 7. Which thing a doc is about. A REFERENCE EDGE because a Doc's
+        /// containment parent is the root. Absent for a model doc or a design-wide doc.
+        DocOn,
+        /// ADR-0061 round 7. A doc's links, HasNote's own shape.
+        HasDocLink,
+        /// ADR-0061 round 10. A doc's files, HasDocLink's own shape.
+        HasDocFile,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 105;
+        pub const COUNT: usize = 109;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 105] = [
+        pub const ALL: [EdgeKind; 109] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1328,6 +1380,10 @@ mod body {
             EdgeKind::LineEnd,
             EdgeKind::HasPlan,
             EdgeKind::HasStep,
+            EdgeKind::HasDoc,
+            EdgeKind::DocOn,
+            EdgeKind::HasDocLink,
+            EdgeKind::HasDocFile,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1439,6 +1495,10 @@ mod body {
                 EdgeKind::LineEnd => "LineEnd",
                 EdgeKind::HasPlan => "HasPlan",
                 EdgeKind::HasStep => "HasStep",
+                EdgeKind::HasDoc => "HasDoc",
+                EdgeKind::DocOn => "DocOn",
+                EdgeKind::HasDocLink => "HasDocLink",
+                EdgeKind::HasDocFile => "HasDocFile",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1548,6 +1608,10 @@ mod body {
                 "LineEnd" => Some(EdgeKind::LineEnd),
                 "HasPlan" => Some(EdgeKind::HasPlan),
                 "HasStep" => Some(EdgeKind::HasStep),
+                "HasDoc" => Some(EdgeKind::HasDoc),
+                "DocOn" => Some(EdgeKind::DocOn),
+                "HasDocLink" => Some(EdgeKind::HasDocLink),
+                "HasDocFile" => Some(EdgeKind::HasDocFile),
                 _ => None,
             }
         }
@@ -1659,6 +1723,10 @@ mod body {
                 EdgeKind::LineEnd => EdgeClass::Reference,
                 EdgeKind::HasPlan => EdgeClass::Containment,
                 EdgeKind::HasStep => EdgeClass::Containment,
+                EdgeKind::HasDoc => EdgeClass::Containment,
+                EdgeKind::DocOn => EdgeClass::Reference,
+                EdgeKind::HasDocLink => EdgeClass::Containment,
+                EdgeKind::HasDocFile => EdgeClass::Containment,
             }
         }
     }
@@ -1836,7 +1904,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::MaintenancePlan, NodeKind::PlanStep],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1860,6 +1928,10 @@ mod body {
                 EdgeKind::LineEnd => &[NodeKind::Line],
                 EdgeKind::HasPlan => &[],
                 EdgeKind::HasStep => &[NodeKind::MaintenancePlan],
+                EdgeKind::HasDoc => &[],
+                EdgeKind::DocOn => &[NodeKind::Doc],
+                EdgeKind::HasDocLink => &[NodeKind::Doc],
+                EdgeKind::HasDocFile => &[NodeKind::Doc],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -1970,6 +2042,10 @@ mod body {
                 EdgeKind::LineEnd => &[NodeKind::Chassis],
                 EdgeKind::HasPlan => &[NodeKind::MaintenancePlan],
                 EdgeKind::HasStep => &[NodeKind::PlanStep],
+                EdgeKind::HasDoc => &[NodeKind::Doc],
+                EdgeKind::DocOn => &[NodeKind::Device, NodeKind::PassiveNode, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack],
+                EdgeKind::HasDocLink => &[NodeKind::DocLink],
+                EdgeKind::HasDocFile => &[NodeKind::DocFile],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2080,6 +2156,10 @@ mod body {
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: Some(2) },
                 EdgeKind::HasPlan => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasStep => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDoc => EdgeCardBound { min: 0, max: None },
+                EdgeKind::DocOn => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasDocLink => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDocFile => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2190,6 +2270,10 @@ mod body {
                 EdgeKind::LineEnd => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasPlan => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasStep => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasDoc => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::DocOn => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasDocLink => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasDocFile => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2301,6 +2385,10 @@ mod body {
                 EdgeKind::LineEnd => false,
                 EdgeKind::HasPlan => false,
                 EdgeKind::HasStep => false,
+                EdgeKind::HasDoc => false,
+                EdgeKind::DocOn => false,
+                EdgeKind::HasDocLink => false,
+                EdgeKind::HasDocFile => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2411,6 +2499,10 @@ mod body {
                 EdgeKind::LineEnd => false,
                 EdgeKind::HasPlan => true,
                 EdgeKind::HasStep => false,
+                EdgeKind::HasDoc => true,
+                EdgeKind::DocOn => false,
+                EdgeKind::HasDocLink => false,
+                EdgeKind::HasDocFile => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2521,6 +2613,10 @@ mod body {
                 EdgeKind::LineEnd => &[crate::bag::FieldKey(349)],
                 EdgeKind::HasPlan => &[],
                 EdgeKind::HasStep => &[],
+                EdgeKind::HasDoc => &[],
+                EdgeKind::DocOn => &[],
+                EdgeKind::HasDocLink => &[],
+                EdgeKind::HasDocFile => &[],
             }
         }
     }
@@ -4636,6 +4732,119 @@ mod body {
         }
     }
 
+    /// Inline enum on `Doc.how` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocHow {
+        Typed,
+        Pasted,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl DocHow {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "typed",
+            "pasted",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> DocHow {
+            match token {
+                "typed" => DocHow::Typed,
+                "pasted" => DocHow::Pasted,
+                other => DocHow::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                DocHow::Typed => "typed",
+                DocHow::Pasted => "pasted",
+                DocHow::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `DocFile.media` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocFileMedia {
+        Text,
+        Pdf,
+        Image,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl DocFileMedia {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 3] = [
+            "text",
+            "pdf",
+            "image",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> DocFileMedia {
+            match token {
+                "text" => DocFileMedia::Text,
+                "pdf" => DocFileMedia::Pdf,
+                "image" => DocFileMedia::Image,
+                other => DocFileMedia::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                DocFileMedia::Text => "text",
+                DocFileMedia::Pdf => "pdf",
+                DocFileMedia::Image => "image",
+                DocFileMedia::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `DocFile.checked` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocFileChecked {
+        Clean,
+        Removed,
+        Unread,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl DocFileChecked {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 3] = [
+            "clean",
+            "removed",
+            "unread",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> DocFileChecked {
+            match token {
+                "clean" => DocFileChecked::Clean,
+                "removed" => DocFileChecked::Removed,
+                "unread" => DocFileChecked::Unread,
+                other => DocFileChecked::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                DocFileChecked::Clean => "clean",
+                DocFileChecked::Removed => "removed",
+                DocFileChecked::Unread => "unread",
+                DocFileChecked::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `MaintenancePlan.stage` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum MaintenancePlanStage {
@@ -5562,6 +5771,42 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(LabelForm::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for DocHow {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(DocHow::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for DocFileMedia {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(DocFileMedia::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for DocFileChecked {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(DocFileChecked::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -8431,6 +8676,130 @@ mod body {
         }
     }
 
+    /// Fields of kind `Doc`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocField {
+        Title,
+        Body,
+        How,
+        Model,
+    }
+
+    impl DocField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [DocField; 4] = [
+            DocField::Title,
+            DocField::Body,
+            DocField::How,
+            DocField::Model,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DocField::Title => "title",
+                DocField::Body => "body",
+                DocField::How => "how",
+                DocField::Model => "model",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DocField::Title => crate::bag::FieldKey(351),
+                DocField::Body => crate::bag::FieldKey(352),
+                DocField::How => crate::bag::FieldKey(353),
+                DocField::Model => crate::bag::FieldKey(354),
+            }
+        }
+    }
+
+    /// Fields of kind `DocLink`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocLinkField {
+        Title,
+        Url,
+    }
+
+    impl DocLinkField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [DocLinkField; 2] = [
+            DocLinkField::Title,
+            DocLinkField::Url,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DocLinkField::Title => "title",
+                DocLinkField::Url => "url",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DocLinkField::Title => crate::bag::FieldKey(355),
+                DocLinkField::Url => crate::bag::FieldKey(356),
+            }
+        }
+    }
+
+    /// Fields of kind `DocFile`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DocFileField {
+        Name,
+        Size,
+        Media,
+        Checked,
+        Removed,
+        FileId,
+        Sha256,
+    }
+
+    impl DocFileField {
+        pub const COUNT: usize = 7;
+        /// Every field, declaration order.
+        pub const ALL: [DocFileField; 7] = [
+            DocFileField::Name,
+            DocFileField::Size,
+            DocFileField::Media,
+            DocFileField::Checked,
+            DocFileField::Removed,
+            DocFileField::FileId,
+            DocFileField::Sha256,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                DocFileField::Name => "name",
+                DocFileField::Size => "size",
+                DocFileField::Media => "media",
+                DocFileField::Checked => "checked",
+                DocFileField::Removed => "removed",
+                DocFileField::FileId => "file_id",
+                DocFileField::Sha256 => "sha256",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                DocFileField::Name => crate::bag::FieldKey(357),
+                DocFileField::Size => crate::bag::FieldKey(358),
+                DocFileField::Media => crate::bag::FieldKey(359),
+                DocFileField::Checked => crate::bag::FieldKey(360),
+                DocFileField::Removed => crate::bag::FieldKey(361),
+                DocFileField::FileId => crate::bag::FieldKey(362),
+                DocFileField::Sha256 => crate::bag::FieldKey(363),
+            }
+        }
+    }
+
     /// Fields of kind `MaintenancePlan`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum MaintenancePlanField {
@@ -8472,13 +8841,13 @@ mod body {
         /// The stable wire key (`schema/field-keys.yaml`).
         pub const fn key(self) -> crate::bag::FieldKey {
             match self {
-                MaintenancePlanField::Title => crate::bag::FieldKey(351),
-                MaintenancePlanField::WindowStart => crate::bag::FieldKey(352),
-                MaintenancePlanField::WindowEnd => crate::bag::FieldKey(353),
-                MaintenancePlanField::Author => crate::bag::FieldKey(354),
-                MaintenancePlanField::Stage => crate::bag::FieldKey(355),
-                MaintenancePlanField::Outcome => crate::bag::FieldKey(356),
-                MaintenancePlanField::Record => crate::bag::FieldKey(357),
+                MaintenancePlanField::Title => crate::bag::FieldKey(364),
+                MaintenancePlanField::WindowStart => crate::bag::FieldKey(365),
+                MaintenancePlanField::WindowEnd => crate::bag::FieldKey(366),
+                MaintenancePlanField::Author => crate::bag::FieldKey(367),
+                MaintenancePlanField::Stage => crate::bag::FieldKey(368),
+                MaintenancePlanField::Outcome => crate::bag::FieldKey(369),
+                MaintenancePlanField::Record => crate::bag::FieldKey(370),
             }
         }
     }
@@ -8533,16 +8902,16 @@ mod body {
         /// The stable wire key (`schema/field-keys.yaml`).
         pub const fn key(self) -> crate::bag::FieldKey {
             match self {
-                PlanStepField::Ordinal => crate::bag::FieldKey(358),
-                PlanStepField::Kind => crate::bag::FieldKey(359),
-                PlanStepField::Targets => crate::bag::FieldKey(360),
-                PlanStepField::Change => crate::bag::FieldKey(361),
-                PlanStepField::Before => crate::bag::FieldKey(362),
-                PlanStepField::After => crate::bag::FieldKey(363),
-                PlanStepField::Edit => crate::bag::FieldKey(364),
-                PlanStepField::State => crate::bag::FieldKey(365),
-                PlanStepField::Note => crate::bag::FieldKey(366),
-                PlanStepField::DoneAt => crate::bag::FieldKey(367),
+                PlanStepField::Ordinal => crate::bag::FieldKey(371),
+                PlanStepField::Kind => crate::bag::FieldKey(372),
+                PlanStepField::Targets => crate::bag::FieldKey(373),
+                PlanStepField::Change => crate::bag::FieldKey(374),
+                PlanStepField::Before => crate::bag::FieldKey(375),
+                PlanStepField::After => crate::bag::FieldKey(376),
+                PlanStepField::Edit => crate::bag::FieldKey(377),
+                PlanStepField::State => crate::bag::FieldKey(378),
+                PlanStepField::Note => crate::bag::FieldKey(379),
+                PlanStepField::DoneAt => crate::bag::FieldKey(380),
             }
         }
     }
@@ -9066,7 +9435,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 367] = [
+    pub const FIELD_KEYS: [(&str, u32); 380] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -9417,32 +9786,45 @@ mod body {
         ("Line.label", 348),
         ("LineEnd.end", 349),
         ("PassiveNode.slots", 350),
-        ("MaintenancePlan.title", 351),
-        ("MaintenancePlan.window_start", 352),
-        ("MaintenancePlan.window_end", 353),
-        ("MaintenancePlan.author", 354),
-        ("MaintenancePlan.stage", 355),
-        ("MaintenancePlan.outcome", 356),
-        ("MaintenancePlan.record", 357),
-        ("PlanStep.ordinal", 358),
-        ("PlanStep.kind", 359),
-        ("PlanStep.targets", 360),
-        ("PlanStep.change", 361),
-        ("PlanStep.before", 362),
-        ("PlanStep.after", 363),
-        ("PlanStep.edit", 364),
-        ("PlanStep.state", 365),
-        ("PlanStep.note", 366),
-        ("PlanStep.done_at", 367),
+        ("Doc.title", 351),
+        ("Doc.body", 352),
+        ("Doc.how", 353),
+        ("Doc.model", 354),
+        ("DocLink.title", 355),
+        ("DocLink.url", 356),
+        ("DocFile.name", 357),
+        ("DocFile.size", 358),
+        ("DocFile.media", 359),
+        ("DocFile.checked", 360),
+        ("DocFile.removed", 361),
+        ("DocFile.file_id", 362),
+        ("DocFile.sha256", 363),
+        ("MaintenancePlan.title", 364),
+        ("MaintenancePlan.window_start", 365),
+        ("MaintenancePlan.window_end", 366),
+        ("MaintenancePlan.author", 367),
+        ("MaintenancePlan.stage", 368),
+        ("MaintenancePlan.outcome", 369),
+        ("MaintenancePlan.record", 370),
+        ("PlanStep.ordinal", 371),
+        ("PlanStep.kind", 372),
+        ("PlanStep.targets", 373),
+        ("PlanStep.change", 374),
+        ("PlanStep.before", 375),
+        ("PlanStep.after", 376),
+        ("PlanStep.edit", 377),
+        ("PlanStep.state", 378),
+        ("PlanStep.note", 379),
+        ("PlanStep.done_at", 380),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 46] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 48] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
-        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xc8, 0x22,
+        0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x04,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

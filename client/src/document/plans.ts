@@ -1,4 +1,4 @@
-// Maintenance plans (ADR-0061 round 7, schema 0.14). A plan is a MaintenancePlan node with ordered
+// Maintenance plans (ADR-0061 round 7, schema 0.15). A plan is a MaintenancePlan node with ordered
 // PlanStep children (HasStep). It never changes the live design: a step holds its change as an
 // `edit` the canvas already makes, and marking the step done applies it through the same commands
 // (cables.ts, edit.ts, commands.ts), so the design's history sees it like any edit. All pure.

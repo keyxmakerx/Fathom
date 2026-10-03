@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.14";
+export const SCHEMA_VERSION = "0.15";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -68,6 +68,9 @@ export type NodeKind =
   | "Tag"
   | "Label"
   | "Line"
+  | "Doc"
+  | "DocLink"
+  | "DocFile"
   | "MaintenancePlan"
   | "PlanStep";
 export const NODE_KINDS: readonly NodeKind[] = [
@@ -132,6 +135,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Tag",
   "Label",
   "Line",
+  "Doc",
+  "DocLink",
+  "DocFile",
   "MaintenancePlan",
   "PlanStep",
 ];
@@ -242,7 +248,11 @@ export type EdgeKind =
   | "HasLine"
   | "LineEnd"
   | "HasPlan"
-  | "HasStep";
+  | "HasStep"
+  | "HasDoc"
+  | "DocOn"
+  | "HasDocLink"
+  | "HasDocFile";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -349,6 +359,10 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "LineEnd",
   "HasPlan",
   "HasStep",
+  "HasDoc",
+  "DocOn",
+  "HasDocLink",
+  "HasDocFile",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -493,6 +507,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Tag: ["name"],
   Label: ["text", "form", "w", "h"],
   Line: ["label"],
+  Doc: ["title", "body", "how", "model"],
+  DocLink: ["title", "url"],
+  DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
   MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
 };
@@ -849,21 +866,34 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Line.label": 348,
   "LineEnd.end": 349,
   "PassiveNode.slots": 350,
-  "MaintenancePlan.title": 351,
-  "MaintenancePlan.window_start": 352,
-  "MaintenancePlan.window_end": 353,
-  "MaintenancePlan.author": 354,
-  "MaintenancePlan.stage": 355,
-  "MaintenancePlan.outcome": 356,
-  "MaintenancePlan.record": 357,
-  "PlanStep.ordinal": 358,
-  "PlanStep.kind": 359,
-  "PlanStep.targets": 360,
-  "PlanStep.change": 361,
-  "PlanStep.before": 362,
-  "PlanStep.after": 363,
-  "PlanStep.edit": 364,
-  "PlanStep.state": 365,
-  "PlanStep.note": 366,
-  "PlanStep.done_at": 367,
+  "Doc.title": 351,
+  "Doc.body": 352,
+  "Doc.how": 353,
+  "Doc.model": 354,
+  "DocLink.title": 355,
+  "DocLink.url": 356,
+  "DocFile.name": 357,
+  "DocFile.size": 358,
+  "DocFile.media": 359,
+  "DocFile.checked": 360,
+  "DocFile.removed": 361,
+  "DocFile.file_id": 362,
+  "DocFile.sha256": 363,
+  "MaintenancePlan.title": 364,
+  "MaintenancePlan.window_start": 365,
+  "MaintenancePlan.window_end": 366,
+  "MaintenancePlan.author": 367,
+  "MaintenancePlan.stage": 368,
+  "MaintenancePlan.outcome": 369,
+  "MaintenancePlan.record": 370,
+  "PlanStep.ordinal": 371,
+  "PlanStep.kind": 372,
+  "PlanStep.targets": 373,
+  "PlanStep.change": 374,
+  "PlanStep.before": 375,
+  "PlanStep.after": 376,
+  "PlanStep.edit": 377,
+  "PlanStep.state": 378,
+  "PlanStep.note": 379,
+  "PlanStep.done_at": 380,
 };

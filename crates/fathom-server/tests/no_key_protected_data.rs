@@ -547,6 +547,19 @@ const TABLES: &[TableClaim] = &[
               SMTP value lands here**: `smtp` is one more sealed `site_settings_versions` row \
               (`0015` §F), which is where its ciphertext claim already is.",
     },
+    // ADR-0061 round 10 -- migration `0031_design_files.sql`.
+    TableClaim {
+        name: "design_files",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the design key, like `design_payload`; the file id and design are bound in \
+                    the AEAD associated data",
+        },
+        why: "files attached to docs. The bytes are sealed whole; the file name, size and the \
+              gate's result live in the chained design graph. The text of a file has passed the \
+              server's credential check and the browser's redaction gate before it is sealed. \
+              `nonce`, `key_epoch` and the other columns are not secret.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to
